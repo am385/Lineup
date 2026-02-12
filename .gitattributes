@@ -1,0 +1,20 @@
+# Set default behavior to automatically normalize line endings
+* text=auto
+
+# Explicitly declare text files to use CRLF line endings
+*.cs text eol=crlf
+*.csproj text eol=crlf
+*.sln text eol=crlf
+*.md text eol=crlf
+*.json text eol=crlf
+*.xml text eol=crlf
+*.config text eol=crlf
+*.props text eol=crlf
+*.targets text eol=crlf
+
+# Denote binary files
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.db binary

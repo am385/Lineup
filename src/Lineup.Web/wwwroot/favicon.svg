@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1b6ec2"/>
+      <stop offset="100%" stop-color="#0d47a1"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded background -->
+  <rect width="32" height="32" rx="6" fill="url(#bg)"/>
+  <!-- TV screen outline -->
+  <rect x="5" y="7" width="22" height="16" rx="2" fill="none" stroke="#fff" stroke-width="1.5"/>
+  <!-- Guide grid lines (horizontal) -->
+  <line x1="5" y1="13" x2="27" y2="13" stroke="#fff" stroke-width="0.75" opacity="0.6"/>
+  <line x1="5" y1="18" x2="27" y2="18" stroke="#fff" stroke-width="0.75" opacity="0.6"/>
+  <!-- Guide grid lines (vertical - channel column) -->
+  <line x1="11" y1="7" x2="11" y2="23" stroke="#fff" stroke-width="0.75" opacity="0.6"/>
+  <!-- Channel indicators -->
+  <rect x="6.5" y="8.5" width="3" height="3" rx="0.5" fill="#4fc3f7" opacity="0.9"/>
+  <rect x="6.5" y="14" width="3" height="3" rx="0.5" fill="#4fc3f7" opacity="0.9"/>
+  <rect x="6.5" y="19" width="3" height="3" rx="0.5" fill="#4fc3f7" opacity="0.9"/>
+  <!-- Program blocks -->
+  <rect x="12.5" y="8.5" width="8" height="3" rx="0.5" fill="#81d4fa" opacity="0.8"/>
+  <rect x="21.5" y="8.5" width="4" height="3" rx="0.5" fill="#b3e5fc" opacity="0.6"/>
+  <rect x="12.5" y="14" width="5" height="3" rx="0.5" fill="#81d4fa" opacity="0.8"/>
+  <rect x="18.5" y="14" width="7" height="3" rx="0.5" fill="#b3e5fc" opacity="0.6"/>
+  <rect x="12.5" y="19" width="13" height="3" rx="0.5" fill="#81d4fa" opacity="0.8"/>
+  <!-- TV stand -->
+  <line x1="13" y1="25" x2="19" y2="25" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="14" y1="23" x2="13" y2="25" stroke="#fff" stroke-width="1" stroke-linecap="round"/>
+  <line x1="18" y1="23" x2="19" y2="25" stroke="#fff" stroke-width="1" stroke-linecap="round"/>
+  <!-- Signal waves (top-right) -->
+  <path d="M24 4.5 A3 3 0 0 1 24 1.5" fill="none" stroke="#4fc3f7" stroke-width="1" stroke-linecap="round"/>
+  <path d="M26 5.5 A5.5 5.5 0 0 1 26 0" fill="none" stroke="#4fc3f7" stroke-width="1" stroke-linecap="round" opacity="0.7"/>
+</svg>

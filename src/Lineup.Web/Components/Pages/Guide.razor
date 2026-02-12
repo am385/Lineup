@@ -1,0 +1,683 @@
+@page "/guide"
+@using Lineup.Core.Storage
+@using Lineup.HDHomeRun.Api.Models
+@implements IAsyncDisposable
+@inject IEpgRepository Repository
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<PageTitle>TV Guide</PageTitle>
+
+<h1><span class="bi bi-grid-3x3 me-2"></span>TV Guide</h1>
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div class="btn-group" role="group">
+        <button class="btn btn-outline-primary @(_selectedDate == DateTime.Today ? "active" : "")" 
+                @onclick="() => SelectDate(DateTime.Today)">
+            Today
+        </button>
+        <button class="btn btn-outline-primary @(_selectedDate == DateTime.Today.AddDays(1) ? "active" : "")" 
+                @onclick="() => SelectDate(DateTime.Today.AddDays(1))">
+            Tomorrow
+        </button>
+        @for (int i = 2; i <= 6; i++)
+        {
+            var date = DateTime.Today.AddDays(i);
+            <button class="btn btn-outline-primary @(_selectedDate == date ? "active" : "")" 
+                    @onclick="() => SelectDate(date)">
+                @date.ToString("ddd")
+            </button>
+        }
+    </div>
+    
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-primary" @onclick="JumpToNow" 
+                disabled="@(_selectedDate == DateTime.Today && IsShowingCurrentTime())">
+            <span class="bi bi-clock me-1"></span>Now
+        </button>
+        <div class="btn-group" role="group">
+            <button class="btn btn-outline-secondary" 
+                    @onclick="PreviousTimeBlock" disabled="@(_startHour <= 0)">
+                <span class="bi bi-chevron-left"></span>
+            </button>
+            <span class="btn btn-outline-secondary disabled">
+                @FormatTimeRange()
+            </span>
+            <button class="btn btn-outline-secondary" 
+                    @onclick="NextTimeBlock" disabled="@(_startHour + _hoursToShow >= 24)">
+                <span class="bi bi-chevron-right"></span>
+            </button>
+        </div>
+    </div>
+</div>
+
+@if (_isLoading)
+{
+    <div class="text-center py-5">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <p class="text-muted mt-2">Loading guide data...</p>
+    </div>
+}
+else if (_channels.Count == 0)
+{
+    <div class="alert alert-info">
+        <span class="bi bi-info-circle me-2"></span>
+        No EPG data available. Please fetch EPG data from the Dashboard first.
+    </div>
+}
+else
+{
+    <div class="guide-container" @ref="_guideContainer">
+        <!-- Time header -->
+        <div class="guide-header">
+            <div class="guide-channel-header">Channel</div>
+            <div class="guide-time-slots" style="width: @(_programsWidth)px;">
+                @foreach (var slot in _timeSlots)
+                {
+                    <div class="guide-time-slot" style="width: @(SlotWidthPx)px;">
+                        @slot.ToString("h:mm tt")
+                    </div>
+                }
+            </div>
+        </div>
+        
+        <!-- Channel rows -->
+        @foreach (var channel in _channels)
+        {
+            <div class="guide-row">
+                <div class="guide-channel">
+                    <div class="channel-number">@channel.GuideNumber</div>
+                    <div class="channel-name" title="@channel.GuideName">@TruncateText(channel.GuideName, 12)</div>
+                </div>
+                <div class="guide-programs" style="width: @(_programsWidth)px;">
+                    @{
+                        var channelPrograms = GetProgramsForChannel(channel.GuideNumber);
+                    }
+                    @foreach (var program in channelPrograms)
+                    {
+                        var (style, widthPx) = GetProgramLayout(program);
+                        var isCurrentlyAiring = IsCurrentlyAiring(program);
+                        <div class="guide-program @(isCurrentlyAiring ? "currently-airing" : "")" 
+                             style="@style"
+                             title="@GetProgramTooltip(program)"
+                             @onclick="() => ShowProgramDetails(program)">
+                            <div class="program-title">@TruncateText(program.Title, EstimateMaxChars(widthPx, 7))</div>
+                            @if (!string.IsNullOrEmpty(program.EpisodeTitle))
+                            {
+                                <div class="program-episode">@TruncateText(program.EpisodeTitle, EstimateMaxChars(widthPx, 6))</div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+
+<!-- Program Details Modal -->
+@if (_selectedProgram != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);" @onclick="CloseModal">
+        <div class="modal-dialog modal-lg" @onclick:stopPropagation="true">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@_selectedProgram.Title</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-8">
+                            @if (!string.IsNullOrEmpty(_selectedProgram.EpisodeTitle))
+                            {
+                                <h6 class="text-muted">@_selectedProgram.EpisodeTitle</h6>
+                            }
+                            @if (!string.IsNullOrEmpty(_selectedProgram.Synopsis))
+                            {
+                                <p>@_selectedProgram.Synopsis</p>
+                            }
+                            else
+                            {
+                                <p class="text-muted">No description available.</p>
+                            }
+                        </div>
+                        <div class="col-md-4">
+                            <table class="table table-sm">
+                                <tbody>
+                                    <tr>
+                                        <td class="fw-bold">Channel:</td>
+                                        <td>@_selectedProgram.GuideNumber</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="fw-bold">Start:</td>
+                                        <td>@FormatProgramTime(_selectedProgram.StartTime)</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="fw-bold">End:</td>
+                                        <td>@FormatProgramTime(_selectedProgram.EndTime)</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="fw-bold">Duration:</td>
+                                        <td>@GetDuration(_selectedProgram) min</td>
+                                    </tr>
+                                    @if (!string.IsNullOrEmpty(_selectedProgram.EpisodeNumber))
+                                    {
+                                        <tr>
+                                            <td class="fw-bold">Episode:</td>
+                                            <td>@_selectedProgram.EpisodeNumber</td>
+                                        </tr>
+                                    }
+                                    @if (_selectedProgram.OriginalAirdate.HasValue)
+                                    {
+                                        <tr>
+                                            <td class="fw-bold">Original Air:</td>
+                                            <td>@FormatOriginalAirdate(_selectedProgram.OriginalAirdate.Value)</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                            @if (_selectedProgram.Filter?.Any() == true)
+                            {
+                                <div class="mt-2">
+                                    @foreach (var category in _selectedProgram.Filter.Take(3))
+                                    {
+                                        <span class="badge bg-secondary me-1">@category</span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseModal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    /* Guide color tokens - light mode defaults */
+    .guide-container {
+        --guide-border: #dee2e6;
+        --guide-header-bg: #f8f9fa;
+        --guide-row-hover: #f8f9fa;
+        --guide-channel-number: #0d6efd;
+        --guide-channel-name: #6c757d;
+        --guide-program-bg: #e7f1ff;
+        --guide-program-border: #b6d4fe;
+        --guide-program-hover-bg: #cfe2ff;
+        --guide-program-hover-shadow: rgba(0,0,0,0.15);
+        --guide-program-airing-bg: #d1e7dd;
+        --guide-program-airing-border: #a3cfbb;
+        --guide-program-airing-hover-bg: #badbcc;
+        --guide-episode-color: #6c757d;
+    }
+
+    /* Dark mode overrides */
+    [data-bs-theme="dark"] .guide-container {
+        --guide-border: #3a3f44;
+        --guide-header-bg: #1e2125;
+        --guide-row-hover: #2b3035;
+        --guide-channel-number: #6cb4f0;
+        --guide-channel-name: #9ea7b0;
+        --guide-program-bg: #1a2d47;
+        --guide-program-border: #2b5a94;
+        --guide-program-hover-bg: #213a5c;
+        --guide-program-hover-shadow: rgba(0,0,0,0.4);
+        --guide-program-airing-bg: #1a3a2a;
+        --guide-program-airing-border: #2d7a52;
+        --guide-program-airing-hover-bg: #224a36;
+        --guide-episode-color: #9ea7b0;
+    }
+
+    .guide-container {
+        border: 1px solid var(--guide-border);
+        border-radius: 0.375rem;
+        overflow-x: auto;
+        overflow-y: hidden;
+        max-width: 100%;
+    }
+    
+    .guide-header {
+        display: flex;
+        background-color: var(--guide-header-bg);
+        border-bottom: 2px solid var(--guide-border);
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        width: fit-content;
+        min-width: 100%;
+    }
+    
+    
+    .guide-channel-header {
+        min-width: 100px;
+        width: 100px;
+        padding: 0.75rem 0.5rem;
+        font-weight: bold;
+        border-right: 1px solid var(--guide-border);
+        flex-shrink: 0;
+    }
+    
+    .guide-time-slots {
+        display: flex;
+        overflow: hidden;
+    }
+    
+    .guide-time-slot {
+        padding: 0.75rem 0.25rem;
+        text-align: center;
+        font-weight: 500;
+        font-size: 0.85rem;
+        border-right: 1px solid var(--guide-border);
+        flex-shrink: 0;
+    }
+    
+    .guide-row {
+        display: flex;
+        border-bottom: 1px solid var(--guide-border);
+        width: fit-content;
+        min-width: 100%;
+    }
+    
+    .guide-row:hover {
+        background-color: var(--guide-row-hover);
+    }
+    
+    .guide-channel {
+        min-width: 100px;
+        width: 100px;
+        padding: 0.35rem 0.5rem;
+        border-right: 1px solid var(--guide-border);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        flex-shrink: 0;
+    }
+    
+    .channel-number {
+        font-weight: bold;
+        font-size: 0.9rem;
+        color: var(--guide-channel-number);
+    }
+    
+    .channel-name {
+        font-size: 0.75rem;
+        color: var(--guide-channel-name);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    
+    .guide-programs {
+        position: relative;
+        min-height: 50px;
+        overflow: hidden;
+    }
+    
+    .guide-program {
+        position: absolute;
+        top: 2px;
+        bottom: 2px;
+        background-color: var(--guide-program-bg);
+        border: 1px solid var(--guide-program-border);
+        border-radius: 0.25rem;
+        padding: 0.2rem 0.4rem;
+        overflow: hidden;
+        cursor: pointer;
+        transition: all 0.15s;
+        color: var(--bs-body-color);
+    }
+    
+    .guide-program:hover {
+        background-color: var(--guide-program-hover-bg);
+        z-index: 5;
+        box-shadow: 0 2px 8px var(--guide-program-hover-shadow);
+    }
+    
+    .guide-program.currently-airing {
+        background-color: var(--guide-program-airing-bg);
+        border-color: var(--guide-program-airing-border);
+    }
+    
+    .guide-program.currently-airing:hover {
+        background-color: var(--guide-program-airing-hover-bg);
+    }
+    
+    .program-title {
+        font-weight: 500;
+        font-size: 0.8rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    
+    .program-episode {
+        font-size: 0.7rem;
+        color: var(--guide-episode-color);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    
+    @@media (max-width: 768px) {
+        .guide-channel-header,
+        .guide-channel {
+            min-width: 70px;
+            width: 70px;
+        }
+        
+        .channel-name {
+            display: none;
+        }
+    }
+</style>
+
+@code {
+    private const int SlotWidthPx = 120; // Width of each 30-minute time slot in pixels
+    private const int ChannelColumnWidth = 100; // Width of channel column
+    private const int MinSlots = 2; // Minimum 2 slots = 1 hour
+    private const int MaxSlots = 24; // Maximum 24 slots = 12 hours
+    private const double PixelsPerMinute = SlotWidthPx / 30.0;
+    
+    private ElementReference _guideContainer;
+    private DotNetObjectReference<Guide>? _dotNetRef;
+    
+    private List<HDHomeRunChannelEpgSegment> _channels = [];
+    private List<HDHomeRunProgram> _programs = [];
+    private List<DateTime> _timeSlots = [];
+    private DateTime _selectedDate = DateTime.Today;
+    private int _startHour = DateTime.Now.Hour;
+    private int _slotsToShow = 8; // Number of 30-minute slots to show
+    private int _containerWidth = 0; // Start at 0 to indicate not yet measured
+    private bool _isLoading = true;
+    private bool _isInitialized = false;
+    private HDHomeRunProgram? _selectedProgram;
+
+    // Calculate hours from slots for navigation
+    private int _hoursToShow => Math.Max(1, _slotsToShow / 2);
+
+    private int _programsWidth => _timeSlots.Count * SlotWidthPx;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _startHour = (DateTime.Now.Hour / 2) * 2;
+        _dotNetRef = DotNetObjectReference.Create(this);
+        // Load channels but defer full data load until we know the container width
+        _channels = await Repository.GetChannelsAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                // Get initial width from the main content area (not the guide container which can grow)
+                _containerWidth = await JS.InvokeAsync<int>("eval", 
+                    "(document.querySelector('main') || document.querySelector('article') || document.body).clientWidth - 40");
+            
+                // Calculate slots based on actual width
+                await CalculateSlotsToShowAndLoad();
+                _isInitialized = true;
+            
+                // Set up resize observer that calls back to this instance
+                await JS.InvokeVoidAsync("setupGuideResizeObserver", _dotNetRef);
+            
+                StateHasChanged();
+            }
+            catch
+            {
+                // Fallback if JS fails - use reasonable default
+                _containerWidth = 800;
+                await CalculateSlotsToShowAndLoad();
+                _isInitialized = true;
+                StateHasChanged();
+            }
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnContainerResize(int width)
+    {
+        if (width > 0 && width != _containerWidth)
+        {
+            _containerWidth = width;
+            await CalculateSlotsToShow();
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Calculate slots and load data - used on initial render
+    /// </summary>
+    private async Task CalculateSlotsToShowAndLoad()
+    {
+        // Calculate how many 30-minute slots fit based on container width
+        var availableWidth = _containerWidth - ChannelColumnWidth - 20;
+        var possibleSlots = (int)(availableWidth / SlotWidthPx);
+        _slotsToShow = Math.Clamp(possibleSlots, MinSlots, MaxSlots);
+        
+        // Now load the data with the correct slot count
+        await LoadDataAsync();
+    }
+
+    /// <summary>
+    /// Calculate slots and update data - used on resize
+    /// </summary>
+    private async Task CalculateSlotsToShow()
+    {
+        // Calculate how many 30-minute slots fit based on container width
+        var availableWidth = _containerWidth - ChannelColumnWidth - 20; // Some padding
+        var possibleSlots = (int)(availableWidth / SlotWidthPx);
+    
+        // Clamp to min/max
+        var newSlotsToShow = Math.Clamp(possibleSlots, MinSlots, MaxSlots);
+    
+    
+        if (newSlotsToShow != _slotsToShow)
+        {
+            _slotsToShow = newSlotsToShow;
+        
+            // Update time slots
+            var startTime = _selectedDate.Date.AddHours(_startHour);
+            _timeSlots = [];
+            for (int i = 0; i < _slotsToShow; i++)
+            {
+                _timeSlots.Add(startTime.AddMinutes(i * 30));
+            }
+        
+            // Only reload data if we need more programs for expanded time range
+            if (_isInitialized)
+            {
+                var endTime = startTime.AddMinutes(_slotsToShow * 30);
+                _programs = await Repository.GetProgramsAsync(startTime.ToUniversalTime(), endTime.ToUniversalTime());
+            }
+        }
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            _channels = await Repository.GetChannelsAsync();
+        
+            var startTime = _selectedDate.Date.AddHours(_startHour);
+            var endTime = startTime.AddMinutes(_slotsToShow * 30);
+        
+            _programs = await Repository.GetProgramsAsync(startTime.ToUniversalTime(), endTime.ToUniversalTime());
+        
+            // Generate time slots (every 30 minutes)
+            _timeSlots = [];
+            for (int i = 0; i < _slotsToShow; i++)
+            {
+                _timeSlots.Add(startTime.AddMinutes(i * 30));
+            }
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private string FormatTimeRange()
+    {
+        var startTime = _selectedDate.Date.AddHours(_startHour);
+        var endTime = startTime.AddMinutes(_slotsToShow * 30);
+        return $"{startTime:h:mm tt} - {endTime:h:mm tt}";
+    }
+
+    private async Task SelectDate(DateTime date)
+    {
+        _selectedDate = date;
+        if (date == DateTime.Today)
+        {
+            _startHour = (DateTime.Now.Hour / 2) * 2;
+        }
+        else
+        {
+            _startHour = 6; // Start at 6 AM for future dates
+        }
+        await LoadDataAsync();
+    }
+
+    private async Task PreviousTimeBlock()
+    {
+        // Move back by the number of hours currently shown
+        _startHour = Math.Max(0, _startHour - _hoursToShow);
+        await LoadDataAsync();
+    }
+
+    private async Task NextTimeBlock()
+    {
+        // Move forward by the number of hours currently shown
+        _startHour = Math.Min(24 - _hoursToShow, _startHour + _hoursToShow);
+        await LoadDataAsync();
+    }
+
+    private async Task JumpToNow()
+    {
+        _selectedDate = DateTime.Today;
+        _startHour = (DateTime.Now.Hour / 2) * 2; // Round to nearest even hour
+        await LoadDataAsync();
+    }
+
+    private bool IsShowingCurrentTime()
+    {
+        var now = DateTime.Now;
+        var windowStart = _selectedDate.Date.AddHours(_startHour);
+        var windowEnd = windowStart.AddMinutes(_slotsToShow * 30);
+        return now >= windowStart && now < windowEnd;
+    }
+
+    private List<HDHomeRunProgram> GetProgramsForChannel(string? guideNumber)
+    {
+        if (string.IsNullOrEmpty(guideNumber)) return [];
+        
+        return _programs
+            .Where(p => p.GuideNumber == guideNumber)
+            .OrderBy(p => p.StartTime)
+            .ToList();
+    }
+
+    private (string Style, double WidthPx) GetProgramLayout(HDHomeRunProgram program)
+    {
+        var windowStart = _selectedDate.Date.AddHours(_startHour);
+        var windowEnd = windowStart.AddMinutes(_slotsToShow * 30);
+        
+        var programStart = DateTimeOffset.FromUnixTimeSeconds(program.StartTime).LocalDateTime;
+        var programEnd = DateTimeOffset.FromUnixTimeSeconds(program.EndTime).LocalDateTime;
+        
+        // Clamp program times to window
+        var displayStart = programStart < windowStart ? windowStart : programStart;
+        var displayEnd = programEnd > windowEnd ? windowEnd : programEnd;
+        
+        // Calculate position and width
+        var offsetMinutes = (displayStart - windowStart).TotalMinutes;
+        var durationMinutes = (displayEnd - displayStart).TotalMinutes;
+        
+        var left = offsetMinutes * PixelsPerMinute;
+        var width = Math.Max(durationMinutes * PixelsPerMinute - 4, 20);
+        
+        return ($"left: {left:F0}px; width: {width:F0}px;", width);
+    }
+
+    private static int EstimateMaxChars(double widthPx, double charWidthPx)
+    {
+        const double padding = 13; // 0.4rem * 2 horizontal padding
+        return Math.Max(3, (int)((widthPx - padding) / charWidthPx));
+    }
+
+    private bool IsCurrentlyAiring(HDHomeRunProgram program)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        return program.StartTime <= now && program.EndTime > now;
+    }
+
+    private string GetProgramTooltip(HDHomeRunProgram program)
+    {
+        var start = DateTimeOffset.FromUnixTimeSeconds(program.StartTime).LocalDateTime;
+        var end = DateTimeOffset.FromUnixTimeSeconds(program.EndTime).LocalDateTime;
+        var duration = (end - start).TotalMinutes;
+        
+        var tooltip = $"{program.Title}\n{start:h:mm tt} - {end:h:mm tt} ({duration:0} min)";
+        
+        if (!string.IsNullOrEmpty(program.EpisodeTitle))
+        {
+            tooltip += $"\n{program.EpisodeTitle}";
+        }
+        
+        return tooltip;
+    }
+
+    private void ShowProgramDetails(HDHomeRunProgram program)
+    {
+        _selectedProgram = program;
+    }
+
+    private void CloseModal()
+    {
+        _selectedProgram = null;
+    }
+
+    private static string FormatProgramTime(long unixTime)
+    {
+        return DateTimeOffset.FromUnixTimeSeconds(unixTime).LocalDateTime.ToString("h:mm tt");
+    }
+
+    private static string FormatOriginalAirdate(long unixTime)
+    {
+        return DateTimeOffset.FromUnixTimeSeconds(unixTime).LocalDateTime.ToString("yyyy-MM-dd");
+    }
+
+
+    private static int GetDuration(HDHomeRunProgram program)
+    {
+        return (int)((program.EndTime - program.StartTime) / 60);
+    }
+
+    private static string TruncateText(string? text, int maxLength)
+    {
+        if (string.IsNullOrEmpty(text)) return "";
+        return text.Length <= maxLength ? text : text[..(maxLength - 1)] + "\u2026";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("disposeGuideResizeObserver");
+        }
+        catch
+        {
+            // Ignore disposal errors
+        }
+        
+        _dotNetRef?.Dispose();
+    }
+}

@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <ResourcePreloader />
+    <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+    <link rel="stylesheet" href="@Assets["app.css"]" />
+    <link rel="stylesheet" href="@Assets["Lineup.Web.styles.css"]" />
+    <ImportMap />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <HeadOutlet />
+    <!-- hls.js for HLS playback in non-Safari browsers -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js"></script>
+    <script>
+        // Apply theme immediately to prevent flash of wrong theme
+        (function() {
+            var theme = localStorage.getItem('app-theme') || 'auto';
+            var resolved = theme;
+            if (theme === 'auto') {
+                resolved = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            }
+            document.documentElement.setAttribute('data-bs-theme', resolved);
+        })();
+    </script>
+</head>
+
+<body>
+<Routes />
+<ReconnectModal />
+<script src="@Assets["lib/bootstrap/dist/js/bootstrap.bundle.min.js"]"></script>
+<script>
+    // Register Blazor start callback before loading blazor.web.js.
+    // This ensures we can hook into Blazor's enhanced navigation lifecycle.
+    window.blazorCallbacks = {
+        afterWebStarted: function() {
+            Blazor.addEventListener('enhancedload', function() {
+                applyTheme();
+            });
+        }
+    };
+</script>
+<script src="@Assets["_framework/blazor.web.js"]" autostart="false"></script>
+<script>
+    // Start Blazor manually with the afterStarted callback
+    Blazor.start().then(function() {
+        if (window.blazorCallbacks && window.blazorCallbacks.afterWebStarted) {
+            window.blazorCallbacks.afterWebStarted();
+        }
+    });
+</script>
+<script>
+    // HLS Player functions
+    window.hlsPlayer = null;
+        
+    function isSafari() {
+        // Detect Safari browser (the only browser with native HLS support)
+        var ua = navigator.userAgent.toLowerCase();
+        return ua.indexOf('safari') !== -1 && ua.indexOf('chrome') === -1 && ua.indexOf('android') === -1;
+    }
+        
+    function initHlsPlayer(videoElementId, playlistUrl) {
+        destroyHlsPlayer();
+            
+        const video = document.getElementById(videoElementId);
+        if (!video) {
+            console.error('Video element not found:', videoElementId);
+            return false;
+        }
+            
+        console.log('Initializing HLS player with URL:', playlistUrl);
+            
+        // Only Safari has true native HLS support
+        // Chrome's canPlayType returns 'maybe' but doesn't actually work
+        if (isSafari() && video.canPlayType('application/vnd.apple.mpegurl')) {
+            console.log('Using native HLS support (Safari)');
+            video.src = playlistUrl;
+            video.play().catch(e => console.log('Autoplay prevented:', e));
+            return true;
+        }
+            
+        // Use hls.js for Chrome, Firefox, Edge, etc.
+        if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+            console.log('Using hls.js library');
+            window.hlsPlayer = new Hls({
+                enableWorker: true,
+                lowLatencyMode: true,
+                backBufferLength: 30,
+                debug: true // Enable debug logging
+            });
+                
+            window.hlsPlayer.loadSource(playlistUrl);
+            window.hlsPlayer.attachMedia(video);
+                
+            window.hlsPlayer.on(Hls.Events.MANIFEST_PARSED, function() {
+                console.log('HLS manifest parsed, starting playback');
+                video.play().catch(e => console.log('Autoplay prevented:', e));
+            });
+                
+            window.hlsPlayer.on(Hls.Events.ERROR, function(event, data) {
+                console.error('HLS error:', data.type, data.details, data);
+                if (data.fatal) {
+                    switch (data.type) {
+                        case Hls.ErrorTypes.NETWORK_ERROR:
+                            console.log('Fatal network error, trying to recover...');
+                            window.hlsPlayer.startLoad();
+                            break;
+                        case Hls.ErrorTypes.MEDIA_ERROR:
+                                console.log('Fatal media error, trying to recover...');
+                                window.hlsPlayer.recoverMediaError();
+                                break;
+                            default:
+                                console.log('Fatal error, destroying player');
+                                destroyHlsPlayer();
+                                break;
+                        }
+                    }
+                });
+                
+                return true;
+            }
+            
+            console.error('HLS not supported in this browser');
+            return false;
+        }
+        
+        
+        function destroyHlsPlayer() {
+            if (window.hlsPlayer) {
+                window.hlsPlayer.destroy();
+                window.hlsPlayer = null;
+            }
+            // Also clean up any fMP4 video source
+            const video = document.getElementById('videoPlayer');
+            if (video) {
+                video.pause();
+                video.src = '';
+                video.load();
+            }
+        }
+        
+        // fMP4 player - simpler, just sets the src directly
+        // The browser's native video player handles fragmented MP4
+        function initFmp4Player(videoElementId, streamUrl) {
+            destroyHlsPlayer();
+            
+            const video = document.getElementById(videoElementId);
+            if (!video) {
+                console.error('Video element not found:', videoElementId);
+                return false;
+            }
+            
+            console.log('Initializing fMP4 player with URL:', streamUrl);
+            
+            // For fMP4, we can use the native video element directly
+            // The browser will handle the fragmented MP4 stream
+            video.src = streamUrl;
+            video.play().catch(e => console.log('Autoplay prevented:', e));
+            
+            video.onerror = function(e) {
+                console.error('Video error:', video.error);
+            };
+            
+            return true;
+        }
+        
+        function isHlsSupported() {
+            // Check for native HLS or hls.js support
+            const video = document.createElement('video');
+            return video.canPlayType('application/vnd.apple.mpegurl') !== '' || 
+                   (typeof Hls !== 'undefined' && Hls.isSupported());
+        }
+        
+        // TV Guide resize observer
+        window.guideResizeObserver = null;
+        window.guideDotNetRef = null;
+        
+        
+        function setupGuideResizeObserver(dotNetRef) {
+            // Clean up any existing observer
+            disposeGuideResizeObserver();
+            
+            window.guideDotNetRef = dotNetRef;
+            
+            // Observe the main content area, not the guide container itself
+            // The guide container can grow, but we want to know the available space
+            const mainContent = document.querySelector('main') || document.querySelector('article') || document.body;
+            
+            window.guideResizeObserver = new ResizeObserver(entries => {
+                for (let entry of entries) {
+                    // Calculate available width (main content width minus some padding)
+                    const width = Math.floor(entry.contentRect.width) - 40;
+                    if (window.guideDotNetRef && width > 0) {
+                        window.guideDotNetRef.invokeMethodAsync('OnContainerResize', width);
+                    }
+                }
+            });
+            
+            window.guideResizeObserver.observe(mainContent);
+        }
+        
+        
+        function disposeGuideResizeObserver() {
+            if (window.guideResizeObserver) {
+                window.guideResizeObserver.disconnect();
+                window.guideResizeObserver = null;
+            }
+            window.guideDotNetRef = null;
+        }
+        
+        // Theme management
+        function resolveTheme(theme) {
+            if (theme === 'auto') {
+                return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            }
+            return theme;
+        }
+        
+        function applyTheme() {
+            var theme = localStorage.getItem('app-theme') || 'auto';
+            var resolved = resolveTheme(theme);
+            document.documentElement.setAttribute('data-bs-theme', resolved);
+            updateThemeToggleUI(theme, resolved);
+        }
+        
+        function setTheme(theme) {
+            localStorage.setItem('app-theme', theme);
+            var resolved = resolveTheme(theme);
+            document.documentElement.setAttribute('data-bs-theme', resolved);
+            updateThemeToggleUI(theme, resolved);
+            return resolved;
+        }
+        
+        function setThemeFromUI(theme) {
+            setTheme(theme);
+            // Persist to server-side AppSettings so the Settings page stays in sync
+            fetch('/api/theme/' + encodeURIComponent(theme), { method: 'PUT' });
+        }
+        
+        function getTheme() {
+            return localStorage.getItem('app-theme') || 'auto';
+        }
+        
+        function getResolvedTheme() {
+            return document.documentElement.getAttribute('data-bs-theme') || 'light';
+        }
+        
+        function updateThemeToggleUI(theme, resolved) {
+            // Update toggle button icon
+            var icon = document.getElementById('theme-icon');
+            if (icon) {
+                icon.className = resolved === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
+            }
+            
+            // Update active state on dropdown items
+            ['light', 'dark', 'auto'].forEach(function(t) {
+                var item = document.getElementById('theme-opt-' + t);
+                if (item) {
+                    if (t === theme) {
+                        item.classList.add('active');
+                    } else {
+                        item.classList.remove('active');
+                    }
+                }
+            });
+        }
+        
+        // Listen for system theme changes when in auto mode
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
+            var theme = localStorage.getItem('app-theme') || 'auto';
+            if (theme === 'auto') {
+                var resolved = e.matches ? 'dark' : 'light';
+                document.documentElement.setAttribute('data-bs-theme', resolved);
+                updateThemeToggleUI(theme, resolved);
+            }
+        });
+        
+        // Apply theme + toggle UI on initial page load
+        applyTheme();
+    </script>
+</body>
+
+</html>

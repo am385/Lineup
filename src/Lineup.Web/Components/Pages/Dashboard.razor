@@ -1,0 +1,791 @@
+@page "/"
+@page "/epg"
+@using Lineup.Core
+@using Lineup.Core.Storage
+@using Lineup.Web.Services
+@using Lineup.HDHomeRun.Device
+@using Lineup.HDHomeRun.Device.Models
+@using Lineup.HDHomeRun.Device.Protocol
+@implements IDisposable
+@inject IEpgRepository Repository
+@inject EpgOrchestrator Orchestrator
+@inject IDeviceStateService DeviceState
+@inject IJSRuntime JS
+@inject IAppSettingsService SettingsService
+@inject IAutoFetchStateService AutoFetchState
+@rendermode InteractiveServer
+
+<PageTitle>EPG Dashboard</PageTitle>
+
+<h1><span class="bi bi-tv me-2"></span>EPG Dashboard</h1>
+
+
+@if (_stats == null)
+{
+    <p><em>Loading...</em></p>
+}
+else
+{
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h5 class="card-title">Channels</h5>
+                    <p class="display-4">@_stats.ChannelCount</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h5 class="card-title">Programs</h5>
+                    <p class="display-4">@_stats.ProgramCount</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h5 class="card-title">Remaining</h5>
+                    <p class="h4">@(_stats.TotalTimeSpan?.ToString(@"d' days 'h' hrs'") ?? "N/A")</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card @(AutoFetchState.IsRunning ? "border-info" : "") @(!AutoFetchState.IsEnabled ? "border-secondary" : "")">
+                <div class="card-body text-center">
+                    <h5 class="card-title">Auto-Fetch</h5>
+                    @if (!AutoFetchState.IsEnabled)
+                    {
+                        <p class="h6 text-muted">
+                            <span class="bi bi-pause-circle me-1"></span>
+                            Disabled
+                        </p>
+                        <small class="text-muted">Enable in <a href="/settings">Settings</a></small>
+                    }
+                    else if (AutoFetchState.IsRunning)
+                    {
+                        <p class="h6 text-info">
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                            Running...
+                        </p>
+                        <small class="text-muted"><span class="bi bi-arrow-repeat me-1"></span>Every @(AutoFetchIntervalMinutes) min</small>
+                        }
+                        else if (AutoFetchState.NextFetchTime.HasValue)
+                        {
+                            <p class="h6">@AutoFetchState.NextFetchTime.Value.ToLocalTime().ToString("HH:mm:ss")</p>
+                            <p class="h5 text-primary mb-0">@FormatCountdown(_countdown)</p>
+                            <small class="text-muted"><span class="bi bi-arrow-repeat me-1"></span>Every @(AutoFetchIntervalMinutes) min</small>
+                        }
+                        else
+                        {
+                            <p class="h6">Pending...</p>
+                            <small class="text-muted"><span class="bi bi-arrow-repeat me-1"></span>Every @(AutoFetchIntervalMinutes) min</small>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Time Range</h5>
+                </div>
+                <div class="card-body">
+                    <p><strong>Earliest:</strong> @(_stats.EarliestProgramStart?.ToString("yyyy-MM-dd HH:mm") ?? "N/A") UTC</p>
+                    <p><strong>Latest:</strong> @(_stats.LatestProgramEnd?.ToString("yyyy-MM-dd HH:mm") ?? "N/A") UTC</p>
+                    @if (_channelGap.HasValue)
+                    {
+                        <p class="text-warning"><strong>Channel Gap:</strong> @_channelGap.Value.ToString(@"h' hrs 'm' min'")</p>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Actions</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="targetDays" class="form-label">Target Days</label>
+                            <input type="number" class="form-control" id="targetDays" @bind="_targetDays" min="1" max="14" disabled="@_isBusy" />
+                        </div>
+                        <div class="col-md-6 d-flex align-items-end">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="forceFetch" @bind="_forceFetch" disabled="@_isBusy" />
+                                <label class="form-check-label" for="forceFetch">Force fetch (ignore cache)</label>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary me-2" @onclick="FetchData" disabled="@_isBusy">
+                        @if (_isBusy && _currentAction == "fetch")
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        <span class="bi bi-cloud-download me-1"></span>Fetch Data
+                    </button>
+                    <button class="btn btn-success me-2" @onclick="GenerateXmltv" disabled="@_isBusy">
+                        @if (_isBusy && _currentAction == "generate")
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        <span class="bi bi-file-earmark-code me-1"></span>Generate XMLTV
+                    </button>
+                    @if (_xmltvFileExists)
+                    {
+                        <a class="btn btn-outline-secondary" href="/api/xmltv" download="epg.xml">
+                            <span class="bi bi-download me-1"></span>Export XMLTV
+                        </a>
+                    }
+                    else
+                    {
+                        <button class="btn btn-outline-secondary" disabled>
+                            <span class="bi bi-download me-1"></span>Export XMLTV
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card @(DeviceState.IsDiscovered ? "border-success" : "") @(DeviceState.LastError != null ? "border-danger" : "")">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><span class="bi bi-router me-1"></span>HDHomeRun Device</h5>
+                    <div>
+                        <button class="btn btn-sm btn-outline-primary me-2" @onclick="DiscoverDevice" disabled="@DeviceState.IsDiscovering">
+                            @if (DeviceState.IsDiscovering)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                            }
+                            <span class="bi bi-search me-1"></span>Discover
+                        </button>
+                        @if (DeviceState.ProtocolDevice != null)
+                        {
+                            <button class="btn btn-sm btn-outline-info me-2" @onclick="RefreshTunerStatus" disabled="@DeviceState.IsRefreshingTuners">
+                                @if (DeviceState.IsRefreshingTuners)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-1"></span>
+                                }
+                                <span class="bi bi-arrow-clockwise me-1"></span>Refresh Tuners
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" @onclick="ShowRestartConfirm" disabled="@_isRestarting">
+                                @if (_isRestarting)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-1"></span>
+                                }
+                                <span class="bi bi-power me-1"></span>Restart Device
+                            </button>
+                        }
+                    </div>
+                </div>
+                <div class="card-body">
+                    <p class="mb-2"><strong>Device Address:</strong> <code>@SettingsService.Settings.DeviceAddress</code></p>
+                    
+                    @if (DeviceState.IsDiscovering)
+                    {
+                        <div class="text-center py-3">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Discovering...</span>
+                            </div>
+                            <p class="text-muted mt-2">Connecting to device...</p>
+                        </div>
+                    }
+                    else if (DeviceState.LastError != null)
+                    {
+                        <div class="alert alert-danger mb-0">
+                            <strong>Connection Failed:</strong> @DeviceState.LastError
+                        </div>
+                    }
+                    else if (DeviceState.DeviceInfo != null)
+                    {
+                        <div class="row">
+                            <div class="col-md-6">
+                                <table class="table table-sm table-borderless mb-0">
+                                    <tbody>
+                                        <tr>
+                                            <td class="fw-bold" style="width: 40%">Device Name:</td>
+                                            <td>@DeviceState.DeviceInfo.FriendlyName</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold">Model:</td>
+                                            <td>@DeviceState.DeviceInfo.ModelNumber</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold">Device ID:</td>
+                                            <td><code>@DeviceState.DeviceInfo.DeviceID</code></td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold">Tuners:</td>
+                                            <td>@DeviceState.DeviceInfo.TunerCount</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="col-md-6">
+                                <table class="table table-sm table-borderless mb-0">
+                                    <tbody>
+                                        <tr>
+                                            <td class="fw-bold" style="width: 40%">Firmware:</td>
+                                            <td>@DeviceState.DeviceInfo.FirmwareVersion</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold">Firmware Name:</td>
+                                            <td>@DeviceState.DeviceInfo.FirmwareName</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold">Base URL:</td>
+                                            <td><a href="@DeviceState.DeviceInfo.BaseURL" target="_blank">@DeviceState.DeviceInfo.BaseURL</a></td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold">Last Refresh:</td>
+                                            <td>
+                                                @(DeviceState.LastDeviceRefresh?.ToLocalTime().ToString("HH:mm:ss") ?? "N/A")
+                                                @if (DeviceState.NextDeviceRefresh.HasValue)
+                                                {
+                                                    <small class="text-muted ms-1">(next: @DeviceState.NextDeviceRefresh.Value.ToLocalTime().ToString("HH:mm"))</small>
+                                                }
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        
+                        @* Tuner Status Section *@
+                        @if (DeviceState.TunerStatuses.Count > 0)
+                        {
+                            <hr class="my-3" />
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h6 class="mb-0"><span class="bi bi-broadcast me-1"></span>Tuner Status</h6>
+                                <small class="text-muted">
+                                    Last refresh: @(DeviceState.LastTunerRefresh?.ToLocalTime().ToString("HH:mm:ss") ?? "N/A")
+                                    @if (DeviceState.NextTunerRefresh.HasValue)
+                                    {
+                                        <span> (auto-refresh in @FormatTimeUntil(DeviceState.NextTunerRefresh.Value))</span>
+                                    }
+                                </small>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-hover mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Tuner</th>
+                                            <th>Status</th>
+                                            <th>Channel</th>
+                                            <th>Signal</th>
+                                            <th>SNQ</th>
+                                            <th>SEQ</th>
+                                            <th>Target</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var tuner in DeviceState.TunerStatuses)
+                                        {
+                                            <tr>
+                                                <td><strong>Tuner @tuner.TunerIndex</strong></td>
+                                                <td>
+                                                    @if (tuner.IsStreaming)
+                                                    {
+                                                        <span class="badge bg-success"><span class="bi bi-broadcast me-1"></span>Streaming</span>
+                                                    }
+                                                    else if (tuner.IsActive)
+                                                    {
+                                                        <span class="badge bg-info"><span class="bi bi-reception-4 me-1"></span>Tuned</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="badge bg-secondary">Idle</span>
+                                                    }
+                                                </td>
+                                                <td>@(tuner.VirtualChannel ?? tuner.Channel ?? "-")</td>
+                                                <td>
+                                                    @if (tuner.HasLock)
+                                                    {
+                                                        <div class="progress" style="height: 20px; min-width: 80px;">
+                                                            <div class="progress-bar @GetSignalColorClass(tuner.SignalStrength)" 
+                                                                 style="width: @tuner.SignalStrength%">
+                                                                @tuner.SignalStrength%
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="text-muted">-</span>
+                                                    }
+                                                </td>
+                                                <td>@(tuner.HasLock ? $"{tuner.SignalToNoiseQuality}%" : "-")</td>
+                                                <td>@(tuner.HasLock ? $"{tuner.SymbolErrorQuality}%" : "-")</td>
+                                                <td>
+                                                    @if (!string.IsNullOrEmpty(tuner.Target) && tuner.Target != "none")
+                                                    {
+                                                        <code class="small">@tuner.Target</code>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="text-muted">-</span>
+                                                    }
+                                                </td>
+                                                <td>
+                                                    @if (tuner.IsStreaming || tuner.IsActive)
+                                                    {
+                                                        <button class="btn btn-sm btn-outline-danger" 
+                                                                @onclick="() => StopTuner(tuner.TunerIndex)"
+                                                                disabled="@_stoppingTuner.Contains(tuner.TunerIndex)">
+                                                            @if (_stoppingTuner.Contains(tuner.TunerIndex))
+                                                            {
+                                                                <span class="spinner-border spinner-border-sm"></span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span class="bi bi-stop-fill"></span>
+                                                            }
+                                                            Stop
+                                                        </button>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="text-muted small">-</span>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <p class="text-muted mb-0">
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                            Discovering device automatically... or click "Discover" to connect manually.
+                        </p>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    @* Restart Confirmation Modal *@
+    @if (_showRestartConfirm)
+    {
+        <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header bg-danger text-white">
+                        <h5 class="modal-title"><span class="bi bi-exclamation-triangle me-2"></span>Restart Device</h5>
+                        <button type="button" class="btn-close btn-close-white" @onclick="HideRestartConfirm"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p>Are you sure you want to restart the HDHomeRun device?</p>
+                        <ul class="text-muted">
+                            <li>All active streams will be terminated</li>
+                            <li>Device will be unavailable for ~30 seconds</li>
+                            <li>Scheduled recordings may be interrupted</li>
+                        </ul>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="HideRestartConfirm">Cancel</button>
+                        <button type="button" class="btn btn-danger" @onclick="RestartDevice" disabled="@_isRestarting">
+                            @if (_isRestarting)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                            }
+                            <span class="bi bi-power me-1"></span>Restart Now
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (AutoFetchState.IsRunning && AutoFetchState.CurrentProgress != null)
+    {
+        <div class="card mb-4 border-info">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0"><span class="bi bi-arrow-repeat me-1"></span>Auto-Fetch in Progress</h5>
+            </div>
+            <div class="card-body">
+                <div class="row mb-2">
+                    <div class="col-md-3">
+                        <strong>Status:</strong>
+                        <span class="badge @GetStatusBadgeClass(AutoFetchState.CurrentProgress.Status)">@AutoFetchState.CurrentProgress.Status</span>
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Fetch #:</strong> @AutoFetchState.CurrentProgress.FetchCount
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Programs:</strong> @AutoFetchState.CurrentProgress.TotalProgramsFetched.ToString("N0")
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Channels:</strong> @AutoFetchState.CurrentProgress.TotalChannelsFetched
+                    </div>
+                </div>
+                <div class="progress mb-2" style="height: 25px;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated bg-info" 
+                         role="progressbar" 
+                         style="width: @(AutoFetchState.CurrentProgress.PercentComplete)%"
+                         aria-valuenow="@AutoFetchState.CurrentProgress.PercentComplete" 
+                         aria-valuemin="0" 
+                         aria-valuemax="100">
+                        @AutoFetchState.CurrentProgress.PercentComplete%
+                    </div>
+                </div>
+                <p class="text-muted mb-0">@AutoFetchState.CurrentProgress.Message</p>
+            </div>
+        </div>
+    }
+
+    @if (_fetchProgress != null && _isBusy && _currentAction == "fetch")
+    {
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5><span class="bi bi-graph-up me-1"></span>Manual Fetch Progress</h5>
+            </div>
+            <div class="card-body">
+                <div class="row mb-2">
+                    <div class="col-md-3">
+                        <strong>Status:</strong>
+                        <span class="badge @GetStatusBadgeClass(_fetchProgress.Status)">@_fetchProgress.Status</span>
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Fetch #:</strong> @_fetchProgress.FetchCount
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Programs:</strong> @_fetchProgress.TotalProgramsFetched.ToString("N0")
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Channels:</strong> @_fetchProgress.TotalChannelsFetched
+                    </div>
+                </div>
+                <div class="progress mb-2" style="height: 25px;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                         role="progressbar" 
+                         style="width: @(_fetchProgress.PercentComplete)%"
+                         aria-valuenow="@_fetchProgress.PercentComplete" 
+                         aria-valuemin="0" 
+                         aria-valuemax="100">
+                        @_fetchProgress.PercentComplete%
+                    </div>
+                </div>
+                <p class="text-muted mb-0">@_fetchProgress.Message</p>
+            </div>
+        </div>
+    }
+
+
+    @if (!string.IsNullOrEmpty(_statusMessage))
+    {
+        <div class="alert @(_isError ? "alert-danger" : "alert-success") alert-dismissible fade show">
+            @_statusMessage
+            <button type="button" class="btn-close" @onclick="ClearStatus"></button>
+        </div>
+    }
+}
+
+@code {
+    
+private CacheStatistics? _stats;
+private DateTime? _safeFetchStart;
+private TimeSpan? _channelGap;
+private bool _isBusy;
+private string _currentAction = "";
+private string _statusMessage = "";
+private bool _isError;
+private int _targetDays = 3;
+private bool _forceFetch;
+private FetchProgressInfo? _fetchProgress;
+private bool _xmltvFileExists;
+private TimeSpan _countdown;
+private Timer? _countdownTimer;
+    
+// Device control state
+private bool _isRestarting;
+private bool _showRestartConfirm;
+private HashSet<int> _stoppingTuner = [];
+
+private int AutoFetchIntervalMinutes => SettingsService.Settings.AutoFetchIntervalMinutes;
+private string XmltvFilename => SettingsService.Settings.XmltvOutputPath;
+
+protected override async Task OnInitializedAsync()
+{
+    _targetDays = SettingsService.Settings.TargetDays;
+        
+    // Subscribe to auto-fetch state changes
+    AutoFetchState.OnStateChanged += OnAutoFetchStateChanged;
+        
+    // Subscribe to settings changes
+    SettingsService.OnSettingsChanged += OnSettingsChanged;
+        
+    // Subscribe to device state changes (auto-refresh)
+    DeviceState.OnStateChanged += OnDeviceStateChanged;
+        
+    // Start countdown timer (updates every second)
+    _countdownTimer = new Timer(UpdateCountdown, null, TimeSpan.Zero, TimeSpan.FromSeconds(1));
+        
+    await LoadStatsAsync();
+    CheckXmltvFileExists();
+}
+
+private void OnSettingsChanged()
+{
+    _targetDays = SettingsService.Settings.TargetDays;
+    CheckXmltvFileExists(); // Refresh in case output path changed
+    InvokeAsync(StateHasChanged);
+}
+
+private void OnDeviceStateChanged()
+{
+    InvokeAsync(StateHasChanged);
+}
+
+private void UpdateCountdown(object? state)
+{
+    if (AutoFetchState.NextFetchTime.HasValue && !AutoFetchState.IsRunning)
+    {
+        _countdown = AutoFetchState.NextFetchTime.Value - DateTime.UtcNow;
+        if (_countdown < TimeSpan.Zero)
+        {
+            _countdown = TimeSpan.Zero;
+        }
+    }
+    else
+    {
+        _countdown = TimeSpan.Zero;
+    }
+        
+    InvokeAsync(StateHasChanged);
+}
+
+private static string FormatCountdown(TimeSpan countdown)
+{
+    if (countdown <= TimeSpan.Zero)
+    {
+        return "Starting soon...";
+    }
+        
+    if (countdown.TotalHours >= 1)
+    {
+        return $"{(int)countdown.TotalHours:D2}:{countdown.Minutes:D2}:{countdown.Seconds:D2}";
+    }
+        
+    return $"{countdown.Minutes:D2}:{countdown.Seconds:D2}";
+}
+
+private static string FormatTimeUntil(DateTime utcTime)
+{
+    var remaining = utcTime - DateTime.UtcNow;
+    if (remaining <= TimeSpan.Zero) return "now";
+    if (remaining.TotalSeconds < 60) return $"{(int)remaining.TotalSeconds}s";
+    return $"{(int)remaining.TotalMinutes}m {remaining.Seconds}s";
+}
+
+private void OnAutoFetchStateChanged()
+{
+    InvokeAsync(async () =>
+    {
+        // Reload stats when auto-fetch completes
+        if (!AutoFetchState.IsRunning && AutoFetchState.LastFetchTime.HasValue)
+        {
+            await LoadStatsAsync();
+        }
+        StateHasChanged();
+    });
+}
+
+public void Dispose()
+{
+    _countdownTimer?.Dispose();
+    AutoFetchState.OnStateChanged -= OnAutoFetchStateChanged;
+    SettingsService.OnSettingsChanged -= OnSettingsChanged;
+    DeviceState.OnStateChanged -= OnDeviceStateChanged;
+}
+
+    private async Task LoadStatsAsync()
+    {
+        await Repository.EnsureDatabaseCreatedAsync();
+        _stats = await Repository.GetCacheStatisticsAsync();
+        _safeFetchStart = await Repository.GetSafeFetchStartTimeAsync();
+        
+        if (_safeFetchStart.HasValue && _stats.LatestProgramEnd.HasValue && 
+            _safeFetchStart.Value < _stats.LatestProgramEnd.Value)
+        {
+            _channelGap = _stats.LatestProgramEnd.Value - _safeFetchStart.Value;
+        }
+        else
+        {
+            _channelGap = null;
+        }
+    }
+
+    private async Task FetchData()
+    {
+        _isBusy = true;
+        _currentAction = "fetch";
+        _statusMessage = "";
+        _fetchProgress = null;
+        StateHasChanged();
+
+        var progress = new Progress<FetchProgressInfo>(info =>
+        {
+            _fetchProgress = info;
+            InvokeAsync(StateHasChanged);
+        });
+
+        try
+        {
+            await Orchestrator.FetchAndStoreEpgAsync(_targetDays, _forceFetch, progress);
+            await LoadStatsAsync();
+            _statusMessage = $"EPG data fetched successfully! ({_fetchProgress?.FetchCount ?? 0} fetches, {_fetchProgress?.TotalProgramsFetched.ToString("N0") ?? "0"} programs)";
+            _isError = false;
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Error fetching data: {ex.Message}";
+            _isError = true;
+        }
+        finally
+        {
+            _isBusy = false;
+            _currentAction = "";
+            _fetchProgress = null;
+        }
+    }
+
+    private static string GetStatusBadgeClass(FetchStatus status) => status switch
+    {
+        FetchStatus.Initializing => "bg-secondary",
+        FetchStatus.Fetching => "bg-primary",
+        FetchStatus.Storing => "bg-info",
+        FetchStatus.Completed => "bg-success",
+        FetchStatus.Failed => "bg-danger",
+        _ => "bg-secondary"
+    };
+
+    private async Task GenerateXmltv()
+    {
+        _isBusy = true;
+        _currentAction = "generate";
+        _statusMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            // Ensure directory exists if path contains directories
+            var directory = Path.GetDirectoryName(XmltvFilename);
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+            
+            await Orchestrator.GenerateEpgFromCacheAsync(_targetDays, XmltvFilename);
+            CheckXmltvFileExists();
+            _statusMessage = $"XMLTV generated to {XmltvFilename} successfully!";
+            _isError = false;
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Error generating XMLTV: {ex.Message}";
+            _isError = true;
+        }
+        finally
+        {
+            _isBusy = false;
+            _currentAction = "";
+        }
+    }
+
+    private async Task DiscoverDevice()
+    {
+        await DeviceState.DiscoverDeviceAsync();
+    }
+
+    private async Task RefreshTunerStatus()
+    {
+        await DeviceState.RefreshTunerStatusAsync();
+    }
+
+    private async Task StopTuner(int tunerIndex)
+    {
+        if (DeviceState.ProtocolDevice == null) return;
+        
+        _stoppingTuner.Add(tunerIndex);
+        StateHasChanged();
+        
+        try
+        {
+            await DeviceState.StopTunerAsync(tunerIndex);
+            _statusMessage = $"Tuner {tunerIndex} stopped successfully.";
+            _isError = false;
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Failed to stop tuner {tunerIndex}: {ex.Message}";
+            _isError = true;
+        }
+        finally
+        {
+            _stoppingTuner.Remove(tunerIndex);
+        }
+    }
+
+    private void ShowRestartConfirm()
+    {
+        _showRestartConfirm = true;
+    }
+
+    private void HideRestartConfirm()
+    {
+        _showRestartConfirm = false;
+    }
+
+    private async Task RestartDevice()
+    {
+        if (DeviceState.ProtocolDevice == null) return;
+        
+        _isRestarting = true;
+        StateHasChanged();
+        
+        try
+        {
+            await DeviceState.RestartDeviceAsync();
+            _statusMessage = "Device restart command sent. Device will be unavailable for ~30 seconds.";
+            _isError = false;
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Failed to restart device: {ex.Message}";
+            _isError = true;
+        }
+        finally
+        {
+            _isRestarting = false;
+            _showRestartConfirm = false;
+        }
+    }
+
+    private static string GetSignalColorClass(int signalStrength) => signalStrength switch
+    {
+        >= 80 => "bg-success",
+        >= 60 => "bg-info",
+        >= 40 => "bg-warning",
+        _ => "bg-danger"
+    };
+
+    private void CheckXmltvFileExists()
+    {
+        _xmltvFileExists = File.Exists(XmltvFilename);
+    }
+
+    private void ClearStatus()
+    {
+        _statusMessage = "";
+    }
+}

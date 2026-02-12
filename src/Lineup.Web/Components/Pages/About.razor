@@ -1,0 +1,40 @@
+@page "/about"
+@using System.Reflection
+
+<PageTitle>About</PageTitle>
+
+<h1><span class="bi bi-info-circle me-2"></span>About</h1>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>Lineup</h5>
+            </div>
+            <div class="card-body">
+                <dl class="row mb-0">
+                    <dt class="col-sm-3">Version</dt>
+                    <dd class="col-sm-9">@_version</dd>
+
+                    <dt class="col-sm-3">GitHub</dt>
+                    <dd class="col-sm-9">
+                        <a href="https://github.com/am385/Lineup" target="_blank" rel="noopener noreferrer">
+                            https://github.com/am385/Lineup
+                        </a>
+                    </dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _version = "Unknown";
+
+    protected override void OnInitialized()
+    {
+        _version = Assembly.GetExecutingAssembly()
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion ?? "Unknown";
+    }
+}

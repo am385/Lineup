@@ -1,0 +1,18 @@
+services:
+  lineup:
+    image: ${DOCKER_IMAGE:-am385/lineup:latest}
+    container_name: lineup
+    ports:
+      - "8080:8080"
+    volumes:
+      - epg-data:/app/data
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - Lineup__AppDataPath=/app/data
+    # Use host network mode if the HDHomeRun device is on the local network
+    # and you need device discovery to work.
+    # network_mode: host
+    restart: unless-stopped
+
+volumes:
+  epg-data:

@@ -1,0 +1,423 @@
+@page "/watch"
+@page "/watch/{ChannelNumber}"
+@using System.Net.Http.Json
+@using Lineup.Core.Storage
+@using Lineup.Web.Services
+@using Lineup.HDHomeRun.Api.Models
+@implements IAsyncDisposable
+@inject IEpgRepository Repository
+@inject IAppSettingsService SettingsService
+@inject IJSRuntime JS
+@inject NavigationManager NavigationManager
+@rendermode InteractiveServer
+
+<PageTitle>Watch TV</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1><span class="bi bi-play-circle me-2"></span>Watch TV</h1>
+    @if (_isPlaying)
+    {
+        <button class="btn btn-danger" @onclick="StopStream">
+            <span class="bi bi-stop-fill me-1"></span>Stop
+        </button>
+    }
+</div>
+
+
+<div class="row">
+<!-- Video Player -->
+<div class="col-lg-9 mb-4">
+    <div class="card">
+        <div class="card-body p-0">
+            @if (_isPlaying && !string.IsNullOrEmpty(_streamUrl))
+            {
+                <div class="ratio ratio-16x9 bg-dark">
+                    <video id="videoPlayer" 
+                           controls 
+                           autoplay
+                           muted
+                           class="w-100">
+                        Your browser does not support HLS video playback.
+                    </video>
+                </div>
+                <div class="p-3 border-top">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h5 class="mb-1">
+                                <span class="badge bg-primary me-2">@_selectedChannel?.GuideNumber</span>
+                                @_selectedChannel?.GuideName
+                            </h5>
+                            @if (_currentProgram != null)
+                                {
+                                    <p class="text-muted mb-0">
+                                        <strong>Now Playing:</strong> @_currentProgram.Title
+                                        @if (!string.IsNullOrEmpty(_currentProgram.EpisodeTitle))
+                                        {
+                                            <span> - @_currentProgram.EpisodeTitle</span>
+                                        }
+                                    </p>
+                                }
+                            </div>
+                            <div class="text-muted small">
+                                <span class="bi bi-broadcast text-success me-1"></span>Live
+                            </div>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="ratio ratio-16x9 bg-dark d-flex align-items-center justify-content-center">
+                        <div class="text-center text-white-50">
+                            <span class="bi bi-tv display-1"></span>
+                            <p class="mt-3">Select a channel to start watching</p>
+                            <p class="small">
+                                <span class="bi bi-info-circle me-1"></span>
+                                Streams directly with FFmpeg (no disk I/O)
+                            </p>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+        
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <div class="alert alert-danger mt-3">
+                <h6 class="alert-heading">
+                    <span class="bi bi-exclamation-triangle me-2"></span>
+                    Stream Error
+                </h6>
+                <pre class="mb-0 small" style="white-space: pre-wrap;">@_errorMessage</pre>
+            </div>
+        }
+        
+        @if (_showCodecError)
+        {
+            <div class="alert alert-danger mt-3">
+                <h6 class="alert-heading">
+                    <span class="bi bi-exclamation-octagon me-2"></span>
+                    Audio Codec Not Supported
+                </h6>
+                <p class="mb-2">
+                    Your browser cannot play AC-3 (Dolby Digital) audio. The transcoding may not be working correctly.
+                </p>
+                <hr />
+                <p class="mb-2"><strong>Try these troubleshooting steps:</strong></p>
+                <ul class="mb-2">
+                    <li>Try a different <strong>Quality setting</strong> above (mobile, internet720, etc.)</li>
+                    <li>Check that transcoding is enabled in your HDHomeRun settings at <a href="http://@(SettingsService.Settings.DeviceAddress)/" target="_blank">http://@(SettingsService.Settings.DeviceAddress)/</a></li>
+                    <li>Verify no other apps are using all the transcode slots</li>
+                    <li>Use <strong>VLC Media Player</strong> with the direct stream URL below</li>
+                </ul>
+                @if (_selectedChannel != null)
+                {
+                    <p class="mb-0">
+                        <strong>Direct Stream URL for VLC:</strong><br/>
+                        <code class="user-select-all">http://@(SettingsService.Settings.DeviceAddress):5004/auto/v@(_selectedChannel.GuideNumber)</code>
+                        <button class="btn btn-sm btn-outline-secondary ms-2" @onclick="CopyStreamUrlToClipboard">
+                            <span class="bi bi-clipboard"></span> Copy
+                        </button>
+                    </p>
+                }
+            </div>
+        }
+        
+        
+        
+        <div class="card mt-3">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <h6 class="mb-0"><span class="bi bi-info-circle me-1"></span>Stream Information</h6>
+            </div>
+            <div class="card-body">
+                <p class="mb-2"><strong>Device Address:</strong> <code>@SettingsService.Settings.DeviceAddress</code></p>
+                @if (_selectedChannel != null)
+                {
+                    <p class="mb-2"><strong>Device Stream:</strong> <code>http://@(SettingsService.Settings.DeviceAddress):5004/auto/v@(_selectedChannel.GuideNumber)</code></p>
+                    @if (!string.IsNullOrEmpty(_streamUrl))
+                    {
+                        <p class="mb-2"><strong>Transcode URL:</strong> <code>@_streamUrl</code></p>
+                    }
+                }
+                <p class="mb-0">
+                    <strong>Player:</strong> 
+                    <span class="badge bg-success">Fragmented MP4</span>
+                    <span class="badge bg-info ms-1">FFmpeg (Memory)</span>
+                    <span class="text-muted small ms-2">(H.264 + AAC, no disk I/O)</span>
+                </p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Channel List -->
+    <div class="col-lg-3">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0"><span class="bi bi-list-ul me-1"></span>Channels</h6>
+            </div>
+            <div class="card-body p-0">
+                @if (_isLoadingChannels)
+                {
+                    <div class="text-center py-4">
+                        <div class="spinner-border spinner-border-sm text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="text-muted small mt-2 mb-0">Loading channels...</p>
+                    </div>
+                }
+                else if (_channels.Count == 0)
+                {
+                    <div class="text-center py-4">
+                        <span class="bi bi-info-circle text-muted"></span>
+                        <p class="text-muted small mt-2 mb-0">No channels available.<br/>Fetch EPG data first.</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="channel-list">
+                        @foreach (var channel in _channels)
+                        {
+                            var isSelected = _selectedChannel?.GuideNumber == channel.GuideNumber;
+                            var nowPlaying = GetCurrentProgram(channel.GuideNumber);
+                            
+                            <div class="channel-item @(isSelected ? "active" : "")" 
+                                 @onclick="() => SelectChannel(channel)">
+                                <div class="d-flex align-items-center">
+                                    <div class="channel-number me-2">@channel.GuideNumber</div>
+                                    <div class="flex-grow-1 overflow-hidden">
+                                        <div class="channel-name">@channel.GuideName</div>
+                                        @if (nowPlaying != null)
+                                        {
+                                            <div class="now-playing text-truncate">@nowPlaying.Title</div>
+                                        }
+                                    </div>
+                                    @if (isSelected && _isPlaying)
+                                    {
+                                        <span class="bi bi-broadcast text-success ms-2"></span>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .channel-list {
+        max-height: 600px;
+        overflow-y: auto;
+    }
+    
+    .channel-item {
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid #dee2e6;
+        cursor: pointer;
+        transition: background-color 0.15s;
+    }
+    
+    .channel-item:hover {
+        background-color: #f8f9fa;
+    }
+    
+    .channel-item.active {
+        background-color: #e7f1ff;
+        border-left: 3px solid #0d6efd;
+    }
+    
+    .channel-item:last-child {
+        border-bottom: none;
+    }
+    
+    .channel-number {
+        font-weight: bold;
+        color: #0d6efd;
+        min-width: 40px;
+    }
+    
+    .channel-name {
+        font-weight: 500;
+        font-size: 0.9rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    
+    .now-playing {
+        font-size: 0.75rem;
+        color: #6c757d;
+    }
+    
+    video {
+        background-color: #000;
+    }
+</style>
+
+
+@code {
+[Parameter]
+public string? ChannelNumber { get; set; }
+    
+private List<HDHomeRunChannelEpgSegment> _channels = [];
+private List<HDHomeRunProgram> _programs = [];
+private HDHomeRunChannelEpgSegment? _selectedChannel;
+private HDHomeRunProgram? _currentProgram;
+private string? _streamUrl;
+private string? _errorMessage;
+private bool _isPlaying;
+private bool _isLoadingChannels = true;
+private bool _showCodecError;
+private bool _needsPlayerInit;
+
+protected override async Task OnInitializedAsync()
+{
+    await LoadChannelsAsync();
+}
+
+protected override async Task OnAfterRenderAsync(bool firstRender)
+{
+    if (firstRender)
+    {
+        // If a channel was specified in the URL, auto-play it
+        if (!string.IsNullOrEmpty(ChannelNumber))
+        {
+            var channel = _channels.FirstOrDefault(c => c.GuideNumber == ChannelNumber);
+            if (channel != null)
+            {
+                await SelectChannel(channel);
+                StateHasChanged();
+            }
+        }
+    }
+    
+    // Initialize fMP4 player after render when we have a stream URL
+    if (_isPlaying && !string.IsNullOrEmpty(_streamUrl) && _needsPlayerInit)
+    {
+        _needsPlayerInit = false;
+        try
+        {
+            var success = await JS.InvokeAsync<bool>("initFmp4Player", "videoPlayer", _streamUrl);
+            if (!success)
+            {
+                _errorMessage = "Failed to initialize video player.";
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to initialize player: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+}
+
+private async Task LoadChannelsAsync()
+{
+    _isLoadingChannels = true;
+    StateHasChanged();
+
+
+
+
+        try
+        {
+            _channels = await Repository.GetChannelsAsync();
+            
+            // Load current programs for "now playing" display
+            var now = DateTime.UtcNow;
+            var endTime = now.AddHours(1);
+            _programs = await Repository.GetProgramsAsync(now, endTime);
+        }
+        finally
+        {
+            _isLoadingChannels = false;
+        }
+    }
+
+
+    private async Task SelectChannel(HDHomeRunChannelEpgSegment channel)
+    {
+        // Stop current stream first
+        await StopStreamAsync();
+        
+        _selectedChannel = channel;
+        _errorMessage = null;
+        
+        // Use fMP4 streaming endpoint - streams directly, no session management needed
+        // FFmpeg transcodes to memory (no disk I/O) and pipes to browser
+        _streamUrl = $"/api/stream/fmp4/{channel.GuideNumber}";
+        _isPlaying = true;
+        _needsPlayerInit = true;
+        
+        // Get current program for this channel
+        _currentProgram = GetCurrentProgram(channel.GuideNumber);
+        _showCodecError = false;
+    }
+
+
+
+    private async Task StopStreamAsync()
+    {
+        // Destroy video player (stops the stream - FFmpeg process auto-terminates when client disconnects)
+        try
+        {
+            await JS.InvokeVoidAsync("destroyHlsPlayer");
+        }
+        catch { /* Ignore */ }
+        
+        _isPlaying = false;
+        _streamUrl = null;
+        _currentProgram = null;
+        _showCodecError = false;
+        _needsPlayerInit = false;
+    }
+
+
+    private async Task StopStream()
+    {
+        await StopStreamAsync();
+    }
+
+    private HDHomeRunProgram? GetCurrentProgram(string? guideNumber)
+    {
+        if (string.IsNullOrEmpty(guideNumber)) return null;
+        
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        return _programs.FirstOrDefault(p => 
+            p.GuideNumber == guideNumber && 
+            p.StartTime <= now && 
+            p.EndTime > now);
+    }
+
+    private async Task CopyStreamUrlToClipboard()
+    {
+        if (_selectedChannel != null)
+        {
+            var directUrl = $"http://{SettingsService.Settings.DeviceAddress}:5004/auto/v{_selectedChannel.GuideNumber}";
+            try
+            {
+                await JS.InvokeVoidAsync("navigator.clipboard.writeText", directUrl);
+                _errorMessage = "Stream URL copied to clipboard!";
+                StateHasChanged();
+                
+                // Clear message after 2 seconds
+                await Task.Delay(2000);
+                if (_errorMessage == "Stream URL copied to clipboard!")
+                {
+                    _errorMessage = null;
+                    StateHasChanged();
+                }
+            }
+            catch
+            {
+                _errorMessage = "Failed to copy to clipboard";
+            }
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await StopStreamAsync();
+    }
+}

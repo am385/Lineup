@@ -1,0 +1,23 @@
+services:
+  lineup:
+    image: ${DOCKER_IMAGE:-lineup:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lineup
+    ports:
+      - "8080:8080"
+    volumes:
+      # Persist database, app settings, and XMLTV output across container restarts
+      - epg-data:/app/data
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - Lineup__AppDataPath=/app/data
+    # Use host network mode if the HDHomeRun device is on the local network
+    # and you need device discovery to work. Otherwise, ensure the device
+    # address is set to an IP reachable from the container.
+    # network_mode: host
+    restart: unless-stopped
+
+volumes:
+  epg-data:
