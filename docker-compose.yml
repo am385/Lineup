@@ -4,15 +4,22 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        GIT_HASH: ${GIT_HASH:-unknown}
     container_name: lineup
     ports:
-      - "8080:8080"
+      - "${HTTP_PORT:-8080}:${HTTP_PORT:-8080}"
     volumes:
-      # Persist database, app settings, and XMLTV output across container restarts
-      - epg-data:/app/data
+      # Persist database and app settings across container restarts
+      - config:/config
+      # Persist XMLTV output across container restarts (optional, only if you use the XMLTV output feature)
+      - xmltv:/xmltv
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
-      - Lineup__AppDataPath=/app/data
+      - Lineup__ConfigPath=/config
+      - Lineup__XmltvPath=/xmltv
+      - Lineup__HttpPort=${HTTP_PORT:-8080}
+      - Lineup__HttpsPort=${HTTPS_PORT:-8443}
     # Use host network mode if the HDHomeRun device is on the local network
     # and you need device discovery to work. Otherwise, ensure the device
     # address is set to an IP reachable from the container.
@@ -20,4 +27,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  epg-data:
+  config:
+  xmltv:

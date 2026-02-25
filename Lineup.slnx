@@ -2,9 +2,9 @@
   <Folder Name="/src/" />
   <!-- Core Libraries -->
   <Folder Name="/src/Core/">
+    <Project Path="src/Lineup.Core/Lineup.Core.csproj" />
     <Project Path="src/Lineup.HDHomeRun.Api/Lineup.HDHomeRun.Api.csproj" />
     <Project Path="src/Lineup.HDHomeRun.Device/Lineup.HDHomeRun.Device.csproj" />
-    <Project Path="src/Lineup.Core/Lineup.Core.csproj" />
   </Folder>
 
   <!-- Applications -->
@@ -15,16 +15,23 @@
 
   <!-- Tests -->
   <Folder Name="/tests/">
+    <Project Path="tests/Lineup.Core.Tests/Lineup.Core.Tests.csproj" />
     <Project Path="tests/Lineup.HDHomeRun.Api.Tests/Lineup.HDHomeRun.Api.Tests.csproj" />
     <Project Path="tests/Lineup.HDHomeRun.Device.Tests/Lineup.HDHomeRun.Device.Tests.csproj" />
-    <Project Path="tests/Lineup.Core.Tests/Lineup.Core.Tests.csproj" />
     <Project Path="tests/Lineup.Web.Tests/Lineup.Web.Tests.csproj" />
   </Folder>
-
-  <!-- Docker -->
-  <Folder Name="/Docker/">
-    <File Path="Dockerfile" />
-    <File Path="docker-compose.yml" />
+  <Folder Name="/_Solution Items/">
+    <File Path=".dockerignore" />
+    <File Path=".gitattributes" />
+    <File Path=".gitignore" />
+    <File Path="CONTRIBUTING.md" />
+    <File Path="Directory.Build.props" />
     <File Path="docker-compose.prod.yml" />
+    <File Path="docker-compose.yml" />
+    <File Path="Dockerfile" />
+    <File Path="global.json" />
+    <File Path="LICENSE" />
+    <File Path="README.md" />
+    <File Path="SECURITY.md" />
   </Folder>
 </Solution>

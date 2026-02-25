@@ -1,3 +1,6 @@
+@using Lineup.Web.Services
+@inject IAppSettingsService SettingsService
+
 <div class="top-row ps-3 navbar navbar-dark">
     <div class="container-fluid">
         <a class="navbar-brand" href=""><img src="favicon.svg" alt="Lineup" width="24" height="24" class="me-2" />Lineup</a>
@@ -8,21 +11,24 @@
 
 <div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
     <nav class="nav flex-column">
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-tv-fill" aria-hidden="true"></span> Dashboard
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="guide">
-                <span class="bi bi-grid-3x3" aria-hidden="true"></span> TV Guide
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="watch">
-                <span class="bi bi-play-circle" aria-hidden="true"></span> Watch TV
-            </NavLink>
-        </div>
+        @if (SettingsService.Settings.IsSetupComplete)
+        {
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                    <span class="bi bi-tv-fill" aria-hidden="true"></span> Dashboard
+                </NavLink>
+            </div>
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="guide">
+                    <span class="bi bi-grid-3x3" aria-hidden="true"></span> Guide
+                </NavLink>
+            </div>
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="watch">
+                    <span class="bi bi-play-circle" aria-hidden="true"></span> Watch
+                </NavLink>
+            </div>
+        }
         <div class="nav-item px-3">
             <NavLink class="nav-link" href="settings">
                 <span class="bi bi-gear-fill" aria-hidden="true"></span> Settings

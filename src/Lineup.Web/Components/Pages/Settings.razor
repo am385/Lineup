@@ -1,14 +1,17 @@
 @page "/settings"
-@using Lineup.Web.Services
-@implements IDisposable
-@inject IAppSettingsService SettingsService
-@inject NavigationManager Navigation
-@inject IJSRuntime JS
 @rendermode InteractiveServer
 
 <PageTitle>Settings</PageTitle>
 
 <h1><span class="bi bi-gear me-2"></span>Settings</h1>
+
+@if (_isInitialSetup)
+{
+    <div class="alert alert-primary mb-4">
+        <h5 class="alert-heading"><span class="bi bi-rocket-takeoff me-2"></span>Welcome to Lineup!</h5>
+        <p class="mb-0">Configure your HDHomeRun device address and preferences below, then click <strong>Save Settings</strong> to get started.</p>
+    </div>
+}
 
 <div class="row">
     <div class="col-md-8">
@@ -35,6 +38,21 @@
                     </div>
                     <div class="form-text">Choose Light, Dark, or Auto to follow your system preference.</div>
                 </div>
+                
+                <div class="mb-3">
+                    <label for="timeZone" class="form-label">Time Zone</label>
+                    <select class="form-select" id="timeZone" @bind="_timeZoneId">
+                        <option value="">System default</option>
+                        @foreach (var tz in TimeZoneInfo.GetSystemTimeZones())
+                        {
+                            <option value="@tz.Id">@tz.DisplayName</option>
+                        }
+                    </select>
+                    <div class="form-text">
+                        Override the display timezone. "System default" uses the <code>TZ</code> environment variable or the server's local time.
+                        Currently: <strong>@TimeZoneService.TimeZone.DisplayName</strong>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -51,10 +69,28 @@
                 </div>
                 
                 <div class="mb-3">
-                    <label for="autoFetchInterval" class="form-label">Auto-Fetch Interval (minutes)</label>
-                    <input type="number" class="form-control" id="autoFetchInterval" 
-                           @bind="_autoFetchIntervalMinutes" min="0" max="1440" />
-                    <div class="form-text">How often to automatically fetch new EPG data. Set to 0 to disable auto-fetch.</div>
+                    <label class="form-label">Auto-Fetch Interval</label>
+                    <div class="row g-2">
+                        <div class="col">
+                            <div class="input-group input-group-sm">
+                                <input type="number" class="form-control" @bind="_autoFetchDays" min="0" max="14" />
+                                <span class="input-group-text">days</span>
+                            </div>
+                        </div>
+                        <div class="col">
+                            <div class="input-group input-group-sm">
+                                <input type="number" class="form-control" @bind="_autoFetchHours" min="0" max="23" />
+                                <span class="input-group-text">hrs</span>
+                            </div>
+                        </div>
+                        <div class="col">
+                            <div class="input-group input-group-sm">
+                                <input type="number" class="form-control" @bind="_autoFetchMinutes" min="0" max="59" />
+                                <span class="input-group-text">min</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-text">How often to automatically fetch new EPG data. Set all to 0 to disable auto-fetch.</div>
                 </div>
             </div>
         </div>
@@ -75,19 +111,19 @@
                     <label for="xmltvOutputPath" class="form-label">XMLTV Output Path</label>
                     <div class="input-group">
                         <input type="text" class="form-control" id="xmltvOutputPath" 
-                               @bind="_xmltvOutputPath" placeholder="epg.xml" />
+                               @bind="_xmltvOutputPath" placeholder="/xmltv/epg.xml" />
                         <button class="btn btn-outline-secondary" type="button" @onclick="BrowseDirectory" title="Browse server directories">
                             <span class="bi bi-folder2-open"></span>
                         </button>
                     </div>
                     <div class="form-text">
-                        Path where the XMLTV file will be saved. Can be relative (e.g., <code>epg.xml</code>) or absolute (e.g., <code>C:\EPG\guide.xml</code> or <code>/var/epg/guide.xml</code>).
+                        Path where the XMLTV file will be saved. Can be relative (e.g., <code>epg.xml</code>) or absolute (e.g., <code>C:\xmltv\guide.xml</code> or <code>/xmltv/epg.xml</code>).
                     </div>
                 </div>
                 
                 @if (_showDirectoryBrowser)
                 {
-                    <div class="card bg-light mb-3">
+                    <div class="card mb-3">
                         <div class="card-header d-flex justify-content-between align-items-center py-2">
                             <span><span class="bi bi-folder me-1"></span>Server Directory Browser</span>
                             <button type="button" class="btn-close" @onclick="CloseDirectoryBrowser"></button>
@@ -176,13 +212,16 @@
                 {
                     <span class="spinner-border spinner-border-sm me-1"></span>
                 }
-                <span class="bi bi-save me-1"></span>Save Settings
+                <span class="bi bi-save me-1"></span>@(_isInitialSetup ? "Save & Get Started" : "Save Settings")
                 </button>
-            <button class="btn btn-outline-secondary" @onclick="ResetToDefaults">
-                <span class="bi bi-arrow-counterclockwise me-1"></span>Reset to Defaults
-            </button>
+            @if (!_isInitialSetup)
+            {
+                <button class="btn btn-outline-secondary" @onclick="ResetToDefaults">
+                    <span class="bi bi-arrow-counterclockwise me-1"></span>Reset to Defaults
+                </button>
+            }
             <button class="btn btn-outline-secondary" @onclick="Cancel">
-                Cancel
+                @(_isInitialSetup ? "Skip" : "Cancel")
             </button>
         </div>
 
@@ -202,14 +241,19 @@
                 <h5><span class="bi bi-info-circle me-1"></span>About Settings</h5>
             </div>
             <div class="card-body">
-                <p><strong>Target Days:</strong> Controls how many days of future EPG data to maintain. Higher values require more storage and longer fetch times.</p>
-                <p><strong>Auto-Fetch Interval:</strong> How often to automatically fetch new EPG data. Set to 0 to disable. Recommended: 60 minutes.</p>
+                <h6>Appearance</h6>
+                <p><strong>Theme:</strong> Choose between Light, Dark, or Auto (follows your system/OS theme). Changes apply immediately.</p>
+                <p><strong>Time Zone:</strong> Override the timezone used for all displayed times. "System default" uses the <code>TZ</code> environment variable or UTC in Docker.</p>
                 <hr />
+                <h6>EPG Fetch</h6>
+                <p><strong>Target Days:</strong> Controls how many days of future EPG data to maintain. Higher values require more storage and longer fetch times.</p>
+                <p><strong>Auto-Fetch Interval:</strong> How often to automatically fetch new EPG data. Set all fields to 0 to disable. Must be at least 5 minutes when enabled. Recommended: 12 hours to not overload the source API</p>
+                <hr />
+                <h6>XMLTV Output</h6>
                 <p><strong>Auto-generate XMLTV:</strong> When enabled, the XMLTV file will be automatically generated after each auto-fetch completes.</p>
                 <p><strong>XMLTV Output Path:</strong> Where to save the generated XMLTV file. Can be relative or absolute path.</p>
                 <hr />
-                <p><strong>Appearance:</strong> Choose between Light, Dark, or Auto (follows your system/OS theme). Changes apply immediately.</p>
-                <hr />
+                <h6>Device</h6>
                 <p><strong>Device Address:</strong> The network address of your HDHomeRun device.</p>
                 <p><strong>Device Info Refresh:</strong> How often to refresh device information (model, firmware, etc.). Set to 0 to disable. Recommended: 10 minutes.</p>
                 <p><strong>Tuner Status Refresh:</strong> How often to refresh tuner status (signal strength, active streams). Set to 0 to disable. Recommended: 30 seconds.</p>
@@ -222,262 +266,3 @@
     </div>
 </div>
 
-@code {
-    private int _targetDays;
-    private int _autoFetchIntervalMinutes;
-    private string _deviceAddress = "";
-    private int _deviceRefreshIntervalMinutes;
-    private int _tunerRefreshIntervalSeconds;
-    private string _xmltvOutputPath = "";
-    private bool _autoGenerateXmltv;
-    private string _theme = "auto";
-    private bool _isSaving;
-    private string _statusMessage = "";
-    private bool _isError;
-    
-    // Directory browser state
-    private bool _showDirectoryBrowser;
-    private string _currentDirectory = "";
-    private string[] _directories = [];
-    private string? _directoryError;
-    private string _selectedFilename = "epg.xml";
-
-    protected override void OnInitialized()
-    {
-        LoadCurrentSettings();
-        SettingsService.OnSettingsChanged += OnSettingsChanged;
-    }
-
-    private void OnSettingsChanged()
-    {
-        InvokeAsync(() =>
-        {
-            // Only update the theme field from external changes (header toggle).
-            // Other fields are only loaded on init to avoid overwriting unsaved edits.
-            _theme = SettingsService.Settings.Theme;
-            StateHasChanged();
-        });
-    }
-
-    public void Dispose()
-    {
-        SettingsService.OnSettingsChanged -= OnSettingsChanged;
-    }
-
-private void LoadCurrentSettings()
-{
-    _targetDays = SettingsService.Settings.TargetDays;
-    _autoFetchIntervalMinutes = SettingsService.Settings.AutoFetchIntervalMinutes;
-    _deviceAddress = SettingsService.Settings.DeviceAddress;
-    _deviceRefreshIntervalMinutes = SettingsService.Settings.DeviceRefreshIntervalMinutes;
-    _tunerRefreshIntervalSeconds = SettingsService.Settings.TunerRefreshIntervalSeconds;
-    _xmltvOutputPath = SettingsService.Settings.XmltvOutputPath;
-    _autoGenerateXmltv = SettingsService.Settings.AutoGenerateXmltv;
-    _theme = SettingsService.Settings.Theme;
-}
-
-private async Task SaveSettings()
-{
-    _isSaving = true;
-    _statusMessage = "";
-    StateHasChanged();
-
-    try
-    {
-        // Validate
-        if (_targetDays < 1 || _targetDays > 14)
-        {
-            _statusMessage = "Target Days must be between 1 and 14.";
-            _isError = true;
-            return;
-        }
-
-        if (_autoFetchIntervalMinutes < 5 || _autoFetchIntervalMinutes > 1440)
-        if (_autoFetchIntervalMinutes < 0 || _autoFetchIntervalMinutes > 1440)
-        {
-            _statusMessage = "Auto-Fetch Interval must be between 0 and 1440 minutes.";
-            _isError = true;
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(_deviceAddress))
-        {
-            _statusMessage = "Device Address cannot be empty.";
-            _isError = true;
-            return;
-        }
-
-        if (_deviceRefreshIntervalMinutes < 0 || _deviceRefreshIntervalMinutes > 60)
-        {
-            _statusMessage = "Device Refresh Interval must be between 0 and 60 minutes.";
-            _isError = true;
-            return;
-        }
-
-        if (_tunerRefreshIntervalSeconds < 0 || _tunerRefreshIntervalSeconds > 300)
-        {
-            _statusMessage = "Tuner Refresh Interval must be between 0 and 300 seconds.";
-            _isError = true;
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(_xmltvOutputPath))
-        {
-            _statusMessage = "XMLTV Output Path cannot be empty.";
-            _isError = true;
-            return;
-        }
-
-        await SettingsService.UpdateAsync(settings =>
-        {
-            settings.TargetDays = _targetDays;
-            settings.AutoFetchIntervalMinutes = _autoFetchIntervalMinutes;
-            settings.DeviceAddress = _deviceAddress.Trim();
-            settings.DeviceRefreshIntervalMinutes = _deviceRefreshIntervalMinutes;
-            settings.TunerRefreshIntervalSeconds = _tunerRefreshIntervalSeconds;
-            settings.XmltvOutputPath = _xmltvOutputPath.Trim();
-            settings.AutoGenerateXmltv = _autoGenerateXmltv;
-            settings.Theme = _theme;
-        });
-
-        // Apply theme immediately via JS
-        await JS.InvokeVoidAsync("setTheme", _theme);
-
-        _statusMessage = "Settings saved successfully!";
-        _isError = false;
-    }
-    catch (Exception ex)
-    {
-        _statusMessage = $"Error saving settings: {ex.Message}";
-        _isError = true;
-    }
-    finally
-    {
-        _isSaving = false;
-    }
-}
-
-    private void ResetToDefaults()
-    {
-        var defaults = new AppSettings();
-        _targetDays = defaults.TargetDays;
-        _autoFetchIntervalMinutes = defaults.AutoFetchIntervalMinutes;
-        _deviceAddress = defaults.DeviceAddress;
-        _deviceRefreshIntervalMinutes = defaults.DeviceRefreshIntervalMinutes;
-        _tunerRefreshIntervalSeconds = defaults.TunerRefreshIntervalSeconds;
-        _xmltvOutputPath = defaults.XmltvOutputPath;
-        _autoGenerateXmltv = defaults.AutoGenerateXmltv;
-        _theme = defaults.Theme;
-        _statusMessage = "Settings reset to defaults. Click Save to apply.";
-        _isError = false;
-    }
-
-    private void Cancel()
-    {
-        Navigation.NavigateTo("/epg");
-    }
-
-    private void ClearStatus()
-    {
-        _statusMessage = "";
-    }
-
-    // Directory browser methods
-    private void BrowseDirectory()
-    {
-        _showDirectoryBrowser = true;
-        _directoryError = null;
-        
-        // Start from the current path's directory, or working directory
-        if (!string.IsNullOrEmpty(_xmltvOutputPath))
-        {
-            try
-            {
-                var resolvedPath = GetResolvedPath(_xmltvOutputPath);
-                var dir = Path.GetDirectoryName(resolvedPath);
-                if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
-                {
-                    _currentDirectory = dir;
-                    _selectedFilename = Path.GetFileName(_xmltvOutputPath);
-                    LoadDirectories();
-                    return;
-                }
-            }
-            catch { }
-        }
-        
-        // Default to working directory
-        _currentDirectory = Directory.GetCurrentDirectory();
-        LoadDirectories();
-    }
-
-    private void CloseDirectoryBrowser()
-    {
-        _showDirectoryBrowser = false;
-    }
-
-    private void LoadDirectories()
-    {
-        _directoryError = null;
-        try
-        {
-            _directories = Directory.GetDirectories(_currentDirectory)
-                .OrderBy(d => Path.GetFileName(d))
-                .ToArray();
-        }
-        catch (UnauthorizedAccessException)
-        {
-            _directoryError = "Access denied to this directory.";
-            _directories = [];
-        }
-        catch (Exception ex)
-        {
-            _directoryError = $"Error: {ex.Message}";
-            _directories = [];
-        }
-    }
-
-    private void NavigateToDirectory(string path)
-    {
-        _currentDirectory = path;
-        LoadDirectories();
-    }
-
-    private void NavigateUp()
-    {
-        var parent = Directory.GetParent(_currentDirectory);
-        if (parent != null)
-        {
-            _currentDirectory = parent.FullName;
-            LoadDirectories();
-        }
-    }
-
-    private bool CanNavigateUp => Directory.GetParent(_currentDirectory) != null;
-
-    private void SelectPath()
-    {
-        if (string.IsNullOrWhiteSpace(_selectedFilename))
-        {
-            _selectedFilename = "epg.xml";
-        }
-        
-        _xmltvOutputPath = Path.Combine(_currentDirectory, _selectedFilename);
-        _showDirectoryBrowser = false;
-    }
-
-    private static string GetResolvedPath(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return Path.Combine(Directory.GetCurrentDirectory(), "epg.xml");
-        }
-        
-        if (Path.IsPathRooted(path))
-        {
-            return Path.GetFullPath(path);
-        }
-        
-        return Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), path));
-    }
-}

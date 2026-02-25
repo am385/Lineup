@@ -8,8 +8,7 @@ namespace Lineup.Web.Services;
 /// </summary>
 public class AppSettings
 {
-    private int _targetDays = 3;
-    private int _autoFetchIntervalMinutes = 120;
+    private int _targetDays = 2;
     private int _deviceRefreshIntervalMinutes = 10;
     private int _tunerRefreshIntervalSeconds = 30;
 
@@ -23,20 +22,15 @@ public class AppSettings
     }
 
     /// <summary>
-    /// Interval in minutes between auto-fetch operations.
-    /// Set to 0 to disable auto-fetch.
-    /// Negative values are normalized to 0.
+    /// Interval between auto-fetch operations.
+    /// Set to TimeSpan.Zero to disable auto-fetch.
     /// </summary>
-    public int AutoFetchIntervalMinutes
-    {
-        get => _autoFetchIntervalMinutes;
-        set => _autoFetchIntervalMinutes = Math.Max(0, value);
-    }
+    public TimeSpan AutoFetchInterval { get; set; } = TimeSpan.Zero;
 
     /// <summary>
     /// Whether auto-fetch is enabled (interval > 0).
     /// </summary>
-    public bool IsAutoFetchEnabled => AutoFetchIntervalMinutes > 0;
+    public bool IsAutoFetchEnabled => AutoFetchInterval > TimeSpan.Zero;
 
     /// <summary>
     /// HDHomeRun device address.
@@ -79,7 +73,7 @@ public class AppSettings
     /// Output path for the generated XMLTV file.
     /// Can be a filename (relative to working directory) or absolute path.
     /// </summary>
-    public string XmltvOutputPath { get; set; } = AppConstants.DefaultXmltvFileName;
+    public string XmltvOutputPath { get; set; } = Path.Combine(AppConstants.DefaultXmltvFilePath, AppConstants.DefaultXmltvFileName);
 
     /// <summary>
     /// Whether to automatically generate XMLTV file after auto-fetch completes.
@@ -92,10 +86,22 @@ public class AppSettings
     public string Theme { get; set; } = "auto";
 
     /// <summary>
+    /// IANA timezone ID for display (e.g., "America/New_York").
+    /// Empty/null means use the TZ environment variable or system default.
+    /// </summary>
+    public string TimeZoneId { get; set; } = "";
+
+    /// <summary>
     /// UTC timestamp of the last successful auto-fetch.
     /// Persisted so the service can calculate remaining time on restart instead of fetching immediately.
     /// </summary>
     public DateTime? LastAutoFetchTime { get; set; }
+
+    /// <summary>
+    /// Whether initial setup has been completed.
+    /// False on first launch; set to true when settings are saved for the first time.
+    /// </summary>
+    public bool IsSetupComplete { get; set; }
 }
 
 /// <summary>

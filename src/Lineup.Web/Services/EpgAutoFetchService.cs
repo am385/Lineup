@@ -31,14 +31,14 @@ public class EpgAutoFetchService : BackgroundService
         _settingsService.OnSettingsChanged += OnSettingsChanged;
     }
 
-    private TimeSpan FetchInterval => TimeSpan.FromMinutes(_settingsService.Settings.AutoFetchIntervalMinutes);
+    private TimeSpan FetchInterval => _settingsService.Settings.AutoFetchInterval;
     private int TargetDays => _settingsService.Settings.TargetDays;
     private bool IsEnabled => _settingsService.Settings.IsAutoFetchEnabled;
 
     private void OnSettingsChanged()
     {
-        _logger.LogInformation("Settings changed. Auto-fetch enabled: {Enabled}, Interval: {Interval} min",
-            IsEnabled, _settingsService.Settings.AutoFetchIntervalMinutes);
+        _logger.LogInformation("Settings changed. Auto-fetch enabled: {Enabled}, Interval: {Interval}",
+            IsEnabled, _settingsService.Settings.AutoFetchInterval);
 
         // Update the state service with new schedule
         _stateService.UpdateSchedule(IsEnabled, IsEnabled ? FetchInterval : null);
@@ -52,8 +52,8 @@ public class EpgAutoFetchService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("EPG Auto-Fetch Service started. Interval: {Interval} min, Target: {Days} days, Enabled: {Enabled}",
-            _settingsService.Settings.AutoFetchIntervalMinutes, TargetDays, IsEnabled);
+        _logger.LogInformation("EPG Auto-Fetch Service started. Interval: {Interval}, Target: {Days} days, Enabled: {Enabled}",
+            _settingsService.Settings.AutoFetchInterval, TargetDays, IsEnabled);
 
         // Calculate initial delay based on persisted last fetch time
         var initialDelay = CalculateInitialDelay();
@@ -85,16 +85,24 @@ public class EpgAutoFetchService : BackgroundService
                 _logger.LogError(ex, "Error during automatic EPG fetch");
             }
 
-            // Schedule and wait for next fetch
-            if (IsEnabled)
+            // Wait for the next fetch interval, restarting the delay if settings change
+            while (!stoppingToken.IsCancellationRequested)
             {
-                _stateService.UpdateSchedule(true, FetchInterval);
-                await SafeDelayAsync(FetchInterval, stoppingToken);
-            }
-            else
-            {
-                // When disabled, check periodically if re-enabled
-                await SafeDelayAsync(TimeSpan.FromSeconds(10), stoppingToken);
+                if (IsEnabled)
+                {
+                    _stateService.UpdateSchedule(true, FetchInterval);
+                    if (await SafeDelayAsync(FetchInterval, stoppingToken))
+                    {
+                        break; // Delay completed normally, proceed to fetch
+                    }
+                    // Settings changed — loop back to re-evaluate and start a new delay
+                    _logger.LogDebug("Restarting delay with updated interval: {Interval}", FetchInterval);
+                }
+                else
+                {
+                    // When disabled, check periodically if re-enabled
+                    await SafeDelayAsync(TimeSpan.FromSeconds(10), stoppingToken);
+                }
             }
         }
 
@@ -137,8 +145,9 @@ public class EpgAutoFetchService : BackgroundService
 
     /// <summary>
     /// Delays for the specified time, but can be cancelled early when settings change.
+    /// Returns true if the delay completed normally, false if cancelled by a settings change.
     /// </summary>
-    private async Task SafeDelayAsync(TimeSpan delay, CancellationToken stoppingToken)
+    private async Task<bool> SafeDelayAsync(TimeSpan delay, CancellationToken stoppingToken)
     {
         CancellationTokenSource delayCts;
 
@@ -152,11 +161,13 @@ public class EpgAutoFetchService : BackgroundService
         try
         {
             await Task.Delay(delay, delayCts.Token);
+            return true;
         }
         catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
         {
             // Settings changed, delay was cancelled - this is expected
             _logger.LogDebug("Delay cancelled due to settings change");
+            return false;
         }
     }
 

@@ -1,5 +1,5 @@
 @page "/about"
-@using System.Reflection
+@rendermode InteractiveServer
 
 <PageTitle>About</PageTitle>
 
@@ -25,16 +25,41 @@
                 </dl>
             </div>
         </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>XMLTV Guide URL</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-2">Use this URL if your media server can handle a URL for the XMLTV guide source.</p>
+                <div class="input-group">
+                    <input type="text" class="form-control" value="@_xmltvUrl" readonly />
+                    <button class="btn btn-outline-secondary" type="button" @onclick="CopyXmltvUrl" title="Copy to clipboard">
+                        <span class="bi @(_copied ? "bi-check-lg text-success" : "bi-clipboard")"></span>
+                    </button>
+                </div>
+                @if (_copied)
+                {
+                    <small class="text-success mt-1 d-block">Copied to clipboard!</small>
+                }
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>XMLTV File Access</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-2">
+                    If your media server can read files directly (e.g., running on the same host), you can point it to the
+                    XMLTV file on the mounted Docker volume instead of using the URL.
+                </p>
+                <p class="mb-2">Mount the <code>/xmltv</code> volume to a host directory in your <code>docker-compose.yml</code>:</p>
+                <pre class="bg-body-secondary rounded p-3 mb-2"><code>volumes:
+  - ./xmltv:/xmltv</code></pre>
+                <p class="mb-0">Then use the file path on your host:</p>
+                <pre class="bg-body-secondary rounded p-3 mb-0"><code>./xmltv/epg.xml</code></pre>
+            </div>
+        </div>
     </div>
 </div>
-
-@code {
-    private string _version = "Unknown";
-
-    protected override void OnInitialized()
-    {
-        _version = Assembly.GetExecutingAssembly()
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
-            ?.InformationalVersion ?? "Unknown";
-    }
-}

@@ -68,7 +68,7 @@ Or using the production image:
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-The Docker image includes ffmpeg for live TV transcoding. Data is persisted via a named volume at `/app/data`. Use `network_mode: host` if your HDHomeRun device requires local network discovery.
+The Docker image includes ffmpeg for live TV transcoding. Data is persisted via a named volume at `/config`. Use `network_mode: host` if your HDHomeRun device requires local network discovery.
 
 ## Configuration
 

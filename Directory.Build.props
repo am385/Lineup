@@ -3,6 +3,13 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>1.0.0-beta</Version>
+    <Version>1.1.0</Version>
   </PropertyGroup>
+
+  <!-- Append git short hash to InformationalVersion (e.g., 1.1.0+abc1234) -->
+  <Target Name="SetSourceRevisionId" BeforeTargets="InitializeSourceControlInformation" Condition="'$(SourceRevisionId)' == ''">
+    <Exec Command="git rev-parse --short HEAD" ConsoleToMSBuild="true" IgnoreExitCode="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="SourceRevisionId" />
+    </Exec>
+  </Target>
 </Project>

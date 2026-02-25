@@ -206,7 +206,7 @@ class Program
 
     static async Task ExportXmltvAsync()
     {
-        const string defaultSourceFile = AppConstants.DefaultXmltvFileName;
+        var defaultSourceFile = Path.Combine(AppConstants.DefaultXmltvFilePath, AppConstants.DefaultXmltvFileName);
         
         if (!File.Exists(defaultSourceFile))
         {

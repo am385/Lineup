@@ -5,25 +5,50 @@ using Lineup.Web.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Resolve application data directory from configuration (supports appsettings.json + environment variables)
-// Environment variable: Lineup__AppDataPath (maps to Lineup:AppDataPath)
-var appDataPath = builder.Configuration[AppConstants.AppDataPathConfigKey] ?? Directory.GetCurrentDirectory();
-if (!Directory.Exists(appDataPath))
+// Configure Kestrel to optionally enable HTTPS when a certificate is available
+if (!builder.Environment.IsDevelopment())
 {
-    Directory.CreateDirectory(appDataPath);
+    builder.WebHost.ConfigureKestrel((context, serverOptions) =>
+    {
+        var httpPort = context.Configuration.GetValue(AppConstants.HttpPortConfigKey, AppConstants.DefaultHttpPort);
+        var httpsPort = context.Configuration.GetValue(AppConstants.HttpsPortConfigKey, AppConstants.DefaultHttpsPort);
+        var certPath = context.Configuration["Kestrel:Certificates:Default:Path"];
+        var certPassword = context.Configuration["Kestrel:Certificates:Default:Password"];
+
+        serverOptions.ListenAnyIP(httpPort);
+
+        if (!string.IsNullOrEmpty(certPath) && File.Exists(certPath))
+        {
+            serverOptions.ListenAnyIP(httpsPort, listenOptions =>
+            {
+                listenOptions.UseHttps(certPath, certPassword ?? string.Empty);
+            });
+        }
+    });
+}
+
+// Resolve application config directory from configuration (supports appsettings.json + environment variables)
+// Environment variable: Lineup__ConfigPath (maps to Lineup:ConfigPath)
+var configPath = builder.Configuration[AppConstants.ConfigPathConfigKey] ?? Directory.GetCurrentDirectory();
+if (!Directory.Exists(configPath))
+{
+    Directory.CreateDirectory(configPath);
 }
 
 // Add application settings service (must be registered before services that depend on it)
 builder.Services.AddSingleton<IAppSettingsService>(sp =>
     new AppSettingsService(
         sp.GetRequiredService<ILogger<AppSettingsService>>(),
-        Path.Combine(appDataPath, AppConstants.SettingsFileName)));
+        Path.Combine(configPath, AppConstants.SettingsFileName)));
 
 // Register dynamic device address provider (uses settings service)
 builder.Services.AddSingleton<IDeviceAddressProvider, SettingsDeviceAddressProvider>();
 
+// Add timezone service (resolves from settings ? TZ env var ? UTC)
+builder.Services.AddSingleton<ITimeZoneService, TimeZoneService>();
+
 // Add EPG Core services (device address from settings, not config)
-var databasePath = Path.Combine(appDataPath, AppConstants.DefaultDatabaseFileName);
+var databasePath = Path.Combine(configPath, AppConstants.DefaultDatabaseFileName);
 builder.Services.AddEpgCore(databasePath: databasePath);
 
 // Add HDHomeRun device control service (uses native protocol)

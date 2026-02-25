@@ -3,16 +3,29 @@ services:
     image: ${DOCKER_IMAGE:-am385/lineup:latest}
     container_name: lineup
     ports:
-      - "8080:8080"
+      - "${HTTP_PORT:-8080}:${HTTP_PORT:-8080}"
+      - "${HTTPS_PORT:-8443}:${HTTPS_PORT:-8443}"
     volumes:
-      - epg-data:/app/data
+      # Persist database and app settings across container restarts
+      - config:/config
+      # Persist XMLTV output across container restarts (optional, only if you use the XMLTV output feature)
+      - xmltv:/xmltv
+      # Mount a directory containing your PFX certificate for HTTPS
+      # e.g., place lineup.pfx in ./certs/
+      - ./certs:/app/certs:ro
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
-      - Lineup__AppDataPath=/app/data
+      - Lineup__ConfigPath=/config
+      - Lineup__XmltvPath=/xmltv
+      - Lineup__HttpPort=${HTTP_PORT:-8080}
+      - Lineup__HttpsPort=${HTTPS_PORT:-8443}
+      - Kestrel__Certificates__Default__Path=/app/certs/lineup.pfx
+      - Kestrel__Certificates__Default__Password=${CERT_PASSWORD:-}
     # Use host network mode if the HDHomeRun device is on the local network
     # and you need device discovery to work.
     # network_mode: host
     restart: unless-stopped
 
 volumes:
-  epg-data:
+  config:
+  xmltv:
