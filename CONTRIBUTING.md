@@ -68,7 +68,19 @@ The app starts on `http://localhost:8080`.
 - Prefer `var` only when the type is apparent from the right-hand side
 - Private fields should use `_camelCase` naming
 - Keep methods focused and small
-- Add XML documentation for public APIs
+
+#### Tests
+
+- Every new test must use explicit `// Arrange`, `// Act`, and `// Assert` sections.
+
+#### Formatting
+
+- Keep method arguments and parameter lists on one line unless wrapping materially improves readability or is required by the formatter.
+- Use a 225-character line limit for constructors and methods.
+
+#### Documentation
+
+- Every non-private entity must have an XML documentation comment.
 
 ### Commit Messages
 

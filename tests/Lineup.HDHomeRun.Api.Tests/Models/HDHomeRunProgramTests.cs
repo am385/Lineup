@@ -3,12 +3,19 @@ using Xunit;
 
 namespace Lineup.HDHomeRun.Api.Tests.Models;
 
+/// <summary>
+/// Represents hd home run program tests.
+/// </summary>
 public class HDHomeRunProgramTests
 {
+    /// <summary>
+    /// Performs the hd home run program_can be created_with all properties operation.
+    /// </summary>
     [Fact]
     public void HDHomeRunProgram_CanBeCreated_WithAllProperties()
     {
-        // Arrange & Act
+        // Arrange
+        // Act
         var program = new HDHomeRunProgram
         {
             Title = "Test Show",
@@ -37,6 +44,9 @@ public class HDHomeRunProgramTests
         Assert.Contains("drama", program.Filter!);
     }
 
+    /// <summary>
+    /// Performs the hd home run program_record_supports with expression operation.
+    /// </summary>
     [Fact]
     public void HDHomeRunProgram_Record_SupportsWithExpression()
     {
@@ -57,11 +67,15 @@ public class HDHomeRunProgramTests
         Assert.Null(original.GuideNumber); // Original unchanged
     }
 
+    /// <summary>
+    /// Performs the hd home run program_filter_can be null or empty operation.
+    /// </summary>
     [Fact]
     public void HDHomeRunProgram_Filter_CanBeNullOrEmpty()
     {
-        // Arrange & Act
+        // Arrange
         var programWithNull = new HDHomeRunProgram { Title = "Show 1", Filter = null };
+        // Act
         var programWithEmpty = new HDHomeRunProgram { Title = "Show 2", Filter = [] };
 
         // Assert

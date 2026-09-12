@@ -5,10 +5,25 @@ namespace Lineup.Core;
 /// </summary>
 public enum FetchStatus
 {
+    /// <summary>
+    /// Represents initializing.
+    /// </summary>
     Initializing,
+    /// <summary>
+    /// Represents fetching.
+    /// </summary>
     Fetching,
+    /// <summary>
+    /// Represents storing.
+    /// </summary>
     Storing,
+    /// <summary>
+    /// Represents completed.
+    /// </summary>
     Completed,
+    /// <summary>
+    /// Represents failed.
+    /// </summary>
     Failed
 }
 
@@ -64,14 +79,31 @@ public record FetchProgressInfo
     {
         get
         {
+            if (TargetEndTime == default)
+            {
+                return Status switch
+                {
+                    FetchStatus.Initializing => 0,
+                    FetchStatus.Fetching => 25,
+                    FetchStatus.Storing => 75,
+                    FetchStatus.Completed => 100,
+                    _ => 0
+                };
+            }
+
             if (!CurrentEndTime.HasValue || CurrentEndTime.Value <= DateTime.UtcNow)
+            {
                 return 0;
+            }
 
             var now = DateTime.UtcNow;
             var totalSpan = (TargetEndTime - now).TotalHours;
             var currentSpan = (CurrentEndTime.Value - now).TotalHours;
 
-            if (totalSpan <= 0) return 100;
+            if (totalSpan <= 0)
+            {
+                return 100;
+            }
 
             var percent = (int)Math.Min(100, (currentSpan / totalSpan) * 100);
             return Math.Max(0, percent);

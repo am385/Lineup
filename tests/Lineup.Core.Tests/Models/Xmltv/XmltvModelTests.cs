@@ -3,12 +3,19 @@ using Xunit;
 
 namespace Lineup.Core.Tests.Models.Xmltv;
 
+/// <summary>
+/// Represents xmltv document tests.
+/// </summary>
 public class XmltvDocumentTests
 {
+    /// <summary>
+    /// Performs the xmltv document_has default empty collections operation.
+    /// </summary>
     [Fact]
     public void XmltvDocument_HasDefaultEmptyCollections()
     {
-        // Arrange & Act
+        // Arrange
+        // Act
         var document = new XmltvDocument();
 
         // Assert
@@ -20,6 +27,9 @@ public class XmltvDocumentTests
         Assert.Equal(string.Empty, document.GeneratorInfoName);
     }
 
+    /// <summary>
+    /// Performs the xmltv document_can add channels operation.
+    /// </summary>
     [Fact]
     public void XmltvDocument_CanAddChannels()
     {
@@ -39,6 +49,9 @@ public class XmltvDocumentTests
         Assert.Equal("5.1", document.Channels[0].Id);
     }
 
+    /// <summary>
+    /// Performs the xmltv document_can add programmes operation.
+    /// </summary>
     [Fact]
     public void XmltvDocument_CanAddProgrammes()
     {
@@ -61,12 +74,19 @@ public class XmltvDocumentTests
     }
 }
 
+/// <summary>
+/// Represents xmltv channel tests.
+/// </summary>
 public class XmltvChannelTests
 {
+    /// <summary>
+    /// Performs the xmltv channel_has default empty strings operation.
+    /// </summary>
     [Fact]
     public void XmltvChannel_HasDefaultEmptyStrings()
     {
-        // Arrange & Act
+        // Arrange
+        // Act
         var channel = new XmltvChannel();
 
         // Assert
@@ -75,10 +95,14 @@ public class XmltvChannelTests
         Assert.Null(channel.Icon);
     }
 
+    /// <summary>
+    /// Performs the xmltv channel_can set all properties operation.
+    /// </summary>
     [Fact]
     public void XmltvChannel_CanSetAllProperties()
     {
-        // Arrange & Act
+        // Arrange
+        // Act
         var channel = new XmltvChannel
         {
             Id = "7.1",
@@ -94,12 +118,19 @@ public class XmltvChannelTests
     }
 }
 
+/// <summary>
+/// Represents xmltv programme tests.
+/// </summary>
 public class XmltvProgrammeTests
 {
+    /// <summary>
+    /// Performs the xmltv programme_has default empty collections operation.
+    /// </summary>
     [Fact]
     public void XmltvProgramme_HasDefaultEmptyCollections()
     {
-        // Arrange & Act
+        // Arrange
+        // Act
         var programme = new XmltvProgramme();
 
         // Assert
@@ -112,10 +143,14 @@ public class XmltvProgrammeTests
         Assert.Equal(string.Empty, programme.Channel);
     }
 
+    /// <summary>
+    /// Performs the xmltv programme_can set optional fields operation.
+    /// </summary>
     [Fact]
     public void XmltvProgramme_CanSetOptionalFields()
     {
-        // Arrange & Act
+        // Arrange
+        // Act
         var programme = new XmltvProgramme
         {
             Start = "20240101120000 +0000",
@@ -138,14 +173,17 @@ public class XmltvProgrammeTests
         Assert.NotNull(programme.New);
     }
 
+    /// <summary>
+    /// Performs the xmltv programme_can add categories operation.
+    /// </summary>
     [Fact]
     public void XmltvProgramme_CanAddCategories()
     {
         // Arrange
         var programme = new XmltvProgramme();
 
-        // Act
         programme.Categories.Add(new XmltvText { Language = "en", Value = "Drama" });
+        // Act
         programme.Categories.Add(new XmltvText { Language = "en", Value = "Action" });
 
         // Assert
@@ -154,14 +192,17 @@ public class XmltvProgrammeTests
         Assert.Equal("Action", programme.Categories[1].Value);
     }
 
+    /// <summary>
+    /// Performs the xmltv programme_can add episode numbers operation.
+    /// </summary>
     [Fact]
     public void XmltvProgramme_CanAddEpisodeNumbers()
     {
         // Arrange
         var programme = new XmltvProgramme();
 
-        // Act
         programme.EpisodeNumbers.Add(new XmltvEpisodeNum { System = "xmltv_ns", Value = "1.5.0/1" });
+        // Act
         programme.EpisodeNumbers.Add(new XmltvEpisodeNum { System = "onscreen", Value = "S2E6" });
 
         // Assert
@@ -171,12 +212,19 @@ public class XmltvProgrammeTests
     }
 }
 
+/// <summary>
+/// Represents xmltv text tests.
+/// </summary>
 public class XmltvTextTests
 {
+    /// <summary>
+    /// Performs the xmltv text_has default values operation.
+    /// </summary>
     [Fact]
     public void XmltvText_HasDefaultValues()
     {
-        // Arrange & Act
+        // Arrange
+        // Act
         var text = new XmltvText();
 
         // Assert
@@ -184,10 +232,14 @@ public class XmltvTextTests
         Assert.Equal(string.Empty, text.Value);
     }
 
+    /// <summary>
+    /// Performs the xmltv text_can set properties operation.
+    /// </summary>
     [Fact]
     public void XmltvText_CanSetProperties()
     {
-        // Arrange & Act
+        // Arrange
+        // Act
         var text = new XmltvText
         {
             Language = "es",

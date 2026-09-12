@@ -1,6 +1,7 @@
 @page "/"
 @page "/dashboard"
 @using Lineup.Core
+@using Lineup.Web.Services
 @rendermode InteractiveServer
 
 <PageTitle>Dashboard</PageTitle>
@@ -14,9 +15,25 @@
 }
 else
 {
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <div>
+                <h5 class="mb-0"><span class="bi bi-calendar3 me-1"></span>Guide &amp; XMLTV</h5>
+                <small class="text-muted">@_stats.ChannelCount channels · @_stats.ProgramCount programs</small>
+            </div>
+            <button id="toggleGuideSection" type="button" class="btn btn-sm btn-outline-secondary"
+                    aria-expanded="@_guideExpanded" aria-controls="guideSection"
+                    @onclick="() => _guideExpanded = !_guideExpanded">
+                <span class="@(_guideExpanded ? "bi bi-chevron-up" : "bi bi-chevron-down")"></span>
+                <span class="visually-hidden">@(_guideExpanded ? "Collapse" : "Expand") Guide section</span>
+            </button>
+        </div>
+        @if (_guideExpanded)
+        {
+        <div id="guideSection" class="card-body">
     <div class="row mb-4">
         <div class="col-md-3">
-            <div class="card">
+            <div class="card h-100">
                 <div class="card-body text-center">
                     <h5 class="card-title">Channels</h5>
                     <p class="display-4">@_stats.ChannelCount</p>
@@ -24,7 +41,7 @@ else
             </div>
         </div>
         <div class="col-md-3">
-            <div class="card">
+            <div class="card h-100">
                 <div class="card-body text-center">
                     <h5 class="card-title">Programs</h5>
                     <p class="display-4">@_stats.ProgramCount</p>
@@ -32,7 +49,7 @@ else
             </div>
         </div>
         <div class="col-md-3">
-            <div class="card">
+            <div class="card h-100">
                 <div class="card-body text-center">
                     <h5 class="card-title">Remaining</h5>
                     <p class="h4">@(_stats.TotalTimeSpan?.ToString(@"d' days 'h' hrs'") ?? "N/A")</p>
@@ -40,7 +57,7 @@ else
             </div>
         </div>
         <div class="col-md-3">
-            <div class="card @(AutoFetchState.IsRunning ? "border-info" : "") @(!AutoFetchState.IsEnabled ? "border-secondary" : "")">
+            <div class="card h-100 @(AutoFetchState.IsRunning ? "border-info" : "") @(!AutoFetchState.IsEnabled ? "border-secondary" : "")">
                 <div class="card-body text-center">
                     <h5 class="card-title">Auto-Fetch</h5>
                     @if (!AutoFetchState.IsEnabled)
@@ -49,7 +66,7 @@ else
                             <span class="bi bi-pause-circle me-1"></span>
                             Disabled
                         </p>
-                        <small class="text-muted">Enable in <a href="/settings">Settings</a></small>
+                        <small class="text-muted">Enable in <a href="/settings#guide">Settings</a></small>
                     }
                     else if (AutoFetchState.IsRunning)
                     {
@@ -77,9 +94,9 @@ else
 
     <div class="row mb-4">
         <div class="col-md-6">
-            <div class="card">
+            <div class="card h-100">
                 <div class="card-header">
-                    <h5>Time Range</h5>
+                    <h5 class="mb-0">Time Range</h5>
                 </div>
                 <div class="card-body">
                     <p><strong>Earliest:</strong> @(_stats.EarliestProgramStart?.ToString("yyyy-MM-dd HH:mm") ?? "N/A") UTC</p>
@@ -92,22 +109,13 @@ else
             </div>
         </div>
         <div class="col-md-6">
-            <div class="card">
+            <div class="card h-100">
                 <div class="card-header">
-                    <h5>Actions</h5>
+                    <h5 class="mb-0">Actions</h5>
                 </div>
                 <div class="card-body">
-                    <div class="row mb-3">
-                        <div class="col-md-6">
-                            <label for="targetDays" class="form-label">Target Days</label>
-                            <input type="number" class="form-control" id="targetDays" @bind="_targetDays" min="1" max="14" disabled="@_isBusy" />
-                        </div>
-                        <div class="col-md-6 d-flex align-items-end">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="forceFetch" @bind="_forceFetch" disabled="@_isBusy" />
-                                <label class="form-check-label" for="forceFetch">Force fetch (ignore cache)</label>
-                            </div>
-                        </div>
+                    <div class="alert alert-info py-2 mb-3">
+                        SiliconDust returns the complete available guide in one request: 2 days normally or 14 days with a DVR subscription.
                     </div>
                     <button class="btn btn-primary me-2" @onclick="FetchData" disabled="@_isBusy">
                         @if (_isBusy && _currentAction == "fetch")
@@ -139,41 +147,47 @@ else
             </div>
         </div>
     </div>
+        </div>
+        }
+    </div>
 
     <div class="row mb-4">
         <div class="col-12">
-            <div class="card @(DeviceState.IsDiscovered ? "border-success" : "") @(DeviceState.LastError != null ? "border-danger" : "")">
+            <div class="card @(DeviceState.LastError != null ? "border-danger" : "")">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <h5 class="mb-0"><span class="bi bi-router me-1"></span>HDHomeRun Device</h5>
-                    <div>
-                        <button class="btn btn-sm btn-outline-primary me-2" @onclick="DiscoverDevice" disabled="@DeviceState.IsDiscovering">
-                            @if (DeviceState.IsDiscovering)
-                            {
-                                <span class="spinner-border spinner-border-sm me-1"></span>
-                            }
-                            <span class="bi bi-search me-1"></span>Discover
-                        </button>
+                    <div class="d-flex align-items-center">
                         @if (DeviceState.ProtocolDevice != null)
                         {
-                            <button class="btn btn-sm btn-outline-info me-2" @onclick="RefreshTunerStatus" disabled="@DeviceState.IsRefreshingTuners">
+                            <button class="btn btn-sm btn-outline-primary" @onclick="RefreshTunerStatus" disabled="@DeviceState.IsRefreshingTuners">
                                 @if (DeviceState.IsRefreshingTuners)
                                 {
                                     <span class="spinner-border spinner-border-sm me-1"></span>
                                 }
                                 <span class="bi bi-arrow-clockwise me-1"></span>Refresh Tuners
                             </button>
-                            <button class="btn btn-sm btn-outline-danger" @onclick="ShowRestartConfirm" disabled="@_isRestarting">
-                                @if (_isRestarting)
-                                {
-                                    <span class="spinner-border spinner-border-sm me-1"></span>
-                                }
-                                <span class="bi bi-power me-1"></span>Restart Device
-                            </button>
                         }
+                        <button id="toggleDeviceSection" type="button" class="btn btn-sm btn-outline-secondary ms-2"
+                                aria-expanded="@_deviceExpanded" aria-controls="deviceSection"
+                                @onclick="() => _deviceExpanded = !_deviceExpanded">
+                            <span class="@(_deviceExpanded ? "bi bi-chevron-up" : "bi bi-chevron-down")"></span>
+                            <span class="visually-hidden">@(_deviceExpanded ? "Collapse" : "Expand") Device section</span>
+                        </button>
                     </div>
                 </div>
-                <div class="card-body">
-                    <p class="mb-2"><strong>Device Address:</strong> <code>@SettingsService.Settings.DeviceAddress</code></p>
+                @if (_deviceExpanded)
+                {
+                <div id="deviceSection" class="card-body">
+                    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                        <p class="mb-0"><strong>Device Address:</strong> <code>@SettingsService.Settings.DeviceAddress</code></p>
+                        <button class="btn btn-sm btn-outline-primary" @onclick="DiscoverDevice" disabled="@DeviceState.IsDiscovering">
+                            @if (DeviceState.IsDiscovering)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                            }
+                            <span class="bi bi-search me-1"></span>Discover
+                        </button>
+                    </div>
                     
                     @if (DeviceState.IsDiscovering)
                     {
@@ -356,7 +370,20 @@ else
                             Discovering device automatically... or click "Discover" to connect manually.
                         </p>
                     }
+                    @if (DeviceState.ProtocolDevice != null)
+                    {
+                        <div class="d-flex justify-content-end mt-3">
+                            <button class="btn btn-sm btn-outline-danger" @onclick="ShowRestartConfirm" disabled="@_isRestarting">
+                                @if (_isRestarting)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-1"></span>
+                                }
+                                <span class="bi bi-power me-1"></span>Restart Device
+                            </button>
+                        </div>
+                    }
                 </div>
+                }
             </div>
         </div>
     </div>
@@ -435,7 +462,7 @@ else
     {
         <div class="card mb-4">
             <div class="card-header">
-                <h5><span class="bi bi-graph-up me-1"></span>Manual Fetch Progress</h5>
+                <h5 class="mb-0"><span class="bi bi-graph-up me-1"></span>Manual Fetch Progress</h5>
             </div>
             <div class="card-body">
                 <div class="row mb-2">
@@ -476,5 +503,111 @@ else
             <button type="button" class="btn-close" @onclick="ClearStatus"></button>
         </div>
     }
-}
 
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <div>
+                <h5 class="mb-0"><span class="bi bi-broadcast-pin me-1"></span>Active Streams</h5>
+                <small class="text-muted">
+                    @_activeStreams.Count active
+                    @if (_activeStreamsLastRefreshUtc.HasValue)
+                    {
+                        <span> · refreshed @Tz.ConvertFromUtc(_activeStreamsLastRefreshUtc.Value).ToString("HH:mm:ss")</span>
+                    }
+                    @if (!SettingsService.Settings.IsActiveStreamRefreshEnabled)
+                    {
+                        <span> · auto-refresh disabled</span>
+                    }
+                    else
+                    {
+                        <span> · every @SettingsService.Settings.ActiveStreamRefreshIntervalSeconds seconds</span>
+                    }
+                </small>
+            </div>
+            <div class="d-flex align-items-center">
+                <button id="refreshActiveStreams" class="btn btn-sm btn-outline-primary" @onclick="RefreshActiveStreams">
+                    <span class="bi bi-arrow-clockwise me-1"></span>Refresh
+                </button>
+                <button id="toggleActiveStreamsSection" type="button" class="btn btn-sm btn-outline-secondary ms-2"
+                        aria-expanded="@_activeStreamsExpanded" aria-controls="activeStreamsSection"
+                        @onclick="() => _activeStreamsExpanded = !_activeStreamsExpanded">
+                    <span class="@(_activeStreamsExpanded ? "bi bi-chevron-up" : "bi bi-chevron-down")"></span>
+                    <span class="visually-hidden">@(_activeStreamsExpanded ? "Collapse" : "Expand") Active Streams section</span>
+                </button>
+            </div>
+        </div>
+        @if (_activeStreamsExpanded)
+        {
+        <div id="activeStreamsSection" class="card-body">
+            @if (_activeStreams.Count == 0)
+            {
+                <div class="text-center text-muted py-4">
+                    <span class="bi bi-broadcast display-6"></span>
+                    <p class="mb-0 mt-2">No streams are currently hosted by Lineup.</p>
+                </div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Channel</th>
+                                <th>Session</th>
+                                <th>Client</th>
+                                <th>Format</th>
+                                <th>Active</th>
+                                <th>Source</th>
+                                <th>Output to Receiver</th>
+                                <th><span class="visually-hidden">Actions</span></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var stream in _activeStreams)
+                            {
+                                <tr>
+                                    <td><strong>@stream.Channel</strong></td>
+                                    <td><code>@stream.SessionId</code></td>
+                                    <td><code>@(stream.ClientAddress ?? "Unknown")</code></td>
+                                    <td><span class="badge bg-info">@FormatHostedStreamFormat(stream.Format)</span></td>
+                                    <td>@FormatStreamDuration(stream.StartedAtUtc)</td>
+                                    <td>
+                                        @foreach (var track in stream.Tracks)
+                                        {
+                                            <div class="small">
+                                                <span class="badge @(track.Type == MediaTrackType.Video ? "bg-primary" : "bg-secondary") me-1">@track.Type</span>
+                                                @FormatSourceTrack(track)
+                                            </div>
+                                        }
+                                        @if (stream.SourceBitRate.HasValue)
+                                        {
+                                            <div class="small text-muted mt-1">Total: @FormatBitRate(stream.SourceBitRate)</div>
+                                        }
+                                    </td>
+                                    <td>
+                                        @foreach (var track in stream.Tracks)
+                                        {
+                                            <div class="small">
+                                                <span class="badge @(track.Type == MediaTrackType.Video ? "bg-primary" : "bg-secondary") me-1">@track.Type</span>
+                                                @FormatOutputTrack(track)
+                                            </div>
+                                        }
+                                    </td>
+                                    <td class="text-end">
+                                        <button class="btn btn-sm btn-outline-danger"
+                                                disabled="@_stoppingStreams.Contains(stream.SessionId)"
+                                                aria-label="Stop stream @stream.SessionId"
+                                                @onclick="() => StopActiveStream(stream.SessionId)">
+                                            <span class="bi bi-stop-fill me-1"></span>Stop
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+        }
+    </div>
+}

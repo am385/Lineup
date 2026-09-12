@@ -109,11 +109,18 @@ public static class HDHomeRunProtocolDebug
             for (int j = 0; j < 16; j++)
             {
                 if (i + j < data.Length)
+                {
                     sb.Append($"{data[i + j]:X2} ");
+                }
                 else
+                {
                     sb.Append("   ");
+                }
 
-                if (j == 7) sb.Append(' ');
+                if (j == 7)
+                {
+                    sb.Append(' ');
+                }
             }
 
             sb.Append(" |");
@@ -192,32 +199,95 @@ public static class HDHomeRunProtocolDebug
     }
 }
 
+/// <summary>
+/// Represents packet debug info.
+/// </summary>
 public record PacketDebugInfo
 {
+    /// <summary>
+    /// Gets or sets variable name.
+    /// </summary>
     public required string VariableName { get; init; }
+    /// <summary>
+    /// Gets or sets name bytes.
+    /// </summary>
     public required byte[] NameBytes { get; init; }
+    /// <summary>
+    /// Gets or sets full packet.
+    /// </summary>
     public required byte[] FullPacket { get; init; }
+    /// <summary>
+    /// Gets or sets header.
+    /// </summary>
     public required byte[] Header { get; init; }
+    /// <summary>
+    /// Gets or sets payload.
+    /// </summary>
     public required byte[] Payload { get; init; }
+    /// <summary>
+    /// Gets or sets crc.
+    /// </summary>
     public required byte[] Crc { get; init; }
+    /// <summary>
+    /// Gets or sets packet type.
+    /// </summary>
     public ushort PacketType { get; init; }
+    /// <summary>
+    /// Gets or sets payload length.
+    /// </summary>
     public ushort PayloadLength { get; init; }
+    /// <summary>
+    /// Gets or sets crc value.
+    /// </summary>
     public uint CrcValue { get; init; }
+    /// <summary>
+    /// Gets or sets calculated crc.
+    /// </summary>
     public uint CalculatedCrc { get; init; }
 }
 
+/// <summary>
+/// Represents packet comparison result.
+/// </summary>
 public record PacketComparisonResult
 {
+    /// <summary>
+    /// Gets or sets our packet.
+    /// </summary>
     public required byte[] OurPacket { get; init; }
+    /// <summary>
+    /// Gets or sets captured packet.
+    /// </summary>
     public required byte[] CapturedPacket { get; init; }
+    /// <summary>
+    /// Gets or sets differences.
+    /// </summary>
     public required List<string> Differences { get; init; }
+    /// <summary>
+    /// Gets or sets is match.
+    /// </summary>
     public bool IsMatch { get; set; }
 }
 
+/// <summary>
+/// Represents crc verification result.
+/// </summary>
 public record CrcVerificationResult
 {
+    /// <summary>
+    /// Gets or sets is valid.
+    /// </summary>
     public bool IsValid { get; init; }
+    /// <summary>
+    /// Gets or sets stored crc.
+    /// </summary>
     public uint StoredCrc { get; init; }
+    /// <summary>
+    /// Gets or sets calculated crc.
+    /// </summary>
     public uint CalculatedCrc { get; init; }
+    /// <summary>
+    /// Gets or sets error.
+    /// </summary>
     public string? Error { get; init; }
 }

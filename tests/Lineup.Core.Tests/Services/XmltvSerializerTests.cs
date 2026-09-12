@@ -4,8 +4,14 @@ using Xunit;
 
 namespace Lineup.Core.Tests.Services;
 
+/// <summary>
+/// Represents xmltv serializer tests.
+/// </summary>
 public class XmltvSerializerTests
 {
+    /// <summary>
+    /// Performs the serialize to stream_creates valid xml_when given document operation.
+    /// </summary>
     [Fact]
     public void SerializeToStream_CreatesValidXml_WhenGivenDocument()
     {
@@ -51,6 +57,9 @@ public class XmltvSerializerTests
         Assert.Contains("<programme", xml);
     }
 
+    /// <summary>
+    /// Performs the deserialize from stream_returns document_when given valid xml operation.
+    /// </summary>
     [Fact]
     public void DeserializeFromStream_ReturnsDocument_WhenGivenValidXml()
     {
@@ -83,6 +92,9 @@ public class XmltvSerializerTests
         Assert.Equal("Test Program", result.Programmes[0].Title?.Value);
     }
 
+    /// <summary>
+    /// Performs the round trip_preserves data_when serializing and deserializing operation.
+    /// </summary>
     [Fact]
     public void RoundTrip_PreservesData_WhenSerializingAndDeserializing()
     {
@@ -120,9 +132,9 @@ public class XmltvSerializerTests
 
         using var stream = new MemoryStream();
 
-        // Act
         XmltvSerializer.SerializeToStream(original, stream);
         stream.Position = 0;
+        // Act
         var result = XmltvSerializer.DeserializeFromStream(stream);
 
         // Assert
@@ -135,6 +147,9 @@ public class XmltvSerializerTests
         Assert.Equal(original.Programmes[0].Title?.Value, result.Programmes[0].Title?.Value);
     }
 
+    /// <summary>
+    /// Performs the serialize to stream_handles empty document operation.
+    /// </summary>
     [Fact]
     public void SerializeToStream_HandlesEmptyDocument()
     {

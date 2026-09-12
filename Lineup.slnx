@@ -22,6 +22,7 @@
   </Folder>
   <Folder Name="/_Solution Items/">
     <File Path=".dockerignore" />
+    <File Path=".editorconfig" />
     <File Path=".gitattributes" />
     <File Path=".gitignore" />
     <File Path="CONTRIBUTING.md" />

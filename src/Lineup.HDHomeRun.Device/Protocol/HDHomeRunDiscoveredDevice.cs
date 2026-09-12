@@ -62,5 +62,8 @@ public record HDHomeRunDiscoveredDevice
     /// </summary>
     public string FriendlyName => $"HDHomeRun {DeviceIdHex}";
 
+    /// <summary>
+    /// Performs the to string operation.
+    /// </summary>
     public override string ToString() => $"{FriendlyName} @ {IpAddress}";
 }

@@ -13,6 +13,9 @@ public class HDHomeRunToXmltvConverter
     private readonly ILogger<HDHomeRunToXmltvConverter> _logger;
     private readonly TimeZoneInfo _localTimeZone;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="HDHomeRunToXmltvConverter"/> class.
+    /// </summary>
     public HDHomeRunToXmltvConverter(ILogger<HDHomeRunToXmltvConverter> logger)
     {
         _logger = logger;
@@ -148,7 +151,9 @@ public class HDHomeRunToXmltvConverter
     private void AddEpisodeNumbers(XmltvProgramme programme, HDHomeRunProgram programmeData)
     {
         if (string.IsNullOrEmpty(programmeData.EpisodeNumber))
+        {
             return;
+        }
 
         try
         {
@@ -195,7 +200,9 @@ public class HDHomeRunToXmltvConverter
     private void AddPreviouslyShownInfo(XmltvProgramme programme, HDHomeRunProgram programmeData, DateTime startTime)
     {
         if (!programmeData.OriginalAirdate.HasValue)
+        {
             return;
+        }
 
         var airDate = DateTimeOffset.FromUnixTimeSeconds(programmeData.OriginalAirdate.Value).UtcDateTime;
         airDate = TimeZoneInfo.ConvertTimeFromUtc(airDate, _localTimeZone);

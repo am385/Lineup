@@ -3,29 +3,34 @@ services:
     image: ${DOCKER_IMAGE:-am385/lineup:latest}
     container_name: lineup
     ports:
-      - "${HTTP_PORT:-8080}:${HTTP_PORT:-8080}"
-      - "${HTTPS_PORT:-8443}:${HTTPS_PORT:-8443}"
+      # Host-facing ports are configurable; Lineup uses fixed ports inside the container.
+      - "${HTTP_PORT:-8080}:8080"
+      - "${HTTPS_PORT:-8443}:8443"
+      - "${HDHOMERUN_DISCOVERY_PORT:-65001}:65001/udp"
+      - "${SSDP_PORT:-1900}:1900/udp"
     volumes:
-      # Persist database and app settings across container restarts
-      - config:/config
+      # Persist all Lineup-owned application data across container restarts
+      - appdata:/appdata
       # Persist XMLTV output across container restarts (optional, only if you use the XMLTV output feature)
       - xmltv:/xmltv
-      # Mount a directory containing your PFX certificate for HTTPS
-      # e.g., place lineup.pfx in ./certs/
+      # Place the HTTPS certificate at ./certs/lineup.pfx.
       - ./certs:/app/certs:ro
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
-      - Lineup__ConfigPath=/config
+      # Clear the base image default; Lineup configures explicit Kestrel listeners.
+      - ASPNETCORE_HTTP_PORTS=
+      - Lineup__AppDataPath=/appdata
       - Lineup__XmltvPath=/xmltv
-      - Lineup__HttpPort=${HTTP_PORT:-8080}
-      - Lineup__HttpsPort=${HTTPS_PORT:-8443}
-      - Kestrel__Certificates__Default__Path=/app/certs/lineup.pfx
-      - Kestrel__Certificates__Default__Password=${CERT_PASSWORD:-}
+      - Lineup__Https__CertificatePath=/app/certs/lineup.pfx
+      - Lineup__Https__CertificatePassword=${CERT_PASSWORD:-}
+      # Optional vendor-neutral logging target. Keep credentials in the host environment.
+      - Lineup__Logging__OpenTelemetry__Endpoint=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - Lineup__Logging__OpenTelemetry__Protocol=${OTEL_EXPORTER_OTLP_PROTOCOL:-httpProtobuf}
     # Use host network mode if the HDHomeRun device is on the local network
     # and you need device discovery to work.
     # network_mode: host
     restart: unless-stopped
 
 volumes:
-  config:
+  appdata:
   xmltv:

@@ -1,3 +1,5 @@
+using System.Buffers.Binary;
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
@@ -14,9 +16,16 @@ public class HDHomeRunControl : IDisposable
 {
     private readonly ILogger<HDHomeRunControl> _logger;
     private readonly IPEndPoint _endpoint;
+    private readonly SemaphoreSlim _connectLock = new(1, 1);
+    private readonly SemaphoreSlim _requestLock = new(1, 1);
+    private readonly TimeSpan _exchangeTimeout;
+    private readonly Func<CancellationToken, Task<Stream>>? _connectAsync;
+    private readonly Func<uint> _createLockKey;
     private TcpClient? _tcpClient;
-    private NetworkStream? _stream;
-    private uint _lockKey;
+    private Stream? _stream;
+    private readonly ConcurrentDictionary<int, uint> _tunerLockKeys = new();
+    private readonly ConcurrentDictionary<int, SemaphoreSlim> _tunerLockOperations = new();
+    private int _disposed;
 
     /// <summary>
     /// HDHomeRun control port (same as discovery)
@@ -31,7 +40,7 @@ public class HDHomeRunControl : IDisposable
     /// <summary>
     /// Gets whether the connection is established
     /// </summary>
-    public bool IsConnected => _tcpClient?.Connected ?? false;
+    public bool IsConnected => Volatile.Read(ref _disposed) == 0 && _stream != null;
 
     /// <summary>
     /// Gets the device IP address
@@ -47,6 +56,39 @@ public class HDHomeRunControl : IDisposable
     {
         _logger = logger;
         _endpoint = new IPEndPoint(deviceAddress, ControlPort);
+        _exchangeTimeout = DefaultTimeout;
+        _createLockKey = CreateRandomLockKey;
+    }
+
+    /// <summary>
+    /// Creates a control client over a supplied stream for protocol testing.
+    /// </summary>
+    /// <param name="stream">The duplex protocol stream.</param>
+    /// <param name="logger">Logger instance.</param>
+    /// <param name="exchangeTimeout">The timeout applied to each serialized exchange.</param>
+    /// <param name="createLockKey">Optional lock-key generator.</param>
+    internal HDHomeRunControl(Stream stream, ILogger<HDHomeRunControl> logger, TimeSpan? exchangeTimeout = null, Func<uint>? createLockKey = null)
+    {
+        _logger = logger;
+        _endpoint = new IPEndPoint(IPAddress.None, ControlPort);
+        _stream = stream;
+        _exchangeTimeout = exchangeTimeout ?? DefaultTimeout;
+        _createLockKey = createLockKey ?? CreateRandomLockKey;
+    }
+
+    /// <summary>
+    /// Creates a control client with a supplied connection operation for protocol testing.
+    /// </summary>
+    /// <param name="connectAsync">The operation that establishes a duplex stream.</param>
+    /// <param name="logger">Logger instance.</param>
+    /// <param name="exchangeTimeout">The timeout applied to connection and exchange operations.</param>
+    internal HDHomeRunControl(Func<CancellationToken, Task<Stream>> connectAsync, ILogger<HDHomeRunControl> logger, TimeSpan? exchangeTimeout = null)
+    {
+        _logger = logger;
+        _endpoint = new IPEndPoint(IPAddress.None, ControlPort);
+        _connectAsync = connectAsync;
+        _exchangeTimeout = exchangeTimeout ?? DefaultTimeout;
+        _createLockKey = CreateRandomLockKey;
     }
 
     /// <summary>
@@ -54,18 +96,72 @@ public class HDHomeRunControl : IDisposable
     /// </summary>
     public async Task ConnectAsync(CancellationToken cancellationToken = default)
     {
-        if (IsConnected)
-            return;
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
 
-        _tcpClient = new TcpClient();
-        _tcpClient.ReceiveTimeout = (int)DefaultTimeout.TotalMilliseconds;
-        _tcpClient.SendTimeout = (int)DefaultTimeout.TotalMilliseconds;
+        using var connectionCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        connectionCancellation.CancelAfter(_exchangeTimeout);
+        var connectionToken = connectionCancellation.Token;
+        var lockTaken = false;
 
-        _logger.LogDebug("Connecting to HDHomeRun at {Endpoint}", _endpoint);
-        await _tcpClient.ConnectAsync(_endpoint, cancellationToken);
-        _stream = _tcpClient.GetStream();
+        try
+        {
+            await _connectLock.WaitAsync(connectionToken);
+            lockTaken = true;
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            if (IsConnected)
+            {
+                return;
+            }
 
-        _logger.LogInformation("Connected to HDHomeRun at {Endpoint}", _endpoint);
+            if (_connectAsync != null)
+            {
+                var stream = await _connectAsync(connectionToken);
+                if (Volatile.Read(ref _disposed) != 0)
+                {
+                    stream.Dispose();
+                    ObjectDisposedException.ThrowIf(true, this);
+                }
+
+                _stream = stream;
+                return;
+            }
+
+            var tcpClient = new TcpClient();
+
+            try
+            {
+                _logger.LogDebug("Connecting to HDHomeRun at {Endpoint}", _endpoint);
+                await tcpClient.ConnectAsync(_endpoint, connectionToken);
+                ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+                _tcpClient = tcpClient;
+                _stream = tcpClient.GetStream();
+                ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+                _logger.LogInformation("Connected to HDHomeRun at {Endpoint}", _endpoint);
+            }
+            catch
+            {
+                tcpClient.Dispose();
+                throw;
+            }
+        }
+        catch (OperationCanceledException)
+            when (!cancellationToken.IsCancellationRequested && connectionCancellation.IsCancellationRequested)
+        {
+            InvalidateConnection();
+            throw new TimeoutException($"HDHomeRun control connection timed out after {_exchangeTimeout}");
+        }
+        catch
+        {
+            InvalidateConnection();
+            throw;
+        }
+        finally
+        {
+            if (lockTaken)
+            {
+                _connectLock.Release();
+            }
+        }
     }
 
     /// <summary>
@@ -76,8 +172,6 @@ public class HDHomeRunControl : IDisposable
     /// <returns>Variable value or null if not found</returns>
     public async Task<string?> GetAsync(string name, CancellationToken cancellationToken = default)
     {
-        await EnsureConnectedAsync(cancellationToken);
-
         var packet = new HDHomeRunPacketBuilder()
             .AddTag(HDHomeRunTagType.GetSetName, name + "\0")
             .Build(HDHomeRunPacketType.GetSetRequest);
@@ -96,16 +190,23 @@ public class HDHomeRunControl : IDisposable
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>The value after setting (may differ from input)</returns>
     public async Task<string?> SetAsync(string name, string value, CancellationToken cancellationToken = default)
-    {
-        await EnsureConnectedAsync(cancellationToken);
+        => await SetAsync(name, value, useStoredLockKey: true, lockKey: null, cancellationToken);
 
+    private async Task<string?> SetAsync(string name, string value, bool useStoredLockKey, uint? lockKey, CancellationToken cancellationToken)
+    {
         var builder = new HDHomeRunPacketBuilder()
             .AddTag(HDHomeRunTagType.GetSetName, name + "\0")
             .AddTag(HDHomeRunTagType.GetSetValue, value + "\0");
 
-        if (_lockKey != 0)
+        if (lockKey.HasValue)
         {
-            builder.AddTag(HDHomeRunTagType.GetSetLockkey, _lockKey);
+            builder.AddTag(HDHomeRunTagType.GetSetLockkey, lockKey.Value);
+        }
+        else if (useStoredLockKey &&
+            TryGetTunerIndex(name, out var tunerIndex) &&
+            _tunerLockKeys.TryGetValue(tunerIndex, out var storedLockKey))
+        {
+            builder.AddTag(HDHomeRunTagType.GetSetLockkey, storedLockKey);
         }
 
         var packet = builder.Build(HDHomeRunPacketType.GetSetRequest);
@@ -122,24 +223,46 @@ public class HDHomeRunControl : IDisposable
     /// <param name="tunerIndex">Tuner index (0, 1, etc.)</param>
     /// <param name="force">Force lock even if already locked by another client</param>
     /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>True when the lock was acquired; otherwise, false.</returns>
     public async Task<bool> LockTunerAsync(int tunerIndex, bool force = false, CancellationToken cancellationToken = default)
-    {
-        // Generate a random lock key
-        _lockKey = (uint)Random.Shared.Next(1, int.MaxValue);
+        => await AcquireTunerLockAsync(tunerIndex, force, cancellationToken) != null;
 
-        var lockValue = force ? $"force:{_lockKey}" : $"{_lockKey}";
+    /// <summary>
+    /// Acquires a tuner lock and returns its generated key.
+    /// </summary>
+    /// <param name="tunerIndex">Tuner index.</param>
+    /// <param name="force">Whether to force acquisition.</param>
+    /// <param name="cancellationToken">A token used to cancel acquisition.</param>
+    /// <returns>The acquired lock key, or null when the device rejects the acquisition.</returns>
+    internal async Task<uint?> AcquireTunerLockAsync(int tunerIndex, bool force = false, CancellationToken cancellationToken = default)
+    {
+        var operationLock = _tunerLockOperations.GetOrAdd(tunerIndex, static _ => new SemaphoreSlim(1, 1));
+        await operationLock.WaitAsync(cancellationToken);
 
         try
         {
-            await SetAsync($"/tuner{tunerIndex}/lockkey", lockValue, cancellationToken);
+            _tunerLockKeys.TryGetValue(tunerIndex, out var previousLockKey);
+            if (force)
+            {
+                await SetAsync($"/tuner{tunerIndex}/lockkey", "force", useStoredLockKey: false, previousLockKey == 0 ? null : previousLockKey, cancellationToken);
+                _tunerLockKeys.TryRemove(tunerIndex, out _);
+                previousLockKey = 0;
+            }
+
+            var newLockKey = _createLockKey();
+            await SetAsync($"/tuner{tunerIndex}/lockkey", newLockKey.ToString(), useStoredLockKey: false, previousLockKey == 0 ? null : previousLockKey, cancellationToken);
+            _tunerLockKeys[tunerIndex] = newLockKey;
             _logger.LogInformation("Acquired lock on tuner {TunerIndex}", tunerIndex);
-            return true;
+            return newLockKey;
         }
         catch (HDHomeRunException ex)
         {
             _logger.LogWarning("Failed to acquire lock on tuner {TunerIndex}: {Error}", tunerIndex, ex.Message);
-            _lockKey = 0;
-            return false;
+            return null;
+        }
+        finally
+        {
+            operationLock.Release();
         }
     }
 
@@ -148,23 +271,48 @@ public class HDHomeRunControl : IDisposable
     /// </summary>
     public async Task ReleaseTunerLockAsync(int tunerIndex, CancellationToken cancellationToken = default)
     {
-        if (_lockKey == 0)
-            return;
-
+        var operationLock = _tunerLockOperations.GetOrAdd(tunerIndex, static _ => new SemaphoreSlim(1, 1));
+        await operationLock.WaitAsync(cancellationToken);
         try
         {
-            await SetAsync($"/tuner{tunerIndex}/lockkey", "none", cancellationToken);
-            _logger.LogInformation("Released lock on tuner {TunerIndex}", tunerIndex);
-        }
-        catch (HDHomeRunException ex)
-        {
-            _logger.LogWarning("Failed to release lock on tuner {TunerIndex}: {Error}", tunerIndex, ex.Message);
+            if (!_tunerLockKeys.ContainsKey(tunerIndex))
+            {
+                return;
+            }
+
+            try
+            {
+                await SetAsync($"/tuner{tunerIndex}/lockkey", "none", cancellationToken);
+                _tunerLockKeys.TryRemove(tunerIndex, out _);
+                _logger.LogInformation("Released lock on tuner {TunerIndex}", tunerIndex);
+            }
+            catch (HDHomeRunException ex)
+            {
+                _logger.LogWarning("Failed to release lock on tuner {TunerIndex}: {Error}", tunerIndex, ex.Message);
+            }
         }
         finally
         {
-            _lockKey = 0;
+            operationLock.Release();
         }
     }
+
+    private static bool TryGetTunerIndex(string name, out int tunerIndex)
+    {
+        tunerIndex = 0;
+        const string prefix = "/tuner";
+        if (!name.StartsWith(prefix, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var separatorIndex = name.IndexOf('/', prefix.Length);
+        return separatorIndex > prefix.Length &&
+            int.TryParse(name.AsSpan(prefix.Length, separatorIndex - prefix.Length), out tunerIndex);
+    }
+
+    private static uint CreateRandomLockKey()
+        => (uint)Random.Shared.Next(1, int.MaxValue);
 
     /// <summary>
     /// Gets the device model
@@ -249,21 +397,104 @@ public class HDHomeRunControl : IDisposable
         }
     }
 
-    private async Task<byte[]> SendAndReceiveAsync(byte[] packet, CancellationToken cancellationToken)
+    /// <summary>
+    /// Sends one request and reads its exactly framed response.
+    /// </summary>
+    /// <param name="packet">The complete request packet.</param>
+    /// <param name="cancellationToken">A token used to cancel the exchange.</param>
+    /// <returns>The complete response packet.</returns>
+    internal async Task<byte[]> SendAndReceiveAsync(byte[] packet, CancellationToken cancellationToken)
     {
-        if (_stream == null)
-            throw new InvalidOperationException("Not connected");
+        await _requestLock.WaitAsync(cancellationToken);
+        try
+        {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            using var exchangeCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            exchangeCancellation.CancelAfter(_exchangeTimeout);
+            var exchangeToken = exchangeCancellation.Token;
 
-        await _stream.WriteAsync(packet, cancellationToken);
-        await _stream.FlushAsync(cancellationToken);
+            try
+            {
+                if (_stream == null)
+                {
+                    await EnsureConnectedAsync(exchangeToken);
+                }
 
-        var buffer = new byte[HDHomeRunPacketBuilder.MaxPacketSize];
-        var bytesRead = await _stream.ReadAsync(buffer, cancellationToken);
+                var stream = _stream ?? throw new InvalidOperationException("Not connected");
+                await stream.WriteAsync(packet, exchangeToken);
+                await stream.FlushAsync(exchangeToken);
 
-        if (bytesRead == 0)
-            throw new HDHomeRunException("Connection closed by device");
+                var header = new byte[HDHomeRunPacketBuilder.HeaderSize];
+                await ReadExactlyAsync(stream, header, exchangeToken);
 
-        return buffer[..bytesRead];
+                var payloadLength = BinaryPrimitives.ReadUInt16BigEndian(header.AsSpan(2));
+                var packetLength = HDHomeRunPacketBuilder.HeaderSize + payloadLength + HDHomeRunPacketBuilder.CrcSize;
+                if (packetLength > HDHomeRunPacketBuilder.MaxPacketSize)
+                {
+                    throw new HDHomeRunException($"Response packet length {packetLength} exceeds the maximum packet size");
+                }
+
+                var response = new byte[packetLength];
+                header.CopyTo(response, 0);
+                await ReadExactlyAsync(stream, response.AsMemory(HDHomeRunPacketBuilder.HeaderSize), exchangeToken);
+                ValidateResponsePacket(response);
+                return response;
+            }
+            catch (OperationCanceledException)
+                when (!cancellationToken.IsCancellationRequested && exchangeCancellation.IsCancellationRequested)
+            {
+                InvalidateConnection();
+                throw new TimeoutException($"HDHomeRun control exchange timed out after {_exchangeTimeout}");
+            }
+            catch
+            {
+                InvalidateConnection();
+                throw;
+            }
+        }
+        finally
+        {
+            _requestLock.Release();
+        }
+    }
+
+    private static void ValidateResponsePacket(byte[] response)
+    {
+        var reader = new HDHomeRunPacketReader(response);
+        if (!reader.IsValid)
+        {
+            throw new HDHomeRunException("Invalid response packet");
+        }
+
+        if (reader.PacketType != HDHomeRunPacketType.GetSetReply)
+        {
+            throw new HDHomeRunException($"Unexpected response type: {reader.PacketType}");
+        }
+
+        while (reader.TryReadTag(out _, out _))
+        {
+        }
+
+        if (reader.HasError)
+        {
+            throw new HDHomeRunException("Malformed response packet payload");
+        }
+    }
+
+    private static async Task ReadExactlyAsync(Stream stream, Memory<byte> buffer, CancellationToken cancellationToken)
+    {
+        var bytesRead = 0;
+        while (bytesRead < buffer.Length)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var count = await stream.ReadAsync(buffer[bytesRead..], cancellationToken);
+            if (count == 0)
+            {
+                throw new HDHomeRunException("Connection closed by device before the complete response packet was received");
+            }
+
+            bytesRead += count;
+        }
     }
 
     private string? ParseGetSetResponse(byte[] data, out string? error)
@@ -301,10 +532,25 @@ public class HDHomeRunControl : IDisposable
         return value;
     }
 
+    private void InvalidateConnection()
+    {
+        var stream = Interlocked.Exchange(ref _stream, null);
+        var tcpClient = Interlocked.Exchange(ref _tcpClient, null);
+        stream?.Dispose();
+        tcpClient?.Dispose();
+    }
+
+    /// <summary>
+    /// Releases resources used by this instance.
+    /// </summary>
     public void Dispose()
     {
-        _stream?.Dispose();
-        _tcpClient?.Dispose();
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        InvalidateConnection();
     }
 }
 
@@ -313,6 +559,12 @@ public class HDHomeRunControl : IDisposable
 /// </summary>
 public class HDHomeRunException : Exception
 {
+    /// <summary>
+    /// Initializes a new instance of the <see cref="HDHomeRunException"/> class.
+    /// </summary>
     public HDHomeRunException(string message) : base(message) { }
+    /// <summary>
+    /// Initializes a new instance of the <see cref="HDHomeRunException"/> class.
+    /// </summary>
     public HDHomeRunException(string message, Exception innerException) : base(message, innerException) { }
 }

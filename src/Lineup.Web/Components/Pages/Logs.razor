@@ -1,0 +1,136 @@
+@page "/logs"
+@rendermode InteractiveServer
+@using Serilog.Events
+
+<PageTitle>Logs</PageTitle>
+
+<h1><span class="bi bi-journal-text me-2"></span>Logs</h1>
+
+<div class="alert alert-info">
+    This live view is bounded to recent events from the current Lineup process. Operational logs may contain device addresses and other diagnostic details.
+</div>
+
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
+        <h5 class="mb-0">Current Process</h5>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <button id="toggleLogRefresh" type="button" class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center" @onclick="ToggleAutoRefresh">
+                <span class="bi @(_autoRefresh ? "bi-pause-fill" : "bi-play-fill") me-1"></span>@(_autoRefresh ? "Pause" : "Resume")
+            </button>
+            <button id="refreshLogs" type="button" class="btn btn-sm btn-outline-primary d-inline-flex align-items-center" @onclick="Refresh">
+                <span class="bi bi-arrow-clockwise me-1"></span>Refresh
+            </button>
+            <button id="clearLogs" type="button" class="btn btn-sm btn-outline-danger d-inline-flex align-items-center" @onclick="ClearLogs">
+                <span class="bi bi-trash me-1"></span>Clear
+            </button>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="row g-3 mb-3">
+            <div class="col-md-3">
+                <label for="minimumLogLevel" class="form-label">Minimum Level</label>
+                <select id="minimumLogLevel" class="form-select" @bind="_minimumLevel" @bind:after="Refresh">
+                    @foreach (var level in DisplayLevels)
+                    {
+                        <option value="@level">@(level == LogEventLevel.Verbose ? "Trace" : level)</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label for="logCategory" class="form-label">Category</label>
+                <input id="logCategory" class="form-control" @bind="_category" @bind:event="oninput" @bind:after="Refresh" placeholder="All categories" />
+            </div>
+            <div class="col-md-4">
+                <label for="logSearch" class="form-label">Search</label>
+                <input id="logSearch" class="form-control" @bind="_search" @bind:event="oninput" @bind:after="Refresh" placeholder="Message, exception, or property" />
+            </div>
+            <div class="col-md-2">
+                <label for="logPageSize" class="form-label">Events</label>
+                <select id="logPageSize" class="form-select" @bind="_pageSize" @bind:after="Refresh">
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                    <option value="250">250</option>
+                    <option value="500">500</option>
+                </select>
+            </div>
+        </div>
+
+        @if (_events.Count == 0)
+        {
+            <p id="emptyLogs" class="text-body-secondary mb-0">No log events match the current filters.</p>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Level</th>
+                            <th>Category</th>
+                            <th>Message</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var logEvent in _events)
+                        {
+                            <tr>
+                                <td class="text-nowrap"><time datetime="@logEvent.Timestamp.ToString("O")">@logEvent.Timestamp.ToLocalTime().ToString("HH:mm:ss.fff")</time></td>
+                                <td><span class="badge @GetLevelBadge(logEvent.Level)">@logEvent.Level</span></td>
+                                <td><code>@logEvent.Category</code></td>
+                                <td>
+                                    <div>@logEvent.Message</div>
+                                    @if (logEvent.Exception != null || logEvent.Properties.Count > 0)
+                                    {
+                                        <details class="mt-1">
+                                            <summary class="small text-body-secondary">Details</summary>
+                                            @if (logEvent.Exception != null)
+                                            {
+                                                <pre class="small text-danger text-wrap mt-2 mb-2">@logEvent.Exception</pre>
+                                            }
+                                            <dl class="row small mb-0 mt-2">
+                                                @foreach (var property in logEvent.Properties.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+                                                {
+                                                    <dt class="col-sm-4">@property.Key</dt>
+                                                    <dd class="col-sm-8 text-break">@property.Value</dd>
+                                                }
+                                            </dl>
+                                        </details>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0">Rolling Log Files</h5>
+    </div>
+    <div class="card-body">
+        @if (!RuntimeState.FileSettings.Enabled)
+        {
+            <p class="mb-0">File logging is disabled. Enable it under <a href="/settings#logging">Settings &gt; Logging</a> and restart Lineup to retain logs across restarts.</p>
+        }
+        else if (_files.Count == 0)
+        {
+            <p class="text-body-secondary mb-0">No rolling log files are available yet.</p>
+        }
+        else
+        {
+            <div class="list-group">
+                @foreach (var file in _files)
+                {
+                    <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" href="@($"/api/logs/files/{Uri.EscapeDataString(file.Name)}")">
+                        <span><span class="bi bi-download me-2"></span>@file.Name</span>
+                        <small class="text-body-secondary">@FormatFileSize(file.Size) · @file.LastModifiedUtc.ToLocalTime().ToString("g")</small>
+                    </a>
+                }
+            </div>
+        }
+    </div>
+</div>

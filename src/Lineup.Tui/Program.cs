@@ -8,6 +8,9 @@ using Spectre.Console;
 
 namespace Lineup.Tui;
 
+/// <summary>
+/// Represents program.
+/// </summary>
 class Program
 {
     static async Task<int> Main(string[] args)
@@ -16,11 +19,11 @@ class Program
         var databasePath = Environment.GetEnvironmentVariable(AppConstants.DatabasePathEnvVar);
 
         var builder = Host.CreateApplicationBuilder(args);
-        
+
         // Configure Serilog from appsettings.json
         builder.Services.AddSerilog(config => config
             .ReadFrom.Configuration(builder.Configuration));
-        
+
         builder.Services.AddEpgCore(deviceAddress, databasePath);
 
         using var host = builder.Build();
@@ -42,16 +45,7 @@ class Program
                 new SelectionPrompt<string>()
                     .Title("[bold blue]What would you like to do?[/]")
                     .PageSize(10)
-                    .AddChoices([
-                        "View Cache Statistics",
-                        "Fetch EPG Data",
-                        "Generate XMLTV",
-                        "Export XMLTV",
-                        "View Channels",
-                        "View Programs",
-                        "About",
-                        "Exit"
-                    ]));
+                    .AddChoices(["View Cache Statistics", "Fetch EPG Data", "Generate XMLTV", "Export XMLTV", "View Channels", "View Programs", "About", "Exit"]));
 
             switch (choice)
             {
@@ -135,11 +129,9 @@ class Program
 
     static async Task FetchDataAsync(EpgOrchestrator orchestrator)
     {
-        var force = AnsiConsole.Confirm("Force fetch (ignore existing data)?", false);
-        var targetDays = AnsiConsole.Ask("Target days of data to fetch:", 3);
-
+        AnsiConsole.MarkupLine("[grey]Downloading the complete guide available from SiliconDust.[/]");
         AnsiConsole.WriteLine();
-        
+
         var progressTable = new Table()
             .Border(TableBorder.Rounded)
             .AddColumn("Status")
@@ -155,7 +147,7 @@ class Program
                 var progress = new Progress<FetchProgressInfo>(info =>
                 {
                     progressTable.Rows.Clear();
-                    
+
                     var statusColor = info.Status switch
                     {
                         FetchStatus.Initializing => "grey",
@@ -166,7 +158,7 @@ class Program
                         _ => "white"
                     };
 
-                    var progressBar = new string('?', info.PercentComplete / 5) + 
+                    var progressBar = new string('?', info.PercentComplete / 5) +
                                      new string('?', 20 - info.PercentComplete / 5);
 
                     progressTable.AddRow(
@@ -181,7 +173,7 @@ class Program
                     ctx.Refresh();
                 });
 
-                await orchestrator.FetchAndStoreEpgAsync(targetDays, force, progress);
+                await orchestrator.FetchAndStoreEpgAsync(targetDays: 2, force: true, progress);
             });
 
         AnsiConsole.MarkupLine("[green]EPG data fetched successfully![/]");
@@ -191,23 +183,22 @@ class Program
     static async Task GenerateXmltvAsync(EpgOrchestrator orchestrator)
     {
         var filename = AnsiConsole.Ask("Output filename:", AppConstants.DefaultXmltvFileName);
-        var days = AnsiConsole.Ask("Number of days to include:", 7);
 
         await AnsiConsole.Status()
-            .StartAsync($"Generating {filename}...", async ctx =>
+            .StartAsync($"Publishing {filename}...", async ctx =>
             {
                 ctx.Spinner(Spinner.Known.Dots);
-                await orchestrator.GenerateEpgFromCacheAsync(days, filename);
+                await orchestrator.GenerateEpgFromCacheAsync(days: 2, filename);
             });
 
-        AnsiConsole.MarkupLine($"[green]Generated {filename} successfully![/]");
+        AnsiConsole.MarkupLine($"[green]Published {filename} successfully![/]");
         WaitForKey();
     }
 
     static async Task ExportXmltvAsync()
     {
         var defaultSourceFile = Path.Combine(AppConstants.DefaultXmltvFilePath, AppConstants.DefaultXmltvFileName);
-        
+
         if (!File.Exists(defaultSourceFile))
         {
             AnsiConsole.MarkupLine("[red]No XMLTV file found. Please generate one first.[/]");
@@ -229,7 +220,7 @@ class Program
             }
 
             await Task.Run(() => File.Copy(defaultSourceFile, destination, overwrite: true));
-            
+
             AnsiConsole.MarkupLine($"[green]Exported to {destination} successfully![/]");
         }
         catch (Exception ex)
@@ -255,10 +246,7 @@ class Program
 
         foreach (var channel in channels.OrderBy(c => c.GuideNumber))
         {
-            table.AddRow(
-                channel.GuideNumber ?? "",
-                channel.GuideName ?? "",
-                channel.Affiliate ?? "");
+            table.AddRow(channel.GuideNumber ?? "", channel.GuideName ?? "", channel.Affiliate ?? "");
         }
 
         AnsiConsole.Write(table);
@@ -282,11 +270,7 @@ class Program
         foreach (var program in programs.Take(50))
         {
             var startTime = DateTimeOffset.FromUnixTimeSeconds(program.StartTime).LocalDateTime;
-            table.AddRow(
-                program.GuideNumber ?? "",
-                startTime.ToString("HH:mm"),
-                program.Title ?? "",
-                program.EpisodeTitle ?? "");
+            table.AddRow(program.GuideNumber ?? "", startTime.ToString("HH:mm"), program.Title ?? "", program.EpisodeTitle ?? "");
         }
 
         AnsiConsole.Write(table);

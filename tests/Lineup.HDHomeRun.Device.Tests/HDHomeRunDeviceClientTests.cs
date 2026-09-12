@@ -7,12 +7,18 @@ using Xunit;
 
 namespace Lineup.HDHomeRun.Device.Tests;
 
+/// <summary>
+/// Represents hd home run device client tests.
+/// </summary>
 public class HDHomeRunDeviceClientTests
 {
     private readonly ILogger<HDHomeRunDeviceClient> _logger;
     private readonly MockHttpMessageHandler _mockHttp;
     private readonly HttpClient _httpClient;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="HDHomeRunDeviceClientTests"/> class.
+    /// </summary>
     public HDHomeRunDeviceClientTests()
     {
         _logger = Substitute.For<ILogger<HDHomeRunDeviceClient>>();
@@ -21,6 +27,9 @@ public class HDHomeRunDeviceClientTests
         _httpClient.BaseAddress = new Uri("http://hdhomerun.local/");
     }
 
+    /// <summary>
+    /// Performs the discover device async_returns device info_when api returns valid response operation.
+    /// </summary>
     [Fact]
     public async Task DiscoverDeviceAsync_ReturnsDeviceInfo_WhenApiReturnsValidResponse()
     {
@@ -44,7 +53,7 @@ public class HDHomeRunDeviceClientTests
         var client = new HDHomeRunDeviceClient(_logger, _httpClient);
 
         // Act
-        var result = await client.DiscoverDeviceAsync();
+        var result = await client.DiscoverDeviceAsync(TestContext.Current.CancellationToken);
 
         // Assert
         Assert.NotNull(result);
@@ -52,6 +61,9 @@ public class HDHomeRunDeviceClientTests
         Assert.Equal(expectedDeviceInfo.DeviceAuth, result.DeviceAuth);
     }
 
+    /// <summary>
+    /// Performs the discover device async_throws exception_when api returns invalid json operation.
+    /// </summary>
     [Fact]
     public async Task DiscoverDeviceAsync_ThrowsException_WhenApiReturnsInvalidJson()
     {
@@ -61,10 +73,14 @@ public class HDHomeRunDeviceClientTests
 
         var client = new HDHomeRunDeviceClient(_logger, _httpClient);
 
-        // Act & Assert
-        await Assert.ThrowsAsync<InvalidOperationException>(() => client.DiscoverDeviceAsync());
+        // Act
+        // Assert
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.DiscoverDeviceAsync(TestContext.Current.CancellationToken));
     }
 
+    /// <summary>
+    /// Performs the fetch channel lineup async_returns channels_when api returns valid response operation.
+    /// </summary>
     [Fact]
     public async Task FetchChannelLineupAsync_ReturnsChannels_WhenApiReturnsValidResponse()
     {
@@ -82,7 +98,7 @@ public class HDHomeRunDeviceClientTests
         var client = new HDHomeRunDeviceClient(_logger, _httpClient);
 
         // Act
-        var result = await client.FetchChannelLineupAsync();
+        var result = await client.FetchChannelLineupAsync(TestContext.Current.CancellationToken);
 
         // Assert
         Assert.NotNull(result);
@@ -91,6 +107,9 @@ public class HDHomeRunDeviceClientTests
         Assert.Equal("WFMY-HD", result[0].GuideName);
     }
 
+    /// <summary>
+    /// Performs the fetch channel lineup async_returns empty list_when api returns empty array operation.
+    /// </summary>
     [Fact]
     public async Task FetchChannelLineupAsync_ReturnsEmptyList_WhenApiReturnsEmptyArray()
     {
@@ -101,13 +120,16 @@ public class HDHomeRunDeviceClientTests
         var client = new HDHomeRunDeviceClient(_logger, _httpClient);
 
         // Act
-        var result = await client.FetchChannelLineupAsync();
+        var result = await client.FetchChannelLineupAsync(TestContext.Current.CancellationToken);
 
         // Assert
         Assert.NotNull(result);
         Assert.Empty(result);
     }
 
+    /// <summary>
+    /// Performs the fetch channel lineup async_throws exception_when api returns invalid json operation.
+    /// </summary>
     [Fact]
     public async Task FetchChannelLineupAsync_ThrowsException_WhenApiReturnsInvalidJson()
     {
@@ -117,10 +139,14 @@ public class HDHomeRunDeviceClientTests
 
         var client = new HDHomeRunDeviceClient(_logger, _httpClient);
 
-        // Act & Assert
-        await Assert.ThrowsAsync<InvalidOperationException>(() => client.FetchChannelLineupAsync());
+        // Act
+        // Assert
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.FetchChannelLineupAsync(TestContext.Current.CancellationToken));
     }
 
+    /// <summary>
+    /// Performs the discover device auth async_returns device auth_when device info is valid operation.
+    /// </summary>
     [Fact]
     public async Task DiscoverDeviceAuthAsync_ReturnsDeviceAuth_WhenDeviceInfoIsValid()
     {
@@ -144,9 +170,67 @@ public class HDHomeRunDeviceClientTests
         var client = new HDHomeRunDeviceClient(_logger, _httpClient);
 
         // Act
-        var result = await client.DiscoverDeviceAuthAsync();
+        var result = await client.DiscoverDeviceAuthAsync(TestContext.Current.CancellationToken);
 
         // Assert
         Assert.Equal("expected-auth-token", result);
+    }
+
+    /// <summary>
+    /// Verifies that caller cancellation promptly cancels device discovery without wrapping it.
+    /// </summary>
+    [Fact]
+    public async Task DiscoverDeviceAsync_CallerCanceled_ThrowsOperationCanceledException()
+    {
+        // Arrange
+        var handler = new BlockingHandler();
+        var client = new HDHomeRunDeviceClient(_logger, new HttpClient(handler)
+        {
+            BaseAddress = new Uri("http://hdhomerun.local/")
+        });
+        using var cancellation = new CancellationTokenSource();
+
+        // Act
+        var discovery = client.DiscoverDeviceAsync(cancellation.Token);
+        await handler.Started.Task.WaitAsync(TestContext.Current.CancellationToken);
+        cancellation.Cancel();
+
+        // Assert
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => discovery);
+    }
+
+    /// <summary>
+    /// Verifies that caller cancellation promptly cancels lineup retrieval without wrapping it.
+    /// </summary>
+    [Fact]
+    public async Task FetchChannelLineupAsync_CallerCanceled_ThrowsOperationCanceledException()
+    {
+        // Arrange
+        var handler = new BlockingHandler();
+        var client = new HDHomeRunDeviceClient(_logger, new HttpClient(handler)
+        {
+            BaseAddress = new Uri("http://hdhomerun.local/")
+        });
+        using var cancellation = new CancellationTokenSource();
+
+        // Act
+        var fetch = client.FetchChannelLineupAsync(cancellation.Token);
+        await handler.Started.Task.WaitAsync(TestContext.Current.CancellationToken);
+        cancellation.Cancel();
+
+        // Assert
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => fetch);
+    }
+
+    private sealed class BlockingHandler : HttpMessageHandler
+    {
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Started.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException("The canceled request unexpectedly continued.");
+        }
     }
 }

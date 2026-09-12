@@ -14,11 +14,17 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
 {
     private readonly string _tempFile;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="JellyfinXmltvCompatibilityTests"/> class.
+    /// </summary>
     public JellyfinXmltvCompatibilityTests()
     {
         _tempFile = Path.Combine(Path.GetTempPath(), $"jellyfin_compat_{Guid.NewGuid():N}.xml");
     }
 
+    /// <summary>
+    /// Releases resources used by this instance.
+    /// </summary>
     public void Dispose()
     {
         if (File.Exists(_tempFile))
@@ -37,6 +43,9 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
         return new XmlTvReader(_tempFile, language);
     }
 
+    /// <summary>
+    /// Performs the jellyfin_can read channels operation.
+    /// </summary>
     [Fact]
     public void Jellyfin_CanReadChannels()
     {
@@ -62,8 +71,8 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
             ]
         };
 
-        // Act
         var reader = WriteAndCreateReader(document);
+        // Act
         var channels = reader.GetChannels().ToList();
 
         // Assert
@@ -78,6 +87,9 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
         Assert.Equal("FOX", fox.DisplayName);
     }
 
+    /// <summary>
+    /// Performs the jellyfin_can read basic programme operation.
+    /// </summary>
     [Fact]
     public void Jellyfin_CanReadBasicProgramme()
     {
@@ -103,13 +115,9 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
             ]
         };
 
-        // Act
         var reader = WriteAndCreateReader(document);
-        var programmes = reader.GetProgrammes(
-            "5.1",
-            new DateTimeOffset(2024, 6, 15, 0, 0, 0, TimeSpan.Zero),
-            new DateTimeOffset(2024, 6, 16, 0, 0, 0, TimeSpan.Zero),
-            CancellationToken.None).ToList();
+        // Act
+        var programmes = reader.GetProgrammes("5.1", new DateTimeOffset(2024, 6, 15, 0, 0, 0, TimeSpan.Zero), new DateTimeOffset(2024, 6, 16, 0, 0, 0, TimeSpan.Zero), CancellationToken.None).ToList();
 
         // Assert
         Assert.Single(programmes);
@@ -121,6 +129,9 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
         Assert.Equal(new DateTimeOffset(2024, 6, 15, 13, 0, 0, TimeSpan.Zero), prog.EndDate);
     }
 
+    /// <summary>
+    /// Performs the jellyfin_can read sub title operation.
+    /// </summary>
     [Fact]
     public void Jellyfin_CanReadSubTitle()
     {
@@ -139,6 +150,9 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
         Assert.Equal("The Pilot Episode", programmes[0].Episode.Title);
     }
 
+    /// <summary>
+    /// Performs the jellyfin_can read categories operation.
+    /// </summary>
     [Fact]
     public void Jellyfin_CanReadCategories()
     {
@@ -161,6 +175,9 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
         Assert.Contains("Nature", programmes[0].Categories);
     }
 
+    /// <summary>
+    /// Performs the jellyfin_can read programme icon operation.
+    /// </summary>
     [Fact]
     public void Jellyfin_CanReadProgrammeIcon()
     {
@@ -179,10 +196,14 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
         Assert.Equal("http://example.com/show.jpg", programmes[0].Icon!.Source);
     }
 
+    /// <summary>
+    /// Performs the jellyfin_can read xmltv ns episode number operation.
+    /// </summary>
     [Fact]
     public void Jellyfin_CanReadXmltvNsEpisodeNumber()
     {
         // Arrange — xmltv_ns format: "season.episode.part" (0-based)
+        // Arrange
         var document = CreateDocumentWithProgramme(prog =>
         {
             prog.EpisodeNumbers =
@@ -204,6 +225,9 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
         Assert.Equal(5, episode.Episode);
     }
 
+    /// <summary>
+    /// Performs the jellyfin_can read previously shown operation.
+    /// </summary>
     [Fact]
     public void Jellyfin_CanReadPreviouslyShown()
     {
@@ -224,6 +248,9 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
         Assert.True(programmes[0].IsPreviouslyShown);
     }
 
+    /// <summary>
+    /// Performs the jellyfin_can read new indicator operation.
+    /// </summary>
     [Fact]
     public void Jellyfin_CanReadNewIndicator()
     {
@@ -241,10 +268,14 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
         Assert.True(programmes[0].IsNew);
     }
 
+    /// <summary>
+    /// Performs the jellyfin_can read timezone offset operation.
+    /// </summary>
     [Fact]
     public void Jellyfin_CanReadTimezoneOffset()
     {
         // Arrange — verify non-UTC timezone offsets are parsed correctly
+        // Arrange
         var document = new XmltvDocument
         {
             SourceInfoName = "Lineup",
@@ -262,20 +293,20 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
             ]
         };
 
-        // Act
         var reader = WriteAndCreateReader(document);
-        var programmes = reader.GetProgrammes(
-            "7.1",
-            new DateTimeOffset(2024, 6, 15, 0, 0, 0, TimeSpan.Zero),
-            new DateTimeOffset(2024, 6, 17, 0, 0, 0, TimeSpan.Zero),
-            CancellationToken.None).ToList();
+        // Act
+        var programmes = reader.GetProgrammes("7.1", new DateTimeOffset(2024, 6, 15, 0, 0, 0, TimeSpan.Zero), new DateTimeOffset(2024, 6, 17, 0, 0, 0, TimeSpan.Zero), CancellationToken.None).ToList();
 
         // Assert — 20:00 -0400 = 00:00 UTC on the 16th
+        // Assert
         Assert.Single(programmes);
         Assert.Equal(new DateTimeOffset(2024, 6, 16, 0, 0, 0, TimeSpan.Zero), programmes[0].StartDate);
         Assert.Equal(new DateTimeOffset(2024, 6, 16, 1, 0, 0, TimeSpan.Zero), programmes[0].EndDate);
     }
 
+    /// <summary>
+    /// Performs the jellyfin_can read multiple programmes same channel operation.
+    /// </summary>
     [Fact]
     public void Jellyfin_CanReadMultipleProgrammesSameChannel()
     {
@@ -311,13 +342,9 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
             ]
         };
 
-        // Act
         var reader = WriteAndCreateReader(document);
-        var programmes = reader.GetProgrammes(
-            "5.1",
-            new DateTimeOffset(2024, 6, 15, 0, 0, 0, TimeSpan.Zero),
-            new DateTimeOffset(2024, 6, 16, 0, 0, 0, TimeSpan.Zero),
-            CancellationToken.None).ToList();
+        // Act
+        var programmes = reader.GetProgrammes("5.1", new DateTimeOffset(2024, 6, 15, 0, 0, 0, TimeSpan.Zero), new DateTimeOffset(2024, 6, 16, 0, 0, 0, TimeSpan.Zero), CancellationToken.None).ToList();
 
         // Assert
         Assert.Equal(3, programmes.Count);
@@ -326,10 +353,14 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
         Assert.Equal("Show C", programmes[2].Title);
     }
 
+    /// <summary>
+    /// Performs the jellyfin_can read fully populated programme operation.
+    /// </summary>
     [Fact]
     public void Jellyfin_CanReadFullyPopulatedProgramme()
     {
         // Arrange — a programme with all fields populated as the converter would produce
+        // Arrange
         var document = CreateDocumentWithProgramme(prog =>
         {
             prog.Title = new XmltvText { Language = "en", Value = "Breaking Bad" };
@@ -368,6 +399,9 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
         Assert.True(prog.IsPreviouslyShown);
     }
 
+    /// <summary>
+    /// Performs the jellyfin_can read languages operation.
+    /// </summary>
     [Fact]
     public void Jellyfin_CanReadLanguages()
     {
@@ -378,8 +412,8 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
             prog.Description = new XmltvText { Language = "en", Value = "A description." };
         });
 
-        // Act
         var reader = WriteAndCreateReader(document);
+        // Act
         var languages = reader.GetLanguages(CancellationToken.None).ToList();
 
         // Assert
@@ -387,10 +421,14 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
         Assert.Contains(languages, l => l.Name == "en");
     }
 
+    /// <summary>
+    /// Performs the jellyfin_filters channel programmes correctly operation.
+    /// </summary>
     [Fact]
     public void Jellyfin_FiltersChannelProgrammesCorrectly()
     {
         // Arrange — programmes on different channels
+        // Arrange
         var document = new XmltvDocument
         {
             SourceInfoName = "Lineup",
@@ -419,18 +457,10 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
             ]
         };
 
-        // Act
         var reader = WriteAndCreateReader(document);
-        var pbsProgs = reader.GetProgrammes(
-            "5.1",
-            new DateTimeOffset(2024, 6, 15, 0, 0, 0, TimeSpan.Zero),
-            new DateTimeOffset(2024, 6, 16, 0, 0, 0, TimeSpan.Zero),
-            CancellationToken.None).ToList();
-        var abcProgs = reader.GetProgrammes(
-            "7.1",
-            new DateTimeOffset(2024, 6, 15, 0, 0, 0, TimeSpan.Zero),
-            new DateTimeOffset(2024, 6, 16, 0, 0, 0, TimeSpan.Zero),
-            CancellationToken.None).ToList();
+        var pbsProgs = reader.GetProgrammes("5.1", new DateTimeOffset(2024, 6, 15, 0, 0, 0, TimeSpan.Zero), new DateTimeOffset(2024, 6, 16, 0, 0, 0, TimeSpan.Zero), CancellationToken.None).ToList();
+        // Act
+        var abcProgs = reader.GetProgrammes("7.1", new DateTimeOffset(2024, 6, 15, 0, 0, 0, TimeSpan.Zero), new DateTimeOffset(2024, 6, 16, 0, 0, 0, TimeSpan.Zero), CancellationToken.None).ToList();
 
         // Assert
         Assert.Single(pbsProgs);
@@ -439,6 +469,9 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
         Assert.Equal("ABC Show", abcProgs[0].Title);
     }
 
+    /// <summary>
+    /// Performs the jellyfin_returns empty for empty document operation.
+    /// </summary>
     [Fact]
     public void Jellyfin_ReturnsEmptyForEmptyDocument()
     {
@@ -449,8 +482,8 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
             GeneratorInfoName = "Lineup.Core"
         };
 
-        // Act
         var reader = WriteAndCreateReader(document);
+        // Act
         var channels = reader.GetChannels().ToList();
 
         // Assert
@@ -488,10 +521,6 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
     private List<XmlTvProgram> GetAllProgrammes(XmltvDocument document)
     {
         var reader = WriteAndCreateReader(document);
-        return reader.GetProgrammes(
-            "5.1",
-            new DateTimeOffset(2024, 6, 15, 0, 0, 0, TimeSpan.Zero),
-            new DateTimeOffset(2024, 6, 16, 0, 0, 0, TimeSpan.Zero),
-            CancellationToken.None).ToList();
+        return reader.GetProgrammes("5.1", new DateTimeOffset(2024, 6, 15, 0, 0, 0, TimeSpan.Zero), new DateTimeOffset(2024, 6, 16, 0, 0, 0, TimeSpan.Zero), CancellationToken.None).ToList();
     }
 }

@@ -10,6 +10,9 @@ namespace Lineup.HDHomeRun.Device.Json;
 /// </summary>
 internal class BoolToIntOrNullConverter : JsonConverter<bool>
 {
+    /// <summary>
+    /// Performs the read operation.
+    /// </summary>
     public override bool Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         if (reader.TokenType == JsonTokenType.Null)
@@ -25,6 +28,9 @@ internal class BoolToIntOrNullConverter : JsonConverter<bool>
         return false;
     }
 
+    /// <summary>
+    /// Performs the write operation.
+    /// </summary>
     public override void Write(Utf8JsonWriter writer, bool value, JsonSerializerOptions options)
     {
         if (value)

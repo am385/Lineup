@@ -7,17 +7,26 @@ using Xunit;
 
 namespace Lineup.Core.Tests.Converters;
 
+/// <summary>
+/// Represents hd home run to xmltv converter tests.
+/// </summary>
 public class HDHomeRunToXmltvConverterTests
 {
     private readonly ILogger<HDHomeRunToXmltvConverter> _logger;
     private readonly HDHomeRunToXmltvConverter _converter;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="HDHomeRunToXmltvConverterTests"/> class.
+    /// </summary>
     public HDHomeRunToXmltvConverterTests()
     {
         _logger = Substitute.For<ILogger<HDHomeRunToXmltvConverter>>();
         _converter = new HDHomeRunToXmltvConverter(_logger);
     }
 
+    /// <summary>
+    /// Performs the convert channel_returns valid xmltv channel_when given enriched channel operation.
+    /// </summary>
     [Fact]
     public void ConvertChannel_ReturnsValidXmltvChannel_WhenGivenEnrichedChannel()
     {
@@ -41,6 +50,9 @@ public class HDHomeRunToXmltvConverterTests
         Assert.Equal("http://example.com/pbs.png", result.Icon.Source);
     }
 
+    /// <summary>
+    /// Performs the convert channel_uses unknown_when guide name is null operation.
+    /// </summary>
     [Fact]
     public void ConvertChannel_UsesUnknown_WhenGuideNameIsNull()
     {
@@ -61,6 +73,9 @@ public class HDHomeRunToXmltvConverterTests
         Assert.Equal("", result.Icon.Source);
     }
 
+    /// <summary>
+    /// Performs the convert programme_returns valid xmltv programme_when given program operation.
+    /// </summary>
     [Fact]
     public void ConvertProgramme_ReturnsValidXmltvProgramme_WhenGivenProgram()
     {
@@ -89,6 +104,9 @@ public class HDHomeRunToXmltvConverterTests
         Assert.Equal("This is a test synopsis.", result.Description?.Value);
     }
 
+    /// <summary>
+    /// Performs the convert programme_omits optional fields_when not provided operation.
+    /// </summary>
     [Fact]
     public void ConvertProgramme_OmitsOptionalFields_WhenNotProvided()
     {
@@ -113,6 +131,9 @@ public class HDHomeRunToXmltvConverterTests
         Assert.Null(result.Description);
     }
 
+    /// <summary>
+    /// Performs the convert programme_sets correct language operation.
+    /// </summary>
     [Fact]
     public void ConvertProgramme_SetsCorrectLanguage()
     {

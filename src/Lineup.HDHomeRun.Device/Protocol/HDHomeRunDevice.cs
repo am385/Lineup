@@ -10,18 +10,22 @@ namespace Lineup.HDHomeRun.Device.Protocol;
 /// </summary>
 public class HDHomeRunDevice : IDisposable
 {
-private readonly ILogger<HDHomeRunDevice> _logger;
-private readonly ILoggerFactory _loggerFactory;
-private HDHomeRunControl? _control;
-private HDHomeRunHttpControl? _httpControl;
-private bool _nativeProtocolFailed;
+    private readonly ILogger<HDHomeRunDevice> _logger;
+    private readonly ILoggerFactory _loggerFactory;
+    private readonly SemaphoreSlim _controlGate = new(1, 1);
+    private readonly Func<HDHomeRunControl> _controlFactory;
+    private readonly IHDHomeRunHttpControlFactory _httpControlFactory;
+    private readonly object _httpControlLock = new();
+    private HDHomeRunControl? _control;
+    private HDHomeRunHttpControl? _httpControl;
+    private int _disposed;
 
-/// <summary>
-/// The discovered device information
-/// </summary>
-public HDHomeRunDiscoveredDevice DeviceInfo { get; }
+    /// <summary>
+    /// The discovered device information
+    /// </summary>
+    public HDHomeRunDiscoveredDevice DeviceInfo { get; }
 
-/// <summary>
+    /// <summary>
     /// Gets whether the device is connected via native protocol
     /// </summary>
     public bool IsConnected => _control?.IsConnected ?? false;
@@ -34,11 +38,43 @@ public HDHomeRunDiscoveredDevice DeviceInfo { get; }
     /// <summary>
     /// Creates a new HDHomeRun device instance
     /// </summary>
-    public HDHomeRunDevice(HDHomeRunDiscoveredDevice deviceInfo, ILoggerFactory loggerFactory)
+    /// <param name="deviceInfo">The discovered device information.</param>
+    /// <param name="loggerFactory">The logger factory.</param>
+    /// <param name="httpControlFactory">The HTTP control factory.</param>
+    public HDHomeRunDevice(HDHomeRunDiscoveredDevice deviceInfo, ILoggerFactory loggerFactory, IHDHomeRunHttpControlFactory httpControlFactory)
     {
         DeviceInfo = deviceInfo;
         _loggerFactory = loggerFactory;
+        _httpControlFactory = httpControlFactory;
         _logger = loggerFactory.CreateLogger<HDHomeRunDevice>();
+        _controlFactory = () => new HDHomeRunControl(DeviceInfo.IpAddress, _loggerFactory.CreateLogger<HDHomeRunControl>());
+    }
+
+    /// <summary>
+    /// Creates a device with a supplied native control client for protocol testing.
+    /// </summary>
+    /// <param name="deviceInfo">The discovered device information.</param>
+    /// <param name="loggerFactory">The logger factory.</param>
+    /// <param name="httpControlFactory">The HTTP control factory.</param>
+    /// <param name="control">The native control client.</param>
+    internal HDHomeRunDevice(HDHomeRunDiscoveredDevice deviceInfo, ILoggerFactory loggerFactory, IHDHomeRunHttpControlFactory httpControlFactory, HDHomeRunControl control)
+        : this(deviceInfo, loggerFactory, httpControlFactory)
+    {
+        _control = control;
+        _controlFactory = () => control;
+    }
+
+    /// <summary>
+    /// Creates a device with a supplied native control factory for concurrency testing.
+    /// </summary>
+    /// <param name="deviceInfo">The discovered device information.</param>
+    /// <param name="loggerFactory">The logger factory.</param>
+    /// <param name="httpControlFactory">The HTTP control factory.</param>
+    /// <param name="controlFactory">The native control factory.</param>
+    internal HDHomeRunDevice(HDHomeRunDiscoveredDevice deviceInfo, ILoggerFactory loggerFactory, IHDHomeRunHttpControlFactory httpControlFactory, Func<HDHomeRunControl> controlFactory)
+        : this(deviceInfo, loggerFactory, httpControlFactory)
+    {
+        _controlFactory = controlFactory;
     }
 
     #region Connection Management
@@ -48,52 +84,72 @@ public HDHomeRunDiscoveredDevice DeviceInfo { get; }
     /// </summary>
     public async Task ConnectAsync(CancellationToken cancellationToken = default)
     {
-        if (_nativeProtocolFailed)
-        {
-            throw new HDHomeRunException("Native protocol is not supported by this device. Use HTTP API methods.");
-        }
-
-        if (_control == null)
-        {
-            _control = new HDHomeRunControl(DeviceInfo.IpAddress, _loggerFactory.CreateLogger<HDHomeRunControl>());
-        }
-
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        await _controlGate.WaitAsync(cancellationToken);
         try
         {
-            await _control.ConnectAsync(cancellationToken);
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            var control = _control;
+            if (control == null)
+            {
+                control = _controlFactory();
+                _control = control;
+            }
+
+            try
+            {
+                await control.ConnectAsync(cancellationToken);
+            }
+            catch
+            {
+                if (ReferenceEquals(Interlocked.CompareExchange(ref _control, null, control), control))
+                {
+                    control.Dispose();
+                }
+
+                throw;
+            }
         }
-        catch (Exception ex)
+        finally
         {
-            _nativeProtocolFailed = true;
-            _logger.LogWarning(ex, "Native protocol connection failed");
-            throw;
+            _controlGate.Release();
         }
     }
 
-    private async Task<bool> TryConnectNativeAsync(CancellationToken cancellationToken)
+    private async Task<HDHomeRunControl?> TryConnectNativeAsync(CancellationToken cancellationToken)
     {
-        if (_nativeProtocolFailed)
-        {
-            return false;
-        }
-
         try
         {
             await ConnectAsync(cancellationToken);
-            return true;
+            return Volatile.Read(ref _control);
         }
-        catch
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            return false;
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Native protocol connection failed; a later operation may retry");
+            return null;
         }
     }
 
     private HDHomeRunHttpControl GetHttpControl()
     {
-        _httpControl ??= new HDHomeRunHttpControl(
-            DeviceInfo.BaseUrl ?? $"http://{DeviceInfo.IpAddress}",
-            _loggerFactory.CreateLogger<HDHomeRunHttpControl>());
-        return _httpControl;
+        lock (_httpControlLock)
+        {
+            _httpControl ??= _httpControlFactory.Create(DeviceInfo.BaseUrl ?? $"http://{DeviceInfo.IpAddress}");
+            return _httpControl;
+        }
+    }
+
+    private void RemoveAndDisposeControl(HDHomeRunControl? control)
+    {
+        if (control != null &&
+            ReferenceEquals(Interlocked.CompareExchange(ref _control, null, control), control))
+        {
+            control.Dispose();
+        }
     }
 
     #endregion
@@ -104,13 +160,15 @@ public HDHomeRunDiscoveredDevice DeviceInfo { get; }
     /// Gets a device variable using native protocol.
     /// </summary>
     /// <param name="name">Variable path (e.g., "/sys/model")</param>
+    /// <param name="cancellationToken">A token used to cancel the operation.</param>
     public async Task<string?> GetVariableAsync(string name, CancellationToken cancellationToken = default)
     {
-        if (!await TryConnectNativeAsync(cancellationToken))
+        var control = await TryConnectNativeAsync(cancellationToken);
+        if (control == null)
         {
             throw new HDHomeRunException("Native protocol not available - use HTTP API methods");
         }
-        return await _control!.GetAsync(name, cancellationToken);
+        return await control.GetAsync(name, cancellationToken);
     }
 
     /// <summary>
@@ -118,13 +176,15 @@ public HDHomeRunDiscoveredDevice DeviceInfo { get; }
     /// </summary>
     /// <param name="name">Variable path (e.g., "/tuner0/channel")</param>
     /// <param name="value">Value to set</param>
+    /// <param name="cancellationToken">A token used to cancel the operation.</param>
     public async Task<string?> SetVariableAsync(string name, string value, CancellationToken cancellationToken = default)
     {
-        if (!await TryConnectNativeAsync(cancellationToken))
+        var control = await TryConnectNativeAsync(cancellationToken);
+        if (control == null)
         {
             throw new HDHomeRunException("Native protocol not available");
         }
-        return await _control!.SetAsync(name, value, cancellationToken);
+        return await control.SetAsync(name, value, cancellationToken);
     }
 
     #endregion
@@ -144,9 +204,10 @@ public HDHomeRunDiscoveredDevice DeviceInfo { get; }
         }
 
         // Fallback to native protocol
-        if (await TryConnectNativeAsync(cancellationToken))
+        var control = await TryConnectNativeAsync(cancellationToken);
+        if (control != null)
         {
-            return await _control!.GetAsync("/sys/model", cancellationToken);
+            return await control.GetAsync("/sys/model", cancellationToken);
         }
 
         return null;
@@ -165,9 +226,10 @@ public HDHomeRunDiscoveredDevice DeviceInfo { get; }
         }
 
         // Fallback to native protocol
-        if (await TryConnectNativeAsync(cancellationToken))
+        var control = await TryConnectNativeAsync(cancellationToken);
+        if (control != null)
         {
-            return await _control!.GetAsync("/sys/version", cancellationToken);
+            return await control.GetAsync("/sys/version", cancellationToken);
         }
 
         return null;
@@ -195,11 +257,12 @@ public HDHomeRunDiscoveredDevice DeviceInfo { get; }
     /// </summary>
     public async Task<string?> GetCopyrightAsync(CancellationToken cancellationToken = default)
     {
-        if (!await TryConnectNativeAsync(cancellationToken))
+        var control = await TryConnectNativeAsync(cancellationToken);
+        if (control == null)
         {
             return null;
         }
-        return await _control!.GetAsync("/sys/copyright", cancellationToken);
+        return await control.GetAsync("/sys/copyright", cancellationToken);
     }
 
     /// <summary>
@@ -207,30 +270,35 @@ public HDHomeRunDiscoveredDevice DeviceInfo { get; }
     /// </summary>
     public async Task<string?> GetSystemDebugAsync(CancellationToken cancellationToken = default)
     {
-        if (!await TryConnectNativeAsync(cancellationToken))
+        var control = await TryConnectNativeAsync(cancellationToken);
+        if (control == null)
         {
             return null;
         }
-        return await _control!.GetAsync("/sys/debug", cancellationToken);
+        return await control.GetAsync("/sys/debug", cancellationToken);
     }
 
     /// <summary>
     /// Restarts the HDHomeRun device.
     /// Tries native protocol first, then HTTP API.
     /// </summary>
-    public async Task RestartAsync(CancellationToken cancellationToken = default)
+    public virtual async Task RestartAsync(CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Restarting device {DeviceId}", DeviceInfo.DeviceIdHex);
 
         // Try native protocol first
-        if (await TryConnectNativeAsync(cancellationToken))
+        var control = await TryConnectNativeAsync(cancellationToken);
+        if (control != null)
         {
             try
             {
-                await _control!.SetAsync("/sys/restart", "self", cancellationToken);
-                _control.Dispose();
-                _control = null;
+                await control.SetAsync("/sys/restart", "self", cancellationToken);
+                RemoveAndDisposeControl(control);
                 return;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -245,8 +313,7 @@ public HDHomeRunDiscoveredDevice DeviceInfo { get; }
             throw new HDHomeRunException("Failed to restart device - neither native protocol nor HTTP API worked");
         }
 
-        _control?.Dispose();
-        _control = null;
+        RemoveAndDisposeControl(Volatile.Read(ref _control));
     }
 
     #endregion
@@ -266,6 +333,7 @@ public HDHomeRunDiscoveredDevice DeviceInfo { get; }
     /// </summary>
     /// <param name="countryCode">Country code (e.g., "US")</param>
     /// <param name="postCode">Postal code</param>
+    /// <param name="cancellationToken">A token used to cancel the operation.</param>
     public async Task SetLineupLocationAsync(string countryCode, string postCode, CancellationToken cancellationToken = default)
     {
         await SetVariableAsync("/lineup/location", $"{countryCode}:{postCode}", cancellationToken);
@@ -296,6 +364,7 @@ public HDHomeRunDiscoveredDevice DeviceInfo { get; }
     /// </summary>
     /// <param name="ipAddress">Target IP address</param>
     /// <param name="port">Target port</param>
+    /// <param name="cancellationToken">A token used to cancel the operation.</param>
     public async Task SetIrTargetAsync(string ipAddress, int port, CancellationToken cancellationToken = default)
     {
         await SetVariableAsync("/ir/target", $"{ipAddress}:{port}", cancellationToken);
@@ -338,12 +407,13 @@ public HDHomeRunDiscoveredDevice DeviceInfo { get; }
         }
 
         // Fallback to native protocol
-        if (await TryConnectNativeAsync(cancellationToken))
+        var control = await TryConnectNativeAsync(cancellationToken);
+        if (control != null)
         {
-            var statusStr = await _control!.GetAsync($"/tuner{tunerIndex}/status", cancellationToken);
-            var channelStr = await _control.GetAsync($"/tuner{tunerIndex}/channel", cancellationToken);
-            var vchannelStr = await _control.GetAsync($"/tuner{tunerIndex}/vchannel", cancellationToken);
-            var targetStr = await _control.GetAsync($"/tuner{tunerIndex}/target", cancellationToken);
+            var statusStr = await control.GetAsync($"/tuner{tunerIndex}/status", cancellationToken);
+            var channelStr = await control.GetAsync($"/tuner{tunerIndex}/channel", cancellationToken);
+            var vchannelStr = await control.GetAsync($"/tuner{tunerIndex}/vchannel", cancellationToken);
+            var targetStr = await control.GetAsync($"/tuner{tunerIndex}/target", cancellationToken);
 
             return TunerStatus.Parse(tunerIndex, statusStr, channelStr, vchannelStr, targetStr);
         }
@@ -357,11 +427,12 @@ public HDHomeRunDiscoveredDevice DeviceInfo { get; }
     /// </summary>
     public async Task<TunerDebugInfo?> GetTunerDebugAsync(int tunerIndex, CancellationToken cancellationToken = default)
     {
-        if (!await TryConnectNativeAsync(cancellationToken))
+        var control = await TryConnectNativeAsync(cancellationToken);
+        if (control == null)
         {
             return null; // Not available via HTTP API
         }
-        var debugStr = await _control!.GetAsync($"/tuner{tunerIndex}/debug", cancellationToken);
+        var debugStr = await control.GetAsync($"/tuner{tunerIndex}/debug", cancellationToken);
         return debugStr != null ? TunerDebugInfo.Parse(debugStr) : null;
     }
 
@@ -370,11 +441,12 @@ public HDHomeRunDiscoveredDevice DeviceInfo { get; }
     /// </summary>
     public async Task<List<StreamProgram>> GetStreamInfoAsync(int tunerIndex, CancellationToken cancellationToken = default)
     {
-        if (!await TryConnectNativeAsync(cancellationToken))
+        var control = await TryConnectNativeAsync(cancellationToken);
+        if (control == null)
         {
             return []; // Not available via HTTP API
         }
-        var streamInfo = await _control!.GetAsync($"/tuner{tunerIndex}/streaminfo", cancellationToken);
+        var streamInfo = await control.GetAsync($"/tuner{tunerIndex}/streaminfo", cancellationToken);
         return StreamProgram.ParseStreamInfo(streamInfo);
     }
 
@@ -383,11 +455,12 @@ public HDHomeRunDiscoveredDevice DeviceInfo { get; }
     /// </summary>
     public async Task<string?> GetChannelMapAsync(int tunerIndex, CancellationToken cancellationToken = default)
     {
-        if (!await TryConnectNativeAsync(cancellationToken))
+        var control = await TryConnectNativeAsync(cancellationToken);
+        if (control == null)
         {
             return null;
         }
-        return await _control!.GetAsync($"/tuner{tunerIndex}/channelmap", cancellationToken);
+        return await control.GetAsync($"/tuner{tunerIndex}/channelmap", cancellationToken);
     }
 
     /// <summary>
@@ -395,6 +468,7 @@ public HDHomeRunDiscoveredDevice DeviceInfo { get; }
     /// </summary>
     /// <param name="tunerIndex">Tuner index</param>
     /// <param name="channelMap">Channel map (e.g., "us-bcast", "us-cable", "eu-bcast")</param>
+    /// <param name="cancellationToken">A token used to cancel the operation.</param>
     public async Task SetChannelMapAsync(int tunerIndex, string channelMap, CancellationToken cancellationToken = default)
     {
         await SetVariableAsync($"/tuner{tunerIndex}/channelmap", channelMap, cancellationToken);
@@ -406,6 +480,7 @@ public HDHomeRunDiscoveredDevice DeviceInfo { get; }
     /// <param name="tunerIndex">Tuner index</param>
     /// <param name="modulation">Modulation type (e.g., "auto", "8vsb", "qam256")</param>
     /// <param name="frequency">Frequency in Hz or channel number</param>
+    /// <param name="cancellationToken">A token used to cancel the operation.</param>
     public async Task SetPhysicalChannelAsync(int tunerIndex, string modulation, string frequency, CancellationToken cancellationToken = default)
     {
         await SetVariableAsync($"/tuner{tunerIndex}/channel", $"{modulation}:{frequency}", cancellationToken);
@@ -448,6 +523,7 @@ public HDHomeRunDiscoveredDevice DeviceInfo { get; }
     /// </summary>
     /// <param name="tunerIndex">Tuner index</param>
     /// <param name="filter">PID filter (e.g., "0x0000-0x1FFF" for all, "0x0000 0x0030-0x0033" for specific)</param>
+    /// <param name="cancellationToken">A token used to cancel the operation.</param>
     public async Task SetPidFilterAsync(int tunerIndex, string filter, CancellationToken cancellationToken = default)
     {
         await SetVariableAsync($"/tuner{tunerIndex}/filter", filter, cancellationToken);
@@ -468,6 +544,7 @@ public HDHomeRunDiscoveredDevice DeviceInfo { get; }
     /// <param name="protocol">Protocol ("udp" or "rtp")</param>
     /// <param name="ipAddress">Target IP address</param>
     /// <param name="port">Target port</param>
+    /// <param name="cancellationToken">A token used to cancel the operation.</param>
     public async Task SetTargetAsync(int tunerIndex, string protocol, string ipAddress, int port, CancellationToken cancellationToken = default)
     {
         await SetVariableAsync($"/tuner{tunerIndex}/target", $"{protocol}://{ipAddress}:{port}", cancellationToken);
@@ -486,15 +563,16 @@ public HDHomeRunDiscoveredDevice DeviceInfo { get; }
     /// </summary>
     /// <param name="tunerIndex">Tuner index</param>
     /// <param name="force">Force lock even if already locked by another client</param>
+    /// <param name="cancellationToken">A token used to cancel the operation.</param>
     /// <returns>Lock key if successful, null if failed</returns>
     public async Task<uint?> AcquireLockAsync(int tunerIndex, bool force = false, CancellationToken cancellationToken = default)
     {
-        if (!await TryConnectNativeAsync(cancellationToken))
+        var control = await TryConnectNativeAsync(cancellationToken);
+        if (control == null)
         {
             return null; // Not available via HTTP API
         }
-        var success = await _control!.LockTunerAsync(tunerIndex, force, cancellationToken);
-        return success ? 1u : null;
+        return await control.AcquireTunerLockAsync(tunerIndex, force, cancellationToken);
     }
 
     /// <summary>
@@ -502,11 +580,12 @@ public HDHomeRunDiscoveredDevice DeviceInfo { get; }
     /// </summary>
     public async Task ReleaseLockAsync(int tunerIndex, CancellationToken cancellationToken = default)
     {
-        if (!await TryConnectNativeAsync(cancellationToken))
+        var control = await TryConnectNativeAsync(cancellationToken);
+        if (control == null)
         {
             return; // Not available via HTTP API
         }
-        await _control!.ReleaseTunerLockAsync(tunerIndex, cancellationToken);
+        await control.ReleaseTunerLockAsync(tunerIndex, cancellationToken);
     }
 
     #endregion
@@ -520,15 +599,14 @@ public HDHomeRunDiscoveredDevice DeviceInfo { get; }
     /// <param name="transcodeProfile">Optional transcode profile (e.g., "heavy", "mobile")</param>
     public string GetHttpStreamUrl(string virtualChannel, string? transcodeProfile = null)
     {
-        var baseUrl = DeviceInfo.BaseUrl ?? $"http://{DeviceInfo.IpAddress}:5004";
-        var url = $"{baseUrl}/auto/v{virtualChannel}";
-
-        if (!string.IsNullOrEmpty(transcodeProfile))
+        var builder = new UriBuilder(Uri.UriSchemeHttp, DeviceInfo.IpAddress.ToString(), DeviceEndpoints.StreamingPort)
         {
-            url += $"?transcode={transcodeProfile}";
-        }
-
-        return url;
+            Path = $"auto/v{Uri.EscapeDataString(virtualChannel)}",
+            Query = string.IsNullOrEmpty(transcodeProfile)
+                ? string.Empty
+                : $"transcode={Uri.EscapeDataString(transcodeProfile)}"
+        };
+        return builder.Uri.AbsoluteUri;
     }
 
     /// <summary>
@@ -575,33 +653,37 @@ public HDHomeRunDiscoveredDevice DeviceInfo { get; }
     /// <summary>
     /// Stops all streaming on a tuner.
     /// </summary>
-    public async Task StopStreamingAsync(int tunerIndex, CancellationToken cancellationToken = default)
+    public virtual async Task StopStreamingAsync(int tunerIndex, CancellationToken cancellationToken = default)
     {
-        // Try native protocol
-        if (await TryConnectNativeAsync(cancellationToken))
-        {
-            try
-            {
-                await _control!.SetAsync($"/tuner{tunerIndex}/target", "none", cancellationToken);
-                await _control!.SetAsync($"/tuner{tunerIndex}/channel", "none", cancellationToken);
-                return;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Native stop streaming failed");
-            }
-        }
+        await ConnectAsync(cancellationToken);
+        var control = Volatile.Read(ref _control) ?? throw new HDHomeRunException($"Failed to stop tuner {tunerIndex}: native control is unavailable and HTTP cannot stop tuner streams");
 
-        // HTTP API doesn't have a direct stop mechanism - streams stop when client disconnects
-        _logger.LogInformation("Tuner {TunerIndex} stop requested - HTTP streams stop when client disconnects", tunerIndex);
+        await control.SetAsync($"/tuner{tunerIndex}/target", "none", cancellationToken);
+        await control.SetAsync($"/tuner{tunerIndex}/channel", "none", cancellationToken);
     }
 
     #endregion
 
+    /// <summary>
+    /// Releases resources used by this instance.
+    /// </summary>
     public void Dispose()
     {
-        _control?.Dispose();
-        _httpControl?.Dispose();
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        _controlGate.Wait();
+        try
+        {
+            Interlocked.Exchange(ref _control, null)?.Dispose();
+            Interlocked.Exchange(ref _httpControl, null)?.Dispose();
+        }
+        finally
+        {
+            _controlGate.Release();
+        }
     }
 }
 
@@ -610,13 +692,37 @@ public HDHomeRunDiscoveredDevice DeviceInfo { get; }
 /// </summary>
 public record NativeDeviceInfo
 {
+    /// <summary>
+    /// Gets or sets device id.
+    /// </summary>
     public required string DeviceId { get; init; }
+    /// <summary>
+    /// Gets or sets ip address.
+    /// </summary>
     public required string IpAddress { get; init; }
+    /// <summary>
+    /// Gets or sets model.
+    /// </summary>
     public string? Model { get; init; }
+    /// <summary>
+    /// Gets or sets firmware version.
+    /// </summary>
     public string? FirmwareVersion { get; init; }
+    /// <summary>
+    /// Gets or sets hardware model.
+    /// </summary>
     public string? HardwareModel { get; init; }
+    /// <summary>
+    /// Gets or sets features.
+    /// </summary>
     public string? Features { get; init; }
+    /// <summary>
+    /// Gets or sets tuner count.
+    /// </summary>
     public int TunerCount { get; init; }
+    /// <summary>
+    /// Gets or sets base url.
+    /// </summary>
     public string? BaseUrl { get; init; }
 }
 
@@ -816,26 +922,55 @@ public record TunerDebugInfo
             {
                 ParseKeyValues(trimmed[4..], v =>
                 {
-                    if (v.TryGetValue("resync", out var r)) int.TryParse(r, out resync);
-                    if (v.TryGetValue("overflow", out var o)) int.TryParse(o, out overflow);
+                    if (v.TryGetValue("resync", out var r))
+                    {
+                        int.TryParse(r, out resync);
+                    }
+
+                    if (v.TryGetValue("overflow", out var o))
+                    {
+                        int.TryParse(o, out overflow);
+                    }
                 });
             }
             else if (trimmed.StartsWith("ts:"))
             {
                 ParseKeyValues(trimmed[3..], v =>
                 {
-                    if (v.TryGetValue("ut", out var u)) int.TryParse(u, out ut);
-                    if (v.TryGetValue("te", out var t)) int.TryParse(t, out te);
-                    if (v.TryGetValue("miss", out var m)) int.TryParse(m, out miss);
-                    if (v.TryGetValue("crc", out var c)) int.TryParse(c, out crc);
+                    if (v.TryGetValue("ut", out var u))
+                    {
+                        int.TryParse(u, out ut);
+                    }
+
+                    if (v.TryGetValue("te", out var t))
+                    {
+                        int.TryParse(t, out te);
+                    }
+
+                    if (v.TryGetValue("miss", out var m))
+                    {
+                        int.TryParse(m, out miss);
+                    }
+
+                    if (v.TryGetValue("crc", out var c))
+                    {
+                        int.TryParse(c, out crc);
+                    }
                 });
             }
             else if (trimmed.StartsWith("net:"))
             {
                 ParseKeyValues(trimmed[4..], v =>
                 {
-                    if (v.TryGetValue("err", out var e)) int.TryParse(e, out netErr);
-                    if (v.TryGetValue("stop", out var s)) int.TryParse(s, out stop);
+                    if (v.TryGetValue("err", out var e))
+                    {
+                        int.TryParse(e, out netErr);
+                    }
+
+                    if (v.TryGetValue("stop", out var s))
+                    {
+                        int.TryParse(s, out stop);
+                    }
                 });
             }
         }
@@ -907,24 +1042,36 @@ public record StreamProgram
         var programs = new List<StreamProgram>();
 
         if (string.IsNullOrEmpty(streamInfo))
+        {
             return programs;
+        }
 
         // Format: "3: 20.1 KBWB-HD" or "2: 0 (encrypted)"
         var lines = streamInfo.Split('\n', StringSplitOptions.RemoveEmptyEntries);
         foreach (var line in lines)
         {
             var trimmed = line.Trim();
-            if (string.IsNullOrEmpty(trimmed)) continue;
+            if (string.IsNullOrEmpty(trimmed))
+            {
+                continue;
+            }
 
             // Skip metadata lines
             if (trimmed.StartsWith("tsid=") || trimmed.StartsWith("pcr="))
+            {
                 continue;
+            }
 
             var colonIndex = trimmed.IndexOf(':');
-            if (colonIndex <= 0) continue;
+            if (colonIndex <= 0)
+            {
+                continue;
+            }
 
             if (!int.TryParse(trimmed[..colonIndex], out var programNumber))
+            {
                 continue;
+            }
 
             var rest = trimmed[(colonIndex + 1)..].Trim();
             var isEncrypted = rest.Contains("(encrypted)");
@@ -949,7 +1096,9 @@ public record StreamProgram
 
             // "0" means no virtual channel
             if (vchannel == "0")
+            {
                 vchannel = null;
+            }
 
             programs.Add(new StreamProgram
             {

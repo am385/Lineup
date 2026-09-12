@@ -7,9 +7,15 @@ namespace Lineup.Core.Models.Xmltv;
 /// </summary>
 public class XmltvText
 {
+    /// <summary>
+    /// Gets or sets language.
+    /// </summary>
     [XmlAttribute("lang")]
     public string? Language { get; set; }
 
+    /// <summary>
+    /// Gets or sets value.
+    /// </summary>
     [XmlText]
     public string Value { get; set; } = string.Empty;
 }

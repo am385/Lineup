@@ -13,25 +13,27 @@ namespace Lineup.HDHomeRun.Device;
 public class HDHomeRunService : IDisposable
 {
     private readonly ILoggerFactory _loggerFactory;
+    private readonly IHDHomeRunHttpControlFactory _httpControlFactory;
     private readonly ILogger<HDHomeRunService> _logger;
+    private readonly object _cacheLock = new();
     private HDHomeRunDiscovery? _discovery;
     private readonly Dictionary<uint, HDHomeRunDevice> _devices = new();
+    private readonly List<HDHomeRunDevice> _retiredDevices = [];
 
     /// <summary>
     /// Creates a new HDHomeRun service
     /// </summary>
-    public HDHomeRunService(ILoggerFactory loggerFactory)
+    public HDHomeRunService(ILoggerFactory loggerFactory, IHDHomeRunHttpControlFactory httpControlFactory)
     {
         _loggerFactory = loggerFactory;
+        _httpControlFactory = httpControlFactory;
         _logger = loggerFactory.CreateLogger<HDHomeRunService>();
     }
 
     /// <summary>
     /// Runs connectivity diagnostics and returns detailed results
     /// </summary>
-    public async Task<DeviceDiagnostics> DiagnoseConnectivityAsync(
-        string addressOrHostname,
-        CancellationToken cancellationToken = default)
+    public async Task<DeviceDiagnostics> DiagnoseConnectivityAsync(string addressOrHostname, CancellationToken cancellationToken = default)
     {
         var diagnostics = new DeviceDiagnostics
         {
@@ -76,10 +78,7 @@ public class HDHomeRunService : IDisposable
         {
             using var ping = new Ping();
             var reply = await ping.SendPingAsync(ip, 2000);
-            diagnostics.AddResult("Ping", reply.Status == IPStatus.Success,
-                reply.Status == IPStatus.Success
-                    ? $"Success ({reply.RoundtripTime}ms)"
-                    : $"Failed: {reply.Status}");
+            diagnostics.AddResult("Ping", reply.Status == IPStatus.Success, reply.Status == IPStatus.Success ? $"Success ({reply.RoundtripTime}ms)" : $"Failed: {reply.Status}");
         }
         catch (Exception ex)
         {
@@ -259,7 +258,10 @@ public class HDHomeRunService : IDisposable
 
     private static string FormatHexDump(byte[] data, int maxBytes = 64)
     {
-        if (data == null || data.Length == 0) return "(empty)";
+        if (data == null || data.Length == 0)
+        {
+            return "(empty)";
+        }
 
         var take = Math.Min(data.Length, maxBytes);
         var hex = BitConverter.ToString(data, 0, take).Replace("-", " ");
@@ -275,12 +277,9 @@ public class HDHomeRunService : IDisposable
     /// <summary>
     /// Discovers all HDHomeRun devices on the network
     /// </summary>
-    public async Task<List<HDHomeRunDiscoveredDevice>> DiscoverDevicesAsync(
-        TimeSpan? timeout = null,
-        CancellationToken cancellationToken = default)
+    public async Task<List<HDHomeRunDiscoveredDevice>> DiscoverDevicesAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        _discovery ??= new HDHomeRunDiscovery(_loggerFactory.CreateLogger<HDHomeRunDiscovery>());
-        return await _discovery.DiscoverAllAsync(timeout, cancellationToken);
+        return await GetDiscovery().DiscoverAllAsync(timeout, cancellationToken);
     }
 
     /// <summary>
@@ -288,10 +287,27 @@ public class HDHomeRunService : IDisposable
     /// </summary>
     public HDHomeRunDevice GetDevice(HDHomeRunDiscoveredDevice deviceInfo)
     {
-        if (!_devices.TryGetValue(deviceInfo.DeviceId, out var device))
+        HDHomeRunDevice? replacedDevice = null;
+        HDHomeRunDevice device;
+        lock (_cacheLock)
         {
-            device = new HDHomeRunDevice(deviceInfo, _loggerFactory);
+            if (_devices.TryGetValue(deviceInfo.DeviceId, out device!) &&
+                HasSameEndpoint(device.DeviceInfo, deviceInfo))
+            {
+                return device;
+            }
+
+            replacedDevice = device;
+            device = new HDHomeRunDevice(deviceInfo, _loggerFactory, _httpControlFactory);
             _devices[deviceInfo.DeviceId] = device;
+        }
+
+        if (replacedDevice != null)
+        {
+            lock (_cacheLock)
+            {
+                _retiredDevices.Add(replacedDevice);
+            }
         }
         return device;
     }
@@ -301,9 +317,7 @@ public class HDHomeRunService : IDisposable
     /// Uses HTTP API as the primary method (most reliable for modern devices),
     /// with fallbacks to native protocols for older devices.
     /// </summary>
-    public async Task<HDHomeRunDevice?> GetDeviceByIpAsync(
-        string addressOrHostname,
-        CancellationToken cancellationToken = default)
+    public virtual async Task<HDHomeRunDevice?> GetDeviceByIpAsync(string addressOrHostname, CancellationToken cancellationToken = default)
     {
         // Try to parse as IP address first
         IPAddress? ip = null;
@@ -324,7 +338,7 @@ public class HDHomeRunService : IDisposable
 
                 _logger.LogDebug("Resolved {Hostname} to {IpAddress}", addressOrHostname, ip);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
                 _logger.LogWarning(ex, "Failed to resolve hostname: {Hostname}", addressOrHostname);
                 return null;
@@ -341,8 +355,7 @@ public class HDHomeRunService : IDisposable
 
         // FALLBACK 1: Try UDP discovery (for older devices)
         _logger.LogDebug("HTTP API failed, trying UDP discovery for {IpAddress}", ip);
-        _discovery ??= new HDHomeRunDiscovery(_loggerFactory.CreateLogger<HDHomeRunDiscovery>());
-        var deviceInfo = await _discovery.DiscoverByIpAsync(ip, TimeSpan.FromSeconds(2), cancellationToken);
+        var deviceInfo = await GetDiscovery().DiscoverByIpAsync(ip, TimeSpan.FromSeconds(2), cancellationToken);
 
         if (deviceInfo != null)
         {
@@ -358,19 +371,16 @@ public class HDHomeRunService : IDisposable
     /// Connects to a device using only the HTTP API.
     /// This is the most reliable method for modern HDHomeRun devices.
     /// </summary>
-    public async Task<HDHomeRunDevice?> ConnectViaHttpAsync(
-        IPAddress ipAddress,
-        CancellationToken cancellationToken = default)
+    public async Task<HDHomeRunDevice?> ConnectViaHttpAsync(IPAddress ipAddress, CancellationToken cancellationToken = default)
     {
         try
         {
-            var httpControl = new HDHomeRunHttpControl(ipAddress, _loggerFactory.CreateLogger<HDHomeRunHttpControl>());
+            using var httpControl = _httpControlFactory.Create(ipAddress);
             var discover = await httpControl.DiscoverAsync(cancellationToken);
 
             if (discover == null)
             {
                 _logger.LogWarning("HTTP API discover failed for {IpAddress}", ipAddress);
-                httpControl.Dispose();
                 return null;
             }
 
@@ -396,13 +406,10 @@ public class HDHomeRunService : IDisposable
                 LineupUrl = discover.LineupURL
             };
 
-            httpControl.Dispose();
-
-            _logger.LogInformation("Connected via HTTP API to {IpAddress}: {Model}",
-                ipAddress, discover.ModelNumber);
+            _logger.LogInformation("Connected via HTTP API to {IpAddress}: {Model}", ipAddress, discover.ModelNumber);
             return GetDevice(deviceInfo);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             _logger.LogWarning(ex, "HTTP API connection to {IpAddress} failed", ipAddress);
             return null;
@@ -413,14 +420,12 @@ public class HDHomeRunService : IDisposable
     /// Connects directly to a device via TCP without UDP discovery.
     /// Useful when UDP is blocked by firewalls.
     /// </summary>
-    public async Task<HDHomeRunDevice?> ConnectDirectAsync(
-        IPAddress ipAddress,
-        CancellationToken cancellationToken = default)
+    public async Task<HDHomeRunDevice?> ConnectDirectAsync(IPAddress ipAddress, CancellationToken cancellationToken = default)
     {
         try
         {
             // Create a minimal device info for direct connection
-            var control = new HDHomeRunControl(ipAddress, _loggerFactory.CreateLogger<HDHomeRunControl>());
+            using var control = new HDHomeRunControl(ipAddress, _loggerFactory.CreateLogger<HDHomeRunControl>());
             await control.ConnectAsync(cancellationToken);
 
             // Get device info via control protocol
@@ -434,7 +439,11 @@ public class HDHomeRunService : IDisposable
                 try
                 {
                     var status = await control.GetAsync($"/tuner{i}/status", cancellationToken);
-                    if (status == null) break;
+                    if (status == null)
+                    {
+                        break;
+                    }
+
                     tunerCount++;
                 }
                 catch
@@ -443,7 +452,10 @@ public class HDHomeRunService : IDisposable
                 }
             }
 
-            if (tunerCount == 0) tunerCount = 2; // Default assumption
+            if (tunerCount == 0)
+            {
+                tunerCount = 2; // Default assumption
+            }
 
             // Parse device ID or generate one from IP
             uint deviceId = 0;
@@ -467,12 +479,10 @@ public class HDHomeRunService : IDisposable
                 BaseUrl = $"http://{ipAddress}"
             };
 
-            control.Dispose();
-
             _logger.LogInformation("Connected directly to device at {IpAddress}: {Model}", ipAddress, model);
             return GetDevice(deviceInfo);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             _logger.LogWarning(ex, "Direct TCP connection to {IpAddress} failed", ipAddress);
             return null;
@@ -482,9 +492,7 @@ public class HDHomeRunService : IDisposable
     /// <summary>
     /// Gets comprehensive status for all tuners on a device
     /// </summary>
-    public async Task<List<TunerStatus>> GetAllTunerStatusAsync(
-        HDHomeRunDevice device,
-        CancellationToken cancellationToken = default)
+    public async Task<List<TunerStatus>> GetAllTunerStatusAsync(HDHomeRunDevice device, CancellationToken cancellationToken = default)
     {
         var statuses = new List<TunerStatus>();
 
@@ -495,7 +503,7 @@ public class HDHomeRunService : IDisposable
                 var status = await device.GetTunerStatusAsync(i, cancellationToken);
                 statuses.Add(status);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
                 _logger.LogWarning(ex, "Failed to get status for tuner {TunerIndex}", i);
             }
@@ -504,14 +512,42 @@ public class HDHomeRunService : IDisposable
         return statuses;
     }
 
+    /// <summary>
+    /// Releases resources used by this instance.
+    /// </summary>
     public void Dispose()
     {
-        foreach (var device in _devices.Values)
+        HDHomeRunDevice[] devices;
+        HDHomeRunDiscovery? discovery;
+        lock (_cacheLock)
+        {
+            devices = _devices.Values.Concat(_retiredDevices).ToArray();
+            _devices.Clear();
+            _retiredDevices.Clear();
+            discovery = _discovery;
+            _discovery = null;
+        }
+
+        foreach (var device in devices)
         {
             device.Dispose();
         }
-        _devices.Clear();
-        _discovery?.Dispose();
+        discovery?.Dispose();
+    }
+
+    private HDHomeRunDiscovery GetDiscovery()
+    {
+        lock (_cacheLock)
+        {
+            return _discovery ??= new HDHomeRunDiscovery(_loggerFactory.CreateLogger<HDHomeRunDiscovery>());
+        }
+    }
+
+    private static bool HasSameEndpoint(HDHomeRunDiscoveredDevice current, HDHomeRunDiscoveredDevice discovered)
+    {
+        return current.IpAddress.Equals(discovered.IpAddress) &&
+            string.Equals(current.BaseUrl, discovered.BaseUrl, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(current.LineupUrl, discovered.LineupUrl, StringComparison.OrdinalIgnoreCase);
     }
 }
 
@@ -520,29 +556,77 @@ public class HDHomeRunService : IDisposable
 /// </summary>
 public class DeviceDiagnostics
 {
+    /// <summary>
+    /// Gets or sets input address.
+    /// </summary>
     public string InputAddress { get; set; } = "";
+    /// <summary>
+    /// Gets or sets resolved ip address.
+    /// </summary>
     public string? ResolvedIpAddress { get; set; }
+    /// <summary>
+    /// Gets or sets timestamp.
+    /// </summary>
     public DateTime Timestamp { get; set; }
+    /// <summary>
+    /// Gets or sets http api available.
+    /// </summary>
     public bool HttpApiAvailable { get; set; }
+    /// <summary>
+    /// Gets or sets tcp port open.
+    /// </summary>
     public bool TcpPortOpen { get; set; }
+    /// <summary>
+    /// Gets or sets udp discovery works.
+    /// </summary>
     public bool UdpDiscoveryWorks { get; set; }
+    /// <summary>
+    /// Gets or sets control protocol works.
+    /// </summary>
     public bool ControlProtocolWorks { get; set; }
+    /// <summary>
+    /// Gets or sets device model.
+    /// </summary>
     public string? DeviceModel { get; set; }
+    /// <summary>
+    /// Gets results.
+    /// </summary>
     public List<DiagnosticResult> Results { get; } = [];
 
     // Packet dumps for debugging
+    /// <summary>
+    /// Gets or sets udp packet sent.
+    /// </summary>
     public byte[]? UdpPacketSent { get; set; }
+    /// <summary>
+    /// Gets or sets udp packet received.
+    /// </summary>
     public byte[]? UdpPacketReceived { get; set; }
+    /// <summary>
+    /// Gets or sets tcp packet sent.
+    /// </summary>
     public byte[]? TcpPacketSent { get; set; }
+    /// <summary>
+    /// Gets or sets tcp packet received.
+    /// </summary>
     public byte[]? TcpPacketReceived { get; set; }
 
+    /// <summary>
+    /// Performs the add result operation.
+    /// </summary>
     public void AddResult(string test, bool success, string message)
     {
         Results.Add(new DiagnosticResult { Test = test, Success = success, Message = message });
     }
 
+    /// <summary>
+    /// Gets is fully connectable.
+    /// </summary>
     public bool IsFullyConnectable => HttpApiAvailable && TcpPortOpen && ControlProtocolWorks;
 
+    /// <summary>
+    /// Performs the to string operation.
+    /// </summary>
     public override string ToString()
     {
         var sb = new System.Text.StringBuilder();
@@ -559,6 +643,9 @@ public class DeviceDiagnostics
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Performs the get packet dumps operation.
+    /// </summary>
     public string GetPacketDumps()
     {
         var sb = new System.Text.StringBuilder();
@@ -605,11 +692,18 @@ public class DeviceDiagnostics
             for (int j = 0; j < 16; j++)
             {
                 if (i + j < data.Length)
+                {
                     sb.Append($"{data[i + j]:X2} ");
+                }
                 else
+                {
                     sb.Append("   ");
+                }
 
-                if (j == 7) sb.Append(' ');
+                if (j == 7)
+                {
+                    sb.Append(' ');
+                }
             }
 
             sb.Append(" |");
@@ -627,9 +721,21 @@ public class DeviceDiagnostics
     }
 }
 
+/// <summary>
+/// Represents diagnostic result.
+/// </summary>
 public record DiagnosticResult
 {
+    /// <summary>
+    /// Gets or sets test.
+    /// </summary>
     public required string Test { get; init; }
+    /// <summary>
+    /// Gets or sets success.
+    /// </summary>
     public required bool Success { get; init; }
+    /// <summary>
+    /// Gets or sets message.
+    /// </summary>
     public required string Message { get; init; }
 }

@@ -34,6 +34,13 @@ public interface IEpgRepository
     Task StoreRawSegmentAsync(IEnumerable<HDHomeRunChannelEpgSegment> segments);
 
     /// <summary>
+    /// Atomically replaces all cached channels and programmes with a complete guide snapshot.
+    /// </summary>
+    /// <param name="segments">The complete guide snapshot.</param>
+    /// <param name="cancellationToken">A token used to cancel the replacement before it commits.</param>
+    Task ReplaceRawEpgDataAsync(IEnumerable<HDHomeRunChannelEpgSegment> segments, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Gets all stored raw channel data
     /// </summary>
     Task<List<HDHomeRunChannelEpgSegment>> GetChannelsAsync();
@@ -84,9 +91,4 @@ public interface IEpgRepository
 /// <summary>
 /// Statistics about cached EPG data
 /// </summary>
-public record CacheStatistics(
-    int ChannelCount,
-    int ProgramCount,
-    DateTime? EarliestProgramStart,
-    DateTime? LatestProgramEnd,
-    TimeSpan? TotalTimeSpan);
+public record CacheStatistics(int ChannelCount, int ProgramCount, DateTime? EarliestProgramStart, DateTime? LatestProgramEnd, TimeSpan? TotalTimeSpan);

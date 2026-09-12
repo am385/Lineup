@@ -7,6 +7,9 @@ namespace Lineup.Core.Models.Xmltv;
 /// </summary>
 public class XmltvPreviouslyShown
 {
+    /// <summary>
+    /// Gets or sets start.
+    /// </summary>
     [XmlAttribute("start")]
     public string? Start { get; set; }
 }

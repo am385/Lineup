@@ -1,0 +1,19 @@
+services:
+  lineup:
+    environment:
+      Lineup__Logging__OpenTelemetry__Endpoint: http://otel-collector:4318
+      Lineup__Logging__OpenTelemetry__Protocol: httpProtobuf
+    depends_on:
+      otel-collector:
+        condition: service_started
+
+  otel-collector:
+    image: otel/opentelemetry-collector:0.160.0
+    container_name: lineup-otel-collector
+    command:
+      - --config=/etc/otelcol/config.yaml
+    volumes:
+      - ./tools/otel-collector-config.yml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4318:4318"
+    restart: unless-stopped

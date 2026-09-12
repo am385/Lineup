@@ -29,10 +29,7 @@ public class HDHomeRunDeviceClient
     /// <param name="logger">Logger instance</param>
     /// <param name="httpClient">HttpClient for making requests</param>
     /// <param name="addressProvider">Optional provider for dynamic device address resolution. If null, HttpClient.BaseAddress is used.</param>
-    public HDHomeRunDeviceClient(
-        ILogger<HDHomeRunDeviceClient> logger,
-        HttpClient httpClient,
-        IDeviceAddressProvider? addressProvider = null)
+    public HDHomeRunDeviceClient(ILogger<HDHomeRunDeviceClient> logger, HttpClient httpClient, IDeviceAddressProvider? addressProvider = null)
     {
         _logger = logger;
         _httpClient = httpClient;
@@ -41,37 +38,35 @@ public class HDHomeRunDeviceClient
         // Validate that we have at least one way to get the address
         if (_addressProvider == null && _httpClient.BaseAddress == null)
         {
-            throw new ArgumentException(
-                "Either an IDeviceAddressProvider must be supplied or HttpClient must have BaseAddress configured",
-                nameof(httpClient));
+            throw new ArgumentException("Either an IDeviceAddressProvider must be supplied or HttpClient must have BaseAddress configured", nameof(httpClient));
         }
     }
 
     /// <summary>
     /// Discovers the device information from the HDHomeRun device
     /// </summary>
+    /// <param name="cancellationToken">Cancels the HTTP discovery request.</param>
     /// <returns>Complete device information including authentication token</returns>
     /// <exception cref="InvalidOperationException">Thrown when device cannot be discovered</exception>
-    public async Task<HDHomeRunDeviceInfo> DiscoverDeviceAsync()
+    public virtual async Task<HDHomeRunDeviceInfo> DiscoverDeviceAsync(CancellationToken cancellationToken = default)
     {
         var baseUri = CurrentBaseUri;
         try
         {
             _logger.LogInformation("Discovering HDHomeRun device at {BaseAddress}", baseUri);
             var requestUri = new Uri(baseUri, DeviceEndpoints.DiscoverJson);
-            var deviceInfo = await _httpClient.GetFromJsonAsync<HDHomeRunDeviceInfo>(requestUri);
+            var deviceInfo = await _httpClient.GetFromJsonAsync<HDHomeRunDeviceInfo>(requestUri, cancellationToken);
 
             if (deviceInfo == null)
             {
                 throw new InvalidOperationException($"No device found at {baseUri}");
             }
 
-            _logger.LogInformation("Discovered device: {FriendlyName} ({ModelNumber}) with Device ID: {DeviceID}",
-                deviceInfo.FriendlyName, deviceInfo.ModelNumber, deviceInfo.DeviceID);
+            _logger.LogInformation("Discovered device: {FriendlyName} ({ModelNumber}) with Device ID: {DeviceID}", deviceInfo.FriendlyName, deviceInfo.ModelNumber, deviceInfo.DeviceID);
 
             return deviceInfo;
         }
-        catch (Exception e) when (e is not InvalidOperationException)
+        catch (Exception e) when (e is not InvalidOperationException and not OperationCanceledException)
         {
             _logger.LogError(e, "Error discovering device at {BaseAddress}", baseUri);
             throw new InvalidOperationException($"Error discovering device at {baseUri}", e);
@@ -81,20 +76,22 @@ public class HDHomeRunDeviceClient
     /// <summary>
     /// Discovers the device authentication token from the HDHomeRun device
     /// </summary>
+    /// <param name="cancellationToken">Cancels device discovery.</param>
     /// <returns>Device authentication token</returns>
     /// <exception cref="InvalidOperationException">Thrown when device auth cannot be discovered</exception>
-    public async Task<string> DiscoverDeviceAuthAsync()
+    public async Task<string> DiscoverDeviceAuthAsync(CancellationToken cancellationToken = default)
     {
-        var deviceInfo = await DiscoverDeviceAsync();
+        var deviceInfo = await DiscoverDeviceAsync(cancellationToken);
         return deviceInfo.DeviceAuth;
     }
 
     /// <summary>
     /// Fetches the list of channels from the HDHomeRun device
     /// </summary>
+    /// <param name="cancellationToken">Cancels the HTTP lineup request.</param>
     /// <returns>List of channels from the device lineup</returns>
     /// <exception cref="InvalidOperationException">Thrown when channels cannot be retrieved</exception>
-    public async Task<List<HDHomeRunChannel>> FetchChannelLineupAsync()
+    public virtual async Task<List<HDHomeRunChannel>> FetchChannelLineupAsync(CancellationToken cancellationToken = default)
     {
         var baseUri = CurrentBaseUri;
         try
@@ -102,19 +99,18 @@ public class HDHomeRunDeviceClient
             _logger.LogInformation("Fetching channel lineup from {BaseAddress}", baseUri);
 
             var requestUri = new Uri(baseUri, DeviceEndpoints.LineupJson);
-            var channels = await _httpClient.GetFromJsonAsync<List<HDHomeRunChannel>>(requestUri);
+            var channels = await _httpClient.GetFromJsonAsync<List<HDHomeRunChannel>>(requestUri, cancellationToken);
 
             if (channels == null)
             {
                 throw new InvalidOperationException($"Failed to retrieve channel lineup from {baseUri}");
             }
 
-            _logger.LogInformation("Channel lineup retrieved successfully from {BaseAddress}. Found {ChannelCount} channels",
-                baseUri, channels.Count);
+            _logger.LogInformation("Channel lineup retrieved successfully from {BaseAddress}. Found {ChannelCount} channels", baseUri, channels.Count);
 
             return channels;
         }
-        catch (Exception e) when (e is not InvalidOperationException)
+        catch (Exception e) when (e is not InvalidOperationException and not OperationCanceledException)
         {
             _logger.LogError(e, "Error fetching channel lineup from {BaseAddress}", baseUri);
             throw new InvalidOperationException($"Error fetching channel lineup from {baseUri}", e);
