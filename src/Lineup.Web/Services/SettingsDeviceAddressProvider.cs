@@ -10,10 +10,16 @@ public class SettingsDeviceAddressProvider : IDeviceAddressProvider
 {
     private readonly IAppSettingsService _settingsService;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="SettingsDeviceAddressProvider"/> class.
+    /// </summary>
     public SettingsDeviceAddressProvider(IAppSettingsService settingsService)
     {
         _settingsService = settingsService;
     }
 
+    /// <summary>
+    /// Gets device address.
+    /// </summary>
     public string DeviceAddress => _settingsService.Settings.DeviceAddress;
 }

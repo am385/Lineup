@@ -16,11 +16,10 @@ public class EpgAutoFetchService : BackgroundService
     private CancellationTokenSource? _delayCts;
     private readonly object _delayLock = new();
 
-    public EpgAutoFetchService(
-        IServiceScopeFactory scopeFactory,
-        ILogger<EpgAutoFetchService> logger,
-        IAutoFetchStateService stateService,
-        IAppSettingsService settingsService)
+    /// <summary>
+    /// Initializes a new instance of the <see cref="EpgAutoFetchService"/> class.
+    /// </summary>
+    public EpgAutoFetchService(IServiceScopeFactory scopeFactory, ILogger<EpgAutoFetchService> logger, IAutoFetchStateService stateService, IAppSettingsService settingsService)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
@@ -31,17 +30,16 @@ public class EpgAutoFetchService : BackgroundService
         _settingsService.OnSettingsChanged += OnSettingsChanged;
     }
 
-    private TimeSpan FetchInterval => _settingsService.Settings.AutoFetchInterval;
     private int TargetDays => _settingsService.Settings.TargetDays;
     private bool IsEnabled => _settingsService.Settings.IsAutoFetchEnabled;
 
     private void OnSettingsChanged()
     {
-        _logger.LogInformation("Settings changed. Auto-fetch enabled: {Enabled}, Interval: {Interval}",
-            IsEnabled, _settingsService.Settings.AutoFetchInterval);
+        var nextDelay = CalculateScheduledDelay();
+        _logger.LogInformation("Settings changed. Automatic XMLTV refresh enabled: {Enabled}", IsEnabled);
 
         // Update the state service with new schedule
-        _stateService.UpdateSchedule(IsEnabled, IsEnabled ? FetchInterval : null);
+        _stateService.UpdateSchedule(IsEnabled, IsEnabled ? nextDelay : null);
 
         // Cancel the current delay to apply new settings immediately
         lock (_delayLock)
@@ -50,17 +48,28 @@ public class EpgAutoFetchService : BackgroundService
         }
     }
 
+    /// <summary>
+    /// Performs the execute operation.
+    /// </summary>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("EPG Auto-Fetch Service started. Interval: {Interval}, Target: {Days} days, Enabled: {Enabled}",
-            _settingsService.Settings.AutoFetchInterval, TargetDays, IsEnabled);
+        _logger.LogInformation("EPG Auto-Fetch Service started. Randomized 20-28 hour scheduling enabled: {Enabled}", IsEnabled);
+        using (var scope = _scopeFactory.CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<EpgOrchestrator>().ReconcileCacheAsync(stoppingToken);
+        }
 
         // Calculate initial delay based on persisted last fetch time
         var initialDelay = CalculateInitialDelay();
         _stateService.UpdateSchedule(IsEnabled, initialDelay);
 
         _logger.LogInformation("Next auto-fetch in {Delay}", initialDelay);
-        await SafeDelayAsync(initialDelay, stoppingToken);
+        while (!stoppingToken.IsCancellationRequested && !await SafeDelayAsync(initialDelay, stoppingToken))
+        {
+            initialDelay = CalculateScheduledDelay();
+            _stateService.UpdateSchedule(IsEnabled, IsEnabled ? initialDelay : null);
+            _logger.LogDebug("Restarting the initial automatic XMLTV refresh delay");
+        }
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -83,6 +92,10 @@ public class EpgAutoFetchService : BackgroundService
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error during automatic EPG fetch");
+                _stateService.FailFetch(ex.Message);
+                var retryDelay = TimeSpan.FromHours(1);
+                _stateService.UpdateSchedule(true, retryDelay);
+                await _settingsService.UpdateAsync(settings => settings.NextAutoFetchTime = DateTime.UtcNow.Add(retryDelay));
             }
 
             // Wait for the next fetch interval, restarting the delay if settings change
@@ -90,13 +103,14 @@ public class EpgAutoFetchService : BackgroundService
             {
                 if (IsEnabled)
                 {
-                    _stateService.UpdateSchedule(true, FetchInterval);
-                    if (await SafeDelayAsync(FetchInterval, stoppingToken))
+                    var nextDelay = CalculateScheduledDelay();
+                    _stateService.UpdateSchedule(true, nextDelay);
+                    if (await SafeDelayAsync(nextDelay, stoppingToken))
                     {
                         break; // Delay completed normally, proceed to fetch
                     }
-                    // Settings changed — loop back to re-evaluate and start a new delay
-                    _logger.LogDebug("Restarting delay with updated interval: {Interval}", FetchInterval);
+                    // Settings changed ï¿½ loop back to re-evaluate and start a new delay
+                    _logger.LogDebug("Restarting the automatic XMLTV refresh delay");
                 }
                 else
                 {
@@ -111,9 +125,7 @@ public class EpgAutoFetchService : BackgroundService
     }
 
     /// <summary>
-    /// Calculates the initial delay before the first fetch based on persisted last fetch time.
-    /// If a previous fetch happened recently enough, waits the remaining interval.
-    /// Otherwise, waits 30 seconds (startup grace period).
+    /// Calculates the initial delay from the persisted randomized schedule.
     /// </summary>
     private TimeSpan CalculateInitialDelay()
     {
@@ -122,25 +134,29 @@ public class EpgAutoFetchService : BackgroundService
             return TimeSpan.FromSeconds(10);
         }
 
-        var lastFetch = _settingsService.Settings.LastAutoFetchTime;
-        if (lastFetch.HasValue)
+        var nextFetch = _settingsService.Settings.NextAutoFetchTime;
+        if (nextFetch.HasValue)
         {
-            var elapsed = DateTime.UtcNow - lastFetch.Value;
-            var remaining = FetchInterval - elapsed;
-
+            var remaining = nextFetch.Value - DateTime.UtcNow;
             if (remaining > TimeSpan.Zero)
             {
-                _logger.LogInformation(
-                    "Last auto-fetch was {Elapsed:hh\\:mm\\:ss} ago. Waiting {Remaining:hh\\:mm\\:ss} before next fetch",
-                    elapsed, remaining);
+                _logger.LogInformation("Waiting {Remaining} for the persisted XMLTV refresh time", remaining);
                 return remaining;
             }
-
-            _logger.LogInformation("Last auto-fetch was {Elapsed:hh\\:mm\\:ss} ago (overdue). Fetching after startup delay",
-                elapsed);
         }
 
         return TimeSpan.FromSeconds(30);
+    }
+
+    private TimeSpan CalculateScheduledDelay()
+    {
+        if (!IsEnabled)
+        {
+            return TimeSpan.FromSeconds(10);
+        }
+
+        var remaining = _settingsService.Settings.NextAutoFetchTime - DateTime.UtcNow;
+        return remaining > TimeSpan.Zero ? remaining.Value : TimeSpan.FromSeconds(30);
     }
 
     /// <summary>
@@ -189,14 +205,14 @@ public class EpgAutoFetchService : BackgroundService
             }
         });
 
-        await orchestrator.FetchAndStoreEpgAsync(TargetDays, force: false, progress);
+        await orchestrator.FetchAndStoreEpgAsync(TargetDays, force: false, progress, stoppingToken);
 
         // Auto-generate XMLTV file if enabled
         if (_settingsService.Settings.AutoGenerateXmltv)
         {
             var outputPath = _settingsService.Settings.XmltvOutputPath;
             _logger.LogInformation("Auto-generating XMLTV file to {OutputPath}...", outputPath);
-            
+
             try
             {
                 // Ensure directory exists if path contains directories
@@ -205,7 +221,7 @@ public class EpgAutoFetchService : BackgroundService
                 {
                     Directory.CreateDirectory(directory);
                 }
-                
+
                 await orchestrator.GenerateEpgFromCacheAsync(TargetDays, outputPath);
                 _logger.LogInformation("XMLTV file generated successfully to {OutputPath}", outputPath);
             }
@@ -215,12 +231,23 @@ public class EpgAutoFetchService : BackgroundService
             }
         }
 
-        _stateService.CompleteFetch(FetchInterval);
+        var nextInterval = CreateRandomizedFetchInterval();
+        var completedAt = DateTime.UtcNow;
+        var nextFetchAt = completedAt.Add(nextInterval);
+        _stateService.CompleteFetch(nextInterval);
 
-        // Persist the last fetch time so we can resume correctly after restart
-        await _settingsService.UpdateAsync(s => s.LastAutoFetchTime = DateTime.UtcNow);
+        // Persist the selected randomized schedule so restarts do not reset it.
+        await _settingsService.UpdateAsync(settings =>
+        {
+            settings.LastAutoFetchTime = completedAt;
+            settings.NextAutoFetchTime = nextFetchAt;
+        });
 
-        _logger.LogInformation("Automatic EPG fetch completed. Next fetch at {NextFetch:HH:mm:ss}",
-            _stateService.NextFetchTime);
+        _logger.LogInformation("Automatic EPG fetch completed. Next fetch at {NextFetch:HH:mm:ss}", _stateService.NextFetchTime);
+    }
+
+    private static TimeSpan CreateRandomizedFetchInterval()
+    {
+        return TimeSpan.FromHours(20) + TimeSpan.FromMinutes(Random.Shared.Next(0, 481));
     }
 }

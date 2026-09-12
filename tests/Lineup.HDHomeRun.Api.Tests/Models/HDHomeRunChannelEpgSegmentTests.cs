@@ -3,12 +3,19 @@ using Xunit;
 
 namespace Lineup.HDHomeRun.Api.Tests.Models;
 
+/// <summary>
+/// Represents hd home run channel epg segment tests.
+/// </summary>
 public class HDHomeRunChannelEpgSegmentTests
 {
+    /// <summary>
+    /// Performs the hd home run channel epg segment_can be created_with all properties operation.
+    /// </summary>
     [Fact]
     public void HDHomeRunChannelEpgSegment_CanBeCreated_WithAllProperties()
     {
-        // Arrange & Act
+        // Arrange
+        // Act
         var segment = new HDHomeRunChannelEpgSegment
         {
             GuideNumber = "5.1",
@@ -29,10 +36,14 @@ public class HDHomeRunChannelEpgSegmentTests
         Assert.Equal(2, segment.Guide.Count);
     }
 
+    /// <summary>
+    /// Performs the hd home run channel epg segment_guide_defaults to empty list operation.
+    /// </summary>
     [Fact]
     public void HDHomeRunChannelEpgSegment_Guide_DefaultsToEmptyList()
     {
-        // Arrange & Act
+        // Arrange
+        // Act
         var segment = new HDHomeRunChannelEpgSegment
         {
             GuideNumber = "5.1"
@@ -43,6 +54,9 @@ public class HDHomeRunChannelEpgSegmentTests
         Assert.Empty(segment.Guide);
     }
 
+    /// <summary>
+    /// Performs the hd home run channel epg segment_can add programs_to guide operation.
+    /// </summary>
     [Fact]
     public void HDHomeRunChannelEpgSegment_CanAddPrograms_ToGuide()
     {

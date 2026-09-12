@@ -3,12 +3,19 @@ using Xunit;
 
 namespace Lineup.HDHomeRun.Device.Tests.Models;
 
+/// <summary>
+/// Represents hd home run device info tests.
+/// </summary>
 public class HDHomeRunDeviceInfoTests
 {
+    /// <summary>
+    /// Performs the hd home run device info_can be created_with all properties operation.
+    /// </summary>
     [Fact]
     public void HDHomeRunDeviceInfo_CanBeCreated_WithAllProperties()
     {
-        // Arrange & Act
+        // Arrange
+        // Act
         var deviceInfo = new HDHomeRunDeviceInfo
         {
             FriendlyName = "HDHomeRun FLEX 4K",
@@ -31,6 +38,9 @@ public class HDHomeRunDeviceInfoTests
         Assert.Equal(4, deviceInfo.TunerCount);
     }
 
+    /// <summary>
+    /// Performs the hd home run device info_record_supports equality operation.
+    /// </summary>
     [Fact]
     public void HDHomeRunDeviceInfo_Record_SupportsEquality()
     {
@@ -48,6 +58,7 @@ public class HDHomeRunDeviceInfoTests
             TunerCount = 2
         };
 
+        // Act
         var deviceInfo2 = new HDHomeRunDeviceInfo
         {
             FriendlyName = "Test Device",

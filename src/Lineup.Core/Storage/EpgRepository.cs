@@ -14,18 +14,28 @@ public class EpgRepository : IEpgRepository
     private readonly EpgDbContext _context;
     private readonly ILogger<EpgRepository> _logger;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="EpgRepository"/> class.
+    /// </summary>
     public EpgRepository(EpgDbContext context, ILogger<EpgRepository> logger)
     {
         _context = context;
         _logger = logger;
     }
 
+    /// <summary>
+    /// Performs the ensure database created operation.
+    /// </summary>
     public async Task EnsureDatabaseCreatedAsync()
     {
         await _context.Database.EnsureCreatedAsync();
+        await EnsureChannelDrmColumnAsync();
         _logger.LogDebug("Database ensured created");
     }
 
+    /// <summary>
+    /// Performs the store channel operation.
+    /// </summary>
     public async Task StoreChannelAsync(HDHomeRunChannelEpgSegment channel)
     {
         var existing = await _context.Channels
@@ -36,6 +46,7 @@ public class EpgRepository : IEpgRepository
             existing.GuideName = channel.GuideName;
             existing.Affiliate = channel.Affiliate;
             existing.ImageURL = channel.ImageURL;
+            existing.DRM = channel.DRM;
             existing.LastUpdatedUtc = DateTime.UtcNow;
         }
         else
@@ -46,6 +57,7 @@ public class EpgRepository : IEpgRepository
                 GuideName = channel.GuideName,
                 Affiliate = channel.Affiliate,
                 ImageURL = channel.ImageURL,
+                DRM = channel.DRM,
                 LastUpdatedUtc = DateTime.UtcNow
             });
         }
@@ -53,6 +65,9 @@ public class EpgRepository : IEpgRepository
         await _context.SaveChangesAsync();
     }
 
+    /// <summary>
+    /// Performs the store channels operation.
+    /// </summary>
     public async Task StoreChannelsAsync(IEnumerable<HDHomeRunChannelEpgSegment> channels)
     {
         foreach (var channel in channels)
@@ -71,6 +86,7 @@ public class EpgRepository : IEpgRepository
                 existing.GuideName = channel.GuideName;
                 existing.Affiliate = channel.Affiliate;
                 existing.ImageURL = channel.ImageURL;
+                existing.DRM = channel.DRM;
                 existing.LastUpdatedUtc = DateTime.UtcNow;
             }
             else
@@ -81,6 +97,7 @@ public class EpgRepository : IEpgRepository
                     GuideName = channel.GuideName,
                     Affiliate = channel.Affiliate,
                     ImageURL = channel.ImageURL,
+                    DRM = channel.DRM,
                     LastUpdatedUtc = DateTime.UtcNow
                 });
             }
@@ -90,6 +107,9 @@ public class EpgRepository : IEpgRepository
         _logger.LogDebug("Stored {Count} channels", channels.Count());
     }
 
+    /// <summary>
+    /// Performs the store program operation.
+    /// </summary>
     public async Task StoreProgramAsync(HDHomeRunProgram program, string guideNumber)
     {
         // Check for duplicate
@@ -108,6 +128,9 @@ public class EpgRepository : IEpgRepository
         await _context.SaveChangesAsync();
     }
 
+    /// <summary>
+    /// Performs the store programs operation.
+    /// </summary>
     public async Task StoreProgramsAsync(HDHomeRunChannelEpgSegment channelSegment)
     {
         if (string.IsNullOrEmpty(channelSegment.GuideNumber))
@@ -138,10 +161,12 @@ public class EpgRepository : IEpgRepository
         }
 
         await _context.SaveChangesAsync();
-        _logger.LogDebug("Stored {StoredCount} programs for channel {GuideNumber}, skipped {SkippedCount} duplicates",
-            storedCount, channelSegment.GuideNumber, skippedCount);
+        _logger.LogDebug("Stored {StoredCount} programs for channel {GuideNumber}, skipped {SkippedCount} duplicates", storedCount, channelSegment.GuideNumber, skippedCount);
     }
 
+    /// <summary>
+    /// Performs the store raw segment operation.
+    /// </summary>
     public async Task StoreRawSegmentAsync(IEnumerable<HDHomeRunChannelEpgSegment> segments)
     {
         var segmentList = segments.ToList();
@@ -158,12 +183,56 @@ public class EpgRepository : IEpgRepository
         _logger.LogDebug("Stored raw segment with {ChannelCount} channels", segmentList.Count);
     }
 
+    /// <summary>
+    /// Performs the replace raw epg data operation.
+    /// </summary>
+    public async Task ReplaceRawEpgDataAsync(IEnumerable<HDHomeRunChannelEpgSegment> segments, CancellationToken cancellationToken = default)
+    {
+        var segmentList = segments
+            .Where(segment => !string.IsNullOrWhiteSpace(segment.GuideNumber))
+            .GroupBy(segment => segment.GuideNumber!, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToArray();
+
+        await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+        await _context.Programs.ExecuteDeleteAsync(cancellationToken);
+        await _context.Channels.ExecuteDeleteAsync(cancellationToken);
+
+        var fetchedAt = DateTime.UtcNow;
+        _context.Channels.AddRange(segmentList.Select(segment => new StoredChannel
+        {
+            GuideNumber = segment.GuideNumber!,
+            GuideName = segment.GuideName,
+            Affiliate = segment.Affiliate,
+            ImageURL = segment.ImageURL,
+            DRM = segment.DRM,
+            LastUpdatedUtc = fetchedAt
+        }));
+        _context.Programs.AddRange(segmentList.SelectMany(segment =>
+            segment.Guide.Select(program => MapToEntity(program, segment.GuideNumber!))));
+
+        await _context.SaveChangesAsync(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        await transaction.CommitAsync(CancellationToken.None);
+
+        _logger.LogInformation(
+            "Replaced the guide cache with {ChannelCount} channels and {ProgramCount} programmes",
+            segmentList.Length,
+            segmentList.Sum(segment => segment.Guide.Count));
+    }
+
+    /// <summary>
+    /// Performs the get channels operation.
+    /// </summary>
     public async Task<List<HDHomeRunChannelEpgSegment>> GetChannelsAsync()
     {
         var channels = await _context.Channels.ToListAsync();
         return channels.Select(MapToChannelSegment).ToList();
     }
 
+    /// <summary>
+    /// Performs the get programs operation.
+    /// </summary>
     public async Task<List<HDHomeRunProgram>> GetProgramsAsync(DateTime? startTimeUtc = null, DateTime? endTimeUtc = null)
     {
         var query = _context.Programs.AsQueryable();
@@ -184,6 +253,9 @@ public class EpgRepository : IEpgRepository
         return programs.Select(MapToProgram).ToList();
     }
 
+    /// <summary>
+    /// Performs the get raw epg data operation.
+    /// </summary>
     public async Task<List<HDHomeRunChannelEpgSegment>> GetRawEpgDataAsync(DateTime? startTimeUtc = null, DateTime? endTimeUtc = null)
     {
         // Get all channels
@@ -224,6 +296,7 @@ public class EpgRepository : IEpgRepository
                 GuideName = channel.GuideName,
                 Affiliate = channel.Affiliate,
                 ImageURL = channel.ImageURL,
+                DRM = channel.DRM,
                 Guide = channelPrograms
             });
         }
@@ -232,6 +305,9 @@ public class EpgRepository : IEpgRepository
         return result;
     }
 
+    /// <summary>
+    /// Performs the cleanup old programs operation.
+    /// </summary>
     public async Task CleanupOldProgramsAsync(DateTime beforeUtc)
     {
         var beforeUnix = new DateTimeOffset(beforeUtc).ToUnixTimeSeconds();
@@ -247,6 +323,9 @@ public class EpgRepository : IEpgRepository
         }
     }
 
+    /// <summary>
+    /// Performs the get cache statistics operation.
+    /// </summary>
     public async Task<CacheStatistics> GetCacheStatisticsAsync()
     {
         var channelCount = await _context.Channels.CountAsync();
@@ -277,14 +356,12 @@ public class EpgRepository : IEpgRepository
             }
         }
 
-        return new CacheStatistics(
-            channelCount,
-            programCount,
-            earliestStart,
-            latestEnd,
-            totalSpan);
+        return new CacheStatistics(channelCount, programCount, earliestStart, latestEnd, totalSpan);
     }
 
+    /// <summary>
+    /// Performs the get latest program end time operation.
+    /// </summary>
     public async Task<DateTime?> GetLatestProgramEndTimeAsync()
     {
         var hasPrograms = await _context.Programs.AnyAsync();
@@ -298,6 +375,9 @@ public class EpgRepository : IEpgRepository
         return DateTimeOffset.FromUnixTimeSeconds(maxEndTime).UtcDateTime;
     }
 
+    /// <summary>
+    /// Performs the get safe fetch start time operation.
+    /// </summary>
     public async Task<DateTime?> GetSafeFetchStartTimeAsync()
     {
         var hasPrograms = await _context.Programs.AnyAsync();
@@ -354,8 +434,51 @@ public class EpgRepository : IEpgRepository
             GuideName = entity.GuideName,
             Affiliate = entity.Affiliate,
             ImageURL = entity.ImageURL,
+            DRM = entity.DRM,
             Guide = [] // Programs loaded separately
         };
+    }
+
+    private async Task EnsureChannelDrmColumnAsync()
+    {
+        var connection = _context.Database.GetDbConnection();
+        var shouldClose = connection.State != System.Data.ConnectionState.Open;
+        if (shouldClose)
+        {
+            await connection.OpenAsync();
+        }
+
+        try
+        {
+            await using var schemaCommand = connection.CreateCommand();
+            schemaCommand.CommandText = "PRAGMA table_info('Channels')";
+            await using var reader = await schemaCommand.ExecuteReaderAsync();
+            var hasDrmColumn = false;
+            while (await reader.ReadAsync())
+            {
+                if (string.Equals(reader.GetString(1), nameof(StoredChannel.DRM), StringComparison.OrdinalIgnoreCase))
+                {
+                    hasDrmColumn = true;
+                    break;
+                }
+            }
+
+            await reader.DisposeAsync();
+            if (!hasDrmColumn)
+            {
+                await using var alterCommand = connection.CreateCommand();
+                alterCommand.CommandText = "ALTER TABLE Channels ADD COLUMN DRM INTEGER NOT NULL DEFAULT 0";
+                await alterCommand.ExecuteNonQueryAsync();
+                _logger.LogInformation("Added DRM metadata column to the channel cache");
+            }
+        }
+        finally
+        {
+            if (shouldClose)
+            {
+                await connection.CloseAsync();
+            }
+        }
     }
 
     private static HDHomeRunProgram MapToProgram(StoredProgram entity)

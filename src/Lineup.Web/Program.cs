@@ -1,45 +1,47 @@
 using Lineup.HDHomeRun.Device;
+using Lineup.HDHomeRun.Device.Protocol;
+using Lineup.HDHomeRun.Api;
 using Lineup.Core;
 using Lineup.Web.Components;
 using Lineup.Web.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+var statusRuntime = new StatusApiRuntime(Guid.NewGuid().ToString("N"));
+var appDataStore = AppDataStore.Create(builder.Configuration);
+builder.Services.AddSingleton(appDataStore);
 
-// Configure Kestrel to optionally enable HTTPS when a certificate is available
-if (!builder.Environment.IsDevelopment())
+// Prefer the verified repo-local Jellyfin FFmpeg installed by scripts/Install-JellyfinFfmpeg.ps1.
+var localFfmpegDirectory = Path.Combine(builder.Environment.ContentRootPath, ".ffmpeg");
+var localFfmpegExecutable = Path.Combine(localFfmpegDirectory, OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg");
+var localFfprobeExecutable = Path.Combine(localFfmpegDirectory, OperatingSystem.IsWindows() ? "ffprobe.exe" : "ffprobe");
+if (File.Exists(localFfmpegExecutable) && File.Exists(localFfprobeExecutable))
 {
-    builder.WebHost.ConfigureKestrel((context, serverOptions) =>
-    {
-        var httpPort = context.Configuration.GetValue(AppConstants.HttpPortConfigKey, AppConstants.DefaultHttpPort);
-        var httpsPort = context.Configuration.GetValue(AppConstants.HttpsPortConfigKey, AppConstants.DefaultHttpsPort);
-        var certPath = context.Configuration["Kestrel:Certificates:Default:Path"];
-        var certPassword = context.Configuration["Kestrel:Certificates:Default:Password"];
-
-        serverOptions.ListenAnyIP(httpPort);
-
-        if (!string.IsNullOrEmpty(certPath) && File.Exists(certPath))
-        {
-            serverOptions.ListenAnyIP(httpsPort, listenOptions =>
-            {
-                listenOptions.UseHttps(certPath, certPassword ?? string.Empty);
-            });
-        }
-    });
+    var currentPath = Environment.GetEnvironmentVariable("PATH");
+    Environment.SetEnvironmentVariable("PATH", string.IsNullOrEmpty(currentPath) ? localFfmpegDirectory : $"{localFfmpegDirectory}{Path.PathSeparator}{currentPath}");
 }
 
-// Resolve application config directory from configuration (supports appsettings.json + environment variables)
-// Environment variable: Lineup__ConfigPath (maps to Lineup:ConfigPath)
-var configPath = builder.Configuration[AppConstants.ConfigPathConfigKey] ?? Directory.GetCurrentDirectory();
-if (!Directory.Exists(configPath))
+using var webEndpointConfiguration = builder.Environment.IsDevelopment()
+    ? null
+    : WebEndpointConfigurator.Load(builder.Configuration);
+
+// Configure Kestrel to optionally enable HTTPS when a valid certificate is available.
+if (webEndpointConfiguration != null)
 {
-    Directory.CreateDirectory(configPath);
+    builder.WebHost.ConfigureKestrel(serverOptions => WebEndpointConfigurator.Configure(serverOptions, webEndpointConfiguration));
 }
+
+var configuredXmltvPath = builder.Configuration[AppConstants.XmltvPathConfigKey];
+FactoryResetCoordinator.ApplyPendingReset(appDataStore, configuredXmltvPath);
+DataProtectionService.Configure(builder.Services, appDataStore);
+var logging = LoggingBootstrapper.Configure(builder, appDataStore);
+builder.Services.AddSingleton<ILogEventStore>(logging.EventStore);
+builder.Services.AddSingleton(logging.RuntimeState);
+builder.Services.AddSingleton<LogFileService>();
 
 // Add application settings service (must be registered before services that depend on it)
-builder.Services.AddSingleton<IAppSettingsService>(sp =>
-    new AppSettingsService(
-        sp.GetRequiredService<ILogger<AppSettingsService>>(),
-        Path.Combine(configPath, AppConstants.SettingsFileName)));
+builder.Services.AddSingleton<IAppSettingsService, AppSettingsService>();
+builder.Services.AddSingleton<IApplicationRestartService, ApplicationRestartService>();
+builder.Services.AddSingleton<IFactoryResetService, FactoryResetService>();
 
 // Register dynamic device address provider (uses settings service)
 builder.Services.AddSingleton<IDeviceAddressProvider, SettingsDeviceAddressProvider>();
@@ -48,17 +50,29 @@ builder.Services.AddSingleton<IDeviceAddressProvider, SettingsDeviceAddressProvi
 builder.Services.AddSingleton<ITimeZoneService, TimeZoneService>();
 
 // Add EPG Core services (device address from settings, not config)
-var databasePath = Path.Combine(configPath, AppConstants.DefaultDatabaseFileName);
-builder.Services.AddEpgCore(databasePath: databasePath);
+builder.Services.AddEpgCore(databasePath: appDataStore.DatabasePath);
+builder.Services.AddSingleton<IDeviceAuthProvider, SettingsDeviceAuthProvider>();
 
-// Add HDHomeRun device control service (uses native protocol)
+// Add HDHomeRun device control service
+builder.Services.AddHttpClient(HDHomeRunHttpControlFactory.HttpClientName, client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
+builder.Services.AddSingleton<IHDHomeRunHttpControlFactory, HDHomeRunHttpControlFactory>();
 builder.Services.AddSingleton<HDHomeRunService>();
 
 // Add device state service (holds device info and tuner status, auto-refreshes)
 builder.Services.AddSingleton<IDeviceStateService, DeviceStateService>();
+builder.Services.AddSingleton<VirtualDeviceStatusCache>();
+builder.Services.AddSingleton<IHdHomeRunProxyProfileProvider, HdHomeRunProxyProfileProvider>();
+builder.Services.AddSingleton<IHdHomeRunProxyDeviceClient, HdHomeRunProxyDeviceClient>();
 
 // Add background service for device auto-refresh (every 10 min for device, 30 sec for tuners)
 builder.Services.AddHostedService<DeviceRefreshService>();
+
+// Add opt-in network discovery listeners for the virtual HDHomeRun device
+builder.Services.AddHostedService<HdHomeRunDiscoveryService>();
+builder.Services.AddHostedService<SsdpDiscoveryService>();
 
 // Add auto-fetch state service (singleton so it can be shared between background service and UI)
 builder.Services.AddSingleton<IAutoFetchStateService, AutoFetchStateService>();
@@ -73,6 +87,17 @@ builder.Services.AddHttpClient("StreamProxy")
         // Allow streaming without buffering
         MaxConnectionsPerServer = 10
     });
+builder.Services.AddHttpClient("HdHomeRunProxyDevice");
+
+builder.Services.AddSingleton<IMpegTsTranscodeService, MpegTsTranscodeService>();
+builder.Services.AddSingleton<IMediaProbeService, MediaProbeService>();
+builder.Services.AddSingleton<IActiveStreamRegistry, ActiveStreamRegistry>();
+builder.Services.AddSingleton(statusRuntime);
+builder.Services.AddScoped<StatusApiService>();
+builder.Services.AddSingleton<IProtectedContentSlateService, ProtectedContentSlateService>();
+builder.Services.AddSingleton<ITunerStreamMultiplexer, TunerStreamMultiplexer>();
+builder.Services.AddSingleton<ITunerCapacityLeaseRegistry, TunerCapacityLeaseRegistry>();
+builder.Services.AddSingleton<SubtitleSidecarService>();
 
 // Add controllers for API endpoints (stream proxy)
 builder.Services.AddControllers();
@@ -82,6 +107,28 @@ builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
 var app = builder.Build();
+if (webEndpointConfiguration is { HttpsStatus: HttpsEndpointStatus.Enabled })
+{
+    app.Logger.LogInformation(
+        "Web endpoints configured with HTTP on port {HttpPort} and HTTPS on port {HttpsPort}",
+        webEndpointConfiguration.HttpPort,
+        webEndpointConfiguration.HttpsPort);
+}
+else if (webEndpointConfiguration is { HttpsStatus: HttpsEndpointStatus.Unavailable })
+{
+    app.Logger.LogWarning(
+        "HTTPS is unavailable ({HttpsConfigurationReason}); listening on HTTP port {HttpPort}",
+        webEndpointConfiguration.Warning,
+        webEndpointConfiguration.HttpPort);
+}
+else if (webEndpointConfiguration != null)
+{
+    app.Logger.LogInformation("HTTPS is not configured; listening on HTTP port {HttpPort}", webEndpointConfiguration.HttpPort);
+}
+foreach (var target in logging.RuntimeState.ExternalTargets.Where(target => target.Status == "Invalid"))
+{
+    app.Logger.LogWarning("{LoggingTarget} logging is not active because its startup configuration is invalid: {Reason}", target.Name, target.Message);
+}
 
 // Configure the HTTP request pipeline
 if (!app.Environment.IsDevelopment())
@@ -107,10 +154,24 @@ app.MapPut("/api/theme/{theme}", async (string theme, IAppSettingsService settin
     return Results.NoContent();
 }).DisableAntiforgery();
 
+app.MapGet("/api/runtime", () => Results.Ok(new { instanceId = statusRuntime.InstanceId })).DisableAntiforgery();
+
+app.MapGet("/api/v1/status", async (HttpContext context, StatusApiService status, CancellationToken cancellationToken) =>
+{
+    context.Response.Headers.CacheControl = "no-store";
+    return Results.Ok(await status.GetStatusAsync(cancellationToken));
+}).DisableAntiforgery();
+
+app.MapGet("/api/logs/files/{fileName}", (string fileName, LogFileService files) =>
+{
+    var stream = files.OpenRead(fileName);
+    return stream == null ? Results.NotFound() : Results.File(stream, "text/plain", fileName);
+}).DisableAntiforgery();
+
 // Endpoint for external programs (Jellyfin, Plex, etc.) to download the XMLTV guide file
 app.MapGet("/api/xmltv", (IAppSettingsService settings) =>
 {
-    var path = Path.GetFullPath(settings.Settings.XmltvOutputPath);
+    var path = settings.Settings.XmltvOutputPath;
     if (!File.Exists(path))
     {
         return Results.NotFound("No XMLTV file has been generated yet.");

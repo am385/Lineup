@@ -41,6 +41,9 @@ public class TimeZoneService : ITimeZoneService
     private TimeZoneInfo _cached;
     private string _cachedId;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="TimeZoneService"/> class.
+    /// </summary>
     public TimeZoneService(IAppSettingsService settingsService)
     {
         _settingsService = settingsService;
@@ -50,6 +53,9 @@ public class TimeZoneService : ITimeZoneService
         _settingsService.OnSettingsChanged += Refresh;
     }
 
+    /// <summary>
+    /// Gets time zone.
+    /// </summary>
     public TimeZoneInfo TimeZone
     {
         get
@@ -63,14 +69,26 @@ public class TimeZoneService : ITimeZoneService
         }
     }
 
+    /// <summary>
+    /// Performs the convert from utc operation.
+    /// </summary>
     public DateTime ConvertFromUtc(DateTime utcDateTime) =>
         TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utcDateTime, DateTimeKind.Utc), TimeZone);
 
+    /// <summary>
+    /// Performs the convert to utc operation.
+    /// </summary>
     public DateTime ConvertToUtc(DateTime dateTime) =>
         TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(dateTime, DateTimeKind.Unspecified), TimeZone);
 
+    /// <summary>
+    /// Gets now.
+    /// </summary>
     public DateTime Now => TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, TimeZone);
 
+    /// <summary>
+    /// Gets today.
+    /// </summary>
     public DateTime Today => Now.Date;
 
     private void Refresh()

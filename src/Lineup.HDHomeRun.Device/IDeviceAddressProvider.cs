@@ -22,8 +22,14 @@ public interface IDeviceAddressProvider
 /// </summary>
 public class FixedDeviceAddressProvider : IDeviceAddressProvider
 {
+    /// <summary>
+    /// Gets device address.
+    /// </summary>
     public string DeviceAddress { get; }
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="FixedDeviceAddressProvider"/> class.
+    /// </summary>
     public FixedDeviceAddressProvider(string deviceAddress)
     {
         DeviceAddress = deviceAddress ?? throw new ArgumentNullException(nameof(deviceAddress));

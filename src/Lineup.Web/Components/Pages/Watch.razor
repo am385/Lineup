@@ -1,18 +1,51 @@
 @page "/watch"
 @page "/watch/{ChannelNumber}"
 @using Lineup.HDHomeRun.Api.Models
+@using Lineup.Web.Services
 @rendermode InteractiveServer
 
 <PageTitle>Watch TV</PageTitle>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h1><span class="bi bi-play-circle me-2"></span>Watch TV</h1>
-    @if (_isPlaying)
-    {
-        <button class="btn btn-danger" @onclick="StopStream">
-            <span class="bi bi-stop-fill me-1"></span>Stop
-        </button>
-    }
+    <div class="d-flex align-items-center gap-2">
+        <label for="streamQuality" class="form-label mb-0">Quality</label>
+        <select id="streamQuality" class="form-select form-select-sm w-auto" value="@_quality" @onchange="ChangeQuality">
+            <option value="@WebPlayerQuality.AppDefault">App Default</option>
+            <option value="@WebPlayerQuality.High">High</option>
+            <option value="@WebPlayerQuality.Medium">Medium (720p)</option>
+            <option value="@WebPlayerQuality.Low">Low (480p)</option>
+        </select>
+        @if (_activeStream?.Tracks.Where(track => track.Type == MediaTrackType.Audio).ToArray() is { Length: > 0 } audioTracks)
+        {
+            <label for="audioTrack" class="form-label mb-0">Audio</label>
+            <select id="audioTrack" class="form-select form-select-sm w-auto" value="@_audioTrack" @onchange="ChangeAudioTrack">
+                @foreach (var track in audioTracks)
+                {
+                    <option value="@track.SourceIndex">@FormatTrackLabel(track)</option>
+                }
+            </select>
+        }
+        @if (_activeStream?.Tracks.Where(track => track.Type == MediaTrackType.Subtitle).ToArray() is { Length: > 0 } subtitleTracks)
+        {
+            <label for="subtitleTrack" class="form-label mb-0">Subtitles</label>
+            <select id="subtitleTrack" class="form-select form-select-sm w-auto" value="@(_subtitleTrack?.ToString() ?? "-1")" @onchange="ChangeSubtitleTrack">
+                <option value="-1">Off</option>
+                @foreach (var track in subtitleTracks)
+                {
+                    <option value="@track.SourceIndex" disabled="@(track.SubtitlePresentation == SubtitlePresentation.Unsupported)">
+                        @FormatTrackLabel(track)@(track.SubtitlePresentation == SubtitlePresentation.BurnIn ? " (burn-in; higher CPU)" : "")
+                    </option>
+                }
+            </select>
+        }
+        @if (_isPlaying)
+        {
+            <button class="btn btn-danger" @onclick="StopStream">
+                <span class="bi bi-stop-fill me-1"></span>Stop
+            </button>
+        }
+    </div>
 </div>
 
 
@@ -36,8 +69,8 @@
                     <div class="d-flex justify-content-between align-items-center">
                         <div>
                             <h5 class="mb-1">
-                                <span class="badge bg-primary me-2">@_selectedChannel?.GuideNumber</span>
-                                @_selectedChannel?.GuideName
+                                <span class="badge bg-primary me-2">@_selectedChannelNumber</span>
+                                @(_selectedChannel?.GuideName ?? "Manual Tune")
                             </h5>
                             @if (_currentProgram != null)
                                 {
@@ -52,6 +85,27 @@
                             </div>
                             <div class="text-muted small">
                                 <span class="bi bi-broadcast text-success me-1"></span>Live
+                            </div>
+                        </div>
+                    </div>
+                }
+                else if (IsContentProtectedError)
+                {
+                    <div class="ratio ratio-16x9 bg-dark">
+                        <div class="d-flex align-items-center justify-content-center">
+                            <div class="text-center text-white px-4">
+                                <span class="bi bi-shield-lock display-1 text-warning"></span>
+                                <h3 class="mt-3 mb-2">Content Protected</h3>
+                                <p class="lead mb-2">
+                                    Channel @_selectedChannelNumber
+                                    @if (!string.IsNullOrWhiteSpace(_selectedChannel?.GuideName))
+                                    {
+                                        <span> @_selectedChannel.GuideName</span>
+                                    }
+                                </p>
+                                <p class="text-white-50 mb-0">
+                                    The broadcaster requires DRM playback. Use an authorized device or application that supports this channel's content protection.
+                                </p>
                             </div>
                         </div>
                     </div>
@@ -101,11 +155,11 @@
                     <li>Verify no other apps are using all the transcode slots</li>
                     <li>Use <strong>VLC Media Player</strong> with the direct stream URL below</li>
                 </ul>
-                @if (_selectedChannel != null)
+                @if (_selectedChannelNumber is { } selectedChannelNumber)
                 {
                     <p class="mb-0">
                         <strong>Direct Stream URL for VLC:</strong><br/>
-                        <code class="user-select-all">http://@(SettingsService.Settings.DeviceAddress):5004/auto/v@(_selectedChannel.GuideNumber)</code>
+                        <code class="user-select-all">http://@(SettingsService.Settings.DeviceAddress):5004/auto/v@(selectedChannelNumber)</code>
                         <button class="btn btn-sm btn-outline-secondary ms-2" @onclick="CopyStreamUrlToClipboard">
                             <span class="bi bi-clipboard"></span> Copy
                         </button>
@@ -122,20 +176,83 @@
             </div>
             <div class="card-body">
                 <p class="mb-2"><strong>Device Address:</strong> <code>@SettingsService.Settings.DeviceAddress</code></p>
-                @if (_selectedChannel != null)
+                @if (_selectedChannelNumber is { } streamInfoChannelNumber)
                 {
-                    <p class="mb-2"><strong>Device Stream:</strong> <code>http://@(SettingsService.Settings.DeviceAddress):5004/auto/v@(_selectedChannel.GuideNumber)</code></p>
+                    <p class="mb-2"><strong>Device Stream:</strong> <code>http://@(SettingsService.Settings.DeviceAddress):5004/auto/v@(streamInfoChannelNumber)</code></p>
                     @if (!string.IsNullOrEmpty(_streamUrl))
                     {
                         <p class="mb-2"><strong>Transcode URL:</strong> <code>@_streamUrl</code></p>
                     }
                 }
-                <p class="mb-0">
+                <p class="@(_selectedChannelNumber == null ? "mb-0" : "mb-3")">
                     <strong>Player:</strong> 
                     <span class="badge bg-success">Fragmented MP4</span>
                     <span class="badge bg-info ms-1">FFmpeg (Memory)</span>
                     <span class="text-muted small ms-2">(H.264 + AAC, no disk I/O)</span>
                 </p>
+
+                @if (_selectedChannelNumber != null)
+                {
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <h6><span class="bi bi-reception-4 me-1"></span>Tuner</h6>
+                            @if (SelectedTuner is { } tuner)
+                            {
+                                <table class="table table-sm table-borderless mb-0">
+                                    <tbody>
+                                        <tr><th scope="row">Tuner</th><td>@tuner.TunerIndex</td></tr>
+                                        <tr>
+                                            <th scope="row">Status</th>
+                                            <td>
+                                                <span class="badge @(tuner.IsStreaming ? "bg-success" : "bg-info")">
+                                                    @(tuner.IsStreaming ? "Streaming" : "Tuned")
+                                                </span>
+                                            </td>
+                                        </tr>
+                                        <tr><th scope="row">Lock</th><td>@(tuner.LockType ?? "none")</td></tr>
+                                        <tr><th scope="row">Signal</th><td>@tuner.SignalStrength% · SNQ @tuner.SignalToNoiseQuality% · SEQ @tuner.SymbolErrorQuality%</td></tr>
+                                        <tr><th scope="row">Rate</th><td>@FormatBitRate(tuner.BitsPerSecond) · @tuner.PacketsPerSecond pps</td></tr>
+                                    </tbody>
+                                </table>
+                            }
+                            else
+                            {
+                                <p class="small text-muted mb-0">No active tuner is currently reporting this channel.</p>
+                            }
+                        </div>
+                        <div class="col-md-6">
+                            <h6><span class="bi bi-broadcast-pin me-1"></span>Hosted Stream</h6>
+                            @if (_activeStream is not null)
+                            {
+                                <p class="small mb-1">
+                                    <strong>Session:</strong> <code>@_activeStream.SessionId</code>
+                                    <span class="badge bg-info ms-1">@_activeStream.Format</span>
+                                </p>
+                                @foreach (var track in _activeStream.Tracks)
+                                {
+                                    <div class="small mb-1">
+                                        <span class="badge @(track.Type == MediaTrackType.Video ? "bg-primary" : "bg-secondary") me-1">@track.Type</span>
+                                        @FormatSourceTrack(track)
+                                        <span class="bi bi-arrow-right mx-1"></span>
+                                        @FormatOutputTrack(track)
+                                        @if (track.IsSelected)
+                                        {
+                                            <span class="badge bg-success ms-1">selected</span>
+                                        }
+                                    </div>
+                                }
+                                @if (_activeStream.SourceBitRate.HasValue)
+                                {
+                                    <p class="small text-muted mb-0">Source total: @FormatBitRate(_activeStream.SourceBitRate)</p>
+                                }
+                            }
+                            else
+                            {
+                                <p class="small text-muted mb-0">Waiting for hosted stream metadata.</p>
+                            }
+                        </div>
+                    </div>
+                }
             </div>
         </div>
     </div>
@@ -147,6 +264,27 @@
                 <h6 class="mb-0"><span class="bi bi-list-ul me-1"></span>Channels</h6>
             </div>
             <div class="card-body p-0">
+                <form class="p-3 border-bottom" @onsubmit="ManualTuneAsync" @onsubmit:preventDefault="true">
+                    <label for="manualTuneChannel" class="form-label">Manual Tune</label>
+                    <div class="input-group input-group-sm">
+                        <input id="manualTuneChannel"
+                               class="form-control"
+                               type="text"
+                               inputmode="decimal"
+                               autocomplete="off"
+                               placeholder="Channel number"
+                               aria-describedby="manualTuneHelp"
+                               aria-invalid="@(_manualTuneValidationMessage != null ? "true" : "false")"
+                               value="@_manualChannelNumber"
+                               @oninput="UpdateManualChannelNumber" />
+                        <button id="manualTuneButton" class="btn btn-primary" type="submit">
+                            <span class="bi bi-play-fill me-1"></span>Tune
+                        </button>
+                    </div>
+                    <div id="manualTuneHelp" class="@(_manualTuneValidationMessage == null ? "form-text" : "invalid-feedback d-block")">
+                        @(_manualTuneValidationMessage ?? "Tune a virtual channel even when guide data is unavailable.")
+                    </div>
+                </form>
                 @if (_isLoadingChannels)
                 {
                     <div class="text-center py-4">
@@ -160,7 +298,7 @@
                 {
                     <div class="text-center py-4">
                         <span class="bi bi-info-circle text-muted"></span>
-                        <p class="text-muted small mt-2 mb-0">No channels available.<br/>Fetch EPG data first.</p>
+                        <p class="text-muted small mt-2 mb-0">No guide channels available.<br/>Enter a channel number above to tune manually.</p>
                     </div>
                 }
                 else
@@ -168,7 +306,7 @@
                     <div class="channel-list">
                         @foreach (var channel in _channels)
                         {
-                            var isSelected = _selectedChannel?.GuideNumber == channel.GuideNumber;
+                            var isSelected = _selectedChannelNumber == channel.GuideNumber;
                             var nowPlaying = GetCurrentProgram(channel.GuideNumber);
                             
                             <div class="channel-item @(isSelected ? "active" : "")" 
@@ -176,7 +314,13 @@
                                 <div class="d-flex align-items-center">
                                     <div class="channel-number me-2">@channel.GuideNumber</div>
                                     <div class="flex-grow-1 overflow-hidden">
-                                        <div class="channel-name">@channel.GuideName</div>
+                                        <div class="channel-name">
+                                            @channel.GuideName
+                                            @if (channel.DRM)
+                                            {
+                                                <span class="bi bi-shield-lock-fill text-warning ms-1" title="DRM-protected channel" aria-label="DRM-protected channel"></span>
+                                            }
+                                        </div>
                                         @if (nowPlaying != null)
                                         {
                                             <div class="now-playing text-truncate">@nowPlaying.Title</div>
@@ -245,5 +389,3 @@
         background-color: #000;
     }
 </style>
-
-

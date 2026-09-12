@@ -61,9 +61,68 @@
         var ua = navigator.userAgent.toLowerCase();
         return ua.indexOf('safari') !== -1 && ua.indexOf('chrome') === -1 && ua.indexOf('android') === -1;
     }
+
+    window.lineupFactoryResetWatchGeneration = 0;
+    window.lineupFactoryResetInitialInstanceId = null;
+    window.lineupRestartDestination = '/settings#device';
+
+    function setLineupFactoryResetWatchState(timedOut) {
+        var progress = document.getElementById('factoryResetRestartProgress');
+        var timeout = document.getElementById('factoryResetRestartTimeout');
+        progress?.classList.toggle('d-none', timedOut);
+        timeout?.classList.toggle('d-none', !timedOut);
+    }
+
+    function runLineupFactoryResetWatch() {
+        var generation = ++window.lineupFactoryResetWatchGeneration;
+        setLineupFactoryResetWatchState(false);
+
+        void (async function() {
+            var deadline = Date.now() + 120000;
+            while (Date.now() < deadline && generation === window.lineupFactoryResetWatchGeneration) {
+                try {
+                    var response = await fetch('/api/runtime?factory-reset-status=' + Date.now(), { cache: 'no-store' });
+                    if (response.ok && (await response.json()).instanceId !== window.lineupFactoryResetInitialInstanceId) {
+                        window.location.replace(window.lineupRestartDestination);
+                        return;
+                    }
+                } catch {}
+
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+
+            if (generation === window.lineupFactoryResetWatchGeneration) {
+                setLineupFactoryResetWatchState(true);
+            }
+        })();
+    }
+
+    async function beginLineupRestartWatch(destination) {
+        var initialResponse = await fetch('/api/runtime', { cache: 'no-store' });
+        if (!initialResponse.ok) {
+            throw new Error('Unable to identify the running Lineup instance.');
+        }
+
+        window.lineupFactoryResetInitialInstanceId = (await initialResponse.json()).instanceId;
+        window.lineupRestartDestination = typeof destination === 'string' && destination.startsWith('/') && !destination.startsWith('//') ? destination : '/';
+        runLineupFactoryResetWatch();
+    }
+
+    function beginLineupFactoryResetWatch() {
+        return beginLineupRestartWatch('/settings#device');
+    }
+
+    function retryLineupFactoryResetWatch() {
+        if (!window.lineupFactoryResetInitialInstanceId) {
+            window.location.reload();
+            return;
+        }
+
+        runLineupFactoryResetWatch();
+    }
         
     function initHlsPlayer(videoElementId, playlistUrl) {
-        destroyHlsPlayer();
+        stopMediaPlayer(videoElementId);
             
         const video = document.getElementById(videoElementId);
         if (!video) {
@@ -128,43 +187,187 @@
         }
         
         
-        function destroyHlsPlayer() {
+        function stopMediaPlayer(videoElementId = 'videoPlayer') {
+            const video = document.getElementById(videoElementId);
+            if (video?._lineupSubtitleTimer) {
+                clearInterval(video._lineupSubtitleTimer);
+                video._lineupSubtitleTimer = null;
+            }
+            if (video) {
+                video.onerror = null;
+                video.onloadedmetadata = null;
+                for (const track of video.textTracks) {
+                    for (const cue of Array.from(track.cues || [])) {
+                        track.removeCue(cue);
+                    }
+                    track.mode = 'disabled';
+                }
+                if (video._lineupInitializationResolve) {
+                    video._lineupInitializationResolve(null);
+                    video._lineupInitializationResolve = null;
+                }
+                video.pause();
+            }
+
             if (window.hlsPlayer) {
                 window.hlsPlayer.destroy();
                 window.hlsPlayer = null;
             }
-            // Also clean up any fMP4 video source
-            const video = document.getElementById('videoPlayer');
+
             if (video) {
-                video.pause();
-                video.src = '';
+                video.removeAttribute('src');
                 video.load();
             }
+        }
+
+        function destroyHlsPlayer() {
+            stopMediaPlayer();
         }
         
         // fMP4 player - simpler, just sets the src directly
         // The browser's native video player handles fragmented MP4
-        function initFmp4Player(videoElementId, streamUrl) {
-            destroyHlsPlayer();
+        function startLineupSubtitlePolling(video, subtitleUrl) {
+            const track = video.addTextTrack('subtitles', 'Selected subtitles', 'und');
+            track.mode = 'showing';
+            const cuesByKey = new Map();
+            const decoder = new TextDecoder('utf-8');
+            let offset = 0;
+            let pendingText = '';
+            const parseTime = value => {
+                const parts = value.trim().replace(',', '.').split(':').map(Number);
+                return parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2] : parts[0] * 60 + parts[1];
+            };
+            const refresh = async () => {
+                try {
+                    const separator = subtitleUrl.includes('?') ? '&' : '?';
+                    const response = await fetch(`${subtitleUrl}${separator}offset=${offset}`, { cache: 'no-store' });
+                    if (!response.ok) {
+                        return;
+                    }
+                    const nextOffset = Number(response.headers.get('X-Lineup-Subtitle-Offset'));
+                    if (Number.isFinite(nextOffset)) {
+                        offset = nextOffset;
+                    }
+                    pendingText += decoder.decode(await response.arrayBuffer(), { stream: true }).replace(/\r/g, '');
+                    const blocks = pendingText.split(/\n\n+/);
+                    pendingText = blocks.pop() || '';
+                    for (const block of blocks) {
+                        const lines = block.split('\n').filter(Boolean);
+                        const timingIndex = lines.findIndex(line => line.includes('-->'));
+                        if (timingIndex < 0) {
+                            continue;
+                        }
+                        const [startText, endTextWithSettings] = lines[timingIndex].split('-->');
+                        const endText = endTextWithSettings.trim().split(/\s+/)[0];
+                        const text = lines.slice(timingIndex + 1).join('\n');
+                        const key = `${startText}|${endText}|${text}`;
+                        if (!cuesByKey.has(key)) {
+                            const cue = new VTTCue(parseTime(startText), parseTime(endText), text);
+                            cuesByKey.set(key, cue);
+                            track.addCue(cue);
+                        }
+                    }
+                    const retentionBoundary = Math.max(0, video.currentTime - 30);
+                    for (const [key, cue] of cuesByKey) {
+                        if (cue.endTime < retentionBoundary) {
+                            track.removeCue(cue);
+                            cuesByKey.delete(key);
+                        }
+                    }
+                    while (cuesByKey.size > 1000) {
+                        const oldest = cuesByKey.entries().next().value;
+                        track.removeCue(oldest[1]);
+                        cuesByKey.delete(oldest[0]);
+                    }
+                } catch {
+                    // The sidecar may not exist until FFmpeg emits its first cue.
+                }
+            };
+            refresh();
+            video._lineupSubtitleTimer = setInterval(refresh, 1000);
+        }
+
+        async function initFmp4Player(videoElementId, streamUrl, diagnosticUrl, subtitleUrl = null) {
+            stopMediaPlayer(videoElementId);
             
             const video = document.getElementById(videoElementId);
             if (!video) {
-                console.error('Video element not found:', videoElementId);
-                return false;
+                return 'Video player element was not found.';
             }
-            
-            console.log('Initializing fMP4 player with URL:', streamUrl);
-            
-            // For fMP4, we can use the native video element directly
-            // The browser will handle the fragmented MP4 stream
-            video.src = streamUrl;
-            video.play().catch(e => console.log('Autoplay prevented:', e));
-            
-            video.onerror = function(e) {
-                console.error('Video error:', video.error);
-            };
-            
-            return true;
+            if (subtitleUrl) {
+                startLineupSubtitlePolling(video, subtitleUrl);
+            }
+
+            return await new Promise(resolve => {
+                let retryCount = 0;
+                let settled = false;
+                let diagnosing = false;
+                const finish = message => {
+                    if (settled) {
+                        return;
+                    }
+
+                    settled = true;
+                    clearTimeout(timeout);
+                    video.onerror = null;
+                    video.onloadedmetadata = null;
+                    video._lineupInitializationResolve = null;
+                    resolve(message);
+                };
+                const startPlayback = () => {
+                    const separator = streamUrl.includes('?') ? '&' : '?';
+                    video.src = retryCount === 0 ? streamUrl : `${streamUrl}${separator}retry=${Date.now()}`;
+                    video.play().catch(() => {
+                        // Playback errors are handled by video.onerror with tuner diagnostics.
+                    });
+                };
+
+                video._lineupInitializationResolve = finish;
+                video.onloadedmetadata = () => finish(null);
+                const handlePlaybackError = async (fallbackMessage = null) => {
+                    if (settled || diagnosing) {
+                        return;
+                    }
+
+                    diagnosing = true;
+                    video.onerror = null;
+                    let diagnostic;
+                    try {
+                        const response = await fetch(diagnosticUrl, { cache: 'no-store' });
+                        diagnostic = await response.json();
+                    } catch (error) {
+                        finish(fallbackMessage || `Unable to diagnose the stream failure: ${error.message}`);
+                        return;
+                    }
+
+                    if (settled) {
+                        return;
+                    }
+
+                    if (diagnostic.success && retryCount === 0) {
+                        retryCount++;
+                        await new Promise(retryResolve => setTimeout(retryResolve, 750));
+                        diagnosing = false;
+                        video.onerror = handlePlaybackError;
+                        startPlayback();
+                        return;
+                    }
+
+                    if (diagnostic.success) {
+                        finish(fallbackMessage || video.error?.message || 'The transcoder could not produce a playable stream.');
+                        return;
+                    }
+
+                    finish(diagnostic.message || fallbackMessage || video.error?.message || 'The channel could not be opened.');
+                };
+                const timeout = setTimeout(
+                    () => handlePlaybackError('Timed out waiting for the channel to begin streaming.'),
+                    45000);
+                video.onerror = handlePlaybackError;
+
+                console.log('Initializing fMP4 player with URL:', streamUrl);
+                startPlayback();
+            });
         }
         
         function isHlsSupported() {

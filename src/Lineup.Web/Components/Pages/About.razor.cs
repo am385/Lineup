@@ -4,6 +4,9 @@ using Microsoft.JSInterop;
 
 namespace Lineup.Web.Components.Pages;
 
+/// <summary>
+/// Represents about.
+/// </summary>
 public partial class About
 {
     [Inject]
@@ -16,6 +19,9 @@ public partial class About
     private string _xmltvUrl = "";
     private bool _copied;
 
+    /// <summary>
+    /// Performs the on initialized operation.
+    /// </summary>
     protected override void OnInitialized()
     {
         _version = Assembly.GetExecutingAssembly()

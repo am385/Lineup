@@ -369,5 +369,12 @@ FodyWeavers.xsd
 
 # Runtime settings (per-deployment)
 src/Lineup.Web/settings.json
+src/Lineup.Web/.ffmpeg/
+/src/Lineup.Web/data-protection-keys/
 
 src/Lineup.Web/epg.xml
+/src/Lineup.Web/lineup_cache.xmltv
+/src/Lineup.Web/settings.json.bak
+/src/Lineup.Web/lineup_cache.xmltv.generation
+/tests/Lineup.Web.Tests/Components/Pages/SettingsTests.cs
+/src/Lineup.Web/.lineup-factory-reset.json

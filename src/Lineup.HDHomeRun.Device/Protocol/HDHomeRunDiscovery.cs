@@ -43,15 +43,9 @@ public class HDHomeRunDiscovery : IDisposable
     /// <param name="timeout">How long to wait for responses</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>List of discovered devices</returns>
-    public async Task<List<HDHomeRunDiscoveredDevice>> DiscoverAllAsync(
-        TimeSpan? timeout = null,
-        CancellationToken cancellationToken = default)
+    public async Task<List<HDHomeRunDiscoveredDevice>> DiscoverAllAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        return await DiscoverAsync(
-            HDHomeRunDeviceType.Wildcard,
-            HDHomeRunDeviceId.Wildcard,
-            timeout ?? DefaultTimeout,
-            cancellationToken);
+        return await DiscoverAsync(HDHomeRunDeviceType.Wildcard, HDHomeRunDeviceId.Wildcard, timeout ?? DefaultTimeout, cancellationToken);
     }
 
     /// <summary>
@@ -62,11 +56,7 @@ public class HDHomeRunDiscovery : IDisposable
     /// <param name="timeout">How long to wait for responses</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>List of discovered devices</returns>
-    public async Task<List<HDHomeRunDiscoveredDevice>> DiscoverAsync(
-        HDHomeRunDeviceType deviceType,
-        uint deviceId,
-        TimeSpan timeout,
-        CancellationToken cancellationToken = default)
+    public async Task<List<HDHomeRunDiscoveredDevice>> DiscoverAsync(HDHomeRunDeviceType deviceType, uint deviceId, TimeSpan timeout, CancellationToken cancellationToken = default)
     {
         var devices = new List<HDHomeRunDiscoveredDevice>();
         var seenDevices = new HashSet<uint>();
@@ -77,8 +67,7 @@ public class HDHomeRunDiscovery : IDisposable
             .AddTag(HDHomeRunTagType.DeviceId, deviceId)
             .Build(HDHomeRunPacketType.DiscoverRequest);
 
-        _logger.LogDebug("Sending discovery packet for DeviceType={DeviceType}, DeviceId={DeviceId:X8}",
-            deviceType, deviceId);
+        _logger.LogDebug("Sending discovery packet for DeviceType={DeviceType}, DeviceId={DeviceId:X8}", deviceType, deviceId);
 
         // Send broadcast
         var broadcastEndpoint = new IPEndPoint(IPAddress.Broadcast, DiscoveryPort);
@@ -123,6 +112,10 @@ public class HDHomeRunDiscovery : IDisposable
                 _logger.LogDebug(ex, "Socket exception during discovery");
                 break;
             }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Ignoring malformed discovery response");
+            }
         }
 
         _logger.LogInformation("Discovery complete. Found {Count} device(s)", devices.Count);
@@ -132,16 +125,9 @@ public class HDHomeRunDiscovery : IDisposable
     /// <summary>
     /// Discovers a specific device by ID
     /// </summary>
-    public async Task<HDHomeRunDiscoveredDevice?> DiscoverByIdAsync(
-        uint deviceId,
-        TimeSpan? timeout = null,
-        CancellationToken cancellationToken = default)
+    public async Task<HDHomeRunDiscoveredDevice?> DiscoverByIdAsync(uint deviceId, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        var devices = await DiscoverAsync(
-            HDHomeRunDeviceType.Wildcard,
-            deviceId,
-            timeout ?? DefaultTimeout,
-            cancellationToken);
+        var devices = await DiscoverAsync(HDHomeRunDeviceType.Wildcard, deviceId, timeout ?? DefaultTimeout, cancellationToken);
 
         return devices.FirstOrDefault(d => d.DeviceId == deviceId);
     }
@@ -149,15 +135,11 @@ public class HDHomeRunDiscovery : IDisposable
     /// <summary>
     /// Discovers a specific device by IP address
     /// </summary>
-    public async Task<HDHomeRunDiscoveredDevice?> DiscoverByIpAsync(
-        IPAddress ipAddress,
-        TimeSpan? timeout = null,
-        CancellationToken cancellationToken = default)
+    public async Task<HDHomeRunDiscoveredDevice?> DiscoverByIpAsync(IPAddress ipAddress, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
         var effectiveTimeout = timeout ?? DefaultTimeout;
 
-        _logger.LogDebug("Discovering device at {IpAddress} with timeout {Timeout}ms",
-            ipAddress, effectiveTimeout.TotalMilliseconds);
+        _logger.LogDebug("Discovering device at {IpAddress} with timeout {Timeout}ms", ipAddress, effectiveTimeout.TotalMilliseconds);
 
         var packet = new HDHomeRunPacketBuilder()
             .AddTag(HDHomeRunTagType.DeviceType, (uint)HDHomeRunDeviceType.Wildcard)
@@ -184,8 +166,7 @@ public class HDHomeRunDiscovery : IDisposable
 
                 var result = await unicastClient.ReceiveAsync(cts.Token);
 
-                _logger.LogDebug("Received {Bytes} bytes from {Endpoint}",
-                    result.Buffer.Length, result.RemoteEndPoint);
+                _logger.LogDebug("Received {Bytes} bytes from {Endpoint}", result.Buffer.Length, result.RemoteEndPoint);
 
                 var device = ParseDiscoveryResponse(result.Buffer, result.RemoteEndPoint);
                 if (device != null)
@@ -216,7 +197,13 @@ public class HDHomeRunDiscovery : IDisposable
         return null;
     }
 
-    private HDHomeRunDiscoveredDevice? ParseDiscoveryResponse(byte[] data, IPEndPoint remoteEndPoint)
+    /// <summary>
+    /// Parses a discovery response, returning null for malformed datagrams.
+    /// </summary>
+    /// <param name="data">The complete response datagram.</param>
+    /// <param name="remoteEndPoint">The sender endpoint.</param>
+    /// <returns>The discovered device, or null when the datagram is invalid.</returns>
+    internal HDHomeRunDiscoveredDevice? ParseDiscoveryResponse(byte[] data, IPEndPoint remoteEndPoint)
     {
         var reader = new HDHomeRunPacketReader(data);
 
@@ -240,14 +227,27 @@ public class HDHomeRunDiscovery : IDisposable
             switch (tag)
             {
                 case HDHomeRunTagType.DeviceId:
+                    if (value.Length != sizeof(uint))
+                    {
+                        return null;
+                    }
+
                     deviceId = HDHomeRunPacketReader.ReadUInt32(value);
                     break;
                 case HDHomeRunTagType.DeviceType:
+                    if (value.Length != sizeof(uint))
+                    {
+                        return null;
+                    }
+
                     deviceType = (HDHomeRunDeviceType)HDHomeRunPacketReader.ReadUInt32(value);
                     break;
                 case HDHomeRunTagType.TunerCount:
                     if (value.Length >= 1)
+                    {
                         tunerCount = value[0];
+                    }
+
                     break;
                 case HDHomeRunTagType.BaseUrl:
                     baseUrl = HDHomeRunPacketReader.ReadString(value);
@@ -267,7 +267,7 @@ public class HDHomeRunDiscovery : IDisposable
             }
         }
 
-        if (deviceId == 0)
+        if (reader.HasError || deviceId == 0)
         {
             _logger.LogDebug("Discovery response missing device ID from {Endpoint}", remoteEndPoint);
             return null;
@@ -287,6 +287,9 @@ public class HDHomeRunDiscovery : IDisposable
         };
     }
 
+    /// <summary>
+    /// Releases resources used by this instance.
+    /// </summary>
     public void Dispose()
     {
         _udpClient.Dispose();

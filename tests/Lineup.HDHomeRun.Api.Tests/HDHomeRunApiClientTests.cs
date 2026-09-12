@@ -1,238 +1,120 @@
-using Lineup.HDHomeRun.Api.Models;
+using System.Net;
+using System.Text;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 using RichardSzalay.MockHttp;
-using System.Net;
-using System.Text.Json;
 using Xunit;
 
 namespace Lineup.HDHomeRun.Api.Tests;
 
+/// <summary>
+/// Verifies SiliconDust XMLTV API requests.
+/// </summary>
 public class HDHomeRunApiClientTests
 {
-    private readonly ILogger<HDHomeRunApiClient> _logger;
-    private readonly IDeviceAuthProvider _deviceAuthProvider;
-    private readonly MockHttpMessageHandler _mockHttp;
-    private readonly HttpClient _httpClient;
+    private readonly ILogger<HDHomeRunApiClient> _logger = Substitute.For<ILogger<HDHomeRunApiClient>>();
+    private readonly IDeviceAuthProvider _deviceAuthProvider = Substitute.For<IDeviceAuthProvider>();
+    private readonly MockHttpMessageHandler _mockHttp = new();
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="HDHomeRunApiClientTests"/> class.
+    /// </summary>
     public HDHomeRunApiClientTests()
     {
-        _logger = Substitute.For<ILogger<HDHomeRunApiClient>>();
-        _deviceAuthProvider = Substitute.For<IDeviceAuthProvider>();
-        _mockHttp = new MockHttpMessageHandler();
-        _httpClient = _mockHttp.ToHttpClient();
-
-        _deviceAuthProvider.GetDeviceAuthAsync().Returns("test-device-auth");
+        _deviceAuthProvider.GetDeviceAuthAsync().Returns("test auth");
     }
 
+    /// <summary>
+    /// Verifies that the complete XMLTV document is returned unchanged.
+    /// </summary>
     [Fact]
-    public async Task FetchRawEpgSegmentAsync_ReturnsSegments_WhenApiReturnsValidResponse()
+    public async Task FetchXmltvAsync_ReturnsCanonicalDocument()
     {
         // Arrange
-        var expectedSegments = CreateTestEpgSegments();
-        _mockHttp.When("https://api.hdhomerun.com/*")
-            .Respond("application/json", JsonSerializer.Serialize(expectedSegments));
-
-        var client = new HDHomeRunApiClient(_logger, _httpClient, _deviceAuthProvider);
-        var startTime = DateTime.UtcNow;
+        const string xml = """<?xml version="1.0"?><tv><channel id="station"><lcn>2.1</lcn></channel></tv>""";
+        string? userAgent = null;
+        _mockHttp.Expect("https://api.hdhomerun.com/api/xmltv?DeviceAuth=test%20auth")
+            .WithHeaders("Accept-Encoding", "gzip")
+            .With(request =>
+            {
+                userAgent = request.Headers.UserAgent.ToString();
+                return true;
+            })
+            .Respond("application/xml", xml);
+        var client = CreateClient();
 
         // Act
-        var result = await client.FetchRawEpgSegmentAsync(startTime);
+        var result = await client.FetchXmltvAsync(TestContext.Current.CancellationToken);
 
         // Assert
-        Assert.NotNull(result);
-        Assert.Equal(2, result.Count);
-        Assert.Equal("2.1", result[0].GuideNumber);
-        Assert.Equal("5.1", result[1].GuideNumber);
-    }
-
-    [Fact]
-    public async Task FetchRawEpgSegmentAsync_ReturnsEmptyList_WhenApiReturnsEmptyArray()
-    {
-        // Arrange
-        _mockHttp.When("https://api.hdhomerun.com/*")
-            .Respond("application/json", "[]");
-
-        var client = new HDHomeRunApiClient(_logger, _httpClient, _deviceAuthProvider);
-
-        // Act
-        var result = await client.FetchRawEpgSegmentAsync(DateTime.UtcNow);
-
-        // Assert
-        Assert.NotNull(result);
-        Assert.Empty(result);
-    }
-
-    [Fact]
-    public async Task FetchRawEpgSegmentAsync_ThrowsException_WhenApiReturnsInvalidJson()
-    {
-        // Arrange
-        _mockHttp.When("https://api.hdhomerun.com/*")
-            .Respond("application/json", "not valid json");
-
-        var client = new HDHomeRunApiClient(_logger, _httpClient, _deviceAuthProvider);
-
-        // Act & Assert
-        await Assert.ThrowsAsync<InvalidOperationException>(() => 
-            client.FetchRawEpgSegmentAsync(DateTime.UtcNow));
-    }
-
-    [Fact]
-    public async Task FetchRawEpgSegmentAsync_UsesCorrectDeviceAuth()
-    {
-        // Arrange
-        _mockHttp.When("https://api.hdhomerun.com/*")
-            .Respond("application/json", "[]");
-        
-        var client = new HDHomeRunApiClient(_logger, _httpClient, _deviceAuthProvider);
-
-        // Act
-        await client.FetchRawEpgSegmentAsync(DateTime.UtcNow);
-
-        // Assert
+        Assert.Equal(xml, Encoding.UTF8.GetString(result));
+        Assert.Equal("Lineup/2.0 (+https://github.com/am385/Lineup)", userAgent);
         await _deviceAuthProvider.Received(1).GetDeviceAuthAsync();
+        _mockHttp.VerifyNoOutstandingExpectation();
     }
 
+    /// <summary>
+    /// Verifies that a transient forbidden response refreshes DeviceAuth and retries once.
+    /// </summary>
     [Fact]
-    public async Task FetchRawEpgSegmentAsync_IncludesStartTimeInRequest()
+    public async Task FetchXmltvAsync_RetriesForbiddenResponseWithFreshDeviceAuth()
     {
         // Arrange
-        string? capturedUrl = null;
-        _mockHttp.When("https://api.hdhomerun.com/*")
-            .With(req => { capturedUrl = req.RequestUri?.ToString(); return true; })
-            .Respond("application/json", "[]");
-
-        var client = new HDHomeRunApiClient(_logger, _httpClient, _deviceAuthProvider);
-        var startTime = new DateTime(2024, 1, 15, 12, 0, 0, DateTimeKind.Utc);
+        _deviceAuthProvider.GetDeviceAuthAsync().Returns("stale", "fresh");
+        _mockHttp.Expect("https://api.hdhomerun.com/api/xmltv?DeviceAuth=stale")
+            .Respond(HttpStatusCode.Forbidden);
+        _mockHttp.Expect("https://api.hdhomerun.com/api/xmltv?DeviceAuth=fresh")
+            .Respond("application/xml", "<tv />");
+        var client = CreateClient();
 
         // Act
-        await client.FetchRawEpgSegmentAsync(startTime);
+        var result = await client.FetchXmltvAsync(TestContext.Current.CancellationToken);
 
         // Assert
-        Assert.NotNull(capturedUrl);
-        Assert.Contains("Start=", capturedUrl);
-        Assert.Contains("DeviceAuth=test-device-auth", capturedUrl);
+        Assert.Equal("<tv />", Encoding.UTF8.GetString(result));
+        await _deviceAuthProvider.Received(2).GetDeviceAuthAsync();
+        _mockHttp.VerifyNoOutstandingExpectation();
     }
 
+    /// <summary>
+    /// Verifies that an empty successful response is rejected.
+    /// </summary>
     [Fact]
-    public async Task FetchRawEpgDataAsync_MergesMultipleSegments()
+    public async Task FetchXmltvAsync_Throws_WhenResponseIsEmpty()
     {
         // Arrange
-        var segment1 = new List<HDHomeRunChannelEpgSegment>
-        {
-            new()
-            {
-                GuideNumber = "2.1",
-                GuideName = "Channel 2",
-                Guide =
-                [
-                    new HDHomeRunProgram { Title = "Show 1", StartTime = 1000, EndTime = 2000 }
-                ]
-            }
-        };
+        _mockHttp.Expect("https://api.hdhomerun.com/api/xmltv*")
+            .Respond("application/xml", string.Empty);
+        var client = CreateClient();
 
-        var segment2 = new List<HDHomeRunChannelEpgSegment>
-        {
-            new()
-            {
-                GuideNumber = "2.1",
-                GuideName = "Channel 2",
-                Guide =
-                [
-                    new HDHomeRunProgram { Title = "Show 2", StartTime = 2000, EndTime = 3000 }
-                ]
-            }
-        };
-
-        var callCount = 0;
-        _mockHttp.When("https://api.hdhomerun.com/*")
-            .Respond(_ =>
-            {
-                var content = callCount++ == 0 
-                    ? JsonSerializer.Serialize(segment1) 
-                    : JsonSerializer.Serialize(segment2);
-                return new HttpResponseMessage(HttpStatusCode.OK)
-                {
-                    Content = new StringContent(content, System.Text.Encoding.UTF8, "application/json")
-                };
-            });
-
-        var client = new HDHomeRunApiClient(_logger, _httpClient, _deviceAuthProvider);
-
-        // Act - fetch 1 day with 24 hour intervals (should make 1 request, but let's test with smaller)
-        var result = await client.FetchRawEpgDataAsync(days: 1, hours: 12);
-
+        // Act
         // Assert
-        Assert.Single(result); // One channel
-        Assert.Equal(2, result[0].Guide.Count); // Two programs merged
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => client.FetchXmltvAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains("empty", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Verifies that HTTP failures remain visible to callers.
+    /// </summary>
     [Fact]
-    public async Task FetchRawEpgDataAsync_AvoidsDuplicatePrograms()
+    public async Task FetchXmltvAsync_Throws_WhenApiReturnsFailure()
     {
         // Arrange
-        var duplicateProgram = new HDHomeRunProgram { Title = "Same Show", StartTime = 1000, EndTime = 2000 };
-        
-        var segment = new List<HDHomeRunChannelEpgSegment>
-        {
-            new()
-            {
-                GuideNumber = "2.1",
-                GuideName = "Channel 2",
-                Guide = [duplicateProgram]
-            }
-        };
+        _mockHttp.Expect("https://api.hdhomerun.com/api/xmltv*")
+            .Respond(HttpStatusCode.Unauthorized);
+        var client = CreateClient();
 
-        _mockHttp.When("https://api.hdhomerun.com/*")
-            .Respond("application/json", JsonSerializer.Serialize(segment));
+        var action = () => client.FetchXmltvAsync(TestContext.Current.CancellationToken);
 
-        var client = new HDHomeRunApiClient(_logger, _httpClient, _deviceAuthProvider);
-
-        // Act - fetch with overlapping windows
-        var result = await client.FetchRawEpgDataAsync(days: 1, hours: 6);
-
-        // Assert - should only have one program despite multiple fetches
-        Assert.Single(result);
-        Assert.Single(result[0].Guide);
+        // Act
+        // Assert
+        await Assert.ThrowsAsync<HttpRequestException>(action);
     }
 
-    private static List<HDHomeRunChannelEpgSegment> CreateTestEpgSegments()
+    private HDHomeRunApiClient CreateClient()
     {
-        return
-        [
-            new HDHomeRunChannelEpgSegment
-            {
-                GuideNumber = "2.1",
-                GuideName = "WFMY-HD",
-                Affiliate = "CBS",
-                ImageURL = "http://example.com/logo1.png",
-                Guide =
-                [
-                    new HDHomeRunProgram
-                    {
-                        Title = "Morning News",
-                        EpisodeTitle = "Episode 1",
-                        StartTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-                        EndTime = DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds()
-                    }
-                ]
-            },
-            new HDHomeRunChannelEpgSegment
-            {
-                GuideNumber = "5.1",
-                GuideName = "WRAL-HD",
-                Affiliate = "NBC",
-                ImageURL = "http://example.com/logo2.png",
-                Guide =
-                [
-                    new HDHomeRunProgram
-                    {
-                        Title = "Evening News",
-                        StartTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-                        EndTime = DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds()
-                    }
-                ]
-            }
-        ];
+        return new HDHomeRunApiClient(_logger, _mockHttp.ToHttpClient(), _deviceAuthProvider);
     }
 }

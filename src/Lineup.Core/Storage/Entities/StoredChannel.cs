@@ -7,6 +7,9 @@ namespace Lineup.Core.Storage.Entities;
 /// </summary>
 public class StoredChannel
 {
+    /// <summary>
+    /// Gets or sets id.
+    /// </summary>
     [Key]
     public int Id { get; set; }
 
@@ -34,6 +37,11 @@ public class StoredChannel
     /// </summary>
     [MaxLength(500)]
     public string? ImageURL { get; set; }
+
+    /// <summary>
+    /// Whether the device lineup marks this channel as DRM-protected.
+    /// </summary>
+    public bool DRM { get; set; }
 
     /// <summary>
     /// When this channel data was last updated

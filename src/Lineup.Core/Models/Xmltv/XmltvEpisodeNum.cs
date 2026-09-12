@@ -7,9 +7,15 @@ namespace Lineup.Core.Models.Xmltv;
 /// </summary>
 public class XmltvEpisodeNum
 {
+    /// <summary>
+    /// Gets or sets system.
+    /// </summary>
     [XmlAttribute("system")]
     public string System { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Gets or sets value.
+    /// </summary>
     [XmlText]
     public string Value { get; set; } = string.Empty;
 }

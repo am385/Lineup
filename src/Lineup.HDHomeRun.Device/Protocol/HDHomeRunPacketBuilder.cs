@@ -34,6 +34,11 @@ public class HDHomeRunPacketBuilder
     public const int CrcSize = 4;
 
     /// <summary>
+    /// Maximum value length for a single extended-length tag.
+    /// </summary>
+    public const int MaxTagValueLength = MaxPacketSize - HeaderSize - CrcSize - 3;
+
+    /// <summary>
     /// Creates a new packet builder
     /// </summary>
     public HDHomeRunPacketBuilder()
@@ -76,6 +81,18 @@ public class HDHomeRunPacketBuilder
     /// </summary>
     public HDHomeRunPacketBuilder AddTag(HDHomeRunTagType tag, ReadOnlySpan<byte> value)
     {
+        if (value.Length > MaxTagValueLength)
+        {
+            throw new ArgumentOutOfRangeException(nameof(value), $"Tag values cannot exceed the {MaxTagValueLength}-byte protocol maximum");
+        }
+
+        var lengthSize = value.Length < 128 ? 1 : 2;
+        var packetSize = _stream.Position + 1 + lengthSize + value.Length + CrcSize;
+        if (packetSize > MaxPacketSize)
+        {
+            throw new ArgumentOutOfRangeException(nameof(value), $"Tag value produces a packet larger than the {MaxPacketSize}-byte protocol maximum");
+        }
+
         _writer.Write((byte)tag);
         WriteVarLength(value.Length);
         _writer.Write(value);
@@ -89,6 +106,10 @@ public class HDHomeRunPacketBuilder
     {
         var position = (int)_stream.Position;
         var payloadLength = position - HeaderSize;
+        if (position + CrcSize > MaxPacketSize)
+        {
+            throw new InvalidOperationException($"Packet exceeds the {MaxPacketSize}-byte protocol maximum");
+        }
 
         // Go back and write the header
         _stream.Position = 0;
@@ -125,8 +146,8 @@ public class HDHomeRunPacketBuilder
         }
         else
         {
-            _writer.Write((byte)(0x80 | (length >> 8)));
-            _writer.Write((byte)(length & 0xFF));
+            _writer.Write((byte)(0x80 | (length & 0x7F)));
+            _writer.Write((byte)(length >> 7));
         }
     }
 
@@ -223,7 +244,9 @@ public class HDHomeRunPacketBuilder
     public static bool VerifyCrc32(ReadOnlySpan<byte> packet)
     {
         if (packet.Length < HeaderSize + CrcSize)
+        {
             return false;
+        }
 
         var data = packet[..^CrcSize];
         var expectedCrc = BinaryPrimitives.ReadUInt32LittleEndian(packet[^CrcSize..]);

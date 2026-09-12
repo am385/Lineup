@@ -6,6 +6,9 @@ using Microsoft.JSInterop;
 
 namespace Lineup.Web.Components.Pages;
 
+/// <summary>
+/// Represents guide.
+/// </summary>
 public partial class Guide : IAsyncDisposable
 {
     [Inject]
@@ -42,6 +45,9 @@ public partial class Guide : IAsyncDisposable
 
     private int _programsWidth => _timeSlots.Count * SlotWidthPx;
 
+    /// <summary>
+    /// Performs the on initialized operation.
+    /// </summary>
     protected override async Task OnInitializedAsync()
     {
         _selectedDate = Tz.Today;
@@ -51,6 +57,9 @@ public partial class Guide : IAsyncDisposable
         _channels = await Repository.GetChannelsAsync();
     }
 
+    /// <summary>
+    /// Performs the on after render operation.
+    /// </summary>
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
@@ -58,8 +67,7 @@ public partial class Guide : IAsyncDisposable
             try
             {
                 // Get initial width from the main content area (not the guide container which can grow)
-                _containerWidth = await JS.InvokeAsync<int>("eval",
-                    "(document.querySelector('main') || document.querySelector('article') || document.body).clientWidth - 40");
+                _containerWidth = await JS.InvokeAsync<int>("eval", "(document.querySelector('main') || document.querySelector('article') || document.body).clientWidth - 40");
 
                 // Calculate slots based on actual width
                 await CalculateSlotsToShowAndLoad();
@@ -81,6 +89,9 @@ public partial class Guide : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Performs the on container resize operation.
+    /// </summary>
     [JSInvokable]
     public async Task OnContainerResize(int width)
     {
@@ -219,7 +230,10 @@ public partial class Guide : IAsyncDisposable
 
     private List<HDHomeRunProgram> GetProgramsForChannel(string? guideNumber)
     {
-        if (string.IsNullOrEmpty(guideNumber)) return [];
+        if (string.IsNullOrEmpty(guideNumber))
+        {
+            return [];
+        }
 
         return _programs
             .Where(p => p.GuideNumber == guideNumber)
@@ -305,10 +319,17 @@ public partial class Guide : IAsyncDisposable
 
     private static string TruncateText(string? text, int maxLength)
     {
-        if (string.IsNullOrEmpty(text)) return "";
+        if (string.IsNullOrEmpty(text))
+        {
+            return "";
+        }
+
         return text.Length <= maxLength ? text : text[..(maxLength - 1)] + "\u2026";
     }
 
+    /// <summary>
+    /// Performs the dispose operation.
+    /// </summary>
     public async ValueTask DisposeAsync()
     {
         try

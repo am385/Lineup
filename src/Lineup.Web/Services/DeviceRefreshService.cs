@@ -11,32 +11,35 @@ public class DeviceRefreshService : BackgroundService
     private readonly ILogger<DeviceRefreshService> _logger;
     private readonly DeviceStateService _deviceState;
     private readonly IAppSettingsService _settingsService;
-    
+
     private static readonly TimeSpan InitialDiscoveryDelay = TimeSpan.FromSeconds(2);
-    
+
     private TimeSpan DeviceRefreshInterval => TimeSpan.FromMinutes(_settingsService.Settings.DeviceRefreshIntervalMinutes);
     private TimeSpan TunerRefreshInterval => TimeSpan.FromSeconds(_settingsService.Settings.TunerRefreshIntervalSeconds);
-    
-    public DeviceRefreshService(
-        ILogger<DeviceRefreshService> logger,
-        IDeviceStateService deviceState,
-        IAppSettingsService settingsService)
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="DeviceRefreshService"/> class.
+    /// </summary>
+    public DeviceRefreshService(ILogger<DeviceRefreshService> logger, IDeviceStateService deviceState, IAppSettingsService settingsService)
     {
         _logger = logger;
         _deviceState = (DeviceStateService)deviceState;
         _settingsService = settingsService;
     }
-    
+
+    /// <summary>
+    /// Performs the execute operation.
+    /// </summary>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("Device refresh service starting");
-        
+
         // Wait a moment for the app to fully start
         await Task.Delay(InitialDiscoveryDelay, stoppingToken);
-        
+
         // Initial device discovery (always try once regardless of settings)
         await DiscoverDeviceIfNeededAsync(stoppingToken);
-        
+
         // Main loop - check what needs refreshing
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -44,7 +47,7 @@ public class DeviceRefreshService : BackgroundService
             {
                 var now = DateTime.UtcNow;
                 var nextCheck = TimeSpan.FromSeconds(5); // Default check interval
-                
+
                 // Check if device needs refresh (only if auto-refresh is enabled)
                 if (_settingsService.Settings.IsDeviceRefreshEnabled)
                 {
@@ -58,7 +61,7 @@ public class DeviceRefreshService : BackgroundService
                         await DiscoverDeviceIfNeededAsync(stoppingToken);
                     }
                 }
-                
+
                 // Check if tuner status needs refresh (only if auto-refresh is enabled)
                 if (_settingsService.Settings.IsTunerRefreshEnabled && _deviceState.IsDiscovered)
                 {
@@ -72,20 +75,20 @@ public class DeviceRefreshService : BackgroundService
                         await RefreshTunerStatusIfNeededAsync(stoppingToken);
                     }
                 }
-                
+
                 // Calculate time until next action
                 var nextAction = GetTimeUntilNextAction(now);
                 if (nextAction < nextCheck)
                 {
                     nextCheck = nextAction;
                 }
-                
+
                 // Ensure minimum wait time
                 if (nextCheck < TimeSpan.FromSeconds(1))
                 {
                     nextCheck = TimeSpan.FromSeconds(1);
                 }
-                
+
                 await Task.Delay(nextCheck, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -98,23 +101,23 @@ public class DeviceRefreshService : BackgroundService
                 await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
             }
         }
-        
+
         _logger.LogInformation("Device refresh service stopping");
     }
-    
+
     private async Task DiscoverDeviceIfNeededAsync(CancellationToken stoppingToken)
     {
         if (_deviceState.IsDiscovering)
         {
             return;
         }
-        
+
         _logger.LogDebug("Starting device discovery");
-        
+
         try
         {
             await _deviceState.DiscoverDeviceAsync(stoppingToken);
-            
+
             // Schedule next device refresh only if auto-refresh is enabled
             if (_settingsService.Settings.IsDeviceRefreshEnabled)
             {
@@ -124,7 +127,7 @@ public class DeviceRefreshService : BackgroundService
             {
                 _deviceState.SetNextDeviceRefresh(null);
             }
-            
+
             // Also schedule the next tuner refresh after successful discovery
             if (_deviceState.IsDiscovered && _settingsService.Settings.IsTunerRefreshEnabled)
             {
@@ -137,20 +140,20 @@ public class DeviceRefreshService : BackgroundService
             _deviceState.SetNextDeviceRefresh(DateTime.UtcNow.AddMinutes(1));
         }
     }
-    
+
     private async Task RefreshTunerStatusIfNeededAsync(CancellationToken stoppingToken)
     {
         if (_deviceState.IsRefreshingTuners || !_deviceState.IsDiscovered)
         {
             return;
         }
-        
+
         _logger.LogDebug("Refreshing tuner status");
-        
+
         try
         {
             await _deviceState.RefreshTunerStatusAsync(stoppingToken);
-            
+
             // Schedule next refresh only if auto-refresh is enabled
             if (_settingsService.Settings.IsTunerRefreshEnabled)
             {
@@ -167,29 +170,29 @@ public class DeviceRefreshService : BackgroundService
             _deviceState.SetNextTunerRefresh(DateTime.UtcNow.AddSeconds(10));
         }
     }
-    
+
     private TimeSpan GetTimeUntilNextAction(DateTime now)
     {
         var times = new List<DateTime>();
-        
+
         if (_deviceState.NextDeviceRefresh.HasValue)
         {
             times.Add(_deviceState.NextDeviceRefresh.Value);
         }
-        
+
         if (_deviceState.NextTunerRefresh.HasValue)
         {
             times.Add(_deviceState.NextTunerRefresh.Value);
         }
-        
+
         if (times.Count == 0)
         {
             return TimeSpan.FromSeconds(5);
         }
-        
+
         var next = times.Min();
         var timeUntil = next - now;
-        
+
         return timeUntil > TimeSpan.Zero ? timeUntil : TimeSpan.Zero;
     }
 }

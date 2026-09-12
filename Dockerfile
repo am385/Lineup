@@ -31,16 +31,37 @@ RUN dotnet publish src/Lineup.Web/Lineup.Web.csproj \
 -o /app/publish
 
 # Runtime stage
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble AS runtime
 WORKDIR /app
 
-# Install ffmpeg for stream transcoding
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg && \
+# Install Jellyfin FFmpeg for AC-4 stream decoding
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates curl gnupg; \
+    mkdir -p /etc/apt/keyrings; \
+    curl -fsSL https://repo.jellyfin.org/jellyfin_team.gpg.key \
+        | gpg --dearmor --yes -o /etc/apt/keyrings/jellyfin.gpg; \
+    chmod 0644 /etc/apt/keyrings/jellyfin.gpg; \
+    printf '%s\n' \
+        'Types: deb' \
+        'URIs: https://repo.jellyfin.org/ubuntu' \
+        'Suites: noble' \
+        'Components: main' \
+        "Architectures: $(dpkg --print-architecture)" \
+        'Signed-By: /etc/apt/keyrings/jellyfin.gpg' \
+        > /etc/apt/sources.list.d/jellyfin.sources; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends jellyfin-ffmpeg8=8.1.2-4-noble; \
     rm -rf /var/lib/apt/lists/*
 
+ENV PATH="/usr/lib/jellyfin-ffmpeg:${PATH}"
+
+# Fail the build if PATH does not select Jellyfin FFmpeg or AC-4 support is missing.
+RUN test "$(readlink -f "$(command -v ffmpeg)")" = "/usr/lib/jellyfin-ffmpeg/ffmpeg" && \
+    ffmpeg -hide_banner -decoders 2>/dev/null | grep -Eq '[[:space:]]ac4[[:space:]]'
+
 # Create directories for persistent data
-RUN mkdir -p /config /xmltv
+RUN mkdir -p /appdata /xmltv
 
 COPY --from=build /app/publish .
 
@@ -51,7 +72,10 @@ EXPOSE ${HTTPS_PORT:-8443}
 
 # Configure the application
 ENV ASPNETCORE_ENVIRONMENT=Production
-ENV Lineup__ConfigPath=/config
+# Clear the base image default; Lineup configures explicit Kestrel listeners.
+# Do not use ASPNETCORE_HTTP_PORTS; configure Lineup__HttpPort instead.
+ENV ASPNETCORE_HTTP_PORTS=""
+ENV Lineup__AppDataPath=/appdata
 ENV Lineup__XmltvPath=/xmltv
 ENV Lineup__HttpPort=8080
 ENV Lineup__HttpsPort=8443

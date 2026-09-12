@@ -6,6 +6,9 @@ using Microsoft.JSInterop;
 
 namespace Lineup.Web.Components.Pages;
 
+/// <summary>
+/// Displays EPG, device, tuner, and active hosted stream status.
+/// </summary>
 public partial class Dashboard : IDisposable
 {
     [Inject]
@@ -32,6 +35,9 @@ public partial class Dashboard : IDisposable
     [Inject]
     private ITimeZoneService Tz { get; set; } = default!;
 
+    [Inject]
+    private IActiveStreamRegistry ActiveStreamRegistry { get; set; } = default!;
+
     private CacheStatistics? _stats;
     private DateTime? _safeFetchStart;
     private TimeSpan? _channelGap;
@@ -40,35 +46,35 @@ public partial class Dashboard : IDisposable
     private string _statusMessage = "";
     private bool _isError;
     private int _targetDays = 3;
-    private bool _forceFetch;
     private FetchProgressInfo? _fetchProgress;
     private bool _xmltvFileExists;
     private TimeSpan _countdown;
     private Timer? _countdownTimer;
+    private Timer? _activeStreamTimer;
+    private readonly object _timerLock = new();
+    private bool _disposed;
+    private IReadOnlyList<ActiveStreamSnapshot> _activeStreams = [];
+    private DateTime? _activeStreamsLastRefreshUtc;
+    private HashSet<string> _stoppingStreams = [];
+    private bool _guideExpanded = true;
+    private bool _deviceExpanded = true;
+    private bool _activeStreamsExpanded = true;
 
     // Device control state
     private bool _isRestarting;
     private bool _showRestartConfirm;
     private HashSet<int> _stoppingTuner = [];
 
-    private string AutoFetchIntervalDisplay => FormatInterval(SettingsService.Settings.AutoFetchInterval);
+    private const string AutoFetchIntervalDisplay = "20-28h (randomized)";
     private string XmltvFilename => SettingsService.Settings.XmltvOutputPath;
 
-    private static string FormatInterval(TimeSpan interval)
-    {
-        if (interval.TotalDays >= 1)
-            return $"{(int)interval.TotalDays}d {interval.Hours}h {interval.Minutes}m";
-        if (interval.TotalHours >= 1)
-            return $"{(int)interval.TotalHours}h {interval.Minutes}m";
-        return $"{(int)interval.TotalMinutes}m";
-    }
-
+    /// <inheritdoc />
     protected override async Task OnInitializedAsync()
     {
         // Redirect to Settings for initial setup on first launch
         if (!SettingsService.Settings.IsSetupComplete)
         {
-            Navigation.NavigateTo("/settings", replace: true);
+            Navigation.NavigateTo("/settings#device", replace: true);
             return;
         }
 
@@ -85,6 +91,8 @@ public partial class Dashboard : IDisposable
 
         // Start countdown timer (updates every second)
         _countdownTimer = new Timer(UpdateCountdown, null, TimeSpan.Zero, TimeSpan.FromSeconds(1));
+        RefreshActiveStreams();
+        ConfigureActiveStreamTimer();
 
         await LoadStatsAsync();
         CheckXmltvFileExists();
@@ -92,8 +100,14 @@ public partial class Dashboard : IDisposable
 
     private void OnSettingsChanged()
     {
+        if (_disposed)
+        {
+            return;
+        }
+
         _targetDays = SettingsService.Settings.TargetDays;
         CheckXmltvFileExists(); // Refresh in case output path changed
+        ConfigureActiveStreamTimer();
         InvokeAsync(StateHasChanged);
     }
 
@@ -102,8 +116,13 @@ public partial class Dashboard : IDisposable
         InvokeAsync(StateHasChanged);
     }
 
-    private void UpdateCountdown(object? state)
+    private async void UpdateCountdown(object? state)
     {
+        if (_disposed)
+        {
+            return;
+        }
+
         if (AutoFetchState.NextFetchTime.HasValue && !AutoFetchState.IsRunning)
         {
             _countdown = AutoFetchState.NextFetchTime.Value - DateTime.UtcNow;
@@ -117,7 +136,13 @@ public partial class Dashboard : IDisposable
             _countdown = TimeSpan.Zero;
         }
 
-        InvokeAsync(StateHasChanged);
+        try
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (ObjectDisposedException)
+        {
+        }
     }
 
     private static string FormatCountdown(TimeSpan countdown)
@@ -138,8 +163,16 @@ public partial class Dashboard : IDisposable
     private static string FormatTimeUntil(DateTime utcTime)
     {
         var remaining = utcTime - DateTime.UtcNow;
-        if (remaining <= TimeSpan.Zero) return "now";
-        if (remaining.TotalSeconds < 60) return $"{(int)remaining.TotalSeconds}s";
+        if (remaining <= TimeSpan.Zero)
+        {
+            return "now";
+        }
+
+        if (remaining.TotalSeconds < 60)
+        {
+            return $"{(int)remaining.TotalSeconds}s";
+        }
+
         return $"{(int)remaining.TotalMinutes}m {remaining.Seconds}s";
     }
 
@@ -156,12 +189,126 @@ public partial class Dashboard : IDisposable
         });
     }
 
+    /// <inheritdoc />
     public void Dispose()
     {
-        _countdownTimer?.Dispose();
+        lock (_timerLock)
+        {
+            _disposed = true;
+            _countdownTimer?.Dispose();
+            _activeStreamTimer?.Dispose();
+            _countdownTimer = null;
+            _activeStreamTimer = null;
+        }
+
         AutoFetchState.OnStateChanged -= OnAutoFetchStateChanged;
         SettingsService.OnSettingsChanged -= OnSettingsChanged;
         DeviceState.OnStateChanged -= OnDeviceStateChanged;
+    }
+
+    private void ConfigureActiveStreamTimer()
+    {
+        lock (_timerLock)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _activeStreamTimer?.Dispose();
+            _activeStreamTimer = null;
+
+            var intervalSeconds = SettingsService.Settings.ActiveStreamRefreshIntervalSeconds;
+            if (intervalSeconds == 0)
+            {
+                return;
+            }
+
+            var interval = TimeSpan.FromSeconds(intervalSeconds);
+            _activeStreamTimer = new Timer(UpdateActiveStreams, null, interval, interval);
+        }
+    }
+
+    private async void UpdateActiveStreams(object? state)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        try
+        {
+            await InvokeAsync(() =>
+            {
+                if (!_disposed)
+                {
+                    RefreshActiveStreams();
+                    StateHasChanged();
+                }
+            });
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
+    private void RefreshActiveStreams()
+    {
+        _activeStreams = ActiveStreamRegistry.GetActiveStreams();
+        _stoppingStreams.IntersectWith(_activeStreams.Select(stream => stream.SessionId));
+        _activeStreamsLastRefreshUtc = DateTime.UtcNow;
+    }
+
+    private void StopActiveStream(string sessionId)
+    {
+        _stoppingStreams.Add(sessionId);
+        ActiveStreamRegistry.RequestStop(sessionId);
+        RefreshActiveStreams();
+    }
+
+    private static string FormatHostedStreamFormat(HostedStreamFormat format) => format switch
+    {
+        HostedStreamFormat.MpegTs => "MPEG-TS",
+        HostedStreamFormat.FragmentedMp4 => "fMP4",
+        HostedStreamFormat.Hls => "HLS",
+        _ => format.ToString()
+    };
+
+    private static string FormatBitRate(long? bitRate)
+    {
+        if (!bitRate.HasValue)
+        {
+            return "unknown";
+        }
+
+        return bitRate.Value >= 1_000_000
+            ? $"{bitRate.Value / 1_000_000d:0.##} Mbps"
+            : $"{bitRate.Value / 1_000d:0} kbps";
+    }
+
+    private static string FormatSourceTrack(ActiveStreamTrack track)
+    {
+        var details = track.Type == MediaTrackType.Video && track.SourceWidth.HasValue && track.SourceHeight.HasValue
+            ? $"{track.SourceWidth}x{track.SourceHeight}"
+            : track.Type == MediaTrackType.Audio && track.SourceChannels.HasValue
+                ? $"{track.SourceChannels} ch"
+                : null;
+        return string.Join(" · ", new[] { track.SourceCodec, details, FormatBitRate(track.SourceBitRate) }.Where(value => !string.IsNullOrEmpty(value)));
+    }
+
+    private static string FormatOutputTrack(ActiveStreamTrack track)
+    {
+        var codec = track.OutputCodec == "copy" ? $"{track.SourceCodec} (copy)" : track.OutputCodec;
+        var details = track.Type == MediaTrackType.Audio && track.OutputChannels.HasValue ? $"{track.OutputChannels} ch" : null;
+        return string.Join(" · ", new[] { codec, details, FormatBitRate(track.OutputBitRate) }.Where(value => !string.IsNullOrEmpty(value)));
+    }
+
+    private static string FormatStreamDuration(DateTime startedAtUtc)
+    {
+        var duration = DateTime.UtcNow - startedAtUtc;
+        return duration.TotalHours >= 1
+            ? $"{(int)duration.TotalHours}h {duration.Minutes}m {duration.Seconds}s"
+            : $"{duration.Minutes}m {duration.Seconds}s";
     }
 
     private async Task LoadStatsAsync()
@@ -197,7 +344,7 @@ public partial class Dashboard : IDisposable
 
         try
         {
-            await Orchestrator.FetchAndStoreEpgAsync(_targetDays, _forceFetch, progress);
+            await Orchestrator.FetchAndStoreEpgAsync(_targetDays, force: true, progress);
             await LoadStatsAsync();
             _statusMessage = $"EPG data fetched successfully! ({_fetchProgress?.FetchCount ?? 0} fetches, {_fetchProgress?.TotalProgramsFetched.ToString("N0") ?? "0"} programs)";
             _isError = false;
@@ -270,7 +417,10 @@ public partial class Dashboard : IDisposable
 
     private async Task StopTuner(int tunerIndex)
     {
-        if (DeviceState.ProtocolDevice == null) return;
+        if (DeviceState.ProtocolDevice == null)
+        {
+            return;
+        }
 
         _stoppingTuner.Add(tunerIndex);
         StateHasChanged();
@@ -304,7 +454,10 @@ public partial class Dashboard : IDisposable
 
     private async Task RestartDevice()
     {
-        if (DeviceState.ProtocolDevice == null) return;
+        if (DeviceState.ProtocolDevice == null)
+        {
+            return;
+        }
 
         _isRestarting = true;
         StateHasChanged();

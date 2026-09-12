@@ -3,12 +3,19 @@ using Xunit;
 
 namespace Lineup.Core.Tests.Models;
 
+/// <summary>
+/// Represents hd home run enriched channel tests.
+/// </summary>
 public class HDHomeRunEnrichedChannelTests
 {
+    /// <summary>
+    /// Performs the hd home run enriched channel_requires guide number operation.
+    /// </summary>
     [Fact]
     public void HDHomeRunEnrichedChannel_RequiresGuideNumber()
     {
-        // Arrange & Act
+        // Arrange
+        // Act
         var channel = new HDHomeRunEnrichedChannel
         {
             GuideNumber = "5.1"
@@ -18,10 +25,14 @@ public class HDHomeRunEnrichedChannelTests
         Assert.Equal("5.1", channel.GuideNumber);
     }
 
+    /// <summary>
+    /// Performs the hd home run enriched channel_can set all properties operation.
+    /// </summary>
     [Fact]
     public void HDHomeRunEnrichedChannel_CanSetAllProperties()
     {
-        // Arrange & Act
+        // Arrange
+        // Act
         var channel = new HDHomeRunEnrichedChannel
         {
             GuideNumber = "2.1",
@@ -37,10 +48,14 @@ public class HDHomeRunEnrichedChannelTests
         Assert.Equal("http://example.com/cbs.png", channel.ImageURL);
     }
 
+    /// <summary>
+    /// Performs the hd home run enriched channel_optional properties are null operation.
+    /// </summary>
     [Fact]
     public void HDHomeRunEnrichedChannel_OptionalPropertiesAreNull()
     {
-        // Arrange & Act
+        // Arrange
+        // Act
         var channel = new HDHomeRunEnrichedChannel
         {
             GuideNumber = "7.1"
@@ -52,6 +67,9 @@ public class HDHomeRunEnrichedChannelTests
         Assert.Null(channel.ImageURL);
     }
 
+    /// <summary>
+    /// Performs the hd home run enriched channel_supports record equality operation.
+    /// </summary>
     [Fact]
     public void HDHomeRunEnrichedChannel_SupportsRecordEquality()
     {
@@ -72,6 +90,7 @@ public class HDHomeRunEnrichedChannelTests
             ImageURL = "http://example.com/pbs.png"
         };
 
+        // Act
         var channel3 = new HDHomeRunEnrichedChannel
         {
             GuideNumber = "5.1",
@@ -85,6 +104,9 @@ public class HDHomeRunEnrichedChannelTests
         Assert.NotEqual(channel1, channel3);
     }
 
+    /// <summary>
+    /// Performs the hd home run enriched channel_supports with expression operation.
+    /// </summary>
     [Fact]
     public void HDHomeRunEnrichedChannel_SupportsWithExpression()
     {

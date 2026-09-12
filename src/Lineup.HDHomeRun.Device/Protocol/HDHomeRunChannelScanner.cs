@@ -37,9 +37,7 @@ public class HDHomeRunChannelScanner
     /// <param name="channelMap">Channel map to scan (e.g., "us-bcast", "us-cable")</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>List of found channels</returns>
-    public async Task<List<ScannedChannel>> ScanAsync(
-        string channelMap = "us-bcast",
-        CancellationToken cancellationToken = default)
+    public async Task<List<ScannedChannel>> ScanAsync(string channelMap = "us-bcast", CancellationToken cancellationToken = default)
     {
         var channels = new List<ScannedChannel>();
 
@@ -60,7 +58,9 @@ public class HDHomeRunChannelScanner
                 var streamInfo = await _control.GetAsync($"/tuner{_tunerIndex}/streaminfo", cancellationToken);
 
                 if (string.IsNullOrEmpty(status))
+                {
                     break;
+                }
 
                 // Parse progress
                 var progress = ParseScanProgress(status);
@@ -76,15 +76,16 @@ public class HDHomeRunChannelScanner
                         {
                             channels.Add(channel);
                             ChannelFound?.Invoke(this, channel);
-                            _logger.LogInformation("Found channel: {Channel} - {Name}",
-                                channel.VirtualChannel, channel.Name);
+                            _logger.LogInformation("Found channel: {Channel} - {Name}", channel.VirtualChannel, channel.Name);
                         }
                     }
                 }
 
                 // Check if scan is complete
                 if (status.Contains("lock=none") || progress.IsComplete)
+                {
                     break;
+                }
 
                 // Wait before next poll
                 await Task.Delay(500, cancellationToken);
@@ -116,7 +117,10 @@ public class HDHomeRunChannelScanner
         foreach (var part in parts)
         {
             var kv = part.Split('=');
-            if (kv.Length != 2) continue;
+            if (kv.Length != 2)
+            {
+                continue;
+            }
 
             switch (kv[0])
             {
@@ -163,19 +167,30 @@ public class HDHomeRunChannelScanner
         foreach (var line in lines)
         {
             var trimmed = line.Trim();
-            if (string.IsNullOrEmpty(trimmed)) continue;
+            if (string.IsNullOrEmpty(trimmed))
+            {
+                continue;
+            }
 
             // Skip header lines
             if (trimmed.StartsWith("tsid=") || trimmed.StartsWith("pcr="))
+            {
                 continue;
+            }
 
             // Parse "N: vchannel name"
             var colonIndex = trimmed.IndexOf(':');
-            if (colonIndex <= 0) continue;
+            if (colonIndex <= 0)
+            {
+                continue;
+            }
 
             var rest = trimmed[(colonIndex + 1)..].Trim();
             var spaceIndex = rest.IndexOf(' ');
-            if (spaceIndex <= 0) continue;
+            if (spaceIndex <= 0)
+            {
+                continue;
+            }
 
             var vchannel = rest[..spaceIndex];
             var name = rest[(spaceIndex + 1)..].Trim();

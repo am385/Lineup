@@ -84,7 +84,13 @@ else
         {
             <div class="guide-row">
                 <div class="guide-channel">
-                    <div class="channel-number">@channel.GuideNumber</div>
+                    <div class="channel-number">
+                        @channel.GuideNumber
+                        @if (channel.DRM)
+                        {
+                            <span class="bi bi-shield-lock-fill text-warning ms-1" title="DRM-protected channel" aria-label="DRM-protected channel"></span>
+                        }
+                    </div>
                     <div class="channel-name" title="@channel.GuideName">@TruncateText(channel.GuideName, 12)</div>
                 </div>
                 <div class="guide-programs" style="width: @(_programsWidth)px;">
@@ -370,4 +376,3 @@ else
         }
     }
 </style>
-

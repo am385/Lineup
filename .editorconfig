@@ -1,0 +1,33 @@
+# Treat this as the root configuration for every project in Lineup.slnx.
+root = true
+
+[*.cs]
+# Keep signatures and other statements on one line when they fit within the project limit.
+max_line_length = 225
+csharp_preserve_single_line_statements = true
+csharp_preserve_single_line_blocks = true
+
+# Every non-private entity must provide XML documentation; CS1591 enforces the public surface.
+dotnet_diagnostic.CS1591.severity = error
+
+# CA1873: Do not require guards around potentially expensive logging arguments.
+dotnet_diagnostic.CA1873.severity = none
+
+# IDE0028: Do not require collection initializer syntax.
+dotnet_diagnostic.IDE0028.severity = none
+
+# IDE0039: Do not require local functions in place of delegates.
+dotnet_diagnostic.IDE0039.severity = none
+
+# IDE0042: Do not require deconstruction in variable declarations.
+dotnet_diagnostic.IDE0042.severity = none
+
+# IDE0270: Do not require null checks to use coalescing expressions.
+dotnet_diagnostic.IDE0270.severity = none
+
+# IDE0290: Prefer explicit constructors until the solution intentionally adopts primary constructors.
+dotnet_diagnostic.IDE0290.severity = none
+csharp_style_prefer_primary_constructors = false
+
+# IDE0305: Do not require collection expression syntax.
+dotnet_diagnostic.IDE0305.severity = none

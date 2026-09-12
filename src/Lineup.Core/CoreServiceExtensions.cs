@@ -1,6 +1,5 @@
 using Lineup.HDHomeRun.Api;
 using Lineup.HDHomeRun.Device;
-using Lineup.Core.Converters;
 using Lineup.Core.Storage;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -21,10 +20,7 @@ public static class CoreServiceExtensions
     /// <param name="services">Service collection to configure</param>
     /// <param name="deviceAddress">HDHomeRun device hostname or IP address (used only if no IDeviceAddressProvider is registered)</param>
     /// <param name="databasePath">Path to the SQLite database file</param>
-    public static IServiceCollection AddEpgCore(
-        this IServiceCollection services,
-        string deviceAddress = AppConstants.DefaultDeviceAddress,
-        string? databasePath = null)
+    public static IServiceCollection AddEpgCore(this IServiceCollection services, string deviceAddress = AppConstants.DefaultDeviceAddress, string? databasePath = null)
     {
         // Register default device address provider if not already registered
         // TryAdd will only add if no IDeviceAddressProvider is already registered
@@ -34,7 +30,13 @@ public static class CoreServiceExtensions
         services.AddHttpClient<HDHomeRunDeviceClient>();
 
         // Configure HttpClient for API service
-        services.AddHttpClient<HDHomeRunApiClient>();
+        services.AddHttpClient<HDHomeRunApiClient>()
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+            {
+                AutomaticDecompression = System.Net.DecompressionMethods.GZip |
+                    System.Net.DecompressionMethods.Deflate |
+                    System.Net.DecompressionMethods.Brotli
+            });
 
         // Register device auth provider
         services.AddSingleton<IDeviceAuthProvider, HDHomeRunDeviceAuthProvider>();
@@ -46,10 +48,12 @@ public static class CoreServiceExtensions
 
         // Register repository and data provider
         services.AddScoped<IEpgRepository, EpgRepository>();
-        services.AddScoped<IEpgDataProvider, CachedEpgDataProvider>();
+        services.AddScoped<CachedEpgDataProvider>();
 
-        // Register converter and orchestrator
-        services.AddScoped<HDHomeRunToXmltvConverter>();
+        // Register XMLTV import, canonical document storage, and orchestration
+        services.AddSingleton<SiliconDustXmltvParser>();
+        services.AddSingleton(new XmltvGuideStore(Path.ChangeExtension(dbPath, ".xmltv")));
+        services.AddSingleton<GuideGenerationCoordinator>();
         services.AddScoped<EpgOrchestrator>();
 
         return services;

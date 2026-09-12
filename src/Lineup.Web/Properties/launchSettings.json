@@ -7,7 +7,9 @@
         "launchBrowser": true,
         "applicationUrl": "http://localhost:5126",
         "environmentVariables": {
-          "ASPNETCORE_ENVIRONMENT": "Development"
+          "ASPNETCORE_ENVIRONMENT": "Development",
+          "Lineup__AppDataPath": ".",
+          "Lineup__XmltvPath": "xmltv"
         }
       },
       "https": {
@@ -16,7 +18,9 @@
         "launchBrowser": true,
         "applicationUrl": "https://localhost:7267;http://localhost:5126",
         "environmentVariables": {
-          "ASPNETCORE_ENVIRONMENT": "Development"
+          "ASPNETCORE_ENVIRONMENT": "Development",
+          "Lineup__AppDataPath": ".",
+          "Lineup__XmltvPath": "xmltv"
         }
       }
     }

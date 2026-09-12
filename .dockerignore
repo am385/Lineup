@@ -23,6 +23,7 @@
 **/*.db-shm
 **/*.db-wal
 **/settings.json
+**/data-protection-keys
 **/epg.xml
 LICENSE
 README.md

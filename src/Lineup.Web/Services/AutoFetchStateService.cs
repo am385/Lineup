@@ -53,6 +53,12 @@ public interface IAutoFetchStateService
     void CompleteFetch(TimeSpan nextFetchIn);
 
     /// <summary>
+    /// Marks the fetch as failed.
+    /// </summary>
+    /// <param name="errorMessage">The failure description.</param>
+    void FailFetch(string errorMessage);
+
+    /// <summary>
     /// Updates the enabled state and next fetch time.
     /// </summary>
     void UpdateSchedule(bool enabled, TimeSpan? nextFetchIn = null);
@@ -63,20 +69,44 @@ public interface IAutoFetchStateService
 /// </summary>
 public class AutoFetchStateService : IAutoFetchStateService
 {
+    /// <summary>
+    /// Gets or sets current progress.
+    /// </summary>
     public FetchProgressInfo? CurrentProgress { get; private set; }
+    /// <summary>
+    /// Gets or sets is running.
+    /// </summary>
     public bool IsRunning { get; private set; }
+    /// <summary>
+    /// Gets or sets is enabled.
+    /// </summary>
     public bool IsEnabled { get; private set; } = true;
+    /// <summary>
+    /// Gets or sets last fetch time.
+    /// </summary>
     public DateTime? LastFetchTime { get; private set; }
+    /// <summary>
+    /// Gets or sets next fetch time.
+    /// </summary>
     public DateTime? NextFetchTime { get; private set; }
 
+    /// <summary>
+    /// Occurs when on state changed.
+    /// </summary>
     public event Action? OnStateChanged;
 
+    /// <summary>
+    /// Performs the update progress operation.
+    /// </summary>
     public void UpdateProgress(FetchProgressInfo? progress)
     {
         CurrentProgress = progress;
         OnStateChanged?.Invoke();
     }
 
+    /// <summary>
+    /// Performs the start fetch operation.
+    /// </summary>
     public void StartFetch()
     {
         IsRunning = true;
@@ -84,6 +114,9 @@ public class AutoFetchStateService : IAutoFetchStateService
         OnStateChanged?.Invoke();
     }
 
+    /// <summary>
+    /// Performs the complete fetch operation.
+    /// </summary>
     public void CompleteFetch(TimeSpan nextFetchIn)
     {
         IsRunning = false;
@@ -93,6 +126,22 @@ public class AutoFetchStateService : IAutoFetchStateService
         OnStateChanged?.Invoke();
     }
 
+    /// <inheritdoc />
+    public void FailFetch(string errorMessage)
+    {
+        IsRunning = false;
+        CurrentProgress = new FetchProgressInfo
+        {
+            Status = FetchStatus.Failed,
+            Message = "Automatic EPG fetch failed",
+            ErrorMessage = errorMessage
+        };
+        OnStateChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Performs the update schedule operation.
+    /// </summary>
     public void UpdateSchedule(bool enabled, TimeSpan? nextFetchIn = null)
     {
         IsEnabled = enabled;

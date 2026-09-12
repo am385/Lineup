@@ -27,14 +27,21 @@ public ref struct HDHomeRunPacketReader
     public bool IsValid { get; }
 
     /// <summary>
+    /// Gets whether malformed TLV data was encountered while reading the payload.
+    /// </summary>
+    public bool HasError { get; private set; }
+
+    /// <summary>
     /// Creates a new packet reader
     /// </summary>
     public HDHomeRunPacketReader(ReadOnlySpan<byte> packet)
     {
         _data = packet;
         _position = 0;
+        HasError = false;
 
-        if (packet.Length < HDHomeRunPacketBuilder.HeaderSize + HDHomeRunPacketBuilder.CrcSize)
+        if (packet.Length < HDHomeRunPacketBuilder.HeaderSize + HDHomeRunPacketBuilder.CrcSize ||
+            packet.Length > HDHomeRunPacketBuilder.MaxPacketSize)
         {
             PacketType = 0;
             PayloadLength = 0;
@@ -54,6 +61,11 @@ public ref struct HDHomeRunPacketReader
         // Read header (big-endian)
         PacketType = (HDHomeRunPacketType)BinaryPrimitives.ReadUInt16BigEndian(packet);
         PayloadLength = BinaryPrimitives.ReadUInt16BigEndian(packet[2..]);
+        if (packet.Length != HDHomeRunPacketBuilder.HeaderSize + PayloadLength + HDHomeRunPacketBuilder.CrcSize)
+        {
+            IsValid = false;
+            return;
+        }
 
         // Skip header
         _position = HDHomeRunPacketBuilder.HeaderSize;
@@ -69,26 +81,42 @@ public ref struct HDHomeRunPacketReader
         value = default;
 
         if (_position >= _data.Length)
+        {
             return false;
+        }
 
         // Read tag type
         tag = (HDHomeRunTagType)_data[_position++];
 
         // Read length (variable-length encoding)
         if (_position >= _data.Length)
+        {
+            HasError = true;
             return false;
+        }
 
         int length = _data[_position++];
         if ((length & 0x80) != 0)
         {
             if (_position >= _data.Length)
+            {
+                HasError = true;
                 return false;
-            length = ((length & 0x7F) << 8) | _data[_position++];
+            }
+            length = (length & 0x7F) | (_data[_position++] << 7);
+            if (length < 128 || length > HDHomeRunPacketBuilder.MaxTagValueLength)
+            {
+                HasError = true;
+                return false;
+            }
         }
 
         // Read value
         if (_position + length > _data.Length)
+        {
+            HasError = true;
             return false;
+        }
 
         value = _data.Slice(_position, length);
         _position += length;
@@ -102,7 +130,10 @@ public ref struct HDHomeRunPacketReader
     public static uint ReadUInt32(ReadOnlySpan<byte> value)
     {
         if (value.Length != 4)
+        {
             throw new ArgumentException("Value must be 4 bytes", nameof(value));
+        }
+
         return BinaryPrimitives.ReadUInt32BigEndian(value);
     }
 
@@ -114,7 +145,10 @@ public ref struct HDHomeRunPacketReader
         // Remove null terminator if present
         var length = value.Length;
         if (length > 0 && value[length - 1] == 0)
+        {
             length--;
+        }
+
         return Encoding.UTF8.GetString(value[..length]);
     }
 }
