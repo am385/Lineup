@@ -11,6 +11,8 @@
 *.config text eol=crlf
 *.props text eol=crlf
 *.targets text eol=crlf
+*.cmd text eol=crlf
+packaging/windows/*.txt text eol=crlf
 
 # Denote binary files
 *.png binary

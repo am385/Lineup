@@ -1,0 +1,18 @@
+Lineup Windows Distribution - Third-Party Notices
+==================================================
+
+This distribution includes an unmodified portable build of Jellyfin FFmpeg
+8.1.2-4. The bundled asset is the GPL build published by the Jellyfin project.
+
+Project and corresponding source:
+https://github.com/jellyfin/jellyfin-ffmpeg/tree/v8.1.2-4
+
+Jellyfin FFmpeg contains software from FFmpeg:
+https://ffmpeg.org/
+
+This self-contained distribution also includes the Microsoft .NET 10 runtime,
+which is licensed under the MIT License:
+https://github.com/dotnet/runtime
+
+Lineup's own license is included as LICENSE.txt. Additional managed dependency
+information is recorded in app\Lineup.Web.deps.json.

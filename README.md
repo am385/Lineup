@@ -20,6 +20,158 @@ It includes a web-based dashboard, a terminal UI, live TV streaming with transco
 - **Versioned status API** — `/api/v1/status` provides one stable guide, device, tuner, and stream snapshot for Home Assistant and other dashboards
 - **SQLite caching** — EPG data stored locally with automatic cleanup of expired entries
 
+## Installing Lineup on Windows
+
+Lineup can run directly as a Windows application or inside Docker Desktop. Neither method requires the .NET SDK, a separate FFmpeg installation, Jellyfin, or Plex.
+
+| Method | Best for |
+|---|---|
+| **[Docker Desktop](#recommended-run-lineup-with-docker-desktop) — Recommended** | An isolated, automatically restarted container with easier updates and log management |
+| [Direct Windows application](#alternative-run-lineup-directly-on-windows) | The fewest installation steps and a visible console; Lineup runs while that console is open |
+
+> **Docker Desktop is the preferred Windows installation method for now.** It provides the most reliable unattended operation, updates, restart behavior, and log access. Use the direct Windows application when you specifically want to avoid Docker and are comfortable leaving its console window open.
+
+### Alternative: run Lineup directly on Windows
+
+1. Open the [latest Lineup release](https://github.com/am385/Lineup/releases/latest) and expand **Assets**.
+2. Download the ZIP matching the Windows **System type** shown under **Settings → System → About**:
+   - Choose `Lineup-<version>-win-x64.zip` for an x64-based PC. This is the correct download for most Windows computers.
+   - Choose `Lineup-<version>-win-arm64.zip` only for a Windows PC with an ARM-based processor.
+3. Right-click the downloaded ZIP, select **Extract All**, and extract it to a stable folder such as `C:\Users\YourName\Applications`. Do not run Lineup from inside the ZIP.
+4. Open the extracted `Lineup-<version>-win-<architecture>` folder and double-click `Start-Lineup.cmd`. Always use this launcher rather than opening `app\Lineup.Web.exe` directly; the launcher configures the user-local data locations.
+5. If Microsoft Defender SmartScreen appears, confirm that the file came from the official Lineup GitHub release, select **More info**, and then select **Run anyway**. Published Windows packages are not currently code-signed.
+6. If Windows Firewall asks for access, allow Lineup on **Private networks**. Public-network access is not required.
+7. Keep the Lineup console window open. The launcher opens <http://localhost:8080>; refresh the page if the browser opens before Lineup finishes starting.
+8. Complete **Settings → Device** using the HDHomeRun's LAN IP address or hostname.
+
+Press `Ctrl+C` in the Lineup console or close that window to stop the application. Lineup stores mutable files outside the extracted program folder:
+
+| Data | Windows location |
+|---|---|
+| Settings, guide database, logs, and other application state | `%LOCALAPPDATA%\Lineup\data` |
+| Generated XMLTV guide | `%LOCALAPPDATA%\Lineup\xmltv\epg.xml` |
+
+Enter `%LOCALAPPDATA%\Lineup` in File Explorer's address bar to open these folders. They remain in place when you replace the application during an update.
+
+#### Update the direct Windows application
+
+1. Stop the running Lineup console.
+2. Download and extract the new ZIP for the same architecture.
+3. Run `Start-Lineup.cmd` from the new folder.
+4. If you configured automatic startup, replace the old Startup-folder shortcut with one that targets the new `Start-Lineup.cmd`.
+5. After confirming that your settings are present, delete the old extracted program folder.
+
+Do not delete `%LOCALAPPDATA%\Lineup` unless you intentionally want to remove the persisted installation. You can verify a download with `SHA256SUMS.txt` from the release assets:
+
+```powershell
+Get-FileHash .\Lineup-2.0.1-win-x64.zip -Algorithm SHA256
+```
+
+Compare the displayed hash with the line for that ZIP in `SHA256SUMS.txt`.
+
+#### Optional: start Lineup when you sign in
+
+1. Right-click `Start-Lineup.cmd`, select **Show more options → Send to → Desktop (create shortcut)**.
+2. Press `Windows key + R`, enter `shell:startup`, and select **OK**.
+3. Move the new shortcut from the Desktop into the Startup folder.
+
+This starts Lineup only after that Windows user signs in. It is not a Windows service, and the Lineup console must remain open.
+
+After a Factory Reset shuts down the direct Windows application, run `Start-Lineup.cmd` again so Lineup can apply the reset and return to first-run setup.
+
+### Recommended: run Lineup with Docker Desktop
+
+[Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/) installs the Linux-container engine and Docker Compose that Lineup needs, provides a graphical interface for managing the container and viewing its logs, and keeps the application isolated from Windows. The Lineup image includes Jellyfin FFmpeg.
+
+Before continuing:
+
+1. Install Docker Desktop using its recommended per-user installation and WSL 2 backend. Docker Desktop requires a supported Windows version, hardware virtualization, and at least 8 GB of system memory. Review [Docker Desktop's current license terms](https://www.docker.com/legal/docker-subscription-service-agreement/) if using it for work or in a larger organization.
+2. Open Docker Desktop and wait until it reports that the engine is running. Lineup uses a Linux container; if Docker Desktop offers a choice, select **Linux containers**.
+3. Make sure the Windows computer can reach the HDHomeRun on the local network. Knowing the tuner's LAN IP address is helpful because names such as `hdhomerun.local` do not resolve in every Docker Desktop network.
+
+#### Recommended: install with Docker Compose
+
+Docker Compose is the easiest method to maintain because Lineup's ports, persistent storage, and restart behavior are already defined. Open **PowerShell** and run:
+
+```powershell
+New-Item -ItemType Directory -Force "$HOME\Lineup\certs" | Out-Null
+Set-Location "$HOME\Lineup"
+Invoke-WebRequest `
+    -Uri "https://raw.githubusercontent.com/am385/Lineup/main/docker-compose.prod.yml" `
+    -OutFile "docker-compose.yml"
+docker compose up -d
+Start-Sleep -Seconds 5
+Start-Process "http://localhost:8080"
+```
+
+The first download can take a few minutes. Refresh the browser if Lineup is still starting. When Lineup opens, go to **Settings → Device**, enter the HDHomeRun's IP address or hostname, and save the settings. If `hdhomerun.local` does not work, use the numeric LAN address shown in the official HDHomeRun application or your router, such as `192.168.1.50`.
+
+Docker stores Lineup's settings, guide database, and XMLTV output in persistent named volumes. Replacing or updating the container does not delete those volumes.
+
+Use these commands later from the same `$HOME\Lineup` directory:
+
+```powershell
+# View live logs. Press Ctrl+C to stop viewing without stopping Lineup.
+docker compose logs --follow lineup
+
+# Stop and start the existing container.
+docker compose stop
+docker compose start
+
+# Download the newest published image and recreate the container without deleting data.
+docker compose pull
+docker compose up -d
+
+# Remove the container and network while preserving Lineup's named volumes.
+docker compose down
+```
+
+Do not add `--volumes` to `docker compose down` unless you intentionally want to delete Lineup's persisted data and begin with a new installation.
+
+#### Alternative: install through the Docker Desktop interface
+
+The graphical workflow avoids Compose commands, but every mapping must be entered manually:
+
+1. Create `Lineup\data` and `Lineup\xmltv` folders inside your Windows user folder. In File Explorer, enter `%USERPROFILE%\Lineup` in the address bar, create the `data` and `xmltv` folders there, and note the full path shown by File Explorer.
+2. In Docker Desktop, open **Images**, search Docker Hub for `am385/lineup`, and pull the `latest` tag. Sign in to Docker Hub if Docker Desktop requests it.
+3. Find `am385/lineup:latest` under **Images**, select **Run**, and expand **Optional settings**.
+4. Set the container name to `lineup`.
+5. Map the following ports. Keep the UDP host ports at their defaults if you plan to enable virtual HDHomeRun discovery:
+
+   | Host port | Container port | Protocol | Purpose |
+   |---:|---:|---|---|
+   | `8080` | `8080` | TCP | Lineup web interface |
+   | `8443` | `8443` | TCP | Optional HTTPS |
+   | `65001` | `65001` | UDP | HDHomeRun discovery |
+   | `1900` | `1900` | UDP | SSDP discovery |
+
+6. Add these volume mappings:
+
+   | Windows host folder | Container path |
+   |---|---|
+   | `C:\Users\YourName\Lineup\data` | `/appdata` |
+   | `C:\Users\YourName\Lineup\xmltv` | `/xmltv` |
+
+   Replace `YourName` with the Windows user-folder name shown in File Explorer.
+
+7. Select **Run**, wait for the container to start, then open <http://localhost:8080> and complete **Settings → Device**.
+
+No environment variables are required for a normal HTTP installation. HTTPS is optional; see [HTTP and optional HTTPS](#http-and-optional-https) before adding a certificate mount or password. Open the `lineup` container in Docker Desktop to start, stop, restart, delete, inspect, or view its **Logs**. If it does not start automatically after Windows restarts, open **Containers** and select **Start**.
+
+To update a GUI installation, pull the newest `am385/lineup:latest` image, record or copy the existing container's settings, remove the old `lineup` container, and run the new image with the same ports and host-folder mappings. Removing the container does not delete the two Windows folders or their Lineup data. Compose is recommended because it remembers these settings and performs this replacement automatically.
+
+### Windows networking help
+
+Docker Desktop runs Lineup behind a virtualized network. The web interface normally works through <http://localhost:8080>, but local broadcast and multicast discovery can vary with the Windows, Docker Desktop, firewall, and router configuration.
+
+- Configure the physical HDHomeRun by its LAN IP address if its hostname does not resolve or automatic discovery fails.
+- Keep host UDP ports `65001` and `1900` mapped to the same container ports. Using different host ports can prevent Jellyfin, Plex, and other clients from discovering Lineup as a virtual tuner.
+- Allow Docker Desktop through Windows Firewall on the private network.
+- If Lineup and the tuner are on different VLANs or subnets, allow routing between them and configure the tuner address manually.
+- You can still add Lineup to Jellyfin or Plex with the virtual device URL shown in Lineup even when UDP discovery is unavailable.
+
+Running Docker directly inside a WSL distribution, Podman Desktop, and Rancher Desktop can also run Linux containers, but they require more manual administration or may behave differently from the documented Docker workflow. They are advanced alternatives rather than supported beginner installation paths.
+
 ## Architecture
 
 | Project | Description |
@@ -30,9 +182,11 @@ It includes a web-based dashboard, a terminal UI, live TV streaming with transco
 | `Lineup.Web` | Blazor Server web app — dashboard, EPG guide viewer, settings, live TV |
 | `Lineup.Tui` | Terminal UI — interactive menu using Spectre.Console |
 
-## Getting Started
+## Building from source
 
-### Prerequisites
+The following instructions are for developers who want to build or modify Lineup. Windows users who only want to run the published application should use [Installing Lineup on Windows](#installing-lineup-on-windows).
+
+### Development prerequisites
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
 - An HDHomeRun device on your local network
@@ -67,7 +221,7 @@ Configure the TUI via environment variables:
 - `Lineup__DeviceAddress` — HDHomeRun device IP or hostname
 - `Lineup__DatabasePath` — path to the SQLite cache database
 
-### Docker
+### Building and running with Docker
 
 ```bash
 docker compose up -d
@@ -79,20 +233,24 @@ Or using the production image:
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-The Docker image includes Jellyfin FFmpeg for live TV transcoding and ATSC 3.0 AC-4 audio decoding. Data is persisted via the `appdata` named volume mounted at `/appdata`. Lineup uses fixed container ports for HTTP (`8080`), HTTPS (`8443`), HDHomeRun discovery (`65001/udp`), and SSDP (`1900/udp`). The Compose `HTTP_PORT`, `HTTPS_PORT`, `HDHOMERUN_DISCOVERY_PORT`, and `SSDP_PORT` variables change only the corresponding host-facing ports. Keep the UDP ports at their defaults for standards-based automatic discovery. Use `network_mode: host` if your HDHomeRun device requires local network discovery.
+These commands run from a source checkout. The Docker image includes Jellyfin FFmpeg for live TV transcoding and ATSC 3.0 AC-4 audio decoding. Data is persisted via the `appdata` named volume mounted at `/appdata`. Lineup uses fixed container ports for HTTP (`8080`), HTTPS (`8443`), HDHomeRun discovery (`65001/udp`), and SSDP (`1900/udp`). The Compose `HTTP_PORT`, `HTTPS_PORT`, `HDHOMERUN_DISCOVERY_PORT`, and `SSDP_PORT` variables change only the corresponding host-facing ports. Keep the UDP ports at their defaults for standards-based automatic discovery. Native Linux deployments can use `network_mode: host` if the HDHomeRun device requires local network discovery.
 
-### Publishing a Container Release
+### Publishing a Release
 
-Maintainers can open **Actions → Build and Push Docker Image → Run workflow**, select the commit or branch to publish, and enter a stable semantic version such as `2.0.0`. The workflow tests the selected revision and publishes both the full version and major/minor tags to Docker Hub and GitHub Container Registry:
+`Directory.Build.props` is the single source for Lineup's release version. Before publishing, update its `<Version>` value to the next stable semantic version.
+
+Maintainers can then open **Actions → Publish Lineup Release → Run workflow** and select the commit or branch to publish. The workflow reads the application version, tests the selected revision, and publishes both the full version and major/minor tags to Docker Hub and GitHub Container Registry:
 
 ```text
-am385/lineup:2.0.0
+am385/lineup:2.0.1
 am385/lineup:2.0
-ghcr.io/am385/lineup:2.0.0
+ghcr.io/am385/lineup:2.0.1
 ghcr.io/am385/lineup:2.0
 ```
 
-Select **Also update the latest tag** only for the current stable release. Manual publication requires the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` repository secrets; GHCR uses the workflow's built-in GitHub token. Publishing an image does not create a Git tag or GitHub Release.
+The workflow also builds self-contained x64 and ARM64 Windows ZIPs with the matching pinned Jellyfin FFmpeg distribution. A manual run makes the ZIPs and `SHA256SUMS.txt` available as a workflow artifact but does not create a Git tag or GitHub Release. A pushed stable tag such as `v2.0.1` creates or updates the matching GitHub Release and attaches those Windows assets. Tag publication stops with an explicit error if the tag does not exactly match `v` followed by the version in `Directory.Build.props`.
+
+Select **Also update the latest tag** only for the current stable release. Manual publication requires the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` repository secrets; GHCR uses the workflow's built-in GitHub token. Manual publication does not create a Git tag or GitHub Release.
 
 The MPEG-TS proxy preserves every audio track and every standalone subtitle codec the MPEG-TS muxer can represent
 (`dvb_subtitle` and `dvb_teletext`). It copies video and non-AC-4 audio while converting each AC-4 track to AC-3.

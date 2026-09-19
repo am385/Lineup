@@ -1,6 +1,9 @@
 [CmdletBinding()]
 param(
-    [string]$InstallDirectory
+    [string]$InstallDirectory,
+
+    [ValidateSet('X64', 'Arm64')]
+    [string]$Architecture
 )
 
 Set-StrictMode -Version Latest
@@ -11,9 +14,11 @@ if ([string]::IsNullOrWhiteSpace($InstallDirectory)) {
 }
 
 $version = '8.1.2-4'
-$architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+if ([string]::IsNullOrWhiteSpace($Architecture)) {
+    $Architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+}
 
-switch ($architecture) {
+switch ($Architecture) {
     'X64' {
         $assetName = "jellyfin-ffmpeg_${version}_portable_win64-clang-gpl.zip"
         $expectedHash = 'a6821d72985ee6d5a8af16925b468d1c4ec1f652b582a0a2a5039282c26ffca5'
@@ -23,16 +28,16 @@ switch ($architecture) {
         $expectedHash = 'f77e3d0b2dcb4bb7eec51e7240cceaee9071f715ab7d7efb4b6e263b04f75f0d'
     }
     default {
-        throw "Jellyfin FFmpeg does not publish a supported portable Windows archive for $architecture."
+        throw "Jellyfin FFmpeg does not publish a supported portable Windows archive for $Architecture."
     }
 }
 
 $downloadUrl = "https://github.com/jellyfin/jellyfin-ffmpeg/releases/download/v$version/$assetName"
-$archivePath = Join-Path ([System.IO.Path]::GetTempPath()) $assetName
+$archivePath = Join-Path ([System.IO.Path]::GetTempPath()) "$([Guid]::NewGuid().ToString('N'))-$assetName"
 $resolvedInstallDirectory = [System.IO.Path]::GetFullPath($InstallDirectory)
 
 try {
-    Write-Host "Downloading Jellyfin FFmpeg $version for $architecture..."
+    Write-Host "Downloading Jellyfin FFmpeg $version for $Architecture..."
     Invoke-WebRequest -Uri $downloadUrl -OutFile $archivePath -UseBasicParsing
 
     $actualHash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()

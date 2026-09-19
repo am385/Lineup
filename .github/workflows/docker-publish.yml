@@ -1,4 +1,4 @@
-name: Build and Push Docker Image
+name: Publish Lineup Release
 
 on:
   push:
@@ -6,10 +6,6 @@ on:
       - 'v*'
   workflow_dispatch:
     inputs:
-      version:
-        description: Release version to publish, without the v prefix
-        required: true
-        type: string
       publish_latest:
         description: Also update the latest tag
         required: true
@@ -21,6 +17,36 @@ env:
   GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/lineup
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      major_minor: ${{ steps.version.outputs.major_minor }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: |
+          version="$(python3 -c "import xml.etree.ElementTree as ET; print(ET.parse('Directory.Build.props').getroot().findtext('./PropertyGroup/Version', '').strip())")"
+
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Directory.Build.props Version must use stable semantic version format, for example 2.0.0."
+            exit 1
+          fi
+
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF_NAME}" != "v${version}" ]]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match application version ${version}. Expected v${version}."
+            exit 1
+          fi
+
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "major_minor=${version%.*}" >> "${GITHUB_OUTPUT}"
+          echo "tag=v${version}" >> "${GITHUB_OUTPUT}"
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -36,13 +62,13 @@ jobs:
         run: dotnet restore
 
       - name: Build
-        run: dotnet build --no-restore
+        run: dotnet build --no-restore --configuration Release
 
       - name: Run tests
-        run: dotnet test --no-build --verbosity normal
+        run: dotnet test --no-build --configuration Release --verbosity normal
 
   build-and-push:
-    needs: test
+    needs: [prepare, test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -68,24 +94,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Resolve release version
-        id: version
-        shell: bash
-        env:
-          REQUESTED_VERSION: ${{ inputs.version }}
-        run: |
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            version="${REQUESTED_VERSION#v}"
-
-            if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "::error::Release version must use stable semantic version format, for example 2.0.0."
-              exit 1
-            fi
-
-            echo "version=${version}" >> "${GITHUB_OUTPUT}"
-            echo "major_minor=${version%.*}" >> "${GITHUB_OUTPUT}"
-          fi
-
       - name: Extract metadata (tags, labels)
         id: meta
         uses: docker/metadata-action@v5
@@ -94,10 +102,8 @@ jobs:
             ${{ env.DOCKERHUB_IMAGE }}
             ${{ env.GHCR_IMAGE }}
           tags: |
-            type=semver,pattern={{version}},enable=${{ github.event_name == 'push' }}
-            type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'push' }}
-            type=raw,value=${{ steps.version.outputs.version }},enable=${{ github.event_name == 'workflow_dispatch' }}
-            type=raw,value=${{ steps.version.outputs.major_minor }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=raw,value=${{ needs.prepare.outputs.version }}
+            type=raw,value=${{ needs.prepare.outputs.major_minor }}
             type=raw,value=latest,enable=${{ github.event_name == 'push' || inputs.publish_latest }}
 
       - name: Build and push Docker image
@@ -111,3 +117,87 @@ jobs:
             GIT_HASH=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  package-windows:
+    needs: [prepare, test]
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        runtime: [win-x64, win-arm64]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build Windows package
+        shell: pwsh
+        run: |
+          & .\scripts\Build-WindowsPackage.ps1 `
+            -RuntimeIdentifier '${{ matrix.runtime }}' `
+            -SourceRevisionId '${{ github.sha }}'
+
+      - name: Upload architecture package
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-package-${{ matrix.runtime }}
+          path: artifacts/windows/Lineup-${{ needs.prepare.outputs.version }}-${{ matrix.runtime }}.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  collect-windows:
+    needs: [prepare, package-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download architecture packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: windows-package-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create checksums
+        working-directory: artifacts
+        run: sha256sum Lineup-*.zip > SHA256SUMS.txt
+
+      - name: Upload Windows release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lineup-${{ needs.prepare.outputs.version }}-Windows
+          path: |
+            artifacts/Lineup-*.zip
+            artifacts/SHA256SUMS.txt
+          if-no-files-found: error
+
+  publish-github-release:
+    if: github.event_name == 'push'
+    needs: [prepare, build-and-push, collect-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Windows release bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: Lineup-${{ needs.prepare.outputs.version }}-Windows
+          path: artifacts
+
+      - name: Create or update GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          if gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" artifacts/* --clobber --repo "${GITHUB_REPOSITORY}"
+          else
+            gh release create "${RELEASE_TAG}" artifacts/* \
+              --repo "${GITHUB_REPOSITORY}" \
+              --verify-tag \
+              --title "Lineup ${RELEASE_VERSION}" \
+              --generate-notes
+          fi
