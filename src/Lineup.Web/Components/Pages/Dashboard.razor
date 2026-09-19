@@ -92,6 +92,43 @@ else
         </div>
     </div>
 
+    @if (AutoFetchState.IsRunning && AutoFetchState.CurrentProgress != null)
+    {
+        <div class="card mb-4 border-info">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0"><span class="bi bi-arrow-repeat me-1"></span>Auto-Fetch in Progress</h5>
+            </div>
+            <div class="card-body">
+                <div class="row mb-2">
+                    <div class="col-md-3">
+                        <strong>Status:</strong>
+                        <span class="badge @GetStatusBadgeClass(AutoFetchState.CurrentProgress.Status)">@AutoFetchState.CurrentProgress.Status</span>
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Fetch #:</strong> @AutoFetchState.CurrentProgress.FetchCount
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Programs:</strong> @AutoFetchState.CurrentProgress.TotalProgramsFetched.ToString("N0")
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Channels:</strong> @AutoFetchState.CurrentProgress.TotalChannelsFetched
+                    </div>
+                </div>
+                <div class="progress mb-2" style="height: 25px;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated bg-info"
+                         role="progressbar"
+                         style="width: @(AutoFetchState.CurrentProgress.PercentComplete)%"
+                         aria-valuenow="@AutoFetchState.CurrentProgress.PercentComplete"
+                         aria-valuemin="0"
+                         aria-valuemax="100">
+                        @AutoFetchState.CurrentProgress.PercentComplete%
+                    </div>
+                </div>
+                <p class="text-muted mb-0">@AutoFetchState.CurrentProgress.Message</p>
+            </div>
+        </div>
+    }
+
     <div class="row mb-4">
         <div class="col-md-6">
             <div class="card h-100">
@@ -115,8 +152,15 @@ else
                 </div>
                 <div class="card-body">
                     <div class="alert alert-info py-2 mb-3">
-                        SiliconDust returns the complete available guide in one request: 2 days normally or 14 days with a DVR subscription.
+                        Refresh tuner channels independently, then fetch the SiliconDust guide to apply that saved channel lineup.
                     </div>
+                    <button class="btn btn-outline-primary me-2" @onclick="RefreshChannels" disabled="@_isBusy">
+                        @if (_isBusy && _currentAction == "channels")
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        <span class="bi bi-list-check me-1"></span>Refresh Channels
+                    </button>
                     <button class="btn btn-primary me-2" @onclick="FetchData" disabled="@_isBusy">
                         @if (_isBusy && _currentAction == "fetch")
                         {
@@ -143,6 +187,19 @@ else
                             <span class="bi bi-download me-1"></span>Export XMLTV
                         </button>
                     }
+                    <div class="small text-muted mt-3">
+                        @if (_channelLineup == null)
+                        {
+                            <span>No saved tuner lineup. Refresh channels before fetching guide data.</span>
+                        }
+                        else
+                        {
+                            <span>
+                                Saved tuner lineup: @_channelLineup.Channels.Count channels,
+                                refreshed @Tz.ConvertFromUtc(_channelLineup.RefreshedAtUtc).ToString("yyyy-MM-dd HH:mm:ss")
+                            </span>
+                        }
+                    </div>
                 </div>
             </div>
         </div>
@@ -417,43 +474,6 @@ else
                         </button>
                     </div>
                 </div>
-            </div>
-        </div>
-    }
-
-    @if (AutoFetchState.IsRunning && AutoFetchState.CurrentProgress != null)
-    {
-        <div class="card mb-4 border-info">
-            <div class="card-header bg-info text-white">
-                <h5 class="mb-0"><span class="bi bi-arrow-repeat me-1"></span>Auto-Fetch in Progress</h5>
-            </div>
-            <div class="card-body">
-                <div class="row mb-2">
-                    <div class="col-md-3">
-                        <strong>Status:</strong>
-                        <span class="badge @GetStatusBadgeClass(AutoFetchState.CurrentProgress.Status)">@AutoFetchState.CurrentProgress.Status</span>
-                    </div>
-                    <div class="col-md-3">
-                        <strong>Fetch #:</strong> @AutoFetchState.CurrentProgress.FetchCount
-                    </div>
-                    <div class="col-md-3">
-                        <strong>Programs:</strong> @AutoFetchState.CurrentProgress.TotalProgramsFetched.ToString("N0")
-                    </div>
-                    <div class="col-md-3">
-                        <strong>Channels:</strong> @AutoFetchState.CurrentProgress.TotalChannelsFetched
-                    </div>
-                </div>
-                <div class="progress mb-2" style="height: 25px;">
-                    <div class="progress-bar progress-bar-striped progress-bar-animated bg-info" 
-                         role="progressbar" 
-                         style="width: @(AutoFetchState.CurrentProgress.PercentComplete)%"
-                         aria-valuenow="@AutoFetchState.CurrentProgress.PercentComplete" 
-                         aria-valuemin="0" 
-                         aria-valuemax="100">
-                        @AutoFetchState.CurrentProgress.PercentComplete%
-                    </div>
-                </div>
-                <p class="text-muted mb-0">@AutoFetchState.CurrentProgress.Message</p>
             </div>
         </div>
     }

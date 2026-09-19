@@ -18,6 +18,12 @@ public partial class Dashboard : IDisposable
     private EpgOrchestrator Orchestrator { get; set; } = default!;
 
     [Inject]
+    private ChannelLineupRefreshService ChannelLineupRefresh { get; set; } = default!;
+
+    [Inject]
+    private ChannelLineupStore ChannelLineupStore { get; set; } = default!;
+
+    [Inject]
     private IDeviceStateService DeviceState { get; set; } = default!;
 
     [Inject]
@@ -48,6 +54,7 @@ public partial class Dashboard : IDisposable
     private int _targetDays = 3;
     private FetchProgressInfo? _fetchProgress;
     private bool _xmltvFileExists;
+    private ChannelLineupSnapshot? _channelLineup;
     private TimeSpan _countdown;
     private Timer? _countdownTimer;
     private Timer? _activeStreamTimer;
@@ -95,6 +102,7 @@ public partial class Dashboard : IDisposable
         ConfigureActiveStreamTimer();
 
         await LoadStatsAsync();
+        await LoadChannelLineupAsync();
         CheckXmltvFileExists();
     }
 
@@ -328,6 +336,19 @@ public partial class Dashboard : IDisposable
         }
     }
 
+    private async Task LoadChannelLineupAsync()
+    {
+        try
+        {
+            _channelLineup = await ChannelLineupStore.ReadAsync();
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Error loading the saved channel lineup: {ex.Message}";
+            _isError = true;
+        }
+    }
+
     private async Task FetchData()
     {
         _isBusy = true;
@@ -349,6 +370,7 @@ public partial class Dashboard : IDisposable
             _statusMessage = $"EPG data fetched successfully! ({_fetchProgress?.FetchCount ?? 0} fetches, {_fetchProgress?.TotalProgramsFetched.ToString("N0") ?? "0"} programs)";
             _isError = false;
         }
+
         catch (Exception ex)
         {
             _statusMessage = $"Error fetching data: {ex.Message}";
@@ -359,6 +381,31 @@ public partial class Dashboard : IDisposable
             _isBusy = false;
             _currentAction = "";
             _fetchProgress = null;
+        }
+    }
+
+    private async Task RefreshChannels()
+    {
+        _isBusy = true;
+        _currentAction = "channels";
+        _statusMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            _channelLineup = await ChannelLineupRefresh.RefreshAsync();
+            _statusMessage = $"Refreshed {_channelLineup.Channels.Count} tuner channels. The saved lineup will be applied during the next guide fetch.";
+            _isError = false;
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Error refreshing channels: {ex.Message}";
+            _isError = true;
+        }
+        finally
+        {
+            _isBusy = false;
+            _currentAction = "";
         }
     }
 

@@ -101,4 +101,64 @@ public class SiliconDustXmltvParserTests
         Assert.Equal(["7.1", "107.1"], channels.Select(channel => channel.GuideNumber));
         Assert.All(channels, channel => Assert.Equal("Shared Show", Assert.Single(channel.Guide).Title));
     }
+
+    /// <summary>
+    /// Verifies that filtering retains only channels returned by the tuner and their programmes.
+    /// </summary>
+    [Fact]
+    public void FilterByGuideNumbers_RemovesUnavailableChannelsAndProgrammes()
+    {
+        // Arrange
+        const string xml = """
+            <tv source-info-name="HDHomeRun">
+              <channel id="available"><display-name>Available</display-name><lcn>7.1</lcn></channel>
+              <channel id="removed"><display-name>Removed</display-name><lcn>9.1</lcn></channel>
+              <programme start="20260914220000 +0000" stop="20260914223000 +0000" channel="available">
+                <title>Available Show</title>
+              </programme>
+              <programme start="20260914220000 +0000" stop="20260914223000 +0000" channel="removed">
+                <title>Removed Show</title>
+              </programme>
+            </tv>
+            """;
+        var parser = new SiliconDustXmltvParser();
+
+        // Act
+        var filteredContent = parser.FilterByGuideNumbers(Encoding.UTF8.GetBytes(xml), ["7.1"]);
+        var channels = parser.Parse(filteredContent);
+
+        // Assert
+        var channel = Assert.Single(channels);
+        Assert.Equal("7.1", channel.GuideNumber);
+        Assert.Equal("Available Show", Assert.Single(channel.Guide).Title);
+        Assert.DoesNotContain("Removed Show", Encoding.UTF8.GetString(filteredContent));
+        Assert.Contains("source-info-name=\"HDHomeRun\"", Encoding.UTF8.GetString(filteredContent));
+    }
+
+    /// <summary>
+    /// Verifies that a shared station remains when any associated tuner channel is available.
+    /// </summary>
+    [Fact]
+    public void FilterByGuideNumbers_SharedStationRetainsOnlyAvailableLogicalChannel()
+    {
+        // Arrange
+        const string xml = """
+            <tv>
+              <channel id="shared"><display-name>Primary</display-name><lcn>7.1</lcn></channel>
+              <channel id="shared"><display-name>Simulcast</display-name><lcn>107.1</lcn></channel>
+              <programme start="20260914220000 +0000" stop="20260914223000 +0000" channel="shared">
+                <title>Shared Show</title>
+              </programme>
+            </tv>
+            """;
+        var parser = new SiliconDustXmltvParser();
+
+        // Act
+        var filteredContent = parser.FilterByGuideNumbers(Encoding.UTF8.GetBytes(xml), ["107.1"]);
+        var channel = Assert.Single(parser.Parse(filteredContent));
+
+        // Assert
+        Assert.Equal("107.1", channel.GuideNumber);
+        Assert.Equal("Shared Show", Assert.Single(channel.Guide).Title);
+    }
 }

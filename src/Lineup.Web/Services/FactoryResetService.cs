@@ -162,6 +162,8 @@ public static class FactoryResetCoordinator
         appDataStore.DeleteFile(appDataStore.GuideCachePath);
         appDataStore.DeleteFile($"{appDataStore.GuideCachePath}.generation");
         appDataStore.DeleteMatchingFiles(appDataStore.RootPath, $"{Path.GetFileName(appDataStore.GuideCachePath)}.*.tmp");
+        appDataStore.DeleteFile(appDataStore.ChannelLineupPath);
+        appDataStore.DeleteMatchingFiles(appDataStore.RootPath, $"{Path.GetFileName(appDataStore.ChannelLineupPath)}.*.tmp");
     }
 
     private static void DeleteOutputFile(string path)

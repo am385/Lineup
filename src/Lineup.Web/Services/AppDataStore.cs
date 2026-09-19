@@ -24,6 +24,7 @@ public sealed class AppDataStore
         SettingsBackupPath = $"{SettingsPath}.bak";
         DatabasePath = GetPath(AppConstants.DefaultDatabaseFileName);
         GuideCachePath = Path.ChangeExtension(DatabasePath, ".xmltv");
+        ChannelLineupPath = Path.ChangeExtension(DatabasePath, ".channels.json");
         LogDirectoryPath = GetPath(AppConstants.LogDirectoryName);
         DataProtectionKeysPath = GetPath(AppConstants.DataProtectionKeysDirectoryName);
         FactoryResetRequestPath = GetPath(FactoryResetCoordinator.RequestFileName);
@@ -53,6 +54,11 @@ public sealed class AppDataStore
     /// Gets the canonical downloaded guide cache path.
     /// </summary>
     public string GuideCachePath { get; }
+
+    /// <summary>
+    /// Gets the persisted physical tuner channel lineup path.
+    /// </summary>
+    public string ChannelLineupPath { get; }
 
     /// <summary>
     /// Gets the rolling-log directory path.

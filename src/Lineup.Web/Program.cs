@@ -50,6 +50,7 @@ builder.Services.AddSingleton<IDeviceAddressProvider, SettingsDeviceAddressProvi
 builder.Services.AddSingleton<ITimeZoneService, TimeZoneService>();
 
 // Add EPG Core services (device address from settings, not config)
+builder.Services.AddSingleton<IChannelLineupProvider, SettingsChannelLineupProvider>();
 builder.Services.AddEpgCore(databasePath: appDataStore.DatabasePath);
 builder.Services.AddSingleton<IDeviceAuthProvider, SettingsDeviceAuthProvider>();
 

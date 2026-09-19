@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Xml;
 using System.Xml.Linq;
 using Lineup.HDHomeRun.Api.Models;
@@ -25,6 +26,81 @@ public class SiliconDustXmltvParser
     /// <returns>Normalized guide segments keyed by logical channel number.</returns>
     public IReadOnlyList<HDHomeRunChannelEpgSegment> Parse(ReadOnlyMemory<byte> content)
     {
+        var document = LoadDocument(content);
+        var root = document.Root!;
+
+        var channelsById = ParseChannels(root);
+        ParseProgrammes(root, channelsById);
+        return channelsById.Values
+            .SelectMany(channels => channels)
+            .Select(channel => channel.Segment)
+            .GroupBy(channel => channel.GuideNumber, StringComparer.OrdinalIgnoreCase)
+            .Select(MergeLogicalChannel)
+            .OrderBy(segment => ParseChannelNumber(segment.GuideNumber))
+            .ThenBy(segment => segment.GuideNumber, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Removes channels and programmes that are not present in the tuner's current lineup.
+    /// </summary>
+    /// <param name="content">Complete XMLTV document bytes.</param>
+    /// <param name="guideNumbers">Logical channel numbers returned by the tuner.</param>
+    /// <returns>A valid XMLTV document containing only available tuner channels.</returns>
+    public byte[] FilterByGuideNumbers(ReadOnlyMemory<byte> content, IEnumerable<string> guideNumbers)
+    {
+        ArgumentNullException.ThrowIfNull(guideNumbers);
+
+        var allowedGuideNumbers = guideNumbers
+            .Where(guideNumber => !string.IsNullOrWhiteSpace(guideNumber))
+            .Select(guideNumber => guideNumber.Trim())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var document = LoadDocument(content);
+        var root = document.Root!;
+        var channelElements = root.Elements()
+            .Where(element => element.Name.LocalName == "channel")
+            .ToArray();
+        var retainedChannelIds = channelElements
+            .Where(element => allowedGuideNumbers.Contains(ElementValue(element, "lcn") ?? string.Empty))
+            .Select(element => element.Attribute("id")?.Value)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Cast<string>()
+            .ToHashSet(StringComparer.Ordinal);
+
+        foreach (var channelElement in channelElements)
+        {
+            var guideNumber = ElementValue(channelElement, "lcn");
+            if (guideNumber == null || !allowedGuideNumbers.Contains(guideNumber))
+            {
+                channelElement.Remove();
+            }
+        }
+
+        var programmeElements = root.Elements().Where(element => element.Name.LocalName == "programme").ToArray();
+        foreach (var programmeElement in programmeElements)
+        {
+            var channelId = programmeElement.Attribute("channel")?.Value;
+            if (channelId == null || !retainedChannelIds.Contains(channelId))
+            {
+                programmeElement.Remove();
+            }
+        }
+
+        using var stream = new MemoryStream();
+        using (var writer = XmlWriter.Create(stream, new XmlWriterSettings
+        {
+            Encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            Indent = false
+        }))
+        {
+            document.Save(writer);
+        }
+
+        return stream.ToArray();
+    }
+
+    private static XDocument LoadDocument(ReadOnlyMemory<byte> content)
+    {
         using var stream = new MemoryStream(content.ToArray(), writable: false);
         using var reader = XmlReader.Create(stream, new XmlReaderSettings
         {
@@ -37,16 +113,7 @@ public class SiliconDustXmltvParser
             throw new InvalidDataException("The downloaded guide is not an XMLTV document.");
         }
 
-        var channelsById = ParseChannels(document.Root);
-        ParseProgrammes(document.Root, channelsById);
-        return channelsById.Values
-            .SelectMany(channels => channels)
-            .Select(channel => channel.Segment)
-            .GroupBy(channel => channel.GuideNumber, StringComparer.OrdinalIgnoreCase)
-            .Select(MergeLogicalChannel)
-            .OrderBy(segment => ParseChannelNumber(segment.GuideNumber))
-            .ThenBy(segment => segment.GuideNumber, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        return document;
     }
 
     private static HDHomeRunChannelEpgSegment MergeLogicalChannel(IGrouping<string?, HDHomeRunChannelEpgSegment> channels)

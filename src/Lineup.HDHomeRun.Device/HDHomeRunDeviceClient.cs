@@ -10,7 +10,7 @@ namespace Lineup.HDHomeRun.Device;
 /// Uses IDeviceAddressProvider to dynamically resolve the device address,
 /// or falls back to HttpClient's BaseAddress if no provider is supplied.
 /// </summary>
-public class HDHomeRunDeviceClient
+public class HDHomeRunDeviceClient : IChannelLineupProvider
 {
     private readonly ILogger<HDHomeRunDeviceClient> _logger;
     private readonly HttpClient _httpClient;

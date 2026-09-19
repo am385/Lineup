@@ -76,6 +76,7 @@ public class AppDataStoreTests
         Assert.Equal($"{store.SettingsPath}.bak", store.SettingsBackupPath);
         Assert.Equal(Path.Combine(root.FullName, AppConstants.DefaultDatabaseFileName), store.DatabasePath);
         Assert.Equal(Path.ChangeExtension(store.DatabasePath, ".xmltv"), store.GuideCachePath);
+        Assert.Equal(Path.ChangeExtension(store.DatabasePath, ".channels.json"), store.ChannelLineupPath);
         Assert.Equal(Path.Combine(root.FullName, AppConstants.LogDirectoryName), store.LogDirectoryPath);
         Assert.Equal(Path.Combine(root.FullName, AppConstants.DataProtectionKeysDirectoryName), store.DataProtectionKeysPath);
         Assert.Equal(Path.Combine(root.FullName, FactoryResetCoordinator.RequestFileName), store.FactoryResetRequestPath);

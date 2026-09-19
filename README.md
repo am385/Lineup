@@ -9,7 +9,7 @@ It includes a web-based dashboard, a terminal UI, live TV streaming with transco
 ## Features
 
 - **Automatic EPG fetching** — downloads SiliconDust's complete gzip-compressed XMLTV guide on the required randomized 20-28 hour schedule
-- **Canonical XMLTV output** — preserves SiliconDust metadata and atomically publishes the downloaded document without lossy reconstruction
+- **Canonical XMLTV output** — preserves SiliconDust metadata, filters out channels unavailable from the configured tuners, and publishes updates atomically
 - **Live TV streaming** — multi-track MPEG-TS proxy plus selectable Watch audio and subtitles, with Jellyfin FFmpeg AC-4 decoding
 - **Device diagnostics** — connectivity checks across DNS, ping, HTTP API, TCP, and UDP discovery
 - **Active stream monitoring** — Dashboard visibility into hosted MPEG-TS, fMP4, and HLS sessions with source/output codec and bitrate details
@@ -393,7 +393,10 @@ Additional profiles use the stable path `/hdhomerun/{virtualDeviceId}/`. Their d
 path. The Settings page displays copyable manual setup URLs for each enabled profile and the XMLTV guide URL at `/api/xmltv`.
 
 Guide downloads concatenate the current `DeviceAuth` values from every enabled physical profile, allowing one canonical XMLTV document to cover all
-configured tuners. `DeviceAuth` is read immediately before every request because SiliconDust rotates it regularly.
+configured tuners. The downloaded guide is filtered to the union of channels currently returned by those tuners, so removed or unavailable channels
+are excluded from both Lineup's Guide page and published XMLTV output. Use **Refresh Channels** on the Dashboard to update the persisted tuner-lineup
+snapshot independently. A guide fetch applies that saved snapshot without querying the tuners, so refreshing channels does not download new guide data
+and existing cached guide data is not rewritten until the next guide fetch. `DeviceAuth` is read immediately before every request because SiliconDust rotates it regularly.
 
 Lineup atomically limits HDHomeRun-compatible MPEG-TS routes to each profile's effective physical tuner count. Receivers for the exact same upstream
 channel and hardware-transcode source share one tuner lease through the stream multiplexer. Different channels consume separate slots. This includes
