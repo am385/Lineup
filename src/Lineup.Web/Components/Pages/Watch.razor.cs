@@ -1,5 +1,7 @@
+using Lineup.Core;
 using Lineup.Core.Storage;
 using Lineup.HDHomeRun.Api.Models;
+using Lineup.HDHomeRun.Device.Models;
 using Lineup.HDHomeRun.Device.Protocol;
 using Lineup.Web.Services;
 using Microsoft.AspNetCore.Components;
@@ -15,6 +17,9 @@ public partial class Watch : IAsyncDisposable
 {
     [Inject]
     private IEpgRepository Repository { get; set; } = default!;
+
+    [Inject]
+    private ChannelLineupStore ChannelLineupStore { get; set; } = default!;
 
     [Inject]
     private IAppSettingsService SettingsService { get; set; } = default!;
@@ -148,7 +153,9 @@ public partial class Watch : IAsyncDisposable
 
         try
         {
-            _channels = await Repository.GetChannelsAsync();
+            var guideChannels = await Repository.GetChannelsAsync();
+            var channelLineup = await ChannelLineupStore.ReadAsync();
+            _channels = MergeChannels(guideChannels, channelLineup);
 
             // Load current programs for "now playing" display
             var now = DateTime.UtcNow;
@@ -159,6 +166,42 @@ public partial class Watch : IAsyncDisposable
         {
             _isLoadingChannels = false;
         }
+    }
+
+    private static List<HDHomeRunChannelEpgSegment> MergeChannels(
+        IReadOnlyList<HDHomeRunChannelEpgSegment> guideChannels,
+        ChannelLineupSnapshot? channelLineup)
+    {
+        if (channelLineup == null)
+        {
+            return guideChannels.ToList();
+        }
+
+        var guideChannelsByNumber = guideChannels
+            .Where(channel => !string.IsNullOrWhiteSpace(channel.GuideNumber))
+            .DistinctBy(channel => channel.GuideNumber!.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(channel => channel.GuideNumber!.Trim(), StringComparer.OrdinalIgnoreCase);
+        return channelLineup.Channels
+            .Where(channel => channelLineup.IsChannelEnabled(channel.GuideNumber))
+            .Select(channel => MergeChannel(channel, guideChannelsByNumber))
+            .ToList();
+    }
+
+    private static HDHomeRunChannelEpgSegment MergeChannel(
+        HDHomeRunChannel channel,
+        IReadOnlyDictionary<string, HDHomeRunChannelEpgSegment> guideChannels)
+    {
+        guideChannels.TryGetValue(channel.GuideNumber.Trim(), out var guideChannel);
+        return new HDHomeRunChannelEpgSegment
+        {
+            GuideNumber = channel.GuideNumber,
+            GuideName = channel.GuideName,
+            Affiliate = guideChannel?.Affiliate,
+            ImageURL = guideChannel?.ImageURL,
+            DRM = channel.DRM,
+            Favorite = channel.Favorite,
+            Guide = guideChannel?.Guide ?? []
+        };
     }
 
     private async Task SelectChannel(HDHomeRunChannelEpgSegment channel)

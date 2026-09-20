@@ -121,9 +121,10 @@ public class EpgOrchestratorTests
         {
             var lineupStore = new ChannelLineupStore(Path.Combine(root.FullName, "channels.json"));
             await lineupStore.StoreAsync(
-                [CreateChannel("7.1"), CreateChannel("9.1")],
+                [CreateChannel("7.1"), CreateChannel("9.1"), CreateChannel("11.1"), CreateChannel("13.1")],
                 TestContext.Current.CancellationToken);
             await lineupStore.SetChannelEnabledAsync("9.1", enabled: false, TestContext.Current.CancellationToken);
+            await lineupStore.SetChannelEnabledAsync("13.1", enabled: false, TestContext.Current.CancellationToken);
             var guideStore = new XmltvGuideStore(Path.Combine(root.FullName, "canonical.xml"));
             await guideStore.StoreAsync(Encoding.UTF8.GetBytes(xml), TestContext.Current.CancellationToken);
             var parser = new SiliconDustXmltvParser();
@@ -131,11 +132,50 @@ public class EpgOrchestratorTests
             var outputPath = Path.Combine(root.FullName, "published.xml");
 
             // Act
-            await orchestrator.GenerateEpgFromCacheAsync(2, outputPath);
+            await orchestrator.GenerateEpgFromCacheAsync(2, outputPath, TestContext.Current.CancellationToken);
 
             // Assert
-            Assert.Equal(["7.1"], parser.Parse(await File.ReadAllBytesAsync(outputPath, TestContext.Current.CancellationToken)).Select(channel => channel.GuideNumber));
+            var publishedChannels = parser.Parse(await File.ReadAllBytesAsync(outputPath, TestContext.Current.CancellationToken));
+            Assert.Equal(["7.1", "11.1"], publishedChannels.Select(channel => channel.GuideNumber));
+            Assert.Equal("Not Available", Assert.Single(publishedChannels.Single(channel => channel.GuideNumber == "11.1").Guide).Title);
             Assert.Equal(["7.1", "9.1"], parser.Parse((await guideStore.ReadAsync(TestContext.Current.CancellationToken))!).Select(channel => channel.GuideNumber));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Verifies XMLTV generation creates placeholder data when no canonical guide has been downloaded.
+    /// </summary>
+    [Fact]
+    public async Task GenerateEpgFromCacheAsync_WithoutCanonicalGuide_PublishesEnabledPlaceholders()
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-orchestrator-");
+        try
+        {
+            var lineupStore = new ChannelLineupStore(Path.Combine(root.FullName, "channels.json"));
+            await lineupStore.StoreAsync(
+                [CreateChannel("7.1"), CreateChannel("9.1")],
+                TestContext.Current.CancellationToken);
+            await lineupStore.SetChannelEnabledAsync("9.1", enabled: false, TestContext.Current.CancellationToken);
+            var guideStore = new XmltvGuideStore(Path.Combine(root.FullName, "canonical.xml"));
+            var parser = new SiliconDustXmltvParser();
+            var orchestrator = new EpgOrchestrator(NullLogger<EpgOrchestrator>.Instance, lineupStore, null!, Substitute.For<IEpgRepository>(), guideStore, parser);
+            var outputPath = Path.Combine(root.FullName, "published.xml");
+
+            // Act
+            await orchestrator.GenerateEpgFromCacheAsync(2, outputPath, TestContext.Current.CancellationToken);
+
+            // Assert
+            var channel = Assert.Single(parser.Parse(await File.ReadAllBytesAsync(outputPath, TestContext.Current.CancellationToken)));
+            var programme = Assert.Single(channel.Guide);
+            Assert.Equal("7.1", channel.GuideNumber);
+            Assert.Equal("Not Available", programme.Title);
+            Assert.Equal(TimeSpan.FromDays(2), DateTimeOffset.FromUnixTimeSeconds(programme.EndTime) - DateTimeOffset.FromUnixTimeSeconds(programme.StartTime));
+            Assert.Null(await guideStore.ReadAsync(TestContext.Current.CancellationToken));
         }
         finally
         {

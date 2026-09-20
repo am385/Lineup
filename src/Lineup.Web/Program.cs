@@ -138,6 +138,8 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
+app.UseRouting();
+app.UseMiddleware<ApiRequestLoggingMiddleware>();
 app.UseAntiforgery();
 
 // Map API controllers (stream proxy)
@@ -170,12 +172,22 @@ app.MapGet("/api/logs/files/{fileName}", (string fileName, LogFileService files)
 }).DisableAntiforgery();
 
 // Endpoint for external programs (Jellyfin, Plex, etc.) to download the XMLTV guide file
-app.MapGet("/api/xmltv", (IAppSettingsService settings) =>
+app.MapGet("/api/xmltv", async Task<IResult> (
+    IAppSettingsService settings,
+    EpgOrchestrator orchestrator,
+    CancellationToken cancellationToken) =>
 {
     var path = settings.Settings.XmltvOutputPath;
     if (!File.Exists(path))
     {
-        return Results.NotFound("No XMLTV file has been generated yet.");
+        try
+        {
+            await orchestrator.GenerateEpgFromCacheAsync(settings.Settings.TargetDays, path, cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.NotFound(ex.Message);
+        }
     }
 
     var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);

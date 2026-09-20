@@ -1,4 +1,5 @@
 using Lineup.Core.Storage;
+using Lineup.HDHomeRun.Device.Models;
 using Microsoft.Extensions.Logging;
 
 namespace Lineup.Core;
@@ -38,7 +39,7 @@ public class EpgOrchestrator
     public async Task GenerateEpgAsync(int days, int hours, string filename)
     {
         await FetchAndStoreEpgAsync(days, force: true);
-        await PublishEnabledGuideAsync(filename);
+        await PublishEnabledGuideAsync(days, filename);
     }
 
     /// <summary>
@@ -58,7 +59,7 @@ public class EpgOrchestrator
             .Where(channel => !string.IsNullOrWhiteSpace(channel.GuideNumber))
             .GroupBy(channel => channel.GuideNumber.Trim(), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
-        var rawSegments = await _epgDataProvider.FetchAndStoreRawDataAsync(deviceChannelsByNumber.Keys, progress, cancellationToken);
+        var rawSegments = await _epgDataProvider.FetchAndStoreRawDataAsync(deviceChannelsByNumber.Values, progress, cancellationToken);
 
         var enrichedChannels = rawSegments.Select(segment =>
         {
@@ -89,26 +90,40 @@ public class EpgOrchestrator
     }
 
     /// <summary>
-    /// Copies the last downloaded canonical XMLTV guide to an output file.
+    /// Publishes the last downloaded canonical XMLTV guide or a placeholder-only guide to an output file.
     /// </summary>
-    /// <remarks>SiliconDust determines the available guide duration; <paramref name="days"/> is retained for compatibility.</remarks>
-    public Task GenerateEpgFromCacheAsync(int days, string filename)
+    /// <param name="days">Placeholder duration when no canonical guide has been downloaded.</param>
+    /// <param name="filename">Destination XMLTV file.</param>
+    /// <param name="cancellationToken">Cancels publication.</param>
+    public Task GenerateEpgFromCacheAsync(int days, string filename, CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Publishing the cached canonical XMLTV guide to {Filename}", filename);
-        return PublishEnabledGuideAsync(filename);
+        return PublishEnabledGuideAsync(days, filename, cancellationToken);
     }
 
-    private async Task PublishEnabledGuideAsync(string filename, CancellationToken cancellationToken = default)
+    private async Task PublishEnabledGuideAsync(int days, string filename, CancellationToken cancellationToken = default)
     {
-        var content = await _guideStore.ReadAsync(cancellationToken)
-            ?? throw new InvalidOperationException("No canonical XMLTV guide has been downloaded yet.");
         var lineupSnapshot = await _channelLineupStore.ReadAsync(cancellationToken)
             ?? throw new InvalidOperationException("No HDHomeRun channel lineup has been saved. Refresh Channels before publishing guide data.");
-        var enabledGuideNumbers = lineupSnapshot.Channels
+        var enabledChannels = lineupSnapshot.Channels
             .Where(channel => lineupSnapshot.IsChannelEnabled(channel.GuideNumber))
-            .Select(channel => channel.GuideNumber);
-        var filteredContent = _parser.FilterByGuideNumbers(content, enabledGuideNumbers);
+            .ToArray();
+        var content = await _guideStore.ReadAsync(cancellationToken);
+        var filteredContent = content == null
+            ? CreatePlaceholderGuide(enabledChannels, days)
+            : _parser.FilterByChannels(content, enabledChannels);
         await _guideStore.PublishAsync(filename, filteredContent, cancellationToken);
+    }
+
+    private byte[] CreatePlaceholderGuide(IReadOnlyList<HDHomeRunChannel> enabledChannels, int days)
+    {
+        var start = DateTimeOffset.UtcNow;
+        var stop = start.AddDays(Math.Max(1, days));
+        _logger.LogInformation(
+            "No canonical XMLTV guide is available; publishing placeholder data for {ChannelCount} enabled channels through {Stop:yyyy-MM-dd HH:mm} UTC",
+            enabledChannels.Count,
+            stop);
+        return _parser.CreatePlaceholderGuide(enabledChannels, start, stop);
     }
 
     private async Task LogCacheStatisticsAsync()

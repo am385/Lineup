@@ -1,5 +1,6 @@
 using Lineup.HDHomeRun.Api;
 using Lineup.HDHomeRun.Api.Models;
+using Lineup.HDHomeRun.Device.Models;
 using Microsoft.Extensions.Logging;
 
 namespace Lineup.Core.Storage;
@@ -39,11 +40,11 @@ public class CachedEpgDataProvider
     /// Downloads and validates the SiliconDust XMLTV guide, filters it to available tuner
     /// channels, and atomically replaces the canonical guide and normalized cache.
     /// </summary>
-    /// <param name="availableGuideNumbers">Logical channel numbers currently returned by configured tuners.</param>
+    /// <param name="availableChannels">Channels currently returned by configured tuners.</param>
     /// <param name="progress">Optional progress reporter.</param>
     /// <param name="cancellationToken">Cancels the refresh before publication.</param>
     /// <returns>The filtered normalized guide segments.</returns>
-    public async Task<List<HDHomeRunChannelEpgSegment>> FetchAndStoreRawDataAsync(IEnumerable<string> availableGuideNumbers, IProgress<FetchProgressInfo>? progress = null, CancellationToken cancellationToken = default)
+    public async Task<List<HDHomeRunChannelEpgSegment>> FetchAndStoreRawDataAsync(IEnumerable<HDHomeRunChannel> availableChannels, IProgress<FetchProgressInfo>? progress = null, CancellationToken cancellationToken = default)
     {
         await _repository.EnsureDatabaseCreatedAsync();
         progress?.Report(CreateProgress(FetchStatus.Fetching, "Downloading the SiliconDust XMLTV guide..."));
@@ -55,7 +56,7 @@ public class CachedEpgDataProvider
             throw new InvalidDataException("The SiliconDust XMLTV guide did not contain any usable channel programme data.");
         }
 
-        var filteredContent = _parser.FilterByGuideNumbers(content, availableGuideNumbers);
+        var filteredContent = _parser.FilterByChannels(content, availableChannels);
         var segments = _parser.Parse(filteredContent).ToList();
         var programmeCount = segments.Sum(segment => segment.Guide.Count);
         progress?.Report(CreateProgress(FetchStatus.Storing, $"Storing {segments.Count} channels and {programmeCount:N0} programmes...", segments.Count, programmeCount));

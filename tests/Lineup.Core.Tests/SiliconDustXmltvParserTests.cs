@@ -1,4 +1,5 @@
 using System.Text;
+using Lineup.HDHomeRun.Device.Models;
 using Xunit;
 
 namespace Lineup.Core.Tests;
@@ -161,4 +162,99 @@ public class SiliconDustXmltvParserTests
         Assert.Equal("107.1", channel.GuideNumber);
         Assert.Equal("Shared Show", Assert.Single(channel.Guide).Title);
     }
+
+    /// <summary>
+    /// Verifies a requested tuner channel missing from XMLTV receives full-range placeholder guide data.
+    /// </summary>
+    [Fact]
+    public void FilterByChannels_MissingChannel_AddsPlaceholderGuideData()
+    {
+        // Arrange
+        const string xml = """
+            <tv>
+              <channel id="available"><display-name>Available</display-name><lcn>7.1</lcn></channel>
+              <programme start="20260914220000 +0000" stop="20260915223000 +0000" channel="available">
+                <title>Available Show</title>
+              </programme>
+            </tv>
+            """;
+        var parser = new SiliconDustXmltvParser();
+
+        // Act
+        var channels = parser.Parse(parser.FilterByChannels(
+            Encoding.UTF8.GetBytes(xml),
+            [CreateChannel("7.1", "Available"), CreateChannel("9.1", "Missing")]));
+
+        // Assert
+        var missingChannel = Assert.Single(channels, channel => channel.GuideNumber == "9.1");
+        Assert.Equal("Missing", missingChannel.GuideName);
+        var placeholder = Assert.Single(missingChannel.Guide);
+        Assert.Equal("Not Available", placeholder.Title);
+        Assert.Equal(new DateTimeOffset(2026, 9, 14, 22, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds(), placeholder.StartTime);
+        Assert.Equal(new DateTimeOffset(2026, 9, 15, 22, 30, 0, TimeSpan.Zero).ToUnixTimeSeconds(), placeholder.EndTime);
+        Assert.Equal("Available Show", Assert.Single(channels, channel => channel.GuideNumber == "7.1").Guide.Single().Title);
+    }
+
+    /// <summary>
+    /// Verifies a requested XMLTV channel without programmes receives placeholder guide data.
+    /// </summary>
+    [Fact]
+    public void FilterByChannels_ChannelWithoutProgrammes_AddsPlaceholderGuideData()
+    {
+        // Arrange
+        const string xml = """
+            <tv>
+              <channel id="available"><display-name>Available</display-name><lcn>7.1</lcn></channel>
+              <channel id="empty"><display-name>Empty</display-name><lcn>9.1</lcn></channel>
+              <programme start="20260914220000 +0000" stop="20260914223000 +0000" channel="available">
+                <title>Available Show</title>
+              </programme>
+            </tv>
+            """;
+        var parser = new SiliconDustXmltvParser();
+
+        // Act
+        var channels = parser.Parse(parser.FilterByChannels(
+            Encoding.UTF8.GetBytes(xml),
+            [CreateChannel("7.1", "Available"), CreateChannel("9.1", "Empty")]));
+
+        // Assert
+        Assert.Equal("Not Available", Assert.Single(channels, channel => channel.GuideNumber == "9.1").Guide.Single().Title);
+    }
+
+    /// <summary>
+    /// Verifies a requested channel with malformed source metadata is replaced by a valid synthetic channel.
+    /// </summary>
+    [Fact]
+    public void FilterByChannels_ChannelWithoutId_AddsValidPlaceholderChannel()
+    {
+        // Arrange
+        const string xml = """
+            <tv>
+              <channel id="available"><display-name>Available</display-name><lcn>7.1</lcn></channel>
+              <channel><display-name>Malformed</display-name><lcn>9.1</lcn></channel>
+              <programme start="20260914220000 +0000" stop="20260914223000 +0000" channel="available">
+                <title>Available Show</title>
+              </programme>
+            </tv>
+            """;
+        var parser = new SiliconDustXmltvParser();
+
+        // Act
+        var channels = parser.Parse(parser.FilterByChannels(
+            Encoding.UTF8.GetBytes(xml),
+            [CreateChannel("7.1", "Available"), CreateChannel("9.1", "Replacement")]));
+
+        // Assert
+        var replacement = Assert.Single(channels, channel => channel.GuideNumber == "9.1");
+        Assert.Equal("Replacement", replacement.GuideName);
+        Assert.Equal("Not Available", Assert.Single(replacement.Guide).Title);
+    }
+
+    private static HDHomeRunChannel CreateChannel(string guideNumber, string guideName) => new()
+    {
+        GuideNumber = guideNumber,
+        GuideName = guideName,
+        URL = $"http://device/auto/v{guideNumber}"
+    };
 }

@@ -401,7 +401,7 @@ public class StreamControllerTests
         var result = controller.GetFmp4ClientSubtitles(clientId);
 
         // Assert
-        var status = Assert.IsAssignableFrom<ObjectResult>(result);
+        var status = Assert.IsType<ObjectResult>(result, exactMatch: false);
         Assert.Equal(statusCode, status.StatusCode);
     }
 
@@ -430,7 +430,7 @@ public class StreamControllerTests
         Assert.NotNull(errorMethod);
 
         // Act
-        var slateTask = Assert.IsAssignableFrom<Task>(errorMethod.Invoke(controller, ["20.1", "http://tuner.local:5004/auto/v20.1", "session", DateTime.UtcNow, physicalLease]));
+        var slateTask = Assert.IsType<Task>(errorMethod.Invoke(controller, ["20.1", "http://tuner.local:5004/auto/v20.1", "session", DateTime.UtcNow, physicalLease]), exactMatch: false);
         await slateStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
         var nextLease = await registry.TryAcquireAsync(profileUri, new Uri("http://tuner.local:5004/auto/v21.1"), 1, TestContext.Current.CancellationToken);
 
@@ -796,7 +796,7 @@ public class StreamControllerTests
     {
         var sessions = typeof(StreamController).GetField("_hlsSessions", BindingFlags.Static | BindingFlags.NonPublic);
         Assert.NotNull(sessions);
-        return Assert.IsAssignableFrom<IDictionary>(sessions.GetValue(null));
+        return Assert.IsType<IDictionary>(sessions.GetValue(null), exactMatch: false);
     }
 
     private static void SetProperty(Type type, object instance, string name, object value)
