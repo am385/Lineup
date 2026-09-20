@@ -468,9 +468,7 @@ public partial class Settings : IDisposable
             leftLevels.All(pair => rightLevels.TryGetValue(pair.Key, out var level) && string.Equals(pair.Value, level, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static IReadOnlyList<LogCategoryLevelSetting> MergeLogCategorySettings(
-        IEnumerable<LogCategoryLevelSetting> startupLevels,
-        IEnumerable<LogCategoryLevelSetting> overrideLevels)
+    private static IReadOnlyList<LogCategoryLevelSetting> MergeLogCategorySettings(IEnumerable<LogCategoryLevelSetting> startupLevels, IEnumerable<LogCategoryLevelSetting> overrideLevels)
     {
         var merged = startupLevels
             .Concat(overrideLevels)

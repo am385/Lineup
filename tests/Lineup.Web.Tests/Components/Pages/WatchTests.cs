@@ -547,13 +547,7 @@ public class WatchTests
         context.Services.AddSingleton(activeStreamRegistry ?? new ActiveStreamRegistry());
     }
 
-    private static ActiveStreamTrack Track(
-        int index,
-        MediaTrackType type,
-        string codec,
-        string language,
-        SubtitlePresentation? presentation = null,
-        bool selected = false) =>
+    private static ActiveStreamTrack Track(int index, MediaTrackType type, string codec, string language, SubtitlePresentation? presentation = null, bool selected = false) =>
         new(type, codec, selected ? "aac" : "not-mapped", null, null, null, null, type == MediaTrackType.Audio ? 2 : null, null, null)
         {
             SourceIndex = index,

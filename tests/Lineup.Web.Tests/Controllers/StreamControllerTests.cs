@@ -4,7 +4,6 @@ using System.Net;
 using System.Reflection;
 using Lineup.Core;
 using Lineup.Core.Storage;
-using Lineup.HDHomeRun.Device;
 using Lineup.HDHomeRun.Device.Models;
 using Lineup.Web.Controllers;
 using Lineup.Web.Services;

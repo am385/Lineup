@@ -32,11 +32,7 @@ public sealed class FactoryResetService : IFactoryResetService
     /// <param name="settings">Current persisted application settings.</param>
     /// <param name="applicationLifetime">Application shutdown controller.</param>
     /// <param name="logger">Reset diagnostics logger.</param>
-    public FactoryResetService(
-        AppDataStore appDataStore,
-        IAppSettingsService settings,
-        IHostApplicationLifetime applicationLifetime,
-        ILogger<FactoryResetService> logger)
+    public FactoryResetService(AppDataStore appDataStore, IAppSettingsService settings, IHostApplicationLifetime applicationLifetime, ILogger<FactoryResetService> logger)
     {
         _appDataStore = appDataStore;
         _settings = settings;

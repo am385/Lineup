@@ -15,10 +15,7 @@ public sealed class ChannelLineupRefreshService
     /// <summary>
     /// Initializes the channel lineup refresh service.
     /// </summary>
-    public ChannelLineupRefreshService(
-        ILogger<ChannelLineupRefreshService> logger,
-        IChannelLineupProvider provider,
-        ChannelLineupStore store)
+    public ChannelLineupRefreshService(ILogger<ChannelLineupRefreshService> logger, IChannelLineupProvider provider, ChannelLineupStore store)
     {
         _logger = logger;
         _provider = provider;

@@ -105,6 +105,10 @@ public class DeviceRefreshService : BackgroundService
         _logger.LogInformation("Device refresh service stopping");
     }
 
+    /// <summary>
+    /// Discovers the configured device when setup is complete and a refresh is due.
+    /// </summary>
+    /// <param name="stoppingToken">Stops the discovery attempt.</param>
     internal async Task DiscoverDeviceIfNeededAsync(CancellationToken stoppingToken)
     {
         if (!_settingsService.Settings.IsSetupComplete ||

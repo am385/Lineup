@@ -37,12 +37,7 @@ public static class WatchStreamPlanner
     }
 
     /// <summary>Creates FFmpeg arguments for one selected audio and optional subtitle track.</summary>
-    public static IReadOnlyList<string> CreateArguments(
-        AppSettings settings,
-        MediaProbeResult source,
-        WatchTrackSelection selection,
-        WebPlayerQuality quality,
-        string? webVttPath)
+    public static IReadOnlyList<string> CreateArguments(AppSettings settings, MediaProbeResult source, WatchTrackSelection selection, WebPlayerQuality quality, string? webVttPath)
     {
         var video = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video);
         var burnIn = selection.SubtitlePresentation == SubtitlePresentation.BurnIn;
@@ -125,11 +120,7 @@ public static class WatchStreamPlanner
         AddH264Arguments(arguments, settings, quality, addScale: true);
     }
 
-    private static void AddH264Arguments(
-        List<string> arguments,
-        AppSettings settings,
-        WebPlayerQuality quality,
-        bool addScale)
+    private static void AddH264Arguments(List<string> arguments, AppSettings settings, WebPlayerQuality quality, bool addScale)
     {
         var maximumBitRate = WebVideoTranscodePlanner.GetMaximumBitRate(settings, quality) / 1_000_000;
         var crf = quality switch

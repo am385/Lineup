@@ -61,8 +61,7 @@ public partial class Watch : IAsyncDisposable
     private int? _audioTrack;
     private int? _subtitleTrack;
     private bool IsContentProtectedError => _errorMessage?.Contains("Content Protection Required", StringComparison.OrdinalIgnoreCase) == true;
-    private TunerStatus? SelectedTuner => DeviceState.TunerStatuses.FirstOrDefault(
-        tuner => string.Equals(tuner.VirtualChannel, _selectedChannelNumber, StringComparison.Ordinal));
+    private TunerStatus? SelectedTuner => DeviceState.TunerStatuses.FirstOrDefault(tuner => string.Equals(tuner.VirtualChannel, _selectedChannelNumber, StringComparison.Ordinal));
 
     /// <summary>
     /// Performs the on initialized operation.

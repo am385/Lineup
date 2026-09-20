@@ -1,4 +1,3 @@
-using System.Net.Http.Json;
 using Lineup.HDHomeRun.Device;
 using Lineup.HDHomeRun.Device.Models;
 

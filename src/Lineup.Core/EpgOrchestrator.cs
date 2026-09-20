@@ -1,5 +1,4 @@
 using Lineup.Core.Storage;
-using Lineup.HDHomeRun.Device;
 using Microsoft.Extensions.Logging;
 
 namespace Lineup.Core;
