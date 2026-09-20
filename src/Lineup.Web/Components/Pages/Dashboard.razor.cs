@@ -548,6 +548,30 @@ public partial class Dashboard : IDisposable
         }
     }
 
+    private async Task RefreshChannels()
+    {
+        _isBusy = true;
+        _currentAction = "channels";
+        _statusMessage = "";
+
+        try
+        {
+            _channelLineup = await ChannelLineupRefresh.RefreshAsync();
+            _statusMessage = $"Refreshed {_channelLineup.Channels.Count} tuner channels.";
+            _isError = false;
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Error refreshing channels: {ex.Message}";
+            _isError = true;
+        }
+        finally
+        {
+            _isBusy = false;
+            _currentAction = "";
+        }
+    }
+
     private async Task FetchData()
     {
         _isBusy = true;

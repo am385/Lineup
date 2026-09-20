@@ -3,6 +3,7 @@ using Bunit;
 using Lineup.Core;
 using Lineup.Core.Storage;
 using Lineup.HDHomeRun.Device;
+using Lineup.HDHomeRun.Device.Models;
 using Lineup.Web.Components.Pages;
 using Lineup.Web.Services;
 using Microsoft.Extensions.DependencyInjection;
@@ -157,7 +158,38 @@ public class DashboardComponentTests
         Assert.False(component.Find("#activeStreamsSection").HasAttribute("hidden"));
     }
 
-    private static BunitContext CreateContext()
+    /// <summary>
+    /// Verifies Dashboard refreshes and displays the physical channel lineup without navigating away.
+    /// </summary>
+    [Fact]
+    public async Task RefreshChannels_UpdatesDashboardLineup()
+    {
+        // Arrange
+        var provider = Substitute.For<IChannelLineupProvider>();
+        provider.FetchChannelLineupAsync(Arg.Any<CancellationToken>())
+            .Returns(
+            [
+                new HDHomeRunChannel { GuideNumber = "7.1", GuideName = "One", URL = "http://tuner.local/auto/v7.1" },
+                new HDHomeRunChannel { GuideNumber = "9.1", GuideName = "Two", URL = "http://tuner.local/auto/v9.1" }
+            ]);
+        using var context = CreateContext(provider);
+        context.JSInterop.Setup<string?>("localStorage.getItem", StorageKey).SetResult(null);
+        var component = context.Render<Dashboard>();
+
+        // Act
+        component.Find("#refreshChannels").Click();
+
+        // Assert
+        await provider.Received(1).FetchChannelLineupAsync(Arg.Any<CancellationToken>());
+        component.WaitForAssertion(() =>
+        {
+            Assert.Contains("Refreshed 2 tuner channels.", component.Markup);
+            Assert.Equal("2", component.Find("#channelsSection .text-success").TextContent.Trim());
+            Assert.DoesNotContain(component.FindAll("a"), link => link.GetAttribute("href") == "/channels");
+        });
+    }
+
+    private static BunitContext CreateContext(IChannelLineupProvider? channelProvider = null)
     {
         var context = new BunitContext();
         var repository = Substitute.For<IEpgRepository>();
@@ -185,7 +217,7 @@ public class DashboardComponentTests
         var store = new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-dashboard-{Guid.NewGuid():N}.json"));
         var refreshService = new ChannelLineupRefreshService(
             NullLogger<ChannelLineupRefreshService>.Instance,
-            Substitute.For<IChannelLineupProvider>(),
+            channelProvider ?? Substitute.For<IChannelLineupProvider>(),
             store);
         var orchestrator = new EpgOrchestrator(
             NullLogger<EpgOrchestrator>.Instance,

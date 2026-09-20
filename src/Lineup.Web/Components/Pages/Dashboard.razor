@@ -1,6 +1,5 @@
 @page "/"
 @page "/dashboard"
-@using Lineup.Core
 @using Lineup.Web.Services
 @rendermode InteractiveServer
 
@@ -25,9 +24,14 @@ else
                 }
             </div>
             <div class="d-flex align-items-center ms-auto">
-                <a class="btn btn-sm btn-outline-primary" href="/channels">
-                    View Channels <span class="bi bi-chevron-right ms-1"></span>
-                </a>
+                <button id="refreshChannels" type="button" class="btn btn-sm btn-outline-primary"
+                        @onclick="RefreshChannels" disabled="@_isBusy">
+                    @if (_isBusy && _currentAction == "channels")
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                    }
+                    <span class="bi bi-arrow-clockwise me-1"></span>Refresh Channels
+                </button>
                 <button id="toggleChannelsSection" type="button" class="btn btn-sm btn-outline-secondary ms-2"
                         aria-expanded="@(_channelsExpanded ? "true" : "false")" aria-controls="channelsSection"
                         @onclick="() => ToggleSection(DashboardSection.Channels)">

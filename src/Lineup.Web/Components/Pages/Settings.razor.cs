@@ -270,6 +270,7 @@ public partial class Settings : IDisposable
             var wasAutoFetchEnabled = SettingsService.Settings.IsAutoFetchEnabled;
             var fileLoggingChanged = FileLoggingSettingsChanged();
             var applicationLoggingChanged = ApplicationLoggingSettingsChanged();
+            var completingInitialSetup = _isInitialSetup;
             await SettingsService.UpdateAsync(settings =>
             {
                 settings.AutoFetchInterval = _autoFetchEnabled ? TimeSpan.FromHours(24) : TimeSpan.Zero;
@@ -309,7 +310,7 @@ public partial class Settings : IDisposable
                 settings.FileLogLevel = _fileLogLevel;
                 settings.FileLogRetentionDays = _fileLogRetentionDays;
                 settings.FileLogSizeLimitMb = _fileLogSizeLimitMb;
-                settings.IsSetupComplete = true;
+                settings.IsSetupComplete = !completingInitialSetup;
             });
 
             var applyErrors = new List<string>();
@@ -350,8 +351,17 @@ public partial class Settings : IDisposable
             _statusMessage = "Settings saved successfully!";
             _isError = false;
 
-            if (_isInitialSetup)
+            if (completingInitialSetup)
             {
+                var deviceState = Services.GetRequiredService<IDeviceStateService>();
+                await deviceState.DiscoverDeviceAsync();
+                if (!deviceState.IsDiscovered)
+                {
+                    throw new InvalidOperationException($"The HDHomeRun device could not be connected: {deviceState.LastError ?? "unknown error"}");
+                }
+
+                await Services.GetRequiredService<ChannelLineupRefreshService>().RefreshAsync();
+                await SettingsService.UpdateAsync(settings => settings.IsSetupComplete = true);
                 _isInitialSetup = false;
                 Navigation.NavigateTo("/dashboard");
             }
