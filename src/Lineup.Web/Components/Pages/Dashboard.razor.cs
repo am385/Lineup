@@ -18,6 +18,9 @@ public partial class Dashboard : IDisposable
     private EpgOrchestrator Orchestrator { get; set; } = default!;
 
     [Inject]
+    private ChannelLineupRefreshService ChannelLineupRefresh { get; set; } = default!;
+
+    [Inject]
     private ChannelLineupStore ChannelLineupStore { get; set; } = default!;
 
     [Inject]
@@ -362,6 +365,12 @@ public partial class Dashboard : IDisposable
 
         try
         {
+            if (SettingsService.Settings.RefreshChannelsBeforeGuideFetch)
+            {
+                await ChannelLineupRefresh.RefreshAsync();
+                await LoadChannelLineupAsync();
+            }
+
             await Orchestrator.FetchAndStoreEpgAsync(_targetDays, force: true, progress);
             await LoadStatsAsync();
             _statusMessage = $"EPG data fetched successfully! ({_fetchProgress?.FetchCount ?? 0} fetches, {_fetchProgress?.TotalProgramsFetched.ToString("N0") ?? "0"} programs)";

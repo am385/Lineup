@@ -209,6 +209,12 @@ public class EpgAutoFetchService : BackgroundService
             }
         });
 
+        if (_settingsService.Settings.RefreshChannelsBeforeGuideFetch)
+        {
+            _logger.LogInformation("Refreshing physical HDHomeRun channels before the automatic guide fetch");
+            await scope.ServiceProvider.GetRequiredService<ChannelLineupRefreshService>().RefreshAsync(stoppingToken);
+        }
+
         await orchestrator.FetchAndStoreEpgAsync(TargetDays, force: false, progress, stoppingToken);
 
         // Auto-generate XMLTV file if enabled

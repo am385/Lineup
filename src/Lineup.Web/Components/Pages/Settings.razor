@@ -143,12 +143,19 @@
                 <h5 class="mb-0">EPG Fetch Settings</h5>
             </div>
             <div class="card-body">
-                <div class="form-check">
+                <div class="form-check form-switch">
                     <input type="checkbox" class="form-check-input" id="autoFetchEnabled" @bind="_autoFetchEnabled" />
                     <label class="form-check-label" for="autoFetchEnabled">Automatically refresh guide data</label>
                     <div class="form-text">
                         Downloads SiliconDust's complete guide at a randomized interval between 20 and 28 hours, as required by the API.
                         Availability is 2 days for everyone or 14 days with an HDHomeRun DVR guide subscription.
+                    </div>
+                </div>
+                <div class="form-check form-switch mt-3">
+                    <input type="checkbox" class="form-check-input" id="refreshChannelsBeforeGuideFetch" @bind="_refreshChannelsBeforeGuideFetch" />
+                    <label class="form-check-label" for="refreshChannelsBeforeGuideFetch">Refresh available channels before fetching guide data</label>
+                    <div class="form-text">
+                        Queries enabled physical HDHomeRun devices and saves their current channels before manual or automatic guide refreshes.
                     </div>
                 </div>
             </div>
@@ -159,7 +166,7 @@
                 <h5 class="mb-0">XMLTV Output Settings</h5>
             </div>
             <div class="card-body">
-                <div class="mb-3 form-check">
+                <div class="mb-3 form-check form-switch">
                     <input type="checkbox" class="form-check-input" id="autoGenerateXmltv" 
                            @bind="_autoGenerateXmltv" />
                     <label class="form-check-label" for="autoGenerateXmltv">Publish XMLTV after fetch</label>
@@ -268,12 +275,6 @@
                     <div class="form-text">How often to refresh tuner status on the dashboard. Set to 0 to disable auto-refresh.</div>
                 </div>
 
-                <div class="mb-3">
-                    <label for="activeStreamRefreshInterval" class="form-label">Active Stream Refresh Interval (seconds)</label>
-                    <input type="number" class="form-control" id="activeStreamRefreshInterval"
-                           @bind="_activeStreamRefreshIntervalSeconds" min="0" max="300" />
-                    <div class="form-text">How often to refresh active hosted streams on the dashboard. Set to 0 to disable auto-refresh.</div>
-                </div>
             </div>
         </div>
 
@@ -458,6 +459,22 @@
                             <div class="form-text">Return an error or a synthetic compatibility slate. Protected programming is never decrypted.</div>
                         </div>
                     </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Active Streams</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <label for="activeStreamRefreshInterval" class="form-label">Active Stream Refresh Interval (seconds)</label>
+                        <input type="number" class="form-control" id="activeStreamRefreshInterval"
+                               @bind="_activeStreamRefreshIntervalSeconds" min="0" max="300" />
+                        <div class="form-text">How often to refresh active hosted streams on the dashboard. Set to 0 to disable auto-refresh.</div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -851,7 +868,6 @@
                 <p><strong>Device Address:</strong> The network address of your HDHomeRun device.</p>
                 <p><strong>Device Info Refresh:</strong> How often to refresh device information (model, firmware, etc.). Set to 0 to disable. Recommended: 10 minutes.</p>
                 <p><strong>Tuner Status Refresh:</strong> How often to refresh tuner status (signal strength, active streams). Set to 0 to disable. Recommended: 30 seconds.</p>
-                <p><strong>Active Stream Refresh:</strong> How often the Dashboard refreshes hosted stream details. Set to 0 to use manual refresh only. Default: 5 seconds.</p>
                 <hr />
                 <h6>HDHomeRun Proxy</h6>
                 <p>Each enabled profile exposes one physical tuner as an isolated virtual HDHomeRun. The primary profile keeps the legacy root URLs.</p>
@@ -862,6 +878,7 @@
                 <h6>Transcode</h6>
                 <p><strong>Maximum Video Bitrate:</strong> Caps transcoded video across hosted formats. The 10 Mbps default is suitable for high-motion 1080p video.</p>
                 <p><strong>Maximum Concurrent Streams:</strong> Limits active hosted streams across all formats. Set to 0 for unlimited.</p>
+                <p><strong>Active Stream Refresh:</strong> How often the Dashboard refreshes hosted stream details. Set to 0 to use manual refresh only. Default: 5 seconds.</p>
                 <p><strong>DRM-Protected Content:</strong> Return an error or stream a synthetic compatibility slate.</p>
                 <p><strong>Virtual Tuner Audio:</strong> Preserve non-AC-4 audio codecs or transcode those tracks to AC-3/E-AC-3.</p>
                 <p><strong>AC-4 Audio:</strong> Preserve AC-4 for compatible receivers, or transcode it to AC-3/E-AC-3. AC-3 is the default.</p>

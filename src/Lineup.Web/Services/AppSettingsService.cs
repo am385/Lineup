@@ -177,6 +177,11 @@ public class AppSettings
     public bool IsAutoFetchEnabled => AutoFetchInterval > TimeSpan.Zero;
 
     /// <summary>
+    /// Whether the physical tuner channel lineup is refreshed before guide data is fetched.
+    /// </summary>
+    public bool RefreshChannelsBeforeGuideFetch { get; set; } = true;
+
+    /// <summary>
     /// Persisted next XMLTV refresh time selected from SiliconDust's required randomized window.
     /// </summary>
     public DateTime? NextAutoFetchTime { get; set; }

@@ -26,6 +26,7 @@ public partial class Settings : IDisposable
     private IServiceProvider Services { get; set; } = default!;
 
     private bool _autoFetchEnabled;
+    private bool _refreshChannelsBeforeGuideFetch;
     private string _deviceAddress = "";
     private int _deviceRefreshIntervalMinutes;
     private int _tunerRefreshIntervalSeconds;
@@ -102,6 +103,7 @@ public partial class Settings : IDisposable
     private void LoadCurrentSettings()
     {
         _autoFetchEnabled = SettingsService.Settings.IsAutoFetchEnabled;
+        _refreshChannelsBeforeGuideFetch = SettingsService.Settings.RefreshChannelsBeforeGuideFetch;
         _deviceAddress = SettingsService.Settings.DeviceAddress;
         _deviceRefreshIntervalMinutes = SettingsService.Settings.DeviceRefreshIntervalMinutes;
         _tunerRefreshIntervalSeconds = SettingsService.Settings.TunerRefreshIntervalSeconds;
@@ -269,6 +271,7 @@ public partial class Settings : IDisposable
             await SettingsService.UpdateAsync(settings =>
             {
                 settings.AutoFetchInterval = _autoFetchEnabled ? TimeSpan.FromHours(24) : TimeSpan.Zero;
+                settings.RefreshChannelsBeforeGuideFetch = _refreshChannelsBeforeGuideFetch;
                 if (!_autoFetchEnabled || !wasAutoFetchEnabled)
                 {
                     settings.NextAutoFetchTime = null;
@@ -365,6 +368,7 @@ public partial class Settings : IDisposable
     {
         var defaults = new AppSettings();
         _autoFetchEnabled = defaults.IsAutoFetchEnabled;
+        _refreshChannelsBeforeGuideFetch = defaults.RefreshChannelsBeforeGuideFetch;
         _deviceAddress = defaults.DeviceAddress;
         _deviceRefreshIntervalMinutes = defaults.DeviceRefreshIntervalMinutes;
         _tunerRefreshIntervalSeconds = defaults.TunerRefreshIntervalSeconds;

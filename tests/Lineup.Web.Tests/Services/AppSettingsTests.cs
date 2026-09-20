@@ -91,6 +91,20 @@ public class AppSettingsTests
     }
 
     /// <summary>
+    /// Verifies that channel refresh before guide fetching is enabled by default.
+    /// </summary>
+    [Fact]
+    public void RefreshChannelsBeforeGuideFetch_DefaultsToTrue()
+    {
+        // Arrange
+        // Act
+        var settings = new AppSettings();
+
+        // Assert
+        Assert.True(settings.RefreshChannelsBeforeGuideFetch);
+    }
+
+    /// <summary>
     /// Verifies that first-run setup is incomplete by default.
     /// </summary>
     [Fact]
