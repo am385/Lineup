@@ -48,6 +48,7 @@ public class EpgAutoFetchServiceTests
 
         // Assert
         scopeFactory.Received(1).CreateScope();
+        Assert.True(service.ExecuteTask?.IsCompletedSuccessfully);
 
         Directory.Delete(testDirectory, recursive: true);
     }

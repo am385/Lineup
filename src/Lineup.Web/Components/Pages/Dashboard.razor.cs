@@ -18,9 +18,6 @@ public partial class Dashboard : IDisposable
     private EpgOrchestrator Orchestrator { get; set; } = default!;
 
     [Inject]
-    private ChannelLineupRefreshService ChannelLineupRefresh { get; set; } = default!;
-
-    [Inject]
     private ChannelLineupStore ChannelLineupStore { get; set; } = default!;
 
     [Inject]
@@ -381,31 +378,6 @@ public partial class Dashboard : IDisposable
             _isBusy = false;
             _currentAction = "";
             _fetchProgress = null;
-        }
-    }
-
-    private async Task RefreshChannels()
-    {
-        _isBusy = true;
-        _currentAction = "channels";
-        _statusMessage = "";
-        StateHasChanged();
-
-        try
-        {
-            _channelLineup = await ChannelLineupRefresh.RefreshAsync();
-            _statusMessage = $"Refreshed {_channelLineup.Channels.Count} tuner channels. The saved lineup will be applied during the next guide fetch.";
-            _isError = false;
-        }
-        catch (Exception ex)
-        {
-            _statusMessage = $"Error refreshing channels: {ex.Message}";
-            _isError = true;
-        }
-        finally
-        {
-            _isBusy = false;
-            _currentAction = "";
         }
     }
 

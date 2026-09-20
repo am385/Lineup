@@ -179,6 +179,10 @@ public class EpgAutoFetchService : BackgroundService
             await Task.Delay(delay, delayCts.Token);
             return true;
         }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            return true;
+        }
         catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
         {
             // Settings changed, delay was cancelled - this is expected

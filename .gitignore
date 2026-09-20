@@ -374,6 +374,7 @@ src/Lineup.Web/.ffmpeg/
 
 src/Lineup.Web/epg.xml
 /src/Lineup.Web/lineup_cache.xmltv
+/src/Lineup.Web/lineup_cache.channels.json
 /src/Lineup.Web/settings.json.bak
 /src/Lineup.Web/lineup_cache.xmltv.generation
 /tests/Lineup.Web.Tests/Components/Pages/SettingsTests.cs

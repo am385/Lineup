@@ -17,9 +17,34 @@ else
 {
     <div class="card mb-4">
         <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><span class="bi bi-list-check me-1"></span>HDHomeRun Channels</h5>
+            <a class="btn btn-sm btn-outline-primary" href="/channels">
+                View Channels <span class="bi bi-chevron-right ms-1"></span>
+            </a>
+        </div>
+        <div class="card-body">
+            <div class="row text-center">
+                <div class="col-md-6 mb-3 mb-md-0">
+                    <div class="text-muted small">Channels</div>
+                    <div class="display-6">@(_channelLineup?.Channels.Count ?? 0)</div>
+                </div>
+                <div class="col-md-6">
+                    <div class="text-muted small">Last Updated</div>
+                    <div class="h5 mt-2 mb-0">
+                        @(_channelLineup == null
+                            ? "Never"
+                            : Tz.ConvertFromUtc(_channelLineup.RefreshedAtUtc).ToString("yyyy-MM-dd HH:mm:ss"))
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
             <div>
                 <h5 class="mb-0"><span class="bi bi-calendar3 me-1"></span>Guide &amp; XMLTV</h5>
-                <small class="text-muted">@_stats.ChannelCount channels · @_stats.ProgramCount programs</small>
+                <small class="text-muted">@_stats.ChannelCount guide channels · @_stats.ProgramCount programs</small>
             </div>
             <button id="toggleGuideSection" type="button" class="btn btn-sm btn-outline-secondary"
                     aria-expanded="@_guideExpanded" aria-controls="guideSection"
@@ -152,21 +177,24 @@ else
                 </div>
                 <div class="card-body">
                     <div class="alert alert-info py-2 mb-3">
-                        Refresh tuner channels independently, then fetch the SiliconDust guide to apply that saved channel lineup.
-                    </div>
-                    <button class="btn btn-outline-primary me-2" @onclick="RefreshChannels" disabled="@_isBusy">
-                        @if (_isBusy && _currentAction == "channels")
+                        @if (_channelLineup == null)
                         {
-                            <span class="spinner-border spinner-border-sm me-1"></span>
+                            <span>Refresh HDHomeRun Channels above before fetching the SiliconDust guide.</span>
                         }
-                        <span class="bi bi-list-check me-1"></span>Refresh Channels
-                    </button>
+                        else
+                        {
+                            <span>
+                                New guide downloads are filtered using the @_channelLineup.Channels.Count channels
+                                refreshed @Tz.ConvertFromUtc(_channelLineup.RefreshedAtUtc).ToString("yyyy-MM-dd HH:mm:ss").
+                            </span>
+                        }
+                    </div>
                     <button class="btn btn-primary me-2" @onclick="FetchData" disabled="@_isBusy">
                         @if (_isBusy && _currentAction == "fetch")
                         {
                             <span class="spinner-border spinner-border-sm me-1"></span>
                         }
-                        <span class="bi bi-cloud-download me-1"></span>Fetch Data
+                        <span class="bi bi-cloud-download me-1"></span>Fetch Guide
                     </button>
                     <button class="btn btn-success me-2" @onclick="GenerateXmltv" disabled="@_isBusy">
                         @if (_isBusy && _currentAction == "generate")
@@ -187,19 +215,6 @@ else
                             <span class="bi bi-download me-1"></span>Export XMLTV
                         </button>
                     }
-                    <div class="small text-muted mt-3">
-                        @if (_channelLineup == null)
-                        {
-                            <span>No saved tuner lineup. Refresh channels before fetching guide data.</span>
-                        }
-                        else
-                        {
-                            <span>
-                                Saved tuner lineup: @_channelLineup.Channels.Count channels,
-                                refreshed @Tz.ConvertFromUtc(_channelLineup.RefreshedAtUtc).ToString("yyyy-MM-dd HH:mm:ss")
-                            </span>
-                        }
-                    </div>
                 </div>
             </div>
         </div>

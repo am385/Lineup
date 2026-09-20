@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Lineup.HDHomeRun.Device;
 using Lineup.HDHomeRun.Device.Models;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -26,9 +27,11 @@ public class ChannelLineupStoreTests
             var provider = Substitute.For<IChannelLineupProvider>();
             provider.FetchChannelLineupAsync(Arg.Any<CancellationToken>()).Returns(
             [
+                CreateChannel("104.1", "High"),
                 CreateChannel("7.1", "Primary"),
                 CreateChannel("7.1", "Duplicate"),
-                CreateChannel("9.1", "Secondary")
+                CreateChannel("9.1", "Secondary"),
+                CreateChannel("10.1", "Ten")
             ]);
             var service = new ChannelLineupRefreshService(
                 NullLogger<ChannelLineupRefreshService>.Instance,
@@ -40,7 +43,7 @@ public class ChannelLineupStoreTests
             var persisted = await store.ReadAsync(TestContext.Current.CancellationToken);
 
             // Assert
-            Assert.Equal(["7.1", "9.1"], refreshed.Channels.Select(channel => channel.GuideNumber));
+            Assert.Equal(["7.1", "9.1", "10.1", "104.1"], refreshed.Channels.Select(channel => channel.GuideNumber));
             Assert.Equal(refreshed.RefreshedAtUtc, persisted!.RefreshedAtUtc);
             Assert.Equal(
                 refreshed.Channels.Select(channel => channel.GuideNumber),
@@ -112,6 +115,38 @@ public class ChannelLineupStoreTests
             // Assert
             Assert.Contains("previously saved lineup was preserved", exception.Message);
             Assert.Equal("7.1", Assert.Single((await store.ReadAsync(TestContext.Current.CancellationToken))!.Channels).GuideNumber);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Verifies firmware-defined properties survive the persisted tuner lineup snapshot.
+    /// </summary>
+    [Fact]
+    public async Task StoreAsync_PreservesUnknownFirmwareProperties()
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-channels-");
+        try
+        {
+            var store = new ChannelLineupStore(Path.Combine(root.FullName, "channels.json"));
+            var channel = CreateChannel("7.1", "Primary") with
+            {
+                AdditionalProperties = new Dictionary<string, JsonElement>
+                {
+                    ["FirmwareMetric"] = JsonSerializer.SerializeToElement(new { Value = 42 })
+                }
+            };
+
+            // Act
+            await store.StoreAsync([channel], TestContext.Current.CancellationToken);
+            var persisted = Assert.Single((await store.ReadAsync(TestContext.Current.CancellationToken))!.Channels);
+
+            // Assert
+            Assert.Equal(42, persisted.AdditionalProperties!["FirmwareMetric"].GetProperty("Value").GetInt32());
         }
         finally
         {

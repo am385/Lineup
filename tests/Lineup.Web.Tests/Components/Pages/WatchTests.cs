@@ -441,6 +441,34 @@ public class WatchTests
     }
 
     /// <summary>
+    /// Verifies that cached favorite channels display an accessible favorite marker.
+    /// </summary>
+    [Fact]
+    public void FavoriteChannel_DisplaysFavoriteMarker()
+    {
+        // Arrange
+        using var context = new BunitContext();
+        var repository = Substitute.For<IEpgRepository>();
+        repository.GetChannelsAsync().Returns([new HDHomeRunChannelEpgSegment { GuideNumber = "7.1", GuideName = "Favorite", Favorite = true }]);
+        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
+        var settingsService = Substitute.For<IAppSettingsService>();
+        settingsService.Settings.Returns(new AppSettings());
+        context.Services.AddSingleton(repository);
+        context.Services.AddSingleton(settingsService);
+        AddWatchRuntimeServices(context);
+
+        // Act
+        var component = context.Render<Watch>();
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            var marker = component.Find("[aria-label='Favorite channel']");
+            Assert.Contains("bi-star-fill", marker.ClassList);
+        });
+    }
+
+    /// <summary>
     /// Verifies that the selected channel displays its tuner and hosted stream details.
     /// </summary>
     [Fact]

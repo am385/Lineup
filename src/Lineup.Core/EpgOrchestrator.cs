@@ -70,7 +70,8 @@ public class EpgOrchestrator
             return segment with
             {
                 GuideName = deviceChannel.GuideName ?? segment.GuideName,
-                DRM = deviceChannel.DRM
+                DRM = deviceChannel.DRM,
+                Favorite = deviceChannel.Favorite
             };
         });
         await _repository.StoreChannelsAsync(enrichedChannels);

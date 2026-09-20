@@ -43,9 +43,7 @@ public sealed class ChannelLineupStore
     /// <param name="channels">Combined channels from configured physical tuners.</param>
     /// <param name="cancellationToken">Cancels staging before publication.</param>
     /// <returns>The saved snapshot.</returns>
-    public async Task<ChannelLineupSnapshot> StoreAsync(
-        IEnumerable<HDHomeRunChannel> channels,
-        CancellationToken cancellationToken = default)
+    public async Task<ChannelLineupSnapshot> StoreAsync(IEnumerable<HDHomeRunChannel> channels, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(channels);
 
@@ -54,7 +52,7 @@ public sealed class ChannelLineupStore
             channels
                 .Where(channel => !string.IsNullOrWhiteSpace(channel.GuideNumber))
                 .DistinctBy(channel => channel.GuideNumber.Trim(), StringComparer.OrdinalIgnoreCase)
-                .OrderBy(channel => channel.GuideNumber, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(channel => channel.GuideNumber, ChannelNumberComparer.Instance)
                 .ToArray());
         var directory = Path.GetDirectoryName(_path);
         if (!string.IsNullOrEmpty(directory))

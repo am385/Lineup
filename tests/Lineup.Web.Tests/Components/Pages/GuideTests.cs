@@ -45,4 +45,33 @@ public class GuideTests
             Assert.Contains("bi-shield-lock-fill", marker.ClassList);
         });
     }
+
+    /// <summary>
+    /// Verifies that cached favorite channels display an accessible favorite marker.
+    /// </summary>
+    [Fact]
+    public void FavoriteChannel_DisplaysFavoriteMarker()
+    {
+        // Arrange
+        using var context = new BunitContext();
+        var repository = Substitute.For<IEpgRepository>();
+        repository.GetChannelsAsync().Returns([new HDHomeRunChannelEpgSegment { GuideNumber = "7.1", GuideName = "Favorite", Favorite = true }]);
+        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
+        var timeZoneService = Substitute.For<ITimeZoneService>();
+        timeZoneService.Today.Returns(DateTime.Today);
+        timeZoneService.Now.Returns(DateTime.Now);
+        context.Services.AddSingleton(repository);
+        context.Services.AddSingleton(timeZoneService);
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+
+        // Act
+        var component = context.Render<Guide>();
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            var marker = component.Find("[aria-label='Favorite channel']");
+            Assert.Contains("bi-star-fill", marker.ClassList);
+        });
+    }
 }

@@ -386,6 +386,8 @@ available at the legacy root endpoints:
 
 - `/discover.json`
 - `/lineup.json`
+- `/lineup.xml`
+- `/lineup.m3u`
 - `/device.xml`
 - `/auto/v{channel}`
 

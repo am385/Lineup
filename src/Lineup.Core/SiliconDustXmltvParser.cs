@@ -36,8 +36,7 @@ public class SiliconDustXmltvParser
             .Select(channel => channel.Segment)
             .GroupBy(channel => channel.GuideNumber, StringComparer.OrdinalIgnoreCase)
             .Select(MergeLogicalChannel)
-            .OrderBy(segment => ParseChannelNumber(segment.GuideNumber))
-            .ThenBy(segment => segment.GuideNumber, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(segment => segment.GuideNumber, ChannelNumberComparer.Instance)
             .ToArray();
     }
 
@@ -241,13 +240,6 @@ public class SiliconDustXmltvParser
         }
 
         return new DateTimeOffset(DateTime.SpecifyKind(date, DateTimeKind.Utc)).ToUnixTimeSeconds();
-    }
-
-    private static double ParseChannelNumber(string? value)
-    {
-        return double.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var number)
-            ? number
-            : double.MaxValue;
     }
 
     private static string? ElementValue(XElement parent, string localName)
