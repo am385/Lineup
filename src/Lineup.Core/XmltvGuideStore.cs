@@ -96,6 +96,17 @@ public class XmltvGuideStore
         await WriteAtomicallyAsync(Path.GetFullPath(outputPath), content, cancellationToken);
     }
 
+    /// <summary>
+    /// Atomically publishes supplied XMLTV content to a public output path.
+    /// </summary>
+    /// <param name="outputPath">Destination XMLTV path.</param>
+    /// <param name="content">Filtered XMLTV content to publish.</param>
+    /// <param name="cancellationToken">Cancels staging before publication.</param>
+    public Task PublishAsync(string outputPath, ReadOnlyMemory<byte> content, CancellationToken cancellationToken = default)
+    {
+        return WriteAtomicallyAsync(Path.GetFullPath(outputPath), content, cancellationToken);
+    }
+
     private static async Task WriteAtomicallyAsync(string path, ReadOnlyMemory<byte> content, CancellationToken cancellationToken)
     {
         using var stagedGuide = await StagedXmltvGuide.CreateAsync(path, content, cancellationToken);

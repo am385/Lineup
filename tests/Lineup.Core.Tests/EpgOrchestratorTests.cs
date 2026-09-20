@@ -57,7 +57,7 @@ public class EpgOrchestratorTests
             authProvider.GetDeviceAuthAsync().Returns("test-auth");
             var apiClient = new HDHomeRunApiClient(NullLogger<HDHomeRunApiClient>.Instance, new HttpClient(new StaticResponseHandler(xml)), authProvider);
             var provider = new CachedEpgDataProvider(NullLogger<CachedEpgDataProvider>.Instance, apiClient, new SiliconDustXmltvParser(), guideStore, repository, new GuideGenerationCoordinator());
-            var orchestrator = new EpgOrchestrator(NullLogger<EpgOrchestrator>.Instance, lineupStore, provider, repository, guideStore);
+            var orchestrator = new EpgOrchestrator(NullLogger<EpgOrchestrator>.Instance, lineupStore, provider, repository, guideStore, new SiliconDustXmltvParser());
 
             // Act
             await orchestrator.FetchAndStoreEpgAsync(2, cancellationToken: TestContext.Current.CancellationToken);
@@ -86,7 +86,7 @@ public class EpgOrchestratorTests
             var guideStore = new XmltvGuideStore(Path.Combine(root.FullName, "guide.xml"));
             var repository = Substitute.For<IEpgRepository>();
             var provider = new CachedEpgDataProvider(NullLogger<CachedEpgDataProvider>.Instance, null!, new SiliconDustXmltvParser(), guideStore, repository, new GuideGenerationCoordinator());
-            var orchestrator = new EpgOrchestrator(NullLogger<EpgOrchestrator>.Instance, lineupStore, provider, repository, guideStore);
+            var orchestrator = new EpgOrchestrator(NullLogger<EpgOrchestrator>.Instance, lineupStore, provider, repository, guideStore, new SiliconDustXmltvParser());
 
             // Act
             var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => orchestrator.FetchAndStoreEpgAsync(2, cancellationToken: TestContext.Current.CancellationToken));
@@ -100,6 +100,55 @@ public class EpgOrchestratorTests
             root.Delete(recursive: true);
         }
     }
+
+    /// <summary>
+    /// Verifies public XMLTV excludes disabled channels without changing the canonical guide.
+    /// </summary>
+    [Fact]
+    public async Task GenerateEpgFromCacheAsync_FiltersDisabledChannelsOnlyFromPublishedOutput()
+    {
+        // Arrange
+        const string xml = """
+            <tv>
+              <channel id="enabled"><display-name>Enabled</display-name><lcn>7.1</lcn></channel>
+              <channel id="disabled"><display-name>Disabled</display-name><lcn>9.1</lcn></channel>
+              <programme start="20260914220000 +0000" stop="20260914223000 +0000" channel="enabled"><title>Enabled Show</title></programme>
+              <programme start="20260914220000 +0000" stop="20260914223000 +0000" channel="disabled"><title>Disabled Show</title></programme>
+            </tv>
+            """;
+        var root = Directory.CreateTempSubdirectory("lineup-orchestrator-");
+        try
+        {
+            var lineupStore = new ChannelLineupStore(Path.Combine(root.FullName, "channels.json"));
+            await lineupStore.StoreAsync(
+                [CreateChannel("7.1"), CreateChannel("9.1")],
+                TestContext.Current.CancellationToken);
+            await lineupStore.SetChannelEnabledAsync("9.1", enabled: false, TestContext.Current.CancellationToken);
+            var guideStore = new XmltvGuideStore(Path.Combine(root.FullName, "canonical.xml"));
+            await guideStore.StoreAsync(Encoding.UTF8.GetBytes(xml), TestContext.Current.CancellationToken);
+            var parser = new SiliconDustXmltvParser();
+            var orchestrator = new EpgOrchestrator(NullLogger<EpgOrchestrator>.Instance, lineupStore, null!, Substitute.For<IEpgRepository>(), guideStore, parser);
+            var outputPath = Path.Combine(root.FullName, "published.xml");
+
+            // Act
+            await orchestrator.GenerateEpgFromCacheAsync(2, outputPath);
+
+            // Assert
+            Assert.Equal(["7.1"], parser.Parse(await File.ReadAllBytesAsync(outputPath, TestContext.Current.CancellationToken)).Select(channel => channel.GuideNumber));
+            Assert.Equal(["7.1", "9.1"], parser.Parse((await guideStore.ReadAsync(TestContext.Current.CancellationToken))!).Select(channel => channel.GuideNumber));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    private static HDHomeRunChannel CreateChannel(string guideNumber) => new()
+    {
+        GuideNumber = guideNumber,
+        GuideName = guideNumber,
+        URL = $"http://device/auto/v{guideNumber}"
+    };
 
     private sealed class StaticResponseHandler(string content) : HttpMessageHandler
     {

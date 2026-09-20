@@ -1,4 +1,5 @@
 using Lineup.Web.Services;
+using Lineup.Core;
 using Lineup.Core.Storage;
 using Lineup.Web.Controllers;
 using Microsoft.AspNetCore.Http;
@@ -201,6 +202,7 @@ public class TunerCapacityLeaseRegistryTests
             Substitute.For<IHttpClientFactory>(),
             Substitute.For<IEpgRepository>(),
             settingsService,
+            CreateChannelLineupStore(),
             Substitute.For<IDeviceStateService>(),
             profileProvider,
             Substitute.For<IMpegTsTranscodeService>(),
@@ -312,6 +314,7 @@ public class TunerCapacityLeaseRegistryTests
             Substitute.For<IHttpClientFactory>(),
             Substitute.For<IEpgRepository>(),
             settingsService,
+            CreateChannelLineupStore(),
             deviceState,
             profileProvider,
             Substitute.For<IMpegTsTranscodeService>(),
@@ -324,5 +327,10 @@ public class TunerCapacityLeaseRegistryTests
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
+    }
+
+    private static ChannelLineupStore CreateChannelLineupStore()
+    {
+        return new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-capacity-{Guid.NewGuid():N}.json"));
     }
 }

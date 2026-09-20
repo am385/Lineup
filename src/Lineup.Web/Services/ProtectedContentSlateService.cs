@@ -3,7 +3,23 @@ using System.Diagnostics;
 namespace Lineup.Web.Services;
 
 /// <summary>
-/// Generates synthetic media for DRM-protected tuner channels.
+/// Identifies the message rendered by a synthetic channel slate.
+/// </summary>
+public enum ChannelSlateReason
+{
+    /// <summary>
+    /// The tuner channel is DRM protected.
+    /// </summary>
+    ContentProtected,
+
+    /// <summary>
+    /// The channel was disabled in Lineup.
+    /// </summary>
+    DisabledChannel
+}
+
+/// <summary>
+/// Generates synthetic media for unavailable tuner channels.
 /// </summary>
 public interface IProtectedContentSlateService
 {
@@ -14,31 +30,33 @@ public interface IProtectedContentSlateService
     /// <param name="channel">The protected virtual channel.</param>
     /// <param name="output">The destination response stream.</param>
     /// <param name="cancellationToken">Stops generation when the client disconnects.</param>
-    Task StreamAsync(HostedStreamFormat format, string channel, Stream output, CancellationToken cancellationToken);
+    /// <param name="reason">The reason shown on the slate.</param>
+    Task StreamAsync(HostedStreamFormat format, string channel, Stream output, CancellationToken cancellationToken, ChannelSlateReason reason = ChannelSlateReason.ContentProtected);
 
     /// <summary>
     /// Starts a synthetic HLS slate encoder.
     /// </summary>
     /// <param name="channel">The protected virtual channel.</param>
     /// <param name="playlistPath">The destination HLS playlist path.</param>
+    /// <param name="reason">The reason shown on the slate.</param>
     /// <returns>The running FFmpeg process.</returns>
-    Process StartHls(string channel, string playlistPath);
+    Process StartHls(string channel, string playlistPath, ChannelSlateReason reason = ChannelSlateReason.ContentProtected);
 }
 
 /// <summary>
-/// Uses FFmpeg test sources to generate a protected-content slate.
+/// Uses FFmpeg test sources to generate a channel-status slate.
 /// </summary>
 public sealed class ProtectedContentSlateService : IProtectedContentSlateService
 {
     /// <inheritdoc />
-    public async Task StreamAsync(HostedStreamFormat format, string channel, Stream output, CancellationToken cancellationToken)
+    public async Task StreamAsync(HostedStreamFormat format, string channel, Stream output, CancellationToken cancellationToken, ChannelSlateReason reason = ChannelSlateReason.ContentProtected)
     {
         if (format == HostedStreamFormat.Hls)
         {
             throw new ArgumentOutOfRangeException(nameof(format), format, "HLS slates must be started with StartHls.");
         }
 
-        using var process = StartProcess(ProtectedContentSlatePlanner.CreatePipeArguments(format, channel));
+        using var process = StartProcess(ProtectedContentSlatePlanner.CreatePipeArguments(format, channel, reason));
         try
         {
             await process.StandardOutput.BaseStream.CopyToAsync(output, cancellationToken);
@@ -60,9 +78,9 @@ public sealed class ProtectedContentSlateService : IProtectedContentSlateService
     }
 
     /// <inheritdoc />
-    public Process StartHls(string channel, string playlistPath)
+    public Process StartHls(string channel, string playlistPath, ChannelSlateReason reason = ChannelSlateReason.ContentProtected)
     {
-        return StartProcess(ProtectedContentSlatePlanner.CreateHlsArguments(channel, playlistPath));
+        return StartProcess(ProtectedContentSlatePlanner.CreateHlsArguments(channel, playlistPath, reason));
     }
 
     private static Process StartProcess(IReadOnlyList<string> arguments)
@@ -100,9 +118,9 @@ public static class ProtectedContentSlatePlanner
     /// <summary>
     /// Creates arguments for a pipe-based fMP4 or MPEG-TS slate.
     /// </summary>
-    public static IReadOnlyList<string> CreatePipeArguments(HostedStreamFormat format, string channel)
+    public static IReadOnlyList<string> CreatePipeArguments(HostedStreamFormat format, string channel, ChannelSlateReason reason = ChannelSlateReason.ContentProtected)
     {
-        var arguments = CreateCommonArguments(channel);
+        var arguments = CreateCommonArguments(channel, reason);
         if (format == HostedStreamFormat.FragmentedMp4)
         {
             arguments.AddRange(["-movflags", "frag_keyframe+empty_moov+default_base_moof", "-frag_duration", "1000000", "-f", "mp4", "pipe:1"]);
@@ -122,9 +140,9 @@ public static class ProtectedContentSlatePlanner
     /// <summary>
     /// Creates arguments for an HLS protected-content slate.
     /// </summary>
-    public static IReadOnlyList<string> CreateHlsArguments(string channel, string playlistPath)
+    public static IReadOnlyList<string> CreateHlsArguments(string channel, string playlistPath, ChannelSlateReason reason = ChannelSlateReason.ContentProtected)
     {
-        var arguments = CreateCommonArguments(channel);
+        var arguments = CreateCommonArguments(channel, reason);
         arguments.AddRange([
             "-f", "hls",
             "-hls_time", "4",
@@ -138,10 +156,11 @@ public static class ProtectedContentSlatePlanner
         return arguments;
     }
 
-    private static List<string> CreateCommonArguments(string channel)
+    private static List<string> CreateCommonArguments(string channel, ChannelSlateReason reason)
     {
         var fontPath = OperatingSystem.IsWindows() ? "C\\:/Windows/Fonts/arial.ttf" : "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
-        var filter = $"drawtext=fontfile='{fontPath}':text='Content Protected - Channel {EscapeFilterText(channel)}':fontcolor=white:fontsize=52:x=(w-text_w)/2:y=(h-text_h)/2";
+        var title = reason == ChannelSlateReason.DisabledChannel ? "Disabled Channel" : "Content Protected";
+        var filter = $"drawtext=fontfile='{fontPath}':text='{title} - Channel {EscapeFilterText(channel)}':fontcolor=white:fontsize=52:x=(w-text_w)/2:y=(h-text_h)/2";
         return [
             "-hide_banner", "-loglevel", "error",
             "-f", "lavfi", "-i", "color=c=0x20252b:s=1280x720:r=30",

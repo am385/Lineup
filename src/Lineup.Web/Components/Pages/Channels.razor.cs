@@ -16,6 +16,9 @@ public partial class Channels
     private ChannelLineupRefreshService ChannelLineupRefresh { get; set; } = default!;
 
     [Inject]
+    private EpgOrchestrator Orchestrator { get; set; } = default!;
+
+    [Inject]
     private IAppSettingsService SettingsService { get; set; } = default!;
 
     [Inject]
@@ -27,6 +30,7 @@ public partial class Channels
     private ChannelLineupSnapshot? _channelLineup;
     private bool _isLoading = true;
     private bool _isRefreshing;
+    private readonly HashSet<string> _updatingChannels = new(StringComparer.OrdinalIgnoreCase);
     private string _statusMessage = string.Empty;
     private bool _isError;
 
@@ -79,6 +83,42 @@ public partial class Channels
     private void ClearStatus()
     {
         _statusMessage = string.Empty;
+    }
+
+    private async Task SetChannelEnabled(string guideNumber, bool enabled)
+    {
+        if (!_updatingChannels.Add(guideNumber))
+        {
+            return;
+        }
+
+        _statusMessage = string.Empty;
+        try
+        {
+            _channelLineup = await ChannelLineupStore.SetChannelEnabledAsync(guideNumber, enabled);
+            _isError = false;
+            if (File.Exists(SettingsService.Settings.XmltvOutputPath))
+            {
+                try
+                {
+                    await Orchestrator.GenerateEpgFromCacheAsync(SettingsService.Settings.TargetDays, SettingsService.Settings.XmltvOutputPath);
+                }
+                catch (Exception ex)
+                {
+                    _statusMessage = $"The channel setting was saved, but the published XMLTV guide could not be updated: {ex.Message}";
+                    _isError = true;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Error updating channel {guideNumber}: {ex.Message}";
+            _isError = true;
+        }
+        finally
+        {
+            _updatingChannels.Remove(guideNumber);
+        }
     }
 
     private static string FormatValue(string? value) =>

@@ -1,5 +1,6 @@
 using System.Text;
 using System.Xml.Linq;
+using Lineup.Core;
 using Lineup.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 
@@ -14,6 +15,7 @@ public sealed class HdHomeRunProxyController : ControllerBase
     private readonly IHdHomeRunProxyProfileProvider _profiles;
     private readonly IHdHomeRunProxyDeviceClient _deviceClient;
     private readonly IAppSettingsService _settings;
+    private readonly ChannelLineupStore _channelLineupStore;
 
     /// <summary>
     /// Initializes the virtual HDHomeRun HTTP controller.
@@ -21,11 +23,13 @@ public sealed class HdHomeRunProxyController : ControllerBase
     /// <param name="profiles">Provider for virtual device profiles.</param>
     /// <param name="deviceClient">Client for profile-scoped physical lineups.</param>
     /// <param name="settings">Provides virtual-tuner transcoding settings.</param>
-    public HdHomeRunProxyController(IHdHomeRunProxyProfileProvider profiles, IHdHomeRunProxyDeviceClient deviceClient, IAppSettingsService settings)
+    /// <param name="channelLineupStore">Provides persisted channel availability choices.</param>
+    public HdHomeRunProxyController(IHdHomeRunProxyProfileProvider profiles, IHdHomeRunProxyDeviceClient deviceClient, IAppSettingsService settings, ChannelLineupStore channelLineupStore)
     {
         _profiles = profiles;
         _deviceClient = deviceClient;
         _settings = settings;
+        _channelLineupStore = channelLineupStore;
     }
 
     /// <summary>
@@ -174,7 +178,9 @@ public sealed class HdHomeRunProxyController : ControllerBase
         {
             var baseUri = profile.GetHttpBaseUri(GetRequestRootUri());
             var physicalChannels = await _deviceClient.FetchLineupAsync(profile, HttpContext.RequestAborted);
+            var savedLineup = await _channelLineupStore.ReadAsync(HttpContext.RequestAborted);
             var channels = physicalChannels
+                .Where(channel => savedLineup?.IsChannelEnabled(channel.GuideNumber) != false)
                 .Select(channel => HdHomeRunProxyChannel.Create(channel, baseUri, _settings.Settings.VirtualTunerVideoMode))
                 .ToArray();
             return render(channels);

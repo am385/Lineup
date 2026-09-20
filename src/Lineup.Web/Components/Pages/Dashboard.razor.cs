@@ -3,6 +3,7 @@ using Lineup.Core.Storage;
 using Lineup.Web.Services;
 using Microsoft.AspNetCore.Components;
 using Microsoft.JSInterop;
+using System.Text.Json;
 
 namespace Lineup.Web.Components.Pages;
 
@@ -44,6 +45,9 @@ public partial class Dashboard : IDisposable
     [Inject]
     private IActiveStreamRegistry ActiveStreamRegistry { get; set; } = default!;
 
+    [Inject]
+    private ILogger<Dashboard> Logger { get; set; } = default!;
+
     private CacheStatistics? _stats;
     private DateTime? _safeFetchStart;
     private TimeSpan? _channelGap;
@@ -63,6 +67,7 @@ public partial class Dashboard : IDisposable
     private IReadOnlyList<ActiveStreamSnapshot> _activeStreams = [];
     private DateTime? _activeStreamsLastRefreshUtc;
     private HashSet<string> _stoppingStreams = [];
+    private bool _channelsExpanded = true;
     private bool _guideExpanded = true;
     private bool _deviceExpanded = true;
     private bool _activeStreamsExpanded = true;
@@ -73,6 +78,7 @@ public partial class Dashboard : IDisposable
     private HashSet<int> _stoppingTuner = [];
 
     private const string AutoFetchIntervalDisplay = "20-28h (randomized)";
+    private const string SectionStateStorageKey = "lineup-dashboard-sections-v1";
     private string XmltvFilename => SettingsService.Settings.XmltvOutputPath;
 
     /// <inheritdoc />
@@ -106,6 +112,168 @@ public partial class Dashboard : IDisposable
         CheckXmltvFileExists();
     }
 
+    /// <inheritdoc />
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        try
+        {
+            var json = await JS.InvokeAsync<string?>("localStorage.getItem", SectionStateStorageKey);
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                return;
+            }
+
+            var state = JsonSerializer.Deserialize<DashboardSectionState>(json);
+            if (state == null)
+            {
+                return;
+            }
+
+            _channelsExpanded = state.ChannelsExpanded;
+            _guideExpanded = state.GuideExpanded;
+            _deviceExpanded = state.DeviceExpanded;
+            _activeStreamsExpanded = state.ActiveStreamsExpanded;
+            StateHasChanged();
+        }
+        catch (JsonException ex)
+        {
+            Logger.LogWarning(ex, "Ignoring invalid saved dashboard section state");
+        }
+        catch (JSDisconnectedException ex)
+        {
+            Logger.LogDebug(ex, "The browser disconnected while restoring dashboard section state");
+        }
+        catch (JSException ex)
+        {
+            Logger.LogWarning(ex, "Unable to restore dashboard section state from browser storage");
+        }
+        catch (InvalidOperationException ex)
+        {
+            Logger.LogDebug(ex, "Browser storage is not available while rendering the dashboard");
+        }
+    }
+
+    private async Task ToggleSection(DashboardSection section)
+    {
+        switch (section)
+        {
+            case DashboardSection.Channels:
+                _channelsExpanded = !_channelsExpanded;
+                break;
+            case DashboardSection.Guide:
+                _guideExpanded = !_guideExpanded;
+                break;
+            case DashboardSection.Device:
+                _deviceExpanded = !_deviceExpanded;
+                break;
+            case DashboardSection.ActiveStreams:
+                _activeStreamsExpanded = !_activeStreamsExpanded;
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(section), section, null);
+        }
+
+        var state = new DashboardSectionState
+        {
+            ChannelsExpanded = _channelsExpanded,
+            GuideExpanded = _guideExpanded,
+            DeviceExpanded = _deviceExpanded,
+            ActiveStreamsExpanded = _activeStreamsExpanded
+        };
+
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", SectionStateStorageKey, JsonSerializer.Serialize(state));
+        }
+        catch (JSDisconnectedException ex)
+        {
+            Logger.LogDebug(ex, "The browser disconnected while saving dashboard section state");
+        }
+        catch (JSException ex)
+        {
+            Logger.LogWarning(ex, "Unable to save dashboard section state to browser storage");
+        }
+        catch (InvalidOperationException ex)
+        {
+            Logger.LogDebug(ex, "Browser storage is not available while saving dashboard section state");
+        }
+        catch (OperationCanceledException ex)
+        {
+            Logger.LogWarning(ex, "Saving dashboard section state timed out");
+        }
+    }
+
+    private string FormatChannelsSummary()
+    {
+        if (_channelLineup == null)
+        {
+            return "0 enabled · 0 disabled · never refreshed";
+        }
+
+        return $"{_channelLineup.EnabledChannelCount} enabled · {_channelLineup.DisabledGuideNumbers.Count} disabled · updated {Tz.ConvertFromUtc(_channelLineup.RefreshedAtUtc):yyyy-MM-dd HH:mm:ss}";
+    }
+
+    private string FormatGuideSummary()
+    {
+        var remaining = _stats?.TotalTimeSpan?.ToString(@"d' days 'h' hrs'") ?? "N/A";
+        var autoFetch = !AutoFetchState.IsEnabled
+            ? "auto-fetch disabled"
+            : AutoFetchState.IsRunning
+                ? "auto-fetch running"
+                : AutoFetchState.NextFetchTime.HasValue
+                    ? $"next fetch in {FormatCountdown(_countdown)}"
+                    : "auto-fetch pending";
+        return $"{_stats?.ChannelCount ?? 0} channels · {_stats?.ProgramCount ?? 0} programs · {remaining} remaining · {autoFetch}";
+    }
+
+    private string FormatDeviceSummary()
+    {
+        if (DeviceState.LastError != null)
+        {
+            return $"Connection failed · {SettingsService.Settings.DeviceAddress}";
+        }
+
+        if (DeviceState.DeviceInfo == null)
+        {
+            return $"Discovering · {SettingsService.Settings.DeviceAddress}";
+        }
+
+        var tunerSummary = "tuner status unknown";
+        if (DeviceState.TunerStatuses.Count > 0)
+        {
+            var streaming = DeviceState.TunerStatuses.Count(tuner => tuner.IsStreaming);
+            var tuned = DeviceState.TunerStatuses.Count(tuner => !tuner.IsStreaming && tuner.IsActive);
+            var idle = Math.Max(0, DeviceState.DeviceInfo.TunerCount - streaming - tuned);
+            tunerSummary = $"{streaming} streaming, {tuned} tuned, {idle} idle";
+        }
+
+        var refreshed = DeviceState.LastDeviceRefresh.HasValue
+            ? Tz.ConvertFromUtc(DeviceState.LastDeviceRefresh.Value).ToString("HH:mm:ss")
+            : "N/A";
+        return $"{DeviceState.DeviceInfo.FriendlyName} · {DeviceState.DeviceInfo.ModelNumber} · {tunerSummary} · refreshed {refreshed}";
+    }
+
+    private string FormatActiveStreamsSummary()
+    {
+        var refreshed = _activeStreamsLastRefreshUtc.HasValue
+            ? $"refreshed {Tz.ConvertFromUtc(_activeStreamsLastRefreshUtc.Value):HH:mm:ss}"
+            : "not refreshed";
+        var schedule = SettingsService.Settings.IsActiveStreamRefreshEnabled
+            ? $"every {SettingsService.Settings.ActiveStreamRefreshIntervalSeconds} seconds"
+            : "auto-refresh disabled";
+        return $"{_activeStreams.Count} active · {refreshed} · {schedule}";
+    }
+
     private void OnSettingsChanged()
     {
         if (_disposed)
@@ -117,6 +285,37 @@ public partial class Dashboard : IDisposable
         CheckXmltvFileExists(); // Refresh in case output path changed
         ConfigureActiveStreamTimer();
         InvokeAsync(StateHasChanged);
+    }
+
+    private enum DashboardSection
+    {
+        Channels,
+        Guide,
+        Device,
+        ActiveStreams
+    }
+
+    private sealed record DashboardSectionState
+    {
+        /// <summary>
+        /// Gets whether the Channels section is expanded.
+        /// </summary>
+        public bool ChannelsExpanded { get; init; } = true;
+
+        /// <summary>
+        /// Gets whether the Guide section is expanded.
+        /// </summary>
+        public bool GuideExpanded { get; init; } = true;
+
+        /// <summary>
+        /// Gets whether the Device section is expanded.
+        /// </summary>
+        public bool DeviceExpanded { get; init; } = true;
+
+        /// <summary>
+        /// Gets whether the Active Streams section is expanded.
+        /// </summary>
+        public bool ActiveStreamsExpanded { get; init; } = true;
     }
 
     private void OnDeviceStateChanged()

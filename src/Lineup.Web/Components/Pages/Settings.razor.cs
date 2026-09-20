@@ -39,6 +39,7 @@ public partial class Settings : IDisposable
     private Ac4TranscodeTarget _ac4TranscodeTarget;
     private VirtualTunerVideoMode _virtualTunerVideoMode;
     private ProtectedContentMode _protectedContentMode;
+    private DisabledChannelMode _disabledChannelMode;
     private WebVideoPreset _webVideoPreset;
     private int _webVideoQuality;
     private int _maximumVideoBitRateMbps;
@@ -116,6 +117,7 @@ public partial class Settings : IDisposable
         _ac4TranscodeTarget = SettingsService.Settings.Ac4TranscodeTarget;
         _virtualTunerVideoMode = SettingsService.Settings.VirtualTunerVideoMode;
         _protectedContentMode = SettingsService.Settings.ProtectedContentMode;
+        _disabledChannelMode = SettingsService.Settings.DisabledChannelMode;
         _webVideoPreset = SettingsService.Settings.WebVideoPreset;
         _webVideoQuality = SettingsService.Settings.WebVideoQuality;
         _maximumVideoBitRateMbps = SettingsService.Settings.MaximumVideoBitRateMbps;
@@ -292,6 +294,7 @@ public partial class Settings : IDisposable
                 settings.Ac4TranscodeTarget = _ac4TranscodeTarget;
                 settings.VirtualTunerVideoMode = _virtualTunerVideoMode;
                 settings.ProtectedContentMode = _protectedContentMode;
+                settings.DisabledChannelMode = _disabledChannelMode;
                 settings.WebVideoPreset = _webVideoPreset;
                 settings.WebVideoQuality = _webVideoQuality;
                 settings.MaximumVideoBitRateMbps = _maximumVideoBitRateMbps;
@@ -381,6 +384,7 @@ public partial class Settings : IDisposable
         _ac4TranscodeTarget = defaults.Ac4TranscodeTarget;
         _virtualTunerVideoMode = defaults.VirtualTunerVideoMode;
         _protectedContentMode = defaults.ProtectedContentMode;
+        _disabledChannelMode = defaults.DisabledChannelMode;
         _webVideoPreset = defaults.WebVideoPreset;
         _webVideoQuality = defaults.WebVideoQuality;
         _maximumVideoBitRateMbps = defaults.MaximumVideoBitRateMbps;

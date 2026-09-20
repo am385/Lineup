@@ -2,7 +2,10 @@ using System.Collections;
 using System.Diagnostics;
 using System.Net;
 using System.Reflection;
+using Lineup.Core;
 using Lineup.Core.Storage;
+using Lineup.HDHomeRun.Device;
+using Lineup.HDHomeRun.Device.Models;
 using Lineup.Web.Controllers;
 using Lineup.Web.Services;
 using Microsoft.AspNetCore.Http;
@@ -19,6 +22,93 @@ namespace Lineup.Web.Tests.Controllers;
 /// </summary>
 public class StreamControllerTests
 {
+    /// <summary>
+    /// Verifies disabled MPEG-TS requests return before acquiring tuner capacity.
+    /// </summary>
+    [Fact]
+    public async Task Stream_DisabledChannel_ReturnsForbiddenWithoutTuner()
+    {
+        // Arrange
+        var store = await CreateDisabledChannelStoreAsync("9.1");
+        var capacity = Substitute.For<ITunerCapacityLeaseRegistry>();
+        var controller = CreateDisabledChannelController(store, DisabledChannelMode.ReturnError, capacity, Substitute.For<IProtectedContentSlateService>());
+
+        // Act
+        var result = await controller.Stream("9.1");
+
+        // Assert
+        var forbidden = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status403Forbidden, forbidden.StatusCode);
+        Assert.Empty(capacity.ReceivedCalls());
+    }
+
+    /// <summary>
+    /// Verifies disabled channels cannot be reached through the diagnostic stream endpoint.
+    /// </summary>
+    [Fact]
+    public async Task TestTranscode_DisabledChannel_ReturnsForbidden()
+    {
+        // Arrange
+        var store = await CreateDisabledChannelStoreAsync("9.1");
+        var controller = CreateDisabledChannelController(
+            store,
+            DisabledChannelMode.ReturnError,
+            Substitute.For<ITunerCapacityLeaseRegistry>(),
+            Substitute.For<IProtectedContentSlateService>());
+
+        // Act
+        var result = await controller.TestTranscode("9.1");
+
+        // Assert
+        var forbidden = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status403Forbidden, forbidden.StatusCode);
+    }
+
+    /// <summary>
+    /// Verifies disabled Watch and HLS requests return before acquiring tuner capacity.
+    /// </summary>
+    [Fact]
+    public async Task WatchStreams_DisabledChannel_ReturnForbiddenWithoutTuner()
+    {
+        // Arrange
+        var store = await CreateDisabledChannelStoreAsync("9.1");
+        var fmp4Capacity = Substitute.For<ITunerCapacityLeaseRegistry>();
+        var fmp4Controller = CreateDisabledChannelController(store, DisabledChannelMode.ReturnError, fmp4Capacity, Substitute.For<IProtectedContentSlateService>());
+        var hlsCapacity = Substitute.For<ITunerCapacityLeaseRegistry>();
+        var hlsController = CreateDisabledChannelController(store, DisabledChannelMode.ReturnError, hlsCapacity, Substitute.For<IProtectedContentSlateService>());
+
+        // Act
+        await fmp4Controller.StreamFmp4("9.1");
+        var hlsResult = await hlsController.StartHlsStream("9.1");
+
+        // Assert
+        Assert.Equal(StatusCodes.Status403Forbidden, fmp4Controller.Response.StatusCode);
+        Assert.Equal(StatusCodes.Status403Forbidden, Assert.IsType<ObjectResult>(hlsResult).StatusCode);
+        Assert.Empty(fmp4Capacity.ReceivedCalls());
+        Assert.Empty(hlsCapacity.ReceivedCalls());
+    }
+
+    /// <summary>
+    /// Verifies slate mode serves disabled MPEG-TS without acquiring tuner capacity.
+    /// </summary>
+    [Fact]
+    public async Task Stream_DisabledChannelSlate_UsesSyntheticMediaWithoutTuner()
+    {
+        // Arrange
+        var store = await CreateDisabledChannelStoreAsync("9.1");
+        var capacity = Substitute.For<ITunerCapacityLeaseRegistry>();
+        var slate = Substitute.For<IProtectedContentSlateService>();
+        var controller = CreateDisabledChannelController(store, DisabledChannelMode.StreamSlate, capacity, slate);
+
+        // Act
+        var result = await controller.Stream("9.1");
+
+        // Assert
+        Assert.IsType<EmptyResult>(result);
+        await slate.Received(1).StreamAsync(HostedStreamFormat.MpegTs, "9.1", Arg.Any<Stream>(), Arg.Any<CancellationToken>(), ChannelSlateReason.DisabledChannel);
+        Assert.Empty(capacity.ReceivedCalls());
+    }
+
     /// <summary>
     /// Verifies that IPv4 and IPv6 client endpoints are formatted unambiguously for diagnostics.
     /// </summary>
@@ -267,6 +357,7 @@ public class StreamControllerTests
             httpClientFactory,
             Substitute.For<IEpgRepository>(),
             settingsService,
+            CreateChannelLineupStore(),
             Substitute.For<IDeviceStateService>(),
             Substitute.For<IHdHomeRunProxyProfileProvider>(),
             Substitute.For<IMpegTsTranscodeService>(),
@@ -292,6 +383,7 @@ public class StreamControllerTests
             Substitute.For<IHttpClientFactory>(),
             Substitute.For<IEpgRepository>(),
             settingsService,
+            CreateChannelLineupStore(),
             Substitute.For<IDeviceStateService>(),
             Substitute.For<IHdHomeRunProxyProfileProvider>(),
             Substitute.For<IMpegTsTranscodeService>(),
@@ -343,6 +435,73 @@ public class StreamControllerTests
         Assert.NotNull(register);
         register.Invoke(controller, [session]);
         return session;
+    }
+
+    private static ChannelLineupStore CreateChannelLineupStore()
+    {
+        return new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-stream-{Guid.NewGuid():N}.json"));
+    }
+
+    private static async Task<ChannelLineupStore> CreateDisabledChannelStoreAsync(string guideNumber)
+    {
+        var store = CreateChannelLineupStore();
+        await store.StoreAsync(
+            [new Lineup.HDHomeRun.Device.Models.HDHomeRunChannel { GuideNumber = guideNumber, GuideName = "Disabled", URL = $"http://tuner.local/auto/v{guideNumber}" }],
+            TestContext.Current.CancellationToken);
+        await store.SetChannelEnabledAsync(guideNumber, enabled: false, TestContext.Current.CancellationToken);
+        return store;
+    }
+
+    private static StreamController CreateDisabledChannelController(ChannelLineupStore store, DisabledChannelMode mode, ITunerCapacityLeaseRegistry capacity, IProtectedContentSlateService slate)
+    {
+        var settings = Substitute.For<IAppSettingsService>();
+        settings.Settings.Returns(new AppSettings { DeviceAddress = "tuner.local", DisabledChannelMode = mode });
+        var profiles = Substitute.For<IHdHomeRunProxyProfileProvider>();
+        profiles.GetPrimaryProfileAsync(Arg.Any<CancellationToken>()).Returns(new HdHomeRunProxyProfileSnapshot
+        {
+            Settings = new HdHomeRunProxyProfileSettings(),
+            PhysicalDevice = new HDHomeRunDeviceInfo
+            {
+                FriendlyName = "Tuner",
+                ModelNumber = "HDHR",
+                FirmwareName = "hdhomerun",
+                FirmwareVersion = "1",
+                DeviceID = "12345678",
+                DeviceAuth = "auth",
+                BaseURL = "http://tuner.local",
+                LineupURL = "http://tuner.local/lineup.json",
+                TunerCount = 2
+            },
+            IsPrimary = true,
+            DeviceId = 0x12345678,
+            DeviceAuth = "virtual",
+            TunerCount = 2,
+            FriendlyName = "Lineup",
+            PhysicalBaseUri = new Uri("http://tuner.local/")
+        });
+        return new StreamController(
+            Substitute.For<IHttpClientFactory>(),
+            Substitute.For<IEpgRepository>(),
+            settings,
+            store,
+            Substitute.For<IDeviceStateService>(),
+            profiles,
+            Substitute.For<IMpegTsTranscodeService>(),
+            Substitute.For<IMediaProbeService>(),
+            Substitute.For<IActiveStreamRegistry>(),
+            slate,
+            Substitute.For<ITunerStreamMultiplexer>(),
+            capacity,
+            NullLogger<StreamController>.Instance)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    Response = { Body = new MemoryStream() }
+                }
+            }
+        };
     }
 
     private static IDictionary GetHlsSessions()

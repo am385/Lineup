@@ -154,6 +154,117 @@ public class ChannelLineupStoreTests
         }
     }
 
+    /// <summary>
+    /// Verifies old snapshots without availability metadata keep every channel enabled.
+    /// </summary>
+    [Fact]
+    public async Task ReadAsync_LegacySnapshot_DefaultsAllChannelsToEnabled()
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-channels-");
+        try
+        {
+            var path = Path.Combine(root.FullName, "channels.json");
+            await File.WriteAllTextAsync(
+                path,
+                """
+                {
+                  "RefreshedAtUtc": "2026-09-20T12:00:00Z",
+                  "Channels": [
+                    {
+                      "GuideNumber": "7.1",
+                      "GuideName": "Existing",
+                      "URL": "http://device/auto/v7.1"
+                    }
+                  ]
+                }
+                """,
+                TestContext.Current.CancellationToken);
+            var store = new ChannelLineupStore(path);
+
+            // Act
+            var snapshot = await store.ReadAsync(TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.True(snapshot!.IsChannelEnabled("7.1"));
+            Assert.Equal(1, snapshot.EnabledChannelCount);
+            Assert.Empty(snapshot.DisabledGuideNumbers);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Verifies channel availability changes persist without replacing tuner metadata.
+    /// </summary>
+    [Fact]
+    public async Task SetChannelEnabledAsync_DisablesAndReenablesSavedChannel()
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-channels-");
+        try
+        {
+            var store = new ChannelLineupStore(Path.Combine(root.FullName, "channels.json"));
+            var original = await store.StoreAsync(
+                [CreateChannel("7.1", "Existing"), CreateChannel("9.1", "Other")],
+                TestContext.Current.CancellationToken);
+
+            // Act
+            var disabled = await store.SetChannelEnabledAsync("7.1", enabled: false, TestContext.Current.CancellationToken);
+            var enabled = await store.SetChannelEnabledAsync("7.1", enabled: true, TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.False(disabled.IsChannelEnabled("7.1"));
+            Assert.Equal(1, disabled.EnabledChannelCount);
+            Assert.True(enabled.IsChannelEnabled("7.1"));
+            Assert.Equal(2, enabled.EnabledChannelCount);
+            Assert.Equal(original.RefreshedAtUtc, enabled.RefreshedAtUtc);
+            Assert.Equal("Existing", enabled.Channels[0].GuideName);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Verifies refreshes preserve matching choices, remove stale choices, and enable new channels.
+    /// </summary>
+    [Fact]
+    public async Task RefreshAsync_PreservesMatchingDisabledChannelsAndEnablesNewChannels()
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-channels-");
+        try
+        {
+            var store = new ChannelLineupStore(Path.Combine(root.FullName, "channels.json"));
+            await store.StoreAsync(
+                [CreateChannel("7.1", "Existing"), CreateChannel("9.1", "Removed")],
+                TestContext.Current.CancellationToken);
+            await store.SetChannelEnabledAsync("7.1", enabled: false, TestContext.Current.CancellationToken);
+            await store.SetChannelEnabledAsync("9.1", enabled: false, TestContext.Current.CancellationToken);
+            var provider = Substitute.For<IChannelLineupProvider>();
+            provider.FetchChannelLineupAsync(Arg.Any<CancellationToken>()).Returns(
+                [CreateChannel("7.1", "Existing Updated"), CreateChannel("10.1", "New")]);
+            var service = new ChannelLineupRefreshService(NullLogger<ChannelLineupRefreshService>.Instance, provider, store);
+
+            // Act
+            var refreshed = await service.RefreshAsync(TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.False(refreshed.IsChannelEnabled("7.1"));
+            Assert.True(refreshed.IsChannelEnabled("10.1"));
+            Assert.Equal(["7.1"], refreshed.DisabledGuideNumbers);
+            Assert.Equal(1, refreshed.EnabledChannelCount);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
     private static HDHomeRunChannel CreateChannel(string number, string name) => new()
     {
         GuideNumber = number,

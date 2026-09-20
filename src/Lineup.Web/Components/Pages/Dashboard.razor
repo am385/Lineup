@@ -16,19 +16,37 @@
 else
 {
     <div class="card mb-4">
-        <div class="card-header d-flex justify-content-between align-items-center">
-            <h5 class="mb-0"><span class="bi bi-list-check me-1"></span>HDHomeRun Channels</h5>
-            <a class="btn btn-sm btn-outline-primary" href="/channels">
-                View Channels <span class="bi bi-chevron-right ms-1"></span>
-            </a>
+        <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div>
+                <h5 class="mb-0"><span class="bi bi-list-check me-1"></span>Channels</h5>
+                @if (!_channelsExpanded)
+                {
+                    <small class="text-muted">@FormatChannelsSummary()</small>
+                }
+            </div>
+            <div class="d-flex align-items-center ms-auto">
+                <a class="btn btn-sm btn-outline-primary" href="/channels">
+                    View Channels <span class="bi bi-chevron-right ms-1"></span>
+                </a>
+                <button id="toggleChannelsSection" type="button" class="btn btn-sm btn-outline-secondary ms-2"
+                        aria-expanded="@(_channelsExpanded ? "true" : "false")" aria-controls="channelsSection"
+                        @onclick="() => ToggleSection(DashboardSection.Channels)">
+                    <span class="@(_channelsExpanded ? "bi bi-chevron-up" : "bi bi-chevron-down")"></span>
+                    <span class="visually-hidden">@(_channelsExpanded ? "Collapse" : "Expand") Channels section</span>
+                </button>
+            </div>
         </div>
-        <div class="card-body">
+        <div id="channelsSection" class="card-body" hidden="@(!_channelsExpanded)">
             <div class="row text-center">
-                <div class="col-md-6 mb-3 mb-md-0">
-                    <div class="text-muted small">Channels</div>
-                    <div class="display-6">@(_channelLineup?.Channels.Count ?? 0)</div>
+                <div class="col-md-4 mb-3 mb-md-0">
+                    <div class="text-muted small">Enabled</div>
+                    <div class="display-6 text-success">@(_channelLineup?.EnabledChannelCount ?? 0)</div>
                 </div>
-                <div class="col-md-6">
+                <div class="col-md-4 mb-3 mb-md-0">
+                    <div class="text-muted small">Disabled</div>
+                    <div class="display-6 text-secondary">@(_channelLineup?.DisabledGuideNumbers.Count ?? 0)</div>
+                </div>
+                <div class="col-md-4">
                     <div class="text-muted small">Last Updated</div>
                     <div class="h5 mt-2 mb-0">
                         @(_channelLineup == null
@@ -41,21 +59,22 @@ else
     </div>
 
     <div class="card mb-4">
-        <div class="card-header d-flex justify-content-between align-items-center">
+        <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
             <div>
                 <h5 class="mb-0"><span class="bi bi-calendar3 me-1"></span>Guide &amp; XMLTV</h5>
-                <small class="text-muted">@_stats.ChannelCount guide channels · @_stats.ProgramCount programs</small>
+                @if (!_guideExpanded)
+                {
+                    <small class="text-muted">@FormatGuideSummary()</small>
+                }
             </div>
-            <button id="toggleGuideSection" type="button" class="btn btn-sm btn-outline-secondary"
-                    aria-expanded="@_guideExpanded" aria-controls="guideSection"
-                    @onclick="() => _guideExpanded = !_guideExpanded">
+            <button id="toggleGuideSection" type="button" class="btn btn-sm btn-outline-secondary ms-auto"
+                    aria-expanded="@(_guideExpanded ? "true" : "false")" aria-controls="guideSection"
+                    @onclick="() => ToggleSection(DashboardSection.Guide)">
                 <span class="@(_guideExpanded ? "bi bi-chevron-up" : "bi bi-chevron-down")"></span>
                 <span class="visually-hidden">@(_guideExpanded ? "Collapse" : "Expand") Guide section</span>
             </button>
         </div>
-        @if (_guideExpanded)
-        {
-        <div id="guideSection" class="card-body">
+        <div id="guideSection" class="card-body" hidden="@(!_guideExpanded)">
     <div class="row mb-4">
         <div class="col-md-3">
             <div class="card h-100">
@@ -220,15 +239,20 @@ else
         </div>
     </div>
         </div>
-        }
     </div>
 
     <div class="row mb-4">
         <div class="col-12">
             <div class="card @(DeviceState.LastError != null ? "border-danger" : "")">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0"><span class="bi bi-router me-1"></span>HDHomeRun Device</h5>
-                    <div class="d-flex align-items-center">
+                <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                    <div>
+                        <h5 class="mb-0"><span class="bi bi-router me-1"></span>HDHomeRun Device</h5>
+                        @if (!_deviceExpanded)
+                        {
+                            <small class="text-muted">@FormatDeviceSummary()</small>
+                        }
+                    </div>
+                    <div class="d-flex align-items-center ms-auto">
                         @if (DeviceState.ProtocolDevice != null)
                         {
                             <button class="btn btn-sm btn-outline-primary" @onclick="RefreshTunerStatus" disabled="@DeviceState.IsRefreshingTuners">
@@ -240,16 +264,14 @@ else
                             </button>
                         }
                         <button id="toggleDeviceSection" type="button" class="btn btn-sm btn-outline-secondary ms-2"
-                                aria-expanded="@_deviceExpanded" aria-controls="deviceSection"
-                                @onclick="() => _deviceExpanded = !_deviceExpanded">
+                                aria-expanded="@(_deviceExpanded ? "true" : "false")" aria-controls="deviceSection"
+                                @onclick="() => ToggleSection(DashboardSection.Device)">
                             <span class="@(_deviceExpanded ? "bi bi-chevron-up" : "bi bi-chevron-down")"></span>
                             <span class="visually-hidden">@(_deviceExpanded ? "Collapse" : "Expand") Device section</span>
                         </button>
                     </div>
                 </div>
-                @if (_deviceExpanded)
-                {
-                <div id="deviceSection" class="card-body">
+                <div id="deviceSection" class="card-body" hidden="@(!_deviceExpanded)">
                     <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
                         <p class="mb-0"><strong>Device Address:</strong> <code>@SettingsService.Settings.DeviceAddress</code></p>
                         <button class="btn btn-sm btn-outline-primary" @onclick="DiscoverDevice" disabled="@DeviceState.IsDiscovering">
@@ -455,7 +477,6 @@ else
                         </div>
                     }
                 </div>
-                }
             </div>
         </div>
     </div>
@@ -540,40 +561,24 @@ else
     }
 
     <div class="card mb-4">
-        <div class="card-header d-flex justify-content-between align-items-center">
+        <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
             <div>
                 <h5 class="mb-0"><span class="bi bi-broadcast-pin me-1"></span>Active Streams</h5>
-                <small class="text-muted">
-                    @_activeStreams.Count active
-                    @if (_activeStreamsLastRefreshUtc.HasValue)
-                    {
-                        <span> · refreshed @Tz.ConvertFromUtc(_activeStreamsLastRefreshUtc.Value).ToString("HH:mm:ss")</span>
-                    }
-                    @if (!SettingsService.Settings.IsActiveStreamRefreshEnabled)
-                    {
-                        <span> · auto-refresh disabled</span>
-                    }
-                    else
-                    {
-                        <span> · every @SettingsService.Settings.ActiveStreamRefreshIntervalSeconds seconds</span>
-                    }
-                </small>
+                <small class="text-muted">@FormatActiveStreamsSummary()</small>
             </div>
-            <div class="d-flex align-items-center">
+            <div class="d-flex align-items-center ms-auto">
                 <button id="refreshActiveStreams" class="btn btn-sm btn-outline-primary" @onclick="RefreshActiveStreams">
                     <span class="bi bi-arrow-clockwise me-1"></span>Refresh
                 </button>
                 <button id="toggleActiveStreamsSection" type="button" class="btn btn-sm btn-outline-secondary ms-2"
-                        aria-expanded="@_activeStreamsExpanded" aria-controls="activeStreamsSection"
-                        @onclick="() => _activeStreamsExpanded = !_activeStreamsExpanded">
+                        aria-expanded="@(_activeStreamsExpanded ? "true" : "false")" aria-controls="activeStreamsSection"
+                        @onclick="() => ToggleSection(DashboardSection.ActiveStreams)">
                     <span class="@(_activeStreamsExpanded ? "bi bi-chevron-up" : "bi bi-chevron-down")"></span>
                     <span class="visually-hidden">@(_activeStreamsExpanded ? "Collapse" : "Expand") Active Streams section</span>
                 </button>
             </div>
         </div>
-        @if (_activeStreamsExpanded)
-        {
-        <div id="activeStreamsSection" class="card-body">
+        <div id="activeStreamsSection" class="card-body" hidden="@(!_activeStreamsExpanded)">
             @if (_activeStreams.Count == 0)
             {
                 <div class="text-center text-muted py-4">
@@ -643,6 +648,5 @@ else
                 </div>
             }
         </div>
-        }
     </div>
 }

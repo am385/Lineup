@@ -105,6 +105,20 @@ public class AppSettingsTests
     }
 
     /// <summary>
+    /// Verifies disabled direct streams return errors by default.
+    /// </summary>
+    [Fact]
+    public void DisabledChannelMode_DefaultsToReturnError()
+    {
+        // Arrange
+        // Act
+        var settings = new AppSettings();
+
+        // Assert
+        Assert.Equal(DisabledChannelMode.ReturnError, settings.DisabledChannelMode);
+    }
+
+    /// <summary>
     /// Verifies that first-run setup is incomplete by default.
     /// </summary>
     [Fact]

@@ -10,6 +10,7 @@ It includes a web-based dashboard, a terminal UI, live TV streaming with transco
 
 - **Automatic EPG fetching** — downloads SiliconDust's complete gzip-compressed XMLTV guide on the required randomized 20-28 hour schedule
 - **Canonical XMLTV output** — preserves SiliconDust metadata, filters out channels unavailable from the configured tuners, and publishes updates atomically
+- **Per-channel availability** — keeps disabled channels visible in Lineup while excluding them from published guides, virtual lineups, and physical tuner streams
 - **Live TV streaming** — multi-track MPEG-TS proxy plus selectable Watch audio and subtitles, with Jellyfin FFmpeg AC-4 decoding
 - **Device diagnostics** — connectivity checks across DNS, ping, HTTP API, TCP, and UDP discovery
 - **Active stream monitoring** — Dashboard visibility into hosted MPEG-TS, fMP4, and HLS sessions with source/output codec and bitrate details
@@ -289,6 +290,7 @@ All settings are configurable through the web UI's settings page and persisted t
 | AC-4 Audio | Preserve AC-4, or transcode it to AC-3 (default) or E-AC-3 |
 | Virtual Tuner Video | Preserve the video codec (default), or transcode HEVC to H.264 for compatibility |
 | DRM-Protected Content | Return an explicit error (default), or stream a synthetic Content Protected slate |
+| Disabled Channels | Return an explicit error (default), or stream a synthetic Disabled Channel slate without opening a physical tuner |
 | Active Stream Refresh | Dashboard refresh interval for hosted stream details; defaults to 5 seconds and 0 disables auto-refresh |
 | HDHomeRun Proxy Profiles | Physical address, optional friendly name and tuner cap, and an explicit advertised URL for each virtual device |
 | Network Discovery | Opt-in SiliconDust UDP (65001) and SSDP (1900) advertisement of enabled proxy profiles |
@@ -395,10 +397,12 @@ Additional profiles use the stable path `/hdhomerun/{virtualDeviceId}/`. Their d
 path. The Settings page displays copyable manual setup URLs for each enabled profile and the XMLTV guide URL at `/api/xmltv`.
 
 Guide downloads concatenate the current `DeviceAuth` values from every enabled physical profile, allowing one canonical XMLTV document to cover all
-configured tuners. The downloaded guide is filtered to the union of channels currently returned by those tuners, so removed or unavailable channels
-are excluded from both Lineup's Guide page and published XMLTV output. Use **Refresh Channels** on the Dashboard to update the persisted tuner-lineup
-snapshot independently. A guide fetch applies that saved snapshot without querying the tuners, so refreshing channels does not download new guide data
-and existing cached guide data is not rewritten until the next guide fetch. `DeviceAuth` is read immediately before every request because SiliconDust rotates it regularly.
+configured tuners. The downloaded guide is filtered to the union of channels currently returned by those tuners. Use **Refresh Channels** on the
+Dashboard to update the persisted tuner-lineup snapshot independently, or enable the guide-fetch option that refreshes channels first. A guide fetch
+applies the saved snapshot without otherwise querying the tuners. Channels disabled on the Channels page remain visible in Lineup's Channels and Guide
+pages, but are excluded from published XMLTV and virtual JSON, XML, and M3U lineups. Their MPEG-TS, fMP4, and HLS URLs return an error by default or a
+synthetic slate when configured. Disabled choices survive tuner refreshes by guide number, and newly discovered channels start enabled. `DeviceAuth`
+is read immediately before every request because SiliconDust rotates it regularly.
 
 Lineup atomically limits HDHomeRun-compatible MPEG-TS routes to each profile's effective physical tuner count. Receivers for the exact same upstream
 channel and hardware-transcode source share one tuner lease through the stream multiplexer. Different channels consume separate slots. This includes

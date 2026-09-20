@@ -885,10 +885,23 @@ public static class ActiveStreamPlanFactory
     /// </summary>
     public static ActiveStreamSnapshot CreateProtectedSlate(string sessionId, string channel, HostedStreamFormat format, DateTime startedAtUtc)
     {
+        return CreateSlate(sessionId, channel, format, startedAtUtc, "protected");
+    }
+
+    /// <summary>
+    /// Creates metadata for a synthetic disabled-channel slate.
+    /// </summary>
+    public static ActiveStreamSnapshot CreateDisabledSlate(string sessionId, string channel, HostedStreamFormat format, DateTime startedAtUtc)
+    {
+        return CreateSlate(sessionId, channel, format, startedAtUtc, "disabled");
+    }
+
+    private static ActiveStreamSnapshot CreateSlate(string sessionId, string channel, HostedStreamFormat format, DateTime startedAtUtc, string sourceCodec)
+    {
         ActiveStreamTrack[] tracks =
         [
-            new(MediaTrackType.Video, "protected", "h264", null, 2_500_000, 1280, 720, null, null, null),
-            new(MediaTrackType.Audio, "protected", "aac", null, 128_000, null, null, null, 2, 44_100)
+            new(MediaTrackType.Video, sourceCodec, "h264", null, 2_500_000, 1280, 720, null, null, null),
+            new(MediaTrackType.Audio, sourceCodec, "aac", null, 128_000, null, null, null, 2, 44_100)
         ];
         return new ActiveStreamSnapshot(sessionId, channel, format, startedAtUtc, null, tracks);
     }

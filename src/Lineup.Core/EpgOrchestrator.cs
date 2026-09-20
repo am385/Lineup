@@ -14,17 +14,19 @@ public class EpgOrchestrator
     private readonly CachedEpgDataProvider _epgDataProvider;
     private readonly IEpgRepository _repository;
     private readonly XmltvGuideStore _guideStore;
+    private readonly SiliconDustXmltvParser _parser;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="EpgOrchestrator"/> class.
     /// </summary>
-    public EpgOrchestrator(ILogger<EpgOrchestrator> logger, ChannelLineupStore channelLineupStore, CachedEpgDataProvider epgDataProvider, IEpgRepository repository, XmltvGuideStore guideStore)
+    public EpgOrchestrator(ILogger<EpgOrchestrator> logger, ChannelLineupStore channelLineupStore, CachedEpgDataProvider epgDataProvider, IEpgRepository repository, XmltvGuideStore guideStore, SiliconDustXmltvParser parser)
     {
         _logger = logger;
         _channelLineupStore = channelLineupStore;
         _epgDataProvider = epgDataProvider;
         _repository = repository;
         _guideStore = guideStore;
+        _parser = parser;
     }
 
     /// <summary>
@@ -37,7 +39,7 @@ public class EpgOrchestrator
     public async Task GenerateEpgAsync(int days, int hours, string filename)
     {
         await FetchAndStoreEpgAsync(days, force: true);
-        await _guideStore.CopyToAsync(filename);
+        await PublishEnabledGuideAsync(filename);
     }
 
     /// <summary>
@@ -94,7 +96,20 @@ public class EpgOrchestrator
     public Task GenerateEpgFromCacheAsync(int days, string filename)
     {
         _logger.LogInformation("Publishing the cached canonical XMLTV guide to {Filename}", filename);
-        return _guideStore.CopyToAsync(filename);
+        return PublishEnabledGuideAsync(filename);
+    }
+
+    private async Task PublishEnabledGuideAsync(string filename, CancellationToken cancellationToken = default)
+    {
+        var content = await _guideStore.ReadAsync(cancellationToken)
+            ?? throw new InvalidOperationException("No canonical XMLTV guide has been downloaded yet.");
+        var lineupSnapshot = await _channelLineupStore.ReadAsync(cancellationToken)
+            ?? throw new InvalidOperationException("No HDHomeRun channel lineup has been saved. Refresh Channels before publishing guide data.");
+        var enabledGuideNumbers = lineupSnapshot.Channels
+            .Where(channel => lineupSnapshot.IsChannelEnabled(channel.GuideNumber))
+            .Select(channel => channel.GuideNumber);
+        var filteredContent = _parser.FilterByGuideNumbers(content, enabledGuideNumbers);
+        await _guideStore.PublishAsync(filename, filteredContent, cancellationToken);
     }
 
     private async Task LogCacheStatisticsAsync()

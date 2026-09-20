@@ -1,4 +1,5 @@
 using Lineup.HDHomeRun.Device.Models;
+using Lineup.Core;
 using Lineup.Web.Controllers;
 using Lineup.Web.Services;
 using Microsoft.AspNetCore.Http;
@@ -90,7 +91,40 @@ public class HdHomeRunProxyControllerTests
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, result.StatusCode);
     }
 
-    private static HdHomeRunProxyController CreateController(HdHomeRunProxyProfileSnapshot profile, List<HDHomeRunChannel> channels, out IHdHomeRunProxyDeviceClient deviceClient)
+    /// <summary>
+    /// Verifies disabled channels are omitted from every virtual lineup representation.
+    /// </summary>
+    [Fact]
+    public async Task LineupEndpoints_DisabledChannel_IsOmitted()
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-proxy-");
+        try
+        {
+            var store = new ChannelLineupStore(Path.Combine(root.FullName, "channels.json"));
+            await store.StoreAsync([CreateChannel(), CreateChannel("9.1")], TestContext.Current.CancellationToken);
+            await store.SetChannelEnabledAsync("9.1", enabled: false, TestContext.Current.CancellationToken);
+            var profile = CreateProfile(isPrimary: true);
+            var controller = CreateController(profile, [CreateChannel(), CreateChannel("9.1")], out _, store);
+
+            // Act
+            var json = Assert.IsType<OkObjectResult>(await controller.Lineup());
+            var xml = Assert.IsType<ContentResult>(await controller.LineupXml());
+            var m3u = Assert.IsType<ContentResult>(await controller.LineupM3u());
+
+            // Assert
+            Assert.DoesNotContain("9.1", System.Text.Json.JsonSerializer.Serialize(json.Value));
+            Assert.DoesNotContain("9.1", xml.Content);
+            Assert.DoesNotContain("9.1", m3u.Content);
+            Assert.Contains("7.1", xml.Content);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    private static HdHomeRunProxyController CreateController(HdHomeRunProxyProfileSnapshot profile, List<HDHomeRunChannel> channels, out IHdHomeRunProxyDeviceClient deviceClient, ChannelLineupStore? store = null)
     {
         var profiles = Substitute.For<IHdHomeRunProxyProfileProvider>();
         if (profile.IsPrimary)
@@ -104,17 +138,18 @@ public class HdHomeRunProxyControllerTests
 
         deviceClient = Substitute.For<IHdHomeRunProxyDeviceClient>();
         deviceClient.FetchLineupAsync(profile, Arg.Any<CancellationToken>()).Returns(channels);
-        return CreateController(profiles, deviceClient);
+        return CreateController(profiles, deviceClient, store);
     }
 
-    private static HdHomeRunProxyController CreateController(IHdHomeRunProxyProfileProvider profiles, IHdHomeRunProxyDeviceClient? deviceClient = null)
+    private static HdHomeRunProxyController CreateController(IHdHomeRunProxyProfileProvider profiles, IHdHomeRunProxyDeviceClient? deviceClient = null, ChannelLineupStore? store = null)
     {
         var settings = Substitute.For<IAppSettingsService>();
         settings.Settings.Returns(new AppSettings
         {
             VirtualTunerVideoMode = VirtualTunerVideoMode.ConvertHevcToH264
         });
-        return new HdHomeRunProxyController(profiles, deviceClient ?? Substitute.For<IHdHomeRunProxyDeviceClient>(), settings)
+        store ??= new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-proxy-{Guid.NewGuid():N}.json"));
+        return new HdHomeRunProxyController(profiles, deviceClient ?? Substitute.For<IHdHomeRunProxyDeviceClient>(), settings, store)
         {
             ControllerContext = new ControllerContext
             {
@@ -153,9 +188,9 @@ public class HdHomeRunProxyControllerTests
         PhysicalBaseUri = new Uri("http://device/")
     };
 
-    private static HDHomeRunChannel CreateChannel() => new()
+    private static HDHomeRunChannel CreateChannel(string guideNumber = "7.1") => new()
     {
-        GuideNumber = "7.1",
+        GuideNumber = guideNumber,
         GuideName = "TEST",
         VideoCodec = "HEVC",
         AudioCodec = "AC4",

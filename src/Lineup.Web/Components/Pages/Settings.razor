@@ -450,13 +450,21 @@
                                 Preserve HEVC for Plex and Jellyfin to handle directly. Transcode only when a server or playback client cannot process HEVC Live TV.
                             </div>
                         </div>
-                        <div class="col-12">
+                        <div class="col-md-6">
                             <label for="protectedContentMode" class="form-label">DRM-Protected Content</label>
                             <select class="form-select" id="protectedContentMode" @bind="_protectedContentMode">
                                 <option value="@ProtectedContentMode.ReturnError">Return a protected-content error</option>
                                 <option value="@ProtectedContentMode.StreamSlate">Stream a Content Protected slate</option>
                             </select>
                             <div class="form-text">Return an error or a synthetic compatibility slate. Protected programming is never decrypted.</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="disabledChannelMode" class="form-label">Disabled Channels</label>
+                            <select class="form-select" id="disabledChannelMode" @bind="_disabledChannelMode">
+                                <option value="@DisabledChannelMode.ReturnError">Return a disabled-channel error</option>
+                                <option value="@DisabledChannelMode.StreamSlate">Stream a Disabled Channel slate</option>
+                            </select>
+                            <div class="form-text">Controls direct requests for channels disabled on the Channels page. Disabled streams never open a physical tuner.</div>
                         </div>
                     </div>
             </div>
@@ -880,6 +888,7 @@
                 <p><strong>Maximum Concurrent Streams:</strong> Limits active hosted streams across all formats. Set to 0 for unlimited.</p>
                 <p><strong>Active Stream Refresh:</strong> How often the Dashboard refreshes hosted stream details. Set to 0 to use manual refresh only. Default: 5 seconds.</p>
                 <p><strong>DRM-Protected Content:</strong> Return an error or stream a synthetic compatibility slate.</p>
+                <p><strong>Disabled Channels:</strong> Return an error or stream a synthetic Disabled Channel slate without opening a physical tuner.</p>
                 <p><strong>Virtual Tuner Audio:</strong> Preserve non-AC-4 audio codecs or transcode those tracks to AC-3/E-AC-3.</p>
                 <p><strong>AC-4 Audio:</strong> Preserve AC-4 for compatible receivers, or transcode it to AC-3/E-AC-3. AC-3 is the default.</p>
                 <p><strong>Virtual Tuner Video:</strong> Preserve HEVC by default, or transcode it to H.264 for compatibility at the cost of CPU and generation loss.</p>

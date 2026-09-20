@@ -59,9 +59,35 @@ h1:focus {
     text-align: start;
 }
 
+.channel-row-disabled > * {
+    background-color: rgba(var(--bs-secondary-rgb), 0.08);
+    color: var(--bs-secondary-color);
+}
+
+.channel-row-disabled > :first-child {
+    box-shadow: inset 0.2rem 0 var(--bs-secondary-color);
+}
+
+.channel-row-disabled > td:not(:first-child) {
+    opacity: 0.62;
+}
+
+.channel-row-disabled .badge,
+.channel-row-disabled .bi {
+    filter: saturate(0.2);
+}
+
+.channel-row-disabled .badge {
+    opacity: 0.72;
+}
+
 /* Dark mode overrides */
 [data-bs-theme="dark"] a, [data-bs-theme="dark"] .btn-link {
     color: #6cb4f0;
+}
+
+[data-bs-theme="dark"] .channel-row-disabled > * {
+    background-color: rgba(var(--bs-light-rgb), 0.035);
 }
 
 [data-bs-theme="dark"] .btn:focus,

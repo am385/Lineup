@@ -1,5 +1,6 @@
 using Lineup.Web.Services;
 using Lineup.HDHomeRun.Device;
+using Lineup.Core;
 using Lineup.Core.Storage;
 using Microsoft.AspNetCore.Mvc;
 using System.Diagnostics;
@@ -24,6 +25,7 @@ public class StreamController : ControllerBase
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IEpgRepository _epgRepository;
     private readonly IAppSettingsService _settingsService;
+    private readonly ChannelLineupStore _channelLineupStore;
     private readonly IDeviceStateService _deviceState;
     private readonly IHdHomeRunProxyProfileProvider _proxyProfiles;
     private readonly IMpegTsTranscodeService _mpegTsTranscodeService;
@@ -52,6 +54,7 @@ public class StreamController : ControllerBase
     /// <param name="httpClientFactory">Factory for direct HDHomeRun diagnostic requests.</param>
     /// <param name="epgRepository">Provides cached channel DRM metadata.</param>
     /// <param name="settingsService">Provides device and transcode settings.</param>
+    /// <param name="channelLineupStore">Provides persisted channel availability choices.</param>
     /// <param name="deviceState">Provides physical device information for Watch streams.</param>
     /// <param name="proxyProfiles">Resolves optional device-scoped proxy streams.</param>
     /// <param name="mpegTsTranscodeService">Produces the transparent MPEG-TS stream.</param>
@@ -69,6 +72,7 @@ public class StreamController : ControllerBase
         IHttpClientFactory httpClientFactory,
         IEpgRepository epgRepository,
         IAppSettingsService settingsService,
+        ChannelLineupStore channelLineupStore,
         IDeviceStateService deviceState,
         IHdHomeRunProxyProfileProvider proxyProfiles,
         IMpegTsTranscodeService mpegTsTranscodeService,
@@ -86,6 +90,7 @@ public class StreamController : ControllerBase
         _httpClientFactory = httpClientFactory;
         _epgRepository = epgRepository;
         _settingsService = settingsService;
+        _channelLineupStore = channelLineupStore;
         _deviceState = deviceState;
         _proxyProfiles = proxyProfiles;
         _mpegTsTranscodeService = mpegTsTranscodeService;
@@ -122,6 +127,12 @@ public class StreamController : ControllerBase
             return string.IsNullOrWhiteSpace(virtualDeviceId)
                 ? StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = "The primary HDHomeRun device is unavailable." })
                 : NotFound(new { error = "The requested virtual HDHomeRun device was not found." });
+        }
+
+        var disabledResult = await HandleDisabledMpegTsAsync(channel);
+        if (disabledResult != null)
+        {
+            return disabledResult;
         }
 
         if (!TryBuildStreamUri(profile.PhysicalBaseUri.Host, channel, transcode, out var streamUri))
@@ -232,6 +243,81 @@ public class StreamController : ControllerBase
         return (physicalBaseUri, tunerCount);
     }
 
+    private async Task<IActionResult?> HandleDisabledMpegTsAsync(string channel)
+    {
+        if (!await IsChannelDisabledAsync(channel))
+        {
+            return null;
+        }
+
+        if (_settingsService.Settings.DisabledChannelMode == DisabledChannelMode.ReturnError)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = $"Channel {channel} is disabled." });
+        }
+
+        var sessionId = Guid.NewGuid().ToString("N")[..8];
+        _activeStreamRegistry.Register(ActiveStreamPlanFactory.CreateDisabledSlate(sessionId, channel, HostedStreamFormat.MpegTs, DateTime.UtcNow));
+        Response.ContentType = "video/mp2t";
+        Response.Headers.CacheControl = "no-cache, no-store";
+        try
+        {
+            await _protectedContentSlateService.StreamAsync(
+                HostedStreamFormat.MpegTs,
+                channel,
+                Response.Body,
+                HttpContext.RequestAborted,
+                ChannelSlateReason.DisabledChannel);
+        }
+        catch (OperationCanceledException) when (HttpContext.RequestAborted.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            _activeStreamRegistry.Unregister(sessionId);
+        }
+
+        return new EmptyResult();
+    }
+
+    private async Task<bool> HandleDisabledPipeStreamAsync(string channel, HostedStreamFormat format)
+    {
+        if (!await IsChannelDisabledAsync(channel))
+        {
+            return false;
+        }
+
+        if (_settingsService.Settings.DisabledChannelMode == DisabledChannelMode.ReturnError)
+        {
+            Response.StatusCode = StatusCodes.Status403Forbidden;
+            await Response.WriteAsJsonAsync(new { error = $"Channel {channel} is disabled." }, HttpContext.RequestAborted);
+            return true;
+        }
+
+        var sessionId = Guid.NewGuid().ToString("N")[..8];
+        _activeStreamRegistry.Register(ActiveStreamPlanFactory.CreateDisabledSlate(sessionId, channel, format, DateTime.UtcNow));
+        Response.ContentType = format == HostedStreamFormat.FragmentedMp4 ? "video/mp4" : "video/mp2t";
+        Response.Headers.CacheControl = "no-cache, no-store";
+        try
+        {
+            await _protectedContentSlateService.StreamAsync(format, channel, Response.Body, HttpContext.RequestAborted, ChannelSlateReason.DisabledChannel);
+        }
+        catch (OperationCanceledException) when (HttpContext.RequestAborted.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            _activeStreamRegistry.Unregister(sessionId);
+        }
+
+        return true;
+    }
+
+    private async Task<bool> IsChannelDisabledAsync(string channel)
+    {
+        var snapshot = await _channelLineupStore.ReadAsync(HttpContext.RequestAborted);
+        return snapshot?.IsChannelEnabled(channel) == false;
+    }
+
     /// <summary>
     /// Builds an HDHomeRun stream URI with an optional validated hardware transcode profile.
     /// </summary>
@@ -280,6 +366,16 @@ public class StreamController : ControllerBase
     [HttpGet("test/{channel}")]
     public async Task<IActionResult> TestTranscode(string channel, [FromQuery] string transcode = "heavy")
     {
+        if (await IsChannelDisabledAsync(channel))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                success = false,
+                channel,
+                message = $"Channel {channel} is disabled."
+            });
+        }
+
         if (!TryBuildStreamUri(_settingsService.Settings.DeviceAddress, channel, transcode, out var streamUri))
         {
             return BadRequest(new { success = false, message = "transcode must be one of: none, mobile, heavy, internet720, internet480, internet360" });
@@ -350,6 +446,11 @@ public class StreamController : ControllerBase
         [FromQuery] int? audioTrack = null,
         [FromQuery] int? subtitleTrack = null)
     {
+        if (await HandleDisabledPipeStreamAsync(channel, HostedStreamFormat.FragmentedMp4))
+        {
+            return;
+        }
+
         var device = GetWatchDevice();
         TryBuildStreamUri(device.PhysicalBaseUri.Host, channel, "none", out var sourceUri);
         await using var tunerCapacityLease = await _tunerCapacityLeases.TryAcquireAsync(device.PhysicalBaseUri, sourceUri, device.TunerCount, HttpContext.RequestAborted);
@@ -666,15 +767,26 @@ public class StreamController : ControllerBase
     [HttpPost("hls/start/{channel}")]
     public async Task<IActionResult> StartHlsStream(string channel)
     {
-        var device = GetWatchDevice();
-        TryBuildStreamUri(device.PhysicalBaseUri.Host, channel, "none", out var sourceUri);
-        var capacityLease = await _tunerCapacityLeases.TryAcquireAsync(device.PhysicalBaseUri, sourceUri, device.TunerCount, HttpContext.RequestAborted);
-        if (capacityLease == null)
+        var disabled = await IsChannelDisabledAsync(channel);
+        if (disabled && _settingsService.Settings.DisabledChannelMode == DisabledChannelMode.ReturnError)
         {
-            return HdHomeRunStreamError.CreateNoTunerAvailableResult(Response);
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = $"Channel {channel} is disabled." });
         }
 
-        var streamUrl = sourceUri.AbsoluteUri;
+        ITunerCapacityLease? capacityLease = null;
+        string? streamUrl = null;
+        if (!disabled)
+        {
+            var device = GetWatchDevice();
+            TryBuildStreamUri(device.PhysicalBaseUri.Host, channel, "none", out var sourceUri);
+            capacityLease = await _tunerCapacityLeases.TryAcquireAsync(device.PhysicalBaseUri, sourceUri, device.TunerCount, HttpContext.RequestAborted);
+            if (capacityLease == null)
+            {
+                return HdHomeRunStreamError.CreateNoTunerAvailableResult(Response);
+            }
+
+            streamUrl = sourceUri.AbsoluteUri;
+        }
 
         // Generate unique session ID
         var sessionId = Guid.NewGuid().ToString("N")[..8];
@@ -727,16 +839,24 @@ public class StreamController : ControllerBase
                 CreateNoWindow = true
             };
 
-            var process = Process.Start(startInfo);
+            var process = disabled
+                ? _protectedContentSlateService.StartHls(channel, playlistPath, ChannelSlateReason.DisabledChannel)
+                : Process.Start(startInfo);
 
             if (process == null)
             {
-                await capacityLease.DisposeAsync();
+                if (capacityLease != null)
+                {
+                    await capacityLease.DisposeAsync();
+                }
                 Directory.Delete(hlsDir, recursive: true);
                 return StatusCode(500, new { error = "Failed to start FFmpeg process" });
             }
 
-            _ = TunerInputPump.PumpAsync(_tunerStreamMultiplexer, new Uri(streamUrl), process, _logger, HttpContext.RequestAborted);
+            if (!disabled)
+            {
+                _ = TunerInputPump.PumpAsync(_tunerStreamMultiplexer, new Uri(streamUrl!), process, _logger, HttpContext.RequestAborted);
+            }
 
             var session = new HlsSession
             {
@@ -750,7 +870,10 @@ public class StreamController : ControllerBase
             };
 
             RegisterHlsSession(session);
-            var activeStream = ActiveStreamPlanFactory.CreateHls(sessionId, channel, session.StartTime, new MediaProbeResult([], null), outputVideoBitRate) with
+            var activeStream = disabled
+                ? ActiveStreamPlanFactory.CreateDisabledSlate(sessionId, channel, HostedStreamFormat.Hls, session.StartTime)
+                : ActiveStreamPlanFactory.CreateHls(sessionId, channel, session.StartTime, new MediaProbeResult([], null), outputVideoBitRate);
+            activeStream = activeStream with
             {
                 ClientAddress = FormatClientAddress(HttpContext.Connection.RemoteIpAddress, HttpContext.Connection.RemotePort)
             };
@@ -767,8 +890,8 @@ public class StreamController : ControllerBase
             var ffmpegErrors = new ConcurrentQueue<string>();
 
             // Log FFmpeg output in background
-            StartHlsErrorMonitor(process, session, ffmpegErrors, parseSourceMetadata: true, outputVideoBitRate);
-            var usingProtectedSlate = false;
+            StartHlsErrorMonitor(process, session, ffmpegErrors, parseSourceMetadata: !disabled, outputVideoBitRate);
+            var usingSyntheticSlate = disabled;
 
             // Wait for playlist AND at least 2 segments to be created (up to 20 seconds)
             // This ensures the browser has enough content to start playing
@@ -779,8 +902,8 @@ public class StreamController : ControllerBase
                 if (process.HasExited)
                 {
                     var exitCode = process.ExitCode;
-                    var tunerError = usingProtectedSlate ? null : await GetTunerErrorAsync(new Uri(streamUrl), HttpContext.RequestAborted);
-                    if (!usingProtectedSlate && await IsContentProtectedAsync(channel, tunerError))
+                    var tunerError = usingSyntheticSlate ? null : await GetTunerErrorAsync(new Uri(streamUrl!), HttpContext.RequestAborted);
+                    if (!usingSyntheticSlate && await IsContentProtectedAsync(channel, tunerError))
                     {
                         if (_settingsService.Settings.ProtectedContentMode == ProtectedContentMode.StreamSlate)
                         {
@@ -807,7 +930,7 @@ public class StreamController : ControllerBase
                             tunerSession.Process.Dispose();
                             _activeStreamRegistry.Register(ActiveStreamPlanFactory.CreateProtectedSlate(sessionId, channel, HostedStreamFormat.Hls, session.StartTime));
                             StartHlsErrorMonitor(process, session, ffmpegErrors, parseSourceMetadata: false, outputVideoBitRate);
-                            usingProtectedSlate = true;
+                            usingSyntheticSlate = true;
                             continue;
                         }
 

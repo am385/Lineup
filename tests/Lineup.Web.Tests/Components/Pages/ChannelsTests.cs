@@ -56,6 +56,13 @@ public class ChannelsTests
                 NullLogger<ChannelLineupRefreshService>.Instance,
                 provider,
                 store));
+            context.Services.AddSingleton(new EpgOrchestrator(
+                NullLogger<EpgOrchestrator>.Instance,
+                store,
+                null!,
+                null!,
+                null!,
+                new SiliconDustXmltvParser()));
 
             // Act
             var component = context.Render<Channels>();
@@ -70,6 +77,17 @@ public class ChannelsTests
                 Assert.Contains("90%", component.Markup);
                 Assert.Single(component.FindAll("[aria-label='Favorite channel']"));
             });
+
+            // Act
+            component.Find("[aria-label='Disable channel 7.1']").Change(false);
+            component.WaitForAssertion(() => Assert.NotNull(component.Find("[aria-label='Enable channel 7.1']")));
+            var updated = await store.ReadAsync(Xunit.TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.False(updated!.IsChannelEnabled("7.1"));
+            Assert.DoesNotContain("Channel 7.1 is now disabled.", component.Markup);
+            Assert.Contains("channel-row-disabled", component.Markup);
+            Assert.DoesNotContain("table-secondary", component.Markup);
         }
         finally
         {
