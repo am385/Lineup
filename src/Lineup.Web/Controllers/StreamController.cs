@@ -203,10 +203,26 @@ public class StreamController : ControllerBase
                     {
                         await tunerCapacityLease.DisposeAsync();
                         var startedAtUtc = DateTime.UtcNow;
-                        _activeStreamRegistry.Register(ActiveStreamPlanFactory.CreateProtectedSlate(sessionId, channel, HostedStreamFormat.MpegTs, startedAtUtc));
+                        var activeStream = ActiveStreamPlanFactory.CreateProtectedSlate(sessionId, channel, HostedStreamFormat.MpegTs, startedAtUtc) with
+                        {
+                            ClientAddress = FormatClientAddress(HttpContext.Connection.RemoteIpAddress, HttpContext.Connection.RemotePort)
+                        };
+                        if (!_activeStreamRegistry.TryRegister(activeStream, _settingsService.Settings.MaximumConcurrentStreams, HttpContext.Abort))
+                        {
+                            return StatusCode(StatusCodes.Status429TooManyRequests, new { error = StreamLimitError });
+                        }
+
                         Response.ContentType = "video/mp2t";
                         Response.Headers.CacheControl = "no-cache, no-store";
-                        await _protectedContentSlateService.StreamAsync(HostedStreamFormat.MpegTs, channel, Response.Body, HttpContext.RequestAborted);
+                        try
+                        {
+                            await _protectedContentSlateService.StreamAsync(HostedStreamFormat.MpegTs, channel, Response.Body, HttpContext.RequestAborted);
+                        }
+                        catch (OperationCanceledException) when (HttpContext.RequestAborted.IsCancellationRequested)
+                        {
+                            _logger.LogDebug("Protected-content slate closed for channel {Channel}", channel);
+                        }
+
                         return new EmptyResult();
                     }
 
@@ -256,7 +272,15 @@ public class StreamController : ControllerBase
         }
 
         var sessionId = Guid.NewGuid().ToString("N")[..8];
-        _activeStreamRegistry.Register(ActiveStreamPlanFactory.CreateDisabledSlate(sessionId, channel, HostedStreamFormat.MpegTs, DateTime.UtcNow));
+        var activeStream = ActiveStreamPlanFactory.CreateDisabledSlate(sessionId, channel, HostedStreamFormat.MpegTs, DateTime.UtcNow) with
+        {
+            ClientAddress = FormatClientAddress(HttpContext.Connection.RemoteIpAddress, HttpContext.Connection.RemotePort)
+        };
+        if (!_activeStreamRegistry.TryRegister(activeStream, _settingsService.Settings.MaximumConcurrentStreams, HttpContext.Abort))
+        {
+            return StatusCode(StatusCodes.Status429TooManyRequests, new { error = StreamLimitError });
+        }
+
         Response.ContentType = "video/mp2t";
         Response.Headers.CacheControl = "no-cache, no-store";
         try
@@ -279,7 +303,7 @@ public class StreamController : ControllerBase
         return new EmptyResult();
     }
 
-    private async Task<bool> HandleDisabledPipeStreamAsync(string channel, HostedStreamFormat format)
+    private async Task<bool> HandleDisabledPipeStreamAsync(string channel, HostedStreamFormat format, string? clientId = null)
     {
         if (!await IsChannelDisabledAsync(channel))
         {
@@ -294,7 +318,18 @@ public class StreamController : ControllerBase
         }
 
         var sessionId = Guid.NewGuid().ToString("N")[..8];
-        _activeStreamRegistry.Register(ActiveStreamPlanFactory.CreateDisabledSlate(sessionId, channel, format, DateTime.UtcNow));
+        var activeStream = ActiveStreamPlanFactory.CreateDisabledSlate(sessionId, channel, format, DateTime.UtcNow) with
+        {
+            ClientAddress = FormatClientAddress(HttpContext.Connection.RemoteIpAddress, HttpContext.Connection.RemotePort),
+            ClientId = clientId
+        };
+        if (!_activeStreamRegistry.TryRegister(activeStream, _settingsService.Settings.MaximumConcurrentStreams, HttpContext.Abort))
+        {
+            Response.StatusCode = StatusCodes.Status429TooManyRequests;
+            await Response.WriteAsJsonAsync(new { error = StreamLimitError }, HttpContext.RequestAborted);
+            return true;
+        }
+
         Response.ContentType = format == HostedStreamFormat.FragmentedMp4 ? "video/mp4" : "video/mp2t";
         Response.Headers.CacheControl = "no-cache, no-store";
         try
@@ -446,7 +481,7 @@ public class StreamController : ControllerBase
         [FromQuery] int? audioTrack = null,
         [FromQuery] int? subtitleTrack = null)
     {
-        if (await HandleDisabledPipeStreamAsync(channel, HostedStreamFormat.FragmentedMp4))
+        if (await HandleDisabledPipeStreamAsync(channel, HostedStreamFormat.FragmentedMp4, clientId))
         {
             return;
         }
@@ -792,6 +827,26 @@ public class StreamController : ControllerBase
         var sessionId = Guid.NewGuid().ToString("N")[..8];
         var outputVideoBitRate = _settingsService.Settings.MaximumVideoBitRateMbps * 1_000_000L;
         var hlsDir = Path.Combine(Path.GetTempPath(), "hdhomerun-hls", sessionId);
+        var stopRequested = 0;
+
+        if (disabled)
+        {
+            var activeStream = ActiveStreamPlanFactory.CreateDisabledSlate(sessionId, channel, HostedStreamFormat.Hls, DateTime.UtcNow) with
+            {
+                ClientAddress = FormatClientAddress(HttpContext.Connection.RemoteIpAddress, HttpContext.Connection.RemotePort)
+            };
+            if (!_activeStreamRegistry.TryRegister(
+                activeStream,
+                _settingsService.Settings.MaximumConcurrentStreams,
+                () =>
+                {
+                    Interlocked.Exchange(ref stopRequested, 1);
+                    StopHlsSession(sessionId);
+                }))
+            {
+                return StatusCode(StatusCodes.Status429TooManyRequests, new { error = StreamLimitError });
+            }
+        }
 
         _logger.LogInformation("Starting HLS stream for channel {Channel}, session {SessionId}, dir {Dir}", channel, sessionId, hlsDir);
 
@@ -827,6 +882,13 @@ public class StreamController : ControllerBase
                 $"\"{playlistPath}\"";
 
             _logger.LogInformation("FFmpeg command: ffmpeg {Args}", ffmpegArgs);
+            HttpContext.RequestAborted.ThrowIfCancellationRequested();
+            if (Volatile.Read(ref stopRequested) != 0)
+            {
+                _activeStreamRegistry.Unregister(sessionId);
+                Directory.Delete(hlsDir, recursive: true);
+                return new EmptyResult();
+            }
 
             var startInfo = new ProcessStartInfo
             {
@@ -850,6 +912,7 @@ public class StreamController : ControllerBase
                     await capacityLease.DisposeAsync();
                 }
                 Directory.Delete(hlsDir, recursive: true);
+                _activeStreamRegistry.Unregister(sessionId);
                 return StatusCode(500, new { error = "Failed to start FFmpeg process" });
             }
 
@@ -870,20 +933,30 @@ public class StreamController : ControllerBase
             };
 
             RegisterHlsSession(session);
-            var activeStream = disabled
-                ? ActiveStreamPlanFactory.CreateDisabledSlate(sessionId, channel, HostedStreamFormat.Hls, session.StartTime)
-                : ActiveStreamPlanFactory.CreateHls(sessionId, channel, session.StartTime, new MediaProbeResult([], null), outputVideoBitRate);
-            activeStream = activeStream with
-            {
-                ClientAddress = FormatClientAddress(HttpContext.Connection.RemoteIpAddress, HttpContext.Connection.RemotePort)
-            };
-            if (!_activeStreamRegistry.TryRegister(
-                activeStream,
-                _settingsService.Settings.MaximumConcurrentStreams,
-                () => StopHlsSession(sessionId)))
+            if (HttpContext.RequestAborted.IsCancellationRequested || Volatile.Read(ref stopRequested) != 0)
             {
                 StopHlsSession(sessionId);
-                return StatusCode(StatusCodes.Status429TooManyRequests, new { error = StreamLimitError });
+                return new EmptyResult();
+            }
+
+            if (!disabled)
+            {
+                var activeStream = ActiveStreamPlanFactory.CreateHls(sessionId, channel, session.StartTime, new MediaProbeResult([], null), outputVideoBitRate) with
+                {
+                    ClientAddress = FormatClientAddress(HttpContext.Connection.RemoteIpAddress, HttpContext.Connection.RemotePort)
+                };
+                if (!_activeStreamRegistry.TryRegister(
+                    activeStream,
+                    _settingsService.Settings.MaximumConcurrentStreams,
+                    () =>
+                    {
+                        Interlocked.Exchange(ref stopRequested, 1);
+                        StopHlsSession(sessionId);
+                    }))
+                {
+                    StopHlsSession(sessionId);
+                    return StatusCode(StatusCodes.Status429TooManyRequests, new { error = StreamLimitError });
+                }
             }
 
             // Capture FFmpeg stderr for error reporting
@@ -898,6 +971,12 @@ public class StreamController : ControllerBase
             var segmentCount = 0;
             for (int i = 0; i < 200; i++)
             {
+                if (Volatile.Read(ref stopRequested) != 0)
+                {
+                    StopHlsSession(sessionId);
+                    return new EmptyResult();
+                }
+
                 // Check if process died
                 if (process.HasExited)
                 {
@@ -976,10 +1055,24 @@ public class StreamController : ControllerBase
 
             return Ok(new { sessionId, channel, playlistUrl = $"/api/stream/hls/{sessionId}/stream.m3u8", segmentCount, message = "HLS stream started" });
         }
+        catch (OperationCanceledException) when (HttpContext.RequestAborted.IsCancellationRequested)
+        {
+            if (!StopHlsSession(sessionId))
+            {
+                _activeStreamRegistry.Unregister(sessionId);
+                capacityLease?.Dispose();
+                if (Directory.Exists(hlsDir))
+                {
+                    Directory.Delete(hlsDir, recursive: true);
+                }
+            }
+            return new EmptyResult();
+        }
         catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 2)
         {
             if (!StopHlsSession(sessionId))
             {
+                _activeStreamRegistry.Unregister(sessionId);
                 capacityLease?.Dispose();
                 if (Directory.Exists(hlsDir))
                 {
@@ -992,6 +1085,7 @@ public class StreamController : ControllerBase
         {
             if (!StopHlsSession(sessionId))
             {
+                _activeStreamRegistry.Unregister(sessionId);
                 capacityLease?.Dispose();
             }
             _logger.LogError(ex, "Error starting HLS stream for channel {Channel}", channel);

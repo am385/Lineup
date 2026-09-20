@@ -885,7 +885,7 @@
                 {
                 <h6>Transcode</h6>
                 <p><strong>Maximum Video Bitrate:</strong> Caps transcoded video across hosted formats. The 10 Mbps default is suitable for high-motion 1080p video.</p>
-                <p><strong>Maximum Concurrent Streams:</strong> Limits active hosted streams across all formats. Set to 0 for unlimited.</p>
+                <p><strong>Maximum Concurrent Streams:</strong> Limits active hosted streams across all formats, including synthetic DRM and disabled-channel slates. Slates do not consume tuner capacity. Set to 0 for unlimited.</p>
                 <p><strong>Active Stream Refresh:</strong> How often the Dashboard refreshes hosted stream details. Set to 0 to use manual refresh only. Default: 5 seconds.</p>
                 <p><strong>DRM-Protected Content:</strong> Return an error or stream a synthetic compatibility slate.</p>
                 <p><strong>Disabled Channels:</strong> Return an error or stream a synthetic Disabled Channel slate without opening a physical tuner.</p>

@@ -275,7 +275,7 @@ Virtual Tuner Video can optionally transcode HEVC to H.264 for clients that cann
 
 Jellyfin FFmpeg's AC-4 support is decoder-only and does not support every object-based or Dolby Atmos AC-4 presentation. Unsupported presentations are reported as stream errors rather than silently copied or discarded. The HLS and fMP4 endpoints continue to encode audio as AAC.
 
-When an HDHomeRun reports DRM error 811, API streams return a protected-content error by default. The Transcode Settings page can instead enable a synthetic **Content Protected** slate. The fallback is generated locally as H.264 video with silent AAC audio in the requested MPEG-TS, fMP4, or HLS format; protected programming is never decrypted.
+When an HDHomeRun reports DRM error 811, API streams return a protected-content error by default. The Transcode Settings page can instead enable a synthetic **Content Protected** slate. The fallback is generated locally as H.264 video with silent AAC audio in the requested MPEG-TS, fMP4, or HLS format; protected programming is never decrypted. Synthetic DRM and disabled-channel slates count toward **Maximum Concurrent Streams** but do not consume physical tuner capacity.
 
 ## Configuration
 
@@ -407,7 +407,8 @@ is read immediately before every request because SiliconDust rotates it regularl
 Lineup atomically limits HDHomeRun-compatible MPEG-TS routes to each profile's effective physical tuner count. Receivers for the exact same upstream
 channel and hardware-transcode source share one tuner lease through the stream multiplexer. Different channels consume separate slots. This includes
 the legacy `/api/stream/{channel}` route for the primary profile, so it does not double-count a matching `/auto/v{channel}` source. Browser-specific
-fMP4 and HLS workflows are outside the HDHomeRun-compatible route lease boundary and remain governed by **Maximum Concurrent Streams**.
+fMP4 and HLS workflows are outside the HDHomeRun-compatible route lease boundary and remain governed by **Maximum Concurrent Streams**. The same
+host-wide stream limit applies to synthetic DRM and disabled-channel slates in every format even though those slates do not consume tuner capacity.
 
 Network discovery is disabled by default to avoid UDP port conflicts. To enable it, turn on **Enable UDP and SSDP network discovery** and configure an
 absolute HTTP or HTTPS **Advertised base URL** for every profile that should be discovered. This must be a Lineup address reachable by media servers;

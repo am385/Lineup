@@ -283,18 +283,23 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
     public bool RequestStop(string sessionId)
     {
         ActiveStreamRegistration registration;
+        Action stop;
         lock (_registrationLock)
         {
-            if (!_streams.TryRemove(sessionId, out var removed) || removed is null || removed.Stop is null)
+            if (!_streams.TryGetValue(sessionId, out var current) ||
+                current.Stop is not { } stopAction ||
+                !_streams.TryRemove(sessionId, out var removed) ||
+                removed is null)
             {
                 return false;
             }
 
             registration = removed;
+            stop = stopAction;
         }
 
         StopRequested?.Invoke(registration.Snapshot);
-        registration.Stop();
+        stop();
         return true;
     }
 
