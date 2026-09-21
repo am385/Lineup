@@ -32,11 +32,7 @@ public sealed class FactoryResetService : IFactoryResetService
     /// <param name="settings">Current persisted application settings.</param>
     /// <param name="applicationLifetime">Application shutdown controller.</param>
     /// <param name="logger">Reset diagnostics logger.</param>
-    public FactoryResetService(
-        AppDataStore appDataStore,
-        IAppSettingsService settings,
-        IHostApplicationLifetime applicationLifetime,
-        ILogger<FactoryResetService> logger)
+    public FactoryResetService(AppDataStore appDataStore, IAppSettingsService settings, IHostApplicationLifetime applicationLifetime, ILogger<FactoryResetService> logger)
     {
         _appDataStore = appDataStore;
         _settings = settings;
@@ -162,6 +158,8 @@ public static class FactoryResetCoordinator
         appDataStore.DeleteFile(appDataStore.GuideCachePath);
         appDataStore.DeleteFile($"{appDataStore.GuideCachePath}.generation");
         appDataStore.DeleteMatchingFiles(appDataStore.RootPath, $"{Path.GetFileName(appDataStore.GuideCachePath)}.*.tmp");
+        appDataStore.DeleteFile(appDataStore.ChannelLineupPath);
+        appDataStore.DeleteMatchingFiles(appDataStore.RootPath, $"{Path.GetFileName(appDataStore.ChannelLineupPath)}.*.tmp");
     }
 
     private static void DeleteOutputFile(string path)

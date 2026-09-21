@@ -179,6 +179,10 @@ public class EpgAutoFetchService : BackgroundService
             await Task.Delay(delay, delayCts.Token);
             return true;
         }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            return true;
+        }
         catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
         {
             // Settings changed, delay was cancelled - this is expected
@@ -204,6 +208,12 @@ public class EpgAutoFetchService : BackgroundService
                 _logger.LogInformation("Auto-fetch: {Message}", info.Message);
             }
         });
+
+        if (_settingsService.Settings.RefreshChannelsBeforeGuideFetch)
+        {
+            _logger.LogInformation("Refreshing physical HDHomeRun channels before the automatic guide fetch");
+            await scope.ServiceProvider.GetRequiredService<ChannelLineupRefreshService>().RefreshAsync(stoppingToken);
+        }
 
         await orchestrator.FetchAndStoreEpgAsync(TargetDays, force: false, progress, stoppingToken);
 

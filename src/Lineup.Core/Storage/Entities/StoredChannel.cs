@@ -44,6 +44,11 @@ public class StoredChannel
     public bool DRM { get; set; }
 
     /// <summary>
+    /// Whether the device lineup marks this channel as a favorite.
+    /// </summary>
+    public bool Favorite { get; set; }
+
+    /// <summary>
     /// When this channel data was last updated
     /// </summary>
     public DateTime LastUpdatedUtc { get; set; }

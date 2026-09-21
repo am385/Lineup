@@ -372,8 +372,9 @@ src/Lineup.Web/settings.json
 src/Lineup.Web/.ffmpeg/
 /src/Lineup.Web/data-protection-keys/
 
-src/Lineup.Web/epg.xml
+epg.xml
 /src/Lineup.Web/lineup_cache.xmltv
+/src/Lineup.Web/lineup_cache.channels.json
 /src/Lineup.Web/settings.json.bak
 /src/Lineup.Web/lineup_cache.xmltv.generation
 /tests/Lineup.Web.Tests/Components/Pages/SettingsTests.cs

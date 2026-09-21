@@ -1,0 +1,164 @@
+@page "/channels"
+@using Lineup.Core
+@rendermode InteractiveServer
+
+<PageTitle>Channels</PageTitle>
+
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+        <h1 class="mb-0"><span class="bi bi-list-check me-2"></span>HDHomeRun Channels</h1>
+        <p class="text-muted mb-0">Channels currently available from the enabled physical tuners.</p>
+    </div>
+    <button class="btn btn-primary" @onclick="RefreshChannels" disabled="@_isRefreshing">
+        @if (_isRefreshing)
+        {
+            <span class="spinner-border spinner-border-sm me-1"></span>
+        }
+        <span class="bi bi-arrow-clockwise me-1"></span>Refresh Channels
+    </button>
+</div>
+
+@if (!string.IsNullOrEmpty(_statusMessage))
+{
+    <div class="alert @(_isError ? "alert-danger" : "alert-success") alert-dismissible fade show">
+        @_statusMessage
+        <button type="button" class="btn-close" @onclick="ClearStatus"></button>
+    </div>
+}
+
+@if (_isLoading)
+{
+    <div class="text-center py-5">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading channels...</span>
+        </div>
+    </div>
+}
+else if (_channelLineup == null)
+{
+    <div class="card">
+        <div class="card-body text-center text-muted py-5">
+            <span class="bi bi-broadcast display-5"></span>
+            <h5 class="mt-3">No saved tuner lineup</h5>
+            <p class="mb-0">Refresh channels to query the enabled physical HDHomeRun devices without downloading guide data.</p>
+        </div>
+    </div>
+}
+else
+{
+    <div class="row row-cols-1 row-cols-md-5 g-3 mb-4">
+        <div class="col">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <div class="text-muted small">Channels</div>
+                    <div class="display-6">@_channelLineup.Channels.Count</div>
+                </div>
+            </div>
+        </div>
+        <div class="col">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <div class="text-muted small">Enabled</div>
+                    <div class="display-6 text-success">@_channelLineup.EnabledChannelCount</div>
+                </div>
+            </div>
+        </div>
+        <div class="col">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <div class="text-muted small">Disabled</div>
+                    <div class="display-6 text-secondary">@_channelLineup.DisabledGuideNumbers.Count</div>
+                </div>
+            </div>
+        </div>
+        <div class="col">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <div class="text-muted small">Favorites</div>
+                    <div class="display-6">@_channelLineup.Channels.Count(channel => channel.Favorite)</div>
+                </div>
+            </div>
+        </div>
+        <div class="col">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <div class="text-muted small">Last Updated</div>
+                    <div class="h5 mt-3 mb-0">@Tz.ConvertFromUtc(_channelLineup.RefreshedAtUtc).ToString("yyyy-MM-dd HH:mm:ss")</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h5 class="mb-0">Saved Tuner Lineup</h5>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Enabled</th>
+                            <th>Channel</th>
+                            <th>Name</th>
+                            <th>Flags</th>
+                            <th>Video</th>
+                            <th>Audio</th>
+                            <th>Signal</th>
+                            <th>Quality</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var channel in _channelLineup.Channels.OrderBy(
+                            channel => channel.GuideNumber,
+                            ChannelNumberComparer.Instance))
+                        {
+                            var isEnabled = _channelLineup.IsChannelEnabled(channel.GuideNumber);
+                            <tr class="@(!isEnabled ? "channel-row-disabled" : null)">
+                                <td>
+                                    <div class="form-check form-switch mb-0">
+                                        <input class="form-check-input"
+                                               type="checkbox"
+                                               role="switch"
+                                               aria-label="@($"{(isEnabled ? "Disable" : "Enable")} channel {channel.GuideNumber}")"
+                                               checked="@isEnabled"
+                                               disabled="@_updatingChannels.Contains(channel.GuideNumber)"
+                                               @onchange="eventArgs => SetChannelEnabled(channel.GuideNumber, eventArgs.Value is true)" />
+                                    </div>
+                                </td>
+                                <td><strong>@channel.GuideNumber</strong></td>
+                                <td>@channel.GuideName</td>
+                                <td>
+                                    @if (channel.Favorite)
+                                    {
+                                        <span class="badge text-bg-warning me-1" aria-label="Favorite channel">
+                                            <span class="bi bi-star-fill me-1"></span>Favorite
+                                        </span>
+                                    }
+                                    @if (channel.DRM)
+                                    {
+                                        <span class="badge text-bg-danger me-1" aria-label="DRM-protected channel">
+                                            <span class="bi bi-shield-lock-fill me-1"></span>DRM
+                                        </span>
+                                    }
+                                    @if (channel.HD)
+                                    {
+                                        <span class="badge text-bg-info">HD</span>
+                                    }
+                                    @if (!channel.Favorite && !channel.DRM && !channel.HD)
+                                    {
+                                        <span class="text-muted">—</span>
+                                    }
+                                </td>
+                                <td>@FormatValue(channel.VideoCodec)</td>
+                                <td>@FormatValue(channel.AudioCodec)</td>
+                                <td>@FormatPercentage(channel.SignalStrength)</td>
+                                <td>@FormatPercentage(channel.SignalQuality)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}

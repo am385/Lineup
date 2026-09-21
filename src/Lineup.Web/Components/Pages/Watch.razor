@@ -298,7 +298,7 @@
                 {
                     <div class="text-center py-4">
                         <span class="bi bi-info-circle text-muted"></span>
-                        <p class="text-muted small mt-2 mb-0">No guide channels available.<br/>Enter a channel number above to tune manually.</p>
+                        <p class="text-muted small mt-2 mb-0">No enabled channels available.<br/>Enter a channel number above to tune manually.</p>
                     </div>
                 }
                 else
@@ -316,6 +316,10 @@
                                     <div class="flex-grow-1 overflow-hidden">
                                         <div class="channel-name">
                                             @channel.GuideName
+                                            @if (channel.Favorite)
+                                            {
+                                                <span class="bi bi-star-fill text-warning ms-1" title="Favorite channel" aria-label="Favorite channel"></span>
+                                            }
                                             @if (channel.DRM)
                                             {
                                                 <span class="bi bi-shield-lock-fill text-warning ms-1" title="DRM-protected channel" aria-label="DRM-protected channel"></span>

@@ -28,6 +28,7 @@ public static class CoreServiceExtensions
 
         // Configure HttpClient for device service (no base address needed, provider handles it)
         services.AddHttpClient<HDHomeRunDeviceClient>();
+        services.TryAddScoped<IChannelLineupProvider>(provider => provider.GetRequiredService<HDHomeRunDeviceClient>());
 
         // Configure HttpClient for API service
         services.AddHttpClient<HDHomeRunApiClient>()
@@ -45,6 +46,8 @@ public static class CoreServiceExtensions
         var dbPath = databasePath ?? AppConstants.DefaultDatabaseFileName;
         services.AddDbContext<EpgDbContext>(options =>
             options.UseSqlite($"Data Source={dbPath}"));
+        services.AddSingleton(new ChannelLineupStore(Path.ChangeExtension(dbPath, ".channels.json")));
+        services.AddScoped<ChannelLineupRefreshService>();
 
         // Register repository and data provider
         services.AddScoped<IEpgRepository, EpgRepository>();

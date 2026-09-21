@@ -52,10 +52,10 @@ public class ActiveStreamServiceTests
     }
 
     /// <summary>
-    /// Verifies that stop requests remove the stream and invoke its lifecycle callback.
+    /// Verifies that a protected-slate metadata update preserves the stream lifecycle callback.
     /// </summary>
     [Fact]
-    public void Registry_RequestStopInvokesPreservedStopAction()
+    public void Registry_ProtectedSlateUpdate_PreservesStopAction()
     {
         // Arrange
         var registry = new ActiveStreamRegistry();
@@ -64,7 +64,7 @@ public class ActiveStreamServiceTests
         registry.StopRequested += stream => notification = stream;
         var initial = new ActiveStreamSnapshot("one", "2.1", HostedStreamFormat.MpegTs, DateTime.UtcNow, null, []) { ClientId = "watch-one" };
         registry.Register(initial, () => stopped = true);
-        registry.Register(initial with { SourceBitRate = 8_000_000 });
+        registry.Register(ActiveStreamPlanFactory.CreateProtectedSlate("one", "2.1", HostedStreamFormat.MpegTs, initial.StartedAtUtc));
 
         // Act
         var requested = registry.RequestStop("one");
@@ -74,6 +74,24 @@ public class ActiveStreamServiceTests
         Assert.True(stopped);
         Assert.Equal("watch-one", notification?.ClientId);
         Assert.Empty(registry.GetActiveStreams());
+    }
+
+    /// <summary>
+    /// Verifies a stop request does not hide a stream that has no lifecycle callback.
+    /// </summary>
+    [Fact]
+    public void Registry_RequestStopWithoutAction_LeavesStreamRegistered()
+    {
+        // Arrange
+        var registry = new ActiveStreamRegistry();
+        registry.Register(new ActiveStreamSnapshot("one", "2.1", HostedStreamFormat.MpegTs, DateTime.UtcNow, null, []));
+
+        // Act
+        var requested = registry.RequestStop("one");
+
+        // Assert
+        Assert.False(requested);
+        Assert.Equal("one", Assert.Single(registry.GetActiveStreams()).SessionId);
     }
 
     /// <summary>

@@ -20,12 +20,7 @@ internal sealed record LineupStatusResponse(
 /// <summary>
 /// Represents application identity, setup, and uptime status.
 /// </summary>
-internal sealed record ApplicationStatusResponse(
-    string Version,
-    string InstanceId,
-    bool SetupComplete,
-    DateTime StartedAtUtc,
-    long UptimeSeconds);
+internal sealed record ApplicationStatusResponse(string Version, string InstanceId, bool SetupComplete, DateTime StartedAtUtc, long UptimeSeconds);
 
 /// <summary>
 /// Represents guide coverage, refresh, and XMLTV status.
@@ -63,11 +58,7 @@ internal sealed record AutoFetchStatusResponse(
 /// <summary>
 /// Represents generated XMLTV availability.
 /// </summary>
-internal sealed record XmltvStatusResponse(
-    bool Enabled,
-    bool Available,
-    string? DownloadUrl,
-    DateTime? LastWriteTimeUtc);
+internal sealed record XmltvStatusResponse(bool Enabled, bool Available, string? DownloadUrl, DateTime? LastWriteTimeUtc);
 
 /// <summary>
 /// Represents physical HDHomeRun device state.
@@ -130,9 +121,7 @@ internal sealed record TunerStatusResponse(
 /// <summary>
 /// Represents the active stream collection.
 /// </summary>
-internal sealed record ActiveStreamsStatusResponse(
-    int Count,
-    IReadOnlyList<ActiveStreamStatusResponse> Items);
+internal sealed record ActiveStreamsStatusResponse(int Count, IReadOnlyList<ActiveStreamStatusResponse> Items);
 
 /// <summary>
 /// Represents one active stream and its media tracks.

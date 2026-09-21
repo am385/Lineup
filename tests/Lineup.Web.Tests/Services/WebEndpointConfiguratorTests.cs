@@ -137,10 +137,7 @@ public class WebEndpointConfiguratorTests
     [Theory]
     [InlineData(-3, -1, "expired")]
     [InlineData(1, 3, "not valid yet")]
-    public void Load_CertificateOutsideValidityPeriod_FallsBackToHttp(
-        int notBeforeOffsetDays,
-        int notAfterOffsetDays,
-        string expectedWarning)
+    public void Load_CertificateOutsideValidityPeriod_FallsBackToHttp(int notBeforeOffsetDays, int notAfterOffsetDays, string expectedWarning)
     {
         // Arrange
         var root = Directory.CreateTempSubdirectory("lineup-https-");
@@ -172,12 +169,7 @@ public class WebEndpointConfiguratorTests
         return configuration;
     }
 
-    private static void WritePfx(
-        string path,
-        string password,
-        DateTimeOffset notBefore,
-        DateTimeOffset notAfter,
-        bool includePrivateKey)
+    private static void WritePfx(string path, string password, DateTimeOffset notBefore, DateTimeOffset notAfter, bool includePrivateKey)
     {
         using var key = RSA.Create(2048);
         var request = new CertificateRequest("CN=Lineup Test", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);

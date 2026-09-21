@@ -26,6 +26,7 @@ public class FactoryResetServiceTests
         var settingsPath = Path.Combine(configDirectory.FullName, AppConstants.SettingsFileName);
         var databasePath = Path.Combine(configDirectory.FullName, AppConstants.DefaultDatabaseFileName);
         var cachePath = Path.ChangeExtension(databasePath, ".xmltv");
+        var channelLineupPath = Path.ChangeExtension(databasePath, ".channels.json");
         var configuredOutputPath = Path.Combine(xmltvDirectory.FullName, AppConstants.DefaultXmltvFileName);
         var externalOutputPath = Path.Combine(externalDirectory.FullName, "keep.xml");
         var logDirectory = configDirectory.CreateSubdirectory(AppConstants.LogDirectoryName);
@@ -42,6 +43,7 @@ public class FactoryResetServiceTests
             $"{databasePath}-shm",
             cachePath,
             $"{cachePath}.generation",
+            channelLineupPath,
             configuredOutputPath,
             $"{configuredOutputPath}.generation"
         };

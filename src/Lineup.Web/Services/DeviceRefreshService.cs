@@ -1,3 +1,5 @@
+using Lineup.Core;
+
 namespace Lineup.Web.Services;
 
 /// <summary>
@@ -11,6 +13,7 @@ public class DeviceRefreshService : BackgroundService
     private readonly ILogger<DeviceRefreshService> _logger;
     private readonly DeviceStateService _deviceState;
     private readonly IAppSettingsService _settingsService;
+    private readonly IServiceScopeFactory _scopeFactory;
 
     private static readonly TimeSpan InitialDiscoveryDelay = TimeSpan.FromSeconds(2);
 
@@ -20,11 +23,12 @@ public class DeviceRefreshService : BackgroundService
     /// <summary>
     /// Initializes a new instance of the <see cref="DeviceRefreshService"/> class.
     /// </summary>
-    public DeviceRefreshService(ILogger<DeviceRefreshService> logger, IDeviceStateService deviceState, IAppSettingsService settingsService)
+    public DeviceRefreshService(ILogger<DeviceRefreshService> logger, IDeviceStateService deviceState, IAppSettingsService settingsService, IServiceScopeFactory scopeFactory)
     {
         _logger = logger;
         _deviceState = (DeviceStateService)deviceState;
         _settingsService = settingsService;
+        _scopeFactory = scopeFactory;
     }
 
     /// <summary>
@@ -37,8 +41,7 @@ public class DeviceRefreshService : BackgroundService
         // Wait a moment for the app to fully start
         await Task.Delay(InitialDiscoveryDelay, stoppingToken);
 
-        // Initial device discovery after first-run setup has been completed
-        await DiscoverDeviceIfNeededAsync(stoppingToken);
+        await InitializeDeviceAsync(stoppingToken);
 
         // Main loop - check what needs refreshing
         while (!stoppingToken.IsCancellationRequested)
@@ -105,6 +108,20 @@ public class DeviceRefreshService : BackgroundService
         _logger.LogInformation("Device refresh service stopping");
     }
 
+    /// <summary>
+    /// Discovers the configured device and refreshes its channel lineup during startup.
+    /// </summary>
+    /// <param name="stoppingToken">Stops startup initialization.</param>
+    internal async Task InitializeDeviceAsync(CancellationToken stoppingToken)
+    {
+        await DiscoverDeviceIfNeededAsync(stoppingToken);
+        await RefreshChannelLineupIfConnectedAsync(stoppingToken);
+    }
+
+    /// <summary>
+    /// Discovers the configured device when setup is complete and a refresh is due.
+    /// </summary>
+    /// <param name="stoppingToken">Stops the discovery attempt.</param>
     internal async Task DiscoverDeviceIfNeededAsync(CancellationToken stoppingToken)
     {
         if (!_settingsService.Settings.IsSetupComplete ||
@@ -145,6 +162,32 @@ public class DeviceRefreshService : BackgroundService
         {
             _logger.LogWarning(ex, "Device discovery failed, will retry in 1 minute");
             _deviceState.SetNextDeviceRefresh(DateTime.UtcNow.AddMinutes(1));
+        }
+    }
+
+    /// <summary>
+    /// Refreshes the persisted physical channel lineup once when startup discovery finds a connected device.
+    /// </summary>
+    /// <param name="stoppingToken">Stops the startup refresh.</param>
+    internal async Task RefreshChannelLineupIfConnectedAsync(CancellationToken stoppingToken)
+    {
+        if (!_deviceState.IsDiscovered)
+        {
+            return;
+        }
+
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            await scope.ServiceProvider.GetRequiredService<ChannelLineupRefreshService>().RefreshAsync(stoppingToken);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Initial channel lineup refresh failed; the previously saved lineup was preserved");
         }
     }
 

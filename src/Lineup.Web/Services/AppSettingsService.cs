@@ -83,6 +83,23 @@ public enum ProtectedContentMode
 }
 
 /// <summary>
+/// Controls stream behavior for channels disabled in Lineup.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum DisabledChannelMode
+{
+    /// <summary>
+    /// Returns an explicit forbidden response.
+    /// </summary>
+    ReturnError,
+
+    /// <summary>
+    /// Streams a synthetic disabled-channel slate.
+    /// </summary>
+    StreamSlate
+}
+
+/// <summary>
 /// Controls the CPU-versus-compression tradeoff for browser-compatible H.264 output.
 /// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -175,6 +192,11 @@ public class AppSettings
     /// Whether auto-fetch is enabled (interval > 0).
     /// </summary>
     public bool IsAutoFetchEnabled => AutoFetchInterval > TimeSpan.Zero;
+
+    /// <summary>
+    /// Whether the physical tuner channel lineup is refreshed before guide data is fetched.
+    /// </summary>
+    public bool RefreshChannelsBeforeGuideFetch { get; set; } = true;
 
     /// <summary>
     /// Persisted next XMLTV refresh time selected from SiliconDust's required randomized window.
@@ -348,6 +370,11 @@ public class AppSettings
     /// API behavior when the HDHomeRun reports content protection code 811.
     /// </summary>
     public ProtectedContentMode ProtectedContentMode { get; set; } = ProtectedContentMode.ReturnError;
+
+    /// <summary>
+    /// Stream behavior when a client requests a disabled channel directly.
+    /// </summary>
+    public DisabledChannelMode DisabledChannelMode { get; set; } = DisabledChannelMode.ReturnError;
 
     /// <summary>
     /// H.264 encoder preset used for browser-compatible fMP4 and HLS output.

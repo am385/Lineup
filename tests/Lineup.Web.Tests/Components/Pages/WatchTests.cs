@@ -1,6 +1,8 @@
 using Bunit;
+using Lineup.Core;
 using Lineup.Core.Storage;
 using Lineup.HDHomeRun.Api.Models;
+using Lineup.HDHomeRun.Device.Models;
 using Lineup.HDHomeRun.Device.Protocol;
 using Lineup.Web.Components.Pages;
 using Lineup.Web.Services;
@@ -15,6 +17,47 @@ namespace Lineup.Web.Tests.Components.Pages;
 /// </summary>
 public class WatchTests
 {
+    /// <summary>
+    /// Verifies discovered enabled channels appear even when no guide has been imported.
+    /// </summary>
+    [Fact]
+    public async Task PhysicalChannelWithoutGuideData_IsListed()
+    {
+        // Arrange
+        using var context = new BunitContext();
+        var repository = Substitute.For<IEpgRepository>();
+        repository.GetChannelsAsync().Returns([]);
+        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
+        var settingsService = Substitute.For<IAppSettingsService>();
+        settingsService.Settings.Returns(new AppSettings());
+        var channelStore = new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-watch-{Guid.NewGuid():N}.json"));
+        await channelStore.StoreAsync(
+        [
+            new HDHomeRunChannel
+            {
+                GuideNumber = "42.1",
+                GuideName = "Discovered Channel",
+                Favorite = true,
+                URL = "http://device/auto/v42.1"
+            }
+        ], Xunit.TestContext.Current.CancellationToken);
+        context.Services.AddSingleton(repository);
+        context.Services.AddSingleton(settingsService);
+        AddWatchRuntimeServices(context, channelStore: channelStore);
+
+        // Act
+        var component = context.Render<Watch>();
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            var channel = Assert.Single(component.FindAll(".channel-item"));
+            Assert.Contains("42.1", channel.TextContent);
+            Assert.Contains("Discovered Channel", channel.TextContent);
+            Assert.NotNull(channel.QuerySelector(".bi-star-fill"));
+        });
+    }
+
     /// <summary>
     /// Verifies that manual tuning starts playback without cached guide data.
     /// </summary>
@@ -441,6 +484,34 @@ public class WatchTests
     }
 
     /// <summary>
+    /// Verifies that cached favorite channels display an accessible favorite marker.
+    /// </summary>
+    [Fact]
+    public void FavoriteChannel_DisplaysFavoriteMarker()
+    {
+        // Arrange
+        using var context = new BunitContext();
+        var repository = Substitute.For<IEpgRepository>();
+        repository.GetChannelsAsync().Returns([new HDHomeRunChannelEpgSegment { GuideNumber = "7.1", GuideName = "Favorite", Favorite = true }]);
+        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
+        var settingsService = Substitute.For<IAppSettingsService>();
+        settingsService.Settings.Returns(new AppSettings());
+        context.Services.AddSingleton(repository);
+        context.Services.AddSingleton(settingsService);
+        AddWatchRuntimeServices(context);
+
+        // Act
+        var component = context.Render<Watch>();
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            var marker = component.Find("[aria-label='Favorite channel']");
+            Assert.Contains("bi-star-fill", marker.ClassList);
+        });
+    }
+
+    /// <summary>
     /// Verifies that the selected channel displays its tuner and hosted stream details.
     /// </summary>
     [Fact]
@@ -507,7 +578,11 @@ public class WatchTests
         });
     }
 
-    private static void AddWatchRuntimeServices(BunitContext context, IDeviceStateService? deviceState = null, IActiveStreamRegistry? activeStreamRegistry = null)
+    private static void AddWatchRuntimeServices(
+        BunitContext context,
+        IDeviceStateService? deviceState = null,
+        IActiveStreamRegistry? activeStreamRegistry = null,
+        ChannelLineupStore? channelStore = null)
     {
         if (deviceState == null)
         {
@@ -517,15 +592,10 @@ public class WatchTests
 
         context.Services.AddSingleton(deviceState);
         context.Services.AddSingleton(activeStreamRegistry ?? new ActiveStreamRegistry());
+        context.Services.AddSingleton(channelStore ?? new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-watch-{Guid.NewGuid():N}.json")));
     }
 
-    private static ActiveStreamTrack Track(
-        int index,
-        MediaTrackType type,
-        string codec,
-        string language,
-        SubtitlePresentation? presentation = null,
-        bool selected = false) =>
+    private static ActiveStreamTrack Track(int index, MediaTrackType type, string codec, string language, SubtitlePresentation? presentation = null, bool selected = false) =>
         new(type, codec, selected ? "aac" : "not-mapped", null, null, null, null, type == MediaTrackType.Audio ? 2 : null, null, null)
         {
             SourceIndex = index,

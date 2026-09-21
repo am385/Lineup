@@ -1,5 +1,6 @@
 using System.Text;
 using System.Xml.Linq;
+using Lineup.Core;
 using Lineup.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 
@@ -14,6 +15,7 @@ public sealed class HdHomeRunProxyController : ControllerBase
     private readonly IHdHomeRunProxyProfileProvider _profiles;
     private readonly IHdHomeRunProxyDeviceClient _deviceClient;
     private readonly IAppSettingsService _settings;
+    private readonly ChannelLineupStore _channelLineupStore;
 
     /// <summary>
     /// Initializes the virtual HDHomeRun HTTP controller.
@@ -21,11 +23,13 @@ public sealed class HdHomeRunProxyController : ControllerBase
     /// <param name="profiles">Provider for virtual device profiles.</param>
     /// <param name="deviceClient">Client for profile-scoped physical lineups.</param>
     /// <param name="settings">Provides virtual-tuner transcoding settings.</param>
-    public HdHomeRunProxyController(IHdHomeRunProxyProfileProvider profiles, IHdHomeRunProxyDeviceClient deviceClient, IAppSettingsService settings)
+    /// <param name="channelLineupStore">Provides persisted channel availability choices.</param>
+    public HdHomeRunProxyController(IHdHomeRunProxyProfileProvider profiles, IHdHomeRunProxyDeviceClient deviceClient, IAppSettingsService settings, ChannelLineupStore channelLineupStore)
     {
         _profiles = profiles;
         _deviceClient = deviceClient;
         _settings = settings;
+        _channelLineupStore = channelLineupStore;
     }
 
     /// <summary>
@@ -66,24 +70,41 @@ public sealed class HdHomeRunProxyController : ControllerBase
     /// <returns>The virtual device channel lineup.</returns>
     [HttpGet("/lineup.json")]
     [HttpGet("/hdhomerun/{virtualDeviceId}/lineup.json")]
-    public async Task<IActionResult> Lineup(string? virtualDeviceId = null)
+    public Task<IActionResult> Lineup(string? virtualDeviceId = null)
     {
-        var profile = await ResolveProfileAsync(virtualDeviceId);
-        if (profile == null)
-        {
-            return ProfileUnavailable(virtualDeviceId);
-        }
+        return RenderLineupAsync(virtualDeviceId, channels => Ok(channels));
+    }
 
-        try
+    /// <summary>
+    /// Returns a profile's channel lineup in the HDHomeRun XML representation.
+    /// </summary>
+    /// <param name="virtualDeviceId">Optional scoped virtual DeviceID.</param>
+    /// <returns>The virtual device channel lineup.</returns>
+    [HttpGet("/lineup.xml")]
+    [HttpGet("/hdhomerun/{virtualDeviceId}/lineup.xml")]
+    public Task<IActionResult> LineupXml(string? virtualDeviceId = null)
+    {
+        return RenderLineupAsync(virtualDeviceId, channels =>
         {
-            var baseUri = profile.GetHttpBaseUri(GetRequestRootUri());
-            var channels = await _deviceClient.FetchLineupAsync(profile, HttpContext.RequestAborted);
-            return Ok(channels.Select(channel => HdHomeRunProxyChannel.Create(channel, baseUri, _settings.Settings.VirtualTunerVideoMode)));
-        }
-        catch (InvalidOperationException)
+            string content = HdHomeRunProxyLineupFormatter.ToXml(channels);
+            return Content(content, "text/xml", Encoding.UTF8);
+        });
+    }
+
+    /// <summary>
+    /// Returns a profile's channel lineup in the HDHomeRun extended M3U representation.
+    /// </summary>
+    /// <param name="virtualDeviceId">Optional scoped virtual DeviceID.</param>
+    /// <returns>The virtual device channel playlist.</returns>
+    [HttpGet("/lineup.m3u")]
+    [HttpGet("/hdhomerun/{virtualDeviceId}/lineup.m3u")]
+    public Task<IActionResult> LineupM3u(string? virtualDeviceId = null)
+    {
+        return RenderLineupAsync(virtualDeviceId, channels =>
         {
-            return StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = "The physical HDHomeRun lineup is unavailable." });
-        }
+            string content = HdHomeRunProxyLineupFormatter.ToM3u(channels);
+            return Content(content, "text/plain", Encoding.UTF8);
+        });
     }
 
     /// <summary>
@@ -143,6 +164,31 @@ public sealed class HdHomeRunProxyController : ControllerBase
         return string.IsNullOrWhiteSpace(virtualDeviceId)
             ? StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = "The primary physical HDHomeRun device is unavailable." })
             : NotFound(new { error = "The requested virtual HDHomeRun device was not found." });
+    }
+
+    private async Task<IActionResult> RenderLineupAsync(string? virtualDeviceId, Func<IReadOnlyList<HdHomeRunProxyChannel>, IActionResult> render)
+    {
+        var profile = await ResolveProfileAsync(virtualDeviceId);
+        if (profile == null)
+        {
+            return ProfileUnavailable(virtualDeviceId);
+        }
+
+        try
+        {
+            var baseUri = profile.GetHttpBaseUri(GetRequestRootUri());
+            var physicalChannels = await _deviceClient.FetchLineupAsync(profile, HttpContext.RequestAborted);
+            var savedLineup = await _channelLineupStore.ReadAsync(HttpContext.RequestAborted);
+            var channels = physicalChannels
+                .Where(channel => savedLineup?.IsChannelEnabled(channel.GuideNumber) != false)
+                .Select(channel => HdHomeRunProxyChannel.Create(channel, baseUri, _settings.Settings.VirtualTunerVideoMode))
+                .ToArray();
+            return render(channels);
+        }
+        catch (InvalidOperationException)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = "The physical HDHomeRun lineup is unavailable." });
+        }
     }
 
     private Uri GetRequestRootUri()

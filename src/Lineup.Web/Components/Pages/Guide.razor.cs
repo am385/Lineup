@@ -1,4 +1,5 @@
 using Lineup.Core.Storage;
+using Lineup.Core;
 using Lineup.HDHomeRun.Api.Models;
 using Lineup.Web.Services;
 using Microsoft.AspNetCore.Components;
@@ -13,6 +14,9 @@ public partial class Guide : IAsyncDisposable
 {
     [Inject]
     private IEpgRepository Repository { get; set; } = default!;
+
+    [Inject]
+    private ChannelLineupStore ChannelLineupStore { get; set; } = default!;
 
     [Inject]
     private IJSRuntime JS { get; set; } = default!;
@@ -39,6 +43,7 @@ public partial class Guide : IAsyncDisposable
     private bool _isLoading = true;
     private bool _isInitialized = false;
     private HDHomeRunProgram? _selectedProgram;
+    private ChannelLineupSnapshot? _channelLineup;
 
     // Calculate hours from slots for navigation
     private int _hoursToShow => Math.Max(1, _slotsToShow / 2);
@@ -55,6 +60,7 @@ public partial class Guide : IAsyncDisposable
         _dotNetRef = DotNetObjectReference.Create(this);
         // Load channels but defer full data load until we know the container width
         _channels = await Repository.GetChannelsAsync();
+        _channelLineup = await ChannelLineupStore.ReadAsync();
     }
 
     /// <summary>
@@ -171,12 +177,16 @@ public partial class Guide : IAsyncDisposable
             {
                 _timeSlots.Add(startTime.AddMinutes(i * 30));
             }
+
         }
         finally
         {
             _isLoading = false;
         }
     }
+
+    private bool IsChannelEnabled(string? guideNumber) =>
+        string.IsNullOrWhiteSpace(guideNumber) || _channelLineup?.IsChannelEnabled(guideNumber) != false;
 
     private string FormatTimeRange()
     {

@@ -9,7 +9,8 @@ It includes a web-based dashboard, a terminal UI, live TV streaming with transco
 ## Features
 
 - **Automatic EPG fetching** — downloads SiliconDust's complete gzip-compressed XMLTV guide on the required randomized 20-28 hour schedule
-- **Canonical XMLTV output** — preserves SiliconDust metadata and atomically publishes the downloaded document without lossy reconstruction
+- **Canonical XMLTV output** — preserves SiliconDust metadata, filters out channels unavailable from the configured tuners, and publishes updates atomically
+- **Per-channel availability** — keeps disabled channels visible in Lineup while excluding them from published guides, virtual lineups, and physical tuner streams
 - **Live TV streaming** — multi-track MPEG-TS proxy plus selectable Watch audio and subtitles, with Jellyfin FFmpeg AC-4 decoding
 - **Device diagnostics** — connectivity checks across DNS, ping, HTTP API, TCP, and UDP discovery
 - **Active stream monitoring** — Dashboard visibility into hosted MPEG-TS, fMP4, and HLS sessions with source/output codec and bitrate details
@@ -274,7 +275,7 @@ Virtual Tuner Video can optionally transcode HEVC to H.264 for clients that cann
 
 Jellyfin FFmpeg's AC-4 support is decoder-only and does not support every object-based or Dolby Atmos AC-4 presentation. Unsupported presentations are reported as stream errors rather than silently copied or discarded. The HLS and fMP4 endpoints continue to encode audio as AAC.
 
-When an HDHomeRun reports DRM error 811, API streams return a protected-content error by default. The Transcode Settings page can instead enable a synthetic **Content Protected** slate. The fallback is generated locally as H.264 video with silent AAC audio in the requested MPEG-TS, fMP4, or HLS format; protected programming is never decrypted.
+When an HDHomeRun reports DRM error 811, API streams return a protected-content error by default. The Transcode Settings page can instead enable a synthetic **Content Protected** slate. The fallback is generated locally as H.264 video with silent AAC audio in the requested MPEG-TS, fMP4, or HLS format; protected programming is never decrypted. Synthetic DRM and disabled-channel slates count toward **Maximum Concurrent Streams** but do not consume physical tuner capacity.
 
 ## Configuration
 
@@ -289,6 +290,7 @@ All settings are configurable through the web UI's settings page and persisted t
 | AC-4 Audio | Preserve AC-4, or transcode it to AC-3 (default) or E-AC-3 |
 | Virtual Tuner Video | Preserve the video codec (default), or transcode HEVC to H.264 for compatibility |
 | DRM-Protected Content | Return an explicit error (default), or stream a synthetic Content Protected slate |
+| Disabled Channels | Return an explicit error (default), or stream a synthetic Disabled Channel slate without opening a physical tuner |
 | Active Stream Refresh | Dashboard refresh interval for hosted stream details; defaults to 5 seconds and 0 disables auto-refresh |
 | HDHomeRun Proxy Profiles | Physical address, optional friendly name and tuner cap, and an explicit advertised URL for each virtual device |
 | Network Discovery | Opt-in SiliconDust UDP (65001) and SSDP (1900) advertisement of enabled proxy profiles |
@@ -386,6 +388,8 @@ available at the legacy root endpoints:
 
 - `/discover.json`
 - `/lineup.json`
+- `/lineup.xml`
+- `/lineup.m3u`
 - `/device.xml`
 - `/auto/v{channel}`
 
@@ -393,12 +397,18 @@ Additional profiles use the stable path `/hdhomerun/{virtualDeviceId}/`. Their d
 path. The Settings page displays copyable manual setup URLs for each enabled profile and the XMLTV guide URL at `/api/xmltv`.
 
 Guide downloads concatenate the current `DeviceAuth` values from every enabled physical profile, allowing one canonical XMLTV document to cover all
-configured tuners. `DeviceAuth` is read immediately before every request because SiliconDust rotates it regularly.
+configured tuners. The downloaded guide is filtered to the union of channels currently returned by those tuners. Use **Refresh Channels** on the
+Dashboard to update the persisted tuner-lineup snapshot independently, or enable the guide-fetch option that refreshes channels first. A guide fetch
+applies the saved snapshot without otherwise querying the tuners. Channels disabled on the Channels page remain visible in Lineup's Channels and Guide
+pages, but are excluded from published XMLTV and virtual JSON, XML, and M3U lineups. Their MPEG-TS, fMP4, and HLS URLs return an error by default or a
+synthetic slate when configured. Disabled choices survive tuner refreshes by guide number, and newly discovered channels start enabled. `DeviceAuth`
+is read immediately before every request because SiliconDust rotates it regularly.
 
 Lineup atomically limits HDHomeRun-compatible MPEG-TS routes to each profile's effective physical tuner count. Receivers for the exact same upstream
 channel and hardware-transcode source share one tuner lease through the stream multiplexer. Different channels consume separate slots. This includes
 the legacy `/api/stream/{channel}` route for the primary profile, so it does not double-count a matching `/auto/v{channel}` source. Browser-specific
-fMP4 and HLS workflows are outside the HDHomeRun-compatible route lease boundary and remain governed by **Maximum Concurrent Streams**.
+fMP4 and HLS workflows are outside the HDHomeRun-compatible route lease boundary and remain governed by **Maximum Concurrent Streams**. The same
+host-wide stream limit applies to synthetic DRM and disabled-channel slates in every format even though those slates do not consume tuner capacity.
 
 Network discovery is disabled by default to avoid UDP port conflicts. To enable it, turn on **Enable UDP and SSDP network discovery** and configure an
 absolute HTTP or HTTPS **Advertised base URL** for every profile that should be discovered. This must be a Lineup address reachable by media servers;

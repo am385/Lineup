@@ -1,6 +1,5 @@
 @page "/"
 @page "/dashboard"
-@using Lineup.Core
 @using Lineup.Web.Services
 @rendermode InteractiveServer
 
@@ -16,21 +15,70 @@
 else
 {
     <div class="card mb-4">
-        <div class="card-header d-flex justify-content-between align-items-center">
+        <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div>
+                <h5 class="mb-0"><span class="bi bi-list-check me-1"></span>Channels</h5>
+                @if (!_channelsExpanded)
+                {
+                    <small class="text-muted">@FormatChannelsSummary()</small>
+                }
+            </div>
+            <div class="d-flex align-items-center ms-auto">
+                <button id="refreshChannels" type="button" class="btn btn-sm btn-outline-primary"
+                        @onclick="RefreshChannels" disabled="@_isBusy">
+                    @if (_isBusy && _currentAction == "channels")
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                    }
+                    <span class="bi bi-arrow-clockwise me-1"></span>Refresh Channels
+                </button>
+                <button id="toggleChannelsSection" type="button" class="btn btn-sm btn-outline-secondary ms-2"
+                        aria-expanded="@(_channelsExpanded ? "true" : "false")" aria-controls="channelsSection"
+                        @onclick="() => ToggleSection(DashboardSection.Channels)">
+                    <span class="@(_channelsExpanded ? "bi bi-chevron-up" : "bi bi-chevron-down")"></span>
+                    <span class="visually-hidden">@(_channelsExpanded ? "Collapse" : "Expand") Channels section</span>
+                </button>
+            </div>
+        </div>
+        <div id="channelsSection" class="card-body" hidden="@(!_channelsExpanded)">
+            <div class="row text-center">
+                <div class="col-md-4 mb-3 mb-md-0">
+                    <div class="text-muted small">Enabled</div>
+                    <div class="display-6 text-success">@(_channelLineup?.EnabledChannelCount ?? 0)</div>
+                </div>
+                <div class="col-md-4 mb-3 mb-md-0">
+                    <div class="text-muted small">Disabled</div>
+                    <div class="display-6 text-secondary">@(_channelLineup?.DisabledGuideNumbers.Count ?? 0)</div>
+                </div>
+                <div class="col-md-4">
+                    <div class="text-muted small">Last Updated</div>
+                    <div class="h5 mt-2 mb-0">
+                        @(_channelLineup == null
+                            ? "Never"
+                            : Tz.ConvertFromUtc(_channelLineup.RefreshedAtUtc).ToString("yyyy-MM-dd HH:mm:ss"))
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
             <div>
                 <h5 class="mb-0"><span class="bi bi-calendar3 me-1"></span>Guide &amp; XMLTV</h5>
-                <small class="text-muted">@_stats.ChannelCount channels · @_stats.ProgramCount programs</small>
+                @if (!_guideExpanded)
+                {
+                    <small class="text-muted">@FormatGuideSummary()</small>
+                }
             </div>
-            <button id="toggleGuideSection" type="button" class="btn btn-sm btn-outline-secondary"
-                    aria-expanded="@_guideExpanded" aria-controls="guideSection"
-                    @onclick="() => _guideExpanded = !_guideExpanded">
+            <button id="toggleGuideSection" type="button" class="btn btn-sm btn-outline-secondary ms-auto"
+                    aria-expanded="@(_guideExpanded ? "true" : "false")" aria-controls="guideSection"
+                    @onclick="() => ToggleSection(DashboardSection.Guide)">
                 <span class="@(_guideExpanded ? "bi bi-chevron-up" : "bi bi-chevron-down")"></span>
                 <span class="visually-hidden">@(_guideExpanded ? "Collapse" : "Expand") Guide section</span>
             </button>
         </div>
-        @if (_guideExpanded)
-        {
-        <div id="guideSection" class="card-body">
+        <div id="guideSection" class="card-body" hidden="@(!_guideExpanded)">
     <div class="row mb-4">
         <div class="col-md-3">
             <div class="card h-100">
@@ -92,6 +140,43 @@ else
         </div>
     </div>
 
+    @if (AutoFetchState.IsRunning && AutoFetchState.CurrentProgress != null)
+    {
+        <div class="card mb-4 border-info">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0"><span class="bi bi-arrow-repeat me-1"></span>Auto-Fetch in Progress</h5>
+            </div>
+            <div class="card-body">
+                <div class="row mb-2">
+                    <div class="col-md-3">
+                        <strong>Status:</strong>
+                        <span class="badge @GetStatusBadgeClass(AutoFetchState.CurrentProgress.Status)">@AutoFetchState.CurrentProgress.Status</span>
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Fetch #:</strong> @AutoFetchState.CurrentProgress.FetchCount
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Programs:</strong> @AutoFetchState.CurrentProgress.TotalProgramsFetched.ToString("N0")
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Channels:</strong> @AutoFetchState.CurrentProgress.TotalChannelsFetched
+                    </div>
+                </div>
+                <div class="progress mb-2" style="height: 25px;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated bg-info"
+                         role="progressbar"
+                         style="width: @(AutoFetchState.CurrentProgress.PercentComplete)%"
+                         aria-valuenow="@AutoFetchState.CurrentProgress.PercentComplete"
+                         aria-valuemin="0"
+                         aria-valuemax="100">
+                        @AutoFetchState.CurrentProgress.PercentComplete%
+                    </div>
+                </div>
+                <p class="text-muted mb-0">@AutoFetchState.CurrentProgress.Message</p>
+            </div>
+        </div>
+    }
+
     <div class="row mb-4">
         <div class="col-md-6">
             <div class="card h-100">
@@ -115,14 +200,24 @@ else
                 </div>
                 <div class="card-body">
                     <div class="alert alert-info py-2 mb-3">
-                        SiliconDust returns the complete available guide in one request: 2 days normally or 14 days with a DVR subscription.
+                        @if (_channelLineup == null)
+                        {
+                            <span>Refresh HDHomeRun Channels above before fetching the SiliconDust guide.</span>
+                        }
+                        else
+                        {
+                            <span>
+                                New guide downloads are filtered using the @_channelLineup.Channels.Count channels
+                                refreshed @Tz.ConvertFromUtc(_channelLineup.RefreshedAtUtc).ToString("yyyy-MM-dd HH:mm:ss").
+                            </span>
+                        }
                     </div>
                     <button class="btn btn-primary me-2" @onclick="FetchData" disabled="@_isBusy">
                         @if (_isBusy && _currentAction == "fetch")
                         {
                             <span class="spinner-border spinner-border-sm me-1"></span>
                         }
-                        <span class="bi bi-cloud-download me-1"></span>Fetch Data
+                        <span class="bi bi-cloud-download me-1"></span>Fetch Guide
                     </button>
                     <button class="btn btn-success me-2" @onclick="GenerateXmltv" disabled="@_isBusy">
                         @if (_isBusy && _currentAction == "generate")
@@ -148,15 +243,20 @@ else
         </div>
     </div>
         </div>
-        }
     </div>
 
     <div class="row mb-4">
         <div class="col-12">
             <div class="card @(DeviceState.LastError != null ? "border-danger" : "")">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0"><span class="bi bi-router me-1"></span>HDHomeRun Device</h5>
-                    <div class="d-flex align-items-center">
+                <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                    <div>
+                        <h5 class="mb-0"><span class="bi bi-router me-1"></span>HDHomeRun Device</h5>
+                        @if (!_deviceExpanded)
+                        {
+                            <small class="text-muted">@FormatDeviceSummary()</small>
+                        }
+                    </div>
+                    <div class="d-flex align-items-center ms-auto">
                         @if (DeviceState.ProtocolDevice != null)
                         {
                             <button class="btn btn-sm btn-outline-primary" @onclick="RefreshTunerStatus" disabled="@DeviceState.IsRefreshingTuners">
@@ -168,16 +268,14 @@ else
                             </button>
                         }
                         <button id="toggleDeviceSection" type="button" class="btn btn-sm btn-outline-secondary ms-2"
-                                aria-expanded="@_deviceExpanded" aria-controls="deviceSection"
-                                @onclick="() => _deviceExpanded = !_deviceExpanded">
+                                aria-expanded="@(_deviceExpanded ? "true" : "false")" aria-controls="deviceSection"
+                                @onclick="() => ToggleSection(DashboardSection.Device)">
                             <span class="@(_deviceExpanded ? "bi bi-chevron-up" : "bi bi-chevron-down")"></span>
                             <span class="visually-hidden">@(_deviceExpanded ? "Collapse" : "Expand") Device section</span>
                         </button>
                     </div>
                 </div>
-                @if (_deviceExpanded)
-                {
-                <div id="deviceSection" class="card-body">
+                <div id="deviceSection" class="card-body" hidden="@(!_deviceExpanded)">
                     <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
                         <p class="mb-0"><strong>Device Address:</strong> <code>@SettingsService.Settings.DeviceAddress</code></p>
                         <button class="btn btn-sm btn-outline-primary" @onclick="DiscoverDevice" disabled="@DeviceState.IsDiscovering">
@@ -383,7 +481,6 @@ else
                         </div>
                     }
                 </div>
-                }
             </div>
         </div>
     </div>
@@ -417,43 +514,6 @@ else
                         </button>
                     </div>
                 </div>
-            </div>
-        </div>
-    }
-
-    @if (AutoFetchState.IsRunning && AutoFetchState.CurrentProgress != null)
-    {
-        <div class="card mb-4 border-info">
-            <div class="card-header bg-info text-white">
-                <h5 class="mb-0"><span class="bi bi-arrow-repeat me-1"></span>Auto-Fetch in Progress</h5>
-            </div>
-            <div class="card-body">
-                <div class="row mb-2">
-                    <div class="col-md-3">
-                        <strong>Status:</strong>
-                        <span class="badge @GetStatusBadgeClass(AutoFetchState.CurrentProgress.Status)">@AutoFetchState.CurrentProgress.Status</span>
-                    </div>
-                    <div class="col-md-3">
-                        <strong>Fetch #:</strong> @AutoFetchState.CurrentProgress.FetchCount
-                    </div>
-                    <div class="col-md-3">
-                        <strong>Programs:</strong> @AutoFetchState.CurrentProgress.TotalProgramsFetched.ToString("N0")
-                    </div>
-                    <div class="col-md-3">
-                        <strong>Channels:</strong> @AutoFetchState.CurrentProgress.TotalChannelsFetched
-                    </div>
-                </div>
-                <div class="progress mb-2" style="height: 25px;">
-                    <div class="progress-bar progress-bar-striped progress-bar-animated bg-info" 
-                         role="progressbar" 
-                         style="width: @(AutoFetchState.CurrentProgress.PercentComplete)%"
-                         aria-valuenow="@AutoFetchState.CurrentProgress.PercentComplete" 
-                         aria-valuemin="0" 
-                         aria-valuemax="100">
-                        @AutoFetchState.CurrentProgress.PercentComplete%
-                    </div>
-                </div>
-                <p class="text-muted mb-0">@AutoFetchState.CurrentProgress.Message</p>
             </div>
         </div>
     }
@@ -505,40 +565,24 @@ else
     }
 
     <div class="card mb-4">
-        <div class="card-header d-flex justify-content-between align-items-center">
+        <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
             <div>
                 <h5 class="mb-0"><span class="bi bi-broadcast-pin me-1"></span>Active Streams</h5>
-                <small class="text-muted">
-                    @_activeStreams.Count active
-                    @if (_activeStreamsLastRefreshUtc.HasValue)
-                    {
-                        <span> · refreshed @Tz.ConvertFromUtc(_activeStreamsLastRefreshUtc.Value).ToString("HH:mm:ss")</span>
-                    }
-                    @if (!SettingsService.Settings.IsActiveStreamRefreshEnabled)
-                    {
-                        <span> · auto-refresh disabled</span>
-                    }
-                    else
-                    {
-                        <span> · every @SettingsService.Settings.ActiveStreamRefreshIntervalSeconds seconds</span>
-                    }
-                </small>
+                <small class="text-muted">@FormatActiveStreamsSummary()</small>
             </div>
-            <div class="d-flex align-items-center">
+            <div class="d-flex align-items-center ms-auto">
                 <button id="refreshActiveStreams" class="btn btn-sm btn-outline-primary" @onclick="RefreshActiveStreams">
                     <span class="bi bi-arrow-clockwise me-1"></span>Refresh
                 </button>
                 <button id="toggleActiveStreamsSection" type="button" class="btn btn-sm btn-outline-secondary ms-2"
-                        aria-expanded="@_activeStreamsExpanded" aria-controls="activeStreamsSection"
-                        @onclick="() => _activeStreamsExpanded = !_activeStreamsExpanded">
+                        aria-expanded="@(_activeStreamsExpanded ? "true" : "false")" aria-controls="activeStreamsSection"
+                        @onclick="() => ToggleSection(DashboardSection.ActiveStreams)">
                     <span class="@(_activeStreamsExpanded ? "bi bi-chevron-up" : "bi bi-chevron-down")"></span>
                     <span class="visually-hidden">@(_activeStreamsExpanded ? "Collapse" : "Expand") Active Streams section</span>
                 </button>
             </div>
         </div>
-        @if (_activeStreamsExpanded)
-        {
-        <div id="activeStreamsSection" class="card-body">
+        <div id="activeStreamsSection" class="card-body" hidden="@(!_activeStreamsExpanded)">
             @if (_activeStreams.Count == 0)
             {
                 <div class="text-center text-muted py-4">
@@ -608,6 +652,5 @@ else
                 </div>
             }
         </div>
-        }
     </div>
 }

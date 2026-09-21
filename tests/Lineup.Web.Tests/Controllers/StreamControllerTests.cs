@@ -2,10 +2,13 @@ using System.Collections;
 using System.Diagnostics;
 using System.Net;
 using System.Reflection;
+using Lineup.Core;
 using Lineup.Core.Storage;
+using Lineup.HDHomeRun.Device.Models;
 using Lineup.Web.Controllers;
 using Lineup.Web.Services;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -19,6 +22,285 @@ namespace Lineup.Web.Tests.Controllers;
 /// </summary>
 public class StreamControllerTests
 {
+    /// <summary>
+    /// Verifies disabled MPEG-TS requests return before acquiring tuner capacity.
+    /// </summary>
+    [Fact]
+    public async Task Stream_DisabledChannel_ReturnsForbiddenWithoutTuner()
+    {
+        // Arrange
+        var store = await CreateDisabledChannelStoreAsync("9.1");
+        var capacity = Substitute.For<ITunerCapacityLeaseRegistry>();
+        var controller = CreateDisabledChannelController(store, DisabledChannelMode.ReturnError, capacity, Substitute.For<IProtectedContentSlateService>());
+
+        // Act
+        var result = await controller.Stream("9.1");
+
+        // Assert
+        var forbidden = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status403Forbidden, forbidden.StatusCode);
+        Assert.Empty(capacity.ReceivedCalls());
+    }
+
+    /// <summary>
+    /// Verifies disabled channels cannot be reached through the diagnostic stream endpoint.
+    /// </summary>
+    [Fact]
+    public async Task TestTranscode_DisabledChannel_ReturnsForbidden()
+    {
+        // Arrange
+        var store = await CreateDisabledChannelStoreAsync("9.1");
+        var controller = CreateDisabledChannelController(
+            store,
+            DisabledChannelMode.ReturnError,
+            Substitute.For<ITunerCapacityLeaseRegistry>(),
+            Substitute.For<IProtectedContentSlateService>());
+
+        // Act
+        var result = await controller.TestTranscode("9.1");
+
+        // Assert
+        var forbidden = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status403Forbidden, forbidden.StatusCode);
+    }
+
+    /// <summary>
+    /// Verifies disabled Watch and HLS requests return before acquiring tuner capacity.
+    /// </summary>
+    [Fact]
+    public async Task WatchStreams_DisabledChannel_ReturnForbiddenWithoutTuner()
+    {
+        // Arrange
+        var store = await CreateDisabledChannelStoreAsync("9.1");
+        var fmp4Capacity = Substitute.For<ITunerCapacityLeaseRegistry>();
+        var fmp4Controller = CreateDisabledChannelController(store, DisabledChannelMode.ReturnError, fmp4Capacity, Substitute.For<IProtectedContentSlateService>());
+        var hlsCapacity = Substitute.For<ITunerCapacityLeaseRegistry>();
+        var hlsController = CreateDisabledChannelController(store, DisabledChannelMode.ReturnError, hlsCapacity, Substitute.For<IProtectedContentSlateService>());
+
+        // Act
+        await fmp4Controller.StreamFmp4("9.1");
+        var hlsResult = await hlsController.StartHlsStream("9.1");
+
+        // Assert
+        Assert.Equal(StatusCodes.Status403Forbidden, fmp4Controller.Response.StatusCode);
+        Assert.Equal(StatusCodes.Status403Forbidden, Assert.IsType<ObjectResult>(hlsResult).StatusCode);
+        Assert.Empty(fmp4Capacity.ReceivedCalls());
+        Assert.Empty(hlsCapacity.ReceivedCalls());
+    }
+
+    /// <summary>
+    /// Verifies slate mode serves disabled MPEG-TS without acquiring tuner capacity.
+    /// </summary>
+    [Fact]
+    public async Task Stream_DisabledChannelSlate_UsesSyntheticMediaWithoutTuner()
+    {
+        // Arrange
+        var store = await CreateDisabledChannelStoreAsync("9.1");
+        var capacity = Substitute.For<ITunerCapacityLeaseRegistry>();
+        var slate = Substitute.For<IProtectedContentSlateService>();
+        var controller = CreateDisabledChannelController(store, DisabledChannelMode.StreamSlate, capacity, slate);
+
+        // Act
+        var result = await controller.Stream("9.1");
+
+        // Assert
+        Assert.IsType<EmptyResult>(result);
+        await slate.Received(1).StreamAsync(HostedStreamFormat.MpegTs, "9.1", Arg.Any<Stream>(), Arg.Any<CancellationToken>(), ChannelSlateReason.DisabledChannel);
+        Assert.Empty(capacity.ReceivedCalls());
+    }
+
+    /// <summary>
+    /// Verifies disabled pipe slates respect the hosted-stream limit without starting FFmpeg or acquiring a tuner.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DisabledChannelSlate_AtStreamLimit_ReturnsTooManyRequestsWithoutStartingSlate(bool fragmentedMp4)
+    {
+        // Arrange
+        var store = await CreateDisabledChannelStoreAsync("9.1");
+        var capacity = Substitute.For<ITunerCapacityLeaseRegistry>();
+        var slate = Substitute.For<IProtectedContentSlateService>();
+        var activeStreams = new ActiveStreamRegistry();
+        var existing = ActiveStreamPlanFactory.CreateMpegTs("existing", "2.1", DateTime.UtcNow, new MediaProbeResult([], null), new AppSettings());
+        Assert.True(activeStreams.TryRegister(existing, 1, () => { }));
+        var controller = CreateDisabledChannelController(store, DisabledChannelMode.StreamSlate, capacity, slate, activeStreams, maximumConcurrentStreams: 1);
+
+        // Act
+        int? statusCode;
+        if (fragmentedMp4)
+        {
+            await controller.StreamFmp4("9.1");
+            statusCode = controller.Response.StatusCode;
+        }
+        else
+        {
+            var result = await controller.Stream("9.1");
+            statusCode = Assert.IsType<ObjectResult>(result).StatusCode;
+        }
+
+        // Assert
+        Assert.Equal(StatusCodes.Status429TooManyRequests, statusCode);
+        Assert.Empty(slate.ReceivedCalls());
+        Assert.Empty(capacity.ReceivedCalls());
+        Assert.Equal("existing", Assert.Single(activeStreams.GetActiveStreams()).SessionId);
+    }
+
+    /// <summary>
+    /// Verifies a disabled HLS slate is rejected before its FFmpeg process or tuner capacity starts.
+    /// </summary>
+    [Fact]
+    public async Task StartHlsStream_DisabledChannelAtStreamLimit_ReturnsTooManyRequestsWithoutStartingSlate()
+    {
+        // Arrange
+        var store = await CreateDisabledChannelStoreAsync("9.1");
+        var capacity = Substitute.For<ITunerCapacityLeaseRegistry>();
+        var slate = Substitute.For<IProtectedContentSlateService>();
+        var activeStreams = new ActiveStreamRegistry();
+        var existing = ActiveStreamPlanFactory.CreateMpegTs("existing", "2.1", DateTime.UtcNow, new MediaProbeResult([], null), new AppSettings());
+        Assert.True(activeStreams.TryRegister(existing, 1, () => { }));
+        var controller = CreateDisabledChannelController(store, DisabledChannelMode.StreamSlate, capacity, slate, activeStreams, maximumConcurrentStreams: 1);
+
+        // Act
+        var result = await controller.StartHlsStream("9.1");
+
+        // Assert
+        var rejected = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status429TooManyRequests, rejected.StatusCode);
+        Assert.Empty(slate.ReceivedCalls());
+        Assert.Empty(capacity.ReceivedCalls());
+        Assert.Equal("existing", Assert.Single(activeStreams.GetActiveStreams()).SessionId);
+    }
+
+    /// <summary>
+    /// Verifies an HLS stop request during admission prevents slate startup without aborting the completed request context.
+    /// </summary>
+    [Fact]
+    public async Task StartHlsStream_DisabledChannelStoppedDuringAdmission_DoesNotStartSlate()
+    {
+        // Arrange
+        var store = await CreateDisabledChannelStoreAsync("9.1");
+        var capacity = Substitute.For<ITunerCapacityLeaseRegistry>();
+        var slate = Substitute.For<IProtectedContentSlateService>();
+        var activeStreams = Substitute.For<IActiveStreamRegistry>();
+        activeStreams.TryRegister(Arg.Any<ActiveStreamSnapshot>(), Arg.Any<int>(), Arg.Any<Action>())
+            .Returns(call =>
+            {
+                call.Arg<Action>()();
+                return true;
+            });
+        var controller = CreateDisabledChannelController(store, DisabledChannelMode.StreamSlate, capacity, slate, activeStreams, maximumConcurrentStreams: 1);
+        var lifetime = new TestRequestLifetimeFeature();
+        controller.HttpContext.Features.Set<IHttpRequestLifetimeFeature>(lifetime);
+
+        // Act
+        var result = await controller.StartHlsStream("9.1");
+
+        // Assert
+        Assert.IsType<EmptyResult>(result);
+        Assert.False(lifetime.RequestAborted.IsCancellationRequested);
+        Assert.Empty(slate.ReceivedCalls());
+        Assert.Empty(capacity.ReceivedCalls());
+        activeStreams.Received(1).Unregister(Arg.Any<string>());
+    }
+
+    /// <summary>
+    /// Verifies Dashboard Stop cancels disabled pipe slates and removes their active-stream registration.
+    /// </summary>
+    [Theory]
+    [InlineData(false, HostedStreamFormat.MpegTs)]
+    [InlineData(true, HostedStreamFormat.FragmentedMp4)]
+    public async Task DisabledChannelSlate_RequestStop_CancelsSlateAndCleansRegistry(bool fragmentedMp4, HostedStreamFormat expectedFormat)
+    {
+        // Arrange
+        var store = await CreateDisabledChannelStoreAsync("9.1");
+        var capacity = Substitute.For<ITunerCapacityLeaseRegistry>();
+        var slateStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var slate = Substitute.For<IProtectedContentSlateService>();
+        slate.StreamAsync(expectedFormat, "9.1", Arg.Any<Stream>(), Arg.Any<CancellationToken>(), ChannelSlateReason.DisabledChannel)
+            .Returns(async call =>
+            {
+                slateStarted.SetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, call.ArgAt<CancellationToken>(3));
+            });
+        var activeStreams = new ActiveStreamRegistry();
+        var controller = CreateDisabledChannelController(store, DisabledChannelMode.StreamSlate, capacity, slate, activeStreams, maximumConcurrentStreams: 1);
+        controller.HttpContext.Features.Set<IHttpRequestLifetimeFeature>(new TestRequestLifetimeFeature());
+
+        // Act
+        Task streamTask = fragmentedMp4 ? controller.StreamFmp4("9.1", clientId: "watch-client") : controller.Stream("9.1");
+        await slateStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
+        var activeStream = Assert.Single(activeStreams.GetActiveStreams());
+        var sessionId = activeStream.SessionId;
+        var stopped = activeStreams.RequestStop(sessionId);
+        await streamTask.WaitAsync(TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.True(stopped);
+        Assert.Equal(fragmentedMp4 ? "watch-client" : null, activeStream.ClientId);
+        Assert.Empty(activeStreams.GetActiveStreams());
+        Assert.Empty(capacity.ReceivedCalls());
+    }
+
+    /// <summary>
+    /// Verifies an MPEG-TS DRM slate that fails before normal registration still respects the hosted-stream limit.
+    /// </summary>
+    [Fact]
+    public async Task Stream_ProtectedSlateAtStreamLimit_ReturnsTooManyRequestsWithoutStartingSlate()
+    {
+        // Arrange
+        var activeStreams = new ActiveStreamRegistry();
+        var existing = ActiveStreamPlanFactory.CreateMpegTs("existing", "2.1", DateTime.UtcNow, new MediaProbeResult([], null), new AppSettings());
+        Assert.True(activeStreams.TryRegister(existing, 1, () => { }));
+        var slate = Substitute.For<IProtectedContentSlateService>();
+        var capacity = new TunerCapacityLeaseRegistry();
+        var controller = CreateMpegTsProtectedSlateController(activeStreams, slate, capacity, maximumConcurrentStreams: 1);
+
+        // Act
+        var result = await controller.Stream("20.1");
+
+        // Assert
+        var rejected = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status429TooManyRequests, rejected.StatusCode);
+        Assert.Empty(slate.ReceivedCalls());
+        Assert.Equal("existing", Assert.Single(activeStreams.GetActiveStreams()).SessionId);
+        Assert.Empty(capacity.GetDiagnostics());
+    }
+
+    /// <summary>
+    /// Verifies Dashboard Stop cancels an MPEG-TS DRM slate that failed before normal stream registration.
+    /// </summary>
+    [Fact]
+    public async Task Stream_ProtectedSlateRequestStop_CancelsSlateAndCleansRegistry()
+    {
+        // Arrange
+        var slateStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var slate = Substitute.For<IProtectedContentSlateService>();
+        slate.StreamAsync(HostedStreamFormat.MpegTs, "20.1", Arg.Any<Stream>(), Arg.Any<CancellationToken>())
+            .Returns(async call =>
+            {
+                slateStarted.SetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, call.ArgAt<CancellationToken>(3));
+            });
+        var activeStreams = new ActiveStreamRegistry();
+        var capacity = new TunerCapacityLeaseRegistry();
+        var controller = CreateMpegTsProtectedSlateController(activeStreams, slate, capacity, maximumConcurrentStreams: 1);
+        controller.HttpContext.Features.Set<IHttpRequestLifetimeFeature>(new TestRequestLifetimeFeature());
+
+        // Act
+        var streamTask = controller.Stream("20.1");
+        await slateStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
+        var sessionId = Assert.Single(activeStreams.GetActiveStreams()).SessionId;
+        var stopped = activeStreams.RequestStop(sessionId);
+        var result = await streamTask.WaitAsync(TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.True(stopped);
+        Assert.IsType<EmptyResult>(result);
+        Assert.Empty(activeStreams.GetActiveStreams());
+        Assert.Empty(capacity.GetDiagnostics());
+    }
+
     /// <summary>
     /// Verifies that IPv4 and IPv6 client endpoints are formatted unambiguously for diagnostics.
     /// </summary>
@@ -119,7 +401,7 @@ public class StreamControllerTests
         var result = controller.GetFmp4ClientSubtitles(clientId);
 
         // Assert
-        var status = Assert.IsAssignableFrom<ObjectResult>(result);
+        var status = Assert.IsType<ObjectResult>(result, exactMatch: false);
         Assert.Equal(statusCode, status.StatusCode);
     }
 
@@ -148,7 +430,7 @@ public class StreamControllerTests
         Assert.NotNull(errorMethod);
 
         // Act
-        var slateTask = Assert.IsAssignableFrom<Task>(errorMethod.Invoke(controller, ["20.1", "http://tuner.local:5004/auto/v20.1", "session", DateTime.UtcNow, physicalLease]));
+        var slateTask = Assert.IsType<Task>(errorMethod.Invoke(controller, ["20.1", "http://tuner.local:5004/auto/v20.1", "session", DateTime.UtcNow, physicalLease]), exactMatch: false);
         await slateStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
         var nextLease = await registry.TryAcquireAsync(profileUri, new Uri("http://tuner.local:5004/auto/v21.1"), 1, TestContext.Current.CancellationToken);
 
@@ -267,6 +549,7 @@ public class StreamControllerTests
             httpClientFactory,
             Substitute.For<IEpgRepository>(),
             settingsService,
+            CreateChannelLineupStore(),
             Substitute.For<IDeviceStateService>(),
             Substitute.For<IHdHomeRunProxyProfileProvider>(),
             Substitute.For<IMpegTsTranscodeService>(),
@@ -284,6 +567,75 @@ public class StreamControllerTests
         };
     }
 
+    private static StreamController CreateMpegTsProtectedSlateController(
+        IActiveStreamRegistry activeStreams,
+        IProtectedContentSlateService slateService,
+        ITunerCapacityLeaseRegistry capacity,
+        int maximumConcurrentStreams)
+    {
+        var httpClientFactory = Substitute.For<IHttpClientFactory>();
+        httpClientFactory.CreateClient("StreamProxy").Returns(new HttpClient(new ProtectedContentResponseHandler()));
+        var settingsService = Substitute.For<IAppSettingsService>();
+        settingsService.Settings.Returns(new AppSettings
+        {
+            DeviceAddress = "tuner.local",
+            ProtectedContentMode = ProtectedContentMode.StreamSlate,
+            MaximumConcurrentStreams = maximumConcurrentStreams
+        });
+        var profiles = Substitute.For<IHdHomeRunProxyProfileProvider>();
+        profiles.GetPrimaryProfileAsync(Arg.Any<CancellationToken>()).Returns(new HdHomeRunProxyProfileSnapshot
+        {
+            Settings = new HdHomeRunProxyProfileSettings(),
+            PhysicalDevice = new HDHomeRunDeviceInfo
+            {
+                FriendlyName = "Tuner",
+                ModelNumber = "HDHR",
+                FirmwareName = "hdhomerun",
+                FirmwareVersion = "1",
+                DeviceID = "12345678",
+                DeviceAuth = "auth",
+                BaseURL = "http://tuner.local",
+                LineupURL = "http://tuner.local/lineup.json",
+                TunerCount = 1
+            },
+            IsPrimary = true,
+            DeviceId = 0x12345678,
+            DeviceAuth = "virtual",
+            TunerCount = 1,
+            FriendlyName = "Lineup",
+            PhysicalBaseUri = new Uri("http://tuner.local/")
+        });
+        var multiplexer = Substitute.For<ITunerStreamMultiplexer>();
+        multiplexer.SubscribeAsync(Arg.Any<Uri>(), Arg.Any<CancellationToken>())
+            .Returns(_ => new ValueTask<Stream>(new MemoryStream()));
+        var probe = Substitute.For<IMediaProbeService>();
+        probe.ProbeAsync(Arg.Any<Uri>(), Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromException<MediaProbeResult>(new MpegTsTranscodeException("DRM")));
+        return new StreamController(
+            httpClientFactory,
+            Substitute.For<IEpgRepository>(),
+            settingsService,
+            CreateChannelLineupStore(),
+            Substitute.For<IDeviceStateService>(),
+            profiles,
+            Substitute.For<IMpegTsTranscodeService>(),
+            probe,
+            activeStreams,
+            slateService,
+            multiplexer,
+            capacity,
+            NullLogger<StreamController>.Instance)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    Response = { Body = new MemoryStream() }
+                }
+            }
+        };
+    }
+
     private static StreamController CreateLifecycleController(IActiveStreamRegistry activeStreams, IHostApplicationLifetime? lifetime = null, TimeSpan? hlsInactivityTimeout = null)
     {
         var settingsService = Substitute.For<IAppSettingsService>();
@@ -292,6 +644,7 @@ public class StreamControllerTests
             Substitute.For<IHttpClientFactory>(),
             Substitute.For<IEpgRepository>(),
             settingsService,
+            CreateChannelLineupStore(),
             Substitute.For<IDeviceStateService>(),
             Substitute.For<IHdHomeRunProxyProfileProvider>(),
             Substitute.For<IMpegTsTranscodeService>(),
@@ -345,11 +698,105 @@ public class StreamControllerTests
         return session;
     }
 
+    private static ChannelLineupStore CreateChannelLineupStore()
+    {
+        return new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-stream-{Guid.NewGuid():N}.json"));
+    }
+
+    private static async Task<ChannelLineupStore> CreateDisabledChannelStoreAsync(string guideNumber)
+    {
+        var store = CreateChannelLineupStore();
+        await store.StoreAsync(
+            [new Lineup.HDHomeRun.Device.Models.HDHomeRunChannel { GuideNumber = guideNumber, GuideName = "Disabled", URL = $"http://tuner.local/auto/v{guideNumber}" }],
+            TestContext.Current.CancellationToken);
+        await store.SetChannelEnabledAsync(guideNumber, enabled: false, TestContext.Current.CancellationToken);
+        return store;
+    }
+
+    private static StreamController CreateDisabledChannelController(
+        ChannelLineupStore store,
+        DisabledChannelMode mode,
+        ITunerCapacityLeaseRegistry capacity,
+        IProtectedContentSlateService slate,
+        IActiveStreamRegistry? activeStreams = null,
+        int maximumConcurrentStreams = 0)
+    {
+        var settings = Substitute.For<IAppSettingsService>();
+        settings.Settings.Returns(new AppSettings
+        {
+            DeviceAddress = "tuner.local",
+            DisabledChannelMode = mode,
+            MaximumConcurrentStreams = maximumConcurrentStreams
+        });
+        var profiles = Substitute.For<IHdHomeRunProxyProfileProvider>();
+        profiles.GetPrimaryProfileAsync(Arg.Any<CancellationToken>()).Returns(new HdHomeRunProxyProfileSnapshot
+        {
+            Settings = new HdHomeRunProxyProfileSettings(),
+            PhysicalDevice = new HDHomeRunDeviceInfo
+            {
+                FriendlyName = "Tuner",
+                ModelNumber = "HDHR",
+                FirmwareName = "hdhomerun",
+                FirmwareVersion = "1",
+                DeviceID = "12345678",
+                DeviceAuth = "auth",
+                BaseURL = "http://tuner.local",
+                LineupURL = "http://tuner.local/lineup.json",
+                TunerCount = 2
+            },
+            IsPrimary = true,
+            DeviceId = 0x12345678,
+            DeviceAuth = "virtual",
+            TunerCount = 2,
+            FriendlyName = "Lineup",
+            PhysicalBaseUri = new Uri("http://tuner.local/")
+        });
+        return new StreamController(
+            Substitute.For<IHttpClientFactory>(),
+            Substitute.For<IEpgRepository>(),
+            settings,
+            store,
+            Substitute.For<IDeviceStateService>(),
+            profiles,
+            Substitute.For<IMpegTsTranscodeService>(),
+            Substitute.For<IMediaProbeService>(),
+            activeStreams ?? new ActiveStreamRegistry(),
+            slate,
+            Substitute.For<ITunerStreamMultiplexer>(),
+            capacity,
+            NullLogger<StreamController>.Instance)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    Response = { Body = new MemoryStream() }
+                }
+            }
+        };
+    }
+
+    private sealed class TestRequestLifetimeFeature : IHttpRequestLifetimeFeature
+    {
+        private readonly CancellationTokenSource _cancellation = new();
+
+        public CancellationToken RequestAborted
+        {
+            get => _cancellation.Token;
+            set => throw new NotSupportedException();
+        }
+
+        public void Abort()
+        {
+            _cancellation.Cancel();
+        }
+    }
+
     private static IDictionary GetHlsSessions()
     {
         var sessions = typeof(StreamController).GetField("_hlsSessions", BindingFlags.Static | BindingFlags.NonPublic);
         Assert.NotNull(sessions);
-        return Assert.IsAssignableFrom<IDictionary>(sessions.GetValue(null));
+        return Assert.IsType<IDictionary>(sessions.GetValue(null), exactMatch: false);
     }
 
     private static void SetProperty(Type type, object instance, string name, object value)

@@ -16,8 +16,8 @@ $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $buildPropertiesPath = Join-Path $repositoryRoot 'Directory.Build.props'
 [xml]$buildProperties = Get-Content -LiteralPath $buildPropertiesPath
 $Version = [string]$buildProperties.Project.PropertyGroup.Version
-if ($Version -notmatch '^\d+\.\d+\.\d+$') {
-    throw "Directory.Build.props Version must use stable semantic version format, for example 1.2.3. Received '$Version'."
+if ($Version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?(?:\+[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?$') {
+    throw "Directory.Build.props Version must use semantic version format, for example 1.2.3 or 1.2.3-beta. Received '$Version'."
 }
 
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {

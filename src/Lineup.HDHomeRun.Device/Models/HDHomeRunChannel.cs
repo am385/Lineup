@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using Lineup.HDHomeRun.Device.Json;
 
@@ -48,17 +49,28 @@ public record HDHomeRunChannel
     public bool Favorite { get; init; }
 
     /// <summary>
+    /// Comma-separated channel tags reported by the device.
+    /// </summary>
+    public string? Tags { get; init; }
+
+    /// <summary>
     /// Signal strength percentage (0-100)
     /// </summary>
-    public int SignalStrength { get; init; }
+    public int? SignalStrength { get; init; }
 
     /// <summary>
     /// Signal quality percentage (0-100)
     /// </summary>
-    public int SignalQuality { get; init; }
+    public int? SignalQuality { get; init; }
 
     /// <summary>
     /// Streaming URL for the channel
     /// </summary>
     public required string URL { get; init; }
+
+    /// <summary>
+    /// Properties supplied by device firmware that Lineup does not yet model.
+    /// </summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? AdditionalProperties { get; init; }
 }

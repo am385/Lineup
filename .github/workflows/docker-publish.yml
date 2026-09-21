@@ -22,6 +22,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       major_minor: ${{ steps.version.outputs.major_minor }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
       tag: ${{ steps.version.outputs.tag }}
     steps:
       - name: Checkout repository
@@ -33,8 +34,8 @@ jobs:
         run: |
           version="$(python3 -c "import xml.etree.ElementTree as ET; print(ET.parse('Directory.Build.props').getroot().findtext('./PropertyGroup/Version', '').strip())")"
 
-          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Directory.Build.props Version must use stable semantic version format, for example 2.0.0."
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?(\+[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?$ ]]; then
+            echo "::error::Directory.Build.props Version must use semantic version format, for example 2.0.0 or 2.1.0-beta."
             exit 1
           fi
 
@@ -43,8 +44,11 @@ jobs:
             exit 1
           fi
 
+          core_version="${version%%-*}"
+          core_version="${core_version%%+*}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
-          echo "major_minor=${version%.*}" >> "${GITHUB_OUTPUT}"
+          echo "major_minor=${core_version%.*}" >> "${GITHUB_OUTPUT}"
+          echo "prerelease=$([[ "${version}" == *-* ]] && echo true || echo false)" >> "${GITHUB_OUTPUT}"
           echo "tag=v${version}" >> "${GITHUB_OUTPUT}"
 
   test:
@@ -103,8 +107,8 @@ jobs:
             ${{ env.GHCR_IMAGE }}
           tags: |
             type=raw,value=${{ needs.prepare.outputs.version }}
-            type=raw,value=${{ needs.prepare.outputs.major_minor }}
-            type=raw,value=latest,enable=${{ github.event_name == 'push' || inputs.publish_latest }}
+            type=raw,value=${{ needs.prepare.outputs.major_minor }},enable=${{ needs.prepare.outputs.prerelease != 'true' }}
+            type=raw,value=latest,enable=${{ needs.prepare.outputs.prerelease != 'true' && (github.event_name == 'push' || inputs.publish_latest) }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
@@ -191,13 +195,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
           RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+          RELEASE_PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
         run: |
           if gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             gh release upload "${RELEASE_TAG}" artifacts/* --clobber --repo "${GITHUB_REPOSITORY}"
           else
+            release_flags=()
+            if [[ "${RELEASE_PRERELEASE}" == "true" ]]; then
+              release_flags+=(--prerelease)
+            fi
             gh release create "${RELEASE_TAG}" artifacts/* \
               --repo "${GITHUB_REPOSITORY}" \
               --verify-tag \
               --title "Lineup ${RELEASE_VERSION}" \
-              --generate-notes
+              --generate-notes \
+              "${release_flags[@]}"
           fi

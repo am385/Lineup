@@ -25,7 +25,7 @@ public class EpgAutoFetchServiceTests
         var repository = Substitute.For<IEpgRepository>();
         var guideStore = new XmltvGuideStore(Path.Combine(testDirectory, "guide.xml"));
         var provider = new CachedEpgDataProvider(NullLogger<CachedEpgDataProvider>.Instance, null!, new SiliconDustXmltvParser(), guideStore, repository, new GuideGenerationCoordinator());
-        var orchestrator = new EpgOrchestrator(NullLogger<EpgOrchestrator>.Instance, null!, provider, repository, guideStore);
+        var orchestrator = new EpgOrchestrator(NullLogger<EpgOrchestrator>.Instance, null!, provider, repository, guideStore, new SiliconDustXmltvParser());
         var serviceProvider = Substitute.For<IServiceProvider>();
         serviceProvider.GetService(typeof(EpgOrchestrator)).Returns(orchestrator);
         var scope = Substitute.For<IServiceScope>();
@@ -48,6 +48,7 @@ public class EpgAutoFetchServiceTests
 
         // Assert
         scopeFactory.Received(1).CreateScope();
+        Assert.True(service.ExecuteTask?.IsCompletedSuccessfully);
 
         Directory.Delete(testDirectory, recursive: true);
     }

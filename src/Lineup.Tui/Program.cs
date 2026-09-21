@@ -29,6 +29,7 @@ class Program
         using var host = builder.Build();
 
         var orchestrator = host.Services.GetRequiredService<EpgOrchestrator>();
+        var channelLineupRefresh = host.Services.GetRequiredService<ChannelLineupRefreshService>();
         var repository = host.Services.GetRequiredService<IEpgRepository>();
 
         await repository.EnsureDatabaseCreatedAsync();
@@ -45,12 +46,15 @@ class Program
                 new SelectionPrompt<string>()
                     .Title("[bold blue]What would you like to do?[/]")
                     .PageSize(10)
-                    .AddChoices(["View Cache Statistics", "Fetch EPG Data", "Generate XMLTV", "Export XMLTV", "View Channels", "View Programs", "About", "Exit"]));
+                    .AddChoices(["View Cache Statistics", "Refresh HDHomeRun Channels", "Fetch EPG Data", "Generate XMLTV", "Export XMLTV", "View Channels", "View Programs", "About", "Exit"]));
 
             switch (choice)
             {
                 case "View Cache Statistics":
                     await ViewStatsAsync(repository);
+                    break;
+                case "Refresh HDHomeRun Channels":
+                    await RefreshChannelsAsync(channelLineupRefresh);
                     break;
                 case "Fetch EPG Data":
                     await FetchDataAsync(orchestrator);
@@ -124,6 +128,20 @@ class Program
         }
 
         AnsiConsole.Write(table);
+        WaitForKey();
+    }
+
+    static async Task RefreshChannelsAsync(ChannelLineupRefreshService channelLineupRefresh)
+    {
+        ChannelLineupSnapshot? snapshot = null;
+        await AnsiConsole.Status()
+            .StartAsync("Refreshing physical HDHomeRun channels...", async ctx =>
+            {
+                ctx.Spinner(Spinner.Known.Dots);
+                snapshot = await channelLineupRefresh.RefreshAsync();
+            });
+
+        AnsiConsole.MarkupLine($"[green]Saved {snapshot!.Channels.Count} tuner channels for the next guide fetch.[/]");
         WaitForKey();
     }
 

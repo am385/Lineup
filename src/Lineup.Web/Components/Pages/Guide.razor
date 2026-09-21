@@ -86,6 +86,14 @@ else
                 <div class="guide-channel">
                     <div class="channel-number">
                         @channel.GuideNumber
+                        @if (!IsChannelEnabled(channel.GuideNumber))
+                        {
+                            <span class="bi bi-slash-circle text-secondary ms-1" title="Disabled channel" aria-label="Disabled channel"></span>
+                        }
+                        @if (channel.Favorite)
+                        {
+                            <span class="bi bi-star-fill text-warning ms-1" title="Favorite channel" aria-label="Favorite channel"></span>
+                        }
                         @if (channel.DRM)
                         {
                             <span class="bi bi-shield-lock-fill text-warning ms-1" title="DRM-protected channel" aria-label="DRM-protected channel"></span>

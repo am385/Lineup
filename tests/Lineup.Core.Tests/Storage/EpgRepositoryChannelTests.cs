@@ -1,4 +1,5 @@
 using Lineup.Core.Storage;
+using Lineup.Core.Storage.Entities;
 using Lineup.HDHomeRun.Api.Models;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -13,10 +14,10 @@ namespace Lineup.Core.Tests.Storage;
 public class EpgRepositoryChannelTests
 {
     /// <summary>
-    /// Verifies that a channel's DRM flag survives a cache round trip.
+    /// Verifies that tuner-provided channel flags survive a cache round trip.
     /// </summary>
     [Fact]
-    public async Task StoreAndLoadChannel_PreservesDrmFlag()
+    public async Task StoreAndLoadChannel_PreservesTunerFlags()
     {
         // Arrange
         await using var connection = new SqliteConnection("Data Source=:memory:");
@@ -29,7 +30,8 @@ public class EpgRepositoryChannelTests
         {
             GuideNumber = "117.1",
             GuideName = "Protected",
-            DRM = true
+            DRM = true,
+            Favorite = true
         };
 
         // Act
@@ -38,6 +40,50 @@ public class EpgRepositoryChannelTests
         var cachedChannel = Assert.Single(await repository.GetChannelsAsync());
 
         Assert.True(cachedChannel.DRM);
+        Assert.True(cachedChannel.Favorite);
+    }
+
+    /// <summary>
+    /// Verifies existing databases receive newly introduced tuner metadata columns.
+    /// </summary>
+    [Fact]
+    public async Task EnsureDatabaseCreatedAsync_ExistingChannelTable_AddsTunerMetadataColumns()
+    {
+        // Arrange
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
+                CREATE TABLE Channels (
+                    Id INTEGER NOT NULL CONSTRAINT PK_Channels PRIMARY KEY AUTOINCREMENT,
+                    GuideNumber TEXT NOT NULL,
+                    GuideName TEXT NULL,
+                    Affiliate TEXT NULL,
+                    ImageURL TEXT NULL,
+                    LastUpdatedUtc TEXT NOT NULL
+                );
+                """;
+            await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+        }
+        var options = new DbContextOptionsBuilder<EpgDbContext>().UseSqlite(connection).Options;
+        await using var context = new EpgDbContext(options);
+        var repository = new EpgRepository(context, NullLogger<EpgRepository>.Instance);
+
+        // Act
+        await repository.EnsureDatabaseCreatedAsync();
+
+        // Assert
+        var columns = new List<string>();
+        await using var schemaCommand = connection.CreateCommand();
+        schemaCommand.CommandText = "PRAGMA table_info('Channels')";
+        await using var reader = await schemaCommand.ExecuteReaderAsync(TestContext.Current.CancellationToken);
+        while (await reader.ReadAsync(TestContext.Current.CancellationToken))
+        {
+            columns.Add(reader.GetString(1));
+        }
+        Assert.Contains(nameof(StoredChannel.DRM), columns);
+        Assert.Contains(nameof(StoredChannel.Favorite), columns);
     }
 
     /// <summary>
@@ -104,10 +150,8 @@ public class EpgRepositoryChannelTests
         cancellation.Cancel();
 
         // Act
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => repository.ReplaceRawEpgDataAsync(
-                [new HDHomeRunChannelEpgSegment { GuideNumber = "7.1", GuideName = "New" }],
-                cancellation.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            repository.ReplaceRawEpgDataAsync([new HDHomeRunChannelEpgSegment { GuideNumber = "7.1", GuideName = "New" }], cancellation.Token));
 
         // Assert
         var channel = Assert.Single(await repository.GetChannelsAsync());

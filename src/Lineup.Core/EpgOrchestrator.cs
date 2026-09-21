@@ -1,5 +1,5 @@
 using Lineup.Core.Storage;
-using Lineup.HDHomeRun.Device;
+using Lineup.HDHomeRun.Device.Models;
 using Microsoft.Extensions.Logging;
 
 namespace Lineup.Core;
@@ -10,21 +10,23 @@ namespace Lineup.Core;
 public class EpgOrchestrator
 {
     private readonly ILogger<EpgOrchestrator> _logger;
-    private readonly HDHomeRunDeviceClient _deviceService;
+    private readonly ChannelLineupStore _channelLineupStore;
     private readonly CachedEpgDataProvider _epgDataProvider;
     private readonly IEpgRepository _repository;
     private readonly XmltvGuideStore _guideStore;
+    private readonly SiliconDustXmltvParser _parser;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="EpgOrchestrator"/> class.
     /// </summary>
-    public EpgOrchestrator(ILogger<EpgOrchestrator> logger, HDHomeRunDeviceClient deviceService, CachedEpgDataProvider epgDataProvider, IEpgRepository repository, XmltvGuideStore guideStore)
+    public EpgOrchestrator(ILogger<EpgOrchestrator> logger, ChannelLineupStore channelLineupStore, CachedEpgDataProvider epgDataProvider, IEpgRepository repository, XmltvGuideStore guideStore, SiliconDustXmltvParser parser)
     {
         _logger = logger;
-        _deviceService = deviceService;
+        _channelLineupStore = channelLineupStore;
         _epgDataProvider = epgDataProvider;
         _repository = repository;
         _guideStore = guideStore;
+        _parser = parser;
     }
 
     /// <summary>
@@ -37,11 +39,11 @@ public class EpgOrchestrator
     public async Task GenerateEpgAsync(int days, int hours, string filename)
     {
         await FetchAndStoreEpgAsync(days, force: true);
-        await _guideStore.CopyToAsync(filename);
+        await PublishEnabledGuideAsync(days, filename);
     }
 
     /// <summary>
-    /// Downloads the complete XMLTV guide and replaces the normalized local cache.
+    /// Downloads the complete XMLTV guide, filters it to current tuner lineups, and replaces the normalized local cache.
     /// </summary>
     /// <remarks>
     /// SiliconDust returns one complete entitlement-based snapshot, so <paramref name="targetDays"/>
@@ -50,12 +52,14 @@ public class EpgOrchestrator
     public async Task FetchAndStoreEpgAsync(int targetDays, bool force = false, IProgress<FetchProgressInfo>? progress = null, CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Refreshing the complete SiliconDust XMLTV guide");
-        var rawSegments = await _epgDataProvider.FetchAndStoreRawDataAsync(progress, cancellationToken);
-        var deviceChannels = await _deviceService.FetchChannelLineupAsync(cancellationToken);
+        var lineupSnapshot = await _channelLineupStore.ReadAsync(cancellationToken)
+            ?? throw new InvalidOperationException("No HDHomeRun channel lineup has been saved. Refresh Channels before fetching guide data.");
+        var deviceChannels = lineupSnapshot.Channels;
         var deviceChannelsByNumber = deviceChannels
             .Where(channel => !string.IsNullOrWhiteSpace(channel.GuideNumber))
-            .GroupBy(channel => channel.GuideNumber, StringComparer.Ordinal)
-            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+            .GroupBy(channel => channel.GuideNumber.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        var rawSegments = await _epgDataProvider.FetchAndStoreRawDataAsync(deviceChannelsByNumber.Values, progress, cancellationToken);
 
         var enrichedChannels = rawSegments.Select(segment =>
         {
@@ -68,7 +72,8 @@ public class EpgOrchestrator
             return segment with
             {
                 GuideName = deviceChannel.GuideName ?? segment.GuideName,
-                DRM = deviceChannel.DRM
+                DRM = deviceChannel.DRM,
+                Favorite = deviceChannel.Favorite
             };
         });
         await _repository.StoreChannelsAsync(enrichedChannels);
@@ -85,13 +90,40 @@ public class EpgOrchestrator
     }
 
     /// <summary>
-    /// Copies the last downloaded canonical XMLTV guide to an output file.
+    /// Publishes the last downloaded canonical XMLTV guide or a placeholder-only guide to an output file.
     /// </summary>
-    /// <remarks>SiliconDust determines the available guide duration; <paramref name="days"/> is retained for compatibility.</remarks>
-    public Task GenerateEpgFromCacheAsync(int days, string filename)
+    /// <param name="days">Placeholder duration when no canonical guide has been downloaded.</param>
+    /// <param name="filename">Destination XMLTV file.</param>
+    /// <param name="cancellationToken">Cancels publication.</param>
+    public Task GenerateEpgFromCacheAsync(int days, string filename, CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Publishing the cached canonical XMLTV guide to {Filename}", filename);
-        return _guideStore.CopyToAsync(filename);
+        return PublishEnabledGuideAsync(days, filename, cancellationToken);
+    }
+
+    private async Task PublishEnabledGuideAsync(int days, string filename, CancellationToken cancellationToken = default)
+    {
+        var lineupSnapshot = await _channelLineupStore.ReadAsync(cancellationToken)
+            ?? throw new InvalidOperationException("No HDHomeRun channel lineup has been saved. Refresh Channels before publishing guide data.");
+        var enabledChannels = lineupSnapshot.Channels
+            .Where(channel => lineupSnapshot.IsChannelEnabled(channel.GuideNumber))
+            .ToArray();
+        var content = await _guideStore.ReadAsync(cancellationToken);
+        var filteredContent = content == null
+            ? CreatePlaceholderGuide(enabledChannels, days)
+            : _parser.FilterByChannels(content, enabledChannels);
+        await _guideStore.PublishAsync(filename, filteredContent, cancellationToken);
+    }
+
+    private byte[] CreatePlaceholderGuide(IReadOnlyList<HDHomeRunChannel> enabledChannels, int days)
+    {
+        var start = DateTimeOffset.UtcNow;
+        var stop = start.AddDays(Math.Max(1, days));
+        _logger.LogInformation(
+            "No canonical XMLTV guide is available; publishing placeholder data for {ChannelCount} enabled channels through {Stop:yyyy-MM-dd HH:mm} UTC",
+            enabledChannels.Count,
+            stop);
+        return _parser.CreatePlaceholderGuide(enabledChannels, start, stop);
     }
 
     private async Task LogCacheStatisticsAsync()

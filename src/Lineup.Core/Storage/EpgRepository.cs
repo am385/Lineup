@@ -29,7 +29,7 @@ public class EpgRepository : IEpgRepository
     public async Task EnsureDatabaseCreatedAsync()
     {
         await _context.Database.EnsureCreatedAsync();
-        await EnsureChannelDrmColumnAsync();
+        await EnsureChannelMetadataColumnsAsync();
         _logger.LogDebug("Database ensured created");
     }
 
@@ -47,6 +47,7 @@ public class EpgRepository : IEpgRepository
             existing.Affiliate = channel.Affiliate;
             existing.ImageURL = channel.ImageURL;
             existing.DRM = channel.DRM;
+            existing.Favorite = channel.Favorite;
             existing.LastUpdatedUtc = DateTime.UtcNow;
         }
         else
@@ -58,6 +59,7 @@ public class EpgRepository : IEpgRepository
                 Affiliate = channel.Affiliate,
                 ImageURL = channel.ImageURL,
                 DRM = channel.DRM,
+                Favorite = channel.Favorite,
                 LastUpdatedUtc = DateTime.UtcNow
             });
         }
@@ -87,6 +89,7 @@ public class EpgRepository : IEpgRepository
                 existing.Affiliate = channel.Affiliate;
                 existing.ImageURL = channel.ImageURL;
                 existing.DRM = channel.DRM;
+                existing.Favorite = channel.Favorite;
                 existing.LastUpdatedUtc = DateTime.UtcNow;
             }
             else
@@ -98,6 +101,7 @@ public class EpgRepository : IEpgRepository
                     Affiliate = channel.Affiliate,
                     ImageURL = channel.ImageURL,
                     DRM = channel.DRM,
+                    Favorite = channel.Favorite,
                     LastUpdatedUtc = DateTime.UtcNow
                 });
             }
@@ -206,6 +210,7 @@ public class EpgRepository : IEpgRepository
             Affiliate = segment.Affiliate,
             ImageURL = segment.ImageURL,
             DRM = segment.DRM,
+            Favorite = segment.Favorite,
             LastUpdatedUtc = fetchedAt
         }));
         _context.Programs.AddRange(segmentList.SelectMany(segment =>
@@ -297,6 +302,7 @@ public class EpgRepository : IEpgRepository
                 Affiliate = channel.Affiliate,
                 ImageURL = channel.ImageURL,
                 DRM = channel.DRM,
+                Favorite = channel.Favorite,
                 Guide = channelPrograms
             });
         }
@@ -435,11 +441,12 @@ public class EpgRepository : IEpgRepository
             Affiliate = entity.Affiliate,
             ImageURL = entity.ImageURL,
             DRM = entity.DRM,
+            Favorite = entity.Favorite,
             Guide = [] // Programs loaded separately
         };
     }
 
-    private async Task EnsureChannelDrmColumnAsync()
+    private async Task EnsureChannelMetadataColumnsAsync()
     {
         var connection = _context.Database.GetDbConnection();
         var shouldClose = connection.State != System.Data.ConnectionState.Open;
@@ -453,23 +460,27 @@ public class EpgRepository : IEpgRepository
             await using var schemaCommand = connection.CreateCommand();
             schemaCommand.CommandText = "PRAGMA table_info('Channels')";
             await using var reader = await schemaCommand.ExecuteReaderAsync();
-            var hasDrmColumn = false;
+            var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             while (await reader.ReadAsync())
             {
-                if (string.Equals(reader.GetString(1), nameof(StoredChannel.DRM), StringComparison.OrdinalIgnoreCase))
-                {
-                    hasDrmColumn = true;
-                    break;
-                }
+                columns.Add(reader.GetString(1));
             }
 
             await reader.DisposeAsync();
-            if (!hasDrmColumn)
+            if (!columns.Contains(nameof(StoredChannel.DRM)))
             {
                 await using var alterCommand = connection.CreateCommand();
                 alterCommand.CommandText = "ALTER TABLE Channels ADD COLUMN DRM INTEGER NOT NULL DEFAULT 0";
                 await alterCommand.ExecuteNonQueryAsync();
                 _logger.LogInformation("Added DRM metadata column to the channel cache");
+            }
+
+            if (!columns.Contains(nameof(StoredChannel.Favorite)))
+            {
+                await using var alterCommand = connection.CreateCommand();
+                alterCommand.CommandText = "ALTER TABLE Channels ADD COLUMN Favorite INTEGER NOT NULL DEFAULT 0";
+                await alterCommand.ExecuteNonQueryAsync();
+                _logger.LogInformation("Added favorite metadata column to the channel cache");
             }
         }
         finally

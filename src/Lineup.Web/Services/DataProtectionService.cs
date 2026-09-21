@@ -1,4 +1,3 @@
-using Lineup.Core;
 using Microsoft.AspNetCore.DataProtection;
 
 namespace Lineup.Web.Services;

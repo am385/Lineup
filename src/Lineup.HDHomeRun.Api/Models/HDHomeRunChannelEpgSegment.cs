@@ -32,6 +32,11 @@ public record HDHomeRunChannelEpgSegment
     public bool DRM { get; init; }
 
     /// <summary>
+    /// Gets whether the channel is marked as a favorite by the device lineup.
+    /// </summary>
+    public bool Favorite { get; init; }
+
+    /// <summary>
     /// Gets the channel's program listings.
     /// </summary>
     public List<HDHomeRunProgram> Guide { get; init; } = [];

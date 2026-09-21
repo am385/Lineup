@@ -26,6 +26,7 @@ public partial class Settings : IDisposable
     private IServiceProvider Services { get; set; } = default!;
 
     private bool _autoFetchEnabled;
+    private bool _refreshChannelsBeforeGuideFetch;
     private string _deviceAddress = "";
     private int _deviceRefreshIntervalMinutes;
     private int _tunerRefreshIntervalSeconds;
@@ -38,6 +39,7 @@ public partial class Settings : IDisposable
     private Ac4TranscodeTarget _ac4TranscodeTarget;
     private VirtualTunerVideoMode _virtualTunerVideoMode;
     private ProtectedContentMode _protectedContentMode;
+    private DisabledChannelMode _disabledChannelMode;
     private WebVideoPreset _webVideoPreset;
     private int _webVideoQuality;
     private int _maximumVideoBitRateMbps;
@@ -102,6 +104,7 @@ public partial class Settings : IDisposable
     private void LoadCurrentSettings()
     {
         _autoFetchEnabled = SettingsService.Settings.IsAutoFetchEnabled;
+        _refreshChannelsBeforeGuideFetch = SettingsService.Settings.RefreshChannelsBeforeGuideFetch;
         _deviceAddress = SettingsService.Settings.DeviceAddress;
         _deviceRefreshIntervalMinutes = SettingsService.Settings.DeviceRefreshIntervalMinutes;
         _tunerRefreshIntervalSeconds = SettingsService.Settings.TunerRefreshIntervalSeconds;
@@ -114,6 +117,7 @@ public partial class Settings : IDisposable
         _ac4TranscodeTarget = SettingsService.Settings.Ac4TranscodeTarget;
         _virtualTunerVideoMode = SettingsService.Settings.VirtualTunerVideoMode;
         _protectedContentMode = SettingsService.Settings.ProtectedContentMode;
+        _disabledChannelMode = SettingsService.Settings.DisabledChannelMode;
         _webVideoPreset = SettingsService.Settings.WebVideoPreset;
         _webVideoQuality = SettingsService.Settings.WebVideoQuality;
         _maximumVideoBitRateMbps = SettingsService.Settings.MaximumVideoBitRateMbps;
@@ -266,9 +270,11 @@ public partial class Settings : IDisposable
             var wasAutoFetchEnabled = SettingsService.Settings.IsAutoFetchEnabled;
             var fileLoggingChanged = FileLoggingSettingsChanged();
             var applicationLoggingChanged = ApplicationLoggingSettingsChanged();
+            var completingInitialSetup = _isInitialSetup;
             await SettingsService.UpdateAsync(settings =>
             {
                 settings.AutoFetchInterval = _autoFetchEnabled ? TimeSpan.FromHours(24) : TimeSpan.Zero;
+                settings.RefreshChannelsBeforeGuideFetch = _refreshChannelsBeforeGuideFetch;
                 if (!_autoFetchEnabled || !wasAutoFetchEnabled)
                 {
                     settings.NextAutoFetchTime = null;
@@ -289,6 +295,7 @@ public partial class Settings : IDisposable
                 settings.Ac4TranscodeTarget = _ac4TranscodeTarget;
                 settings.VirtualTunerVideoMode = _virtualTunerVideoMode;
                 settings.ProtectedContentMode = _protectedContentMode;
+                settings.DisabledChannelMode = _disabledChannelMode;
                 settings.WebVideoPreset = _webVideoPreset;
                 settings.WebVideoQuality = _webVideoQuality;
                 settings.MaximumVideoBitRateMbps = _maximumVideoBitRateMbps;
@@ -303,7 +310,7 @@ public partial class Settings : IDisposable
                 settings.FileLogLevel = _fileLogLevel;
                 settings.FileLogRetentionDays = _fileLogRetentionDays;
                 settings.FileLogSizeLimitMb = _fileLogSizeLimitMb;
-                settings.IsSetupComplete = true;
+                settings.IsSetupComplete = !completingInitialSetup;
             });
 
             var applyErrors = new List<string>();
@@ -344,8 +351,17 @@ public partial class Settings : IDisposable
             _statusMessage = "Settings saved successfully!";
             _isError = false;
 
-            if (_isInitialSetup)
+            if (completingInitialSetup)
             {
+                var deviceState = Services.GetRequiredService<IDeviceStateService>();
+                await deviceState.DiscoverDeviceAsync();
+                if (!deviceState.IsDiscovered)
+                {
+                    throw new InvalidOperationException($"The HDHomeRun device could not be connected: {deviceState.LastError ?? "unknown error"}");
+                }
+
+                await Services.GetRequiredService<ChannelLineupRefreshService>().RefreshAsync();
+                await SettingsService.UpdateAsync(settings => settings.IsSetupComplete = true);
                 _isInitialSetup = false;
                 Navigation.NavigateTo("/dashboard");
             }
@@ -365,6 +381,7 @@ public partial class Settings : IDisposable
     {
         var defaults = new AppSettings();
         _autoFetchEnabled = defaults.IsAutoFetchEnabled;
+        _refreshChannelsBeforeGuideFetch = defaults.RefreshChannelsBeforeGuideFetch;
         _deviceAddress = defaults.DeviceAddress;
         _deviceRefreshIntervalMinutes = defaults.DeviceRefreshIntervalMinutes;
         _tunerRefreshIntervalSeconds = defaults.TunerRefreshIntervalSeconds;
@@ -377,6 +394,7 @@ public partial class Settings : IDisposable
         _ac4TranscodeTarget = defaults.Ac4TranscodeTarget;
         _virtualTunerVideoMode = defaults.VirtualTunerVideoMode;
         _protectedContentMode = defaults.ProtectedContentMode;
+        _disabledChannelMode = defaults.DisabledChannelMode;
         _webVideoPreset = defaults.WebVideoPreset;
         _webVideoQuality = defaults.WebVideoQuality;
         _maximumVideoBitRateMbps = defaults.MaximumVideoBitRateMbps;
@@ -460,9 +478,7 @@ public partial class Settings : IDisposable
             leftLevels.All(pair => rightLevels.TryGetValue(pair.Key, out var level) && string.Equals(pair.Value, level, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static IReadOnlyList<LogCategoryLevelSetting> MergeLogCategorySettings(
-        IEnumerable<LogCategoryLevelSetting> startupLevels,
-        IEnumerable<LogCategoryLevelSetting> overrideLevels)
+    private static IReadOnlyList<LogCategoryLevelSetting> MergeLogCategorySettings(IEnumerable<LogCategoryLevelSetting> startupLevels, IEnumerable<LogCategoryLevelSetting> overrideLevels)
     {
         var merged = startupLevels
             .Concat(overrideLevels)

@@ -1,5 +1,7 @@
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using Lineup.HDHomeRun.Device.Models;
 
@@ -145,6 +147,12 @@ public sealed record HdHomeRunProxyLineupStatus
 /// </summary>
 public sealed record HdHomeRunProxyChannel
 {
+    private static readonly HashSet<string> OwnedPropertyNames = typeof(HdHomeRunProxyChannel)
+        .GetProperties(BindingFlags.Instance | BindingFlags.Public)
+        .Where(property => property.GetCustomAttribute<JsonExtensionDataAttribute>() == null)
+        .Select(property => property.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name ?? property.Name)
+        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Gets the virtual channel number.</summary>
     [JsonPropertyName("GuideNumber")]
     public required string GuideNumber { get; init; }
@@ -183,9 +191,23 @@ public sealed record HdHomeRunProxyChannel
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? Favorite { get; init; }
 
+    /// <summary>Gets the signal strength reported by the physical device.</summary>
+    [JsonPropertyName("SignalStrength")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? SignalStrength { get; init; }
+
+    /// <summary>Gets the signal quality reported by the physical device.</summary>
+    [JsonPropertyName("SignalQuality")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? SignalQuality { get; init; }
+
     /// <summary>Gets the Lineup-hosted MPEG-TS URL.</summary>
     [JsonPropertyName("URL")]
     public required string Url { get; init; }
+
+    /// <summary>Gets firmware-defined properties that Lineup does not yet model.</summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? AdditionalProperties { get; init; }
 
     /// <summary>
     /// Creates a proxy channel from a physical-device lineup item.
@@ -196,7 +218,9 @@ public sealed record HdHomeRunProxyChannel
     /// <returns>A channel whose stream URL points to Lineup.</returns>
     public static HdHomeRunProxyChannel Create(HDHomeRunChannel channel, Uri baseUri, VirtualTunerVideoMode videoMode = VirtualTunerVideoMode.Preserve)
     {
-        var tags = new List<string>();
+        var tags = channel.Tags?
+            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .ToList() ?? [];
         if (channel.Favorite)
         {
             tags.Add("favorite");
@@ -211,14 +235,32 @@ public sealed record HdHomeRunProxyChannel
         {
             GuideNumber = channel.GuideNumber,
             GuideName = channel.GuideName,
-            Tags = tags.Count == 0 ? null : string.Join(',', tags),
+            Tags = tags.Count == 0
+                ? null
+                : string.Join(',', tags.Distinct(StringComparer.OrdinalIgnoreCase)),
             VideoCodec = GetOutputVideoCodec(channel.VideoCodec, videoMode),
             AudioCodec = GetOutputAudioCodec(channel.AudioCodec),
             Hd = channel.HD ? 1 : null,
             Drm = channel.DRM ? 1 : null,
             Favorite = channel.Favorite ? 1 : null,
-            Url = new Uri(baseUri, $"auto/v{Uri.EscapeDataString(channel.GuideNumber)}").AbsoluteUri
+            SignalStrength = channel.SignalStrength,
+            SignalQuality = channel.SignalQuality,
+            Url = new Uri(baseUri, $"auto/v{Uri.EscapeDataString(channel.GuideNumber)}").AbsoluteUri,
+            AdditionalProperties = GetAdditionalProperties(channel.AdditionalProperties)
         };
+    }
+
+    private static Dictionary<string, JsonElement>? GetAdditionalProperties(IReadOnlyDictionary<string, JsonElement>? additionalProperties)
+    {
+        if (additionalProperties == null)
+        {
+            return null;
+        }
+
+        var result = additionalProperties
+            .Where(property => !OwnedPropertyNames.Contains(property.Key))
+            .ToDictionary(property => property.Key, property => property.Value, StringComparer.Ordinal);
+        return result.Count == 0 ? null : result;
     }
 
     private static string? GetOutputAudioCodec(string? sourceCodec)

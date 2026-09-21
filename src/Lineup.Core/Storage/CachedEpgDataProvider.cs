@@ -1,5 +1,6 @@
 using Lineup.HDHomeRun.Api;
 using Lineup.HDHomeRun.Api.Models;
+using Lineup.HDHomeRun.Device.Models;
 using Microsoft.Extensions.Logging;
 
 namespace Lineup.Core.Storage;
@@ -36,32 +37,40 @@ public class CachedEpgDataProvider
     }
 
     /// <summary>
-    /// Downloads, validates, imports, and caches the complete SiliconDust XMLTV guide.
+    /// Downloads and validates the SiliconDust XMLTV guide, filters it to available tuner
+    /// channels, and atomically replaces the canonical guide and normalized cache.
     /// </summary>
-    public async Task<List<HDHomeRunChannelEpgSegment>> FetchAndStoreRawDataAsync(IProgress<FetchProgressInfo>? progress = null, CancellationToken cancellationToken = default)
+    /// <param name="availableChannels">Channels currently returned by configured tuners.</param>
+    /// <param name="progress">Optional progress reporter.</param>
+    /// <param name="cancellationToken">Cancels the refresh before publication.</param>
+    /// <returns>The filtered normalized guide segments.</returns>
+    public async Task<List<HDHomeRunChannelEpgSegment>> FetchAndStoreRawDataAsync(IEnumerable<HDHomeRunChannel> availableChannels, IProgress<FetchProgressInfo>? progress = null, CancellationToken cancellationToken = default)
     {
         await _repository.EnsureDatabaseCreatedAsync();
         progress?.Report(CreateProgress(FetchStatus.Fetching, "Downloading the SiliconDust XMLTV guide..."));
 
         var content = await _apiClient.FetchXmltvAsync(cancellationToken);
-        var segments = _parser.Parse(content).ToList();
-        var programmeCount = segments.Sum(segment => segment.Guide.Count);
-        if (segments.Count == 0 || programmeCount == 0)
+        var downloadedSegments = _parser.Parse(content);
+        if (downloadedSegments.Count == 0 || downloadedSegments.Sum(segment => segment.Guide.Count) == 0)
         {
             throw new InvalidDataException("The SiliconDust XMLTV guide did not contain any usable channel programme data.");
         }
 
+        var filteredContent = _parser.FilterByChannels(content, availableChannels);
+        var segments = _parser.Parse(filteredContent).ToList();
+        var programmeCount = segments.Sum(segment => segment.Guide.Count);
         progress?.Report(CreateProgress(FetchStatus.Storing, $"Storing {segments.Count} channels and {programmeCount:N0} programmes...", segments.Count, programmeCount));
 
         await _generationCoordinator.ExecuteAsync(async transitionToken =>
         {
-            using var stagedGuide = await _guideStore.StageAsync(content, transitionToken);
+            using var stagedGuide = await _guideStore.StageAsync(filteredContent, transitionToken);
             stagedGuide.Commit();
             await _repository.ReplaceRawEpgDataAsync(segments, transitionToken);
-            await _guideStore.RecordGenerationAsync(content, CancellationToken.None);
+            await _guideStore.RecordGenerationAsync(filteredContent, CancellationToken.None);
         }, cancellationToken);
 
-        _logger.LogInformation("Imported the SiliconDust XMLTV guide with {ChannelCount} channels and {ProgramCount} programmes", segments.Count, programmeCount);
+        _logger.LogInformation("Imported {ChannelCount} of {DownloadedChannelCount} SiliconDust XMLTV channels available in the tuner lineup with {ProgramCount} programmes",
+                               segments.Count, downloadedSegments.Count, programmeCount);
         progress?.Report(CreateProgress(FetchStatus.Completed, $"Imported {segments.Count} channels and {programmeCount:N0} programmes", segments.Count, programmeCount));
         return segments;
     }

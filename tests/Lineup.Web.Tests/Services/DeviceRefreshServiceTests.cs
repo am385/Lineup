@@ -1,7 +1,9 @@
+using Lineup.Core;
 using Lineup.HDHomeRun.Device;
 using Lineup.HDHomeRun.Device.Models;
 using Lineup.HDHomeRun.Device.Protocol;
 using Lineup.Web.Services;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Xunit;
@@ -64,6 +66,41 @@ public class DeviceRefreshServiceTests
         Assert.True(fixture.State.NextDeviceRefresh > DateTime.UtcNow);
     }
 
+    /// <summary>
+    /// Verifies startup refreshes the persisted channel lineup after connecting to a device.
+    /// </summary>
+    [Fact]
+    public async Task InitializeDeviceAsync_DiscoveredDevice_RefreshesChannels()
+    {
+        // Arrange
+        var fixture = CreateFixture(isSetupComplete: true);
+
+        // Act
+        await fixture.Service.InitializeDeviceAsync(TestContext.Current.CancellationToken);
+
+        // Assert
+        await fixture.ChannelProvider.Received(1).FetchChannelLineupAsync(Arg.Any<CancellationToken>());
+        var snapshot = await fixture.ChannelStore.ReadAsync(TestContext.Current.CancellationToken);
+        Assert.Equal("7.1", Assert.Single(snapshot!.Channels).GuideNumber);
+    }
+
+    /// <summary>
+    /// Verifies startup does not query channels when device discovery did not connect.
+    /// </summary>
+    [Fact]
+    public async Task InitializeDeviceAsync_UndiscoveredDevice_DoesNotRefreshChannels()
+    {
+        // Arrange
+        var fixture = CreateFixture(isSetupComplete: false);
+
+        // Act
+        await fixture.Service.InitializeDeviceAsync(TestContext.Current.CancellationToken);
+
+        // Assert
+        await fixture.ChannelProvider.DidNotReceive().FetchChannelLineupAsync(Arg.Any<CancellationToken>());
+        Assert.Null(await fixture.ChannelStore.ReadAsync(TestContext.Current.CancellationToken));
+    }
+
     private static Fixture CreateFixture(bool isSetupComplete, bool discoveryFails = false)
     {
         var settings = Substitute.For<IAppSettingsService>();
@@ -100,9 +137,25 @@ public class DeviceRefreshServiceTests
         protocolService.GetDeviceByIpAsync("tuner.local", Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<HDHomeRunDevice?>(null));
         var state = new DeviceStateService(NullLogger<DeviceStateService>.Instance, client, protocolService, settings);
-        var service = new DeviceRefreshService(NullLogger<DeviceRefreshService>.Instance, state, settings);
-        return new Fixture(service, state, client);
+        var channelProvider = Substitute.For<IChannelLineupProvider>();
+        channelProvider.FetchChannelLineupAsync(Arg.Any<CancellationToken>())
+            .Returns([new HDHomeRunChannel { GuideNumber = "7.1", GuideName = "Channel", URL = "http://tuner.local/auto/v7.1" }]);
+        var channelStore = new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-startup-{Guid.NewGuid():N}.json"));
+        var channelRefresh = new ChannelLineupRefreshService(NullLogger<ChannelLineupRefreshService>.Instance, channelProvider, channelStore);
+        var scopedProvider = Substitute.For<IServiceProvider>();
+        scopedProvider.GetService(typeof(ChannelLineupRefreshService)).Returns(channelRefresh);
+        var scope = Substitute.For<IServiceScope>();
+        scope.ServiceProvider.Returns(scopedProvider);
+        var scopeFactory = Substitute.For<IServiceScopeFactory>();
+        scopeFactory.CreateScope().Returns(scope);
+        var service = new DeviceRefreshService(NullLogger<DeviceRefreshService>.Instance, state, settings, scopeFactory);
+        return new Fixture(service, state, client, channelProvider, channelStore);
     }
 
-    private sealed record Fixture(DeviceRefreshService Service, DeviceStateService State, HDHomeRunDeviceClient Client);
+    private sealed record Fixture(
+        DeviceRefreshService Service,
+        DeviceStateService State,
+        HDHomeRunDeviceClient Client,
+        IChannelLineupProvider ChannelProvider,
+        ChannelLineupStore ChannelStore);
 }
