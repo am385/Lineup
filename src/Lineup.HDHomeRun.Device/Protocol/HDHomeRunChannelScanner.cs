@@ -98,7 +98,10 @@ public class HDHomeRunChannelScanner
             {
                 await _control.SetAsync($"/tuner{_tunerIndex}/channel", "none", CancellationToken.None);
             }
-            catch { /* Ignore */ }
+            catch (Exception ex) when (ex is HDHomeRunException or IOException or TimeoutException or InvalidOperationException or ObjectDisposedException)
+            {
+                _logger.LogWarning(ex, "Failed to stop channel scan on tuner {TunerIndex}", _tunerIndex);
+            }
         }
 
         _logger.LogInformation("Channel scan complete. Found {Count} channels", channels.Count);

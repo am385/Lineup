@@ -87,6 +87,8 @@ public sealed partial record MediaTrackMetadata
     public bool IsHearingImpaired { get; init; }
     /// <summary>Gets whether a video track reports embedded closed captions.</summary>
     public bool HasClosedCaptions { get; init; }
+    /// <summary>Gets whether this synthetic subtitle track represents captions embedded in a video stream.</summary>
+    public bool IsEmbeddedClosedCaptions { get; init; }
     /// <summary>Gets the supported Watch subtitle presentation.</summary>
     public SubtitlePresentation SubtitlePresentation { get; init; }
 }
@@ -168,6 +170,8 @@ public sealed partial record ActiveStreamTrack
     public bool IsHearingImpaired { get; init; }
     /// <summary>Gets whether the source reports embedded closed captions.</summary>
     public bool HasClosedCaptions { get; init; }
+    /// <summary>Gets whether this synthetic subtitle track represents captions embedded in a video stream.</summary>
+    public bool IsEmbeddedClosedCaptions { get; init; }
     /// <summary>Gets whether this track is selected in the output.</summary>
     public bool IsSelected { get; init; } = true;
     /// <summary>Gets the subtitle presentation used for this output.</summary>
@@ -248,7 +252,7 @@ public interface IActiveStreamRegistry
 public sealed class ActiveStreamRegistry : IActiveStreamRegistry
 {
     private readonly ConcurrentDictionary<string, ActiveStreamRegistration> _streams = new(StringComparer.Ordinal);
-    private readonly object _registrationLock = new();
+    private readonly Lock _registrationLock = new();
 
     /// <inheritdoc />
     public event Action<ActiveStreamSnapshot>? StopRequested;
@@ -492,6 +496,8 @@ public sealed class MediaProbeService : IMediaProbeService
 /// </summary>
 public static class MediaProbeParser
 {
+    private const string ShowEntries = "stream=index,codec_type,codec_name,bit_rate,width,height,channels,sample_rate,closed_captions:stream_tags=language,title:" +
+        "stream_disposition=default,forced,hearing_impaired:frame=media_type:frame_side_data=side_data_type:format=bit_rate";
     private static readonly string[] CommonArguments =
     [
         "-v", "error",
@@ -513,8 +519,9 @@ public static class MediaProbeParser
         "-reconnect_on_http_error", "503",
         "-reconnect_delay_max", "2",
         "-reconnect_max_retries", "3",
-        "-read_intervals", "%+#100",
-        "-show_entries", "stream=index,codec_type,codec_name,bit_rate,width,height,channels,sample_rate,closed_captions:stream_tags=language,title:stream_disposition=default,forced,hearing_impaired:format=bit_rate",
+        "-read_intervals", "%+3",
+        "-show_frames",
+        "-show_entries", ShowEntries,
         "-of", "json",
         inputUri.AbsoluteUri
     ];
@@ -526,8 +533,9 @@ public static class MediaProbeParser
     public static IReadOnlyList<string> CreatePipeArguments() =>
     [
         .. CommonArguments,
-        "-read_intervals", "%+#100",
-        "-show_entries", "stream=index,codec_type,codec_name,bit_rate,width,height,channels,sample_rate,closed_captions:stream_tags=language,title:stream_disposition=default,forced,hearing_impaired:format=bit_rate",
+        "-read_intervals", "%+3",
+        "-show_frames",
+        "-show_entries", ShowEntries,
         "-of", "json",
         "pipe:0"
     ];
@@ -542,11 +550,25 @@ public static class MediaProbeParser
         try
         {
             var result = JsonSerializer.Deserialize<FfprobeResult>(json) ?? new FfprobeResult();
+            var hasEmbeddedClosedCaptions = result.Frames.Any(frame =>
+                string.Equals(frame.MediaType, "video", StringComparison.OrdinalIgnoreCase) &&
+                frame.SideDataList.Any(sideData => string.Equals(sideData.SideDataType, "ATSC A53 Part 4 Closed Captions", StringComparison.OrdinalIgnoreCase)));
             var tracks = result.Streams
-                .Select(ParseTrack)
+                .Select(stream => ParseTrack(stream, hasEmbeddedClosedCaptions))
                 .Where(track => track is not null)
                 .Cast<MediaTrackMetadata>()
-                .ToArray();
+                .ToList();
+            if (hasEmbeddedClosedCaptions &&
+                !tracks.Any(track => track.Type == MediaTrackType.Subtitle && track.Codec is "eia_608" or "eia_708"))
+            {
+                int index = tracks.Count == 0 ? 0 : tracks.Max(track => track.Index) + 1;
+                tracks.Add(new MediaTrackMetadata(index, MediaTrackType.Subtitle, "eia_608", null, null, null, null, null)
+                {
+                    Title = "Closed Captions",
+                    IsEmbeddedClosedCaptions = true,
+                    SubtitlePresentation = SubtitlePresentation.WebVtt
+                });
+            }
             return new MediaProbeResult(tracks, ParseLong(result.Format?.BitRate));
         }
         catch (JsonException ex)
@@ -555,7 +577,7 @@ public static class MediaProbeParser
         }
     }
 
-    private static MediaTrackMetadata? ParseTrack(FfprobeStream stream)
+    private static MediaTrackMetadata? ParseTrack(FfprobeStream stream, bool hasEmbeddedClosedCaptions)
     {
         var type = stream.CodecType switch
         {
@@ -567,14 +589,14 @@ public static class MediaProbeParser
 
         return type is null
             ? null
-            : new MediaTrackMetadata(stream.Index, type.Value, stream.CodecName ?? "unknown", ParseLong(stream.BitRate), stream.Width, stream.Height, stream.Channels, ParseInt(stream.SampleRate))
+            : new MediaTrackMetadata(stream.Index, type.Value, stream.CodecName ?? "unknown", ParseLong(stream.BitRate), stream.Width, stream.Height, NormalizeChannelCount(stream.Channels), ParseInt(stream.SampleRate))
             {
                 Language = NormalizeMetadata(stream.Tags?.Language),
                 Title = NormalizeMetadata(stream.Tags?.Title),
                 IsDefault = stream.Disposition?.Default == 1,
                 IsForced = stream.Disposition?.Forced == 1,
                 IsHearingImpaired = stream.Disposition?.HearingImpaired == 1,
-                HasClosedCaptions = stream.ClosedCaptions > 0,
+                HasClosedCaptions = type == MediaTrackType.Video && (stream.ClosedCaptions > 0 || hasEmbeddedClosedCaptions),
                 SubtitlePresentation = type == MediaTrackType.Subtitle
                     ? SubtitleCapabilityPolicy.Classify(stream.CodecName)
                     : SubtitlePresentation.Unsupported
@@ -591,6 +613,8 @@ public static class MediaProbeParser
         return int.TryParse(value, out var parsed) && parsed > 0 ? parsed : null;
     }
 
+    private static int? NormalizeChannelCount(int? value) => value is >= 1 and <= 64 ? value : null;
+
     private static string? NormalizeMetadata(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
@@ -602,11 +626,33 @@ public static class MediaProbeParser
         [JsonPropertyName("streams")]
         public List<FfprobeStream> Streams { get; init; } = [];
 
+        /// <summary>Gets the probed media frames used for side-data inspection.</summary>
+        [JsonPropertyName("frames")]
+        public List<FfprobeFrame> Frames { get; init; } = [];
+
         /// <summary>
         /// Gets or sets format.
         /// </summary>
         [JsonPropertyName("format")]
         public FfprobeFormat? Format { get; init; }
+    }
+
+    private sealed class FfprobeFrame
+    {
+        /// <summary>Gets the frame media type.</summary>
+        [JsonPropertyName("media_type")]
+        public string? MediaType { get; init; }
+
+        /// <summary>Gets the frame side-data entries.</summary>
+        [JsonPropertyName("side_data_list")]
+        public List<FfprobeSideData> SideDataList { get; init; } = [];
+    }
+
+    private sealed class FfprobeSideData
+    {
+        /// <summary>Gets the side-data type.</summary>
+        [JsonPropertyName("side_data_type")]
+        public string? SideDataType { get; init; }
     }
 
     private sealed class FfprobeStream
@@ -659,30 +705,41 @@ public static class MediaProbeParser
         [JsonPropertyName("sample_rate")]
         public string? SampleRate { get; init; }
 
+        /// <summary>Gets whether the stream reports embedded closed captions.</summary>
         [JsonPropertyName("closed_captions")]
         public int ClosedCaptions { get; init; }
 
+        /// <summary>Gets the stream metadata tags.</summary>
         [JsonPropertyName("tags")]
         public FfprobeTags? Tags { get; init; }
 
+        /// <summary>Gets the stream disposition flags.</summary>
         [JsonPropertyName("disposition")]
         public FfprobeDisposition? Disposition { get; init; }
     }
 
     private sealed class FfprobeTags
     {
+        /// <summary>Gets the stream language tag.</summary>
         [JsonPropertyName("language")]
         public string? Language { get; init; }
+
+        /// <summary>Gets the stream title.</summary>
         [JsonPropertyName("title")]
         public string? Title { get; init; }
     }
 
     private sealed class FfprobeDisposition
     {
+        /// <summary>Gets the default disposition flag.</summary>
         [JsonPropertyName("default")]
         public int Default { get; init; }
+
+        /// <summary>Gets the forced disposition flag.</summary>
         [JsonPropertyName("forced")]
         public int Forced { get; init; }
+
+        /// <summary>Gets the hearing-impaired disposition flag.</summary>
         [JsonPropertyName("hearing_impaired")]
         public int HearingImpaired { get; init; }
     }
@@ -756,15 +813,23 @@ public static partial class FfmpegInputMetadataParser
         }
 
         var surroundMatch = SurroundPattern().Match(details);
-        return surroundMatch.Success
-            ? int.Parse(surroundMatch.Groups["major"].Value) + int.Parse(surroundMatch.Groups["minor"].Value)
-            : ParseOptionalInt(ChannelCountPattern().Match(details), "count");
+        if (surroundMatch.Success)
+        {
+            var channels = int.Parse(surroundMatch.Groups["major"].Value) +
+                int.Parse(surroundMatch.Groups["minor"].Value) +
+                ParseOptionalInt(surroundMatch, "height").GetValueOrDefault();
+            return NormalizeChannelCount(channels);
+        }
+
+        return NormalizeChannelCount(ParseOptionalInt(ChannelCountPattern().Match(details), "count"));
     }
 
     private static int? ParseOptionalInt(Match match, string groupName)
     {
         return match.Success && int.TryParse(match.Groups[groupName].Value, out var value) ? value : null;
     }
+
+    private static int? NormalizeChannelCount(int? value) => value is >= 1 and <= 64 ? value : null;
 
     [GeneratedRegex(@"^\s*Stream #0:(?<index>\d+)(?:\[[^\]]+\])?(?:\([^)]+\))?: (?<type>Video|Audio|Subtitle): (?<codec>[^,\s]+)(?<details>.*)$")]
     private static partial Regex StreamPattern();
@@ -775,10 +840,10 @@ public static partial class FfmpegInputMetadataParser
     [GeneratedRegex(@"(?<rate>\d+) Hz")]
     private static partial Regex SampleRatePattern();
 
-    [GeneratedRegex(@"(?<major>\d+)\.(?<minor>\d+)")]
+    [GeneratedRegex(@"(?:^|,\s*)(?<major>\d{1,2})\.(?<minor>\d{1,2})(?:\.(?<height>\d{1,2}))?(?:\([^,)]*\))?(?=,|$)")]
     private static partial Regex SurroundPattern();
 
-    [GeneratedRegex(@"(?<count>\d+) channels?")]
+    [GeneratedRegex(@"(?<!\d)(?<count>\d{1,2}) channels?(?!\d)")]
     private static partial Regex ChannelCountPattern();
 }
 
@@ -837,18 +902,21 @@ public static class ActiveStreamPlanFactory
         MediaProbeResult source,
         long outputVideoBitRate = 10_000_000,
         bool copyVideo = false,
-        WatchTrackSelection? selection = null)
+        WatchTrackSelection? selection = null,
+        WatchAudioOutput audioOutput = WatchAudioOutput.Stereo)
     {
-        if (selection is null)
-        {
-            selection = WatchStreamPlanner.SelectTracks(source, null, null);
-        }
+        selection ??= WatchStreamPlanner.SelectTracks(source, null, null);
 
         var tracks = source.Tracks.Select(track =>
         {
-            var selected = track.Type == MediaTrackType.Video ||
-                track.Type == MediaTrackType.Audio && track.Index == selection.Audio?.Index ||
-                track.Type == MediaTrackType.Subtitle && track.Index == selection.Subtitle?.Index;
+            var selected = track.Type switch
+            {
+                MediaTrackType.Video => true,
+                MediaTrackType.Audio when track.Index == selection.Audio?.Index => true,
+                MediaTrackType.Subtitle when track.Index == selection.Subtitle?.Index => true,
+                _ => false
+            };
+
             var outputCodec = track.Type switch
             {
                 MediaTrackType.Video => copyVideo ? "copy" : "h264",
@@ -857,13 +925,20 @@ public static class ActiveStreamPlanFactory
                 MediaTrackType.Subtitle when selected => "burn-in",
                 _ => "not-mapped"
             };
-            return CreateTrack(
-                track,
-                outputCodec,
-                track.Type == MediaTrackType.Video ? (copyVideo ? track.BitRate : outputVideoBitRate) :
-                    track.Type == MediaTrackType.Audio && selected ? 128_000 : null,
-                track.Type == MediaTrackType.Audio && selected ? 2 : track.Channels,
-                track.Type == MediaTrackType.Audio && selected ? 44_100 : track.SampleRate) with
+
+            WatchAudioOutputProfile? audioProfile = track.Type switch
+            {
+                MediaTrackType.Audio when selected => (WatchAudioOutputProfile?)WatchStreamPlanner.GetAudioOutputProfile(audioOutput, track.Channels),
+                _ => null,
+            };
+
+            long? outputBitRate = track.Type switch
+            {
+                MediaTrackType.Video => (copyVideo ? track.BitRate : outputVideoBitRate),
+                _ => (audioProfile?.BitRate),
+            };
+
+            return CreateTrack(track, outputCodec, outputBitRate, audioProfile?.Channels, audioProfile?.SampleRate) with
             {
                 IsSelected = selected,
                 SubtitlePresentation = track.Type == MediaTrackType.Subtitle ? track.SubtitlePresentation : null
@@ -936,6 +1011,7 @@ public static class ActiveStreamPlanFactory
             IsForced = source.IsForced,
             IsHearingImpaired = source.IsHearingImpaired,
             HasClosedCaptions = source.HasClosedCaptions,
+            IsEmbeddedClosedCaptions = source.IsEmbeddedClosedCaptions,
             SubtitlePresentation = source.Type == MediaTrackType.Subtitle ? source.SubtitlePresentation : null
         };
     }

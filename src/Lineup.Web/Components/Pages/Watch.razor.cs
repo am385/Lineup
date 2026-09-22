@@ -6,6 +6,7 @@ using Lineup.HDHomeRun.Device.Protocol;
 using Lineup.Web.Services;
 using Microsoft.AspNetCore.Components;
 using Microsoft.JSInterop;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace Lineup.Web.Components.Pages;
@@ -15,6 +16,8 @@ namespace Lineup.Web.Components.Pages;
 /// </summary>
 public partial class Watch : IAsyncDisposable
 {
+    private const string PreferencesStorageKey = "lineup-watch-preferences-v1";
+
     [Inject]
     private IEpgRepository Repository { get; set; } = default!;
 
@@ -36,6 +39,9 @@ public partial class Watch : IAsyncDisposable
     [Inject]
     private NavigationManager NavigationManager { get; set; } = default!;
 
+    [Inject]
+    private ILogger<Watch> Logger { get; set; } = default!;
+
     /// <summary>
     /// Gets or sets channel number.
     /// </summary>
@@ -56,15 +62,21 @@ public partial class Watch : IAsyncDisposable
     private bool _showCodecError;
     private bool _needsPlayerInit;
     private bool _isJsInteropReady;
+    private bool _preferencesRestored;
     private bool _disposed;
     private readonly string _clientId = Guid.NewGuid().ToString("N");
     private string? _lastRouteChannelNumber;
+    private string? _pendingRouteChannelNumber;
     private Timer? _streamInfoTimer;
     private ActiveStreamSnapshot? _activeStream;
     private DateTime _lastTunerRefreshRequestUtc = DateTime.MinValue;
     private WebPlayerQuality _quality = WebPlayerQuality.AppDefault;
+    private WatchAudioOutput _audioOutput = WatchAudioOutput.Stereo;
     private int? _audioTrack;
     private int? _subtitleTrack;
+    private bool _subtitlesEnabled;
+    private bool _subtitleRestoreApplied;
+    private WatchSubtitlePreference? _subtitlePreference;
     private bool IsContentProtectedError => _errorMessage?.Contains("Content Protection Required", StringComparison.OrdinalIgnoreCase) == true;
     private TunerStatus? SelectedTuner => DeviceState.TunerStatuses.FirstOrDefault(tuner => string.Equals(tuner.VirtualChannel, _selectedChannelNumber, StringComparison.Ordinal));
 
@@ -89,9 +101,11 @@ public partial class Watch : IAsyncDisposable
         }
 
         _lastRouteChannelNumber = ChannelNumber;
-        if (!string.IsNullOrWhiteSpace(ChannelNumber))
+        _pendingRouteChannelNumber = ChannelNumber;
+        if (_preferencesRestored && !string.IsNullOrWhiteSpace(ChannelNumber))
         {
             var channel = _channels.FirstOrDefault(candidate => string.Equals(candidate.GuideNumber, ChannelNumber, StringComparison.Ordinal));
+            _pendingRouteChannelNumber = null;
             await TuneChannelAsync(ChannelNumber, channel);
         }
     }
@@ -102,6 +116,21 @@ public partial class Watch : IAsyncDisposable
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         _isJsInteropReady = true;
+
+        if (firstRender)
+        {
+            await RestorePreferencesAsync();
+            _preferencesRestored = true;
+            if (!string.IsNullOrWhiteSpace(_pendingRouteChannelNumber))
+            {
+                var channelNumber = _pendingRouteChannelNumber;
+                var channel = _channels.FirstOrDefault(candidate => string.Equals(candidate.GuideNumber, channelNumber, StringComparison.Ordinal));
+                _pendingRouteChannelNumber = null;
+                await TuneChannelAsync(channelNumber, channel);
+                StateHasChanged();
+                return;
+            }
+        }
 
         // Initialize fMP4 player after render when we have a stream URL
         if (_isPlaying && !string.IsNullOrEmpty(_streamUrl) && _needsPlayerInit)
@@ -168,9 +197,7 @@ public partial class Watch : IAsyncDisposable
         }
     }
 
-    private static List<HDHomeRunChannelEpgSegment> MergeChannels(
-        IReadOnlyList<HDHomeRunChannelEpgSegment> guideChannels,
-        ChannelLineupSnapshot? channelLineup)
+    private static List<HDHomeRunChannelEpgSegment> MergeChannels(IReadOnlyList<HDHomeRunChannelEpgSegment> guideChannels, ChannelLineupSnapshot? channelLineup)
     {
         if (channelLineup == null)
         {
@@ -187,9 +214,7 @@ public partial class Watch : IAsyncDisposable
             .ToList();
     }
 
-    private static HDHomeRunChannelEpgSegment MergeChannel(
-        HDHomeRunChannel channel,
-        IReadOnlyDictionary<string, HDHomeRunChannelEpgSegment> guideChannels)
+    private static HDHomeRunChannelEpgSegment MergeChannel(HDHomeRunChannel channel, IReadOnlyDictionary<string, HDHomeRunChannelEpgSegment> guideChannels)
     {
         guideChannels.TryGetValue(channel.GuideNumber.Trim(), out var guideChannel);
         return new HDHomeRunChannelEpgSegment
@@ -240,6 +265,7 @@ public partial class Watch : IAsyncDisposable
         {
             _audioTrack = null;
             _subtitleTrack = null;
+            _subtitleRestoreApplied = !_subtitlesEnabled;
         }
 
         _selectedChannel = channel;
@@ -251,6 +277,10 @@ public partial class Watch : IAsyncDisposable
         _isPlaying = true;
         _needsPlayerInit = true;
         StartStreamInfoRefresh();
+        if (TryApplySubtitlePreference())
+        {
+            _streamUrl = BuildStreamUrl(validChannelNumber);
+        }
 
         _currentProgram = GetCurrentProgram(validChannelNumber);
         _showCodecError = false;
@@ -264,6 +294,7 @@ public partial class Watch : IAsyncDisposable
         }
 
         _quality = quality;
+        await SavePreferencesAsync();
         if (_selectedChannelNumber is { } channelNumber && _isPlaying)
         {
             await TuneChannelAsync(channelNumber, _selectedChannel);
@@ -281,9 +312,39 @@ public partial class Watch : IAsyncDisposable
         await RestartCurrentStreamAsync();
     }
 
+    private async Task ChangeAudioOutput(ChangeEventArgs args)
+    {
+        if (!Enum.TryParse<WatchAudioOutput>(args.Value?.ToString(), out var audioOutput))
+        {
+            return;
+        }
+
+        _audioOutput = audioOutput;
+        await SavePreferencesAsync();
+        await RestartCurrentStreamAsync();
+    }
+
     private async Task ChangeSubtitleTrack(ChangeEventArgs args)
     {
-        _subtitleTrack = int.TryParse(args.Value?.ToString(), out var index) && index >= 0 ? index : null;
+        var subtitleTrack = int.TryParse(args.Value?.ToString(), out var index) && index >= 0 ? index : (int?)null;
+        if (subtitleTrack.HasValue)
+        {
+            var selectedTrack = _activeStream?.Tracks.FirstOrDefault(
+                track => track.Type == MediaTrackType.Subtitle &&
+                    track.SourceIndex == subtitleTrack.Value &&
+                    track.SubtitlePresentation != SubtitlePresentation.Unsupported);
+            if (selectedTrack == null)
+            {
+                return;
+            }
+
+            _subtitlePreference = WatchSubtitlePreference.FromTrack(selectedTrack);
+        }
+
+        _subtitleTrack = subtitleTrack;
+        _subtitlesEnabled = subtitleTrack.HasValue;
+        _subtitleRestoreApplied = true;
+        await SavePreferencesAsync();
         await RestartCurrentStreamAsync();
     }
 
@@ -294,7 +355,7 @@ public partial class Watch : IAsyncDisposable
 
     private string BuildStreamUrl(string channelNumber)
     {
-        var url = $"/api/stream/fmp4/{Uri.EscapeDataString(channelNumber)}?clientId={_clientId}&quality={_quality}";
+        var url = $"/api/stream/fmp4/{Uri.EscapeDataString(channelNumber)}?clientId={_clientId}&quality={_quality}&audioOutput={_audioOutput}";
         if (_audioTrack.HasValue)
         {
             url += $"&audioTrack={_audioTrack.Value}";
@@ -302,6 +363,15 @@ public partial class Watch : IAsyncDisposable
         if (_subtitleTrack.HasValue)
         {
             url += $"&subtitleTrack={_subtitleTrack.Value}";
+            var subtitlePresentation = SubtitleCapabilityPolicy.Classify(_subtitlePreference?.SourceCodec);
+            if (subtitlePresentation != SubtitlePresentation.Unsupported)
+            {
+                url += $"&subtitlePresentation={subtitlePresentation}";
+            }
+            if (_subtitlePreference?.IsEmbeddedClosedCaptions == true)
+            {
+                url += "&embeddedCaptions=true";
+            }
         }
         return url;
     }
@@ -400,6 +470,13 @@ public partial class Watch : IAsyncDisposable
         RefreshStreamInfo();
         StateHasChanged();
 
+        if (TryApplySubtitlePreference())
+        {
+            await RestartCurrentStreamAsync();
+            StateHasChanged();
+            return;
+        }
+
         if (_isPlaying && DateTime.UtcNow - _lastTunerRefreshRequestUtc >= TimeSpan.FromSeconds(5))
         {
             _lastTunerRefreshRequestUtc = DateTime.UtcNow;
@@ -422,6 +499,108 @@ public partial class Watch : IAsyncDisposable
         if (!_audioTrack.HasValue && selectedAudio is not null)
         {
             _audioTrack = selectedAudio.SourceIndex;
+        }
+    }
+
+    private bool TryApplySubtitlePreference()
+    {
+        if (!_isPlaying || !_subtitlesEnabled || _subtitleRestoreApplied || _subtitlePreference == null || _activeStream == null)
+        {
+            return false;
+        }
+
+        var matchingTrack = _subtitlePreference.FindMatch(_activeStream.Tracks);
+        if (matchingTrack == null)
+        {
+            return false;
+        }
+
+        _subtitleTrack = matchingTrack.SourceIndex;
+        _subtitleRestoreApplied = true;
+        return true;
+    }
+
+    private async Task RestorePreferencesAsync()
+    {
+        try
+        {
+            var json = await JS.InvokeAsync<string?>("localStorage.getItem", PreferencesStorageKey);
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                return;
+            }
+
+            var preferences = JsonSerializer.Deserialize<WatchPreferences>(json);
+            if (preferences == null)
+            {
+                return;
+            }
+
+            if (Enum.IsDefined(preferences.Quality))
+            {
+                _quality = preferences.Quality;
+            }
+
+            if (Enum.IsDefined(preferences.AudioOutput))
+            {
+                _audioOutput = preferences.AudioOutput;
+            }
+
+            _subtitlesEnabled = preferences.SubtitlesEnabled && preferences.Subtitle != null;
+            _subtitlePreference = preferences.Subtitle;
+            _subtitleRestoreApplied = !_subtitlesEnabled;
+        }
+        catch (JsonException ex)
+        {
+            Logger.LogWarning(ex, "Ignoring invalid saved Watch preferences");
+        }
+        catch (JSDisconnectedException ex)
+        {
+            Logger.LogDebug(ex, "The browser disconnected while restoring Watch preferences");
+        }
+        catch (JSException ex)
+        {
+            Logger.LogWarning(ex, "Unable to restore Watch preferences from browser storage");
+        }
+        catch (InvalidOperationException ex)
+        {
+            Logger.LogDebug(ex, "Browser storage is not available while rendering the Watch page");
+        }
+        catch (OperationCanceledException ex)
+        {
+            Logger.LogWarning(ex, "Restoring Watch preferences timed out");
+        }
+    }
+
+    private async Task SavePreferencesAsync()
+    {
+        var preferences = new WatchPreferences
+        {
+            Quality = _quality,
+            AudioOutput = _audioOutput,
+            SubtitlesEnabled = _subtitlesEnabled,
+            Subtitle = _subtitlePreference
+        };
+
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", PreferencesStorageKey, JsonSerializer.Serialize(preferences));
+        }
+        catch (JSDisconnectedException ex)
+        {
+            Logger.LogDebug(ex, "The browser disconnected while saving Watch preferences");
+        }
+        catch (JSException ex)
+        {
+            Logger.LogWarning(ex, "Unable to save Watch preferences to browser storage");
+        }
+        catch (InvalidOperationException ex)
+        {
+            Logger.LogDebug(ex, "Browser storage is not available while saving Watch preferences");
+        }
+        catch (OperationCanceledException ex)
+        {
+            Logger.LogWarning(ex, "Saving Watch preferences timed out");
         }
     }
 
@@ -521,5 +700,85 @@ public partial class Watch : IAsyncDisposable
         _disposed = true;
         DeviceState.OnStateChanged -= OnDeviceStateChanged;
         _streamInfoTimer?.Dispose();
+    }
+
+    private sealed record WatchPreferences
+    {
+        /// <summary>Gets the preferred browser video quality.</summary>
+        public WebPlayerQuality Quality { get; init; } = WebPlayerQuality.AppDefault;
+
+        /// <summary>Gets the preferred browser audio output.</summary>
+        public WatchAudioOutput AudioOutput { get; init; } = WatchAudioOutput.Stereo;
+
+        /// <summary>Gets whether subtitles are enabled.</summary>
+        public bool SubtitlesEnabled { get; init; }
+
+        /// <summary>Gets the preferred subtitle identity.</summary>
+        public WatchSubtitlePreference? Subtitle { get; init; }
+    }
+
+    private sealed record WatchSubtitlePreference
+    {
+        /// <summary>Gets the normalized subtitle language.</summary>
+        public string? Language { get; init; }
+
+        /// <summary>Gets the normalized subtitle title.</summary>
+        public string? Title { get; init; }
+
+        /// <summary>Gets the source subtitle codec.</summary>
+        public string SourceCodec { get; init; } = string.Empty;
+
+        /// <summary>Gets whether the preferred subtitle is forced.</summary>
+        public bool IsForced { get; init; }
+
+        /// <summary>Gets whether the preferred subtitle is intended for hearing-impaired viewers.</summary>
+        public bool IsHearingImpaired { get; init; }
+
+        /// <summary>Gets whether the preference represents embedded closed captions.</summary>
+        public bool IsEmbeddedClosedCaptions { get; init; }
+
+        /// <summary>Creates a stable preference identity from an active subtitle track.</summary>
+        /// <param name="track">The active subtitle track.</param>
+        /// <returns>The saved subtitle preference.</returns>
+        public static WatchSubtitlePreference FromTrack(ActiveStreamTrack track) =>
+            new()
+            {
+                Language = Normalize(track.Language),
+                Title = Normalize(track.Title),
+                SourceCodec = track.SourceCodec,
+                IsForced = track.IsForced,
+                IsHearingImpaired = track.IsHearingImpaired,
+                IsEmbeddedClosedCaptions = track.IsEmbeddedClosedCaptions
+            };
+
+        /// <summary>Finds the active subtitle track that best matches this preference.</summary>
+        /// <param name="tracks">The available active-stream tracks.</param>
+        /// <returns>The best matching subtitle track, or <see langword="null"/> when none matches.</returns>
+        public ActiveStreamTrack? FindMatch(IEnumerable<ActiveStreamTrack> tracks)
+        {
+            var candidates = tracks
+                .Where(track => track.Type == MediaTrackType.Subtitle && track.SubtitlePresentation != SubtitlePresentation.Unsupported)
+                .ToArray();
+            if (!string.IsNullOrWhiteSpace(Language))
+            {
+                candidates = candidates.Where(track => string.Equals(Normalize(track.Language), Language, StringComparison.OrdinalIgnoreCase)).ToArray();
+            }
+            else if (!string.IsNullOrWhiteSpace(Title))
+            {
+                candidates = candidates.Where(track => string.Equals(Normalize(track.Title), Title, StringComparison.OrdinalIgnoreCase)).ToArray();
+            }
+            else
+            {
+                return null;
+            }
+
+            return candidates
+                .OrderByDescending(track => string.Equals(Normalize(track.Title), Title, StringComparison.OrdinalIgnoreCase))
+                .ThenByDescending(track => track.IsForced == IsForced && track.IsHearingImpaired == IsHearingImpaired)
+                .ThenByDescending(track => string.Equals(track.SourceCodec, SourceCodec, StringComparison.OrdinalIgnoreCase))
+                .FirstOrDefault();
+        }
+
+        private static string? Normalize(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 }

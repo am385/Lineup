@@ -9,6 +9,28 @@ namespace Lineup.Web.Tests.Services;
 public class ActiveStreamServiceTests
 {
     /// <summary>
+    /// Verifies live and piped probes request decoded frames needed to detect embedded ATSC captions.
+    /// </summary>
+    [Fact]
+    public void MediaProbeArguments_RequestFramesForEmbeddedCaptionDetection()
+    {
+        // Arrange
+        var inputUri = new Uri("http://tuner.local/auto/v2.6");
+
+        // Act
+        var liveArguments = MediaProbeParser.CreateArguments(inputUri);
+        var pipeArguments = MediaProbeParser.CreatePipeArguments();
+
+        // Assert
+        Assert.Contains("-show_frames", liveArguments);
+        Assert.Contains("-show_frames", pipeArguments);
+        Assert.Equal("%+3", liveArguments[Array.IndexOf(liveArguments.ToArray(), "-read_intervals") + 1]);
+        Assert.Equal("%+3", pipeArguments[Array.IndexOf(pipeArguments.ToArray(), "-read_intervals") + 1]);
+        Assert.Contains(liveArguments, argument => argument.Contains("frame_side_data=side_data_type", StringComparison.Ordinal));
+        Assert.Contains(pipeArguments, argument => argument.Contains("frame_side_data=side_data_type", StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// Verifies that registry snapshots are ordered and isolated from caller mutations.
     /// </summary>
     [Fact]
@@ -229,6 +251,44 @@ public class ActiveStreamServiceTests
     }
 
     /// <summary>
+    /// Verifies ATSC captions embedded in video frames become a selectable synthetic subtitle track.
+    /// </summary>
+    [Fact]
+    public void MediaProbeParser_EmbeddedAtscCaptions_CreatesSelectableSubtitleTrack()
+    {
+        // Arrange
+        const string json =
+            """
+            {
+              "streams": [
+                { "index": 0, "codec_type": "video", "codec_name": "mpeg2video" },
+                { "index": 1, "codec_type": "audio", "codec_name": "ac3", "channels": 2 }
+              ],
+              "frames": [
+                {
+                  "media_type": "video",
+                  "side_data_list": [
+                    { "side_data_type": "ATSC A53 Part 4 Closed Captions" }
+                  ]
+                }
+              ]
+            }
+            """;
+
+        // Act
+        var result = MediaProbeParser.Parse(json);
+
+        // Assert
+        Assert.True(result.Tracks[0].HasClosedCaptions);
+        var captions = Assert.Single(result.Tracks, track => track.Type == MediaTrackType.Subtitle);
+        Assert.Equal(2, captions.Index);
+        Assert.Equal("eia_608", captions.Codec);
+        Assert.Equal("Closed Captions", captions.Title);
+        Assert.True(captions.IsEmbeddedClosedCaptions);
+        Assert.Equal(SubtitlePresentation.WebVtt, captions.SubtitlePresentation);
+    }
+
+    /// <summary>
     /// Verifies that FFmpeg input descriptions provide source metadata without a second tuner connection.
     /// </summary>
     [Fact]
@@ -253,6 +313,47 @@ public class ActiveStreamServiceTests
         Assert.Equal("ac4", audio.Codec);
         Assert.Equal(6, audio.Channels);
         Assert.Equal(48_000, audio.SampleRate);
+    }
+
+    /// <summary>
+    /// Verifies decimal bitrates cannot be mistaken for an AC-4 surround layout.
+    /// </summary>
+    [Fact]
+    public void FfmpegInputMetadataParser_BitrateBeforeLayout_ParsesLayoutChannels()
+    {
+        // Arrange
+        const string line = "  Stream #0:1[0x32]: Audio: ac4, 62175.1 kb/s, 48000 Hz, 5.1(side), fltp";
+
+        // Act
+        var parsed = FfmpegInputMetadataParser.TryParseTrack(line, out var audio);
+
+        // Assert
+        Assert.True(parsed);
+        Assert.Equal(MediaTrackType.Audio, audio.Type);
+        Assert.Equal(6, audio.Channels);
+    }
+
+    /// <summary>
+    /// Verifies implausible FFprobe channel counts are discarded instead of reaching stream planning and the UI.
+    /// </summary>
+    [Fact]
+    public void MediaProbeParser_ImplausibleChannelCount_IsDiscarded()
+    {
+        // Arrange
+        const string json =
+            """
+            {
+              "streams": [
+                { "index": 1, "codec_type": "audio", "codec_name": "ac4", "channels": 621751, "sample_rate": "48000" }
+              ]
+            }
+            """;
+
+        // Act
+        var result = MediaProbeParser.Parse(json);
+
+        // Assert
+        Assert.Null(Assert.Single(result.Tracks).Channels);
     }
 
     /// <summary>
@@ -338,6 +439,58 @@ public class ActiveStreamServiceTests
                 Assert.Equal("aac", audio.OutputCodec);
                 Assert.Equal(128_000, audio.OutputBitRate);
             });
+    }
+
+    /// <summary>
+    /// Verifies 7.1 fMP4 audio metadata describes the retained source channel count and scaled AAC bitrate.
+    /// </summary>
+    [Fact]
+    public void FragmentedMp4Plan_UpTo7Point1Audio_DescribesMultichannelOutput()
+    {
+        // Arrange
+        var source = new MediaProbeResult(
+        [
+            new MediaTrackMetadata(0, MediaTrackType.Video, "h264", null, 1920, 1080, null, null),
+            new MediaTrackMetadata(1, MediaTrackType.Audio, "ac3", 384_000, null, null, 6, 48_000)
+        ],
+        null);
+        var selection = WatchStreamPlanner.SelectTracks(source, 1, null);
+
+        // Act
+        var stream = ActiveStreamPlanFactory.CreateFragmentedMp4("session", "5.1", DateTime.UtcNow, source, selection: selection, audioOutput: WatchAudioOutput.UpTo7Point1);
+
+        // Assert
+        var audio = Assert.Single(stream.Tracks, track => track.Type == MediaTrackType.Audio);
+        Assert.Equal("aac", audio.OutputCodec);
+        Assert.Equal(384_000, audio.OutputBitRate);
+        Assert.Equal(6, audio.OutputChannels);
+        Assert.Equal(48_000, audio.OutputSampleRate);
+    }
+
+    /// <summary>
+    /// Verifies 7.1 fMP4 audio metadata reports the eight-channel limit for a 7.1.4 source.
+    /// </summary>
+    [Fact]
+    public void FragmentedMp4Plan_UpTo7Point1Audio_LimitsOutputMetadataToEightChannels()
+    {
+        // Arrange
+        var source = new MediaProbeResult(
+        [
+            new MediaTrackMetadata(0, MediaTrackType.Video, "hevc", null, 1920, 1080, null, null),
+            new MediaTrackMetadata(1, MediaTrackType.Audio, "ac4", null, null, null, 12, 46_034)
+        ],
+        null);
+        var selection = WatchStreamPlanner.SelectTracks(source, 1, null);
+
+        // Act
+        var stream = ActiveStreamPlanFactory.CreateFragmentedMp4("session", "105.1", DateTime.UtcNow, source, selection: selection, audioOutput: WatchAudioOutput.UpTo7Point1);
+
+        // Assert
+        var audio = Assert.Single(stream.Tracks, track => track.Type == MediaTrackType.Audio);
+        Assert.Equal(12, audio.SourceChannels);
+        Assert.Equal(8, audio.OutputChannels);
+        Assert.Equal(512_000, audio.OutputBitRate);
+        Assert.Equal(48_000, audio.OutputSampleRate);
     }
 
     private static ActiveStreamTrack CreateTrack(string sourceCodec, string outputCodec)

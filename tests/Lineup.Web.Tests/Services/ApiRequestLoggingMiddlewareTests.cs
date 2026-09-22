@@ -176,12 +176,7 @@ public class ApiRequestLoggingMiddlewareTests
 
         public bool IsEnabled(LogLevel logLevel) => true;
 
-        public void Log<TState>(
-            LogLevel logLevel,
-            EventId eventId,
-            TState state,
-            Exception? exception,
-            Func<TState, Exception?, string> formatter)
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
             Entries.Add(new LogEntry(logLevel, formatter(state, exception)));
         }

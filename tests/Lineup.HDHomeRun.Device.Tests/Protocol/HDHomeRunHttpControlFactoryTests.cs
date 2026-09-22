@@ -51,6 +51,7 @@ public class HDHomeRunHttpControlFactoryTests
 
     private sealed class RecordingHandler(List<Uri> requestUris) : HttpMessageHandler
     {
+        /// <inheritdoc/>
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             requestUris.Add(request.RequestUri!);

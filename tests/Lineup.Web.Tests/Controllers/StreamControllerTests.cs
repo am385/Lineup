@@ -430,7 +430,9 @@ public class StreamControllerTests
         Assert.NotNull(errorMethod);
 
         // Act
-        var slateTask = Assert.IsType<Task>(errorMethod.Invoke(controller, ["20.1", "http://tuner.local:5004/auto/v20.1", "session", DateTime.UtcNow, physicalLease]), exactMatch: false);
+        object?[] parameters = ["20.1", "http://tuner.local:5004/auto/v20.1", "session", DateTime.UtcNow, physicalLease, null, null];
+        object? result = errorMethod.Invoke(controller, parameters);
+        var slateTask = Assert.IsType<Task>(result, exactMatch: false);
         await slateStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
         var nextLease = await registry.TryAcquireAsync(profileUri, new Uri("http://tuner.local:5004/auto/v21.1"), 1, TestContext.Current.CancellationToken);
 
@@ -567,11 +569,7 @@ public class StreamControllerTests
         };
     }
 
-    private static StreamController CreateMpegTsProtectedSlateController(
-        IActiveStreamRegistry activeStreams,
-        IProtectedContentSlateService slateService,
-        ITunerCapacityLeaseRegistry capacity,
-        int maximumConcurrentStreams)
+    private static StreamController CreateMpegTsProtectedSlateController(IActiveStreamRegistry activeStreams, IProtectedContentSlateService slateService, ITunerCapacityLeaseRegistry capacity, int maximumConcurrentStreams)
     {
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient("StreamProxy").Returns(new HttpClient(new ProtectedContentResponseHandler()));
@@ -819,6 +817,7 @@ public class StreamControllerTests
 
     private sealed class ProtectedContentResponseHandler : HttpMessageHandler
     {
+        /// <inheritdoc/>
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var response = new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);

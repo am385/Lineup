@@ -13,11 +13,11 @@ public sealed class SubtitleSidecarService
     private readonly string _root;
     private readonly ConcurrentDictionary<string, string> _sessions = new(StringComparer.Ordinal);
 
-    /// <summary>Initializes the store and removes stale sidecars left by an earlier process.</summary>
+    /// <summary>Initializes an isolated store and removes stale sidecars from the supplied test root.</summary>
     /// <param name="rootDirectory">Optional application-owned root used by tests.</param>
     public SubtitleSidecarService(string? rootDirectory = null)
     {
-        _root = Path.GetFullPath(rootDirectory ?? Path.Combine(Path.GetTempPath(), DirectoryName));
+        _root = Path.GetFullPath(rootDirectory ?? Path.Combine(Path.GetTempPath(), DirectoryName, $"{Environment.ProcessId}-{Guid.NewGuid():N}"));
         if (Directory.Exists(_root))
         {
             Directory.Delete(_root, recursive: true);

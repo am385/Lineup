@@ -152,10 +152,5 @@ public class DeviceRefreshServiceTests
         return new Fixture(service, state, client, channelProvider, channelStore);
     }
 
-    private sealed record Fixture(
-        DeviceRefreshService Service,
-        DeviceStateService State,
-        HDHomeRunDeviceClient Client,
-        IChannelLineupProvider ChannelProvider,
-        ChannelLineupStore ChannelStore);
+    private sealed record Fixture(DeviceRefreshService Service, DeviceStateService State, HDHomeRunDeviceClient Client, IChannelLineupProvider ChannelProvider, ChannelLineupStore ChannelStore);
 }

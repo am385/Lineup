@@ -192,6 +192,7 @@ public class EpgOrchestratorTests
 
     private sealed class StaticResponseHandler(string content) : HttpMessageHandler
     {
+        /// <inheritdoc/>
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)

@@ -231,13 +231,19 @@
             track.mode = 'showing';
             const cuesByKey = new Map();
             const decoder = new TextDecoder('utf-8');
+            const presentationLeadSeconds = 0.05;
             let offset = 0;
             let pendingText = '';
+            let refreshPending = false;
             const parseTime = value => {
                 const parts = value.trim().replace(',', '.').split(':').map(Number);
                 return parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2] : parts[0] * 60 + parts[1];
             };
             const refresh = async () => {
+                if (refreshPending) {
+                    return;
+                }
+                refreshPending = true;
                 try {
                     const separator = subtitleUrl.includes('?') ? '&' : '?';
                     const response = await fetch(`${subtitleUrl}${separator}offset=${offset}`, { cache: 'no-store' });
@@ -251,6 +257,7 @@
                     pendingText += decoder.decode(await response.arrayBuffer(), { stream: true }).replace(/\r/g, '');
                     const blocks = pendingText.split(/\n\n+/);
                     pendingText = blocks.pop() || '';
+                    const parsedCues = [];
                     for (const block of blocks) {
                         const lines = block.split('\n').filter(Boolean);
                         const timingIndex = lines.findIndex(line => line.includes('-->'));
@@ -259,10 +266,28 @@
                         }
                         const [startText, endTextWithSettings] = lines[timingIndex].split('-->');
                         const endText = endTextWithSettings.trim().split(/\s+/)[0];
-                        const text = lines.slice(timingIndex + 1).join('\n');
+                        const text = lines.slice(timingIndex + 1).join('\n').replace(/\\h/g, '\u00a0');
                         const key = `${startText}|${endText}|${text}`;
                         if (!cuesByKey.has(key)) {
-                            const cue = new VTTCue(parseTime(startText), parseTime(endText), text);
+                            parsedCues.push({
+                                key,
+                                startTime: parseTime(startText),
+                                endTime: parseTime(endText),
+                                text
+                            });
+                        }
+                    }
+                    const newestCue = parsedCues.at(-1);
+                    const presentationOffset = newestCue
+                        ? Math.max(0, video.currentTime + presentationLeadSeconds - newestCue.startTime)
+                        : 0;
+                    for (const parsedCue of parsedCues) {
+                        const cue = new VTTCue(
+                            parsedCue.startTime + presentationOffset,
+                            parsedCue.endTime + presentationOffset,
+                            parsedCue.text);
+                        if (!cuesByKey.has(parsedCue.key)) {
+                            const key = parsedCue.key;
                             cuesByKey.set(key, cue);
                             track.addCue(cue);
                         }
@@ -281,10 +306,12 @@
                     }
                 } catch {
                     // The sidecar may not exist until FFmpeg emits its first cue.
+                } finally {
+                    refreshPending = false;
                 }
             };
             refresh();
-            video._lineupSubtitleTimer = setInterval(refresh, 1000);
+            video._lineupSubtitleTimer = setInterval(refresh, 100);
         }
 
         async function initFmp4Player(videoElementId, streamUrl, diagnosticUrl, subtitleUrl = null) {
@@ -294,10 +321,6 @@
             if (!video) {
                 return 'Video player element was not found.';
             }
-            if (subtitleUrl) {
-                startLineupSubtitlePolling(video, subtitleUrl);
-            }
-
             return await new Promise(resolve => {
                 let retryCount = 0;
                 let settled = false;
@@ -323,12 +346,18 @@
                 };
 
                 video._lineupInitializationResolve = finish;
-                video.onloadedmetadata = () => finish(null);
-                const handlePlaybackError = async (fallbackMessage = null) => {
+                video.onloadedmetadata = () => {
+                    if (subtitleUrl) {
+                        startLineupSubtitlePolling(video, subtitleUrl);
+                    }
+                    finish(null);
+                };
+                const handlePlaybackError = async errorOrMessage => {
                     if (settled || diagnosing) {
                         return;
                     }
 
+                    const fallbackMessage = typeof errorOrMessage === 'string' ? errorOrMessage : null;
                     diagnosing = true;
                     video.onerror = null;
                     let diagnostic;

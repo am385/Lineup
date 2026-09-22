@@ -102,10 +102,7 @@ public class SiliconDustXmltvParser
         return SerializeDocument(document);
     }
 
-    private static byte[] FilterDocument(
-        ReadOnlyMemory<byte> content,
-        ReadOnlySet<string> allowedGuideNumbers,
-        IReadOnlyDictionary<string, HDHomeRunChannel>? requestedChannels)
+    private static byte[] FilterDocument(ReadOnlyMemory<byte> content, ReadOnlySet<string> allowedGuideNumbers, IReadOnlyDictionary<string, HDHomeRunChannel>? requestedChannels)
     {
         var document = LoadDocument(content);
         var root = document.Root!;
@@ -164,10 +161,7 @@ public class SiliconDustXmltvParser
         return stream.ToArray();
     }
 
-    private static void AddMissingGuideData(
-        XElement root,
-        IReadOnlyDictionary<string, HDHomeRunChannel> requestedChannels,
-        (DateTimeOffset Start, DateTimeOffset Stop)? programmeRange)
+    private static void AddMissingGuideData(XElement root, IReadOnlyDictionary<string, HDHomeRunChannel> requestedChannels, (DateTimeOffset Start, DateTimeOffset Stop)? programmeRange)
     {
         var programmeElements = root.Elements().Where(element => element.Name.LocalName == "programme").ToArray();
         var usableProgrammeChannelIds = programmeElements

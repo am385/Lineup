@@ -128,13 +128,50 @@ public static class FactoryResetCoordinator
             Directory.Delete(hlsDirectory, recursive: true);
         }
         var subtitleDirectory = Path.Combine(Path.GetTempPath(), SubtitleSidecarService.DirectoryName);
-        if (Directory.Exists(subtitleDirectory))
-        {
-            Directory.Delete(subtitleDirectory, recursive: true);
-        }
+        DeleteInactiveSubtitleDirectories(subtitleDirectory);
 
         appDataStore.DeleteFile(appDataStore.FactoryResetRequestPath);
         return true;
+    }
+
+    private static void DeleteInactiveSubtitleDirectories(string rootDirectory)
+    {
+        if (!Directory.Exists(rootDirectory))
+        {
+            return;
+        }
+
+        foreach (var directory in Directory.EnumerateDirectories(rootDirectory))
+        {
+            try
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+            catch (IOException)
+            {
+                // Another Lineup process still owns this transient subtitle directory.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Another Lineup process may still own this transient subtitle directory.
+            }
+        }
+
+        foreach (var file in Directory.EnumerateFiles(rootDirectory))
+        {
+            try
+            {
+                File.Delete(file);
+            }
+            catch (IOException)
+            {
+                // A pre-isolation Lineup process still owns this transient subtitle file.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // A pre-isolation Lineup process may still own this transient subtitle file.
+            }
+        }
     }
 
     /// <summary>
