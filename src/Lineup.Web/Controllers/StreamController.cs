@@ -739,12 +739,12 @@ public class StreamController : ControllerBase
         catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 2)
         {
             _logger.LogError("FFmpeg not found for fMP4 streaming");
-            Response.StatusCode = 500;
+            SetInternalServerErrorStatus(Response);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error in fMP4 stream for channel {Channel}", channel);
-            Response.StatusCode = 500;
+            SetInternalServerErrorStatus(Response);
         }
         finally
         {
@@ -826,6 +826,18 @@ public class StreamController : ControllerBase
             {
                 _activeStreamRegistry.Unregister(sessionId);
             }
+        }
+    }
+
+    /// <summary>
+    /// Sets an internal-server-error response status when the response headers remain mutable.
+    /// </summary>
+    /// <param name="response">The response whose status should be updated.</param>
+    internal static void SetInternalServerErrorStatus(HttpResponse response)
+    {
+        if (!response.HasStarted)
+        {
+            response.StatusCode = StatusCodes.Status500InternalServerError;
         }
     }
 

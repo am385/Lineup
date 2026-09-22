@@ -56,7 +56,7 @@ public class SettingsInitialSetupTests
         var component = context.Render<Settings>();
 
         // Act
-        component.Find("button.btn-primary").Click();
+        await component.Find("button.btn-primary").ClickAsync(new());
 
         // Assert
         await deviceState.Received(1).DiscoverDeviceAsync(Arg.Any<CancellationToken>());

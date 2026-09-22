@@ -251,6 +251,26 @@ public class StreamControllerTests
     }
 
     /// <summary>
+    /// Verifies that fMP4 error handling changes the status only before response headers are committed.
+    /// </summary>
+    [Theory]
+    [InlineData(false, StatusCodes.Status500InternalServerError)]
+    [InlineData(true, StatusCodes.Status200OK)]
+    public void SetInternalServerErrorStatus_ResponseState_PreservesCommittedStatus(bool hasStarted, int expectedStatus)
+    {
+        // Arrange
+        var responseFeature = new TestHttpResponseFeature(hasStarted);
+        var context = new DefaultHttpContext();
+        context.Features.Set<IHttpResponseFeature>(responseFeature);
+
+        // Act
+        StreamController.SetInternalServerErrorStatus(context.Response);
+
+        // Assert
+        Assert.Equal(expectedStatus, context.Response.StatusCode);
+    }
+
+    /// <summary>
     /// Verifies an MPEG-TS DRM slate that fails before normal registration still respects the hosted-stream limit.
     /// </summary>
     [Fact]
@@ -799,6 +819,27 @@ public class StreamControllerTests
         public void Abort()
         {
             _cancellation.Cancel();
+        }
+    }
+
+    private sealed class TestHttpResponseFeature(bool hasStarted) : IHttpResponseFeature
+    {
+        public int StatusCode { get; set; } = StatusCodes.Status200OK;
+
+        public string? ReasonPhrase { get; set; }
+
+        public IHeaderDictionary Headers { get; set; } = new HeaderDictionary();
+
+        public Stream Body { get; set; } = Stream.Null;
+
+        public bool HasStarted { get; } = hasStarted;
+
+        public void OnStarting(Func<object, Task> callback, object state)
+        {
+        }
+
+        public void OnCompleted(Func<object, Task> callback, object state)
+        {
         }
     }
 
