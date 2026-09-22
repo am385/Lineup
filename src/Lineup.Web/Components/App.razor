@@ -129,6 +129,8 @@
             console.error('Video element not found:', videoElementId);
             return false;
         }
+        window.lineupMediaPlayers ??= new Map();
+        window.lineupMediaPlayers.set(videoElementId, video);
             
         console.log('Initializing HLS player with URL:', playlistUrl);
             
@@ -187,12 +189,24 @@
         }
         
         
-        function stopMediaPlayer(videoElementId = 'videoPlayer') {
-            const video = document.getElementById(videoElementId);
+        function stopLineupSubtitlePolling(video) {
+            if (!video) {
+                return;
+            }
+            if (video._lineupSubtitleAbortController) {
+                video._lineupSubtitleAbortController.abort();
+                video._lineupSubtitleAbortController = null;
+            }
             if (video?._lineupSubtitleTimer) {
                 clearInterval(video._lineupSubtitleTimer);
                 video._lineupSubtitleTimer = null;
             }
+        }
+
+        function stopMediaPlayer(videoElementId = 'videoPlayer') {
+            const video = document.getElementById(videoElementId) ||
+                window.lineupMediaPlayers?.get(videoElementId);
+            stopLineupSubtitlePolling(video);
             if (video) {
                 video.onerror = null;
                 video.onloadedmetadata = null;
@@ -218,6 +232,7 @@
                 video.removeAttribute('src');
                 video.load();
             }
+            window.lineupMediaPlayers?.delete(videoElementId);
         }
 
         function destroyHlsPlayer() {
@@ -227,26 +242,35 @@
         // fMP4 player - simpler, just sets the src directly
         // The browser's native video player handles fragmented MP4
         function startLineupSubtitlePolling(video, subtitleUrl) {
+            stopLineupSubtitlePolling(video);
             const track = video.addTextTrack('subtitles', 'Selected subtitles', 'und');
             track.mode = 'showing';
             const cuesByKey = new Map();
             const decoder = new TextDecoder('utf-8');
+            const abortController = new AbortController();
             const presentationLeadSeconds = 0.05;
             let offset = 0;
             let pendingText = '';
             let refreshPending = false;
+            video._lineupSubtitleAbortController = abortController;
             const parseTime = value => {
                 const parts = value.trim().replace(',', '.').split(':').map(Number);
                 return parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2] : parts[0] * 60 + parts[1];
             };
             const refresh = async () => {
-                if (refreshPending) {
+                if (refreshPending || abortController.signal.aborted) {
+                    return;
+                }
+                if (!video.isConnected) {
+                    stopLineupSubtitlePolling(video);
                     return;
                 }
                 refreshPending = true;
                 try {
                     const separator = subtitleUrl.includes('?') ? '&' : '?';
-                    const response = await fetch(`${subtitleUrl}${separator}offset=${offset}`, { cache: 'no-store' });
+                    const response = await fetch(
+                        `${subtitleUrl}${separator}offset=${offset}`,
+                        { cache: 'no-store', signal: abortController.signal });
                     if (!response.ok) {
                         return;
                     }
@@ -304,14 +328,17 @@
                         track.removeCue(oldest[1]);
                         cuesByKey.delete(oldest[0]);
                     }
-                } catch {
+                } catch (error) {
+                    if (error.name === 'AbortError') {
+                        return;
+                    }
                     // The sidecar may not exist until FFmpeg emits its first cue.
                 } finally {
                     refreshPending = false;
                 }
             };
-            refresh();
             video._lineupSubtitleTimer = setInterval(refresh, 100);
+            refresh();
         }
 
         async function initFmp4Player(videoElementId, streamUrl, diagnosticUrl, subtitleUrl = null) {
@@ -321,6 +348,8 @@
             if (!video) {
                 return 'Video player element was not found.';
             }
+            window.lineupMediaPlayers ??= new Map();
+            window.lineupMediaPlayers.set(videoElementId, video);
             return await new Promise(resolve => {
                 let retryCount = 0;
                 let settled = false;
@@ -338,6 +367,9 @@
                     resolve(message);
                 };
                 const startPlayback = () => {
+                    if (settled || !video.isConnected) {
+                        return;
+                    }
                     const separator = streamUrl.includes('?') ? '&' : '?';
                     video.src = retryCount === 0 ? streamUrl : `${streamUrl}${separator}retry=${Date.now()}`;
                     video.play().catch(() => {
@@ -347,6 +379,9 @@
 
                 video._lineupInitializationResolve = finish;
                 video.onloadedmetadata = () => {
+                    if (settled || !video.isConnected) {
+                        return;
+                    }
                     if (subtitleUrl) {
                         startLineupSubtitlePolling(video, subtitleUrl);
                     }
@@ -376,6 +411,9 @@
                     if (diagnostic.success && retryCount === 0) {
                         retryCount++;
                         await new Promise(retryResolve => setTimeout(retryResolve, 750));
+                        if (settled || !video.isConnected) {
+                            return;
+                        }
                         diagnosing = false;
                         video.onerror = handlePlaybackError;
                         startPlayback();

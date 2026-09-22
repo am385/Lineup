@@ -318,13 +318,14 @@ public class StreamController : ControllerBase
             return true;
         }
 
+        using var streamCancellation = CancellationTokenSource.CreateLinkedTokenSource(HttpContext.RequestAborted);
         var sessionId = Guid.NewGuid().ToString("N")[..8];
         var activeStream = ActiveStreamPlanFactory.CreateDisabledSlate(sessionId, channel, format, DateTime.UtcNow) with
         {
             ClientAddress = FormatClientAddress(HttpContext.Connection.RemoteIpAddress, HttpContext.Connection.RemotePort),
             ClientId = clientId
         };
-        if (!_activeStreamRegistry.TryRegister(activeStream, _settingsService.Settings.MaximumConcurrentStreams, HttpContext.Abort))
+        if (!_activeStreamRegistry.TryRegister(activeStream, _settingsService.Settings.MaximumConcurrentStreams, streamCancellation.Cancel))
         {
             Response.StatusCode = StatusCodes.Status429TooManyRequests;
             await Response.WriteAsJsonAsync(new { error = StreamLimitError }, HttpContext.RequestAborted);
@@ -335,10 +336,14 @@ public class StreamController : ControllerBase
         Response.Headers.CacheControl = "no-cache, no-store";
         try
         {
-            await _protectedContentSlateService.StreamAsync(format, channel, Response.Body, HttpContext.RequestAborted, ChannelSlateReason.DisabledChannel);
+            await _protectedContentSlateService.StreamAsync(format, channel, Response.Body, streamCancellation.Token, ChannelSlateReason.DisabledChannel);
         }
-        catch (OperationCanceledException) when (HttpContext.RequestAborted.IsCancellationRequested)
+        catch (OperationCanceledException) when (streamCancellation.IsCancellationRequested)
         {
+            if (!HttpContext.RequestAborted.IsCancellationRequested)
+            {
+                await Response.CompleteAsync();
+            }
         }
         finally
         {
@@ -523,13 +528,15 @@ public class StreamController : ControllerBase
         var sessionId = Guid.NewGuid().ToString("N")[..8];
         var outputVideoBitRate = WebVideoTranscodePlanner.GetMaximumBitRate(_settingsService.Settings, quality);
         string? subtitlePath = null;
+        using var streamCancellation = CancellationTokenSource.CreateLinkedTokenSource(HttpContext.RequestAborted);
+        var streamCancellationToken = streamCancellation.Token;
 
         try
         {
-            tunerLease = await _tunerStreamMultiplexer.SubscribeAsync(sourceUri, HttpContext.RequestAborted);
-            tunerLeaseCancellation = CancellationTokenSource.CreateLinkedTokenSource(HttpContext.RequestAborted);
+            tunerLease = await _tunerStreamMultiplexer.SubscribeAsync(sourceUri, streamCancellationToken);
+            tunerLeaseCancellation = CancellationTokenSource.CreateLinkedTokenSource(streamCancellationToken);
             tunerLeaseTask = tunerLease.CopyToAsync(System.IO.Stream.Null, tunerLeaseCancellation.Token);
-            var source = await ProbeBestEffortAsync(sourceUri, HttpContext.RequestAborted);
+            var source = await ProbeBestEffortAsync(sourceUri, streamCancellationToken);
             var sourceVideoCodec = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video)?.Codec;
             WatchTrackSelection selection;
             try
@@ -545,7 +552,7 @@ public class StreamController : ControllerBase
             var copyVideo = selection.SubtitlePresentation != SubtitlePresentation.BurnIn &&
                 quality == WebPlayerQuality.AppDefault &&
                 string.Equals(sourceVideoCodec, "h264", StringComparison.OrdinalIgnoreCase);
-            tunerInput = await _tunerStreamMultiplexer.SubscribeAsync(sourceUri, HttpContext.RequestAborted);
+            tunerInput = await _tunerStreamMultiplexer.SubscribeAsync(sourceUri, streamCancellationToken);
             tunerLeaseCancellation.Cancel();
             await ObserveInputPumpAsync(tunerLeaseTask);
             await tunerLease.DisposeAsync();
@@ -582,7 +589,7 @@ public class StreamController : ControllerBase
 
             if (selection.Subtitle?.IsEmbeddedClosedCaptions == true)
             {
-                captionInput = await _tunerStreamMultiplexer.SubscribeAsync(sourceUri, HttpContext.RequestAborted);
+                captionInput = await _tunerStreamMultiplexer.SubscribeAsync(sourceUri, streamCancellationToken);
                 var captionStartInfo = new ProcessStartInfo
                 {
                     FileName = "ffmpeg",
@@ -599,11 +606,11 @@ public class StreamController : ControllerBase
                 captionProcess = Process.Start(captionStartInfo) ??
                     throw new InvalidOperationException("Failed to start FFmpeg embedded-caption extractor.");
                 captionErrorTask = captionProcess.StandardError.ReadToEndAsync();
-                captionInputPumpTask = TunerInputPump.PumpAsync(captionInput, sourceUri, captionProcess, _logger, HttpContext.RequestAborted);
+                captionInputPumpTask = TunerInputPump.PumpAsync(captionInput, sourceUri, captionProcess, _logger, streamCancellationToken);
                 captionInput = null;
             }
 
-            inputPumpTask = TunerInputPump.PumpAsync(tunerInput, sourceUri, ffmpegProcess, _logger, HttpContext.RequestAborted, error => Volatile.Write(ref tunerInputError, error));
+            inputPumpTask = TunerInputPump.PumpAsync(tunerInput, sourceUri, ffmpegProcess, _logger, streamCancellationToken, error => Volatile.Write(ref tunerInputError, error));
             tunerInput = null;
 
             var session = new FMp4Session
@@ -620,7 +627,7 @@ public class StreamController : ControllerBase
                 ClientAddress = FormatClientAddress(HttpContext.Connection.RemoteIpAddress, HttpContext.Connection.RemotePort),
                 ClientId = clientId
             };
-            if (!_activeStreamRegistry.TryRegister(activeStream, _settingsService.Settings.MaximumConcurrentStreams, HttpContext.Abort))
+            if (!_activeStreamRegistry.TryRegister(activeStream, _settingsService.Settings.MaximumConcurrentStreams, streamCancellation.Cancel))
             {
                 Response.StatusCode = StatusCodes.Status429TooManyRequests;
                 await Response.WriteAsJsonAsync(new { error = StreamLimitError });
@@ -687,12 +694,12 @@ public class StreamController : ControllerBase
             // Stream FFmpeg output directly to response
             var buffer = new byte[64 * 1024];
             var firstReadTask = ffmpegProcess.StandardOutput.BaseStream
-                .ReadAsync(buffer, HttpContext.RequestAborted)
+                .ReadAsync(buffer, streamCancellationToken)
                 .AsTask();
-            var startupDelayTask = Task.Delay(Fmp4StartupTimeout, HttpContext.RequestAborted);
+            var startupDelayTask = Task.Delay(Fmp4StartupTimeout, streamCancellationToken);
             if (await Task.WhenAny(firstReadTask, startupDelayTask) != firstReadTask)
             {
-                HttpContext.RequestAborted.ThrowIfCancellationRequested();
+                streamCancellationToken.ThrowIfCancellationRequested();
                 await StopProcessAsync(ffmpegProcess);
                 await ObserveInputPumpAsync(inputPumpTask);
                 inputPumpTask = null;
@@ -703,7 +710,7 @@ public class StreamController : ControllerBase
             var bytesRead = await firstReadTask;
             if (bytesRead == 0)
             {
-                await ffmpegProcess.WaitForExitAsync(HttpContext.RequestAborted);
+                await ffmpegProcess.WaitForExitAsync(streamCancellationToken);
                 await ObserveInputPumpAsync(inputPumpTask);
                 inputPumpTask = null;
                 await WriteFmp4StartupErrorAsync(channel, streamUrl, sessionId, session.StartTime, tunerCapacityLease, ffmpegErrors, Volatile.Read(ref tunerInputError));
@@ -715,11 +722,19 @@ public class StreamController : ControllerBase
                 await Response.Body.WriteAsync(buffer.AsMemory(0, bytesRead), HttpContext.RequestAborted);
                 await Response.Body.FlushAsync(HttpContext.RequestAborted);
             }
-            while ((bytesRead = await ffmpegProcess.StandardOutput.BaseStream.ReadAsync(buffer, HttpContext.RequestAborted)) > 0);
+            while ((bytesRead = await ffmpegProcess.StandardOutput.BaseStream.ReadAsync(buffer, streamCancellationToken)) > 0);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (streamCancellation.IsCancellationRequested)
         {
-            _logger.LogDebug("fMP4 stream closed for channel {Channel} (client disconnected)", channel);
+            if (HttpContext.RequestAborted.IsCancellationRequested)
+            {
+                _logger.LogDebug("fMP4 stream closed for channel {Channel} (client disconnected)", channel);
+            }
+            else
+            {
+                _logger.LogDebug("fMP4 stream stopped for channel {Channel}", channel);
+                await Response.CompleteAsync();
+            }
         }
         catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 2)
         {
@@ -797,7 +812,7 @@ public class StreamController : ControllerBase
             if (captionErrorTask is not null)
             {
                 var captionError = await captionErrorTask;
-                if (!string.IsNullOrWhiteSpace(captionError) && !HttpContext.RequestAborted.IsCancellationRequested)
+                if (!string.IsNullOrWhiteSpace(captionError) && !streamCancellation.IsCancellationRequested)
                 {
                     _logger.LogWarning("Embedded-caption extractor for fMP4 session {SessionId} reported: {CaptionError}", sessionId, captionError.Trim());
                 }

@@ -234,6 +234,13 @@ public interface IActiveStreamRegistry
     bool RequestStop(string sessionId);
 
     /// <summary>
+    /// Requests that every active stream owned by a client stop.
+    /// </summary>
+    /// <param name="clientId">The owning client identifier.</param>
+    /// <returns>The number of streams for which stop was requested.</returns>
+    int RequestStopByClientId(string clientId);
+
+    /// <summary>
     /// Stops accepting new streams, requests every active stream to stop, and waits for all registrations to be removed.
     /// </summary>
     /// <param name="cancellationToken">Stops waiting for stream cleanup.</param>
@@ -315,24 +322,39 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
         lock (_registrationLock)
         {
             if (!_streams.TryGetValue(sessionId, out var current) ||
-                current.Stop is not { } stopAction ||
-                !_streams.TryRemove(sessionId, out var removed) ||
-                removed is null)
+                current.Stop is not { } stopAction)
             {
                 return false;
             }
 
-            registration = removed;
+            registration = current;
             stop = stopAction;
-            if (_streams.IsEmpty)
-            {
-                _allStreamsStopped.TrySetResult();
-            }
+            _streams[sessionId] = current with { Stop = null };
         }
 
         StopRequested?.Invoke(registration.Snapshot);
         stop();
         return true;
+    }
+
+    /// <inheritdoc />
+    public int RequestStopByClientId(string clientId)
+    {
+        if (string.IsNullOrWhiteSpace(clientId))
+        {
+            return 0;
+        }
+
+        string[] sessionIds;
+        lock (_registrationLock)
+        {
+            sessionIds = _streams.Values
+                .Where(registration => string.Equals(registration.Snapshot.ClientId, clientId, StringComparison.Ordinal))
+                .Select(registration => registration.Snapshot.SessionId)
+                .ToArray();
+        }
+
+        return sessionIds.Count(RequestStop);
     }
 
     /// <inheritdoc />

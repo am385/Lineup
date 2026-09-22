@@ -228,7 +228,8 @@ public class StreamControllerTests
             });
         var activeStreams = new ActiveStreamRegistry();
         var controller = CreateDisabledChannelController(store, DisabledChannelMode.StreamSlate, capacity, slate, activeStreams, maximumConcurrentStreams: 1);
-        controller.HttpContext.Features.Set<IHttpRequestLifetimeFeature>(new TestRequestLifetimeFeature());
+        var lifetime = new TestRequestLifetimeFeature();
+        controller.HttpContext.Features.Set<IHttpRequestLifetimeFeature>(lifetime);
 
         // Act
         Task streamTask = fragmentedMp4 ? controller.StreamFmp4("9.1", clientId: "watch-client") : controller.Stream("9.1");
@@ -243,6 +244,10 @@ public class StreamControllerTests
         Assert.Equal(fragmentedMp4 ? "watch-client" : null, activeStream.ClientId);
         Assert.Empty(activeStreams.GetActiveStreams());
         Assert.Empty(capacity.ReceivedCalls());
+        if (fragmentedMp4)
+        {
+            Assert.False(lifetime.RequestAborted.IsCancellationRequested);
+        }
     }
 
     /// <summary>

@@ -6,6 +6,7 @@ using Lineup.HDHomeRun.Device.Models;
 using Lineup.HDHomeRun.Device.Protocol;
 using Lineup.Web.Components.Pages;
 using Lineup.Web.Services;
+using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using System.Reflection;
@@ -258,6 +259,108 @@ public class WatchTests
     }
 
     /// <summary>
+    /// Verifies that leaving an active Watch page explicitly stops its server-side stream.
+    /// </summary>
+    [Fact]
+    public async Task DisposeDuringPlayback_StopsOwnedActiveStream()
+    {
+        // Arrange
+        using var context = new BunitContext();
+        var repository = Substitute.For<IEpgRepository>();
+        repository.GetChannelsAsync().Returns(
+        [
+            new HDHomeRunChannelEpgSegment
+            {
+                GuideNumber = "2.1",
+                GuideName = "Test Channel"
+            }
+        ]);
+        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
+        var settingsService = Substitute.For<IAppSettingsService>();
+        settingsService.Settings.Returns(new AppSettings());
+        var registry = new ActiveStreamRegistry();
+        var streamStopped = false;
+        context.Services.AddSingleton(repository);
+        context.Services.AddSingleton(settingsService);
+        AddWatchRuntimeServices(context, activeStreamRegistry: registry);
+        context.JSInterop.SetupVoid("stopMediaPlayer", "videoPlayer").SetVoidResult();
+        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 3).SetResult(null);
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "2.1"));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#videoPlayer")));
+        var streamUrl = LastStreamUrl(context);
+        var clientIdStart = streamUrl.IndexOf("clientId=", StringComparison.Ordinal) + "clientId=".Length;
+        var clientId = streamUrl[clientIdStart..].Split('&')[0];
+        registry.Register(
+            new ActiveStreamSnapshot("session", "2.1", HostedStreamFormat.FragmentedMp4, DateTime.UtcNow, null, []) { ClientId = clientId },
+            () =>
+            {
+                streamStopped = true;
+                registry.Unregister("session");
+            });
+
+        // Act
+        await component.Instance.DisposeAsync();
+
+        // Assert
+        Assert.True(streamStopped);
+        Assert.Empty(registry.GetActiveStreams());
+        Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopMediaPlayer");
+    }
+
+    /// <summary>
+    /// Verifies that client-side navigation stops the active stream before the Watch page is removed.
+    /// </summary>
+    [Fact]
+    public void NavigationAwayDuringPlayback_StopsOwnedActiveStream()
+    {
+        // Arrange
+        using var context = new BunitContext();
+        var repository = Substitute.For<IEpgRepository>();
+        repository.GetChannelsAsync().Returns(
+        [
+            new HDHomeRunChannelEpgSegment
+            {
+                GuideNumber = "2.1",
+                GuideName = "Test Channel"
+            }
+        ]);
+        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
+        var settingsService = Substitute.For<IAppSettingsService>();
+        settingsService.Settings.Returns(new AppSettings());
+        var registry = new ActiveStreamRegistry();
+        var streamStopped = false;
+        context.Services.AddSingleton(repository);
+        context.Services.AddSingleton(settingsService);
+        AddWatchRuntimeServices(context, activeStreamRegistry: registry);
+        context.JSInterop.SetupVoid("stopMediaPlayer", "videoPlayer").SetVoidResult();
+        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 3).SetResult(null);
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "2.1"));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#videoPlayer")));
+        var streamUrl = LastStreamUrl(context);
+        var clientIdStart = streamUrl.IndexOf("clientId=", StringComparison.Ordinal) + "clientId=".Length;
+        var clientId = streamUrl[clientIdStart..].Split('&')[0];
+        registry.Register(
+            new ActiveStreamSnapshot("session", "2.1", HostedStreamFormat.FragmentedMp4, DateTime.UtcNow, null, []) { ClientId = clientId },
+            () =>
+            {
+                streamStopped = true;
+                registry.Unregister("session");
+            });
+        var navigation = context.Services.GetRequiredService<NavigationManager>();
+
+        // Act
+        navigation.NavigateTo("/dashboard");
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            Assert.True(streamStopped);
+            Assert.Empty(registry.GetActiveStreams());
+            Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopMediaPlayer");
+        });
+    }
+
+    /// <summary>
     /// Verifies that Stop awaits browser-side player shutdown before removing the video element.
     /// </summary>
     [Fact]
@@ -338,7 +441,7 @@ public class WatchTests
         var clientId = streamUrl[clientIdStart..].Split('&')[0];
         registry.Register(
             new ActiveStreamSnapshot("session", "2.1", HostedStreamFormat.FragmentedMp4, DateTime.UtcNow, null, []) { ClientId = clientId },
-            () => { });
+            () => registry.Unregister("session"));
 
         var stopped = registry.RequestStop("session");
 

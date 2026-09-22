@@ -96,6 +96,8 @@ public class ActiveStreamServiceTests
         Assert.True(requested);
         Assert.True(stopped);
         Assert.Equal("watch-one", notification?.ClientId);
+        Assert.Equal("one", Assert.Single(registry.GetActiveStreams()).SessionId);
+        registry.Unregister("one");
         Assert.Empty(registry.GetActiveStreams());
     }
 
@@ -115,6 +117,61 @@ public class ActiveStreamServiceTests
         // Assert
         Assert.False(requested);
         Assert.Equal("one", Assert.Single(registry.GetActiveStreams()).SessionId);
+    }
+
+    /// <summary>
+    /// Verifies that a client stop request closes every matching stream without affecting other clients.
+    /// </summary>
+    [Fact]
+    public void Registry_RequestStopByClientId_StopsOnlyMatchingStreams()
+    {
+        // Arrange
+        var registry = new ActiveStreamRegistry();
+        var stoppedSessions = new List<string>();
+        registry.Register(
+            new ActiveStreamSnapshot("one", "2.1", HostedStreamFormat.FragmentedMp4, DateTime.UtcNow, null, []) { ClientId = "watch-one" },
+            () => stoppedSessions.Add("one"));
+        registry.Register(
+            new ActiveStreamSnapshot("two", "5.1", HostedStreamFormat.FragmentedMp4, DateTime.UtcNow, null, []) { ClientId = "watch-one" },
+            () => stoppedSessions.Add("two"));
+        registry.Register(
+            new ActiveStreamSnapshot("other", "7.1", HostedStreamFormat.FragmentedMp4, DateTime.UtcNow, null, []) { ClientId = "watch-two" },
+            () => stoppedSessions.Add("other"));
+
+        // Act
+        var stoppedCount = registry.RequestStopByClientId("watch-one");
+
+        // Assert
+        Assert.Equal(2, stoppedCount);
+        Assert.Equal(["one", "two"], stoppedSessions.Order());
+        Assert.Equal(["one", "other", "two"], registry.GetActiveStreams().Select(stream => stream.SessionId).Order());
+        registry.Unregister("one");
+        registry.Unregister("two");
+        Assert.Equal("other", Assert.Single(registry.GetActiveStreams()).SessionId);
+    }
+
+    /// <summary>
+    /// Verifies that metadata updates cannot resurrect a stream while its asynchronous cleanup is running.
+    /// </summary>
+    [Fact]
+    public void Registry_MetadataUpdateAfterStopRequest_RemainsStoppingUntilUnregistered()
+    {
+        // Arrange
+        var registry = new ActiveStreamRegistry();
+        var initial = new ActiveStreamSnapshot("one", "2.1", HostedStreamFormat.FragmentedMp4, DateTime.UtcNow, null, []);
+        registry.Register(initial, () => { });
+
+        // Act
+        var requested = registry.RequestStop("one");
+        registry.Register(initial with { SourceBitRate = 8_000_000 });
+        var repeatedRequest = registry.RequestStop("one");
+
+        // Assert
+        Assert.True(requested);
+        Assert.False(repeatedRequest);
+        Assert.Equal(8_000_000, Assert.Single(registry.GetActiveStreams()).SourceBitRate);
+        registry.Unregister("one");
+        Assert.Empty(registry.GetActiveStreams());
     }
 
     /// <summary>

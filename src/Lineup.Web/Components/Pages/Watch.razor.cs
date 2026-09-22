@@ -5,6 +5,7 @@ using Lineup.HDHomeRun.Device.Models;
 using Lineup.HDHomeRun.Device.Protocol;
 using Lineup.Web.Services;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Routing;
 using Microsoft.JSInterop;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -64,6 +65,8 @@ public partial class Watch : IAsyncDisposable
     private bool _isJsInteropReady;
     private bool _preferencesRestored;
     private bool _disposed;
+    private bool _isStoppingStream;
+    private IDisposable? _locationChangingRegistration;
     private readonly string _clientId = Guid.NewGuid().ToString("N");
     private string? _lastRouteChannelNumber;
     private string? _pendingRouteChannelNumber;
@@ -86,6 +89,7 @@ public partial class Watch : IAsyncDisposable
     /// </summary>
     protected override async Task OnInitializedAsync()
     {
+        _locationChangingRegistration = NavigationManager.RegisterLocationChangingHandler(OnLocationChangingAsync);
         DeviceState.OnStateChanged += OnDeviceStateChanged;
         ActiveStreamRegistry.StopRequested += OnActiveStreamStopRequested;
         await LoadChannelsAsync();
@@ -384,30 +388,45 @@ public partial class Watch : IAsyncDisposable
 
     private async Task StopStreamAsync()
     {
-        if (_isPlaying && _isJsInteropReady)
+        if (_isStoppingStream)
         {
-            try
-            {
-                await JS.InvokeVoidAsync("stopMediaPlayer", "videoPlayer");
-            }
-            catch (JSDisconnectedException)
-            {
-                // The circuit is already gone, so the browser has also released the media request.
-            }
-            catch (ObjectDisposedException)
-            {
-                // Component disposal can race with renderer shutdown.
-            }
+            return;
         }
 
-        _isPlaying = false;
-        _streamUrl = null;
-        _currentProgram = null;
-        _showCodecError = false;
-        _needsPlayerInit = false;
-        _activeStream = null;
-        _streamInfoTimer?.Dispose();
-        _streamInfoTimer = null;
+        _isStoppingStream = true;
+        try
+        {
+            ActiveStreamRegistry.RequestStopByClientId(_clientId);
+
+            if (_isPlaying && _isJsInteropReady)
+            {
+                try
+                {
+                    await JS.InvokeVoidAsync("stopMediaPlayer", "videoPlayer");
+                }
+                catch (JSDisconnectedException)
+                {
+                    // The circuit is already gone, so the browser has also released the media request.
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Component disposal can race with renderer shutdown.
+                }
+            }
+
+            _isPlaying = false;
+            _streamUrl = null;
+            _currentProgram = null;
+            _showCodecError = false;
+            _needsPlayerInit = false;
+            _activeStream = null;
+            _streamInfoTimer?.Dispose();
+            _streamInfoTimer = null;
+        }
+        finally
+        {
+            _isStoppingStream = false;
+        }
     }
 
     private async Task StopStream()
@@ -636,6 +655,11 @@ public partial class Watch : IAsyncDisposable
         }
     }
 
+    private async ValueTask OnLocationChangingAsync(LocationChangingContext context)
+    {
+        await StopStreamAsync();
+    }
+
     private async Task HandleActiveStreamStopAsync()
     {
         await StopStreamAsync();
@@ -704,6 +728,7 @@ public partial class Watch : IAsyncDisposable
     /// </summary>
     public async ValueTask DisposeAsync()
     {
+        _locationChangingRegistration?.Dispose();
         ActiveStreamRegistry.StopRequested -= OnActiveStreamStopRequested;
         await StopStreamAsync();
         _disposed = true;
