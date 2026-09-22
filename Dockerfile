@@ -4,6 +4,7 @@ WORKDIR /src
 
 # Git commit hash for version stamping (no .git directory in Docker context)
 ARG GIT_HASH=unknown
+ARG BUILD_VERSION
 
 # Copy project files first for better layer caching
 COPY Directory.Build.props ./
@@ -25,10 +26,16 @@ COPY src/Lineup.Web/ src/Lineup.Web/
 # Note: Cannot use --no-restore here because the publish step needs to resolve
 # Microsoft.AspNetCore.App.Internal.Assets which contains Blazor framework JS files.
 # This package is only pulled during publish, not during initial restore.
-RUN dotnet publish src/Lineup.Web/Lineup.Web.csproj \
--c Release \
--p:SourceRevisionId=$GIT_HASH \
--o /app/publish
+RUN set -eux; \
+    set --; \
+    if [ -n "${BUILD_VERSION}" ]; then \
+        set -- "-p:Version=${BUILD_VERSION}" "-p:IncludeSourceRevisionInInformationalVersion=false"; \
+    fi; \
+    dotnet publish src/Lineup.Web/Lineup.Web.csproj \
+        -c Release \
+        -p:SourceRevisionId="${GIT_HASH}" \
+        "$@" \
+        -o /app/publish
 
 # Runtime stage
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble AS runtime
