@@ -4,6 +4,8 @@ param(
     [ValidateSet('win-x64', 'win-arm64')]
     [string]$RuntimeIdentifier,
 
+    [string]$Version,
+
     [string]$SourceRevisionId,
 
     [string]$OutputDirectory
@@ -13,11 +15,14 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$buildPropertiesPath = Join-Path $repositoryRoot 'Directory.Build.props'
-[xml]$buildProperties = Get-Content -LiteralPath $buildPropertiesPath
-$Version = [string]$buildProperties.Project.PropertyGroup.Version
+$hasVersionOverride = ![string]::IsNullOrWhiteSpace($Version)
+if ([string]::IsNullOrWhiteSpace($Version)) {
+    $buildPropertiesPath = Join-Path $repositoryRoot 'Directory.Build.props'
+    [xml]$buildProperties = Get-Content -LiteralPath $buildPropertiesPath
+    $Version = [string]$buildProperties.Project.PropertyGroup.Version
+}
 if ($Version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?(?:\+[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?$') {
-    throw "Directory.Build.props Version must use semantic version format, for example 1.2.3 or 1.2.3-beta. Received '$Version'."
+    throw "Version must use semantic version format, for example 1.2.3 or 1.2.3-dev.4+abc1234. Received '$Version'."
 }
 
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
@@ -49,13 +54,25 @@ foreach ($path in @($packageDirectory, $archivePath)) {
 }
 New-Item -ItemType Directory -Force -Path $packageDirectory | Out-Null
 
-& dotnet publish (Join-Path $repositoryRoot 'src\Lineup.Web\Lineup.Web.csproj') `
-    --configuration Release `
-    --runtime $RuntimeIdentifier `
-    --self-contained true `
-    --output $applicationDirectory `
-    "-p:Version=$Version" `
+$publishArguments = @(
+    'publish',
+    (Join-Path $repositoryRoot 'src\Lineup.Web\Lineup.Web.csproj'),
+    '--configuration',
+    'Release',
+    '--runtime',
+    $RuntimeIdentifier,
+    '--self-contained',
+    'true',
+    '--output',
+    $applicationDirectory,
+    "-p:Version=$Version",
     "-p:SourceRevisionId=$SourceRevisionId"
+)
+if ($hasVersionOverride) {
+    $publishArguments += '-p:IncludeSourceRevisionInInformationalVersion=false'
+}
+
+& dotnet @publishArguments
 if ($LASTEXITCODE -ne 0) {
     throw "dotnet publish failed for $RuntimeIdentifier."
 }

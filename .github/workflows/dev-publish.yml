@@ -1,0 +1,265 @@
+name: Publish Lineup Dev
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: lineup-dev-publication
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DOCKERHUB_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/lineup
+  GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/lineup
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      short_sha: ${{ steps.version.outputs.short_sha }}
+      trace_tag: ${{ steps.version.outputs.trace_tag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve development version
+        id: version
+        shell: bash
+        run: |
+          base_version="$(python3 -c "import xml.etree.ElementTree as ET; print(ET.parse('Directory.Build.props').getroot().findtext('./PropertyGroup/Version', '').strip())")"
+
+          if [[ ! "${base_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?(\+[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?$ ]]; then
+            echo "::error::Directory.Build.props Version must use semantic version format."
+            exit 1
+          fi
+
+          core_version="${base_version%%-*}"
+          core_version="${core_version%%+*}"
+          short_sha="${GITHUB_SHA::7}"
+          version="${core_version}-dev.${GITHUB_RUN_NUMBER}+${short_sha}"
+          trace_tag="dev-${GITHUB_RUN_NUMBER}-${short_sha}"
+
+          {
+            echo "version=${version}"
+            echo "short_sha=${short_sha}"
+            echo "trace_tag=${trace_tag}"
+          } >> "${GITHUB_OUTPUT}"
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Run tests
+        run: dotnet test --no-build --configuration Release --verbosity normal
+
+  publish-docker:
+    needs: [prepare, test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.DOCKERHUB_IMAGE }}
+            ${{ env.GHCR_IMAGE }}
+          tags: |
+            type=raw,value=dev
+            type=raw,value=${{ needs.prepare.outputs.trace_tag }}
+          labels: |
+            org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            GIT_HASH=${{ github.sha }}
+            BUILD_VERSION=${{ needs.prepare.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  package-windows:
+    needs: [prepare, test]
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        runtime: [win-x64, win-arm64]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build Windows package
+        shell: pwsh
+        run: |
+          & .\scripts\Build-WindowsPackage.ps1 `
+            -RuntimeIdentifier '${{ matrix.runtime }}' `
+            -Version '${{ needs.prepare.outputs.version }}' `
+            -SourceRevisionId '${{ github.sha }}'
+
+      - name: Upload architecture package
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-package-${{ matrix.runtime }}
+          path: artifacts/windows/Lineup-${{ needs.prepare.outputs.version }}-${{ matrix.runtime }}.zip
+          if-no-files-found: error
+          retention-days: 30
+
+  collect-windows:
+    needs: [prepare, package-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download architecture packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: windows-package-*
+          path: artifacts/versioned
+          merge-multiple: true
+
+      - name: Create traceable bundle and moving release assets
+        shell: bash
+        env:
+          DEV_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          mkdir -p artifacts/release
+          (
+            cd artifacts/versioned
+            sha256sum Lineup-*.zip > SHA256SUMS.txt
+          )
+          cp "artifacts/versioned/Lineup-${DEV_VERSION}-win-x64.zip" artifacts/release/Lineup-dev-win-x64.zip
+          cp "artifacts/versioned/Lineup-${DEV_VERSION}-win-arm64.zip" artifacts/release/Lineup-dev-win-arm64.zip
+          (
+            cd artifacts/release
+            sha256sum Lineup-dev-*.zip > SHA256SUMS.txt
+          )
+
+      - name: Upload Windows development bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lineup-${{ needs.prepare.outputs.trace_tag }}-Windows
+          path: |
+            artifacts/versioned/Lineup-*.zip
+            artifacts/versioned/SHA256SUMS.txt
+            artifacts/release/Lineup-dev-*.zip
+            artifacts/release/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  publish-github-prerelease:
+    needs: [prepare, publish-docker, collect-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download Windows development bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: Lineup-${{ needs.prepare.outputs.trace_tag }}-Windows
+          path: artifacts
+
+      - name: Move dev tag
+        shell: bash
+        run: |
+          git tag --force dev "${GITHUB_SHA}"
+          git push origin refs/tags/dev --force
+
+      - name: Create or update GitHub dev prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEV_VERSION: ${{ needs.prepare.outputs.version }}
+          TRACE_TAG: ${{ needs.prepare.outputs.trace_tag }}
+        run: |
+          cat > release-notes.md <<EOF
+          > **Development build:** This release is overwritten by the next successful dev publication and is not a stable release.
+
+          - Version: \`${DEV_VERSION}\`
+          - Source ref: \`${GITHUB_REF_NAME}\`
+          - Commit: [\`${GITHUB_SHA}\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA})
+          - Workflow run: [${GITHUB_RUN_NUMBER}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})
+          - Traceable Docker tag: \`${TRACE_TAG}\`
+
+          Docker Hub:
+          \`\`\`text
+          docker pull ${DOCKERHUB_IMAGE}:dev
+          \`\`\`
+
+          GitHub Container Registry:
+          \`\`\`text
+          docker pull ${GHCR_IMAGE}:dev
+          \`\`\`
+          EOF
+
+          if gh release view dev --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release view dev --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name' |
+              while read -r asset; do
+                gh release delete-asset dev "${asset}" --yes --repo "${GITHUB_REPOSITORY}"
+              done
+            gh release edit dev \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "Lineup Dev" \
+              --notes-file release-notes.md \
+              --prerelease
+          else
+            gh release create dev \
+              --repo "${GITHUB_REPOSITORY}" \
+              --verify-tag \
+              --title "Lineup Dev" \
+              --notes-file release-notes.md \
+              --prerelease
+          fi
+
+          gh release upload dev artifacts/release/* --repo "${GITHUB_REPOSITORY}"
