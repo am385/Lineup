@@ -73,6 +73,29 @@ public class WatchStreamPlannerTests
     }
 
     /// <summary>
+    /// Verifies a partial probe cannot bypass explicit audio-index validation.
+    /// </summary>
+    [Theory]
+    [InlineData(99, "not found")]
+    [InlineData(0, "not Audio")]
+    public void SelectTracks_ExplicitAudioAfterPartialProbe_ThrowsExplicitError(int index, string message)
+    {
+        // Arrange
+        var source = new MediaProbeResult(
+        [
+            Track(0, MediaTrackType.Video, "h264"),
+            Track(6, MediaTrackType.Subtitle, "subrip") with { SubtitlePresentation = SubtitlePresentation.WebVtt }
+        ],
+        null);
+
+        // Act
+        var exception = Assert.Throws<ArgumentException>(() => WatchStreamPlanner.SelectTracks(source, index, null));
+
+        // Assert
+        Assert.Contains(message, exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies a previously validated subtitle index and presentation remain usable when a retry cannot probe source tracks.
     /// </summary>
     [Theory]
@@ -295,7 +318,7 @@ public class WatchStreamPlannerTests
         // Assert
         AssertOption(arguments, "-b:a", "128k");
         AssertOption(arguments, "-ac", "2");
-        AssertOption(arguments, "-ar", "44100");
+        AssertOption(arguments, "-ar", "48000");
     }
 
     /// <summary>
@@ -347,6 +370,32 @@ public class WatchStreamPlannerTests
             WebPlayerQuality.AppDefault,
             null,
             WatchAudioOutput.UpTo5Point1);
+
+        // Assert
+        AssertOption(arguments, "-c:a", "aac");
+        AssertOption(arguments, "-b:a", "128k");
+        AssertOption(arguments, "-ac", "2");
+        AssertOption(arguments, "-ar", "48000");
+    }
+
+    /// <summary>
+    /// Verifies 7.1 compatibility output safely assumes stereo when retry probe metadata is unavailable.
+    /// </summary>
+    [Fact]
+    public void CreateArguments_UpTo7Point1AudioOutput_UnknownChannelsUsesStereo()
+    {
+        // Arrange
+        var source = new MediaProbeResult([], null);
+        var selection = WatchStreamPlanner.SelectTracks(source, 2, null);
+
+        // Act
+        var arguments = WatchStreamPlanner.CreateArguments(
+            new AppSettings(),
+            source,
+            selection,
+            WebPlayerQuality.AppDefault,
+            null,
+            WatchAudioOutput.UpTo7Point1);
 
         // Assert
         AssertOption(arguments, "-c:a", "aac");

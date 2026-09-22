@@ -407,7 +407,7 @@ public class ActiveStreamServiceTests
         Assert.Equal("aac", stream.Tracks[1].OutputCodec);
         Assert.Equal(128_000, stream.Tracks[1].OutputBitRate);
         Assert.Equal(2, stream.Tracks[1].OutputChannels);
-        Assert.Equal(44_100, stream.Tracks[1].OutputSampleRate);
+        Assert.Equal(48_000, stream.Tracks[1].OutputSampleRate);
     }
 
     /// <summary>

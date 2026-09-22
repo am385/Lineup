@@ -79,7 +79,7 @@ public class WatchTests
         context.Services.AddSingleton(settingsService);
         AddWatchRuntimeServices(context);
         context.JSInterop.SetupVoid("stopMediaPlayer", "videoPlayer").SetVoidResult();
-        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 3).SetResult(null);
+        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 4).SetResult(null);
         var component = context.Render<Watch>();
 
         // Act
@@ -662,10 +662,10 @@ public class WatchTests
     }
 
     /// <summary>
-    /// Verifies a saved subtitle preference stays off when the new channel has no matching language.
+    /// Verifies a saved subtitle preference falls back to the first supported track when its language is unavailable.
     /// </summary>
     [Fact]
-    public void SavedSubtitlePreference_UnavailableTrackStaysOff()
+    public void SavedSubtitlePreference_UnavailableLanguageSelectsFirstSupportedTrack()
     {
         // Arrange
         using var context = new BunitContext();
@@ -681,7 +681,7 @@ public class WatchTests
             HostedStreamFormat.FragmentedMp4,
             DateTime.UtcNow,
             null,
-            [Track(7, MediaTrackType.Subtitle, "subrip", "spa", SubtitlePresentation.WebVtt)]));
+            [Track(7, MediaTrackType.Subtitle, "subrip", string.Empty, SubtitlePresentation.WebVtt)]));
         context.Services.AddSingleton(repository);
         context.Services.AddSingleton(settingsService);
         AddWatchRuntimeServices(
@@ -697,8 +697,356 @@ public class WatchTests
         component.WaitForAssertion(() =>
         {
             var initialization = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "initFmp4Player");
-            Assert.DoesNotContain("subtitleTrack=", Assert.IsType<string>(initialization.Arguments[1]));
-            Assert.Equal(3, initialization.Arguments.Count);
+            Assert.Contains("subtitleTrack=7", Assert.IsType<string>(initialization.Arguments[1]));
+            Assert.Equal(4, initialization.Arguments.Count);
+            Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "localStorage.setItem");
+        });
+    }
+
+    /// <summary>
+    /// Verifies an embedded preference survives a regular-subtitle fallback and is restored when switching back.
+    /// </summary>
+    [Fact]
+    public void ChannelSwitch_EmbeddedToRegularAndBackPreservesExplicitPreference()
+    {
+        // Arrange
+        using var context = new BunitContext();
+        var repository = Substitute.For<IEpgRepository>();
+        repository.GetChannelsAsync().Returns([]);
+        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
+        var settingsService = Substitute.For<IAppSettingsService>();
+        settingsService.Settings.Returns(new AppSettings());
+        var registry = new ActiveStreamRegistry();
+        registry.Register(new ActiveStreamSnapshot(
+            "embedded",
+            "2.6",
+            HostedStreamFormat.FragmentedMp4,
+            DateTime.UtcNow,
+            null,
+            [
+                Track(2, MediaTrackType.Subtitle, "eia_608", string.Empty, SubtitlePresentation.WebVtt) with
+                {
+                    IsEmbeddedClosedCaptions = true,
+                    Title = "Closed Captions"
+                }
+            ]));
+        registry.Register(new ActiveStreamSnapshot(
+            "regular",
+            "3.1",
+            HostedStreamFormat.FragmentedMp4,
+            DateTime.UtcNow,
+            null,
+            [Track(8, MediaTrackType.Subtitle, "subrip", "eng", SubtitlePresentation.WebVtt)]));
+        context.Services.AddSingleton(repository);
+        context.Services.AddSingleton(settingsService);
+        AddWatchRuntimeServices(
+            context,
+            activeStreamRegistry: registry,
+            preferencesJson: """{"Quality":0,"AudioOutput":0,"SubtitlesEnabled":true,"Subtitle":{"Language":null,"Title":"Closed Captions","SourceCodec":"eia_608","IsForced":false,"IsHearingImpaired":false,"IsEmbeddedClosedCaptions":true}}""");
+        context.JSInterop.SetupVoid("stopMediaPlayer", "videoPlayer").SetVoidResult();
+        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 4).SetResult(null);
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "2.6"));
+        component.WaitForAssertion(() => Assert.Contains("embeddedCaptions=true", LastStreamUrl(context)));
+
+        // Act
+        component.Find("#manualTuneChannel").Input("3.1");
+        component.Find("form").Submit();
+        component.WaitForAssertion(() =>
+        {
+            var regularUrl = LastStreamUrl(context);
+            Assert.Contains("/api/stream/fmp4/3.1?", regularUrl);
+            Assert.Contains("subtitleTrack=8", regularUrl);
+            Assert.DoesNotContain("embeddedCaptions=true", regularUrl);
+        });
+        component.Find("#manualTuneChannel").Input("2.6");
+        component.Find("form").Submit();
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            var embeddedUrl = LastStreamUrl(context);
+            Assert.Contains("/api/stream/fmp4/2.6?", embeddedUrl);
+            Assert.Contains("subtitleTrack=2", embeddedUrl);
+            Assert.Contains("embeddedCaptions=true", embeddedUrl);
+            Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "localStorage.setItem");
+        });
+    }
+
+    /// <summary>
+    /// Verifies same-language subtitles take priority over an earlier supported fallback.
+    /// </summary>
+    [Fact]
+    public void SavedSubtitlePreference_SameLanguageTakesPriorityOverFirstSupportedTrack()
+    {
+        // Arrange
+        using var context = new BunitContext();
+        var repository = Substitute.For<IEpgRepository>();
+        repository.GetChannelsAsync().Returns([]);
+        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
+        var settingsService = Substitute.For<IAppSettingsService>();
+        settingsService.Settings.Returns(new AppSettings());
+        var registry = new ActiveStreamRegistry();
+        registry.Register(new ActiveStreamSnapshot(
+            "source",
+            "42.1",
+            HostedStreamFormat.FragmentedMp4,
+            DateTime.UtcNow,
+            null,
+            [
+                Track(5, MediaTrackType.Subtitle, "subrip", "spa", SubtitlePresentation.WebVtt),
+                Track(7, MediaTrackType.Subtitle, "subrip", "eng", SubtitlePresentation.WebVtt)
+            ]));
+        context.Services.AddSingleton(repository);
+        context.Services.AddSingleton(settingsService);
+        AddWatchRuntimeServices(
+            context,
+            activeStreamRegistry: registry,
+            preferencesJson: """{"Quality":0,"AudioOutput":0,"SubtitlesEnabled":true,"Subtitle":{"Language":"eng","Title":"Previous","SourceCodec":"eia_608","IsForced":false,"IsHearingImpaired":false,"IsEmbeddedClosedCaptions":true}}""");
+        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 4).SetResult(null);
+
+        // Act
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            var streamUrl = LastStreamUrl(context);
+            Assert.Contains("subtitleTrack=7", streamUrl);
+            Assert.Contains("subtitlePresentation=WebVtt", streamUrl);
+            Assert.DoesNotContain("embeddedCaptions=true", streamUrl);
+        });
+    }
+
+    /// <summary>
+    /// Verifies embedded-caption preferences safely fall back to a regular subtitle without changing browser storage.
+    /// </summary>
+    [Fact]
+    public void SavedEmbeddedCaptionPreference_RegularSubtitleFallbackUsesCurrentTrackMetadata()
+    {
+        // Arrange
+        using var context = new BunitContext();
+        var repository = Substitute.For<IEpgRepository>();
+        repository.GetChannelsAsync().Returns([]);
+        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
+        var settingsService = Substitute.For<IAppSettingsService>();
+        settingsService.Settings.Returns(new AppSettings());
+        var registry = new ActiveStreamRegistry();
+        registry.Register(new ActiveStreamSnapshot(
+            "source",
+            "42.1",
+            HostedStreamFormat.FragmentedMp4,
+            DateTime.UtcNow,
+            null,
+            [Track(8, MediaTrackType.Subtitle, "dvb_subtitle", "eng", SubtitlePresentation.BurnIn)]));
+        context.Services.AddSingleton(repository);
+        context.Services.AddSingleton(settingsService);
+        AddWatchRuntimeServices(
+            context,
+            activeStreamRegistry: registry,
+            preferencesJson: """{"Quality":0,"AudioOutput":0,"SubtitlesEnabled":true,"Subtitle":{"Language":"eng","Title":"Closed Captions","SourceCodec":"eia_608","IsForced":false,"IsHearingImpaired":false,"IsEmbeddedClosedCaptions":true}}""");
+        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 3).SetResult(null);
+
+        // Act
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            var streamUrl = LastStreamUrl(context);
+            Assert.Contains("subtitleTrack=8", streamUrl);
+            Assert.Contains("subtitlePresentation=BurnIn", streamUrl);
+            Assert.DoesNotContain("embeddedCaptions=true", streamUrl);
+            Assert.Equal(3, context.JSInterop.Invocations.Last(invocation => invocation.Identifier == "initFmp4Player").Arguments.Count);
+            Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "localStorage.setItem");
+        });
+    }
+
+    /// <summary>
+    /// Verifies regular subtitle preferences can fall back to embedded captions using extractor retry metadata.
+    /// </summary>
+    [Fact]
+    public void SavedRegularSubtitlePreference_EmbeddedCaptionFallbackUsesCurrentTrackMetadata()
+    {
+        // Arrange
+        using var context = new BunitContext();
+        var repository = Substitute.For<IEpgRepository>();
+        repository.GetChannelsAsync().Returns([]);
+        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
+        var settingsService = Substitute.For<IAppSettingsService>();
+        settingsService.Settings.Returns(new AppSettings());
+        var registry = new ActiveStreamRegistry();
+        registry.Register(new ActiveStreamSnapshot(
+            "source",
+            "42.1",
+            HostedStreamFormat.FragmentedMp4,
+            DateTime.UtcNow,
+            null,
+            [
+                Track(2, MediaTrackType.Subtitle, "eia_608", "und", SubtitlePresentation.WebVtt) with
+                {
+                    IsEmbeddedClosedCaptions = true,
+                    Title = "Closed Captions"
+                }
+            ]));
+        context.Services.AddSingleton(repository);
+        context.Services.AddSingleton(settingsService);
+        AddWatchRuntimeServices(
+            context,
+            activeStreamRegistry: registry,
+            preferencesJson: """{"Quality":0,"AudioOutput":0,"SubtitlesEnabled":true,"Subtitle":{"Language":"eng","Title":null,"SourceCodec":"subrip","IsForced":false,"IsHearingImpaired":false,"IsEmbeddedClosedCaptions":false}}""");
+        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 4).SetResult(null);
+
+        // Act
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            var streamUrl = LastStreamUrl(context);
+            Assert.Contains("subtitleTrack=2", streamUrl);
+            Assert.Contains("subtitlePresentation=WebVtt", streamUrl);
+            Assert.Contains("embeddedCaptions=true", streamUrl);
+        });
+    }
+
+    /// <summary>
+    /// Verifies a language-less preference restores a track with the same title before using fallback order.
+    /// </summary>
+    [Fact]
+    public void SavedLanguageLessSubtitlePreference_MatchingTitleTakesPriority()
+    {
+        // Arrange
+        using var context = new BunitContext();
+        var repository = Substitute.For<IEpgRepository>();
+        repository.GetChannelsAsync().Returns([]);
+        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
+        var settingsService = Substitute.For<IAppSettingsService>();
+        settingsService.Settings.Returns(new AppSettings());
+        var registry = new ActiveStreamRegistry();
+        registry.Register(new ActiveStreamSnapshot(
+            "source",
+            "42.1",
+            HostedStreamFormat.FragmentedMp4,
+            DateTime.UtcNow,
+            null,
+            [
+                Track(4, MediaTrackType.Subtitle, "subrip", "spa", SubtitlePresentation.WebVtt) with { Title = "Other" },
+                Track(6, MediaTrackType.Subtitle, "subrip", string.Empty, SubtitlePresentation.WebVtt) with { Title = "CC" }
+            ]));
+        context.Services.AddSingleton(repository);
+        context.Services.AddSingleton(settingsService);
+        AddWatchRuntimeServices(
+            context,
+            activeStreamRegistry: registry,
+            preferencesJson: """{"Quality":0,"AudioOutput":0,"SubtitlesEnabled":true,"Subtitle":{"Language":null,"Title":"CC","SourceCodec":"eia_608","IsForced":false,"IsHearingImpaired":false,"IsEmbeddedClosedCaptions":true}}""");
+        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 4).SetResult(null);
+
+        // Act
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+
+        // Assert
+        component.WaitForAssertion(() => Assert.Contains("subtitleTrack=6", LastStreamUrl(context)));
+    }
+
+    /// <summary>
+    /// Verifies unsupported subtitle tracks do not satisfy the enabled-subtitle fallback.
+    /// </summary>
+    [Fact]
+    public void SavedSubtitlePreference_NoSupportedTrackLeavesSubtitlesOffForChannel()
+    {
+        // Arrange
+        using var context = new BunitContext();
+        var repository = Substitute.For<IEpgRepository>();
+        repository.GetChannelsAsync().Returns([]);
+        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
+        var settingsService = Substitute.For<IAppSettingsService>();
+        settingsService.Settings.Returns(new AppSettings());
+        var registry = new ActiveStreamRegistry();
+        registry.Register(new ActiveStreamSnapshot(
+            "source",
+            "42.1",
+            HostedStreamFormat.FragmentedMp4,
+            DateTime.UtcNow,
+            null,
+            [Track(7, MediaTrackType.Subtitle, "unknown", "eng", SubtitlePresentation.Unsupported)]));
+        context.Services.AddSingleton(repository);
+        context.Services.AddSingleton(settingsService);
+        AddWatchRuntimeServices(
+            context,
+            activeStreamRegistry: registry,
+            preferencesJson: """{"Quality":0,"AudioOutput":0,"SubtitlesEnabled":true,"Subtitle":{"Language":"eng","Title":null,"SourceCodec":"subrip","IsForced":false,"IsHearingImpaired":false}}""");
+        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 3).SetResult(null);
+
+        // Act
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            Assert.DoesNotContain("subtitleTrack=", LastStreamUrl(context));
+            Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "localStorage.setItem");
+        });
+    }
+
+    /// <summary>
+    /// Verifies a channel switch does not restore track indexes from the preceding client-owned stream.
+    /// </summary>
+    [Fact]
+    public void ChannelSwitch_PreviousClientStreamDoesNotRestoreStaleTracks()
+    {
+        // Arrange
+        using var context = new BunitContext();
+        var repository = Substitute.For<IEpgRepository>();
+        repository.GetChannelsAsync().Returns([]);
+        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
+        var settingsService = Substitute.For<IAppSettingsService>();
+        settingsService.Settings.Returns(new AppSettings());
+        var registry = new ActiveStreamRegistry();
+        context.Services.AddSingleton(repository);
+        context.Services.AddSingleton(settingsService);
+        AddWatchRuntimeServices(
+            context,
+            activeStreamRegistry: registry,
+            preferencesJson: """{"Quality":0,"AudioOutput":0,"SubtitlesEnabled":true,"Subtitle":{"Language":"eng","Title":null,"SourceCodec":"subrip","IsForced":false,"IsHearingImpaired":false}}""");
+        context.JSInterop.SetupVoid("stopMediaPlayer", "videoPlayer").SetVoidResult();
+        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count is 3 or 4).SetResult(null);
+        var component = context.Render<Watch>();
+        component.Find("#manualTuneChannel").Input("42.1");
+        component.Find("form").Submit();
+        component.WaitForAssertion(() => Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "initFmp4Player"));
+        var initialStreamUri = new Uri($"http://localhost{LastStreamUrl(context)}");
+        var clientId = initialStreamUri.Query
+            .TrimStart('?')
+            .Split('&')
+            .Select(parameter => parameter.Split('=', 2))
+            .Single(parameter => parameter[0] == "clientId")[1];
+        registry.Register(new ActiveStreamSnapshot(
+            "previous",
+            "42.1",
+            HostedStreamFormat.FragmentedMp4,
+            DateTime.UtcNow,
+            null,
+            [
+                Track(3, MediaTrackType.Audio, "ac3", "eng", selected: true),
+                Track(5, MediaTrackType.Subtitle, "subrip", "eng", SubtitlePresentation.WebVtt)
+            ])
+        {
+            ClientId = clientId
+        });
+
+        // Act
+        component.Find("#manualTuneChannel").Input("43.1");
+        component.Find("form").Submit();
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            var initializations = context.JSInterop.Invocations.Where(invocation => invocation.Identifier == "initFmp4Player").ToArray();
+            Assert.Equal(2, initializations.Length);
+            var streamUrl = Assert.IsType<string>(initializations[^1].Arguments[1]);
+            Assert.Contains("/api/stream/fmp4/43.1?", streamUrl);
+            Assert.DoesNotContain("audioTrack=", streamUrl);
+            Assert.DoesNotContain("subtitleTrack=", streamUrl);
         });
     }
 

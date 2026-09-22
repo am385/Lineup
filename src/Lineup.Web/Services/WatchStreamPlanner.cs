@@ -18,10 +18,10 @@ public enum WatchAudioOutput
 /// <summary>
 /// Describes the planned AAC output for a Watch audio track.
 /// </summary>
-/// <param name="Channels">Output channel count when known.</param>
+/// <param name="Channels">Output channel count.</param>
 /// <param name="BitRate">Output bitrate in bits per second.</param>
 /// <param name="SampleRate">Output sample rate in hertz.</param>
-public sealed record WatchAudioOutputProfile(int? Channels, int BitRate, int SampleRate);
+public sealed record WatchAudioOutputProfile(int Channels, int BitRate, int SampleRate);
 
 /// <summary>
 /// Describes validated per-client Watch track choices.
@@ -37,31 +37,37 @@ public sealed record WatchTrackSelection(MediaTrackMetadata? Audio, MediaTrackMe
 /// </summary>
 public static class WatchStreamPlanner
 {
-    private const int MaximumAacChannels = 8;
-
     /// <summary>
     /// Validates source indexes and creates a selection with default audio and subtitles off.
     /// </summary>
     public static WatchTrackSelection SelectTracks(MediaProbeResult source, int? audioIndex, int? subtitleIndex, SubtitlePresentation? retrySubtitlePresentation = null, bool retryEmbeddedClosedCaptions = false)
     {
         var audioTracks = source.Tracks.Where(track => track.Type == MediaTrackType.Audio).ToArray();
-        var audio = audioIndex.HasValue
-            ? audioTracks.Length == 0
+        MediaTrackMetadata? audio;
+        if (audioIndex.HasValue)
+        {
+            audio = source.Tracks.Count == 0
                 ? new MediaTrackMetadata(audioIndex.Value, MediaTrackType.Audio, "unknown", null, null, null, null, null)
-                : FindRequired(source, audioIndex.Value, MediaTrackType.Audio)
-            : audioTracks.FirstOrDefault(track => track.IsDefault) ?? audioTracks.FirstOrDefault();
-        var subtitle = subtitleIndex.HasValue
-            ? source.Tracks.Count == 0 ||
-                retryEmbeddedClosedCaptions &&
-                !source.Tracks.Any(track => track.Index == subtitleIndex.Value && track.Type == MediaTrackType.Subtitle)
+                : FindRequired(source, audioIndex.Value, MediaTrackType.Audio);
+        }
+        else
+        {
+            audio = audioTracks.FirstOrDefault(track => track.IsDefault) ?? audioTracks.FirstOrDefault();
+        }
+
+        MediaTrackMetadata? subtitle = null;
+        if (subtitleIndex.HasValue)
+        {
+            var embeddedCaptionsMissingFromRetryProbe = retryEmbeddedClosedCaptions &&
+                !source.Tracks.Any(track => track.Index == subtitleIndex.Value && track.Type == MediaTrackType.Subtitle);
+            subtitle = source.Tracks.Count == 0 || embeddedCaptionsMissingFromRetryProbe
                 ? CreateRetrySubtitle(subtitleIndex.Value, retrySubtitlePresentation, retryEmbeddedClosedCaptions)
-                : FindRequired(source, subtitleIndex.Value, MediaTrackType.Subtitle)
-            : null;
+                : FindRequired(source, subtitleIndex.Value, MediaTrackType.Subtitle);
+        }
+
         if (subtitle?.SubtitlePresentation == SubtitlePresentation.Unsupported)
         {
-            throw new ArgumentException(
-                $"Subtitle stream index {subtitle.Index} uses unsupported codec '{subtitle.Codec}'.",
-                nameof(subtitleIndex));
+            throw new ArgumentException($"Subtitle stream index {subtitle.Index} uses unsupported codec '{subtitle.Codec}'.", nameof(subtitleIndex));
         }
 
         return new WatchTrackSelection(audio, subtitle, !audioIndex.HasValue && audioTracks.Length == 0);
@@ -155,13 +161,15 @@ public static class WatchStreamPlanner
     /// </summary>
     public static WatchAudioOutputProfile GetAudioOutputProfile(WatchAudioOutput audioOutput, int? sourceChannels)
     {
-        return audioOutput switch
+        var outputChannels = audioOutput switch
         {
-            WatchAudioOutput.Stereo => new WatchAudioOutputProfile(2, 128_000, 44_100),
-            WatchAudioOutput.UpTo5Point1 => CreatePreservedAudioProfile(sourceChannels.HasValue ? Math.Min(sourceChannels.Value, 6) : 2),
-            WatchAudioOutput.UpTo7Point1 => CreatePreservedAudioProfile(sourceChannels.HasValue ? Math.Min(sourceChannels.Value, MaximumAacChannels) : null),
+            WatchAudioOutput.Stereo => 2,
+            WatchAudioOutput.UpTo5Point1 => sourceChannels.HasValue ? Math.Min(sourceChannels.Value, 6) : 2,
+            WatchAudioOutput.UpTo7Point1 => sourceChannels.HasValue ? Math.Min(sourceChannels.Value, 8) : 2,
             _ => throw new ArgumentOutOfRangeException(nameof(audioOutput), audioOutput, "Unsupported Watch audio output.")
         };
+        var bitRate = Math.Max(outputChannels, 2) * 64_000;
+        return new WatchAudioOutputProfile(outputChannels, bitRate, 48_000);
     }
 
     private static void AddAudioArguments(List<string> arguments, WatchTrackSelection selection, WatchAudioOutput audioOutput)
@@ -170,24 +178,9 @@ public static class WatchStreamPlanner
         arguments.AddRange([
             "-c:a", "aac",
             "-b:a", $"{profile.BitRate / 1_000}k",
-            "-ar", profile.SampleRate.ToString()
+            "-ar", profile.SampleRate.ToString(),
+            "-ac", profile.Channels.ToString()
         ]);
-        if (profile.Channels.HasValue)
-        {
-            arguments.AddRange(["-ac", profile.Channels.Value.ToString()]);
-        }
-    }
-
-    private static WatchAudioOutputProfile CreatePreservedAudioProfile(int? outputChannels)
-    {
-        var bitRate = outputChannels switch
-        {
-            <= 2 => 128_000,
-            <= 6 => 384_000,
-            { } channels => channels * 64_000,
-            null => 384_000
-        };
-        return new WatchAudioOutputProfile(outputChannels, bitRate, 48_000);
     }
 
     private static MediaTrackMetadata FindRequired(MediaProbeResult source, int index, MediaTrackType type)

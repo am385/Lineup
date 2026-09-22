@@ -77,6 +77,7 @@ public partial class Watch : IAsyncDisposable
     private bool _subtitlesEnabled;
     private bool _subtitleRestoreApplied;
     private WatchSubtitlePreference? _subtitlePreference;
+    private ActiveStreamTrack? _resolvedSubtitleTrack;
     private bool IsContentProtectedError => _errorMessage?.Contains("Content Protection Required", StringComparison.OrdinalIgnoreCase) == true;
     private TunerStatus? SelectedTuner => DeviceState.TunerStatuses.FirstOrDefault(tuner => string.Equals(tuner.VirtualChannel, _selectedChannelNumber, StringComparison.Ordinal));
 
@@ -148,7 +149,7 @@ public partial class Watch : IAsyncDisposable
                 }
 
                 var diagnosticUrl = $"/api/stream/test/{Uri.EscapeDataString(channelNumber)}?transcode=none";
-                var error = _subtitleTrack.HasValue
+                var error = _resolvedSubtitleTrack?.SubtitlePresentation == SubtitlePresentation.WebVtt
                     ? await JS.InvokeAsync<string?>(
                         "initFmp4Player",
                         "videoPlayer",
@@ -265,6 +266,7 @@ public partial class Watch : IAsyncDisposable
         {
             _audioTrack = null;
             _subtitleTrack = null;
+            _resolvedSubtitleTrack = null;
             _subtitleRestoreApplied = !_subtitlesEnabled;
         }
 
@@ -339,6 +341,11 @@ public partial class Watch : IAsyncDisposable
             }
 
             _subtitlePreference = WatchSubtitlePreference.FromTrack(selectedTrack);
+            _resolvedSubtitleTrack = selectedTrack;
+        }
+        else
+        {
+            _resolvedSubtitleTrack = null;
         }
 
         _subtitleTrack = subtitleTrack;
@@ -363,12 +370,11 @@ public partial class Watch : IAsyncDisposable
         if (_subtitleTrack.HasValue)
         {
             url += $"&subtitleTrack={_subtitleTrack.Value}";
-            var subtitlePresentation = SubtitleCapabilityPolicy.Classify(_subtitlePreference?.SourceCodec);
-            if (subtitlePresentation != SubtitlePresentation.Unsupported)
+            if (_resolvedSubtitleTrack?.SubtitlePresentation is { } subtitlePresentation && subtitlePresentation != SubtitlePresentation.Unsupported)
             {
                 url += $"&subtitlePresentation={subtitlePresentation}";
             }
-            if (_subtitlePreference?.IsEmbeddedClosedCaptions == true)
+            if (_resolvedSubtitleTrack?.IsEmbeddedClosedCaptions == true)
             {
                 url += "&embeddedCaptions=true";
             }
@@ -488,7 +494,9 @@ public partial class Watch : IAsyncDisposable
     {
         var activeStreams = ActiveStreamRegistry.GetActiveStreams();
         _activeStream = activeStreams
-            .Where(stream => string.Equals(stream.ClientId, _clientId, StringComparison.Ordinal))
+            .Where(stream =>
+                string.Equals(stream.ClientId, _clientId, StringComparison.Ordinal) &&
+                string.Equals(stream.Channel, _selectedChannelNumber, StringComparison.Ordinal))
             .OrderByDescending(stream => stream.StartedAtUtc)
             .FirstOrDefault()
             ?? activeStreams
@@ -516,6 +524,7 @@ public partial class Watch : IAsyncDisposable
         }
 
         _subtitleTrack = matchingTrack.SourceIndex;
+        _resolvedSubtitleTrack = matchingTrack;
         _subtitleRestoreApplied = true;
         return true;
     }
@@ -751,32 +760,58 @@ public partial class Watch : IAsyncDisposable
                 IsEmbeddedClosedCaptions = track.IsEmbeddedClosedCaptions
             };
 
-        /// <summary>Finds the active subtitle track that best matches this preference.</summary>
+        /// <summary>Finds the best supported subtitle track for this preference.</summary>
         /// <param name="tracks">The available active-stream tracks.</param>
-        /// <returns>The best matching subtitle track, or <see langword="null"/> when none matches.</returns>
+        /// <returns>The preferred or fallback subtitle track, or <see langword="null"/> when none is supported.</returns>
         public ActiveStreamTrack? FindMatch(IEnumerable<ActiveStreamTrack> tracks)
         {
             var candidates = tracks
                 .Where(track => track.Type == MediaTrackType.Subtitle && track.SubtitlePresentation != SubtitlePresentation.Unsupported)
                 .ToArray();
-            if (!string.IsNullOrWhiteSpace(Language))
-            {
-                candidates = candidates.Where(track => string.Equals(Normalize(track.Language), Language, StringComparison.OrdinalIgnoreCase)).ToArray();
-            }
-            else if (!string.IsNullOrWhiteSpace(Title))
-            {
-                candidates = candidates.Where(track => string.Equals(Normalize(track.Title), Title, StringComparison.OrdinalIgnoreCase)).ToArray();
-            }
-            else
+            if (candidates.Length == 0)
             {
                 return null;
             }
 
-            return candidates
-                .OrderByDescending(track => string.Equals(Normalize(track.Title), Title, StringComparison.OrdinalIgnoreCase))
-                .ThenByDescending(track => track.IsForced == IsForced && track.IsHearingImpaired == IsHearingImpaired)
-                .ThenByDescending(track => string.Equals(track.SourceCodec, SourceCodec, StringComparison.OrdinalIgnoreCase))
-                .FirstOrDefault();
+            var normalizedLanguage = Normalize(Language);
+            var normalizedTitle = Normalize(Title);
+            var exactMatches = candidates.Where(track =>
+                string.Equals(Normalize(track.Language), normalizedLanguage, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(Normalize(track.Title), normalizedTitle, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(track.SourceCodec, SourceCodec, StringComparison.OrdinalIgnoreCase) &&
+                track.IsForced == IsForced &&
+                track.IsHearingImpaired == IsHearingImpaired &&
+                track.IsEmbeddedClosedCaptions == IsEmbeddedClosedCaptions);
+            var exactMatch = exactMatches.FirstOrDefault();
+            if (exactMatch is not null)
+            {
+                return exactMatch;
+            }
+
+            if (normalizedLanguage is not null)
+            {
+                var languageMatch = candidates
+                    .Where(track => string.Equals(Normalize(track.Language), normalizedLanguage, StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(track => string.Equals(Normalize(track.Title), normalizedTitle, StringComparison.OrdinalIgnoreCase))
+                    .ThenByDescending(track => track.IsForced == IsForced && track.IsHearingImpaired == IsHearingImpaired)
+                    .ThenByDescending(track => string.Equals(track.SourceCodec, SourceCodec, StringComparison.OrdinalIgnoreCase))
+                    .FirstOrDefault();
+                if (languageMatch is not null)
+                {
+                    return languageMatch;
+                }
+            }
+            else if (normalizedTitle is not null)
+            {
+                var titleMatch = candidates.FirstOrDefault(
+                    track => string.Equals(Normalize(track.Title), normalizedTitle, StringComparison.OrdinalIgnoreCase));
+                if (titleMatch is not null)
+                {
+                    return titleMatch;
+                }
+            }
+
+            return candidates[0];
         }
 
         private static string? Normalize(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
