@@ -130,6 +130,34 @@ public class TunerStreamMultiplexerTests
         await second.DisposeAsync();
     }
 
+    /// <summary>
+    /// Verifies shutdown cancels upstream input, completes subscribers, and rejects new subscriptions.
+    /// </summary>
+    [Fact]
+    public async Task StopAsync_ActiveSource_CancelsSourceAndRejectsSubscriptions()
+    {
+        // Arrange
+        var handler = new BlockingCancellationHandler();
+        var httpClientFactory = Substitute.For<IHttpClientFactory>();
+        httpClientFactory.CreateClient("StreamProxy").Returns(new HttpClient(handler, disposeHandler: false));
+        var multiplexer = new TunerStreamMultiplexer(httpClientFactory, NullLogger<TunerStreamMultiplexer>.Instance);
+        var sourceUri = new Uri("http://tuner/auto/v2.1");
+        var subscription = await multiplexer.SubscribeAsync(sourceUri, TestContext.Current.CancellationToken);
+        await handler.WaitForRequestCountAsync(1, TestContext.Current.CancellationToken);
+
+        // Act
+        var stopTask = multiplexer.StopAsync(TestContext.Current.CancellationToken);
+        await handler.WaitForCancellationAsync(TestContext.Current.CancellationToken);
+        var subscribeException = await Record.ExceptionAsync(async () => await multiplexer.SubscribeAsync(sourceUri, TestContext.Current.CancellationToken));
+        handler.AllowCompletion();
+        await stopTask;
+
+        // Assert
+        Assert.IsType<ObjectDisposedException>(subscribeException);
+        Assert.Equal(0, await subscription.ReadAsync(new byte[1], TestContext.Current.CancellationToken));
+        await subscription.DisposeAsync();
+    }
+
     private sealed class ControlledResponseHandler(Task<HttpResponseMessage> responseTask) : HttpMessageHandler
     {
         private int _requestCount;

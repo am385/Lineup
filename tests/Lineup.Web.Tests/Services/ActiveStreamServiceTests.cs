@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Lineup.Web.Services;
 using Xunit;
 
@@ -157,6 +158,84 @@ public class ActiveStreamServiceTests
         Assert.True(firstRegistered);
         Assert.False(secondRegistered);
         Assert.Equal("one", Assert.Single(registry.GetActiveStreams()).SessionId);
+    }
+
+    /// <summary>
+    /// Verifies shutdown requests every active stream and waits for their cleanup.
+    /// </summary>
+    [Fact]
+    public async Task Registry_StopAllAsync_StopsAndWaitsForEveryStream()
+    {
+        // Arrange
+        var registry = new ActiveStreamRegistry();
+        var stoppedSessions = new ConcurrentBag<string>();
+        var stopCount = 0;
+        var stopsRequested = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        registry.Register(new ActiveStreamSnapshot("one", "2.1", HostedStreamFormat.MpegTs, DateTime.UtcNow, null, []), () => RecordStop("one"));
+        registry.Register(new ActiveStreamSnapshot("two", "5.1", HostedStreamFormat.Hls, DateTime.UtcNow, null, []), () => RecordStop("two"));
+
+        // Act
+        var stopTask = registry.StopAllAsync(TestContext.Current.CancellationToken);
+        await stopsRequested.Task.WaitAsync(TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(["one", "two"], stoppedSessions.Order());
+        Assert.False(stopTask.IsCompleted);
+        Assert.False(registry.TryRegister(new ActiveStreamSnapshot("three", "7.1", HostedStreamFormat.MpegTs, DateTime.UtcNow, null, []), 0, () => { }));
+        registry.Unregister("one");
+        Assert.False(stopTask.IsCompleted);
+        registry.Unregister("two");
+        await stopTask;
+
+        void RecordStop(string sessionId)
+        {
+            stoppedSessions.Add(sessionId);
+            if (Interlocked.Increment(ref stopCount) == 2)
+            {
+                stopsRequested.TrySetResult();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Verifies shutdown waiting honors cancellation when a stream cannot unregister.
+    /// </summary>
+    [Fact]
+    public async Task Registry_StopAllAsync_StreamDoesNotUnregister_HonorsCancellation()
+    {
+        // Arrange
+        var registry = new ActiveStreamRegistry();
+        registry.Register(new ActiveStreamSnapshot("one", "2.1", HostedStreamFormat.MpegTs, DateTime.UtcNow, null, []), () => { });
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(20));
+
+        // Act
+        var exception = await Record.ExceptionAsync(() => registry.StopAllAsync(cancellation.Token));
+
+        // Assert
+        Assert.IsAssignableFrom<OperationCanceledException>(exception);
+        Assert.Equal("one", Assert.Single(registry.GetActiveStreams()).SessionId);
+    }
+
+    /// <summary>
+    /// Verifies shutdown waiting remains bounded when a synchronous lifecycle callback blocks.
+    /// </summary>
+    [Fact]
+    public async Task Registry_StopAllAsync_StopActionBlocks_HonorsCancellation()
+    {
+        // Arrange
+        var registry = new ActiveStreamRegistry();
+        using var releaseStop = new ManualResetEventSlim();
+        registry.Register(
+            new ActiveStreamSnapshot("one", "2.1", HostedStreamFormat.Hls, DateTime.UtcNow, null, []),
+            () => releaseStop.Wait(TestContext.Current.CancellationToken));
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(20));
+
+        // Act
+        var exception = await Record.ExceptionAsync(() => registry.StopAllAsync(cancellation.Token));
+        releaseStop.Set();
+
+        // Assert
+        Assert.IsAssignableFrom<OperationCanceledException>(exception);
     }
 
     /// <summary>

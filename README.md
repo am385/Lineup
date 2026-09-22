@@ -152,6 +152,7 @@ The graphical workflow avoids Compose commands, but every mapping must be entere
    |---|---|
    | `C:\Users\YourName\Lineup\data` | `/appdata` |
    | `C:\Users\YourName\Lineup\xmltv` | `/xmltv` |
+   | `C:\Users\YourName\Lineup\transient` | `/transient` |
 
    Replace `YourName` with the Windows user-folder name shown in File Explorer.
 
@@ -199,7 +200,7 @@ On Windows, install the pinned portable Jellyfin FFmpeg build for local developm
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Install-JellyfinFfmpeg.ps1
 ```
 
-The script verifies the official release checksum and installs `ffmpeg.exe` and `ffprobe.exe` into the ignored `src/Lineup.Web/.ffmpeg` directory. Lineup adds that directory to its process `PATH` automatically. Restart the app after installation.
+The script verifies the official release checksum and installs `ffmpeg.exe` and `ffprobe.exe` into the ignored repo-root `.ffmpeg` directory. Source builds add that directory to the Lineup process `PATH` automatically. Packaged Windows builds continue to use the `.ffmpeg` directory bundled beside the application. Restart the app after installation.
 
 ### Running the Web App
 
@@ -208,7 +209,7 @@ cd src/Lineup.Web
 dotnet run
 ```
 
-The app starts on `http://localhost:8080` by default. Persistent application data defaults to `/appdata`, and XMLTV output defaults to `/xmltv/epg.xml`. The development launch profiles override these with `Lineup__AppDataPath=.` and `Lineup__XmltvPath=xmltv` so local state is retained in the web project directory. Configure the HDHomeRun device address through the Settings UI.
+The app starts on `http://localhost:8080` by default. Persistent application data defaults to `/appdata`, XMLTV output defaults to `/xmltv/epg.xml`, and transient stream artifacts default to `/transient`. The development launch profiles keep local runtime state in the ignored repository-root `.lineup` directory, separated into `appdata`, `xmltv`, and `transient` subdirectories. Configure the HDHomeRun device address through the Settings UI.
 
 ### Running the TUI
 
@@ -234,7 +235,7 @@ Or using the production image:
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-These commands run from a source checkout. The Docker image includes Jellyfin FFmpeg for live TV transcoding and ATSC 3.0 AC-4 audio decoding. Data is persisted via the `appdata` named volume mounted at `/appdata`. Lineup uses fixed container ports for HTTP (`8080`), HTTPS (`8443`), HDHomeRun discovery (`65001/udp`), and SSDP (`1900/udp`). The Compose `HTTP_PORT`, `HTTPS_PORT`, `HDHOMERUN_DISCOVERY_PORT`, and `SSDP_PORT` variables change only the corresponding host-facing ports. Keep the UDP ports at their defaults for standards-based automatic discovery. Native Linux deployments can use `network_mode: host` if the HDHomeRun device requires local network discovery.
+These commands run from a source checkout. The Docker image includes Jellyfin FFmpeg for live TV transcoding and ATSC 3.0 AC-4 audio decoding. Data is persisted via the `appdata` named volume mounted at `/appdata`. HLS segments and subtitle sidecars use the separate `transient` volume mounted at `/transient`. Lineup uses fixed container ports for HTTP (`8080`), HTTPS (`8443`), HDHomeRun discovery (`65001/udp`), and SSDP (`1900/udp`). The Compose `HTTP_PORT`, `HTTPS_PORT`, `HDHOMERUN_DISCOVERY_PORT`, and `SSDP_PORT` variables change only the corresponding host-facing ports. Keep the UDP ports at their defaults for standards-based automatic discovery. Native Linux deployments can use `network_mode: host` if the HDHomeRun device requires local network discovery.
 
 ### Publishing a Development Build
 
@@ -344,6 +345,8 @@ sensor:
 The Settings **Reset** tab can stage default settings for review or perform a Factory Reset. Factory Reset removes Lineup-owned settings, guide database, canonical XMLTV cache, rolling logs, configured XMLTV output, and transient stream files during a graceful restart. The browser displays a blocking restart screen and returns to Device setup after detecting the new Lineup instance. XMLTV files configured outside Lineup-owned storage are preserved. A service supervisor such as Docker's `restart: unless-stopped` must restart the process after reset.
 
 Lineup-owned persistent data defaults to `/appdata`. The optional `Lineup:AppDataPath` setting overrides that root for custom deployments. This data includes settings and backups, the SQLite guide database and canonical cache, rolling logs, ASP.NET Core Data Protection keys, and the restart-safe Factory Reset marker.
+
+Transient HLS segments and subtitle sidecars default to `/transient`. The optional `Lineup:TransientPath` setting (environment variable `Lineup__TransientPath`) overrides this location. The Compose files mount a `transient` named volume at `/transient`, matching the `appdata` and `xmltv` volume conventions. Custom deployments can replace that named-volume mount with a memory-backed bind mount or Compose `tmpfs`, or with disk-backed storage when transient data must not consume system memory.
 
 The 2.0 Compose files rename the `config` volume to `appdata` and mount it at `/appdata`. Existing installations must preserve their data during the upgrade. Either copy the contents of the old named volume into the new `appdata` volume, or configure the `appdata` volume's `name` property to reference the existing Docker volume. Bind-mount users can mount the same host directory at `/appdata`. Starting 2.0 with a new empty volume begins with a new Lineup installation.
 

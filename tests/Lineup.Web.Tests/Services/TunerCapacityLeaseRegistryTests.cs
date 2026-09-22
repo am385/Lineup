@@ -15,6 +15,9 @@ namespace Lineup.Web.Tests.Services;
 /// </summary>
 public class TunerCapacityLeaseRegistryTests
 {
+    private static readonly TransientStreamStore TestTransientStreams =
+        new(Path.Combine(Path.GetTempPath(), $"lineup-tuner-capacity-tests-{Environment.ProcessId}"));
+
     private static readonly Uri Profile = new("http://tuner.local/");
 
     /// <summary>
@@ -211,7 +214,8 @@ public class TunerCapacityLeaseRegistryTests
             Substitute.For<IProtectedContentSlateService>(),
             Substitute.For<ITunerStreamMultiplexer>(),
             registry,
-            NullLogger<StreamController>.Instance)
+            NullLogger<StreamController>.Instance,
+            transientStreams: TestTransientStreams)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
@@ -323,7 +327,8 @@ public class TunerCapacityLeaseRegistryTests
             Substitute.For<IProtectedContentSlateService>(),
             Substitute.For<ITunerStreamMultiplexer>(),
             registry,
-            NullLogger<StreamController>.Instance)
+            NullLogger<StreamController>.Instance,
+            transientStreams: TestTransientStreams)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };

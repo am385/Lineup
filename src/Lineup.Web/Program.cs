@@ -9,9 +9,14 @@ var builder = WebApplication.CreateBuilder(args);
 var statusRuntime = new StatusApiRuntime(Guid.NewGuid().ToString("N"));
 var appDataStore = AppDataStore.Create(builder.Configuration);
 builder.Services.AddSingleton(appDataStore);
+var transientStreamStore = TransientStreamStore.Create(builder.Configuration);
+builder.Services.AddSingleton(transientStreamStore);
 
 // Prefer the verified repo-local Jellyfin FFmpeg installed by scripts/Install-JellyfinFfmpeg.ps1.
-var localFfmpegDirectory = Path.Combine(builder.Environment.ContentRootPath, ".ffmpeg");
+var sourceProjectPath = Path.Combine(builder.Environment.ContentRootPath, "Lineup.Web.csproj");
+var localFfmpegDirectory = File.Exists(sourceProjectPath)
+    ? Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "..", ".ffmpeg"))
+    : Path.Combine(builder.Environment.ContentRootPath, ".ffmpeg");
 var localFfmpegExecutable = Path.Combine(localFfmpegDirectory, OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg");
 var localFfprobeExecutable = Path.Combine(localFfmpegDirectory, OperatingSystem.IsWindows() ? "ffprobe.exe" : "ffprobe");
 if (File.Exists(localFfmpegExecutable) && File.Exists(localFfprobeExecutable))
@@ -31,7 +36,7 @@ if (webEndpointConfiguration != null)
 }
 
 var configuredXmltvPath = builder.Configuration[AppConstants.XmltvPathConfigKey];
-FactoryResetCoordinator.ApplyPendingReset(appDataStore, configuredXmltvPath);
+FactoryResetCoordinator.ApplyPendingReset(appDataStore, configuredXmltvPath, transientStreamStore);
 DataProtectionService.Configure(builder.Services, appDataStore);
 var logging = LoggingBootstrapper.Configure(builder, appDataStore);
 builder.Services.AddSingleton<ILogEventStore>(logging.EventStore);
@@ -99,6 +104,7 @@ builder.Services.AddSingleton<IProtectedContentSlateService, ProtectedContentSla
 builder.Services.AddSingleton<ITunerStreamMultiplexer, TunerStreamMultiplexer>();
 builder.Services.AddSingleton<ITunerCapacityLeaseRegistry, TunerCapacityLeaseRegistry>();
 builder.Services.AddSingleton<SubtitleSidecarService>();
+builder.Services.AddHostedService<StreamShutdownService>();
 
 // Add controllers for API endpoints (stream proxy)
 builder.Services.AddControllers();

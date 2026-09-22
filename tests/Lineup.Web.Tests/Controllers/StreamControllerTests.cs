@@ -22,6 +22,9 @@ namespace Lineup.Web.Tests.Controllers;
 /// </summary>
 public class StreamControllerTests
 {
+    private static readonly TransientStreamStore TestTransientStreams =
+        new(Path.Combine(Path.GetTempPath(), $"lineup-stream-controller-tests-{Environment.ProcessId}"));
+
     /// <summary>
     /// Verifies disabled MPEG-TS requests return before acquiring tuner capacity.
     /// </summary>
@@ -560,7 +563,8 @@ public class StreamControllerTests
             slateService,
             Substitute.For<ITunerStreamMultiplexer>(),
             registry,
-            NullLogger<StreamController>.Instance)
+            NullLogger<StreamController>.Instance,
+            transientStreams: TestTransientStreams)
         {
             ControllerContext = new ControllerContext
             {
@@ -622,7 +626,8 @@ public class StreamControllerTests
             slateService,
             multiplexer,
             capacity,
-            NullLogger<StreamController>.Instance)
+            NullLogger<StreamController>.Instance,
+            transientStreams: TestTransientStreams)
         {
             ControllerContext = new ControllerContext
             {
@@ -654,7 +659,8 @@ public class StreamControllerTests
             NullLogger<StreamController>.Instance,
             lifetime,
             TimeProvider.System,
-            hlsInactivityTimeout)
+            hlsInactivityTimeout,
+            transientStreams: TestTransientStreams)
         {
             ControllerContext = new ControllerContext
             {
@@ -762,7 +768,8 @@ public class StreamControllerTests
             slate,
             Substitute.For<ITunerStreamMultiplexer>(),
             capacity,
-            NullLogger<StreamController>.Instance)
+            NullLogger<StreamController>.Instance,
+            transientStreams: TestTransientStreams)
         {
             ControllerContext = new ControllerContext
             {

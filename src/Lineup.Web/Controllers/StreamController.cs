@@ -39,15 +39,13 @@ public class StreamController : ControllerBase
     private readonly TimeProvider _timeProvider;
     private readonly TimeSpan _hlsInactivityTimeout;
     private readonly SubtitleSidecarService _subtitleSidecars;
+    private readonly TransientStreamStore _transientStreams;
 
     // Track active HLS streams by session ID
     private static readonly ConcurrentDictionary<string, HlsSession> _hlsSessions = new();
 
     // Track active fMP4 streams
     private static readonly ConcurrentDictionary<string, FMp4Session> _fmp4Sessions = new();
-    private static readonly Lazy<SubtitleSidecarService> DefaultSubtitleSidecars =
-        new(() => new SubtitleSidecarService());
-
     /// <summary>
     /// Initializes the streaming API controller.
     /// </summary>
@@ -68,6 +66,7 @@ public class StreamController : ControllerBase
     /// <param name="timeProvider">Provides time for HLS inactivity expiration.</param>
     /// <param name="hlsInactivityTimeout">Overrides the internal HLS inactivity timeout.</param>
     /// <param name="subtitleSidecars">Owns transient WebVTT sidecars.</param>
+    /// <param name="transientStreams">Provides the configured HLS artifact root.</param>
     public StreamController(
         IHttpClientFactory httpClientFactory,
         IEpgRepository epgRepository,
@@ -85,7 +84,8 @@ public class StreamController : ControllerBase
         IHostApplicationLifetime? applicationLifetime = null,
         TimeProvider? timeProvider = null,
         TimeSpan? hlsInactivityTimeout = null,
-        SubtitleSidecarService? subtitleSidecars = null)
+        SubtitleSidecarService? subtitleSidecars = null,
+        TransientStreamStore? transientStreams = null)
     {
         _httpClientFactory = httpClientFactory;
         _epgRepository = epgRepository;
@@ -103,7 +103,8 @@ public class StreamController : ControllerBase
         _applicationLifetime = applicationLifetime;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _hlsInactivityTimeout = NormalizeHlsInactivityTimeout(hlsInactivityTimeout);
-        _subtitleSidecars = subtitleSidecars ?? DefaultSubtitleSidecars.Value;
+        _transientStreams = transientStreams ?? TransientStreamStore.CreateDefault();
+        _subtitleSidecars = subtitleSidecars ?? new SubtitleSidecarService(_transientStreams);
     }
 
     /// <summary>
@@ -732,6 +733,7 @@ public class StreamController : ControllerBase
         }
         finally
         {
+            var unregisterActiveStream = false;
             if (fmp4Session != null)
             {
                 lock (fmp4Session.LifecycleGate)
@@ -739,7 +741,7 @@ public class StreamController : ControllerBase
                     fmp4Session.IsActive = false;
                     if (((ICollection<KeyValuePair<string, FMp4Session>>)_fmp4Sessions).Remove(new KeyValuePair<string, FMp4Session>(sessionId, fmp4Session)))
                     {
-                        _activeStreamRegistry.Unregister(sessionId);
+                        unregisterActiveStream = true;
                     }
                 }
             }
@@ -804,6 +806,10 @@ public class StreamController : ControllerBase
             if (subtitlePath is not null)
             {
                 _subtitleSidecars.Remove(sessionId);
+            }
+            if (unregisterActiveStream)
+            {
+                _activeStreamRegistry.Unregister(sessionId);
             }
         }
     }
@@ -892,7 +898,8 @@ public class StreamController : ControllerBase
         // Generate unique session ID
         var sessionId = Guid.NewGuid().ToString("N")[..8];
         var outputVideoBitRate = _settingsService.Settings.MaximumVideoBitRateMbps * 1_000_000L;
-        var hlsDir = Path.Combine(Path.GetTempPath(), "hdhomerun-hls", sessionId);
+        var hlsRoot = TransientDirectoryOwnership.GetCurrentDirectory(_transientStreams.HlsRootPath);
+        var hlsDir = Path.Combine(hlsRoot, sessionId);
         var stopRequested = 0;
 
         if (disabled)
@@ -1069,7 +1076,7 @@ public class StreamController : ControllerBase
                             };
                             process = slateProcess;
                             session = slateSession;
-                            DeactivateHlsSession(tunerSession, unregister: false);
+                            DeactivateHlsSession(tunerSession);
                             RegisterHlsSession(slateSession);
                             tunerSession.CapacityLease?.Dispose();
                             tunerSession.Process.Dispose();
@@ -1351,7 +1358,7 @@ public class StreamController : ControllerBase
     private void CleanupHlsSession(HlsSession session, bool stopProcess)
     {
         _logger.LogInformation("Stopping HLS session {SessionId} for channel {Channel}", session.SessionId, session.Channel);
-        DeactivateHlsSession(session, unregister: true);
+        DeactivateHlsSession(session);
         try
         {
             if (stopProcess && session.Process is { HasExited: false })
@@ -1395,7 +1402,14 @@ public class StreamController : ControllerBase
         }
         finally
         {
-            session.CapacityLease?.Dispose();
+            try
+            {
+                session.CapacityLease?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Unable to release tuner capacity for HLS session {SessionId}", session.SessionId);
+            }
         }
 
         // Clean up HLS files
@@ -1409,6 +1423,10 @@ public class StreamController : ControllerBase
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             _logger.LogWarning(ex, "Unable to delete HLS directory {HlsDirectory} for session {SessionId}", session.HlsDirectory, session.SessionId);
+        }
+        finally
+        {
+            _activeStreamRegistry.Unregister(session.SessionId);
         }
     }
 
@@ -1457,17 +1475,13 @@ public class StreamController : ControllerBase
                 : value;
     }
 
-    private void DeactivateHlsSession(HlsSession session, bool unregister)
+    private void DeactivateHlsSession(HlsSession session)
     {
         lock (session.LifecycleGate)
         {
             session.IsActive = false;
             session.ExpirationCancellation?.Cancel();
             session.ShutdownRegistration?.Dispose();
-            if (unregister)
-            {
-                _activeStreamRegistry.Unregister(session.SessionId);
-            }
         }
     }
 

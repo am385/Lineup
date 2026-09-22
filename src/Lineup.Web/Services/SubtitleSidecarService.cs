@@ -13,11 +13,18 @@ public sealed class SubtitleSidecarService
     private readonly string _root;
     private readonly ConcurrentDictionary<string, string> _sessions = new(StringComparer.Ordinal);
 
-    /// <summary>Initializes an isolated store and removes stale sidecars from the supplied test root.</summary>
-    /// <param name="rootDirectory">Optional application-owned root used by tests.</param>
-    public SubtitleSidecarService(string? rootDirectory = null)
+    /// <summary>Initializes an isolated store beneath the configured transient root.</summary>
+    /// <param name="transientStore">Configured transient stream store.</param>
+    public SubtitleSidecarService(TransientStreamStore transientStore)
+        : this(TransientDirectoryOwnership.CreateCurrentDirectory(transientStore.SubtitleRootPath))
     {
-        _root = Path.GetFullPath(rootDirectory ?? Path.Combine(Path.GetTempPath(), DirectoryName, $"{Environment.ProcessId}-{Guid.NewGuid():N}"));
+    }
+
+    /// <summary>Initializes an isolated store and removes stale sidecars from the supplied test root.</summary>
+    /// <param name="rootDirectory">Application-owned root used by tests.</param>
+    internal SubtitleSidecarService(string rootDirectory)
+    {
+        _root = Path.GetFullPath(rootDirectory);
         if (Directory.Exists(_root))
         {
             Directory.Delete(_root, recursive: true);

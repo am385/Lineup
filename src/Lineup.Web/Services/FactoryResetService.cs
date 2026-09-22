@@ -71,7 +71,6 @@ public static class FactoryResetCoordinator
     /// </summary>
     public const string RequestFileName = ".lineup-factory-reset.json";
 
-    private const string HlsDirectoryName = "hdhomerun-hls";
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     /// <summary>
@@ -99,8 +98,9 @@ public static class FactoryResetCoordinator
     /// </summary>
     /// <param name="appDataStore">Lineup persistent application-data store.</param>
     /// <param name="configuredXmltvPath">Startup-configured XMLTV file or directory.</param>
+    /// <param name="transientStreamStore">Configured transient stream store.</param>
     /// <returns><see langword="true"/> when a pending reset was applied.</returns>
-    public static bool ApplyPendingReset(AppDataStore appDataStore, string? configuredXmltvPath)
+    public static bool ApplyPendingReset(AppDataStore appDataStore, string? configuredXmltvPath, TransientStreamStore transientStreamStore)
     {
         if (!appDataStore.FileExists(appDataStore.FactoryResetRequestPath))
         {
@@ -122,19 +122,15 @@ public static class FactoryResetCoordinator
             DeleteOutputFile(Path.GetFullPath(request.PersistedXmltvOutputPath!));
         }
 
-        var hlsDirectory = Path.Combine(Path.GetTempPath(), HlsDirectoryName);
-        if (Directory.Exists(hlsDirectory))
-        {
-            Directory.Delete(hlsDirectory, recursive: true);
-        }
-        var subtitleDirectory = Path.Combine(Path.GetTempPath(), SubtitleSidecarService.DirectoryName);
-        DeleteInactiveSubtitleDirectories(subtitleDirectory);
+        DeleteInactiveTransientState(transientStreamStore.RootPath);
 
         appDataStore.DeleteFile(appDataStore.FactoryResetRequestPath);
         return true;
     }
 
-    private static void DeleteInactiveSubtitleDirectories(string rootDirectory)
+    internal static void DeleteInactiveTransientDirectories(
+        string rootDirectory,
+        Func<string, TransientDirectoryOwnerStatus>? getOwnerStatus = null)
     {
         if (!Directory.Exists(rootDirectory))
         {
@@ -143,42 +139,41 @@ public static class FactoryResetCoordinator
 
         foreach (var directory in Directory.EnumerateDirectories(rootDirectory))
         {
+            var directoryName = Path.GetFileName(directory);
+            var ownerStatus = (getOwnerStatus ?? TransientDirectoryOwnership.GetOwnerStatus)(directoryName);
+            if (ownerStatus != TransientDirectoryOwnerStatus.Inactive)
+            {
+                continue;
+            }
+
             try
             {
                 Directory.Delete(directory, recursive: true);
             }
             catch (IOException)
             {
-                // Another Lineup process still owns this transient subtitle directory.
+                // The inactive process's transient directory is still being released.
             }
             catch (UnauthorizedAccessException)
             {
-                // Another Lineup process may still own this transient subtitle directory.
+                // The inactive process's transient directory cannot be removed by this process.
             }
         }
+    }
 
-        foreach (var file in Directory.EnumerateFiles(rootDirectory))
-        {
-            try
-            {
-                File.Delete(file);
-            }
-            catch (IOException)
-            {
-                // A pre-isolation Lineup process still owns this transient subtitle file.
-            }
-            catch (UnauthorizedAccessException)
-            {
-                // A pre-isolation Lineup process may still own this transient subtitle file.
-            }
-        }
+    internal static void DeleteInactiveTransientState(
+        string tempDirectory,
+        Func<string, TransientDirectoryOwnerStatus>? getOwnerStatus = null)
+    {
+        DeleteInactiveTransientDirectories(Path.Combine(tempDirectory, TransientDirectoryOwnership.HlsDirectoryName), getOwnerStatus);
+        DeleteInactiveTransientDirectories(Path.Combine(tempDirectory, SubtitleSidecarService.DirectoryName), getOwnerStatus);
     }
 
     /// <summary>
     /// Applies a pending factory reset from an application-data path for direct tests.
     /// </summary>
-    internal static bool ApplyPendingReset(string appDataPath, string? configuredXmltvPath) =>
-        ApplyPendingReset(new AppDataStore(appDataPath), configuredXmltvPath);
+    internal static bool ApplyPendingReset(string appDataPath, string? configuredXmltvPath, TransientStreamStore transientStreams) =>
+        ApplyPendingReset(new AppDataStore(appDataPath), configuredXmltvPath, transientStreams);
 
     private static void DeleteSettingsState(AppDataStore appDataStore)
     {

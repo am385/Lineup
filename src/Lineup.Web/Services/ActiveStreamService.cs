@@ -234,6 +234,12 @@ public interface IActiveStreamRegistry
     bool RequestStop(string sessionId);
 
     /// <summary>
+    /// Stops accepting new streams, requests every active stream to stop, and waits for all registrations to be removed.
+    /// </summary>
+    /// <param name="cancellationToken">Stops waiting for stream cleanup.</param>
+    Task StopAllAsync(CancellationToken cancellationToken);
+
+    /// <summary>
     /// Removes an active stream.
     /// </summary>
     /// <param name="sessionId">The runtime session identifier.</param>
@@ -253,6 +259,18 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
 {
     private readonly ConcurrentDictionary<string, ActiveStreamRegistration> _streams = new(StringComparer.Ordinal);
     private readonly Lock _registrationLock = new();
+    private readonly ILogger<ActiveStreamRegistry> _logger;
+    private TaskCompletionSource _allStreamsStopped = CompletedTaskCompletionSource();
+    private bool _isStopping;
+
+    /// <summary>
+    /// Initializes an active stream registry.
+    /// </summary>
+    /// <param name="logger">Optional stream lifecycle diagnostics logger.</param>
+    public ActiveStreamRegistry(ILogger<ActiveStreamRegistry>? logger = null)
+    {
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<ActiveStreamRegistry>.Instance;
+    }
 
     /// <inheritdoc />
     public event Action<ActiveStreamSnapshot>? StopRequested;
@@ -262,6 +280,11 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
     {
         lock (_registrationLock)
         {
+            if (_isStopping && !_streams.ContainsKey(stream.SessionId))
+            {
+                return;
+            }
+
             RegisterCore(stream, stop);
         }
     }
@@ -271,7 +294,8 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
     {
         lock (_registrationLock)
         {
-            if (!_streams.ContainsKey(stream.SessionId) &&
+            if (_isStopping ||
+                !_streams.ContainsKey(stream.SessionId) &&
                 maximumConcurrentStreams > 0 &&
                 _streams.Count >= maximumConcurrentStreams)
             {
@@ -300,6 +324,10 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
 
             registration = removed;
             stop = stopAction;
+            if (_streams.IsEmpty)
+            {
+                _allStreamsStopped.TrySetResult();
+            }
         }
 
         StopRequested?.Invoke(registration.Snapshot);
@@ -308,11 +336,45 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
     }
 
     /// <inheritdoc />
+    public async Task StopAllAsync(CancellationToken cancellationToken)
+    {
+        ActiveStreamRegistration[] registrations;
+        Task allStreamsStopped;
+        lock (_registrationLock)
+        {
+            _isStopping = true;
+            registrations = _streams.Values.ToArray();
+            foreach (var registration in registrations)
+            {
+                if (registration.Stop is not null)
+                {
+                    _streams[registration.Snapshot.SessionId] = registration with { Stop = null };
+                }
+            }
+
+            allStreamsStopped = _allStreamsStopped.Task;
+        }
+
+        var stopTasks = registrations
+            .Where(registration => registration.Stop is not null)
+            .Select(registration => Task.Run(() => RequestShutdown(registration)))
+            .ToArray();
+        await Task.WhenAll(stopTasks).WaitAsync(cancellationToken);
+        await allStreamsStopped.WaitAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
     public bool Unregister(string sessionId)
     {
         lock (_registrationLock)
         {
-            return _streams.TryRemove(sessionId, out _);
+            var removed = _streams.TryRemove(sessionId, out _);
+            if (removed && _streams.IsEmpty)
+            {
+                _allStreamsStopped.TrySetResult();
+            }
+
+            return removed;
         }
     }
 
@@ -330,6 +392,11 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
 
     private void RegisterCore(ActiveStreamSnapshot stream, Action? stop)
     {
+        if (_streams.IsEmpty)
+        {
+            _allStreamsStopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+
         _streams.AddOrUpdate(
             stream.SessionId,
             _ => new ActiveStreamRegistration(stream with { Tracks = stream.Tracks.ToArray() }, stop),
@@ -341,6 +408,26 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
                     Tracks = stream.Tracks.ToArray()
                 },
                 stop ?? current.Stop));
+    }
+
+    private static TaskCompletionSource CompletedTaskCompletionSource()
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        completion.SetResult();
+        return completion;
+    }
+
+    private void RequestShutdown(ActiveStreamRegistration registration)
+    {
+        try
+        {
+            StopRequested?.Invoke(registration.Snapshot);
+            registration.Stop!();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Unable to request shutdown of active stream {SessionId}", registration.Snapshot.SessionId);
+        }
     }
 }
 

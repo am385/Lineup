@@ -19,7 +19,24 @@ public static class TunerInputPump
     /// <param name="onSourceError">Optionally receives a shared tuner source failure.</param>
     public static async Task PumpAsync(ITunerStreamMultiplexer multiplexer, Uri sourceUri, Process process, ILogger logger, CancellationToken cancellationToken, Action<Exception>? onSourceError = null)
     {
-        var source = await multiplexer.SubscribeAsync(sourceUri, cancellationToken);
+        Stream source;
+        try
+        {
+            source = await multiplexer.SubscribeAsync(sourceUri, cancellationToken);
+        }
+        catch (ObjectDisposedException)
+        {
+            logger.LogDebug("Shared tuner input rejected a subscription during shutdown for {SourceUri}", sourceUri);
+            try
+            {
+                process.StandardInput.Close();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+            return;
+        }
+
         await PumpAsync(source, sourceUri, process, logger, cancellationToken, onSourceError);
     }
 
