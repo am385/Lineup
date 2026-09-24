@@ -272,7 +272,7 @@ public class WatchTests
         var component = context.Render<Watch>();
 
         // Act
-        component.Find(".channel-item").Click();
+        component.WaitForElement(".channel-item").Click();
 
         // Assert
         component.WaitForAssertion(() =>
