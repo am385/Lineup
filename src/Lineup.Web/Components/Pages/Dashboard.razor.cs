@@ -49,6 +49,9 @@ public partial class Dashboard : IDisposable
     private IActiveStreamRegistry ActiveStreamRegistry { get; set; } = default!;
 
     [Inject]
+    private IStatusNotificationService Notifications { get; set; } = default!;
+
+    [Inject]
     private ILogger<Dashboard> Logger { get; set; } = default!;
 
     private CacheStatistics? _stats;
@@ -56,8 +59,6 @@ public partial class Dashboard : IDisposable
     private TimeSpan? _channelGap;
     private bool _isBusy;
     private string _currentAction = "";
-    private string _statusMessage = "";
-    private bool _isError;
     private int _targetDays = 3;
     private FetchProgressInfo? _fetchProgress;
     private bool _xmltvFileExists;
@@ -540,8 +541,7 @@ public partial class Dashboard : IDisposable
         }
         catch (Exception ex)
         {
-            _statusMessage = $"Error loading the saved channel lineup: {ex.Message}";
-            _isError = true;
+            SetStatus($"Error loading the saved channel lineup: {ex.Message}", isError: true);
         }
     }
 
@@ -549,18 +549,15 @@ public partial class Dashboard : IDisposable
     {
         _isBusy = true;
         _currentAction = "channels";
-        _statusMessage = "";
 
         try
         {
             _channelLineup = await ChannelLineupRefresh.RefreshAsync();
-            _statusMessage = $"Refreshed {_channelLineup.Channels.Count} tuner channels.";
-            _isError = false;
+            SetStatus($"Refreshed {_channelLineup.Channels.Count} tuner channels.", isError: false);
         }
         catch (Exception ex)
         {
-            _statusMessage = $"Error refreshing channels: {ex.Message}";
-            _isError = true;
+            SetStatus($"Error refreshing channels: {ex.Message}", isError: true);
         }
         finally
         {
@@ -573,7 +570,6 @@ public partial class Dashboard : IDisposable
     {
         _isBusy = true;
         _currentAction = "fetch";
-        _statusMessage = "";
         _fetchProgress = null;
         StateHasChanged();
 
@@ -593,14 +589,14 @@ public partial class Dashboard : IDisposable
 
             await Orchestrator.FetchAndStoreEpgAsync(_targetDays, force: true, progress);
             await LoadStatsAsync();
-            _statusMessage = $"EPG data fetched successfully! ({_fetchProgress?.FetchCount ?? 0} fetches, {_fetchProgress?.TotalProgramsFetched.ToString("N0") ?? "0"} programs)";
-            _isError = false;
+            SetStatus(
+                $"EPG data fetched successfully! ({_fetchProgress?.FetchCount ?? 0} fetches, {_fetchProgress?.TotalProgramsFetched.ToString("N0") ?? "0"} programs)",
+                isError: false);
         }
 
         catch (Exception ex)
         {
-            _statusMessage = $"Error fetching data: {ex.Message}";
-            _isError = true;
+            SetStatus($"Error fetching data: {ex.Message}", isError: true);
         }
         finally
         {
@@ -624,20 +620,17 @@ public partial class Dashboard : IDisposable
     {
         _isBusy = true;
         _currentAction = "generate";
-        _statusMessage = "";
         StateHasChanged();
 
         try
         {
             await Orchestrator.GenerateEpgFromCacheAsync(_targetDays, XmltvFilename);
             CheckXmltvFileExists();
-            _statusMessage = $"XMLTV generated to {XmltvFilename} successfully!";
-            _isError = false;
+            SetStatus($"XMLTV generated to {XmltvFilename} successfully!", isError: false);
         }
         catch (Exception ex)
         {
-            _statusMessage = $"Error generating XMLTV: {ex.Message}";
-            _isError = true;
+            SetStatus($"Error generating XMLTV: {ex.Message}", isError: true);
         }
         finally
         {
@@ -669,13 +662,11 @@ public partial class Dashboard : IDisposable
         try
         {
             await DeviceState.StopTunerAsync(tunerIndex);
-            _statusMessage = $"Tuner {tunerIndex} stopped successfully.";
-            _isError = false;
+            SetStatus($"Tuner {tunerIndex} stopped successfully.", isError: false);
         }
         catch (Exception ex)
         {
-            _statusMessage = $"Failed to stop tuner {tunerIndex}: {ex.Message}";
-            _isError = true;
+            SetStatus($"Failed to stop tuner {tunerIndex}: {ex.Message}", isError: true);
         }
         finally
         {
@@ -706,13 +697,11 @@ public partial class Dashboard : IDisposable
         try
         {
             await DeviceState.RestartDeviceAsync();
-            _statusMessage = "Device restart command sent. Device will be unavailable for ~30 seconds.";
-            _isError = false;
+            SetStatus("Device restart command sent. Device will be unavailable for ~30 seconds.", isError: false);
         }
         catch (Exception ex)
         {
-            _statusMessage = $"Failed to restart device: {ex.Message}";
-            _isError = true;
+            SetStatus($"Failed to restart device: {ex.Message}", isError: true);
         }
         finally
         {
@@ -734,8 +723,15 @@ public partial class Dashboard : IDisposable
         _xmltvFileExists = Publications.Exists(XmltvFilename);
     }
 
-    private void ClearStatus()
+    private void SetStatus(string message, bool isError)
     {
-        _statusMessage = "";
+        if (isError)
+        {
+            Notifications.ShowError(message);
+        }
+        else
+        {
+            Notifications.ShowSuccess(message);
+        }
     }
 }

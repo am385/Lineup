@@ -17,6 +17,7 @@ builder.Services.AddSingleton<ITransientDataStore>(transientDataStore);
 var xmltvPublicationStore = new XmltvPublicationStore();
 builder.Services.AddSingleton<IXmltvPublicationStore>(xmltvPublicationStore);
 builder.Services.AddScoped<IBrowserDataStore, BrowserDataStore>();
+builder.Services.AddScoped<IStatusNotificationService, StatusNotificationService>();
 builder.Services.AddSingleton<IFileSystemBrowser, FileSystemBrowser>();
 
 // Prefer the verified repo-local Jellyfin FFmpeg installed by scripts/Install-JellyfinFfmpeg.ps1.

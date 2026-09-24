@@ -1,5 +1,4 @@
 @page "/settings"
-@rendermode InteractiveServer
 @using Lineup.Web.Services
 
 <PageTitle>Settings</PageTitle>
@@ -847,13 +846,6 @@
             </div>
         }
 
-        @if (!string.IsNullOrEmpty(_statusMessage))
-        {
-            <div class="alert @(_isError ? "alert-danger" : "alert-success") mt-3 alert-dismissible fade show">
-                @_statusMessage
-                <button type="button" class="btn-close" @onclick="ClearStatus"></button>
-            </div>
-        }
     </div>
 
     <div class="col-md-4">
