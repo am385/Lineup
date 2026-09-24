@@ -39,7 +39,7 @@ public class StreamController : ControllerBase
     private readonly TimeProvider _timeProvider;
     private readonly TimeSpan _hlsInactivityTimeout;
     private readonly SubtitleSidecarService _subtitleSidecars;
-    private readonly TransientStreamStore _transientStreams;
+    private readonly ITransientDataStore _transientData;
 
     // Track active HLS streams by session ID
     private static readonly ConcurrentDictionary<string, HlsSession> _hlsSessions = new();
@@ -66,7 +66,7 @@ public class StreamController : ControllerBase
     /// <param name="timeProvider">Provides time for HLS inactivity expiration.</param>
     /// <param name="hlsInactivityTimeout">Overrides the internal HLS inactivity timeout.</param>
     /// <param name="subtitleSidecars">Owns transient WebVTT sidecars.</param>
-    /// <param name="transientStreams">Provides the configured HLS artifact root.</param>
+    /// <param name="transientData">Provides the configured HLS artifact root.</param>
     public StreamController(
         IHttpClientFactory httpClientFactory,
         IEpgRepository epgRepository,
@@ -85,7 +85,7 @@ public class StreamController : ControllerBase
         TimeProvider? timeProvider = null,
         TimeSpan? hlsInactivityTimeout = null,
         SubtitleSidecarService? subtitleSidecars = null,
-        TransientStreamStore? transientStreams = null)
+        ITransientDataStore? transientData = null)
     {
         _httpClientFactory = httpClientFactory;
         _epgRepository = epgRepository;
@@ -103,8 +103,8 @@ public class StreamController : ControllerBase
         _applicationLifetime = applicationLifetime;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _hlsInactivityTimeout = NormalizeHlsInactivityTimeout(hlsInactivityTimeout);
-        _transientStreams = transientStreams ?? TransientStreamStore.CreateDefault();
-        _subtitleSidecars = subtitleSidecars ?? new SubtitleSidecarService(_transientStreams);
+        _transientData = transientData ?? TransientDataStore.CreateDefault();
+        _subtitleSidecars = subtitleSidecars ?? new SubtitleSidecarService(_transientData);
     }
 
     /// <summary>
@@ -703,7 +703,7 @@ public class StreamController : ControllerBase
                 await StopProcessAsync(ffmpegProcess);
                 await ObserveInputPumpAsync(inputPumpTask);
                 inputPumpTask = null;
-                await WriteFmp4StartupErrorAsync(channel, streamUrl, sessionId, session.StartTime, tunerCapacityLease, ffmpegErrors, Volatile.Read(ref tunerInputError));
+                await WriteFmp4StartupErrorAsync(channel, streamUrl, sessionId, session.StartTime, tunerCapacityLease, streamCancellationToken, ffmpegErrors, Volatile.Read(ref tunerInputError));
                 return;
             }
 
@@ -713,7 +713,7 @@ public class StreamController : ControllerBase
                 await ffmpegProcess.WaitForExitAsync(streamCancellationToken);
                 await ObserveInputPumpAsync(inputPumpTask);
                 inputPumpTask = null;
-                await WriteFmp4StartupErrorAsync(channel, streamUrl, sessionId, session.StartTime, tunerCapacityLease, ffmpegErrors, Volatile.Read(ref tunerInputError));
+                await WriteFmp4StartupErrorAsync(channel, streamUrl, sessionId, session.StartTime, tunerCapacityLease, streamCancellationToken, ffmpegErrors, Volatile.Read(ref tunerInputError));
                 return;
             }
 
@@ -925,8 +925,7 @@ public class StreamController : ControllerBase
         // Generate unique session ID
         var sessionId = Guid.NewGuid().ToString("N")[..8];
         var outputVideoBitRate = _settingsService.Settings.MaximumVideoBitRateMbps * 1_000_000L;
-        var hlsRoot = TransientDirectoryOwnership.GetCurrentDirectory(_transientStreams.HlsRootPath);
-        var hlsDir = Path.Combine(hlsRoot, sessionId);
+        var hlsDir = _transientData.CreateHlsSessionDirectory(sessionId);
         var stopRequested = 0;
 
         if (disabled)
@@ -952,10 +951,8 @@ public class StreamController : ControllerBase
 
         try
         {
-            Directory.CreateDirectory(hlsDir);
-
             // FFmpeg HLS output command
-            var playlistPath = Path.Combine(hlsDir, "stream.m3u8");
+            var playlistPath = _transientData.GetFilePath(hlsDir, "stream.m3u8");
 
             // FFmpeg HLS command optimized for live streaming:
             // -fflags +genpts : Generate presentation timestamps
@@ -986,7 +983,7 @@ public class StreamController : ControllerBase
             if (Volatile.Read(ref stopRequested) != 0)
             {
                 _activeStreamRegistry.Unregister(sessionId);
-                Directory.Delete(hlsDir, recursive: true);
+                _transientData.DeleteDirectory(hlsDir);
                 return new EmptyResult();
             }
 
@@ -1011,7 +1008,7 @@ public class StreamController : ControllerBase
                 {
                     await capacityLease.DisposeAsync();
                 }
-                Directory.Delete(hlsDir, recursive: true);
+                _transientData.DeleteDirectory(hlsDir);
                 _activeStreamRegistry.Unregister(sessionId);
                 return StatusCode(500, new { error = "Failed to start FFmpeg process" });
             }
@@ -1123,11 +1120,11 @@ public class StreamController : ControllerBase
                 }
 
                 // Check for playlist and count segments
-                if (System.IO.File.Exists(playlistPath))
+                if (_transientData.FileExists(playlistPath))
                 {
                     // Count .ts segment files
-                    var tsFiles = Directory.GetFiles(hlsDir, "*.ts");
-                    segmentCount = tsFiles.Length;
+                    var tsFiles = _transientData.EnumerateFiles(hlsDir, "*.ts");
+                    segmentCount = tsFiles.Count;
 
 
                     // Wait for at least 2 segments before returning
@@ -1140,7 +1137,7 @@ public class StreamController : ControllerBase
                 await Task.Delay(100);
             }
 
-            if (!System.IO.File.Exists(playlistPath) || segmentCount < 2)
+            if (!_transientData.FileExists(playlistPath) || segmentCount < 2)
             {
                 StopHlsSession(sessionId);
                 return StatusCode(500, new { error = $"FFmpeg failed to create enough HLS segments (got {segmentCount}, need 2)", ffmpegOutput = ffmpegErrors.TakeLast(10).ToList() });
@@ -1161,10 +1158,7 @@ public class StreamController : ControllerBase
             {
                 _activeStreamRegistry.Unregister(sessionId);
                 capacityLease?.Dispose();
-                if (Directory.Exists(hlsDir))
-                {
-                    Directory.Delete(hlsDir, recursive: true);
-                }
+                TryDeleteTransientDirectory(hlsDir);
             }
             return new EmptyResult();
         }
@@ -1174,10 +1168,7 @@ public class StreamController : ControllerBase
             {
                 _activeStreamRegistry.Unregister(sessionId);
                 capacityLease?.Dispose();
-                if (Directory.Exists(hlsDir))
-                {
-                    Directory.Delete(hlsDir, recursive: true);
-                }
+                TryDeleteTransientDirectory(hlsDir);
             }
             return StatusCode(500, new { error = "FFmpeg not found. Please install FFmpeg and add it to your PATH." });
         }
@@ -1191,10 +1182,7 @@ public class StreamController : ControllerBase
             _logger.LogError(ex, "Error starting HLS stream for channel {Channel}", channel);
             try
             {
-                if (Directory.Exists(hlsDir))
-                {
-                    Directory.Delete(hlsDir, recursive: true);
-                }
+                TryDeleteTransientDirectory(hlsDir);
             }
             catch (IOException cleanupException)
             {
@@ -1220,7 +1208,7 @@ public class StreamController : ControllerBase
             return BadRequest(new { error = "Invalid HLS filename" });
         }
 
-        if (!System.IO.File.Exists(filePath))
+        if (!_transientData.FileExists(filePath))
         {
             return NotFound(new { error = "File not found" });
         }
@@ -1442,10 +1430,7 @@ public class StreamController : ControllerBase
         // Clean up HLS files
         try
         {
-            if (Directory.Exists(session.HlsDirectory))
-            {
-                Directory.Delete(session.HlsDirectory, recursive: true);
-            }
+            _transientData.DeleteDirectory(session.HlsDirectory);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -1603,17 +1588,18 @@ public class StreamController : ControllerBase
         string sessionId,
         DateTime startedAtUtc,
         ITunerCapacityLease tunerCapacityLease,
+        CancellationToken cancellationToken,
         IReadOnlyCollection<string>? ffmpegErrors = null,
         Exception? tunerInputError = null)
     {
-        var tunerError = tunerInputError?.Message ?? await GetTunerErrorAsync(new Uri(streamUrl), HttpContext.RequestAborted);
+        var tunerError = tunerInputError?.Message ?? await GetTunerErrorAsync(new Uri(streamUrl), cancellationToken);
         if (await IsContentProtectedAsync(channel, tunerError))
         {
             if (_settingsService.Settings.ProtectedContentMode == ProtectedContentMode.StreamSlate)
             {
                 await tunerCapacityLease.DisposeAsync();
                 _activeStreamRegistry.Register(ActiveStreamPlanFactory.CreateProtectedSlate(sessionId, channel, HostedStreamFormat.FragmentedMp4, startedAtUtc));
-                await _protectedContentSlateService.StreamAsync(HostedStreamFormat.FragmentedMp4, channel, Response.Body, HttpContext.RequestAborted);
+                await _protectedContentSlateService.StreamAsync(HostedStreamFormat.FragmentedMp4, channel, Response.Body, cancellationToken);
                 return;
             }
 
@@ -1722,14 +1708,21 @@ public class StreamController : ControllerBase
         });
     }
 
-    private static void DeleteHlsFiles(string directory)
+    private void DeleteHlsFiles(string directory)
     {
-        foreach (var file in Directory.GetFiles(directory))
-        {
-            System.IO.File.Delete(file);
-        }
+        _transientData.DeleteFiles(directory);
     }
 
+    private void TryDeleteTransientDirectory(string directory)
+    {
+        try
+        {
+            _transientData.DeleteDirectory(directory);
+        }
+        catch (DirectoryNotFoundException)
+        {
+        }
+    }
 
     private class HlsSession
     {

@@ -2,6 +2,7 @@ using Lineup.HDHomeRun.Device;
 using Lineup.HDHomeRun.Device.Protocol;
 using Lineup.HDHomeRun.Api;
 using Lineup.Core;
+using Lineup.Core.Storage;
 using Lineup.Web.Components;
 using Lineup.Web.Services;
 
@@ -9,8 +10,14 @@ var builder = WebApplication.CreateBuilder(args);
 var statusRuntime = new StatusApiRuntime(Guid.NewGuid().ToString("N"));
 var appDataStore = AppDataStore.Create(builder.Configuration);
 builder.Services.AddSingleton(appDataStore);
-var transientStreamStore = TransientStreamStore.Create(builder.Configuration);
-builder.Services.AddSingleton(transientStreamStore);
+builder.Services.AddSingleton<IAppDataStore>(appDataStore);
+var transientDataStore = TransientDataStore.Create(builder.Configuration);
+builder.Services.AddSingleton(transientDataStore);
+builder.Services.AddSingleton<ITransientDataStore>(transientDataStore);
+var xmltvPublicationStore = new XmltvPublicationStore();
+builder.Services.AddSingleton<IXmltvPublicationStore>(xmltvPublicationStore);
+builder.Services.AddScoped<IBrowserDataStore, BrowserDataStore>();
+builder.Services.AddSingleton<IFileSystemBrowser, FileSystemBrowser>();
 
 // Prefer the verified repo-local Jellyfin FFmpeg installed by scripts/Install-JellyfinFfmpeg.ps1.
 var sourceProjectPath = Path.Combine(builder.Environment.ContentRootPath, "Lineup.Web.csproj");
@@ -36,7 +43,8 @@ if (webEndpointConfiguration != null)
 }
 
 var configuredXmltvPath = builder.Configuration[AppConstants.XmltvPathConfigKey];
-FactoryResetCoordinator.ApplyPendingReset(appDataStore, configuredXmltvPath, transientStreamStore);
+transientDataStore.DeleteInactiveOwnerDirectories();
+FactoryResetCoordinator.ApplyPendingReset(appDataStore, configuredXmltvPath, transientDataStore, xmltvPublicationStore);
 DataProtectionService.Configure(builder.Services, appDataStore);
 var logging = LoggingBootstrapper.Configure(builder, appDataStore);
 builder.Services.AddSingleton<ILogEventStore>(logging.EventStore);
@@ -44,7 +52,9 @@ builder.Services.AddSingleton(logging.RuntimeState);
 builder.Services.AddSingleton<LogFileService>();
 
 // Add application settings service (must be registered before services that depend on it)
-builder.Services.AddSingleton<IAppSettingsService, AppSettingsService>();
+builder.Services.AddSingleton<AppSettingsService>();
+builder.Services.AddSingleton<IAppSettingsService>(provider => provider.GetRequiredService<AppSettingsService>());
+builder.Services.AddSingleton<IEpgRetentionPolicy>(provider => provider.GetRequiredService<AppSettingsService>());
 builder.Services.AddSingleton<IApplicationRestartService, ApplicationRestartService>();
 builder.Services.AddSingleton<IFactoryResetService, FactoryResetService>();
 
@@ -56,7 +66,7 @@ builder.Services.AddSingleton<ITimeZoneService, TimeZoneService>();
 
 // Add EPG Core services (device address from settings, not config)
 builder.Services.AddSingleton<IChannelLineupProvider, SettingsChannelLineupProvider>();
-builder.Services.AddEpgCore(databasePath: appDataStore.DatabasePath);
+builder.Services.AddEpgCore(databasePath: appDataStore.DatabasePath, appDataStore: appDataStore);
 builder.Services.AddSingleton<IDeviceAuthProvider, SettingsDeviceAuthProvider>();
 
 // Add HDHomeRun device control service
@@ -181,10 +191,11 @@ app.MapGet("/api/logs/files/{fileName}", (string fileName, LogFileService files)
 app.MapGet("/api/xmltv", async Task<IResult> (
     IAppSettingsService settings,
     EpgOrchestrator orchestrator,
+    IXmltvPublicationStore publications,
     CancellationToken cancellationToken) =>
 {
     var path = settings.Settings.XmltvOutputPath;
-    if (!File.Exists(path))
+    if (!publications.Exists(path))
     {
         try
         {
@@ -196,7 +207,11 @@ app.MapGet("/api/xmltv", async Task<IResult> (
         }
     }
 
-    var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+    var stream = publications.OpenRead(path);
+    if (stream == null)
+    {
+        return Results.NotFound("The XMLTV publication is not available.");
+    }
     return Results.File(stream, "application/xml", "epg.xml");
 }).DisableAntiforgery();
 

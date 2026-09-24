@@ -1,28 +1,39 @@
 using System.Text.Json;
+using Lineup.Core.Storage;
+using Lineup.Core.Storage.Entities;
 using Lineup.HDHomeRun.Device.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace Lineup.Core;
 
 /// <summary>
-/// Persists the most recently refreshed physical tuner channel lineup.
+/// Stores the current physical tuner lineup and channel preferences in SQLite.
 /// </summary>
 public sealed class ChannelLineupStore
 {
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-    private readonly string _path;
+    private readonly IDbContextFactory<EpgDbContext> _contextFactory;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     /// <summary>
-    /// Initializes a channel lineup store at the specified path.
+    /// Initializes the database-backed channel lineup store.
     /// </summary>
-    /// <param name="path">Persistent snapshot path.</param>
-    public ChannelLineupStore(string path)
+    /// <param name="contextFactory">Factory for isolated database operations.</param>
+    public ChannelLineupStore(IDbContextFactory<EpgDbContext> contextFactory)
     {
-        _path = Path.GetFullPath(path);
+        _contextFactory = contextFactory;
     }
 
     /// <summary>
-    /// Reads the last successfully refreshed tuner lineup.
+    /// Initializes a database-backed channel lineup store at the specified path.
+    /// </summary>
+    /// <param name="databasePath">SQLite database path.</param>
+    public ChannelLineupStore(string databasePath)
+        : this(new PathDbContextFactory(databasePath))
+    {
+    }
+
+    /// <summary>
+    /// Reads the active tuner lineup.
     /// </summary>
     /// <param name="cancellationToken">Cancels the read.</param>
     /// <returns>The saved snapshot, or <see langword="null"/> when channels have not been refreshed.</returns>
@@ -40,37 +51,53 @@ public sealed class ChannelLineupStore
     }
 
     /// <summary>
-    /// Atomically replaces the saved tuner lineup.
+    /// Reconciles the active tuner lineup while retaining inactive channel history and preferences.
     /// </summary>
     /// <param name="channels">Combined channels from configured physical tuners.</param>
-    /// <param name="cancellationToken">Cancels staging before publication.</param>
-    /// <returns>The saved snapshot.</returns>
+    /// <param name="cancellationToken">Cancels the transaction.</param>
+    /// <returns>The saved active snapshot.</returns>
     public async Task<ChannelLineupSnapshot> StoreAsync(IEnumerable<HDHomeRunChannel> channels, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(channels);
-
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            var previous = await ReadSnapshotAsync(cancellationToken);
             var refreshedChannels = channels
                 .Where(channel => !string.IsNullOrWhiteSpace(channel.GuideNumber))
                 .DistinctBy(channel => channel.GuideNumber.Trim(), StringComparer.OrdinalIgnoreCase)
                 .OrderBy(channel => channel.GuideNumber, ChannelNumberComparer.Instance)
                 .ToArray();
-            var refreshedNumbers = refreshedChannels
-                .Select(channel => channel.GuideNumber.Trim())
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var disabledGuideNumbers = previous?.DisabledGuideNumbers
-                .Where(refreshedNumbers.Contains)
-                .OrderBy(guideNumber => guideNumber, ChannelNumberComparer.Instance)
-                .ToArray() ?? [];
-            var snapshot = new ChannelLineupSnapshot(DateTime.UtcNow, refreshedChannels)
+            var refreshedAt = DateTime.UtcNow;
+            await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+            await EpgDatabaseSchema.EnsureAsync(context, cancellationToken);
+            var existing = await context.LineupChannels.ToDictionaryAsync(channel => channel.GuideNumber, StringComparer.OrdinalIgnoreCase, cancellationToken);
+            foreach (var stored in existing.Values)
             {
-                DisabledGuideNumbers = disabledGuideNumbers
-            };
-            await WriteSnapshotAsync(snapshot, cancellationToken);
-            return snapshot;
+                stored.IsActive = false;
+            }
+
+            foreach (var channel in refreshedChannels)
+            {
+                var guideNumber = channel.GuideNumber.Trim();
+                if (!existing.TryGetValue(guideNumber, out var stored))
+                {
+                    stored = new StoredLineupChannel
+                    {
+                        GuideNumber = guideNumber,
+                        GuideName = channel.GuideName,
+                        URL = channel.URL,
+                        FirstSeenUtc = refreshedAt,
+                        IsEnabled = true
+                    };
+                    context.LineupChannels.Add(stored);
+                    existing.Add(guideNumber, stored);
+                }
+
+                UpdateStoredChannel(stored, channel, refreshedAt);
+            }
+
+            await context.SaveChangesAsync(cancellationToken);
+            return CreateSnapshot(refreshedAt, existing.Values.Where(channel => channel.IsActive));
         }
         finally
         {
@@ -79,45 +106,28 @@ public sealed class ChannelLineupStore
     }
 
     /// <summary>
-    /// Enables or disables one saved channel without changing its tuner metadata.
+    /// Enables or disables one active channel without changing its tuner metadata.
     /// </summary>
     /// <param name="guideNumber">Logical channel number to update.</param>
     /// <param name="enabled">Whether the channel should be exposed publicly.</param>
-    /// <param name="cancellationToken">Cancels the update before publication.</param>
-    /// <returns>The updated saved snapshot.</returns>
+    /// <param name="cancellationToken">Cancels the update.</param>
+    /// <returns>The updated active snapshot.</returns>
     public async Task<ChannelLineupSnapshot> SetChannelEnabledAsync(string guideNumber, bool enabled, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(guideNumber);
-
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            var snapshot = await ReadSnapshotAsync(cancellationToken)
-                ?? throw new InvalidOperationException("No HDHomeRun channel lineup has been saved.");
+            await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+            await EpgDatabaseSchema.EnsureAsync(context, cancellationToken);
             var normalizedGuideNumber = guideNumber.Trim();
-            if (!snapshot.Channels.Any(channel => string.Equals(channel.GuideNumber.Trim(), normalizedGuideNumber, StringComparison.OrdinalIgnoreCase)))
-            {
-                throw new InvalidOperationException($"Channel {normalizedGuideNumber} is not present in the saved HDHomeRun lineup.");
-            }
-
-            var disabledGuideNumbers = snapshot.DisabledGuideNumbers.ToHashSet(StringComparer.OrdinalIgnoreCase);
-            if (enabled)
-            {
-                disabledGuideNumbers.Remove(normalizedGuideNumber);
-            }
-            else
-            {
-                disabledGuideNumbers.Add(normalizedGuideNumber);
-            }
-
-            var updated = snapshot with
-            {
-                DisabledGuideNumbers = disabledGuideNumbers
-                    .OrderBy(number => number, ChannelNumberComparer.Instance)
-                    .ToArray()
-            };
-            await WriteSnapshotAsync(updated, cancellationToken);
-            return updated;
+            var channel = await context.LineupChannels.SingleOrDefaultAsync(
+                stored => stored.IsActive && stored.GuideNumber == normalizedGuideNumber,
+                cancellationToken)
+                ?? throw new InvalidOperationException($"Channel {normalizedGuideNumber} is not present in the saved HDHomeRun lineup.");
+            channel.IsEnabled = enabled;
+            await context.SaveChangesAsync(cancellationToken);
+            return (await ReadSnapshotAsync(cancellationToken))!;
         }
         finally
         {
@@ -127,57 +137,90 @@ public sealed class ChannelLineupStore
 
     private async Task<ChannelLineupSnapshot?> ReadSnapshotAsync(CancellationToken cancellationToken)
     {
-        if (!File.Exists(_path))
-        {
-            return null;
-        }
+        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        await EpgDatabaseSchema.EnsureAsync(context, cancellationToken);
+        var channels = await context.LineupChannels
+            .AsNoTracking()
+            .Where(channel => channel.IsActive)
+            .ToListAsync(cancellationToken);
+        return channels.Count == 0
+            ? null
+            : CreateSnapshot(channels.Max(channel => channel.LastSeenUtc), channels);
+    }
 
-        await using var stream = new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        var snapshot = await JsonSerializer.DeserializeAsync<ChannelLineupSnapshot>(stream, JsonOptions, cancellationToken)
-            ?? throw new InvalidDataException("The saved HDHomeRun channel lineup is invalid.");
-        var channelNumbers = snapshot.Channels
-            .Select(channel => channel.GuideNumber.Trim())
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        return snapshot with
+    private static ChannelLineupSnapshot CreateSnapshot(DateTime refreshedAtUtc, IEnumerable<StoredLineupChannel> storedChannels)
+    {
+        var channels = storedChannels.OrderBy(channel => channel.GuideNumber, ChannelNumberComparer.Instance).ToArray();
+        return new ChannelLineupSnapshot(refreshedAtUtc, channels.Select(MapChannel).ToArray())
         {
-            DisabledGuideNumbers = snapshot.DisabledGuideNumbers
-                .Where(channelNumbers.Contains)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(number => number, ChannelNumberComparer.Instance)
+            DisabledGuideNumbers = channels
+                .Where(channel => !channel.IsEnabled)
+                .Select(channel => channel.GuideNumber)
                 .ToArray()
         };
     }
 
-    private async Task WriteSnapshotAsync(ChannelLineupSnapshot snapshot, CancellationToken cancellationToken)
+    private static void UpdateStoredChannel(StoredLineupChannel stored, HDHomeRunChannel channel, DateTime seenAtUtc)
     {
-        var directory = Path.GetDirectoryName(_path);
-        if (!string.IsNullOrEmpty(directory))
+        stored.GuideName = channel.GuideName;
+        stored.URL = channel.URL;
+        stored.VideoCodec = channel.VideoCodec;
+        stored.AudioCodec = channel.AudioCodec;
+        stored.HD = channel.HD;
+        stored.DRM = channel.DRM;
+        stored.Favorite = channel.Favorite;
+        stored.Tags = channel.Tags;
+        stored.SignalStrength = channel.SignalStrength;
+        stored.SignalQuality = channel.SignalQuality;
+        stored.AdditionalPropertiesJson = channel.AdditionalProperties == null ? null : JsonSerializer.Serialize(channel.AdditionalProperties);
+        stored.IsActive = true;
+        stored.LastSeenUtc = seenAtUtc;
+    }
+
+    private static HDHomeRunChannel MapChannel(StoredLineupChannel stored)
+    {
+        return new HDHomeRunChannel
         {
-            Directory.CreateDirectory(directory);
+            GuideNumber = stored.GuideNumber,
+            GuideName = stored.GuideName,
+            URL = stored.URL,
+            VideoCodec = stored.VideoCodec,
+            AudioCodec = stored.AudioCodec,
+            HD = stored.HD,
+            DRM = stored.DRM,
+            Favorite = stored.Favorite,
+            Tags = stored.Tags,
+            SignalStrength = stored.SignalStrength,
+            SignalQuality = stored.SignalQuality,
+            AdditionalProperties = stored.AdditionalPropertiesJson == null
+                ? null
+                : JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(stored.AdditionalPropertiesJson)
+        };
+    }
+
+    private sealed class PathDbContextFactory : IDbContextFactory<EpgDbContext>
+    {
+        private readonly DbContextOptions<EpgDbContext> _options;
+
+        internal PathDbContextFactory(string databasePath)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(databasePath);
+            var path = Path.GetFullPath(databasePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            _options = new DbContextOptionsBuilder<EpgDbContext>()
+                .UseSqlite($"Data Source={path};Pooling=False")
+                .Options;
         }
 
-        var temporaryPath = $"{_path}.{Guid.NewGuid():N}.tmp";
-        try
-        {
-            await using (var stream = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-            {
-                await JsonSerializer.SerializeAsync(stream, snapshot, JsonOptions, cancellationToken);
-                await stream.FlushAsync(cancellationToken);
-            }
-            File.Move(temporaryPath, _path, overwrite: true);
-        }
-        finally
-        {
-            File.Delete(temporaryPath);
-        }
+        public EpgDbContext CreateDbContext() => new(_options);
     }
 }
 
 /// <summary>
-/// Represents a persisted physical tuner channel lineup.
+/// Represents the active physical tuner channel lineup.
 /// </summary>
 /// <param name="RefreshedAtUtc">When the tuner lineup was successfully refreshed.</param>
-/// <param name="Channels">The combined unique physical tuner channels.</param>
+/// <param name="Channels">The combined unique active physical tuner channels.</param>
 public sealed record ChannelLineupSnapshot(DateTime RefreshedAtUtc, IReadOnlyList<HDHomeRunChannel> Channels)
 {
     /// <summary>

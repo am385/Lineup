@@ -101,7 +101,7 @@ public class HdHomeRunProxyControllerTests
         var root = Directory.CreateTempSubdirectory("lineup-proxy-");
         try
         {
-            var store = new ChannelLineupStore(Path.Combine(root.FullName, "channels.json"));
+            var store = new ChannelLineupStore(Path.Combine(root.FullName, "lineup.db"));
             await store.StoreAsync([CreateChannel(), CreateChannel("9.1")], TestContext.Current.CancellationToken);
             await store.SetChannelEnabledAsync("9.1", enabled: false, TestContext.Current.CancellationToken);
             var profile = CreateProfile(isPrimary: true);
@@ -148,7 +148,7 @@ public class HdHomeRunProxyControllerTests
         {
             VirtualTunerVideoMode = VirtualTunerVideoMode.ConvertHevcToH264
         });
-        store ??= new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-proxy-{Guid.NewGuid():N}.json"));
+        store ??= new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-proxy-{Guid.NewGuid():N}.db"));
         return new HdHomeRunProxyController(profiles, deviceClient ?? Substitute.For<IHdHomeRunProxyDeviceClient>(), settings, store)
         {
             ControllerContext = new ControllerContext

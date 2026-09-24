@@ -16,7 +16,7 @@
     <!-- hls.js for HLS playback in non-Safari browsers -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js"></script>
     <script>
-        // Apply theme immediately to prevent flash of wrong theme
+        // This must read localStorage before Blazor and BrowserDataStore are available to prevent a flash of the wrong theme.
         (function() {
             var theme = localStorage.getItem('app-theme') || 'auto';
             var resolved = theme;

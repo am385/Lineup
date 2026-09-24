@@ -92,4 +92,10 @@ public class StoredProgram
     /// When this program data was fetched from the API
     /// </summary>
     public DateTime FetchedAtUtc { get; set; }
+
+    /// <summary>
+    /// Identifier of the most recent authoritative import that contained this programme.
+    /// </summary>
+    [MaxLength(32)]
+    public string? LastSeenImportId { get; set; }
 }

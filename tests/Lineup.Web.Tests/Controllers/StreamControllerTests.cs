@@ -22,7 +22,7 @@ namespace Lineup.Web.Tests.Controllers;
 /// </summary>
 public class StreamControllerTests
 {
-    private static readonly TransientStreamStore TestTransientStreams =
+    private static readonly TransientDataStore TestTransientData =
         new(Path.Combine(Path.GetTempPath(), $"lineup-stream-controller-tests-{Environment.ProcessId}"));
 
     /// <summary>
@@ -434,10 +434,10 @@ public class StreamControllerTests
     }
 
     /// <summary>
-    /// Verifies that an fMP4 protected-content slate does not retain physical tuner capacity while its client remains connected.
+    /// Verifies that an fMP4 protected-content slate releases physical tuner capacity and honors explicit stream cancellation.
     /// </summary>
     [Fact]
-    public async Task WriteFmp4StartupErrorAsync_ConnectedSlate_ReleasesPhysicalTunerCapacity()
+    public async Task WriteFmp4StartupErrorAsync_ConnectedSlate_ReleasesPhysicalTunerCapacityAndHonorsCancellation()
     {
         // Arrange
         var profileUri = new Uri("http://tuner.local/");
@@ -445,20 +445,20 @@ public class StreamControllerTests
         var physicalLease = await registry.TryAcquireAsync(profileUri, new Uri("http://tuner.local:5004/auto/v20.1"), 1, TestContext.Current.CancellationToken);
         Assert.NotNull(physicalLease);
         var slateStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var releaseSlate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var streamCancellation = new CancellationTokenSource();
         var slateService = Substitute.For<IProtectedContentSlateService>();
         slateService.StreamAsync(HostedStreamFormat.FragmentedMp4, "20.1", Arg.Any<Stream>(), Arg.Any<CancellationToken>())
             .Returns(async call =>
             {
                 slateStarted.SetResult();
-                await releaseSlate.Task.WaitAsync(call.ArgAt<CancellationToken>(3));
+                await Task.Delay(Timeout.InfiniteTimeSpan, call.ArgAt<CancellationToken>(3));
             });
         var controller = CreateProtectedSlateController(registry, slateService);
         var errorMethod = typeof(StreamController).GetMethod("WriteFmp4StartupErrorAsync", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(errorMethod);
 
         // Act
-        object?[] parameters = ["20.1", "http://tuner.local:5004/auto/v20.1", "session", DateTime.UtcNow, physicalLease, null, null];
+        object?[] parameters = ["20.1", "http://tuner.local:5004/auto/v20.1", "session", DateTime.UtcNow, physicalLease, streamCancellation.Token, null, null];
         object? result = errorMethod.Invoke(controller, parameters);
         var slateTask = Assert.IsType<Task>(result, exactMatch: false);
         await slateStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
@@ -467,8 +467,8 @@ public class StreamControllerTests
         // Assert
         Assert.NotNull(nextLease);
         Assert.False(slateTask.IsCompleted);
-        releaseSlate.SetResult();
-        await slateTask;
+        streamCancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => slateTask);
         await physicalLease.DisposeAsync();
         await nextLease!.DisposeAsync();
         Assert.Empty(registry.GetDiagnostics());
@@ -589,7 +589,7 @@ public class StreamControllerTests
             Substitute.For<ITunerStreamMultiplexer>(),
             registry,
             NullLogger<StreamController>.Instance,
-            transientStreams: TestTransientStreams)
+            transientData: TestTransientData)
         {
             ControllerContext = new ControllerContext
             {
@@ -652,7 +652,7 @@ public class StreamControllerTests
             multiplexer,
             capacity,
             NullLogger<StreamController>.Instance,
-            transientStreams: TestTransientStreams)
+            transientData: TestTransientData)
         {
             ControllerContext = new ControllerContext
             {
@@ -685,7 +685,7 @@ public class StreamControllerTests
             lifetime,
             TimeProvider.System,
             hlsInactivityTimeout,
-            transientStreams: TestTransientStreams)
+            transientData: TestTransientData)
         {
             ControllerContext = new ControllerContext
             {
@@ -697,9 +697,9 @@ public class StreamControllerTests
     private static object CreateHlsSession(StreamController controller, ITunerCapacityLease capacityLease, out string sessionId, out string directory)
     {
         sessionId = Guid.NewGuid().ToString("N");
-        directory = Path.Combine(Environment.CurrentDirectory, $".hls-test-{sessionId}");
-        Directory.CreateDirectory(directory);
-        File.WriteAllText(Path.Combine(directory, "stream.m3u8"), "#EXTM3U");
+        directory = TestTransientData.CreateHlsSessionDirectory(sessionId);
+        var playlistPath = TestTransientData.GetFilePath(directory, "stream.m3u8");
+        File.WriteAllText(playlistPath, "#EXTM3U");
         using var process = Process.Start(new ProcessStartInfo
         {
             FileName = "dotnet",
@@ -718,7 +718,7 @@ public class StreamControllerTests
         SetProperty(sessionType, session, "Channel", "20.1");
         SetProperty(sessionType, session, "Process", process);
         SetProperty(sessionType, session, "HlsDirectory", directory);
-        SetProperty(sessionType, session, "PlaylistPath", Path.Combine(directory, "stream.m3u8"));
+        SetProperty(sessionType, session, "PlaylistPath", playlistPath);
         SetProperty(sessionType, session, "StartTime", DateTime.UtcNow);
         SetProperty(sessionType, session, "CapacityLease", capacityLease);
         var register = typeof(StreamController).GetMethod("RegisterHlsSession", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -729,7 +729,7 @@ public class StreamControllerTests
 
     private static ChannelLineupStore CreateChannelLineupStore()
     {
-        return new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-stream-{Guid.NewGuid():N}.json"));
+        return new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-stream-{Guid.NewGuid():N}.db"));
     }
 
     private static async Task<ChannelLineupStore> CreateDisabledChannelStoreAsync(string guideNumber)
@@ -794,7 +794,7 @@ public class StreamControllerTests
             Substitute.For<ITunerStreamMultiplexer>(),
             capacity,
             NullLogger<StreamController>.Instance,
-            transientStreams: TestTransientStreams)
+            transientData: TestTransientData)
         {
             ControllerContext = new ControllerContext
             {

@@ -16,7 +16,7 @@ public class SubtitleSidecarServiceTests
     {
         // Arrange
         var root = Directory.CreateTempSubdirectory("lineup-subtitle-stores-");
-        var transientStore = new TransientStreamStore(root.FullName);
+        var transientStore = new TransientDataStore(root.FullName);
         var firstService = new SubtitleSidecarService(transientStore);
         var firstPath = firstService.Create("first");
         File.WriteAllText(firstPath, "first");

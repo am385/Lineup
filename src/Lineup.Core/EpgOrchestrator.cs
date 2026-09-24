@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 namespace Lineup.Core;
 
 /// <summary>
-/// Coordinates canonical XMLTV downloads, normalized guide imports, and public guide output.
+/// Coordinates provider guide imports, normalized storage, and Lineup XMLTV output.
 /// </summary>
 public class EpgOrchestrator
 {
@@ -13,20 +13,26 @@ public class EpgOrchestrator
     private readonly ChannelLineupStore _channelLineupStore;
     private readonly CachedEpgDataProvider _epgDataProvider;
     private readonly IEpgRepository _repository;
-    private readonly XmltvGuideStore _guideStore;
-    private readonly SiliconDustXmltvParser _parser;
+    private readonly LineupXmltvWriter _xmltvWriter;
+    private readonly IXmltvPublicationStore _publicationStore;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="EpgOrchestrator"/> class.
     /// </summary>
-    public EpgOrchestrator(ILogger<EpgOrchestrator> logger, ChannelLineupStore channelLineupStore, CachedEpgDataProvider epgDataProvider, IEpgRepository repository, XmltvGuideStore guideStore, SiliconDustXmltvParser parser)
+    public EpgOrchestrator(
+        ILogger<EpgOrchestrator> logger,
+        ChannelLineupStore channelLineupStore,
+        CachedEpgDataProvider epgDataProvider,
+        IEpgRepository repository,
+        LineupXmltvWriter xmltvWriter,
+        IXmltvPublicationStore publicationStore)
     {
         _logger = logger;
         _channelLineupStore = channelLineupStore;
         _epgDataProvider = epgDataProvider;
         _repository = repository;
-        _guideStore = guideStore;
-        _parser = parser;
+        _xmltvWriter = xmltvWriter;
+        _publicationStore = publicationStore;
     }
 
     /// <summary>
@@ -81,23 +87,14 @@ public class EpgOrchestrator
     }
 
     /// <summary>
-    /// Rebuilds the normalized guide cache from the authoritative canonical XMLTV guide.
+    /// Publishes XMLTV generated from authoritative normalized guide data.
     /// </summary>
-    /// <param name="cancellationToken">A token used to cancel reconciliation.</param>
-    public Task ReconcileCacheAsync(CancellationToken cancellationToken = default)
-    {
-        return _epgDataProvider.ReconcileFromCanonicalGuideAsync(cancellationToken);
-    }
-
-    /// <summary>
-    /// Publishes the last downloaded canonical XMLTV guide or a placeholder-only guide to an output file.
-    /// </summary>
-    /// <param name="days">Placeholder duration when no canonical guide has been downloaded.</param>
+    /// <param name="days">Placeholder duration for channels without programme data.</param>
     /// <param name="filename">Destination XMLTV file.</param>
     /// <param name="cancellationToken">Cancels publication.</param>
     public Task GenerateEpgFromCacheAsync(int days, string filename, CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Publishing the cached canonical XMLTV guide to {Filename}", filename);
+        _logger.LogInformation("Publishing Lineup XMLTV from authoritative guide data to {Filename}", filename);
         return PublishEnabledGuideAsync(days, filename, cancellationToken);
     }
 
@@ -108,22 +105,13 @@ public class EpgOrchestrator
         var enabledChannels = lineupSnapshot.Channels
             .Where(channel => lineupSnapshot.IsChannelEnabled(channel.GuideNumber))
             .ToArray();
-        var content = await _guideStore.ReadAsync(cancellationToken);
-        var filteredContent = content == null
-            ? CreatePlaceholderGuide(enabledChannels, days)
-            : _parser.FilterByChannels(content, enabledChannels);
-        await _guideStore.PublishAsync(filename, filteredContent, cancellationToken);
-    }
-
-    private byte[] CreatePlaceholderGuide(IReadOnlyList<HDHomeRunChannel> enabledChannels, int days)
-    {
+        var segments = await _repository.GetRawEpgDataAsync() ?? [];
         var start = DateTimeOffset.UtcNow;
-        var stop = start.AddDays(Math.Max(1, days));
-        _logger.LogInformation(
-            "No canonical XMLTV guide is available; publishing placeholder data for {ChannelCount} enabled channels through {Stop:yyyy-MM-dd HH:mm} UTC",
-            enabledChannels.Count,
-            stop);
-        return _parser.CreatePlaceholderGuide(enabledChannels, start, stop);
+        var filteredContent = _xmltvWriter.Write(segments, enabledChannels, start, start.AddDays(Math.Max(1, days)));
+        await _publicationStore.PublishAsync(
+            filename,
+            (stream, token) => stream.WriteAsync(filteredContent, token).AsTask(),
+            cancellationToken);
     }
 
     private async Task LogCacheStatisticsAsync()

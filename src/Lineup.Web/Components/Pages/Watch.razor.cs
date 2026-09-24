@@ -35,6 +35,9 @@ public partial class Watch : IAsyncDisposable
     private IActiveStreamRegistry ActiveStreamRegistry { get; set; } = default!;
 
     [Inject]
+    private IBrowserDataStore BrowserData { get; set; } = default!;
+
+    [Inject]
     private IJSRuntime JS { get; set; } = default!;
 
     [Inject]
@@ -552,13 +555,7 @@ public partial class Watch : IAsyncDisposable
     {
         try
         {
-            var json = await JS.InvokeAsync<string?>("localStorage.getItem", PreferencesStorageKey);
-            if (string.IsNullOrWhiteSpace(json))
-            {
-                return;
-            }
-
-            var preferences = JsonSerializer.Deserialize<WatchPreferences>(json);
+            var preferences = await BrowserData.ReadAsync<WatchPreferences>(PreferencesStorageKey);
             if (preferences == null)
             {
                 return;
@@ -612,7 +609,7 @@ public partial class Watch : IAsyncDisposable
 
         try
         {
-            await JS.InvokeVoidAsync("localStorage.setItem", PreferencesStorageKey, JsonSerializer.Serialize(preferences));
+            await BrowserData.WriteAsync(PreferencesStorageKey, preferences);
         }
         catch (JSDisconnectedException ex)
         {

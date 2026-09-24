@@ -22,7 +22,7 @@ public class ChannelLineupStoreTests
         var root = Directory.CreateTempSubdirectory("lineup-channels-");
         try
         {
-            var path = Path.Combine(root.FullName, "channels.json");
+            var path = Path.Combine(root.FullName, "lineup.db");
             var store = new ChannelLineupStore(path);
             var provider = Substitute.For<IChannelLineupProvider>();
             provider.FetchChannelLineupAsync(Arg.Any<CancellationToken>()).Returns(
@@ -66,7 +66,7 @@ public class ChannelLineupStoreTests
         var root = Directory.CreateTempSubdirectory("lineup-channels-");
         try
         {
-            var store = new ChannelLineupStore(Path.Combine(root.FullName, "channels.json"));
+            var store = new ChannelLineupStore(Path.Combine(root.FullName, "lineup.db"));
             await store.StoreAsync([CreateChannel("7.1", "Existing")], TestContext.Current.CancellationToken);
             var provider = Substitute.For<IChannelLineupProvider>();
             provider.FetchChannelLineupAsync(Arg.Any<CancellationToken>())
@@ -99,7 +99,7 @@ public class ChannelLineupStoreTests
         var root = Directory.CreateTempSubdirectory("lineup-channels-");
         try
         {
-            var store = new ChannelLineupStore(Path.Combine(root.FullName, "channels.json"));
+            var store = new ChannelLineupStore(Path.Combine(root.FullName, "lineup.db"));
             await store.StoreAsync([CreateChannel("7.1", "Existing")], TestContext.Current.CancellationToken);
             var provider = Substitute.For<IChannelLineupProvider>();
             provider.FetchChannelLineupAsync(Arg.Any<CancellationToken>()).Returns([]);
@@ -132,7 +132,7 @@ public class ChannelLineupStoreTests
         var root = Directory.CreateTempSubdirectory("lineup-channels-");
         try
         {
-            var store = new ChannelLineupStore(Path.Combine(root.FullName, "channels.json"));
+            var store = new ChannelLineupStore(Path.Combine(root.FullName, "lineup.db"));
             var channel = CreateChannel("7.1", "Primary") with
             {
                 AdditionalProperties = new Dictionary<string, JsonElement>
@@ -155,48 +155,6 @@ public class ChannelLineupStoreTests
     }
 
     /// <summary>
-    /// Verifies old snapshots without availability metadata keep every channel enabled.
-    /// </summary>
-    [Fact]
-    public async Task ReadAsync_LegacySnapshot_DefaultsAllChannelsToEnabled()
-    {
-        // Arrange
-        var root = Directory.CreateTempSubdirectory("lineup-channels-");
-        try
-        {
-            var path = Path.Combine(root.FullName, "channels.json");
-            await File.WriteAllTextAsync(
-                path,
-                """
-                {
-                  "RefreshedAtUtc": "2026-09-20T12:00:00Z",
-                  "Channels": [
-                    {
-                      "GuideNumber": "7.1",
-                      "GuideName": "Existing",
-                      "URL": "http://device/auto/v7.1"
-                    }
-                  ]
-                }
-                """,
-                TestContext.Current.CancellationToken);
-            var store = new ChannelLineupStore(path);
-
-            // Act
-            var snapshot = await store.ReadAsync(TestContext.Current.CancellationToken);
-
-            // Assert
-            Assert.True(snapshot!.IsChannelEnabled("7.1"));
-            Assert.Equal(1, snapshot.EnabledChannelCount);
-            Assert.Empty(snapshot.DisabledGuideNumbers);
-        }
-        finally
-        {
-            root.Delete(recursive: true);
-        }
-    }
-
-    /// <summary>
     /// Verifies channel availability changes persist without replacing tuner metadata.
     /// </summary>
     [Fact]
@@ -206,7 +164,7 @@ public class ChannelLineupStoreTests
         var root = Directory.CreateTempSubdirectory("lineup-channels-");
         try
         {
-            var store = new ChannelLineupStore(Path.Combine(root.FullName, "channels.json"));
+            var store = new ChannelLineupStore(Path.Combine(root.FullName, "lineup.db"));
             var original = await store.StoreAsync(
                 [CreateChannel("7.1", "Existing"), CreateChannel("9.1", "Other")],
                 TestContext.Current.CancellationToken);
@@ -239,7 +197,7 @@ public class ChannelLineupStoreTests
         var root = Directory.CreateTempSubdirectory("lineup-channels-");
         try
         {
-            var store = new ChannelLineupStore(Path.Combine(root.FullName, "channels.json"));
+            var store = new ChannelLineupStore(Path.Combine(root.FullName, "lineup.db"));
             await store.StoreAsync(
                 [CreateChannel("7.1", "Existing"), CreateChannel("9.1", "Removed")],
                 TestContext.Current.CancellationToken);

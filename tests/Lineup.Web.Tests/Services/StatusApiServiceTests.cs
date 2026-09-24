@@ -15,6 +15,8 @@ namespace Lineup.Web.Tests.Services;
 /// </summary>
 public class StatusApiServiceTests
 {
+    private static readonly JsonSerializerOptions WebJsonOptions = new(JsonSerializerDefaults.Web);
+
     /// <summary>
     /// Verifies the default privacy policy and representative state mapping.
     /// </summary>
@@ -29,9 +31,7 @@ public class StatusApiServiceTests
 
         // Act
         var result = await fixture.Service.GetStatusAsync(TestContext.Current.CancellationToken);
-#pragma warning disable CA1869 // Cache and reuse 'JsonSerializerOptions' instances
-        var json = JsonSerializer.Serialize(result, new JsonSerializerOptions(JsonSerializerDefaults.Web));
-#pragma warning restore CA1869 // Cache and reuse 'JsonSerializerOptions' instances
+        var json = JsonSerializer.Serialize(result, WebJsonOptions);
 
         // Assert
         Assert.Equal("1.0", result.SchemaVersion);
@@ -178,7 +178,8 @@ public class StatusApiServiceTests
             activeStreams,
             virtualDeviceCache,
             new StatusApiRuntime("runtime-test"),
-            NullLogger<StatusApiService>.Instance);
+            NullLogger<StatusApiService>.Instance,
+            new XmltvPublicationStore());
         return new StatusApiFixture(settings, repository, service);
     }
 

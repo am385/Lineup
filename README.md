@@ -9,7 +9,7 @@ It includes a web-based dashboard, a terminal UI, live TV streaming with transco
 ## Features
 
 - **Automatic EPG fetching** — downloads SiliconDust's complete gzip-compressed XMLTV guide on the required randomized 20-28 hour schedule
-- **Canonical XMLTV output** — preserves SiliconDust metadata, filters out channels unavailable from the configured tuners, and publishes updates atomically
+- **Database-generated XMLTV output** — normalizes SiliconDust guide data in SQLite, filters out unavailable channels, and publishes updates atomically
 - **Per-channel availability** — keeps disabled channels visible in Lineup while excluding them from published guides, virtual lineups, and physical tuner streams
 - **Live TV streaming** — multi-track MPEG-TS proxy plus selectable Watch audio and subtitles, with Jellyfin FFmpeg AC-4 decoding
 - **Device diagnostics** — connectivity checks across DNS, ping, HTTP API, TCP, and UDP discovery
@@ -19,7 +19,7 @@ It includes a web-based dashboard, a terminal UI, live TV streaming with transco
 - **Multi-device HDHomeRun proxy** — one isolated virtual profile per physical tuner, with optional SiliconDust and SSDP discovery
 - **XMLTV endpoint** — `/api/xmltv` for external media servers to pull the guide file directly
 - **Versioned status API** — `/api/v1/status` provides one stable guide, device, tuner, and stream snapshot for Home Assistant and other dashboards
-- **SQLite caching** — EPG data stored locally with automatic cleanup of expired entries
+- **Authoritative SQLite storage** — physical channels, enabled preferences, normalized EPG data, and configurable guide history are stored locally
 
 ## Installing Lineup on Windows
 
@@ -180,7 +180,7 @@ Running Docker directly inside a WSL distribution, Podman Desktop, and Rancher D
 |---|---|
 | `Lineup.HDHomeRun.Device` | Local device communication — discovery, channel lineup, native binary protocol |
 | `Lineup.HDHomeRun.Api` | Remote API client — downloads XMLTV guide data from `api.hdhomerun.com` |
-| `Lineup.Core` | Core business logic — XMLTV import, orchestration, and normalized caching (EF Core + SQLite) |
+| `Lineup.Core` | Core business logic — XMLTV import, orchestration, and authoritative normalized storage (EF Core + SQLite) |
 | `Lineup.Web` | Blazor Server web app — dashboard, EPG guide viewer, settings, live TV |
 | `Lineup.Tui` | Terminal UI — interactive menu using Spectre.Console |
 
@@ -221,7 +221,7 @@ dotnet run
 Configure the TUI via environment variables:
 
 - `Lineup__DeviceAddress` — HDHomeRun device IP or hostname
-- `Lineup__DatabasePath` — path to the SQLite cache database
+- `Lineup__DatabasePath` — path to the authoritative SQLite channel and guide database
 
 ### Building and running with Docker
 
@@ -300,7 +300,7 @@ All settings are configurable through the web UI's settings page and persisted t
 | Setting | Description |
 |---|---|
 | Device Address | HDHomeRun device IP or hostname |
-| XMLTV Output Path | Where to publish and serve the canonical SiliconDust XMLTV document. The default is `/xmltv/epg.xml`. Enter a path directly or use the server directory browser. `Lineup:XmltvPath` optionally overrides the default for new settings and remains available as the reset value; the saved setting is authoritative afterward. |
+| XMLTV Output Path | Where to publish and serve XMLTV generated from SQLite. The default is `/xmltv/epg.xml`. Enter a path directly or use the server directory browser. `Lineup:XmltvPath` optionally overrides the default for new settings and remains available as the reset value; the saved setting is authoritative afterward. |
 | Automatic Guide Refresh | Enables randomized refreshes every 20-28 hours; availability is 2 days or 14 days with a DVR subscription |
 | Virtual Tuner Audio | Preserve non-AC-4 audio codecs, or transcode those tracks to AC-3/E-AC-3 |
 | AC-4 Audio | Preserve AC-4, or transcode it to AC-3 (default) or E-AC-3 |
@@ -342,11 +342,13 @@ sensor:
     scan_interval: 30
 ```
 
-The Settings **Reset** tab can stage default settings for review or perform a Factory Reset. Factory Reset removes Lineup-owned settings, guide database, canonical XMLTV cache, rolling logs, configured XMLTV output, and transient stream files during a graceful restart. The browser displays a blocking restart screen and returns to Device setup after detecting the new Lineup instance. XMLTV files configured outside Lineup-owned storage are preserved. A service supervisor such as Docker's `restart: unless-stopped` must restart the process after reset.
+The Settings **Reset** tab can stage default settings for review or perform a Factory Reset. Factory Reset removes Lineup-owned settings, the channel and guide database, rolling logs, configured XMLTV output, and transient stream files during a graceful restart. The browser displays a blocking restart screen and returns to Device setup after detecting the new Lineup instance. XMLTV files configured outside Lineup-owned storage are preserved. A service supervisor such as Docker's `restart: unless-stopped` must restart the process after reset.
 
-Lineup-owned persistent data defaults to `/appdata`. The optional `Lineup:AppDataPath` setting overrides that root for custom deployments. This data includes settings and backups, the SQLite guide database and canonical cache, rolling logs, ASP.NET Core Data Protection keys, and the restart-safe Factory Reset marker.
+Lineup-owned persistent data defaults to `/appdata`. The optional `Lineup:AppDataPath` setting overrides that root for custom deployments. This data includes settings and backups, the authoritative SQLite channel and guide database, rolling logs, ASP.NET Core Data Protection keys, and the restart-safe Factory Reset marker.
 
-Transient HLS segments and subtitle sidecars default to `/transient`. The optional `Lineup:TransientPath` setting (environment variable `Lineup__TransientPath`) overrides this location. The Compose files mount a `transient` named volume at `/transient`, matching the `appdata` and `xmltv` volume conventions. Custom deployments can replace that named-volume mount with a memory-backed bind mount or Compose `tmpfs`, or with disk-backed storage when transient data must not consume system memory.
+Transient HLS segments and subtitle sidecars default to `/transient`. When `Lineup:AppDataPath` is configured but `Lineup:TransientPath` is not, Lineup uses a `lineup` directory beneath the operating system's temporary path so existing standalone installations remain writable after upgrade without placing stream artifacts in persistent application data. The optional `Lineup:TransientPath` setting (environment variable `Lineup__TransientPath`) overrides either default. The Compose files mount a `transient` named volume at `/transient`, matching the `appdata` and `xmltv` volume conventions. Custom deployments can replace that named-volume mount with a memory-backed bind mount or Compose `tmpfs`, or with disk-backed storage when transient data must not consume system memory.
+
+Lineup routes application-owned files through explicit storage boundaries. `AppDataStore` owns persistent settings, database, reset, and log artifacts; `TransientDataStore` owns disposable HLS and subtitle workspaces; and `XmltvPublicationStore` owns the configured public XMLTV destination, including destinations outside app-data. Browser preferences remain client-local through `BrowserDataStore`. Framework and process infrastructure such as SQLite, Serilog sinks, Data Protection, and FFmpeg continue to receive managed paths and perform their own I/O.
 
 The 2.0 Compose files rename the `config` volume to `appdata` and mount it at `/appdata`. Existing installations must preserve their data during the upgrade. Either copy the contents of the old named volume into the new `appdata` volume, or configure the `appdata` volume's `name` property to reference the existing Docker volume. Bind-mount users can mount the same host directory at `/appdata`. Starting 2.0 with a new empty volume begins with a new Lineup installation.
 
@@ -414,10 +416,11 @@ available at the legacy root endpoints:
 Additional profiles use the stable path `/hdhomerun/{virtualDeviceId}/`. Their discovery, lineup, device description, and stream URLs all remain under that
 path. The Settings page displays copyable manual setup URLs for each enabled profile and the XMLTV guide URL at `/api/xmltv`.
 
-Guide downloads concatenate the current `DeviceAuth` values from every enabled physical profile, allowing one canonical XMLTV document to cover all
-configured tuners. The downloaded guide is filtered to the union of channels currently returned by those tuners. Use **Refresh Channels** on the
-Dashboard to update the persisted tuner-lineup snapshot independently, or enable the guide-fetch option that refreshes channels first. A guide fetch
-applies the saved snapshot without otherwise querying the tuners. Channels disabled on the Channels page remain visible in Lineup's Channels and Guide
+Guide downloads concatenate the current `DeviceAuth` values from every enabled physical profile, allowing one XMLTV snapshot to cover all configured
+tuners. The downloaded guide is filtered to the union of channels currently returned by those tuners and imported transactionally into SQLite. Use
+**Refresh Channels** on the Dashboard to update the persisted tuner lineup independently, or enable the guide-fetch option that refreshes channels first.
+A guide fetch applies the saved snapshot without otherwise querying the tuners. Past programmes are retained for 24 hours by default, configurable under
+**Settings → Guide & XMLTV**. Channels disabled on the Channels page remain visible in Lineup's Channels and Guide
 pages, but are excluded from published XMLTV and virtual JSON, XML, and M3U lineups. Their MPEG-TS, fMP4, and HLS URLs return an error by default or a
 synthetic slate when configured. Disabled choices survive tuner refreshes by guide number, and newly discovered channels start enabled. `DeviceAuth`
 is read immediately before every request because SiliconDust rotates it regularly.

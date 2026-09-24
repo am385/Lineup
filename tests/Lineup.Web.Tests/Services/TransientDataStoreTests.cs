@@ -6,9 +6,9 @@ using Xunit;
 namespace Lineup.Web.Tests.Services;
 
 /// <summary>
-/// Verifies transient stream path configuration.
+/// Verifies transient data path configuration.
 /// </summary>
-public class TransientStreamStoreTests
+public class TransientDataStoreTests
 {
     /// <summary>
     /// Verifies the configured transient path controls HLS and subtitle roots.
@@ -25,7 +25,7 @@ public class TransientStreamStoreTests
         }).Build();
 
         // Act
-        var store = TransientStreamStore.Create(configuration);
+        var store = TransientDataStore.Create(configuration);
 
         // Assert
         Assert.Equal(Path.GetFullPath(configuredPath), store.RootPath);
@@ -52,9 +52,29 @@ public class TransientStreamStoreTests
         }).Build();
 
         // Act
-        var rootPath = TransientStreamStore.ResolveRootPath(configuration);
+        var rootPath = TransientDataStore.ResolveRootPath(configuration);
 
         // Assert
         Assert.Equal(AppConstants.DefaultTransientPath, rootPath);
+    }
+
+    /// <summary>
+    /// Verifies an existing custom app-data configuration provides a writable transient fallback during upgrade.
+    /// </summary>
+    [Fact]
+    public void ResolveRootPath_OnlyAppDataPathConfigured_UsesSystemTemporaryDirectory()
+    {
+        // Arrange
+        var appDataPath = Path.Combine(Path.GetTempPath(), "lineup-existing-appdata");
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            [AppConstants.AppDataPathConfigKey] = appDataPath
+        }).Build();
+
+        // Act
+        var rootPath = TransientDataStore.ResolveRootPath(configuration);
+
+        // Assert
+        Assert.Equal(Path.Combine(Path.GetTempPath(), "lineup"), rootPath);
     }
 }

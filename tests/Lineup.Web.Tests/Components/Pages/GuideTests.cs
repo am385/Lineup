@@ -34,7 +34,7 @@ public class GuideTests
         timeZoneService.Now.Returns(DateTime.Now);
         context.Services.AddSingleton(repository);
         context.Services.AddSingleton(timeZoneService);
-        context.Services.AddSingleton(new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-guide-{Guid.NewGuid():N}.json")));
+        context.Services.AddSingleton(new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-guide-{Guid.NewGuid():N}.db")));
         context.JSInterop.Mode = JSRuntimeMode.Loose;
 
         // Act
@@ -64,7 +64,7 @@ public class GuideTests
         timeZoneService.Now.Returns(DateTime.Now);
         context.Services.AddSingleton(repository);
         context.Services.AddSingleton(timeZoneService);
-        context.Services.AddSingleton(new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-guide-{Guid.NewGuid():N}.json")));
+        context.Services.AddSingleton(new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-guide-{Guid.NewGuid():N}.db")));
         context.JSInterop.Mode = JSRuntimeMode.Loose;
 
         // Act
@@ -92,7 +92,7 @@ public class GuideTests
         var timeZoneService = Substitute.For<ITimeZoneService>();
         timeZoneService.Today.Returns(DateTime.Today);
         timeZoneService.Now.Returns(DateTime.Now);
-        var store = new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-guide-{Guid.NewGuid():N}.json"));
+        var store = new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-guide-{Guid.NewGuid():N}.db"));
         await store.StoreAsync(
             [new Lineup.HDHomeRun.Device.Models.HDHomeRunChannel { GuideNumber = "9.1", GuideName = "Disabled", URL = "http://device/auto/v9.1" }],
             Xunit.TestContext.Current.CancellationToken);

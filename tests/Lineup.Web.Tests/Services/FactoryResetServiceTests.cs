@@ -22,12 +22,10 @@ public class FactoryResetServiceTests
         var root = Directory.CreateTempSubdirectory("lineup-factory-reset-");
         var configDirectory = root.CreateSubdirectory("config");
         var xmltvDirectory = root.CreateSubdirectory("xmltv");
-        var transientStore = new TransientStreamStore(root.CreateSubdirectory("transient").FullName);
+        var transientStore = new TransientDataStore(root.CreateSubdirectory("transient").FullName);
         var externalDirectory = root.CreateSubdirectory("external");
         var settingsPath = Path.Combine(configDirectory.FullName, AppConstants.SettingsFileName);
         var databasePath = Path.Combine(configDirectory.FullName, AppConstants.DefaultDatabaseFileName);
-        var cachePath = Path.ChangeExtension(databasePath, ".xmltv");
-        var channelLineupPath = Path.ChangeExtension(databasePath, ".channels.json");
         var configuredOutputPath = Path.Combine(xmltvDirectory.FullName, AppConstants.DefaultXmltvFileName);
         var externalOutputPath = Path.Combine(externalDirectory.FullName, "keep.xml");
         var logDirectory = configDirectory.CreateSubdirectory(AppConstants.LogDirectoryName);
@@ -42,11 +40,7 @@ public class FactoryResetServiceTests
             databasePath,
             $"{databasePath}-wal",
             $"{databasePath}-shm",
-            cachePath,
-            $"{cachePath}.generation",
-            channelLineupPath,
-            configuredOutputPath,
-            $"{configuredOutputPath}.generation"
+            configuredOutputPath
         };
         foreach (var path in ownedFiles)
         {
@@ -82,7 +76,7 @@ public class FactoryResetServiceTests
         var root = Directory.CreateTempSubdirectory("lineup-factory-reset-");
         var configDirectory = root.CreateSubdirectory("config");
         var xmltvDirectory = root.CreateSubdirectory("xmltv");
-        var transientStore = new TransientStreamStore(root.CreateSubdirectory("transient").FullName);
+        var transientStore = new TransientDataStore(root.CreateSubdirectory("transient").FullName);
         var persistedOutputPath = Path.Combine(xmltvDirectory.FullName, "custom.xml");
         await File.WriteAllTextAsync(persistedOutputPath, "guide", TestContext.Current.CancellationToken);
         await FactoryResetCoordinator.WriteRequestAsync(configDirectory.FullName, new FactoryResetRequest { PersistedXmltvOutputPath = persistedOutputPath }, TestContext.Current.CancellationToken);
@@ -93,6 +87,29 @@ public class FactoryResetServiceTests
         // Assert
         Assert.True(resetApplied);
         Assert.False(File.Exists(persistedOutputPath));
+        root.Delete(recursive: true);
+    }
+
+    /// <summary>
+    /// Verifies restart cleanup succeeds when the configured XMLTV directory is already absent.
+    /// </summary>
+    [Fact]
+    public async Task ApplyPendingReset_MissingConfiguredXmltvDirectory_CompletesReset()
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-factory-reset-");
+        var configDirectory = root.CreateSubdirectory("config");
+        var missingXmltvDirectory = Path.Combine(root.FullName, "missing-xmltv");
+        var transientStore = new TransientDataStore(root.CreateSubdirectory("transient").FullName);
+        await FactoryResetCoordinator.WriteRequestAsync(configDirectory.FullName, new FactoryResetRequest(), TestContext.Current.CancellationToken);
+
+        // Act
+        var resetApplied = FactoryResetCoordinator.ApplyPendingReset(configDirectory.FullName, missingXmltvDirectory, transientStore);
+
+        // Assert
+        Assert.True(resetApplied);
+        Assert.False(File.Exists(Path.Combine(configDirectory.FullName, FactoryResetCoordinator.RequestFileName)));
+        Assert.False(Directory.Exists(missingXmltvDirectory));
         root.Delete(recursive: true);
     }
 
@@ -124,17 +141,18 @@ public class FactoryResetServiceTests
     /// Verifies transient cleanup removes only directories whose process owner is proven inactive.
     /// </summary>
     [Fact]
-    public void DeleteInactiveTransientDirectories_MixedOwnerStates_DeletesOnlyInactiveOwner()
+    public void DeleteInactiveOwnerDirectories_MixedOwnerStates_DeletesOnlyInactiveOwner()
     {
         // Arrange
         var root = Directory.CreateTempSubdirectory("lineup-transient-cleanup-");
-        var inactive = root.CreateSubdirectory("inactive");
-        var active = root.CreateSubdirectory("active");
-        var unknown = root.CreateSubdirectory("unknown");
+        var store = new TransientDataStore(root.FullName);
+        var hlsRoot = Directory.CreateDirectory(store.HlsRootPath);
+        var inactive = hlsRoot.CreateSubdirectory("inactive");
+        var active = hlsRoot.CreateSubdirectory("active");
+        var unknown = hlsRoot.CreateSubdirectory("unknown");
 
         // Act
-        FactoryResetCoordinator.DeleteInactiveTransientDirectories(
-            root.FullName,
+        store.DeleteInactiveOwnerDirectories(
             name => name switch
             {
                 "inactive" => TransientDirectoryOwnerStatus.Inactive,
@@ -153,15 +171,16 @@ public class FactoryResetServiceTests
     /// Verifies transient cleanup applies the same owner policy to HLS and subtitle process directories.
     /// </summary>
     [Fact]
-    public void DeleteInactiveTransientState_InactiveOwners_RemovesHlsAndSubtitleDirectories()
+    public void DeleteInactiveOwnerDirectories_InactiveOwners_RemovesHlsAndSubtitleDirectories()
     {
         // Arrange
         var root = Directory.CreateTempSubdirectory("lineup-transient-state-");
-        var hlsDirectory = root.CreateSubdirectory(TransientDirectoryOwnership.HlsDirectoryName).CreateSubdirectory("inactive");
-        var subtitleDirectory = root.CreateSubdirectory(SubtitleSidecarService.DirectoryName).CreateSubdirectory("inactive");
+        var store = new TransientDataStore(root.FullName);
+        var hlsDirectory = Directory.CreateDirectory(store.HlsRootPath).CreateSubdirectory("inactive");
+        var subtitleDirectory = Directory.CreateDirectory(store.SubtitleRootPath).CreateSubdirectory("inactive");
 
         // Act
-        FactoryResetCoordinator.DeleteInactiveTransientState(root.FullName, _ => TransientDirectoryOwnerStatus.Inactive);
+        store.DeleteInactiveOwnerDirectories(_ => TransientDirectoryOwnerStatus.Inactive);
 
         // Assert
         Assert.False(hlsDirectory.Exists);

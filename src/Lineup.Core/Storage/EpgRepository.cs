@@ -28,8 +28,7 @@ public class EpgRepository : IEpgRepository
     /// </summary>
     public async Task EnsureDatabaseCreatedAsync()
     {
-        await _context.Database.EnsureCreatedAsync();
-        await EnsureChannelMetadataColumnsAsync();
+        await EpgDatabaseSchema.EnsureAsync(_context);
         _logger.LogDebug("Database ensured created");
     }
 
@@ -197,11 +196,10 @@ public class EpgRepository : IEpgRepository
             .GroupBy(segment => segment.GuideNumber!, StringComparer.OrdinalIgnoreCase)
             .Select(group => group.First())
             .ToArray();
-
+        await EpgDatabaseSchema.EnsureAsync(_context, cancellationToken);
         await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
         await _context.Programs.ExecuteDeleteAsync(cancellationToken);
         await _context.Channels.ExecuteDeleteAsync(cancellationToken);
-
         var fetchedAt = DateTime.UtcNow;
         _context.Channels.AddRange(segmentList.Select(segment => new StoredChannel
         {
@@ -213,17 +211,119 @@ public class EpgRepository : IEpgRepository
             Favorite = segment.Favorite,
             LastUpdatedUtc = fetchedAt
         }));
-        _context.Programs.AddRange(segmentList.SelectMany(segment =>
-            segment.Guide.Select(program => MapToEntity(program, segment.GuideNumber!))));
+        _context.Programs.AddRange(segmentList.SelectMany(segment => segment.Guide.Select(program => MapToEntity(program, segment.GuideNumber!))));
+        await _context.SaveChangesAsync(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        await transaction.CommitAsync(CancellationToken.None);
+    }
 
+    /// <inheritdoc />
+    public async Task ImportGuideAsync(IEnumerable<HDHomeRunChannelEpgSegment> segments, TimeSpan historyRetention, CancellationToken cancellationToken = default)
+    {
+        if (historyRetention < TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(historyRetention), "Guide history retention cannot be negative.");
+        }
+
+        await EpgDatabaseSchema.EnsureAsync(_context, cancellationToken);
+        var segmentList = segments
+            .Where(segment => !string.IsNullOrWhiteSpace(segment.GuideNumber))
+            .GroupBy(segment => segment.GuideNumber!, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First() with
+            {
+                GuideNumber = group.Key.Trim(),
+                Guide = group.SelectMany(segment => segment.Guide)
+                    .GroupBy(program => CreateProgramKey(group.Key.Trim(), program))
+                    .Select(programs => programs.First())
+                    .OrderBy(program => program.StartTime)
+                    .ToList()
+            })
+            .ToArray();
+        var incomingPrograms = segmentList.SelectMany(segment => segment.Guide.Select(program => (GuideNumber: segment.GuideNumber!, Program: program))).ToArray();
+        if (incomingPrograms.Length == 0)
+        {
+            throw new InvalidDataException("The guide snapshot did not contain any programmes.");
+        }
+
+        await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+        var importedAt = DateTime.UtcNow;
+        var importId = Guid.NewGuid().ToString("N");
+        var coverageStart = incomingPrograms.Min(item => item.Program.StartTime);
+        var coverageEnd = incomingPrograms.Max(item => item.Program.EndTime);
+        var guideImport = new StoredGuideImport
+        {
+            Id = importId,
+            StartedUtc = importedAt,
+            CoverageStart = coverageStart,
+            CoverageEnd = coverageEnd,
+            ChannelCount = segmentList.Length,
+            ProgramCount = incomingPrograms.Length
+        };
+        _context.GuideImports.Add(guideImport);
+
+        var storedChannels = await _context.Channels.ToDictionaryAsync(channel => channel.GuideNumber, StringComparer.OrdinalIgnoreCase, cancellationToken);
+        foreach (var segment in segmentList)
+        {
+            if (!storedChannels.TryGetValue(segment.GuideNumber!, out var channel))
+            {
+                channel = new StoredChannel { GuideNumber = segment.GuideNumber! };
+                _context.Channels.Add(channel);
+                storedChannels.Add(segment.GuideNumber!, channel);
+            }
+
+            channel.GuideName = segment.GuideName;
+            channel.Affiliate = segment.Affiliate;
+            channel.ImageURL = segment.ImageURL;
+            channel.DRM = segment.DRM;
+            channel.Favorite = segment.Favorite;
+            channel.LastUpdatedUtc = importedAt;
+            channel.LastSeenImportId = importId;
+        }
+
+        var storedPrograms = await _context.Programs
+            .Where(program => program.EndTime >= coverageStart && program.StartTime <= coverageEnd)
+            .ToListAsync(cancellationToken);
+        var storedProgramsByKey = storedPrograms
+            .GroupBy(CreateProgramKey)
+            .ToDictionary(group => group.Key, group => group.First());
+        foreach (var incoming in incomingPrograms)
+        {
+            var key = CreateProgramKey(incoming.GuideNumber, incoming.Program);
+            if (!storedProgramsByKey.TryGetValue(key, out var stored))
+            {
+                stored = MapToEntity(incoming.Program, incoming.GuideNumber);
+                _context.Programs.Add(stored);
+                storedProgramsByKey.Add(key, stored);
+            }
+            else
+            {
+                UpdateEntity(stored, incoming.Program, incoming.GuideNumber);
+            }
+
+            stored.FetchedAtUtc = importedAt;
+            stored.LastSeenImportId = importId;
+        }
+
+        await _context.SaveChangesAsync(cancellationToken);
+        var nowUnix = new DateTimeOffset(importedAt).ToUnixTimeSeconds();
+        var historyCutoff = new DateTimeOffset(importedAt.Subtract(historyRetention)).ToUnixTimeSeconds();
+        await _context.Programs
+            .Where(program => program.EndTime < historyCutoff ||
+                              (program.EndTime >= nowUnix &&
+                               program.EndTime >= coverageStart &&
+                               program.StartTime <= coverageEnd &&
+                               program.LastSeenImportId != importId))
+            .ExecuteDeleteAsync(cancellationToken);
+        guideImport.CompletedUtc = DateTime.UtcNow;
         await _context.SaveChangesAsync(cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         await transaction.CommitAsync(CancellationToken.None);
 
         _logger.LogInformation(
-            "Replaced the guide cache with {ChannelCount} channels and {ProgramCount} programmes",
+            "Committed authoritative guide import {ImportId} with {ChannelCount} channels and {ProgramCount} programmes",
+            importId,
             segmentList.Length,
-            segmentList.Sum(segment => segment.Guide.Count));
+            incomingPrograms.Length);
     }
 
     /// <summary>
@@ -413,23 +513,13 @@ public class EpgRepository : IEpgRepository
 
     private static StoredProgram MapToEntity(HDHomeRunProgram program, string guideNumber)
     {
-        return new StoredProgram
+        var entity = new StoredProgram
         {
             GuideNumber = guideNumber,
-            Title = program.Title,
-            EpisodeTitle = program.EpisodeTitle,
-            Synopsis = program.Synopsis,
-            StartTime = program.StartTime,
-            EndTime = program.EndTime,
-            ImageURL = program.ImageURL,
-            PosterURL = program.PosterURL,
-            EpisodeNumber = program.EpisodeNumber,
-            OriginalAirdate = program.OriginalAirdate,
-            First = program.First,
-            SeriesID = program.SeriesID,
-            Filter = program.Filter != null ? string.Join(",", program.Filter) : null,
             FetchedAtUtc = DateTime.UtcNow
         };
+        UpdateEntity(entity, program, guideNumber);
+        return entity;
     }
 
     private static HDHomeRunChannelEpgSegment MapToChannelSegment(StoredChannel entity)
@@ -446,51 +536,31 @@ public class EpgRepository : IEpgRepository
         };
     }
 
-    private async Task EnsureChannelMetadataColumnsAsync()
+    private static void UpdateEntity(StoredProgram entity, HDHomeRunProgram program, string guideNumber)
     {
-        var connection = _context.Database.GetDbConnection();
-        var shouldClose = connection.State != System.Data.ConnectionState.Open;
-        if (shouldClose)
-        {
-            await connection.OpenAsync();
-        }
-
-        try
-        {
-            await using var schemaCommand = connection.CreateCommand();
-            schemaCommand.CommandText = "PRAGMA table_info('Channels')";
-            await using var reader = await schemaCommand.ExecuteReaderAsync();
-            var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            while (await reader.ReadAsync())
-            {
-                columns.Add(reader.GetString(1));
-            }
-
-            await reader.DisposeAsync();
-            if (!columns.Contains(nameof(StoredChannel.DRM)))
-            {
-                await using var alterCommand = connection.CreateCommand();
-                alterCommand.CommandText = "ALTER TABLE Channels ADD COLUMN DRM INTEGER NOT NULL DEFAULT 0";
-                await alterCommand.ExecuteNonQueryAsync();
-                _logger.LogInformation("Added DRM metadata column to the channel cache");
-            }
-
-            if (!columns.Contains(nameof(StoredChannel.Favorite)))
-            {
-                await using var alterCommand = connection.CreateCommand();
-                alterCommand.CommandText = "ALTER TABLE Channels ADD COLUMN Favorite INTEGER NOT NULL DEFAULT 0";
-                await alterCommand.ExecuteNonQueryAsync();
-                _logger.LogInformation("Added favorite metadata column to the channel cache");
-            }
-        }
-        finally
-        {
-            if (shouldClose)
-            {
-                await connection.CloseAsync();
-            }
-        }
+        entity.GuideNumber = guideNumber;
+        entity.Title = program.Title;
+        entity.EpisodeTitle = program.EpisodeTitle;
+        entity.Synopsis = program.Synopsis;
+        entity.StartTime = program.StartTime;
+        entity.EndTime = program.EndTime;
+        entity.ImageURL = program.ImageURL;
+        entity.PosterURL = program.PosterURL;
+        entity.EpisodeNumber = program.EpisodeNumber;
+        entity.OriginalAirdate = program.OriginalAirdate;
+        entity.First = program.First;
+        entity.SeriesID = program.SeriesID;
+        entity.Filter = program.Filter != null ? string.Join(",", program.Filter) : null;
     }
+
+    private static string CreateProgramKey(StoredProgram program) =>
+        CreateProgramKey(program.GuideNumber, program.StartTime, program.EndTime, program.Title);
+
+    private static string CreateProgramKey(string guideNumber, HDHomeRunProgram program) =>
+        CreateProgramKey(guideNumber, program.StartTime, program.EndTime, program.Title);
+
+    private static string CreateProgramKey(string guideNumber, long startTime, long endTime, string? title) =>
+        $"{guideNumber.ToUpperInvariant()}\u001f{startTime}\u001f{endTime}\u001f{title}";
 
     private static HDHomeRunProgram MapToProgram(StoredProgram entity)
     {

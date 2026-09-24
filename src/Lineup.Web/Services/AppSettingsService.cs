@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Lineup.Core;
+using Lineup.Core.Storage;
 
 namespace Lineup.Web.Services;
 
@@ -161,6 +162,7 @@ public class AppSettings
     private bool? _enableHdHomeRunProxy;
     private string? _xmltvOutputPath;
     private int _targetDays = 2;
+    private int _epgHistoryRetentionHours = 24;
     private int _deviceRefreshIntervalMinutes = 10;
     private int _tunerRefreshIntervalSeconds = 30;
     private int _activeStreamRefreshIntervalSeconds = 5;
@@ -180,6 +182,15 @@ public class AppSettings
     {
         get => _targetDays;
         set => _targetDays = Math.Max(1, value); // Minimum 1 day
+    }
+
+    /// <summary>
+    /// Number of hours of ended programme history retained in SQLite.
+    /// </summary>
+    public int EpgHistoryRetentionHours
+    {
+        get => _epgHistoryRetentionHours;
+        set => _epgHistoryRetentionHours = Math.Clamp(value, 0, 24 * 30);
     }
 
     /// <summary>
@@ -566,10 +577,10 @@ public interface IAppSettingsService
 /// <summary>
 /// File-based implementation of settings service.
 /// </summary>
-public class AppSettingsService : IAppSettingsService
+public class AppSettingsService : IAppSettingsService, IEpgRetentionPolicy
 {
     private readonly ILogger<AppSettingsService> _logger;
-    private readonly AppDataStore _appDataStore;
+    private readonly IAppDataStore _appDataStore;
     private readonly string _configuredXmltvOutputPath;
     private readonly SemaphoreSlim _lock = new(1, 1);
     private bool _preserveBackupOnNextSave;
@@ -589,13 +600,16 @@ public class AppSettingsService : IAppSettingsService
     /// <inheritdoc />
     public event Action? OnSettingsChanged;
 
+    /// <inheritdoc />
+    public TimeSpan HistoryRetention => TimeSpan.FromHours(Settings.EpgHistoryRetentionHours);
+
     /// <summary>
     /// Initializes a settings service backed by the specified JSON file.
     /// </summary>
     /// <param name="logger">Logger used for persistence diagnostics.</param>
     /// <param name="appDataStore">Persistent application-data store.</param>
     /// <param name="configuration">Startup configuration containing the XMLTV output seed.</param>
-    public AppSettingsService(ILogger<AppSettingsService> logger, AppDataStore appDataStore, IConfiguration configuration)
+    public AppSettingsService(ILogger<AppSettingsService> logger, IAppDataStore appDataStore, IConfiguration configuration)
     {
         _logger = logger;
         _appDataStore = appDataStore;

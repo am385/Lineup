@@ -28,7 +28,10 @@ public partial class Dashboard : IDisposable
     private IDeviceStateService DeviceState { get; set; } = default!;
 
     [Inject]
-    private IJSRuntime JS { get; set; } = default!;
+    private IBrowserDataStore BrowserData { get; set; } = default!;
+
+    [Inject]
+    private IXmltvPublicationStore Publications { get; set; } = default!;
 
     [Inject]
     private IAppSettingsService SettingsService { get; set; } = default!;
@@ -122,18 +125,12 @@ public partial class Dashboard : IDisposable
 
         try
         {
-            var json = await JS.InvokeAsync<string?>("localStorage.getItem", SectionStateStorageKey);
+            var state = await BrowserData.ReadAsync<DashboardSectionState>(SectionStateStorageKey);
             if (_disposed)
             {
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(json))
-            {
-                return;
-            }
-
-            var state = JsonSerializer.Deserialize<DashboardSectionState>(json);
             if (state == null)
             {
                 return;
@@ -193,7 +190,7 @@ public partial class Dashboard : IDisposable
 
         try
         {
-            await JS.InvokeVoidAsync("localStorage.setItem", SectionStateStorageKey, JsonSerializer.Serialize(state));
+            await BrowserData.WriteAsync(SectionStateStorageKey, state);
         }
         catch (JSDisconnectedException ex)
         {
@@ -632,13 +629,6 @@ public partial class Dashboard : IDisposable
 
         try
         {
-            // Ensure directory exists if path contains directories
-            var directory = Path.GetDirectoryName(XmltvFilename);
-            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-
             await Orchestrator.GenerateEpgFromCacheAsync(_targetDays, XmltvFilename);
             CheckXmltvFileExists();
             _statusMessage = $"XMLTV generated to {XmltvFilename} successfully!";
@@ -741,7 +731,7 @@ public partial class Dashboard : IDisposable
 
     private void CheckXmltvFileExists()
     {
-        _xmltvFileExists = File.Exists(XmltvFilename);
+        _xmltvFileExists = Publications.Exists(XmltvFilename);
     }
 
     private void ClearStatus()

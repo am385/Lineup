@@ -35,7 +35,7 @@ public class WatchTests
         repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
         var settingsService = Substitute.For<IAppSettingsService>();
         settingsService.Settings.Returns(new AppSettings());
-        var channelStore = new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-watch-{Guid.NewGuid():N}.json"));
+        var channelStore = new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-watch-{Guid.NewGuid():N}.db"));
         await channelStore.StoreAsync(
         [
             new HDHomeRunChannel
@@ -287,6 +287,7 @@ public class WatchTests
         context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 3).SetResult(null);
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "2.1"));
         component.WaitForAssertion(() => Assert.NotNull(component.Find("#videoPlayer")));
+        component.WaitForAssertion(() => Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "initFmp4Player"));
         var streamUrl = LastStreamUrl(context);
         var clientIdStart = streamUrl.IndexOf("clientId=", StringComparison.Ordinal) + "clientId=".Length;
         var clientId = streamUrl[clientIdStart..].Split('&')[0];
@@ -336,6 +337,7 @@ public class WatchTests
         context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 3).SetResult(null);
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "2.1"));
         component.WaitForAssertion(() => Assert.NotNull(component.Find("#videoPlayer")));
+        component.WaitForAssertion(() => Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "initFmp4Player"));
         var streamUrl = LastStreamUrl(context);
         var clientIdStart = streamUrl.IndexOf("clientId=", StringComparison.Ordinal) + "clientId=".Length;
         var clientId = streamUrl[clientIdStart..].Split('&')[0];
@@ -845,7 +847,22 @@ public class WatchTests
         AddWatchRuntimeServices(
             context,
             activeStreamRegistry: registry,
-            preferencesJson: """{"Quality":0,"AudioOutput":0,"SubtitlesEnabled":true,"Subtitle":{"Language":null,"Title":"Closed Captions","SourceCodec":"eia_608","IsForced":false,"IsHearingImpaired":false,"IsEmbeddedClosedCaptions":true}}""");
+            preferencesJson:
+                """
+                {
+                  "Quality": 0,
+                  "AudioOutput": 0,
+                  "SubtitlesEnabled": true,
+                  "Subtitle": {
+                    "Language": null,
+                    "Title": "Closed Captions",
+                    "SourceCodec": "eia_608",
+                    "IsForced": false,
+                    "IsHearingImpaired": false,
+                    "IsEmbeddedClosedCaptions": true
+                  }
+                }
+                """);
         context.JSInterop.SetupVoid("stopMediaPlayer", "videoPlayer").SetVoidResult();
         context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 4).SetResult(null);
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "2.6"));
@@ -904,7 +921,22 @@ public class WatchTests
         AddWatchRuntimeServices(
             context,
             activeStreamRegistry: registry,
-            preferencesJson: """{"Quality":0,"AudioOutput":0,"SubtitlesEnabled":true,"Subtitle":{"Language":"eng","Title":"Previous","SourceCodec":"eia_608","IsForced":false,"IsHearingImpaired":false,"IsEmbeddedClosedCaptions":true}}""");
+            preferencesJson:
+                """
+                {
+                  "Quality": 0,
+                  "AudioOutput": 0,
+                  "SubtitlesEnabled": true,
+                  "Subtitle": {
+                    "Language": "eng",
+                    "Title": "Previous",
+                    "SourceCodec": "eia_608",
+                    "IsForced": false,
+                    "IsHearingImpaired": false,
+                    "IsEmbeddedClosedCaptions": true
+                  }
+                }
+                """);
         context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 4).SetResult(null);
 
         // Act
@@ -946,7 +978,22 @@ public class WatchTests
         AddWatchRuntimeServices(
             context,
             activeStreamRegistry: registry,
-            preferencesJson: """{"Quality":0,"AudioOutput":0,"SubtitlesEnabled":true,"Subtitle":{"Language":"eng","Title":"Closed Captions","SourceCodec":"eia_608","IsForced":false,"IsHearingImpaired":false,"IsEmbeddedClosedCaptions":true}}""");
+            preferencesJson:
+                """
+                {
+                  "Quality": 0,
+                  "AudioOutput": 0,
+                  "SubtitlesEnabled": true,
+                  "Subtitle": {
+                    "Language": "eng",
+                    "Title": "Closed Captions",
+                    "SourceCodec": "eia_608",
+                    "IsForced": false,
+                    "IsHearingImpaired": false,
+                    "IsEmbeddedClosedCaptions": true
+                  }
+                }
+                """);
         context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 3).SetResult(null);
 
         // Act
@@ -996,7 +1043,22 @@ public class WatchTests
         AddWatchRuntimeServices(
             context,
             activeStreamRegistry: registry,
-            preferencesJson: """{"Quality":0,"AudioOutput":0,"SubtitlesEnabled":true,"Subtitle":{"Language":"eng","Title":null,"SourceCodec":"subrip","IsForced":false,"IsHearingImpaired":false,"IsEmbeddedClosedCaptions":false}}""");
+            preferencesJson:
+                """
+                {
+                  "Quality": 0,
+                  "AudioOutput": 0,
+                  "SubtitlesEnabled": true,
+                  "Subtitle": {
+                    "Language": "eng",
+                    "Title": null,
+                    "SourceCodec": "subrip",
+                    "IsForced": false,
+                    "IsHearingImpaired": false,
+                    "IsEmbeddedClosedCaptions": false
+                  }
+                }
+                """);
         context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 4).SetResult(null);
 
         // Act
@@ -1041,7 +1103,22 @@ public class WatchTests
         AddWatchRuntimeServices(
             context,
             activeStreamRegistry: registry,
-            preferencesJson: """{"Quality":0,"AudioOutput":0,"SubtitlesEnabled":true,"Subtitle":{"Language":null,"Title":"CC","SourceCodec":"eia_608","IsForced":false,"IsHearingImpaired":false,"IsEmbeddedClosedCaptions":true}}""");
+            preferencesJson:
+                """
+                {
+                  "Quality": 0,
+                  "AudioOutput": 0,
+                  "SubtitlesEnabled": true,
+                  "Subtitle": {
+                    "Language": null,
+                    "Title": "CC",
+                    "SourceCodec": "eia_608",
+                    "IsForced": false,
+                    "IsHearingImpaired": false,
+                    "IsEmbeddedClosedCaptions": true
+                  }
+                }
+                """);
         context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 4).SetResult(null);
 
         // Act
@@ -1421,6 +1498,7 @@ public class WatchTests
         ChannelLineupStore? channelStore = null,
         string? preferencesJson = null)
     {
+        BunitContext.DefaultWaitTimeout = TimeSpan.FromSeconds(5);
         if (deviceState == null)
         {
             deviceState = Substitute.For<IDeviceStateService>();
@@ -1429,7 +1507,8 @@ public class WatchTests
 
         context.Services.AddSingleton(deviceState);
         context.Services.AddSingleton(activeStreamRegistry ?? new ActiveStreamRegistry());
-        context.Services.AddSingleton(channelStore ?? new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-watch-{Guid.NewGuid():N}.json")));
+        context.Services.AddSingleton(channelStore ?? CreateEmptyChannelStore());
+        context.Services.AddScoped<IBrowserDataStore, BrowserDataStore>();
         context.JSInterop.Setup<string?>("localStorage.getItem", PreferencesStorageKey).SetResult(preferencesJson);
         context.JSInterop.SetupVoid("localStorage.setItem", _ => true).SetVoidResult();
     }
@@ -1445,4 +1524,11 @@ public class WatchTests
 
     private static string LastStreamUrl(BunitContext context) =>
         Assert.IsType<string>(context.JSInterop.Invocations.Last(item => item.Identifier == "initFmp4Player").Arguments[1]);
+
+    private static ChannelLineupStore CreateEmptyChannelStore()
+    {
+        var store = new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-watch-{Guid.NewGuid():N}.db"));
+        _ = store.ReadAsync(Xunit.TestContext.Current.CancellationToken).GetAwaiter().GetResult();
+        return store;
+    }
 }

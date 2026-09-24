@@ -157,4 +157,58 @@ public class EpgRepositoryChannelTests
         var channel = Assert.Single(await repository.GetChannelsAsync());
         Assert.Equal("2.1", channel.GuideNumber);
     }
+
+    /// <summary>
+    /// Verifies authoritative imports retain recent history, prune expired history, and replace stale future schedules.
+    /// </summary>
+    [Fact]
+    public async Task ImportGuideAsync_ReconcilesFutureAndRetainsConfiguredHistory()
+    {
+        // Arrange
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        var options = new DbContextOptionsBuilder<EpgDbContext>().UseSqlite(connection).Options;
+        await using var context = new EpgDbContext(options);
+        var repository = new EpgRepository(context, NullLogger<EpgRepository>.Instance);
+        await repository.EnsureDatabaseCreatedAsync();
+        var now = DateTimeOffset.UtcNow;
+        await repository.StoreRawSegmentAsync(
+        [
+            new HDHomeRunChannelEpgSegment
+            {
+                GuideNumber = "7.1",
+                GuideName = "Channel",
+                Guide =
+                [
+                    CreateProgram("Expired", now.AddHours(-30), now.AddHours(-29)),
+                    CreateProgram("Recent", now.AddHours(-2), now.AddHours(-1)),
+                    CreateProgram("Stale Future", now.AddHours(1), now.AddHours(2))
+                ]
+            }
+        ]);
+        var replacement = new HDHomeRunChannelEpgSegment
+        {
+            GuideNumber = "7.1",
+            GuideName = "Channel",
+            Guide = [CreateProgram("Updated Future", now.AddHours(1), now.AddHours(2))]
+        };
+
+        // Act
+        await repository.ImportGuideAsync([replacement], TimeSpan.FromHours(24), TestContext.Current.CancellationToken);
+
+        // Assert
+        var titles = (await repository.GetProgramsAsync()).Select(program => program.Title).ToArray();
+        Assert.Contains("Recent", titles);
+        Assert.Contains("Updated Future", titles);
+        Assert.DoesNotContain("Expired", titles);
+        Assert.DoesNotContain("Stale Future", titles);
+        Assert.Single(await context.GuideImports.Where(import => import.CompletedUtc != null).ToListAsync(TestContext.Current.CancellationToken));
+    }
+
+    private static HDHomeRunProgram CreateProgram(string title, DateTimeOffset start, DateTimeOffset end) => new()
+    {
+        Title = title,
+        StartTime = start.ToUnixTimeSeconds(),
+        EndTime = end.ToUnixTimeSeconds()
+    };
 }

@@ -10,33 +10,30 @@ public sealed class SubtitleSidecarService
     /// <summary>Gets the application-owned transient subtitle directory name.</summary>
     public const string DirectoryName = "lineup-subtitles";
 
+    private readonly ITransientDataStore _transientStore;
     private readonly string _root;
     private readonly ConcurrentDictionary<string, string> _sessions = new(StringComparer.Ordinal);
 
     /// <summary>Initializes an isolated store beneath the configured transient root.</summary>
-    /// <param name="transientStore">Configured transient stream store.</param>
-    public SubtitleSidecarService(TransientStreamStore transientStore)
-        : this(TransientDirectoryOwnership.CreateCurrentDirectory(transientStore.SubtitleRootPath))
+    /// <param name="transientStore">Configured transient data store.</param>
+    public SubtitleSidecarService(ITransientDataStore transientStore)
     {
+        _transientStore = transientStore;
+        _root = transientStore.ResetSubtitleWorkspace();
     }
 
     /// <summary>Initializes an isolated store and removes stale sidecars from the supplied test root.</summary>
     /// <param name="rootDirectory">Application-owned root used by tests.</param>
     internal SubtitleSidecarService(string rootDirectory)
+        : this(new TransientDataStore(rootDirectory))
     {
-        _root = Path.GetFullPath(rootDirectory);
-        if (Directory.Exists(_root))
-        {
-            Directory.Delete(_root, recursive: true);
-        }
-        Directory.CreateDirectory(_root);
     }
 
     /// <summary>Creates and registers a contained path for a validated session identifier.</summary>
     public string Create(string sessionId)
     {
         ValidateSessionId(sessionId);
-        var path = Path.Combine(_root, $"{sessionId}.vtt");
+        var path = _transientStore.GetFilePath(_root, $"{sessionId}.vtt");
         _sessions[sessionId] = path;
         return path;
     }
@@ -45,9 +42,7 @@ public sealed class SubtitleSidecarService
     public Stream? OpenRead(string sessionId)
     {
         ValidateSessionId(sessionId);
-        return _sessions.TryGetValue(sessionId, out var path) && File.Exists(path)
-            ? new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete)
-            : null;
+        return _sessions.TryGetValue(sessionId, out var path) ? _transientStore.OpenRead(path) : null;
     }
 
     /// <summary>Reads only bytes appended at or after the requested sidecar offset.</summary>
@@ -62,12 +57,16 @@ public sealed class SubtitleSidecarService
             throw new ArgumentOutOfRangeException(nameof(offset), "The subtitle offset cannot be negative.");
         }
 
-        if (!_sessions.TryGetValue(sessionId, out var path) || !File.Exists(path))
+        if (!_sessions.TryGetValue(sessionId, out var path))
         {
             return null;
         }
 
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var stream = _transientStore.OpenRead(path);
+        if (stream == null)
+        {
+            return null;
+        }
         var effectiveOffset = Math.Min(offset, stream.Length);
         stream.Position = effectiveOffset;
         var data = new byte[(int)Math.Min(stream.Length - effectiveOffset, 64 * 1024)];
@@ -81,7 +80,7 @@ public sealed class SubtitleSidecarService
         ValidateSessionId(sessionId);
         if (_sessions.TryRemove(sessionId, out var path))
         {
-            File.Delete(path);
+            _transientStore.DeleteFile(path);
         }
     }
 
@@ -89,11 +88,8 @@ public sealed class SubtitleSidecarService
     public void Clear()
     {
         _sessions.Clear();
-        if (Directory.Exists(_root))
-        {
-            Directory.Delete(_root, recursive: true);
-        }
-        Directory.CreateDirectory(_root);
+        _transientStore.DeleteDirectory(_root);
+        _ = _transientStore.ResetSubtitleWorkspace();
     }
 
     private static void ValidateSessionId(string sessionId)

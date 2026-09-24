@@ -13,6 +13,8 @@ public partial class Settings : IDisposable
     [Inject]
     private IAppSettingsService SettingsService { get; set; } = default!;
 
+    private readonly IFileSystemBrowser FileSystem = new FileSystemBrowser();
+
     [Inject]
     private NavigationManager Navigation { get; set; } = default!;
 
@@ -27,6 +29,7 @@ public partial class Settings : IDisposable
 
     private bool _autoFetchEnabled;
     private bool _refreshChannelsBeforeGuideFetch;
+    private int _epgHistoryRetentionHours;
     private string _deviceAddress = "";
     private int _deviceRefreshIntervalMinutes;
     private int _tunerRefreshIntervalSeconds;
@@ -105,6 +108,7 @@ public partial class Settings : IDisposable
     {
         _autoFetchEnabled = SettingsService.Settings.IsAutoFetchEnabled;
         _refreshChannelsBeforeGuideFetch = SettingsService.Settings.RefreshChannelsBeforeGuideFetch;
+        _epgHistoryRetentionHours = SettingsService.Settings.EpgHistoryRetentionHours;
         _deviceAddress = SettingsService.Settings.DeviceAddress;
         _deviceRefreshIntervalMinutes = SettingsService.Settings.DeviceRefreshIntervalMinutes;
         _tunerRefreshIntervalSeconds = SettingsService.Settings.TunerRefreshIntervalSeconds;
@@ -255,6 +259,13 @@ public partial class Settings : IDisposable
                 return;
             }
 
+            if (_epgHistoryRetentionHours is < 0 or > 720)
+            {
+                _statusMessage = "EPG history retention must be between 0 and 720 hours.";
+                _isError = true;
+                return;
+            }
+
             if (_enableFileLogging && (_fileLogRetentionDays is < 1 or > 90 || _fileLogSizeLimitMb is < 1 or > 500))
             {
                 _statusMessage = "Log retention must be 1-90 days and file size must be 1-500 MB.";
@@ -275,6 +286,7 @@ public partial class Settings : IDisposable
             {
                 settings.AutoFetchInterval = _autoFetchEnabled ? TimeSpan.FromHours(24) : TimeSpan.Zero;
                 settings.RefreshChannelsBeforeGuideFetch = _refreshChannelsBeforeGuideFetch;
+                settings.EpgHistoryRetentionHours = _epgHistoryRetentionHours;
                 if (!_autoFetchEnabled || !wasAutoFetchEnabled)
                 {
                     settings.NextAutoFetchTime = null;
@@ -382,6 +394,7 @@ public partial class Settings : IDisposable
         var defaults = new AppSettings();
         _autoFetchEnabled = defaults.IsAutoFetchEnabled;
         _refreshChannelsBeforeGuideFetch = defaults.RefreshChannelsBeforeGuideFetch;
+        _epgHistoryRetentionHours = defaults.EpgHistoryRetentionHours;
         _deviceAddress = defaults.DeviceAddress;
         _deviceRefreshIntervalMinutes = defaults.DeviceRefreshIntervalMinutes;
         _tunerRefreshIntervalSeconds = defaults.TunerRefreshIntervalSeconds;
@@ -676,9 +689,9 @@ public partial class Settings : IDisposable
         _directoryError = null;
         try
         {
-            var resolvedPath = GetResolvedPath(_xmltvOutputPath);
+            var resolvedPath = FileSystem.ResolvePath(_xmltvOutputPath);
             var directory = Path.GetDirectoryName(resolvedPath);
-            if (!string.IsNullOrEmpty(directory) && Directory.Exists(directory))
+            if (!string.IsNullOrEmpty(directory) && FileSystem.DirectoryExists(directory))
             {
                 _currentDirectory = directory;
                 _selectedFilename = Path.GetFileName(resolvedPath);
@@ -691,7 +704,7 @@ public partial class Settings : IDisposable
             _directoryError = "The current XMLTV path is invalid. Select a server directory and filename.";
         }
 
-        _currentDirectory = Directory.GetCurrentDirectory();
+        _currentDirectory = FileSystem.GetCurrentDirectory();
         _selectedFilename = AppConstants.DefaultXmltvFileName;
         LoadDirectories();
     }
@@ -706,7 +719,7 @@ public partial class Settings : IDisposable
         _directoryError = null;
         try
         {
-            _directories = Directory.GetDirectories(_currentDirectory).OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase).ToArray();
+            _directories = FileSystem.GetDirectories(_currentDirectory).ToArray();
         }
         catch (UnauthorizedAccessException)
         {
@@ -728,15 +741,15 @@ public partial class Settings : IDisposable
 
     private void NavigateUp()
     {
-        var parent = Directory.GetParent(_currentDirectory);
+        var parent = FileSystem.GetParent(_currentDirectory);
         if (parent != null)
         {
-            _currentDirectory = parent.FullName;
+            _currentDirectory = parent;
             LoadDirectories();
         }
     }
 
-    private bool CanNavigateUp => !string.IsNullOrEmpty(_currentDirectory) && Directory.GetParent(_currentDirectory) != null;
+    private bool CanNavigateUp => !string.IsNullOrEmpty(_currentDirectory) && FileSystem.GetParent(_currentDirectory) != null;
 
     private void SelectXmltvPath()
     {
@@ -761,18 +774,13 @@ public partial class Settings : IDisposable
 
             try
             {
-                return GetResolvedPath(_xmltvOutputPath);
+                return FileSystem.ResolvePath(_xmltvOutputPath);
             }
             catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
             {
                 return null;
             }
         }
-    }
-
-    private static string GetResolvedPath(string path)
-    {
-        return Path.IsPathRooted(path) ? Path.GetFullPath(path) : Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), path));
     }
 
     private bool ValidateProxyProfiles()

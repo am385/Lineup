@@ -214,7 +214,7 @@ public class DashboardComponentTests
         var activeStreams = Substitute.For<IActiveStreamRegistry>();
         activeStreams.GetActiveStreams().Returns([]);
 
-        var store = new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-dashboard-{Guid.NewGuid():N}.json"));
+        var store = new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-dashboard-{Guid.NewGuid():N}.db"));
         var refreshService = new ChannelLineupRefreshService(
             NullLogger<ChannelLineupRefreshService>.Instance,
             channelProvider ?? Substitute.For<IChannelLineupProvider>(),
@@ -224,8 +224,8 @@ public class DashboardComponentTests
             store,
             null!,
             repository,
-            null!,
-            null!);
+            new LineupXmltvWriter(),
+            Substitute.For<IXmltvPublicationStore>());
 
         context.Services.AddSingleton(repository);
         context.Services.AddSingleton(settings);
@@ -236,6 +236,8 @@ public class DashboardComponentTests
         context.Services.AddSingleton(store);
         context.Services.AddSingleton(refreshService);
         context.Services.AddSingleton(orchestrator);
+        context.Services.AddScoped<IBrowserDataStore, BrowserDataStore>();
+        context.Services.AddSingleton<IXmltvPublicationStore, XmltvPublicationStore>();
         return context;
     }
 }

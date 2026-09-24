@@ -1,4 +1,5 @@
 using Lineup.Core;
+using Lineup.Core.Storage;
 using Lineup.Web.Services;
 using Microsoft.AspNetCore.Components;
 
@@ -20,6 +21,9 @@ public partial class Channels
 
     [Inject]
     private IAppSettingsService SettingsService { get; set; } = default!;
+
+    [Inject]
+    private IXmltvPublicationStore Publications { get; set; } = default!;
 
     [Inject]
     private ITimeZoneService Tz { get; set; } = default!;
@@ -97,7 +101,7 @@ public partial class Channels
         {
             _channelLineup = await ChannelLineupStore.SetChannelEnabledAsync(guideNumber, enabled);
             _isError = false;
-            if (File.Exists(SettingsService.Settings.XmltvOutputPath))
+            if (Publications.Exists(SettingsService.Settings.XmltvOutputPath))
             {
                 try
                 {

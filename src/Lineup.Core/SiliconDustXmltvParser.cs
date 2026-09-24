@@ -1,20 +1,15 @@
-using System.Collections.ObjectModel;
 using System.Globalization;
-using System.Text;
 using System.Xml;
 using System.Xml.Linq;
 using Lineup.HDHomeRun.Api.Models;
-using Lineup.HDHomeRun.Device.Models;
 
 namespace Lineup.Core;
 
 /// <summary>
-/// Parses a SiliconDust XMLTV document into Lineup's normalized guide models.
+/// Parses SiliconDust XMLTV input into Lineup's provider-neutral guide models.
 /// </summary>
-public class SiliconDustXmltvParser
+public sealed class SiliconDustXmltvParser
 {
-    private const string PlaceholderTitle = "Not Available";
-
     private static readonly string[] TimestampFormats =
     [
         "yyyyMMddHHmmss zzz",
@@ -24,7 +19,7 @@ public class SiliconDustXmltvParser
     ];
 
     /// <summary>
-    /// Parses channel and programme data from a canonical XMLTV document.
+    /// Parses channel and programme data from a SiliconDust XMLTV document.
     /// </summary>
     /// <param name="content">Complete XMLTV document bytes.</param>
     /// <returns>Normalized guide segments keyed by logical channel number.</returns>
@@ -32,7 +27,6 @@ public class SiliconDustXmltvParser
     {
         var document = LoadDocument(content);
         var root = document.Root!;
-
         var channelsById = ParseChannels(root);
         ParseProgrammes(root, channelsById);
         return channelsById.Values
@@ -43,264 +37,6 @@ public class SiliconDustXmltvParser
             .OrderBy(segment => segment.GuideNumber, ChannelNumberComparer.Instance)
             .ToArray();
     }
-
-    /// <summary>
-    /// Removes channels and programmes that are not present in the tuner's current lineup.
-    /// </summary>
-    /// <param name="content">Complete XMLTV document bytes.</param>
-    /// <param name="guideNumbers">Logical channel numbers returned by the tuner.</param>
-    /// <returns>A valid XMLTV document containing only available tuner channels.</returns>
-    public byte[] FilterByGuideNumbers(ReadOnlyMemory<byte> content, IEnumerable<string> guideNumbers)
-    {
-        ArgumentNullException.ThrowIfNull(guideNumbers);
-
-        var allowedGuideNumbers = guideNumbers
-            .Where(guideNumber => !string.IsNullOrWhiteSpace(guideNumber))
-            .Select(guideNumber => guideNumber.Trim())
-            .ToHashSet(StringComparer.OrdinalIgnoreCase).AsReadOnly();
-        return FilterDocument(content, allowedGuideNumbers, requestedChannels: null);
-    }
-
-    /// <summary>
-    /// Projects an XMLTV document onto the requested physical tuner channels, adding placeholder guide data when needed.
-    /// </summary>
-    /// <param name="content">Complete XMLTV document bytes.</param>
-    /// <param name="channels">Physical tuner channels to retain.</param>
-    /// <returns>A valid XMLTV document containing every requested channel and its available or placeholder programme data.</returns>
-    public byte[] FilterByChannels(ReadOnlyMemory<byte> content, IEnumerable<HDHomeRunChannel> channels)
-    {
-        ArgumentNullException.ThrowIfNull(channels);
-
-        var requestedChannels = channels
-            .Where(channel => !string.IsNullOrWhiteSpace(channel.GuideNumber))
-            .DistinctBy(channel => channel.GuideNumber.Trim(), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(channel => channel.GuideNumber.Trim(), StringComparer.OrdinalIgnoreCase);
-        return FilterDocument(content, requestedChannels.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase).AsReadOnly(), requestedChannels);
-    }
-
-    /// <summary>
-    /// Creates an XMLTV document containing placeholder guide data for physical tuner channels.
-    /// </summary>
-    /// <param name="channels">Physical tuner channels to include.</param>
-    /// <param name="start">Inclusive placeholder schedule start.</param>
-    /// <param name="stop">Exclusive placeholder schedule end.</param>
-    /// <returns>A valid XMLTV document containing one placeholder programme per channel.</returns>
-    public byte[] CreatePlaceholderGuide(IEnumerable<HDHomeRunChannel> channels, DateTimeOffset start, DateTimeOffset stop)
-    {
-        ArgumentNullException.ThrowIfNull(channels);
-        if (stop <= start)
-        {
-            throw new ArgumentOutOfRangeException(nameof(stop), "The placeholder guide end must be later than its start.");
-        }
-
-        var requestedChannels = channels
-            .Where(channel => !string.IsNullOrWhiteSpace(channel.GuideNumber))
-            .DistinctBy(channel => channel.GuideNumber.Trim(), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(channel => channel.GuideNumber.Trim(), StringComparer.OrdinalIgnoreCase);
-        var document = new XDocument(new XElement("tv", new XAttribute("source-info-name", "Lineup")));
-        AddMissingGuideData(document.Root!, requestedChannels, (start, stop));
-        return SerializeDocument(document);
-    }
-
-    private static byte[] FilterDocument(ReadOnlyMemory<byte> content, ReadOnlySet<string> allowedGuideNumbers, IReadOnlyDictionary<string, HDHomeRunChannel>? requestedChannels)
-    {
-        var document = LoadDocument(content);
-        var root = document.Root!;
-        var programmeRange = requestedChannels == null
-            ? null
-            : GetProgrammeRange(root.Elements().Where(element => element.Name.LocalName == "programme"));
-        var channelElements = root.Elements()
-            .Where(element => element.Name.LocalName == "channel")
-            .ToArray();
-        var retainedChannelIds = channelElements
-            .Where(element => allowedGuideNumbers.Contains(ElementValue(element, "lcn") ?? string.Empty))
-            .Select(element => element.Attribute("id")?.Value)
-            .Where(id => !string.IsNullOrWhiteSpace(id))
-            .Cast<string>()
-            .ToHashSet(StringComparer.Ordinal);
-
-        foreach (var channelElement in channelElements)
-        {
-            var guideNumber = ElementValue(channelElement, "lcn");
-            if (guideNumber == null || !allowedGuideNumbers.Contains(guideNumber))
-            {
-                channelElement.Remove();
-            }
-        }
-
-        var programmeElements = root.Elements().Where(element => element.Name.LocalName == "programme").ToArray();
-        foreach (var programmeElement in programmeElements)
-        {
-            var channelId = programmeElement.Attribute("channel")?.Value;
-            if (channelId == null || !retainedChannelIds.Contains(channelId))
-            {
-                programmeElement.Remove();
-            }
-        }
-
-        if (requestedChannels != null)
-        {
-            AddMissingGuideData(root, requestedChannels, programmeRange);
-        }
-
-        return SerializeDocument(document);
-    }
-
-    private static byte[] SerializeDocument(XDocument document)
-    {
-        using var stream = new MemoryStream();
-        using (var writer = XmlWriter.Create(stream, new XmlWriterSettings
-        {
-            Encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
-            Indent = false
-        }))
-        {
-            document.Save(writer);
-        }
-
-        return stream.ToArray();
-    }
-
-    private static void AddMissingGuideData(XElement root, IReadOnlyDictionary<string, HDHomeRunChannel> requestedChannels, (DateTimeOffset Start, DateTimeOffset Stop)? programmeRange)
-    {
-        var programmeElements = root.Elements().Where(element => element.Name.LocalName == "programme").ToArray();
-        var usableProgrammeChannelIds = programmeElements
-            .Where(element => TryGetProgrammeRange(element, out _, out _))
-            .Select(element => element.Attribute("channel")?.Value)
-            .Where(channelId => !string.IsNullOrWhiteSpace(channelId))
-            .Cast<string>()
-            .ToHashSet(StringComparer.Ordinal);
-        var channelElements = root.Elements().Where(element => element.Name.LocalName == "channel").ToList();
-        var usedChannelIds = channelElements
-            .Select(element => element.Attribute("id")?.Value)
-            .Where(id => !string.IsNullOrWhiteSpace(id))
-            .Cast<string>()
-            .ToHashSet(StringComparer.Ordinal);
-        var channelInsertionPoint = channelElements.LastOrDefault();
-
-        foreach (var requestedChannel in requestedChannels.Values)
-        {
-            var guideNumber = requestedChannel.GuideNumber.Trim();
-            var candidateElements = channelElements
-                .Where(element => string.Equals(ElementValue(element, "lcn"), guideNumber, StringComparison.OrdinalIgnoreCase))
-                .ToArray();
-            var matchingElements = candidateElements
-                .Where(element => !string.IsNullOrWhiteSpace(element.Attribute("id")?.Value))
-                .ToArray();
-            foreach (var invalidElement in candidateElements.Except(matchingElements))
-            {
-                invalidElement.Remove();
-                channelElements.Remove(invalidElement);
-            }
-
-            channelInsertionPoint = channelElements.LastOrDefault();
-            if (matchingElements.Length == 0)
-            {
-                var channelId = CreateSyntheticChannelId(guideNumber, usedChannelIds);
-                var channelElement = CreateChannelElement(root.Name.Namespace, channelId, requestedChannel);
-                if (channelInsertionPoint == null)
-                {
-                    root.AddFirst(channelElement);
-                }
-                else
-                {
-                    channelInsertionPoint.AddAfterSelf(channelElement);
-                }
-
-                channelElements.Add(channelElement);
-                channelInsertionPoint = channelElement;
-                matchingElements = [channelElement];
-            }
-
-            var matchingIds = matchingElements
-                .Select(element => element.Attribute("id")?.Value)
-                .Where(id => !string.IsNullOrWhiteSpace(id))
-                .Cast<string>()
-                .ToHashSet(StringComparer.Ordinal);
-            var hasUsableProgramme = matchingIds.Overlaps(usableProgrammeChannelIds);
-            if (hasUsableProgramme)
-            {
-                continue;
-            }
-
-            if (programmeRange == null)
-            {
-                throw new InvalidDataException("The XMLTV guide has no usable programme range for placeholder guide data.");
-            }
-
-            foreach (var unusableProgramme in programmeElements.Where(element =>
-                matchingIds.Contains(element.Attribute("channel")?.Value ?? string.Empty) &&
-                !TryGetProgrammeRange(element, out _, out _)))
-            {
-                unusableProgramme.Remove();
-            }
-
-            root.Add(CreatePlaceholderProgramme(
-                root.Name.Namespace,
-                matchingIds.First(),
-                programmeRange.Value.Start,
-                programmeRange.Value.Stop));
-        }
-    }
-
-    private static (DateTimeOffset Start, DateTimeOffset Stop)? GetProgrammeRange(IEnumerable<XElement> programmeElements)
-    {
-        var ranges = programmeElements
-            .Select(element => TryGetProgrammeRange(element, out var start, out var stop) ? (Start: start, Stop: stop) : ((DateTimeOffset Start, DateTimeOffset Stop)?)null)
-            .Where(range => range.HasValue)
-            .Select(range => range!.Value)
-            .ToArray();
-        return ranges.Length == 0
-            ? null
-            : (ranges.Min(range => range.Start), ranges.Max(range => range.Stop));
-    }
-
-    private static bool TryGetProgrammeRange(XElement element, out DateTimeOffset start, out DateTimeOffset stop)
-    {
-        start = default;
-        stop = default;
-        return TryParseTimestamp(element.Attribute("start")?.Value, out start) &&
-               TryParseTimestamp(element.Attribute("stop")?.Value, out stop) &&
-               stop > start;
-    }
-
-    private static XElement CreateChannelElement(XNamespace xmlNamespace, string channelId, HDHomeRunChannel channel)
-    {
-        var guideNumber = channel.GuideNumber.Trim();
-        var guideName = string.IsNullOrWhiteSpace(channel.GuideName) ? guideNumber : channel.GuideName.Trim();
-        return new XElement(
-            xmlNamespace + "channel",
-            new XAttribute("id", channelId),
-            new XElement(xmlNamespace + "display-name", guideName),
-            new XElement(xmlNamespace + "lcn", guideNumber));
-    }
-
-    private static XElement CreatePlaceholderProgramme(XNamespace xmlNamespace, string channelId, DateTimeOffset start, DateTimeOffset stop)
-    {
-        return new XElement(
-            xmlNamespace + "programme",
-            new XAttribute("start", FormatTimestamp(start)),
-            new XAttribute("stop", FormatTimestamp(stop)),
-            new XAttribute("channel", channelId),
-            new XElement(xmlNamespace + "title", new XAttribute("lang", "en"), PlaceholderTitle));
-    }
-
-    private static string CreateSyntheticChannelId(string guideNumber, HashSet<string> usedChannelIds)
-    {
-        var normalizedGuideNumber = string.Concat(guideNumber.Select(character => char.IsLetterOrDigit(character) ? character : '-'));
-        var baseId = $"lineup.synthetic.{normalizedGuideNumber}";
-        var channelId = baseId;
-        var suffix = 2;
-        while (!usedChannelIds.Add(channelId))
-        {
-            channelId = $"{baseId}.{suffix++}";
-        }
-
-        return channelId;
-    }
-
-    private static string FormatTimestamp(DateTimeOffset timestamp) =>
-        $"{timestamp.UtcDateTime.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture)} +0000";
 
     private static XDocument LoadDocument(ReadOnlyMemory<byte> content)
     {
