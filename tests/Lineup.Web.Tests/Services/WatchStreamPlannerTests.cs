@@ -466,6 +466,37 @@ public class WatchStreamPlannerTests
         AssertOption(arguments, "-ar", "48000");
     }
 
+    /// <summary>
+    /// Verifies source audio passthrough copies the selected codec without AAC normalization.
+    /// </summary>
+    [Fact]
+    public void CreateArguments_SourceAudioOutput_CopiesSelectedTrack()
+    {
+        // Arrange
+        var source = new MediaProbeResult(
+        [
+            Track(0, MediaTrackType.Video, "h264"),
+            Track(2, MediaTrackType.Audio, "ac4") with { Channels = 12, SampleRate = 46_034 }
+        ],
+        null);
+        var selection = WatchStreamPlanner.SelectTracks(source, 2, null);
+
+        // Act
+        var arguments = WatchStreamPlanner.CreateArguments(
+            new AppSettings(),
+            source,
+            selection,
+            WebPlayerQuality.AppDefault,
+            null,
+            WatchAudioOutput.Source);
+
+        // Assert
+        AssertOption(arguments, "-c:a", "copy");
+        Assert.DoesNotContain("-b:a", arguments);
+        Assert.DoesNotContain("-ac", arguments);
+        Assert.DoesNotContain("-ar", arguments);
+    }
+
     private static MediaTrackMetadata Track(int index, MediaTrackType type, string codec) =>
         new(index, type, codec, null, null, null, type == MediaTrackType.Audio ? 2 : null, null);
 

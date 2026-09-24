@@ -480,7 +480,7 @@ public class StreamController : ControllerBase
     /// <param name="subtitleTrack">Optional absolute source subtitle stream index; omitted means Off.</param>
     /// <param name="subtitlePresentation">Previously validated subtitle presentation used only when a retry probe returns no tracks.</param>
     /// <param name="embeddedCaptions">Whether a previously validated retry selection represents captions embedded in video.</param>
-    /// <param name="audioOutput">Browser audio output layout.</param>
+    /// <param name="audioOutput">Browser audio output layout or source passthrough policy.</param>
     /// <returns>Fragmented MP4 video stream</returns>
     [HttpGet("fmp4/{channel}")]
     public async Task StreamFmp4(

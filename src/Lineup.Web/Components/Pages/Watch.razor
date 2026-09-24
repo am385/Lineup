@@ -19,6 +19,7 @@
             <option value="@WatchAudioOutput.Stereo">Stereo (most compatible)</option>
             <option value="@WatchAudioOutput.UpTo5Point1">Up to 5.1</option>
             <option value="@WatchAudioOutput.UpTo7Point1">Up to 7.1</option>
+            <option value="@WatchAudioOutput.Source">Source audio (passthrough)</option>
         </select>
         @if (_activeStream?.Tracks.Where(track => track.Type == MediaTrackType.Audio).ToArray() is { Length: > 0 } audioTracks)
         {

@@ -12,7 +12,10 @@ public enum WatchAudioOutput
     UpTo5Point1,
 
     /// <summary>Retains the source channel count up to eight channels and normalizes the output layout to 7.1.</summary>
-    UpTo7Point1
+    UpTo7Point1,
+
+    /// <summary>Copies the selected source audio without transcoding when the browser supports its codec.</summary>
+    Source
 }
 
 /// <summary>
@@ -174,6 +177,12 @@ public static class WatchStreamPlanner
 
     private static void AddAudioArguments(List<string> arguments, WatchTrackSelection selection, WatchAudioOutput audioOutput)
     {
+        if (audioOutput == WatchAudioOutput.Source)
+        {
+            arguments.AddRange(["-c:a", "copy"]);
+            return;
+        }
+
         var profile = GetAudioOutputProfile(audioOutput, selection.Audio?.Channels);
         arguments.AddRange([
             "-c:a", "aac",

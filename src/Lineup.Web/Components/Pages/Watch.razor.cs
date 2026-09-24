@@ -35,6 +35,9 @@ public partial class Watch : IAsyncDisposable
     private IActiveStreamRegistry ActiveStreamRegistry { get; set; } = default!;
 
     [Inject]
+    private IStatusNotificationService Notifications { get; set; } = default!;
+
+    [Inject]
     private IBrowserDataStore BrowserData { get; set; } = default!;
 
     [Inject]
@@ -78,6 +81,7 @@ public partial class Watch : IAsyncDisposable
     private DateTime _lastTunerRefreshRequestUtc = DateTime.MinValue;
     private WebPlayerQuality _quality = WebPlayerQuality.AppDefault;
     private WatchAudioOutput _audioOutput = WatchAudioOutput.Stereo;
+    private WatchAudioOutput _streamAudioOutput = WatchAudioOutput.Stereo;
     private int? _audioTrack;
     private int? _subtitleTrack;
     private bool _subtitlesEnabled;
@@ -166,6 +170,14 @@ public partial class Watch : IAsyncDisposable
                     : await JS.InvokeAsync<string?>("initFmp4Player", "videoPlayer", _streamUrl, diagnosticUrl);
                 if (!string.IsNullOrWhiteSpace(error))
                 {
+                    if (_streamAudioOutput == WatchAudioOutput.Source)
+                    {
+                        Notifications.ShowError("Source audio could not be played by this browser. Retrying this stream with Stereo AAC.");
+                        await TuneChannelAsync(channelNumber, _selectedChannel, WatchAudioOutput.Stereo);
+                        StateHasChanged();
+                        return;
+                    }
+
                     _errorMessage = error;
                     await StopStreamAsync();
                     StateHasChanged();
@@ -256,7 +268,7 @@ public partial class Watch : IAsyncDisposable
         await TuneChannelAsync(channelNumber, channel);
     }
 
-    private async Task TuneChannelAsync(string? channelNumber, HDHomeRunChannelEpgSegment? channel)
+    private async Task TuneChannelAsync(string? channelNumber, HDHomeRunChannelEpgSegment? channel, WatchAudioOutput? streamAudioOutput = null)
     {
         var normalizedChannelNumber = channelNumber?.Trim();
         _manualChannelNumber = normalizedChannelNumber ?? string.Empty;
@@ -281,6 +293,7 @@ public partial class Watch : IAsyncDisposable
         _selectedChannelNumber = validChannelNumber;
         _manualTuneValidationMessage = null;
         _errorMessage = null;
+        _streamAudioOutput = streamAudioOutput ?? _audioOutput;
 
         _streamUrl = BuildStreamUrl(validChannelNumber);
         _isPlaying = true;
@@ -369,7 +382,7 @@ public partial class Watch : IAsyncDisposable
 
     private string BuildStreamUrl(string channelNumber)
     {
-        var url = $"/api/stream/fmp4/{Uri.EscapeDataString(channelNumber)}?clientId={_clientId}&quality={_quality}&audioOutput={_audioOutput}";
+        var url = $"/api/stream/fmp4/{Uri.EscapeDataString(channelNumber)}?clientId={_clientId}&quality={_quality}&audioOutput={_streamAudioOutput}";
         if (_audioTrack.HasValue)
         {
             url += $"&audioTrack={_audioTrack.Value}";

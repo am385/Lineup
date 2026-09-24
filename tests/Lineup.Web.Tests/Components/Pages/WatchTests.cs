@@ -134,6 +134,58 @@ public class WatchTests
     }
 
     /// <summary>
+    /// Verifies unsupported source audio temporarily falls back to Stereo AAC without changing the preference.
+    /// </summary>
+    [Fact]
+    public void SourceAudioOutput_PlaybackFailureFallsBackToStereo()
+    {
+        // Arrange
+        using var context = new BunitContext();
+        var repository = Substitute.For<IEpgRepository>();
+        repository.GetChannelsAsync().Returns([]);
+        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
+        var settingsService = Substitute.For<IAppSettingsService>();
+        settingsService.Settings.Returns(new AppSettings());
+        context.Services.AddSingleton(repository);
+        context.Services.AddSingleton(settingsService);
+        AddWatchRuntimeServices(
+            context,
+            preferencesJson: """{"Quality":0,"AudioOutput":3,"SubtitlesEnabled":false,"Subtitle":null}""");
+        context.JSInterop.SetupVoid("stopMediaPlayer", "videoPlayer").SetVoidResult();
+        context.JSInterop.SetupVoid("localStorage.setItem", _ => true).SetVoidResult();
+        context.JSInterop
+            .Setup<string?>(
+                "initFmp4Player",
+                invocation => Assert.IsType<string>(invocation.Arguments[1]).Contains("audioOutput=Source", StringComparison.Ordinal))
+            .SetResult("The source audio codec is not supported.");
+        context.JSInterop
+            .Setup<string?>(
+                "initFmp4Player",
+                invocation => Assert.IsType<string>(invocation.Arguments[1]).Contains("audioOutput=Stereo", StringComparison.Ordinal))
+            .SetResult(null);
+
+        // Act
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            var initializations = context.JSInterop.Invocations.Where(invocation => invocation.Identifier == "initFmp4Player").ToArray();
+            Assert.Equal(2, initializations.Length);
+            Assert.Contains("audioOutput=Source", Assert.IsType<string>(initializations[0].Arguments[1]));
+            Assert.Contains("audioOutput=Stereo", Assert.IsType<string>(initializations[1].Arguments[1]));
+            Assert.Equal(nameof(WatchAudioOutput.Source), component.Find("#audioOutput").GetAttribute("value"));
+            var notifications = context.Services.GetRequiredService<IStatusNotificationService>();
+            var notification = Assert.Single(notifications.Notifications);
+            Assert.Equal("Source audio could not be played by this browser. Retrying this stream with Stereo AAC.", notification.Message);
+            Assert.True(notification.IsError);
+            Assert.DoesNotContain(
+                context.JSInterop.Invocations,
+                invocation => invocation.Identifier == "localStorage.setItem");
+        });
+    }
+
+    /// <summary>
     /// Verifies that manual tuning rejects values that are not virtual channel numbers.
     /// </summary>
     [Fact]

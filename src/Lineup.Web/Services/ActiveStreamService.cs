@@ -1026,9 +1026,11 @@ public static class ActiveStreamPlanFactory
                 _ => false
             };
 
+            var copyAudio = track.Type == MediaTrackType.Audio && selected && audioOutput == WatchAudioOutput.Source;
             var outputCodec = track.Type switch
             {
                 MediaTrackType.Video => copyVideo ? "copy" : "h264",
+                MediaTrackType.Audio when copyAudio => "copy",
                 MediaTrackType.Audio when selected => "aac",
                 MediaTrackType.Subtitle when selected && selection.SubtitlePresentation == SubtitlePresentation.WebVtt => "webvtt",
                 MediaTrackType.Subtitle when selected => "burn-in",
@@ -1037,17 +1039,23 @@ public static class ActiveStreamPlanFactory
 
             WatchAudioOutputProfile? audioProfile = track.Type switch
             {
-                MediaTrackType.Audio when selected => (WatchAudioOutputProfile?)WatchStreamPlanner.GetAudioOutputProfile(audioOutput, track.Channels),
+                MediaTrackType.Audio when selected && !copyAudio => (WatchAudioOutputProfile?)WatchStreamPlanner.GetAudioOutputProfile(audioOutput, track.Channels),
                 _ => null,
             };
 
             long? outputBitRate = track.Type switch
             {
                 MediaTrackType.Video => (copyVideo ? track.BitRate : outputVideoBitRate),
+                MediaTrackType.Audio when copyAudio => track.BitRate,
                 _ => (audioProfile?.BitRate),
             };
 
-            return CreateTrack(track, outputCodec, outputBitRate, audioProfile?.Channels, audioProfile?.SampleRate) with
+            return CreateTrack(
+                track,
+                outputCodec,
+                outputBitRate,
+                copyAudio ? track.Channels : audioProfile?.Channels,
+                copyAudio ? track.SampleRate : audioProfile?.SampleRate) with
             {
                 IsSelected = selected,
                 SubtitlePresentation = track.Type == MediaTrackType.Subtitle ? track.SubtitlePresentation : null
@@ -1055,7 +1063,7 @@ public static class ActiveStreamPlanFactory
         }).ToArray();
         if (tracks.Length == 0)
         {
-            return CreateFixedTranscode(sessionId, channel, HostedStreamFormat.FragmentedMp4, startedAtUtc, source, outputVideoBitRate, copyVideo);
+            return CreateFixedTranscode(sessionId, channel, HostedStreamFormat.FragmentedMp4, startedAtUtc, source, outputVideoBitRate, copyVideo, audioOutput);
         }
 
         return new ActiveStreamSnapshot(sessionId, channel, HostedStreamFormat.FragmentedMp4, startedAtUtc, source.BitRate, tracks);
@@ -1095,16 +1103,25 @@ public static class ActiveStreamPlanFactory
         return new ActiveStreamSnapshot(sessionId, channel, format, startedAtUtc, null, tracks);
     }
 
-    private static ActiveStreamSnapshot CreateFixedTranscode(string sessionId, string channel, HostedStreamFormat format, DateTime startedAtUtc, MediaProbeResult source, long outputVideoBitRate, bool copyVideo)
+    private static ActiveStreamSnapshot CreateFixedTranscode(
+        string sessionId,
+        string channel,
+        HostedStreamFormat format,
+        DateTime startedAtUtc,
+        MediaProbeResult source,
+        long outputVideoBitRate,
+        bool copyVideo,
+        WatchAudioOutput audioOutput = WatchAudioOutput.Stereo)
     {
         var video = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video)
             ?? new MediaTrackMetadata(0, MediaTrackType.Video, "unknown", null, null, null, null, null);
         var audio = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Audio)
             ?? new MediaTrackMetadata(1, MediaTrackType.Audio, "unknown", null, null, null, null, null);
+        var copyAudio = audioOutput == WatchAudioOutput.Source;
         ActiveStreamTrack[] tracks =
         [
             CreateTrack(video, copyVideo ? "copy" : "h264", copyVideo ? video.BitRate : outputVideoBitRate, null, null),
-            CreateTrack(audio, "aac", 128_000, 2, 44_100)
+            CreateTrack(audio, copyAudio ? "copy" : "aac", copyAudio ? audio.BitRate : 128_000, copyAudio ? audio.Channels : 2, copyAudio ? audio.SampleRate : 44_100)
         ];
         return new ActiveStreamSnapshot(sessionId, channel, format, startedAtUtc, source.BitRate, tracks);
     }

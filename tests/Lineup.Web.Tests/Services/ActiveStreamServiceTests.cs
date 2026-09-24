@@ -629,6 +629,33 @@ public class ActiveStreamServiceTests
         Assert.Equal(48_000, audio.OutputSampleRate);
     }
 
+    /// <summary>
+    /// Verifies source audio passthrough metadata retains the selected track's encoding characteristics.
+    /// </summary>
+    [Fact]
+    public void FragmentedMp4Plan_SourceAudio_DescribesCopiedOutput()
+    {
+        // Arrange
+        var source = new MediaProbeResult(
+        [
+            new MediaTrackMetadata(0, MediaTrackType.Video, "h264", null, 1920, 1080, null, null),
+            new MediaTrackMetadata(1, MediaTrackType.Audio, "ac4", 768_000, null, null, 12, 46_034)
+        ],
+        null);
+        var selection = WatchStreamPlanner.SelectTracks(source, 1, null);
+
+        // Act
+        var stream = ActiveStreamPlanFactory.CreateFragmentedMp4("session", "105.1", DateTime.UtcNow, source, selection: selection, audioOutput: WatchAudioOutput.Source);
+
+        // Assert
+        var audio = Assert.Single(stream.Tracks, track => track.Type == MediaTrackType.Audio);
+        Assert.Equal("ac4", audio.SourceCodec);
+        Assert.Equal("copy", audio.OutputCodec);
+        Assert.Equal(768_000, audio.OutputBitRate);
+        Assert.Equal(12, audio.OutputChannels);
+        Assert.Equal(46_034, audio.OutputSampleRate);
+    }
+
     private static ActiveStreamTrack CreateTrack(string sourceCodec, string outputCodec)
     {
         return new ActiveStreamTrack(MediaTrackType.Video, sourceCodec, outputCodec, null, null, 1920, 1080, null, null, null);
