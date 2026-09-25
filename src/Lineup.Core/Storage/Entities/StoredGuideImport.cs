@@ -29,4 +29,7 @@ public sealed class StoredGuideImport
 
     /// <summary>Gets or sets the imported programme count.</summary>
     public int ProgramCount { get; set; }
+
+    /// <summary>Gets or sets supplemental XMLTV root metadata.</summary>
+    public string? SupplementalXml { get; set; }
 }

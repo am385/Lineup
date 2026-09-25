@@ -159,6 +159,14 @@ public sealed class AppDataStore : IAppDataStore
     }
 
     /// <summary>
+    /// Deletes every file and directory beneath the app-data root.
+    /// </summary>
+    public void DeleteContents()
+    {
+        _files.DeleteContents();
+    }
+
+    /// <summary>
     /// Deletes matching files directly beneath a contained directory.
     /// </summary>
     /// <param name="directoryPath">Absolute contained directory.</param>

@@ -88,6 +88,9 @@ public sealed class TransientDataStore : ITransientDataStore
     public void DeleteDirectory(string directoryPath) => _files.DeleteDirectory(directoryPath, recursive: true);
 
     /// <inheritdoc />
+    public void DeleteContents() => _files.DeleteContents();
+
+    /// <inheritdoc />
     public void DeleteInactiveOwnerDirectories()
     {
         DeleteInactiveOwnerDirectories(TransientDirectoryOwnership.GetOwnerStatus);

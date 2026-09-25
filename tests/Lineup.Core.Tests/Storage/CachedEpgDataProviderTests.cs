@@ -22,7 +22,7 @@ public class CachedEpgDataProviderTests
     {
         // Arrange
         const string xml = """
-            <tv>
+            <tv source-info-name="Provider">
               <channel id="available"><display-name>Available</display-name><lcn>7.1</lcn></channel>
               <channel id="removed"><display-name>Removed</display-name><lcn>9.1</lcn></channel>
               <programme start="20260914220000 +0000" stop="20260914223000 +0000" channel="available">
@@ -34,14 +34,14 @@ public class CachedEpgDataProviderTests
             </tv>
             """;
         var repository = Substitute.For<IEpgRepository>();
-        IReadOnlyList<HDHomeRunChannelEpgSegment>? storedSegments = null;
+        XmltvGuideSnapshot? storedSnapshot = null;
         repository.ImportGuideAsync(
-                Arg.Any<IEnumerable<HDHomeRunChannelEpgSegment>>(),
+                Arg.Any<XmltvGuideSnapshot>(),
                 TimeSpan.FromHours(24),
                 Arg.Any<CancellationToken>())
             .Returns(callInfo =>
             {
-                storedSegments = callInfo.Arg<IEnumerable<HDHomeRunChannelEpgSegment>>().ToArray();
+                storedSnapshot = callInfo.Arg<XmltvGuideSnapshot>();
                 return Task.CompletedTask;
             });
         var authProvider = Substitute.For<IDeviceAuthProvider>();
@@ -63,7 +63,8 @@ public class CachedEpgDataProviderTests
 
         // Assert
         Assert.Equal("7.1", Assert.Single(result).GuideNumber);
-        Assert.Equal("7.1", Assert.Single(storedSegments!).GuideNumber);
+        Assert.Equal("7.1", Assert.Single(storedSnapshot!.Segments).GuideNumber);
+        Assert.NotNull(storedSnapshot.SupplementalXml);
     }
 
     /// <summary>
@@ -82,11 +83,11 @@ public class CachedEpgDataProviderTests
             </tv>
             """;
         var repository = Substitute.For<IEpgRepository>();
-        IReadOnlyList<HDHomeRunChannelEpgSegment>? storedSegments = null;
-        repository.ImportGuideAsync(Arg.Any<IEnumerable<HDHomeRunChannelEpgSegment>>(), TimeSpan.FromHours(24), Arg.Any<CancellationToken>())
+        XmltvGuideSnapshot? storedSnapshot = null;
+        repository.ImportGuideAsync(Arg.Any<XmltvGuideSnapshot>(), TimeSpan.FromHours(24), Arg.Any<CancellationToken>())
             .Returns(callInfo =>
             {
-                storedSegments = callInfo.Arg<IEnumerable<HDHomeRunChannelEpgSegment>>().ToArray();
+                storedSnapshot = callInfo.Arg<XmltvGuideSnapshot>();
                 return Task.CompletedTask;
             });
         var authProvider = Substitute.For<IDeviceAuthProvider>();
@@ -109,7 +110,7 @@ public class CachedEpgDataProviderTests
         var channel = Assert.Single(result);
         Assert.Equal("7.1", channel.GuideNumber);
         Assert.Equal("Not Available", Assert.Single(channel.Guide).Title);
-        Assert.Equal("Not Available", Assert.Single(storedSegments!).Guide.Single().Title);
+        Assert.Equal("Not Available", Assert.Single(storedSnapshot!.Segments).Guide.Single().Title);
     }
 
     private static HDHomeRunChannel CreateChannel(string guideNumber) => new()

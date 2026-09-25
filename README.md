@@ -342,7 +342,7 @@ sensor:
     scan_interval: 30
 ```
 
-The Settings **Reset** tab can stage default settings for review or perform a Factory Reset. Factory Reset removes Lineup-owned settings, the channel and guide database, rolling logs, configured XMLTV output, and transient stream files during a graceful restart. The browser displays a blocking restart screen and returns to Device setup after detecting the new Lineup instance. XMLTV files configured outside Lineup-owned storage are preserved. A service supervisor such as Docker's `restart: unless-stopped` must restart the process after reset.
+The Settings **Reset** tab can stage default settings for review or perform a Factory Reset. Factory Reset removes all files and directories beneath Lineup's application-data and transient-data roots, along with the configured XMLTV output, during a graceful restart. The browser displays a blocking restart screen and returns to Device setup after detecting the new Lineup instance. XMLTV files configured outside Lineup-owned storage are preserved. A service supervisor such as Docker's `restart: unless-stopped` must restart the process after reset.
 
 Lineup-owned persistent data defaults to `/appdata`. The optional `Lineup:AppDataPath` setting overrides that root for custom deployments. This data includes settings and backups, the authoritative SQLite channel and guide database, rolling logs, ASP.NET Core Data Protection keys, and the restart-safe Factory Reset marker.
 
@@ -424,6 +424,11 @@ A guide fetch applies the saved snapshot without otherwise querying the tuners. 
 pages, but are excluded from published XMLTV and virtual JSON, XML, and M3U lineups. Their MPEG-TS, fMP4, and HLS URLs return an error by default or a
 synthetic slate when configured. Disabled choices survive tuner refreshes by guide number, and newly discovered channels start enabled. `DeviceAuth`
 is read immediately before every request because SiliconDust rotates it regularly.
+
+Lineup stores the fields it queries as normalized SQLite values and preserves additional root, channel, and programme XMLTV metadata alongside them.
+Published XMLTV retains provider source provenance, localized and repeated values, official optional fields, and provider extensions while identifying
+Lineup as the document generator. The Guide programme-details dialog projects recognized official programme metadata into typed ratings, credits,
+languages, identifiers, status, and advanced technical details. Raw supplemental XML and uninterpreted provider extensions remain internal.
 
 Lineup atomically limits HDHomeRun-compatible MPEG-TS routes to each profile's effective physical tuner count. Receivers for the exact same upstream
 channel and hardware-transcode source share one tuner lease through the stream multiplexer. Different channels consume separate slots. This includes

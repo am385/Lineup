@@ -1,0 +1,357 @@
+@using Lineup.HDHomeRun.Api.Models
+
+@if (Metadata is { } metadata && HasVisibleMetadata(metadata))
+{
+    <section class="programme-metadata mt-3 border-top pt-3" aria-label="Programme metadata">
+        <div class="row g-3">
+            @if (metadata.Ratings.Count > 0 || metadata.StarRatings.Count > 0)
+            {
+                <div class="col-md-6 programme-ratings">
+                    <h6>Ratings</h6>
+                    @foreach (var rating in metadata.Ratings)
+                    {
+                        <span class="badge text-bg-secondary me-1">@FormatRating(rating)</span>
+                    }
+                    @foreach (var rating in metadata.StarRatings)
+                    {
+                        <span class="badge text-bg-warning me-1">@FormatRating(rating)</span>
+                    }
+                </div>
+            }
+            @if (CommonCredits(metadata).Count > 0)
+            {
+                <div class="col-md-6 programme-credits">
+                    <h6>Credits</h6>
+                    <dl class="row mb-0">
+                        @foreach (var group in CommonCredits(metadata).GroupBy(credit => credit.Type))
+                        {
+                            <dt class="col-sm-4">@CreditLabel(group.Key)</dt>
+                            <dd class="col-sm-8">@string.Join(", ", group.Select(FormatCredit))</dd>
+                        }
+                    </dl>
+                </div>
+            }
+            @if (metadata.Languages.Count > 0 || metadata.Countries.Count > 0)
+            {
+                <div class="col-md-6 programme-origin">
+                    <h6>Origin</h6>
+                    <dl class="row mb-0">
+                        @if (metadata.Languages.Count > 0)
+                        {
+                            <dt class="col-sm-4">Language</dt>
+                            <dd class="col-sm-8">@JoinLocalized(metadata.Languages)</dd>
+                        }
+                        @if (metadata.Countries.Count > 0)
+                        {
+                            <dt class="col-sm-4">Country</dt>
+                            <dd class="col-sm-8">@JoinLocalized(metadata.Countries)</dd>
+                        }
+                    </dl>
+                </div>
+            }
+            @if (AlternateEpisodeNumbers(metadata).Count > 0)
+            {
+                <div class="col-md-6 programme-identifiers">
+                    <h6>Episode identifiers</h6>
+                    <dl class="row mb-0">
+                        @foreach (var episodeNumber in AlternateEpisodeNumbers(metadata))
+                        {
+                            <dt class="col-sm-4">@(episodeNumber.System ?? "Other")</dt>
+                            <dd class="col-sm-8">@episodeNumber.Value</dd>
+                        }
+                    </dl>
+                </div>
+            }
+            @if (HasProgrammeState(metadata))
+            {
+                <div class="col-12 programme-state">
+                    <h6>Programme status</h6>
+                    @if (metadata.IsNew)
+                    {
+                        <span class="badge text-bg-success me-1">New</span>
+                    }
+                    @if (metadata.IsLive)
+                    {
+                        <span class="badge text-bg-danger me-1">Live</span>
+                    }
+                    @if (metadata.Premiere != null)
+                    {
+                        <span class="badge text-bg-primary me-1">@FormatFlag("Premiere", metadata.Premiere)</span>
+                    }
+                    @if (metadata.PreviouslyShown != null)
+                    {
+                        <span class="badge text-bg-secondary me-1">@FormatPreviousShowing(metadata.PreviouslyShown)</span>
+                    }
+                </div>
+            }
+        </div>
+
+        @if (HasAdvancedMetadata(metadata))
+        {
+            <details class="programme-metadata-advanced mt-3">
+                <summary class="fw-semibold">More details</summary>
+                <dl class="row mt-3 mb-0">
+                    @if (AdditionalCredits(metadata).Count > 0)
+                    {
+                        <dt class="col-sm-3">Additional credits</dt>
+                        <dd class="col-sm-9">@string.Join(", ", AdditionalCredits(metadata).Select(credit => $"{CreditLabel(credit.Type)}: {FormatCredit(credit)}"))</dd>
+                    }
+                    @if (metadata.OriginalLanguages.Count > 0)
+                    {
+                        <dt class="col-sm-3">Original language</dt>
+                        <dd class="col-sm-9">@JoinLocalized(metadata.OriginalLanguages)</dd>
+                    }
+                    @if (metadata.Keywords.Count > 0)
+                    {
+                        <dt class="col-sm-3">Keywords</dt>
+                        <dd class="col-sm-9">@JoinLocalized(metadata.Keywords)</dd>
+                    }
+                    @if (metadata.AlternateTitles.Count > 0)
+                    {
+                        <dt class="col-sm-3">Alternate titles</dt>
+                        <dd class="col-sm-9">@JoinLocalized(metadata.AlternateTitles)</dd>
+                    }
+                    @if (metadata.AlternateSubTitles.Count > 0)
+                    {
+                        <dt class="col-sm-3">Alternate episode titles</dt>
+                        <dd class="col-sm-9">@JoinLocalized(metadata.AlternateSubTitles)</dd>
+                    }
+                    @if (metadata.AlternateDescriptions.Count > 0)
+                    {
+                        <dt class="col-sm-3">Alternate descriptions</dt>
+                        <dd class="col-sm-9">@JoinLocalized(metadata.AlternateDescriptions)</dd>
+                    }
+                    @if (LocalizedCategories(metadata).Count > 0)
+                    {
+                        <dt class="col-sm-3">Localized categories</dt>
+                        <dd class="col-sm-9">@JoinLocalized(LocalizedCategories(metadata))</dd>
+                    }
+                    @if (metadata.Length != null)
+                    {
+                        <dt class="col-sm-3">Source runtime</dt>
+                        <dd class="col-sm-9">@FormatLength(metadata.Length)</dd>
+                    }
+                    @if (metadata.Video != null)
+                    {
+                        <dt class="col-sm-3">Video</dt>
+                        <dd class="col-sm-9">@FormatVideo(metadata.Video)</dd>
+                    }
+                    @if (metadata.Audio != null)
+                    {
+                        <dt class="col-sm-3">Audio</dt>
+                        <dd class="col-sm-9">@FormatAudio(metadata.Audio)</dd>
+                    }
+                    @if (metadata.Subtitles.Count > 0)
+                    {
+                        <dt class="col-sm-3">Subtitles</dt>
+                        <dd class="col-sm-9">@string.Join(", ", metadata.Subtitles.Select(FormatSubtitles))</dd>
+                    }
+                    @if (metadata.LastChance != null)
+                    {
+                        <dt class="col-sm-3">Last chance</dt>
+                        <dd class="col-sm-9">@FormatLocalized(metadata.LastChance)</dd>
+                    }
+                    @if (metadata.Reviews.Count > 0)
+                    {
+                        <dt class="col-sm-3">Reviews</dt>
+                        <dd class="col-sm-9">
+                            <ul class="mb-0 ps-3">
+                                @foreach (var review in metadata.Reviews)
+                                {
+                                    <li>@FormatReview(review)</li>
+                                }
+                            </ul>
+                        </dd>
+                    }
+                    @if (metadata.Urls.Count > 0)
+                    {
+                        <dt class="col-sm-3">Related URLs</dt>
+                        <dd class="col-sm-9">
+                            <ul class="mb-0 ps-3">
+                                @foreach (var url in metadata.Urls)
+                                {
+                                    <li>@FormatUrl(url)</li>
+                                }
+                            </ul>
+                        </dd>
+                    }
+                    @if (metadata.Images.Count > 0 || metadata.AdditionalIcons.Count > 0)
+                    {
+                        <dt class="col-sm-3">Additional images</dt>
+                        <dd class="col-sm-9">
+                            <ul class="mb-0 ps-3">
+                                @foreach (var image in metadata.Images)
+                                {
+                                    <li>@FormatImage(image)</li>
+                                }
+                                @foreach (var icon in metadata.AdditionalIcons)
+                                {
+                                    <li>@icon.Source</li>
+                                }
+                            </ul>
+                        </dd>
+                    }
+                    @if (HasLanguageMetadata(metadata))
+                    {
+                        <dt class="col-sm-3">Primary text languages</dt>
+                        <dd class="col-sm-9">@FormatPrimaryLanguages(metadata)</dd>
+                    }
+                    @if (HasSchedulingMetadata(metadata))
+                    {
+                        <dt class="col-sm-3">Scheduling identifiers</dt>
+                        <dd class="col-sm-9">@FormatSchedulingMetadata(metadata)</dd>
+                    }
+                </dl>
+            </details>
+        }
+    </section>
+}
+
+@code {
+    /// <summary>
+    /// Gets or sets the structured programme metadata to display.
+    /// </summary>
+    [Parameter]
+    public XmltvProgrammeMetadata? Metadata { get; set; }
+
+    private static bool HasVisibleMetadata(XmltvProgrammeMetadata metadata) =>
+        metadata.Ratings.Count > 0 ||
+        metadata.StarRatings.Count > 0 ||
+        CommonCredits(metadata).Count > 0 ||
+        metadata.Languages.Count > 0 ||
+        metadata.Countries.Count > 0 ||
+        AlternateEpisodeNumbers(metadata).Count > 0 ||
+        HasProgrammeState(metadata) ||
+        HasAdvancedMetadata(metadata);
+
+    private static bool HasProgrammeState(XmltvProgrammeMetadata metadata) =>
+        metadata.IsNew || metadata.IsLive || metadata.Premiere != null || metadata.PreviouslyShown != null;
+
+    private static bool HasAdvancedMetadata(XmltvProgrammeMetadata metadata) =>
+        AdditionalCredits(metadata).Count > 0 ||
+        metadata.OriginalLanguages.Count > 0 ||
+        metadata.Keywords.Count > 0 ||
+        metadata.AlternateTitles.Count > 0 ||
+        metadata.AlternateSubTitles.Count > 0 ||
+        metadata.AlternateDescriptions.Count > 0 ||
+        LocalizedCategories(metadata).Count > 0 ||
+        metadata.Length != null ||
+        metadata.Video != null ||
+        metadata.Audio != null ||
+        metadata.Subtitles.Count > 0 ||
+        metadata.LastChance != null ||
+        metadata.Reviews.Count > 0 ||
+        metadata.Urls.Count > 0 ||
+        metadata.Images.Count > 0 ||
+        metadata.AdditionalIcons.Count > 0 ||
+        HasLanguageMetadata(metadata) ||
+        HasSchedulingMetadata(metadata);
+
+    private static IReadOnlyList<XmltvCredit> CommonCredits(XmltvProgrammeMetadata metadata) =>
+        metadata.Credits.Where(credit => credit.Type is "director" or "actor").ToArray();
+
+    private static IReadOnlyList<XmltvCredit> AdditionalCredits(XmltvProgrammeMetadata metadata) =>
+        metadata.Credits.Where(credit => credit.Type is not ("director" or "actor")).ToArray();
+
+    private static IReadOnlyList<XmltvEpisodeNumber> AlternateEpisodeNumbers(XmltvProgrammeMetadata metadata) =>
+        metadata.EpisodeNumbers.Where(number => !string.Equals(number.System, "onscreen", StringComparison.OrdinalIgnoreCase)).ToArray();
+
+    private static IReadOnlyList<XmltvLocalizedValue> LocalizedCategories(XmltvProgrammeMetadata metadata) =>
+        metadata.Categories.Where(category => !string.IsNullOrWhiteSpace(category.Language)).ToArray();
+
+    private static string CreditLabel(string type) => type switch
+    {
+        "director" => "Director",
+        "actor" => "Cast",
+        "writer" => "Writer",
+        "adapter" => "Adapter",
+        "producer" => "Producer",
+        "composer" => "Composer",
+        "editor" => "Editor",
+        "presenter" => "Presenter",
+        "commentator" => "Commentator",
+        "guest" => "Guest",
+        _ => type
+    };
+
+    private static string FormatCredit(XmltvCredit credit)
+    {
+        var role = string.IsNullOrWhiteSpace(credit.Role) ? string.Empty : $" as {credit.Role}";
+        var guest = string.Equals(credit.Guest, "yes", StringComparison.OrdinalIgnoreCase) ? " (guest)" : string.Empty;
+        return $"{credit.Name}{role}{guest}";
+    }
+
+    private static string FormatRating(XmltvRating rating) =>
+        string.IsNullOrWhiteSpace(rating.System) ? rating.Value : $"{rating.System}: {rating.Value}";
+
+    private static string JoinLocalized(IEnumerable<XmltvLocalizedValue> values) =>
+        string.Join(", ", values.Select(FormatLocalized));
+
+    private static string FormatLocalized(XmltvLocalizedValue value) =>
+        string.IsNullOrWhiteSpace(value.Language) ? value.Value : $"{value.Value} ({value.Language})";
+
+    private static string FormatFlag(string label, XmltvLocalizedValue value) =>
+        string.IsNullOrWhiteSpace(value.Value) ? label : $"{label}: {FormatLocalized(value)}";
+
+    private static string FormatPreviousShowing(XmltvPreviousShowing showing)
+    {
+        var details = new[] { showing.Start, showing.Channel }.Where(value => !string.IsNullOrWhiteSpace(value));
+        var suffix = string.Join(", ", details);
+        return suffix.Length == 0 ? "Previously shown" : $"Previously shown: {suffix}";
+    }
+
+    private static string FormatLength(XmltvLength length) =>
+        string.IsNullOrWhiteSpace(length.Units) ? length.Value : $"{length.Value} {length.Units}";
+
+    private static string FormatVideo(XmltvVideoMetadata video) =>
+        JoinPresentValues(
+            ("Present", video.Present),
+            ("Colour", video.Colour),
+            ("Aspect", video.Aspect),
+            ("Quality", video.Quality));
+
+    private static string FormatAudio(XmltvAudioMetadata audio) =>
+        JoinPresentValues(("Present", audio.Present), ("Stereo", audio.Stereo));
+
+    private static string FormatSubtitles(XmltvSubtitleMetadata subtitles)
+    {
+        var type = string.IsNullOrWhiteSpace(subtitles.Type) ? "Subtitles" : subtitles.Type;
+        return subtitles.Language == null ? type : $"{type}: {FormatLocalized(subtitles.Language)}";
+    }
+
+    private static string FormatReview(XmltvReview review)
+    {
+        var attribution = new[] { review.Source, review.Reviewer }.Where(value => !string.IsNullOrWhiteSpace(value));
+        var suffix = string.Join(", ", attribution);
+        return suffix.Length == 0 ? review.Value : $"{review.Value} ({suffix})";
+    }
+
+    private static string FormatUrl(XmltvUrl url) =>
+        string.IsNullOrWhiteSpace(url.System) ? url.Value : $"{url.Value} ({url.System})";
+
+    private static string FormatImage(XmltvImage image) =>
+        string.IsNullOrWhiteSpace(image.Type) ? image.Value : $"{image.Value} ({image.Type})";
+
+    private static bool HasLanguageMetadata(XmltvProgrammeMetadata metadata) =>
+        metadata.PrimaryTitleLanguage != null || metadata.PrimarySubTitleLanguage != null || metadata.PrimaryDescriptionLanguage != null;
+
+    private static string FormatPrimaryLanguages(XmltvProgrammeMetadata metadata) =>
+        JoinPresentValues(
+            ("Title", metadata.PrimaryTitleLanguage),
+            ("Episode title", metadata.PrimarySubTitleLanguage),
+            ("Description", metadata.PrimaryDescriptionLanguage));
+
+    private static bool HasSchedulingMetadata(XmltvProgrammeMetadata metadata) =>
+        metadata.PdcStart != null || metadata.VpsStart != null || metadata.ShowView != null || metadata.VideoPlus != null || metadata.ClumpIndex != null;
+
+    private static string FormatSchedulingMetadata(XmltvProgrammeMetadata metadata) =>
+        JoinPresentValues(
+            ("PDC", metadata.PdcStart),
+            ("VPS", metadata.VpsStart),
+            ("ShowView", metadata.ShowView),
+            ("VideoPlus", metadata.VideoPlus),
+            ("Clump", metadata.ClumpIndex));
+
+    private static string JoinPresentValues(params (string Label, string? Value)[] values) =>
+        string.Join(", ", values.Where(item => !string.IsNullOrWhiteSpace(item.Value)).Select(item => $"{item.Label}: {item.Value}"));
+}

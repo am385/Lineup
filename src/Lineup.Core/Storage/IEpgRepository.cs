@@ -49,6 +49,11 @@ public interface IEpgRepository
     Task ImportGuideAsync(IEnumerable<HDHomeRunChannelEpgSegment> segments, TimeSpan historyRetention, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Transactionally imports an authoritative XMLTV guide snapshot with supplemental metadata.
+    /// </summary>
+    Task ImportGuideAsync(XmltvGuideSnapshot snapshot, TimeSpan historyRetention, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Gets all stored raw channel data
     /// </summary>
     Task<List<HDHomeRunChannelEpgSegment>> GetChannelsAsync();
@@ -64,6 +69,11 @@ public interface IEpgRepository
     /// Gets raw EPG data (channels and programs) for a time range
     /// </summary>
     Task<List<HDHomeRunChannelEpgSegment>> GetRawEpgDataAsync(DateTime? startTimeUtc = null, DateTime? endTimeUtc = null);
+
+    /// <summary>
+    /// Gets the normalized guide and root metadata from the latest completed import.
+    /// </summary>
+    Task<XmltvGuideSnapshot> GetGuideSnapshotAsync(DateTime? startTimeUtc = null, DateTime? endTimeUtc = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Removes programs that have ended before the specified time

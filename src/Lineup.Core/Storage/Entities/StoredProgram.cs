@@ -98,4 +98,9 @@ public class StoredProgram
     /// </summary>
     [MaxLength(32)]
     public string? LastSeenImportId { get; set; }
+
+    /// <summary>
+    /// Gets or sets supplemental XMLTV programme metadata.
+    /// </summary>
+    public string? SupplementalXml { get; set; }
 }

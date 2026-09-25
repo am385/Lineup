@@ -62,7 +62,8 @@ internal static class EpgDatabaseSchema
                     "DRM" INTEGER NOT NULL DEFAULT 0,
                     "Favorite" INTEGER NOT NULL DEFAULT 0,
                     "LastUpdatedUtc" TEXT NOT NULL,
-                    "LastSeenImportId" TEXT NULL
+                    "LastSeenImportId" TEXT NULL,
+                    "SupplementalXml" TEXT NULL
                 );
                 CREATE UNIQUE INDEX IF NOT EXISTS "IX_Channels_GuideNumber" ON "Channels" ("GuideNumber");
                 CREATE TABLE IF NOT EXISTS "Programs" (
@@ -81,7 +82,8 @@ internal static class EpgDatabaseSchema
                     "SeriesID" TEXT NULL,
                     "Filter" TEXT NULL,
                     "FetchedAtUtc" TEXT NOT NULL,
-                    "LastSeenImportId" TEXT NULL
+                    "LastSeenImportId" TEXT NULL,
+                    "SupplementalXml" TEXT NULL
                 );
                 CREATE INDEX IF NOT EXISTS "IX_Programs_GuideNumber" ON "Programs" ("GuideNumber");
                 CREATE INDEX IF NOT EXISTS "IX_Programs_StartTime" ON "Programs" ("StartTime");
@@ -114,14 +116,18 @@ internal static class EpgDatabaseSchema
                     "CoverageStart" INTEGER NOT NULL,
                     "CoverageEnd" INTEGER NOT NULL,
                     "ChannelCount" INTEGER NOT NULL,
-                    "ProgramCount" INTEGER NOT NULL
+                    "ProgramCount" INTEGER NOT NULL,
+                    "SupplementalXml" TEXT NULL
                 );
                 CREATE INDEX IF NOT EXISTS "IX_GuideImports_CompletedUtc" ON "GuideImports" ("CompletedUtc");
                 """, cancellationToken);
             await AddColumnIfMissingAsync(connection, "Channels", "DRM", "INTEGER NOT NULL DEFAULT 0", cancellationToken);
             await AddColumnIfMissingAsync(connection, "Channels", "Favorite", "INTEGER NOT NULL DEFAULT 0", cancellationToken);
             await AddColumnIfMissingAsync(connection, "Channels", "LastSeenImportId", "TEXT NULL", cancellationToken);
+            await AddColumnIfMissingAsync(connection, "Channels", "SupplementalXml", "TEXT NULL", cancellationToken);
             await AddColumnIfMissingAsync(connection, "Programs", "LastSeenImportId", "TEXT NULL", cancellationToken);
+            await AddColumnIfMissingAsync(connection, "Programs", "SupplementalXml", "TEXT NULL", cancellationToken);
+            await AddColumnIfMissingAsync(connection, "GuideImports", "SupplementalXml", "TEXT NULL", cancellationToken);
             await ExecuteAsync(connection, """
                 DELETE FROM "Programs"
                 WHERE "Id" NOT IN (

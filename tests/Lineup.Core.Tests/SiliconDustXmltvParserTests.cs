@@ -42,7 +42,7 @@ public class SiliconDustXmltvParserTests
         var parser = new SiliconDustXmltvParser();
 
         // Act
-        var channel = Assert.Single(parser.Parse(Encoding.UTF8.GetBytes(xml)));
+        var channel = Assert.Single(parser.Parse(Encoding.UTF8.GetBytes(xml)).Segments);
 
         // Assert
         var programme = Assert.Single(channel.Guide);
@@ -95,10 +95,35 @@ public class SiliconDustXmltvParserTests
         var parser = new SiliconDustXmltvParser();
 
         // Act
-        var channels = parser.Parse(Encoding.UTF8.GetBytes(xml));
+        var channels = parser.Parse(Encoding.UTF8.GetBytes(xml)).Segments;
 
         // Assert
         Assert.Equal(["7.1", "107.1"], channels.Select(channel => channel.GuideNumber));
         Assert.All(channels, channel => Assert.Equal("Shared Show", Assert.Single(channel.Guide).Title));
+    }
+
+    /// <summary>
+    /// Verifies minimal source data does not allocate empty supplemental envelopes.
+    /// </summary>
+    [Fact]
+    public void Parse_MinimalTypedData_LeavesSupplementalMetadataNull()
+    {
+        // Arrange
+        const string xml = """
+            <tv>
+              <channel id="station"><display-name>Channel</display-name><lcn>7.1</lcn></channel>
+              <programme start="20260914220000 +0000" stop="20260914223000 +0000" channel="station"><title>Show</title></programme>
+            </tv>
+            """;
+        var parser = new SiliconDustXmltvParser();
+
+        // Act
+        var result = parser.Parse(Encoding.UTF8.GetBytes(xml));
+
+        // Assert
+        Assert.Null(result.SupplementalXml);
+        var channel = Assert.Single(result.Segments);
+        Assert.Null(channel.SupplementalXml);
+        Assert.Null(Assert.Single(channel.Guide).SupplementalXml);
     }
 }

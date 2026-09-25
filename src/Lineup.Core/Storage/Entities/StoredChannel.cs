@@ -58,4 +58,9 @@ public class StoredChannel
     /// </summary>
     [MaxLength(32)]
     public string? LastSeenImportId { get; set; }
+
+    /// <summary>
+    /// Gets or sets supplemental XMLTV channel metadata.
+    /// </summary>
+    public string? SupplementalXml { get; set; }
 }

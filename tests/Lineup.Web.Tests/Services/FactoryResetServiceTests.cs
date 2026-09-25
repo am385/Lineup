@@ -13,7 +13,7 @@ namespace Lineup.Web.Tests.Services;
 public class FactoryResetServiceTests
 {
     /// <summary>
-    /// Verifies that reset removes Lineup-owned state while preserving an external XMLTV destination.
+    /// Verifies that reset empties application and transient storage while preserving an external XMLTV destination.
     /// </summary>
     [Fact]
     public async Task ApplyPendingReset_OwnedStateAndExternalOutput_RemovesOnlyOwnedState()
@@ -30,8 +30,13 @@ public class FactoryResetServiceTests
         var externalOutputPath = Path.Combine(externalDirectory.FullName, "keep.xml");
         var logDirectory = configDirectory.CreateSubdirectory(AppConstants.LogDirectoryName);
         var dataProtectionDirectory = configDirectory.CreateSubdirectory(AppConstants.DataProtectionKeysDirectoryName);
+        var unknownDirectory = configDirectory.CreateSubdirectory("unknown").CreateSubdirectory("nested");
+        var transientDirectory = Directory.CreateDirectory(transientStore.HlsRootPath).CreateSubdirectory("unknown-owner");
         await File.WriteAllTextAsync(Path.Combine(logDirectory.FullName, "lineup-test.log"), "log", TestContext.Current.CancellationToken);
         await File.WriteAllTextAsync(Path.Combine(dataProtectionDirectory.FullName, "key-test.xml"), "key", TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(Path.Combine(unknownDirectory.FullName, "unknown.bin"), "unknown", TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(Path.Combine(transientDirectory.FullName, "segment.ts"), "transient", TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(Path.Combine(transientStore.RootPath, "unknown.tmp"), "transient", TestContext.Current.CancellationToken);
         var ownedFiles = new[]
         {
             settingsPath,
@@ -59,6 +64,8 @@ public class FactoryResetServiceTests
         Assert.True(File.Exists(externalOutputPath));
         Assert.False(logDirectory.Exists);
         Assert.False(dataProtectionDirectory.Exists);
+        Assert.Empty(Directory.EnumerateFileSystemEntries(configDirectory.FullName));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(transientStore.RootPath));
         Assert.False(resetSettings.Settings.IsSetupComplete);
         Assert.Equal(configuredOutputPath, resetSettings.Settings.XmltvOutputPath);
         Assert.False(File.Exists(Path.Combine(configDirectory.FullName, FactoryResetCoordinator.RequestFileName)));

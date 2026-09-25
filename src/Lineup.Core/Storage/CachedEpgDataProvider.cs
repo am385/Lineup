@@ -80,23 +80,24 @@ public class CachedEpgDataProvider
         progress?.Report(CreateProgress(FetchStatus.Fetching, "Downloading the SiliconDust XMLTV guide..."));
 
         var content = await _apiClient.FetchXmltvAsync(cancellationToken);
-        var downloadedSegments = _parser.Parse(content);
-        if (downloadedSegments.Count == 0 || downloadedSegments.Sum(segment => segment.Guide.Count) == 0)
+        var downloadedSnapshot = _parser.Parse(content);
+        if (downloadedSnapshot.Segments.Count == 0 || downloadedSnapshot.Segments.Sum(segment => segment.Guide.Count) == 0)
         {
             throw new InvalidDataException("The SiliconDust XMLTV guide did not contain any usable channel programme data.");
         }
 
-        var segments = _projector.Project(downloadedSegments, availableChannels).ToList();
+        var snapshot = _projector.Project(downloadedSnapshot, availableChannels);
+        var segments = snapshot.Segments.ToList();
         var programmeCount = segments.Sum(segment => segment.Guide.Count);
         progress?.Report(CreateProgress(FetchStatus.Storing, $"Storing {segments.Count} channels and {programmeCount:N0} programmes...", segments.Count, programmeCount));
 
         await _generationCoordinator.ExecuteAsync(async transitionToken =>
         {
-            await _repository.ImportGuideAsync(segments, _retentionPolicy.HistoryRetention, transitionToken);
+            await _repository.ImportGuideAsync(snapshot, _retentionPolicy.HistoryRetention, transitionToken);
         }, cancellationToken);
 
         _logger.LogInformation("Imported {ChannelCount} of {DownloadedChannelCount} SiliconDust XMLTV channels available in the tuner lineup with {ProgramCount} programmes",
-                               segments.Count, downloadedSegments.Count, programmeCount);
+                               segments.Count, downloadedSnapshot.Segments.Count, programmeCount);
         progress?.Report(CreateProgress(FetchStatus.Completed, $"Imported {segments.Count} channels and {programmeCount:N0} programmes", segments.Count, programmeCount));
         return segments;
     }

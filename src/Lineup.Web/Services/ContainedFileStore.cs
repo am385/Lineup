@@ -112,6 +112,26 @@ internal sealed class ContainedFileStore
         }
     }
 
+    /// <summary>Deletes every file and directory beneath the storage root.</summary>
+    public void DeleteContents()
+    {
+        if (!Directory.Exists(RootPath))
+        {
+            Directory.CreateDirectory(RootPath);
+            return;
+        }
+
+        foreach (var path in Directory.EnumerateFiles(RootPath, "*", SearchOption.TopDirectoryOnly))
+        {
+            File.Delete(EnsureContainedPath(path));
+        }
+
+        foreach (var path in Directory.EnumerateDirectories(RootPath, "*", SearchOption.TopDirectoryOnly))
+        {
+            Directory.Delete(EnsureContainedPath(path), recursive: true);
+        }
+    }
+
     /// <summary>Deletes matching files directly beneath a contained directory.</summary>
     public void DeleteMatchingFiles(string directoryPath, string pattern)
     {

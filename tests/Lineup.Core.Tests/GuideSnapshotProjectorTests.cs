@@ -36,6 +36,37 @@ public sealed class GuideSnapshotProjectorTests
         Assert.Equal(start.AddDays(1).ToUnixTimeSeconds(), placeholder.EndTime);
     }
 
+    /// <summary>
+    /// Verifies projection preserves imported metadata while leaving synthetic placeholders metadata-free.
+    /// </summary>
+    [Fact]
+    public void Project_SupplementalMetadata_PreservesImportedValuesOnly()
+    {
+        // Arrange
+        var projector = new GuideSnapshotProjector();
+        var start = new DateTimeOffset(2026, 9, 14, 22, 0, 0, TimeSpan.Zero);
+        var sourceSegment = CreateSegment("7.1", "Available", "Available Show", start, start.AddMinutes(30)) with
+        {
+            SupplementalXml = "<channel />",
+            Guide = [CreateSegment("7.1", "Available", "Available Show", start, start.AddMinutes(30)).Guide[0] with { SupplementalXml = "<programme />" }]
+        };
+        var snapshot = new XmltvGuideSnapshot
+        {
+            SupplementalXml = "<root />",
+            Segments = [sourceSegment]
+        };
+
+        // Act
+        var result = projector.Project(snapshot, [CreateChannel("7.1", "Available"), CreateChannel("9.1", "Missing")]);
+
+        // Assert
+        Assert.Equal("<root />", result.SupplementalXml);
+        Assert.Equal("<channel />", result.Segments[0].SupplementalXml);
+        Assert.Equal("<programme />", Assert.Single(result.Segments[0].Guide).SupplementalXml);
+        Assert.Null(result.Segments[1].SupplementalXml);
+        Assert.Null(Assert.Single(result.Segments[1].Guide).SupplementalXml);
+    }
+
     private static HDHomeRunChannelEpgSegment CreateSegment(string guideNumber, string guideName, string title, DateTimeOffset start, DateTimeOffset end) => new()
     {
         GuideNumber = guideNumber,

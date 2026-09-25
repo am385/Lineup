@@ -4,7 +4,7 @@ WORKDIR /src
 
 # Git commit hash for version stamping (no .git directory in Docker context)
 ARG GIT_HASH=unknown
-ARG BUILD_VERSION
+ARG BUILD_VERSION=""
 
 # Copy project files first for better layer caching
 COPY Directory.Build.props ./

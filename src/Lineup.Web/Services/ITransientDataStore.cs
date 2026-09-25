@@ -41,6 +41,9 @@ public interface ITransientDataStore
     /// <summary>Deletes a managed directory when present.</summary>
     void DeleteDirectory(string directoryPath);
 
+    /// <summary>Deletes every file and directory beneath the transient root.</summary>
+    void DeleteContents();
+
     /// <summary>Removes inactive process-owned transient directories.</summary>
     void DeleteInactiveOwnerDirectories();
 }

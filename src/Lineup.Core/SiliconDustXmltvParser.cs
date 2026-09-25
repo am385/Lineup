@@ -22,20 +22,30 @@ public sealed class SiliconDustXmltvParser
     /// Parses channel and programme data from a SiliconDust XMLTV document.
     /// </summary>
     /// <param name="content">Complete XMLTV document bytes.</param>
-    /// <returns>Normalized guide segments keyed by logical channel number.</returns>
-    public IReadOnlyList<HDHomeRunChannelEpgSegment> Parse(ReadOnlyMemory<byte> content)
+    /// <returns>The normalized guide and supplemental root metadata.</returns>
+    public XmltvGuideSnapshot Parse(ReadOnlyMemory<byte> content)
     {
         var document = LoadDocument(content);
         var root = document.Root!;
         var channelsById = ParseChannels(root);
         ParseProgrammes(root, channelsById);
-        return channelsById.Values
+        var segments = channelsById.Values
             .SelectMany(channels => channels)
             .Select(channel => channel.Segment)
             .GroupBy(channel => channel.GuideNumber, StringComparer.OrdinalIgnoreCase)
             .Select(MergeLogicalChannel)
             .OrderBy(segment => segment.GuideNumber, ChannelNumberComparer.Instance)
             .ToArray();
+        var supplementalXml = XmltvSupplementalMetadata.Create(
+            root.Attributes().Where(attribute =>
+                !IsUnqualifiedNamed(attribute, "generator-info-name") &&
+                !IsUnqualifiedNamed(attribute, "generator-info-url")),
+            root.Elements().Where(element => element.Name.LocalName is not ("channel" or "programme")));
+        return new XmltvGuideSnapshot
+        {
+            Segments = segments,
+            SupplementalXml = supplementalXml
+        };
     }
 
     private static XDocument LoadDocument(ReadOnlyMemory<byte> content)
@@ -79,13 +89,24 @@ public sealed class SiliconDustXmltvParser
                 continue;
             }
 
-            var names = Elements(element, "display-name")
-                .Select(displayName => displayName.Value.Trim())
-                .Where(displayName => displayName.Length > 0)
+            var displayNames = Elements(element, "display-name")
+                .Where(displayName => displayName.Value.Trim().Length > 0)
                 .ToArray();
-            var guideName = names.FirstOrDefault(name => !name.StartsWith($"{guideNumber} ", StringComparison.OrdinalIgnoreCase))
-                ?? names.FirstOrDefault()
+            var selectedDisplayName = displayNames.FirstOrDefault(displayName => !displayName.Value.Trim().StartsWith($"{guideNumber} ", StringComparison.OrdinalIgnoreCase))
+                ?? displayNames.FirstOrDefault();
+            var guideName = selectedDisplayName?.Value.Trim()
                 ?? guideNumber;
+            var icons = Elements(element, "icon").ToArray();
+            var primaryIcon = icons.FirstOrDefault();
+            var preservedElements = element.Elements()
+                .Where(child => child != selectedDisplayName &&
+                                child != primaryIcon &&
+                                child.Name.LocalName != "lcn")
+                .Select(child => new XElement(child))
+                .ToArray();
+            var ownedElements = new List<(string Key, XElement Element)>();
+            AddOwnedShell(ownedElements, "display-name", selectedDisplayName);
+            AddOwnedShell(ownedElements, "icon", primaryIcon, "src");
 
             if (!channels.TryGetValue(id, out var stationChannels))
             {
@@ -97,7 +118,11 @@ public sealed class SiliconDustXmltvParser
             {
                 GuideNumber = guideNumber,
                 GuideName = guideName,
-                ImageURL = Elements(element, "icon").FirstOrDefault()?.Attribute("src")?.Value,
+                ImageURL = primaryIcon?.Attribute("src")?.Value,
+                SupplementalXml = XmltvSupplementalMetadata.Create(
+                    element.Attributes().Where(attribute => !IsUnqualifiedNamed(attribute, "id")),
+                    preservedElements,
+                    ownedElements),
                 Guide = []
             }));
         }
@@ -122,14 +147,30 @@ public sealed class SiliconDustXmltvParser
                 continue;
             }
 
+            var title = Elements(element, "title").FirstOrDefault();
+            var subtitle = Elements(element, "sub-title").FirstOrDefault();
+            var description = Elements(element, "desc").FirstOrDefault();
+            var icon = Elements(element, "icon").FirstOrDefault();
+            var preservedElements = element.Elements()
+                .Where(child => child != title &&
+                                child != subtitle &&
+                                child != description &&
+                                child != icon)
+                .Select(child => new XElement(child))
+                .ToArray();
+            var ownedElements = new List<(string Key, XElement Element)>();
+            AddOwnedShell(ownedElements, "title", title);
+            AddOwnedShell(ownedElements, "sub-title", subtitle);
+            AddOwnedShell(ownedElements, "desc", description);
+            AddOwnedShell(ownedElements, "icon", icon, "src");
             var programme = new HDHomeRunProgram
             {
-                Title = ElementValue(element, "title"),
-                EpisodeTitle = ElementValue(element, "sub-title"),
-                Synopsis = ElementValue(element, "desc"),
+                Title = title?.Value.Trim(),
+                EpisodeTitle = subtitle?.Value.Trim(),
+                Synopsis = description?.Value.Trim(),
                 StartTime = start.ToUnixTimeSeconds(),
                 EndTime = stop.ToUnixTimeSeconds(),
-                ImageURL = Elements(element, "icon").FirstOrDefault()?.Attribute("src")?.Value,
+                ImageURL = icon?.Attribute("src")?.Value,
                 EpisodeNumber = Elements(element, "episode-num")
                     .FirstOrDefault(episode => string.Equals(episode.Attribute("system")?.Value, "onscreen", StringComparison.OrdinalIgnoreCase))
                     ?.Value,
@@ -140,7 +181,14 @@ public sealed class SiliconDustXmltvParser
                     .Select(category => category.Value.Trim())
                     .Where(category => category.Length > 0)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList()
+                    .ToList(),
+                SupplementalXml = XmltvSupplementalMetadata.Create(
+                    element.Attributes().Where(attribute =>
+                        !IsUnqualifiedNamed(attribute, "start") &&
+                        !IsUnqualifiedNamed(attribute, "stop") &&
+                        !IsUnqualifiedNamed(attribute, "channel")),
+                    preservedElements,
+                    ownedElements)
             };
 
             foreach (var channel in channels)
@@ -192,6 +240,27 @@ public sealed class SiliconDustXmltvParser
     {
         return parent.Elements().Where(element => element.Name.LocalName == localName);
     }
+
+    private static void AddOwnedShell(List<(string Key, XElement Element)> ownedElements, string key, XElement? element, params string[] excludedAttributes)
+    {
+        if (element == null)
+        {
+            return;
+        }
+
+        var excluded = excludedAttributes.ToHashSet(StringComparer.Ordinal);
+        var shell = new XElement(
+            element.Name,
+            element.Attributes().Where(attribute => attribute.Name.Namespace != XNamespace.None || !excluded.Contains(attribute.Name.LocalName)));
+        if (shell.HasAttributes)
+        {
+            ownedElements.Add((key, shell));
+        }
+    }
+
+    private static bool IsUnqualifiedNamed(XAttribute attribute, string localName) =>
+        attribute.Name.Namespace == XNamespace.None &&
+        string.Equals(attribute.Name.LocalName, localName, StringComparison.Ordinal);
 
     private sealed record ParsedChannel(HDHomeRunChannelEpgSegment Segment);
 }

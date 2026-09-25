@@ -95,7 +95,7 @@ public static class FactoryResetCoordinator
         WriteRequestAsync(new AppDataStore(appDataPath), request, cancellationToken);
 
     /// <summary>
-    /// Removes allowlisted Lineup-owned state when a reset request is present.
+    /// Removes all Lineup-owned application and transient data when a reset request is present.
     /// </summary>
     /// <param name="appDataStore">Lineup persistent application-data store.</param>
     /// <param name="configuredXmltvPath">Startup-configured XMLTV file or directory.</param>
@@ -118,19 +118,14 @@ public static class FactoryResetCoordinator
         var configuredOutputPath = AppSettingsService.ResolveConfiguredXmltvOutputPath(configuredXmltvPath);
         var configuredXmltvDirectory = ResolveConfiguredXmltvDirectory(configuredXmltvPath);
 
-        DeleteSettingsState(appDataStore);
-        DeleteGuideState(appDataStore);
-        appDataStore.DeleteDirectory(appDataStore.LogDirectoryPath, recursive: true);
-        appDataStore.DeleteDirectory(appDataStore.DataProtectionKeysPath, recursive: true);
         publicationStore.Delete(configuredOutputPath);
         if (IsOwnedPersistedOutput(request.PersistedXmltvOutputPath, appDataStore.RootPath, configuredXmltvDirectory, configuredOutputPath))
         {
             publicationStore.Delete(Path.GetFullPath(request.PersistedXmltvOutputPath!));
         }
 
-        transientDataStore.DeleteInactiveOwnerDirectories();
-
-        appDataStore.DeleteFile(appDataStore.FactoryResetRequestPath);
+        transientDataStore.DeleteContents();
+        appDataStore.DeleteContents();
         return true;
     }
 
@@ -139,20 +134,6 @@ public static class FactoryResetCoordinator
     /// </summary>
     internal static bool ApplyPendingReset(string appDataPath, string? configuredXmltvPath, ITransientDataStore transientData) =>
         ApplyPendingReset(new AppDataStore(appDataPath), configuredXmltvPath, transientData, new XmltvPublicationStore());
-
-    private static void DeleteSettingsState(IAppDataStore appDataStore)
-    {
-        appDataStore.DeleteFile(appDataStore.SettingsPath);
-        appDataStore.DeleteFile(appDataStore.SettingsBackupPath);
-        appDataStore.DeleteMatchingFiles(appDataStore.RootPath, $"{AppConstants.SettingsFileName}.*.tmp");
-    }
-
-    private static void DeleteGuideState(IAppDataStore appDataStore)
-    {
-        appDataStore.DeleteFile(appDataStore.DatabasePath);
-        appDataStore.DeleteFile($"{appDataStore.DatabasePath}-wal");
-        appDataStore.DeleteFile($"{appDataStore.DatabasePath}-shm");
-    }
 
     private static string? ResolveConfiguredXmltvDirectory(string? configuredXmltvPath)
     {

@@ -136,9 +136,9 @@ public class EpgOrchestratorTests
             await lineupStore.SetChannelEnabledAsync("9.1", enabled: false, TestContext.Current.CancellationToken);
             await lineupStore.SetChannelEnabledAsync("13.1", enabled: false, TestContext.Current.CancellationToken);
             var parser = new SiliconDustXmltvParser();
-            var segments = parser.Parse(Encoding.UTF8.GetBytes(xml));
+            var segments = parser.Parse(Encoding.UTF8.GetBytes(xml)).Segments;
             var repository = Substitute.For<IEpgRepository>();
-            repository.GetRawEpgDataAsync().Returns(segments.ToList());
+            repository.GetGuideSnapshotAsync(cancellationToken: Arg.Any<CancellationToken>()).Returns(new XmltvGuideSnapshot { Segments = segments });
             var orchestrator = new EpgOrchestrator(
                 NullLogger<EpgOrchestrator>.Instance,
                 lineupStore,
@@ -152,7 +152,7 @@ public class EpgOrchestratorTests
             await orchestrator.GenerateEpgFromCacheAsync(2, outputPath, TestContext.Current.CancellationToken);
 
             // Assert
-            var publishedChannels = parser.Parse(await File.ReadAllBytesAsync(outputPath, TestContext.Current.CancellationToken));
+            var publishedChannels = parser.Parse(await File.ReadAllBytesAsync(outputPath, TestContext.Current.CancellationToken)).Segments;
             Assert.Equal(["7.1", "11.1"], publishedChannels.Select(channel => channel.GuideNumber));
             Assert.Equal("Not Available", Assert.Single(publishedChannels.Single(channel => channel.GuideNumber == "11.1").Guide).Title);
             Assert.Equal(["7.1", "9.1"], segments.Select(channel => channel.GuideNumber));
@@ -180,7 +180,7 @@ public class EpgOrchestratorTests
             await lineupStore.SetChannelEnabledAsync("9.1", enabled: false, TestContext.Current.CancellationToken);
             var parser = new SiliconDustXmltvParser();
             var repository = Substitute.For<IEpgRepository>();
-            repository.GetRawEpgDataAsync().Returns([]);
+            repository.GetGuideSnapshotAsync(cancellationToken: Arg.Any<CancellationToken>()).Returns(new XmltvGuideSnapshot { Segments = [] });
             var orchestrator = new EpgOrchestrator(
                 NullLogger<EpgOrchestrator>.Instance,
                 lineupStore,
@@ -194,7 +194,7 @@ public class EpgOrchestratorTests
             await orchestrator.GenerateEpgFromCacheAsync(2, outputPath, TestContext.Current.CancellationToken);
 
             // Assert
-            var channel = Assert.Single(parser.Parse(await File.ReadAllBytesAsync(outputPath, TestContext.Current.CancellationToken)));
+            var channel = Assert.Single(parser.Parse(await File.ReadAllBytesAsync(outputPath, TestContext.Current.CancellationToken)).Segments);
             var programme = Assert.Single(channel.Guide);
             Assert.Equal("7.1", channel.GuideNumber);
             Assert.Equal("Not Available", programme.Title);

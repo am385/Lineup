@@ -47,6 +47,7 @@ public class EpgRepository : IEpgRepository
             existing.ImageURL = channel.ImageURL;
             existing.DRM = channel.DRM;
             existing.Favorite = channel.Favorite;
+            existing.SupplementalXml = channel.SupplementalXml;
             existing.LastUpdatedUtc = DateTime.UtcNow;
         }
         else
@@ -59,6 +60,7 @@ public class EpgRepository : IEpgRepository
                 ImageURL = channel.ImageURL,
                 DRM = channel.DRM,
                 Favorite = channel.Favorite,
+                SupplementalXml = channel.SupplementalXml,
                 LastUpdatedUtc = DateTime.UtcNow
             });
         }
@@ -89,6 +91,7 @@ public class EpgRepository : IEpgRepository
                 existing.ImageURL = channel.ImageURL;
                 existing.DRM = channel.DRM;
                 existing.Favorite = channel.Favorite;
+                existing.SupplementalXml = channel.SupplementalXml;
                 existing.LastUpdatedUtc = DateTime.UtcNow;
             }
             else
@@ -101,6 +104,7 @@ public class EpgRepository : IEpgRepository
                     ImageURL = channel.ImageURL,
                     DRM = channel.DRM,
                     Favorite = channel.Favorite,
+                    SupplementalXml = channel.SupplementalXml,
                     LastUpdatedUtc = DateTime.UtcNow
                 });
             }
@@ -209,6 +213,7 @@ public class EpgRepository : IEpgRepository
             ImageURL = segment.ImageURL,
             DRM = segment.DRM,
             Favorite = segment.Favorite,
+            SupplementalXml = segment.SupplementalXml,
             LastUpdatedUtc = fetchedAt
         }));
         _context.Programs.AddRange(segmentList.SelectMany(segment => segment.Guide.Select(program => MapToEntity(program, segment.GuideNumber!))));
@@ -218,15 +223,20 @@ public class EpgRepository : IEpgRepository
     }
 
     /// <inheritdoc />
-    public async Task ImportGuideAsync(IEnumerable<HDHomeRunChannelEpgSegment> segments, TimeSpan historyRetention, CancellationToken cancellationToken = default)
+    public Task ImportGuideAsync(IEnumerable<HDHomeRunChannelEpgSegment> segments, TimeSpan historyRetention, CancellationToken cancellationToken = default) =>
+        ImportGuideAsync(new XmltvGuideSnapshot { Segments = segments.ToArray() }, historyRetention, cancellationToken);
+
+    /// <inheritdoc />
+    public async Task ImportGuideAsync(XmltvGuideSnapshot snapshot, TimeSpan historyRetention, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(snapshot);
         if (historyRetention < TimeSpan.Zero)
         {
             throw new ArgumentOutOfRangeException(nameof(historyRetention), "Guide history retention cannot be negative.");
         }
 
         await EpgDatabaseSchema.EnsureAsync(_context, cancellationToken);
-        var segmentList = segments
+        var segmentList = snapshot.Segments
             .Where(segment => !string.IsNullOrWhiteSpace(segment.GuideNumber))
             .GroupBy(segment => segment.GuideNumber!, StringComparer.OrdinalIgnoreCase)
             .Select(group => group.First() with
@@ -257,7 +267,8 @@ public class EpgRepository : IEpgRepository
             CoverageStart = coverageStart,
             CoverageEnd = coverageEnd,
             ChannelCount = segmentList.Length,
-            ProgramCount = incomingPrograms.Length
+            ProgramCount = incomingPrograms.Length,
+            SupplementalXml = snapshot.SupplementalXml
         };
         _context.GuideImports.Add(guideImport);
 
@@ -276,6 +287,7 @@ public class EpgRepository : IEpgRepository
             channel.ImageURL = segment.ImageURL;
             channel.DRM = segment.DRM;
             channel.Favorite = segment.Favorite;
+            channel.SupplementalXml = segment.SupplementalXml;
             channel.LastUpdatedUtc = importedAt;
             channel.LastSeenImportId = importId;
         }
@@ -403,12 +415,32 @@ public class EpgRepository : IEpgRepository
                 ImageURL = channel.ImageURL,
                 DRM = channel.DRM,
                 Favorite = channel.Favorite,
+                SupplementalXml = channel.SupplementalXml,
                 Guide = channelPrograms
             });
         }
 
 
         return result;
+    }
+
+    /// <inheritdoc />
+    public async Task<XmltvGuideSnapshot> GetGuideSnapshotAsync(DateTime? startTimeUtc = null, DateTime? endTimeUtc = null, CancellationToken cancellationToken = default)
+    {
+        await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+        var segments = await GetRawEpgDataAsync(startTimeUtc, endTimeUtc);
+        var supplementalXml = await _context.GuideImports
+            .Where(import => import.CompletedUtc != null)
+            .OrderByDescending(import => import.CompletedUtc)
+            .Select(import => import.SupplementalXml)
+            .FirstOrDefaultAsync(cancellationToken);
+        var snapshot = new XmltvGuideSnapshot
+        {
+            Segments = segments,
+            SupplementalXml = supplementalXml
+        };
+        await transaction.CommitAsync(cancellationToken);
+        return snapshot;
     }
 
     /// <summary>
@@ -532,6 +564,7 @@ public class EpgRepository : IEpgRepository
             ImageURL = entity.ImageURL,
             DRM = entity.DRM,
             Favorite = entity.Favorite,
+            SupplementalXml = entity.SupplementalXml,
             Guide = [] // Programs loaded separately
         };
     }
@@ -551,6 +584,7 @@ public class EpgRepository : IEpgRepository
         entity.First = program.First;
         entity.SeriesID = program.SeriesID;
         entity.Filter = program.Filter != null ? string.Join(",", program.Filter) : null;
+        entity.SupplementalXml = program.SupplementalXml;
     }
 
     private static string CreateProgramKey(StoredProgram program) =>
@@ -578,7 +612,9 @@ public class EpgRepository : IEpgRepository
             OriginalAirdate = entity.OriginalAirdate,
             First = entity.First,
             SeriesID = entity.SeriesID,
-            Filter = entity.Filter?.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList()
+            Filter = entity.Filter?.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList(),
+            SupplementalXml = entity.SupplementalXml,
+            Metadata = XmltvProgrammeMetadataProjector.Project(entity.SupplementalXml)
         };
     }
 }

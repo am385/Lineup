@@ -11,6 +11,18 @@ public sealed class GuideSnapshotProjector
     private const string PlaceholderTitle = "Not Available";
 
     /// <summary>
+    /// Retains requested physical channels while preserving guide-level metadata.
+    /// </summary>
+    /// <param name="providerSnapshot">Normalized provider snapshot.</param>
+    /// <param name="channels">Physical channels to retain.</param>
+    /// <returns>A projected snapshot containing every requested channel.</returns>
+    public XmltvGuideSnapshot Project(XmltvGuideSnapshot providerSnapshot, IEnumerable<HDHomeRunChannel> channels)
+    {
+        ArgumentNullException.ThrowIfNull(providerSnapshot);
+        return providerSnapshot with { Segments = Project(providerSnapshot.Segments, channels) };
+    }
+
+    /// <summary>
     /// Retains requested physical channels and supplies full-range placeholders when provider data is unavailable.
     /// </summary>
     /// <param name="providerSegments">Normalized data from one or more guide providers.</param>

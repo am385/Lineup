@@ -105,9 +105,9 @@ public class EpgOrchestrator
         var enabledChannels = lineupSnapshot.Channels
             .Where(channel => lineupSnapshot.IsChannelEnabled(channel.GuideNumber))
             .ToArray();
-        var segments = await _repository.GetRawEpgDataAsync() ?? [];
+        var snapshot = await _repository.GetGuideSnapshotAsync(cancellationToken: cancellationToken);
         var start = DateTimeOffset.UtcNow;
-        var filteredContent = _xmltvWriter.Write(segments, enabledChannels, start, start.AddDays(Math.Max(1, days)));
+        var filteredContent = _xmltvWriter.Write(snapshot, enabledChannels, start, start.AddDays(Math.Max(1, days)));
         await _publicationStore.PublishAsync(
             filename,
             (stream, token) => stream.WriteAsync(filteredContent, token).AsTask(),
