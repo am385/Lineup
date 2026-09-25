@@ -37,7 +37,7 @@ public sealed class GuideSnapshotProjectorTests
     }
 
     /// <summary>
-    /// Verifies projection preserves imported metadata while leaving synthetic placeholders metadata-free.
+    /// Verifies projection preserves imported channel metadata while leaving synthetic channels and placeholder programmes metadata-free.
     /// </summary>
     [Fact]
     public void Project_SupplementalMetadata_PreservesImportedValuesOnly()
@@ -50,21 +50,30 @@ public sealed class GuideSnapshotProjectorTests
             SupplementalXml = "<channel />",
             Guide = [CreateSegment("7.1", "Available", "Available Show", start, start.AddMinutes(30)).Guide[0] with { SupplementalXml = "<programme />" }]
         };
+        var metadataOnlySegment = new HDHomeRunChannelEpgSegment
+        {
+            GuideNumber = "8.1",
+            GuideName = "No Programmes",
+            SupplementalXml = "<channel-without-programmes />",
+            Guide = []
+        };
         var snapshot = new XmltvGuideSnapshot
         {
             SupplementalXml = "<root />",
-            Segments = [sourceSegment]
+            Segments = [sourceSegment, metadataOnlySegment]
         };
 
         // Act
-        var result = projector.Project(snapshot, [CreateChannel("7.1", "Available"), CreateChannel("9.1", "Missing")]);
+        var result = projector.Project(snapshot, [CreateChannel("7.1", "Available"), CreateChannel("8.1", "No Programmes"), CreateChannel("9.1", "Missing")]);
 
         // Assert
         Assert.Equal("<root />", result.SupplementalXml);
         Assert.Equal("<channel />", result.Segments[0].SupplementalXml);
         Assert.Equal("<programme />", Assert.Single(result.Segments[0].Guide).SupplementalXml);
-        Assert.Null(result.Segments[1].SupplementalXml);
+        Assert.Equal("<channel-without-programmes />", result.Segments[1].SupplementalXml);
         Assert.Null(Assert.Single(result.Segments[1].Guide).SupplementalXml);
+        Assert.Null(result.Segments[2].SupplementalXml);
+        Assert.Null(Assert.Single(result.Segments[2].Guide).SupplementalXml);
     }
 
     private static HDHomeRunChannelEpgSegment CreateSegment(string guideNumber, string guideName, string title, DateTimeOffset start, DateTimeOffset end) => new()

@@ -103,6 +103,66 @@ public sealed class LineupXmltvWriterTests
     }
 
     /// <summary>
+    /// Verifies namespaced provider extensions are not interpreted as unqualified XMLTV elements.
+    /// </summary>
+    [Fact]
+    public void Write_NamespacedElementsWithOfficialLocalNames_PreservesExtensionsWithoutChangingTypedValues()
+    {
+        // Arrange
+        const string xml = """
+            <tv xmlns:vendor="urn:example:provider">
+              <vendor:channel marker="root-channel" />
+              <vendor:programme marker="root-programme" />
+              <channel id="station">
+                <vendor:display-name>Wrong Channel Name</vendor:display-name>
+                <display-name>Official Channel Name</display-name>
+                <vendor:lcn>999.1</vendor:lcn>
+                <lcn>7.1</lcn>
+                <vendor:icon src="https://example.test/vendor-channel.png" />
+              </channel>
+              <programme start="20260914220000 +0000" stop="20260914223000 +0000" channel="station">
+                <vendor:title>Wrong Programme Title</vendor:title>
+                <title>Official Programme Title</title>
+                <vendor:category>Vendor Category</vendor:category>
+                <category>Drama</category>
+              </programme>
+            </tv>
+            """;
+        XNamespace vendor = "urn:example:provider";
+        var parser = new SiliconDustXmltvParser();
+        var snapshot = parser.Parse(Encoding.UTF8.GetBytes(xml));
+        var segment = Assert.Single(snapshot.Segments);
+        var programme = Assert.Single(segment.Guide);
+        var writer = new LineupXmltvWriter();
+        var channel = new HDHomeRunChannel
+        {
+            GuideNumber = "7.1",
+            GuideName = "Tuner Channel Name",
+            URL = "http://device/auto/v7.1"
+        };
+
+        // Act
+        var content = writer.Write(snapshot, [channel], DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(1));
+        var document = XDocument.Parse(Encoding.UTF8.GetString(content));
+
+        // Assert
+        Assert.Equal("7.1", segment.GuideNumber);
+        Assert.Equal("Official Channel Name", segment.GuideName);
+        Assert.Equal("Official Programme Title", programme.Title);
+        Assert.NotNull(document.Root!.Element(vendor + "channel"));
+        Assert.NotNull(document.Root.Element(vendor + "programme"));
+        var channelElement = Assert.Single(document.Root.Elements("channel"));
+        Assert.Equal("Tuner Channel Name", channelElement.Element("display-name")?.Value);
+        Assert.Equal("Wrong Channel Name", channelElement.Element(vendor + "display-name")?.Value);
+        Assert.Equal("999.1", channelElement.Element(vendor + "lcn")?.Value);
+        Assert.NotNull(channelElement.Element(vendor + "icon"));
+        var programmeElement = Assert.Single(document.Root.Elements("programme"));
+        Assert.Equal("Official Programme Title", programmeElement.Element("title")?.Value);
+        Assert.Equal("Wrong Programme Title", programmeElement.Element(vendor + "title")?.Value);
+        Assert.Equal("Vendor Category", programmeElement.Element(vendor + "category")?.Value);
+    }
+
+    /// <summary>
     /// Verifies corrupted persisted supplemental metadata fails publication explicitly.
     /// </summary>
     [Fact]

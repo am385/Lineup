@@ -130,7 +130,7 @@ public sealed class LineupXmltvWriter
 
         var displayName = CreateTypedElement("display-name", guideName, supplemental?.GetOwnedElement("display-name"));
         element.Add(displayName);
-        element.Add(supplemental?.Elements.Where(child => child.Name.LocalName == "display-name"));
+        element.Add(supplemental?.Elements.Where(child => IsUnqualifiedNamed(child, "display-name")));
         element.Add(new XElement("lcn", guideNumber));
 
         if (!string.IsNullOrWhiteSpace(segment?.ImageURL))
@@ -139,8 +139,10 @@ public sealed class LineupXmltvWriter
             icon.SetAttributeValue("src", segment.ImageURL);
             element.Add(icon);
         }
-        element.Add(supplemental?.Elements.Where(child => child.Name.LocalName == "icon"));
-        element.Add(supplemental?.Elements.Where(child => child.Name.LocalName is not ("display-name" or "icon")));
+        element.Add(supplemental?.Elements.Where(child => IsUnqualifiedNamed(child, "icon")));
+        element.Add(supplemental?.Elements.Where(child =>
+            !IsUnqualifiedNamed(child, "display-name") &&
+            !IsUnqualifiedNamed(child, "icon")));
         return element;
     }
 
@@ -169,8 +171,8 @@ public sealed class LineupXmltvWriter
             AddProgrammeElements(element, name, programme, supplemental, supplementalElements);
         }
 
-        var extensionElements = supplementalElements.Where(child => !ProgrammeElementOrder.Contains(child.Name.LocalName, StringComparer.Ordinal)).ToArray();
-        if (!extensionElements.Any(child => child.Name.LocalName == "series-id") && !string.IsNullOrWhiteSpace(programme.SeriesID))
+        var extensionElements = supplementalElements.Where(child => !IsOfficialProgrammeElement(child)).ToArray();
+        if (!extensionElements.Any(child => IsUnqualifiedNamed(child, "series-id")) && !string.IsNullOrWhiteSpace(programme.SeriesID))
         {
             element.Add(new XElement("series-id", programme.SeriesID));
         }
@@ -185,7 +187,7 @@ public sealed class LineupXmltvWriter
         XmltvSupplementalMetadata? supplemental,
         IReadOnlyList<XElement> supplementalElements)
     {
-        var preserved = supplementalElements.Where(element => element.Name.LocalName == name).ToArray();
+        var preserved = supplementalElements.Where(element => IsUnqualifiedNamed(element, name)).ToArray();
         switch (name)
         {
             case "title":
@@ -265,6 +267,14 @@ public sealed class LineupXmltvWriter
             element.SetAttributeValue(attribute.Name, attribute.Value);
         }
     }
+
+    private static bool IsOfficialProgrammeElement(XElement element) =>
+        element.Name.Namespace == XNamespace.None &&
+        ProgrammeElementOrder.Contains(element.Name.LocalName, StringComparer.Ordinal);
+
+    private static bool IsUnqualifiedNamed(XElement element, string localName) =>
+        element.Name.Namespace == XNamespace.None &&
+        string.Equals(element.Name.LocalName, localName, StringComparison.Ordinal);
 
     private static string FormatTimestamp(DateTimeOffset timestamp) =>
         $"{timestamp.UtcDateTime.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture)} +0000";

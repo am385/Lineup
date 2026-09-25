@@ -91,6 +91,7 @@ public sealed class GuideSnapshotProjector
             GuideName = segment?.GuideName ?? channel.GuideName,
             Affiliate = segment?.Affiliate,
             ImageURL = segment?.ImageURL,
+            SupplementalXml = segment?.SupplementalXml,
             Guide =
             [
                 new HDHomeRunProgram

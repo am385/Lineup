@@ -196,6 +196,12 @@ public class EpgRepositoryChannelTests
                     CreateProgram("Recent", now.AddHours(-2), now.AddHours(-1)),
                     CreateProgram("Stale Future", now.AddHours(1), now.AddHours(2))
                 ]
+            },
+            new HDHomeRunChannelEpgSegment
+            {
+                GuideNumber = "9.1",
+                GuideName = "Removed Channel",
+                Guide = [CreateProgram("Removed Future", now.AddHours(1), now.AddHours(2))]
             }
         ]);
         var replacement = new HDHomeRunChannelEpgSegment
@@ -214,6 +220,8 @@ public class EpgRepositoryChannelTests
         Assert.Contains("Updated Future", titles);
         Assert.DoesNotContain("Expired", titles);
         Assert.DoesNotContain("Stale Future", titles);
+        Assert.DoesNotContain("Removed Future", titles);
+        Assert.Equal("7.1", Assert.Single(await repository.GetChannelsAsync()).GuideNumber);
         Assert.Single(await context.GuideImports.Where(import => import.CompletedUtc != null).ToListAsync(TestContext.Current.CancellationToken));
     }
 

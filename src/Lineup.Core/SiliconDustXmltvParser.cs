@@ -40,7 +40,9 @@ public sealed class SiliconDustXmltvParser
             root.Attributes().Where(attribute =>
                 !IsUnqualifiedNamed(attribute, "generator-info-name") &&
                 !IsUnqualifiedNamed(attribute, "generator-info-url")),
-            root.Elements().Where(element => element.Name.LocalName is not ("channel" or "programme")));
+            root.Elements().Where(element =>
+                !IsUnqualifiedNamed(element, "channel") &&
+                !IsUnqualifiedNamed(element, "programme")));
         return new XmltvGuideSnapshot
         {
             Segments = segments,
@@ -80,7 +82,7 @@ public sealed class SiliconDustXmltvParser
     private static Dictionary<string, List<ParsedChannel>> ParseChannels(XElement root)
     {
         var channels = new Dictionary<string, List<ParsedChannel>>(StringComparer.Ordinal);
-        foreach (var element in root.Elements().Where(element => element.Name.LocalName == "channel"))
+        foreach (var element in root.Elements().Where(element => IsUnqualifiedNamed(element, "channel")))
         {
             var id = element.Attribute("id")?.Value;
             var guideNumber = ElementValue(element, "lcn");
@@ -101,7 +103,7 @@ public sealed class SiliconDustXmltvParser
             var preservedElements = element.Elements()
                 .Where(child => child != selectedDisplayName &&
                                 child != primaryIcon &&
-                                child.Name.LocalName != "lcn")
+                                !IsUnqualifiedNamed(child, "lcn"))
                 .Select(child => new XElement(child))
                 .ToArray();
             var ownedElements = new List<(string Key, XElement Element)>();
@@ -132,7 +134,7 @@ public sealed class SiliconDustXmltvParser
 
     private static void ParseProgrammes(XElement root, IReadOnlyDictionary<string, List<ParsedChannel>> channelsById)
     {
-        foreach (var element in root.Elements().Where(element => element.Name.LocalName == "programme"))
+        foreach (var element in root.Elements().Where(element => IsUnqualifiedNamed(element, "programme")))
         {
             var channelId = element.Attribute("channel")?.Value;
             if (string.IsNullOrWhiteSpace(channelId) || !channelsById.TryGetValue(channelId, out var channels))
@@ -238,7 +240,7 @@ public sealed class SiliconDustXmltvParser
 
     private static IEnumerable<XElement> Elements(XElement parent, string localName)
     {
-        return parent.Elements().Where(element => element.Name.LocalName == localName);
+        return parent.Elements().Where(element => IsUnqualifiedNamed(element, localName));
     }
 
     private static void AddOwnedShell(List<(string Key, XElement Element)> ownedElements, string key, XElement? element, params string[] excludedAttributes)
@@ -261,6 +263,10 @@ public sealed class SiliconDustXmltvParser
     private static bool IsUnqualifiedNamed(XAttribute attribute, string localName) =>
         attribute.Name.Namespace == XNamespace.None &&
         string.Equals(attribute.Name.LocalName, localName, StringComparison.Ordinal);
+
+    private static bool IsUnqualifiedNamed(XElement element, string localName) =>
+        element.Name.Namespace == XNamespace.None &&
+        string.Equals(element.Name.LocalName, localName, StringComparison.Ordinal);
 
     private sealed record ParsedChannel(HDHomeRunChannelEpgSegment Segment);
 }

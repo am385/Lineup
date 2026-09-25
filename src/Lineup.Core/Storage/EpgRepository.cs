@@ -317,6 +317,9 @@ public class EpgRepository : IEpgRepository
         }
 
         await _context.SaveChangesAsync(cancellationToken);
+        await _context.Channels
+            .Where(channel => channel.LastSeenImportId == null || channel.LastSeenImportId != importId)
+            .ExecuteDeleteAsync(cancellationToken);
         var nowUnix = new DateTimeOffset(importedAt).ToUnixTimeSeconds();
         var historyCutoff = new DateTimeOffset(importedAt.Subtract(historyRetention)).ToUnixTimeSeconds();
         await _context.Programs
