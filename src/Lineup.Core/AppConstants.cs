@@ -31,6 +31,11 @@ public static class AppConstants
     public const string DefaultXmltvFilePath = "/xmltv";
 
     /// <summary>
+    /// Default directory path for transient stream artifacts.
+    /// </summary>
+    public const string DefaultTransientPath = "/transient";
+
+    /// <summary>
     /// Filename for persisted application settings.
     /// </summary>
     public const string SettingsFileName = "settings.json";
@@ -54,6 +59,11 @@ public static class AppConstants
     /// Configuration key for the XMLTV output path.
     /// </summary>
     public const string XmltvPathConfigKey = "Lineup:XmltvPath";
+
+    /// <summary>
+    /// Optional configuration key overriding the transient stream-artifact path.
+    /// </summary>
+    public const string TransientPathConfigKey = "Lineup:TransientPath";
 
     /// <summary>
     /// Environment variable name for the TUI device address.

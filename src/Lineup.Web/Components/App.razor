@@ -12,11 +12,11 @@
     <link rel="stylesheet" href="@Assets["Lineup.Web.styles.css"]" />
     <ImportMap />
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-    <HeadOutlet />
+    <HeadOutlet @rendermode="InteractiveServer" />
     <!-- hls.js for HLS playback in non-Safari browsers -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js"></script>
     <script>
-        // Apply theme immediately to prevent flash of wrong theme
+        // This must read localStorage before Blazor and BrowserDataStore are available to prevent a flash of the wrong theme.
         (function() {
             var theme = localStorage.getItem('app-theme') || 'auto';
             var resolved = theme;
@@ -29,7 +29,7 @@
 </head>
 
 <body>
-<Routes />
+<Routes @rendermode="InteractiveServer" />
 <ReconnectModal />
 <script src="@Assets["lib/bootstrap/dist/js/bootstrap.bundle.min.js"]"></script>
 <script>
@@ -129,6 +129,8 @@
             console.error('Video element not found:', videoElementId);
             return false;
         }
+        window.lineupMediaPlayers ??= new Map();
+        window.lineupMediaPlayers.set(videoElementId, video);
             
         console.log('Initializing HLS player with URL:', playlistUrl);
             
@@ -187,12 +189,24 @@
         }
         
         
-        function stopMediaPlayer(videoElementId = 'videoPlayer') {
-            const video = document.getElementById(videoElementId);
+        function stopLineupSubtitlePolling(video) {
+            if (!video) {
+                return;
+            }
+            if (video._lineupSubtitleAbortController) {
+                video._lineupSubtitleAbortController.abort();
+                video._lineupSubtitleAbortController = null;
+            }
             if (video?._lineupSubtitleTimer) {
                 clearInterval(video._lineupSubtitleTimer);
                 video._lineupSubtitleTimer = null;
             }
+        }
+
+        function stopMediaPlayer(videoElementId = 'videoPlayer') {
+            const video = document.getElementById(videoElementId) ||
+                window.lineupMediaPlayers?.get(videoElementId);
+            stopLineupSubtitlePolling(video);
             if (video) {
                 video.onerror = null;
                 video.onloadedmetadata = null;
@@ -218,6 +232,7 @@
                 video.removeAttribute('src');
                 video.load();
             }
+            window.lineupMediaPlayers?.delete(videoElementId);
         }
 
         function destroyHlsPlayer() {
@@ -227,20 +242,35 @@
         // fMP4 player - simpler, just sets the src directly
         // The browser's native video player handles fragmented MP4
         function startLineupSubtitlePolling(video, subtitleUrl) {
+            stopLineupSubtitlePolling(video);
             const track = video.addTextTrack('subtitles', 'Selected subtitles', 'und');
             track.mode = 'showing';
             const cuesByKey = new Map();
             const decoder = new TextDecoder('utf-8');
+            const abortController = new AbortController();
+            const presentationLeadSeconds = 0.05;
             let offset = 0;
             let pendingText = '';
+            let refreshPending = false;
+            video._lineupSubtitleAbortController = abortController;
             const parseTime = value => {
                 const parts = value.trim().replace(',', '.').split(':').map(Number);
                 return parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2] : parts[0] * 60 + parts[1];
             };
             const refresh = async () => {
+                if (refreshPending || abortController.signal.aborted) {
+                    return;
+                }
+                if (!video.isConnected) {
+                    stopLineupSubtitlePolling(video);
+                    return;
+                }
+                refreshPending = true;
                 try {
                     const separator = subtitleUrl.includes('?') ? '&' : '?';
-                    const response = await fetch(`${subtitleUrl}${separator}offset=${offset}`, { cache: 'no-store' });
+                    const response = await fetch(
+                        `${subtitleUrl}${separator}offset=${offset}`,
+                        { cache: 'no-store', signal: abortController.signal });
                     if (!response.ok) {
                         return;
                     }
@@ -251,6 +281,7 @@
                     pendingText += decoder.decode(await response.arrayBuffer(), { stream: true }).replace(/\r/g, '');
                     const blocks = pendingText.split(/\n\n+/);
                     pendingText = blocks.pop() || '';
+                    const parsedCues = [];
                     for (const block of blocks) {
                         const lines = block.split('\n').filter(Boolean);
                         const timingIndex = lines.findIndex(line => line.includes('-->'));
@@ -259,10 +290,28 @@
                         }
                         const [startText, endTextWithSettings] = lines[timingIndex].split('-->');
                         const endText = endTextWithSettings.trim().split(/\s+/)[0];
-                        const text = lines.slice(timingIndex + 1).join('\n');
+                        const text = lines.slice(timingIndex + 1).join('\n').replace(/\\h/g, '\u00a0');
                         const key = `${startText}|${endText}|${text}`;
                         if (!cuesByKey.has(key)) {
-                            const cue = new VTTCue(parseTime(startText), parseTime(endText), text);
+                            parsedCues.push({
+                                key,
+                                startTime: parseTime(startText),
+                                endTime: parseTime(endText),
+                                text
+                            });
+                        }
+                    }
+                    const newestCue = parsedCues.at(-1);
+                    const presentationOffset = newestCue
+                        ? Math.max(0, video.currentTime + presentationLeadSeconds - newestCue.startTime)
+                        : 0;
+                    for (const parsedCue of parsedCues) {
+                        const cue = new VTTCue(
+                            parsedCue.startTime + presentationOffset,
+                            parsedCue.endTime + presentationOffset,
+                            parsedCue.text);
+                        if (!cuesByKey.has(parsedCue.key)) {
+                            const key = parsedCue.key;
                             cuesByKey.set(key, cue);
                             track.addCue(cue);
                         }
@@ -279,12 +328,17 @@
                         track.removeCue(oldest[1]);
                         cuesByKey.delete(oldest[0]);
                     }
-                } catch {
+                } catch (error) {
+                    if (error.name === 'AbortError') {
+                        return;
+                    }
                     // The sidecar may not exist until FFmpeg emits its first cue.
+                } finally {
+                    refreshPending = false;
                 }
             };
+            video._lineupSubtitleTimer = setInterval(refresh, 100);
             refresh();
-            video._lineupSubtitleTimer = setInterval(refresh, 1000);
         }
 
         async function initFmp4Player(videoElementId, streamUrl, diagnosticUrl, subtitleUrl = null) {
@@ -294,10 +348,8 @@
             if (!video) {
                 return 'Video player element was not found.';
             }
-            if (subtitleUrl) {
-                startLineupSubtitlePolling(video, subtitleUrl);
-            }
-
+            window.lineupMediaPlayers ??= new Map();
+            window.lineupMediaPlayers.set(videoElementId, video);
             return await new Promise(resolve => {
                 let retryCount = 0;
                 let settled = false;
@@ -315,6 +367,9 @@
                     resolve(message);
                 };
                 const startPlayback = () => {
+                    if (settled || !video.isConnected) {
+                        return;
+                    }
                     const separator = streamUrl.includes('?') ? '&' : '?';
                     video.src = retryCount === 0 ? streamUrl : `${streamUrl}${separator}retry=${Date.now()}`;
                     video.play().catch(() => {
@@ -323,12 +378,21 @@
                 };
 
                 video._lineupInitializationResolve = finish;
-                video.onloadedmetadata = () => finish(null);
-                const handlePlaybackError = async (fallbackMessage = null) => {
+                video.onloadedmetadata = () => {
+                    if (settled || !video.isConnected) {
+                        return;
+                    }
+                    if (subtitleUrl) {
+                        startLineupSubtitlePolling(video, subtitleUrl);
+                    }
+                    finish(null);
+                };
+                const handlePlaybackError = async errorOrMessage => {
                     if (settled || diagnosing) {
                         return;
                     }
 
+                    const fallbackMessage = typeof errorOrMessage === 'string' ? errorOrMessage : null;
                     diagnosing = true;
                     video.onerror = null;
                     let diagnostic;
@@ -347,6 +411,9 @@
                     if (diagnostic.success && retryCount === 0) {
                         retryCount++;
                         await new Promise(retryResolve => setTimeout(retryResolve, 750));
+                        if (settled || !video.isConnected) {
+                            return;
+                        }
                         diagnosing = false;
                         video.onerror = handlePlaybackError;
                         startPlayback();

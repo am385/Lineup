@@ -16,10 +16,28 @@ public static class TunerInputPump
     /// <param name="process">The media process receiving bytes through standard input.</param>
     /// <param name="logger">Logs input-pipe shutdown details.</param>
     /// <param name="cancellationToken">Stops the pump when the client disconnects.</param>
-    public static async Task PumpAsync(ITunerStreamMultiplexer multiplexer, Uri sourceUri, Process process, ILogger logger, CancellationToken cancellationToken)
+    /// <param name="onSourceError">Optionally receives a shared tuner source failure.</param>
+    public static async Task PumpAsync(ITunerStreamMultiplexer multiplexer, Uri sourceUri, Process process, ILogger logger, CancellationToken cancellationToken, Action<Exception>? onSourceError = null)
     {
-        var source = await multiplexer.SubscribeAsync(sourceUri, cancellationToken);
-        await PumpAsync(source, sourceUri, process, logger, cancellationToken);
+        Stream source;
+        try
+        {
+            source = await multiplexer.SubscribeAsync(sourceUri, cancellationToken);
+        }
+        catch (ObjectDisposedException)
+        {
+            logger.LogDebug("Shared tuner input rejected a subscription during shutdown for {SourceUri}", sourceUri);
+            try
+            {
+                process.StandardInput.Close();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+            return;
+        }
+
+        await PumpAsync(source, sourceUri, process, logger, cancellationToken, onSourceError);
     }
 
     /// <summary>
@@ -30,7 +48,8 @@ public static class TunerInputPump
     /// <param name="process">The media process receiving bytes through standard input.</param>
     /// <param name="logger">Logs input-pipe shutdown details.</param>
     /// <param name="cancellationToken">Stops the pump when the client disconnects.</param>
-    public static async Task PumpAsync(Stream source, Uri sourceUri, Process process, ILogger logger, CancellationToken cancellationToken)
+    /// <param name="onSourceError">Optionally receives a shared tuner source failure.</param>
+    public static async Task PumpAsync(Stream source, Uri sourceUri, Process process, ILogger logger, CancellationToken cancellationToken, Action<Exception>? onSourceError = null)
     {
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         await using (source)
@@ -56,6 +75,7 @@ public static class TunerInputPump
                 catch (ChannelClosedException ex)
                 {
                     logger.LogDebug(ex, "Shared tuner source closed for {SourceUri}", sourceUri);
+                    onSourceError?.Invoke(ex.InnerException ?? ex);
                 }
                 catch (ObjectDisposedException) when (process.HasExited)
                 {

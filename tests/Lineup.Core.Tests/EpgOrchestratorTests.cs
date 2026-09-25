@@ -32,7 +32,7 @@ public class EpgOrchestratorTests
         var root = Directory.CreateTempSubdirectory("lineup-orchestrator-");
         try
         {
-            var lineupStore = new ChannelLineupStore(Path.Combine(root.FullName, "channels.json"));
+            var lineupStore = new ChannelLineupStore(Path.Combine(root.FullName, "lineup.db"));
             await lineupStore.StoreAsync(
             [
                 new HDHomeRunChannel
@@ -43,7 +43,6 @@ public class EpgOrchestratorTests
                     URL = "http://device/auto/v7.1"
                 }
             ], TestContext.Current.CancellationToken);
-            var guideStore = new XmltvGuideStore(Path.Combine(root.FullName, "guide.xml"));
             var repository = Substitute.For<IEpgRepository>();
             repository.GetCacheStatisticsAsync().Returns(new CacheStatistics(1, 1, null, null, null));
             HDHomeRunChannelEpgSegment? enrichedChannel = null;
@@ -56,8 +55,14 @@ public class EpgOrchestratorTests
             var authProvider = Substitute.For<IDeviceAuthProvider>();
             authProvider.GetDeviceAuthAsync().Returns("test-auth");
             var apiClient = new HDHomeRunApiClient(NullLogger<HDHomeRunApiClient>.Instance, new HttpClient(new StaticResponseHandler(xml)), authProvider);
-            var provider = new CachedEpgDataProvider(NullLogger<CachedEpgDataProvider>.Instance, apiClient, new SiliconDustXmltvParser(), guideStore, repository, new GuideGenerationCoordinator());
-            var orchestrator = new EpgOrchestrator(NullLogger<EpgOrchestrator>.Instance, lineupStore, provider, repository, guideStore, new SiliconDustXmltvParser());
+            var provider = new CachedEpgDataProvider(NullLogger<CachedEpgDataProvider>.Instance, apiClient, new SiliconDustXmltvParser(), repository, new GuideGenerationCoordinator());
+            var orchestrator = new EpgOrchestrator(
+                NullLogger<EpgOrchestrator>.Instance,
+                lineupStore,
+                provider,
+                repository,
+                new LineupXmltvWriter(),
+                new XmltvPublicationStore());
 
             // Act
             await orchestrator.FetchAndStoreEpgAsync(2, cancellationToken: TestContext.Current.CancellationToken);
@@ -82,11 +87,16 @@ public class EpgOrchestratorTests
         var root = Directory.CreateTempSubdirectory("lineup-orchestrator-");
         try
         {
-            var lineupStore = new ChannelLineupStore(Path.Combine(root.FullName, "channels.json"));
-            var guideStore = new XmltvGuideStore(Path.Combine(root.FullName, "guide.xml"));
+            var lineupStore = new ChannelLineupStore(Path.Combine(root.FullName, "lineup.db"));
             var repository = Substitute.For<IEpgRepository>();
-            var provider = new CachedEpgDataProvider(NullLogger<CachedEpgDataProvider>.Instance, null!, new SiliconDustXmltvParser(), guideStore, repository, new GuideGenerationCoordinator());
-            var orchestrator = new EpgOrchestrator(NullLogger<EpgOrchestrator>.Instance, lineupStore, provider, repository, guideStore, new SiliconDustXmltvParser());
+            var provider = new CachedEpgDataProvider(NullLogger<CachedEpgDataProvider>.Instance, null!, new SiliconDustXmltvParser(), repository, new GuideGenerationCoordinator());
+            var orchestrator = new EpgOrchestrator(
+                NullLogger<EpgOrchestrator>.Instance,
+                lineupStore,
+                provider,
+                repository,
+                new LineupXmltvWriter(),
+                new XmltvPublicationStore());
 
             // Act
             var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => orchestrator.FetchAndStoreEpgAsync(2, cancellationToken: TestContext.Current.CancellationToken));
@@ -102,7 +112,7 @@ public class EpgOrchestratorTests
     }
 
     /// <summary>
-    /// Verifies public XMLTV excludes disabled channels without changing the canonical guide.
+    /// Verifies public XMLTV excludes disabled channels without changing authoritative guide data.
     /// </summary>
     [Fact]
     public async Task GenerateEpgFromCacheAsync_FiltersDisabledChannelsOnlyFromPublishedOutput()
@@ -119,26 +129,33 @@ public class EpgOrchestratorTests
         var root = Directory.CreateTempSubdirectory("lineup-orchestrator-");
         try
         {
-            var lineupStore = new ChannelLineupStore(Path.Combine(root.FullName, "channels.json"));
+            var lineupStore = new ChannelLineupStore(Path.Combine(root.FullName, "lineup.db"));
             await lineupStore.StoreAsync(
                 [CreateChannel("7.1"), CreateChannel("9.1"), CreateChannel("11.1"), CreateChannel("13.1")],
                 TestContext.Current.CancellationToken);
             await lineupStore.SetChannelEnabledAsync("9.1", enabled: false, TestContext.Current.CancellationToken);
             await lineupStore.SetChannelEnabledAsync("13.1", enabled: false, TestContext.Current.CancellationToken);
-            var guideStore = new XmltvGuideStore(Path.Combine(root.FullName, "canonical.xml"));
-            await guideStore.StoreAsync(Encoding.UTF8.GetBytes(xml), TestContext.Current.CancellationToken);
             var parser = new SiliconDustXmltvParser();
-            var orchestrator = new EpgOrchestrator(NullLogger<EpgOrchestrator>.Instance, lineupStore, null!, Substitute.For<IEpgRepository>(), guideStore, parser);
+            var segments = parser.Parse(Encoding.UTF8.GetBytes(xml)).Segments;
+            var repository = Substitute.For<IEpgRepository>();
+            repository.GetGuideSnapshotAsync(cancellationToken: Arg.Any<CancellationToken>()).Returns(new XmltvGuideSnapshot { Segments = segments });
+            var orchestrator = new EpgOrchestrator(
+                NullLogger<EpgOrchestrator>.Instance,
+                lineupStore,
+                null!,
+                repository,
+                new LineupXmltvWriter(),
+                new XmltvPublicationStore());
             var outputPath = Path.Combine(root.FullName, "published.xml");
 
             // Act
             await orchestrator.GenerateEpgFromCacheAsync(2, outputPath, TestContext.Current.CancellationToken);
 
             // Assert
-            var publishedChannels = parser.Parse(await File.ReadAllBytesAsync(outputPath, TestContext.Current.CancellationToken));
+            var publishedChannels = parser.Parse(await File.ReadAllBytesAsync(outputPath, TestContext.Current.CancellationToken)).Segments;
             Assert.Equal(["7.1", "11.1"], publishedChannels.Select(channel => channel.GuideNumber));
             Assert.Equal("Not Available", Assert.Single(publishedChannels.Single(channel => channel.GuideNumber == "11.1").Guide).Title);
-            Assert.Equal(["7.1", "9.1"], parser.Parse((await guideStore.ReadAsync(TestContext.Current.CancellationToken))!).Select(channel => channel.GuideNumber));
+            Assert.Equal(["7.1", "9.1"], segments.Select(channel => channel.GuideNumber));
         }
         finally
         {
@@ -147,7 +164,7 @@ public class EpgOrchestratorTests
     }
 
     /// <summary>
-    /// Verifies XMLTV generation creates placeholder data when no canonical guide has been downloaded.
+    /// Verifies XMLTV generation creates placeholder data when the database contains no guide.
     /// </summary>
     [Fact]
     public async Task GenerateEpgFromCacheAsync_WithoutCanonicalGuide_PublishesEnabledPlaceholders()
@@ -156,26 +173,32 @@ public class EpgOrchestratorTests
         var root = Directory.CreateTempSubdirectory("lineup-orchestrator-");
         try
         {
-            var lineupStore = new ChannelLineupStore(Path.Combine(root.FullName, "channels.json"));
+            var lineupStore = new ChannelLineupStore(Path.Combine(root.FullName, "lineup.db"));
             await lineupStore.StoreAsync(
                 [CreateChannel("7.1"), CreateChannel("9.1")],
                 TestContext.Current.CancellationToken);
             await lineupStore.SetChannelEnabledAsync("9.1", enabled: false, TestContext.Current.CancellationToken);
-            var guideStore = new XmltvGuideStore(Path.Combine(root.FullName, "canonical.xml"));
             var parser = new SiliconDustXmltvParser();
-            var orchestrator = new EpgOrchestrator(NullLogger<EpgOrchestrator>.Instance, lineupStore, null!, Substitute.For<IEpgRepository>(), guideStore, parser);
+            var repository = Substitute.For<IEpgRepository>();
+            repository.GetGuideSnapshotAsync(cancellationToken: Arg.Any<CancellationToken>()).Returns(new XmltvGuideSnapshot { Segments = [] });
+            var orchestrator = new EpgOrchestrator(
+                NullLogger<EpgOrchestrator>.Instance,
+                lineupStore,
+                null!,
+                repository,
+                new LineupXmltvWriter(),
+                new XmltvPublicationStore());
             var outputPath = Path.Combine(root.FullName, "published.xml");
 
             // Act
             await orchestrator.GenerateEpgFromCacheAsync(2, outputPath, TestContext.Current.CancellationToken);
 
             // Assert
-            var channel = Assert.Single(parser.Parse(await File.ReadAllBytesAsync(outputPath, TestContext.Current.CancellationToken)));
+            var channel = Assert.Single(parser.Parse(await File.ReadAllBytesAsync(outputPath, TestContext.Current.CancellationToken)).Segments);
             var programme = Assert.Single(channel.Guide);
             Assert.Equal("7.1", channel.GuideNumber);
             Assert.Equal("Not Available", programme.Title);
             Assert.Equal(TimeSpan.FromDays(2), DateTimeOffset.FromUnixTimeSeconds(programme.EndTime) - DateTimeOffset.FromUnixTimeSeconds(programme.StartTime));
-            Assert.Null(await guideStore.ReadAsync(TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -192,6 +215,7 @@ public class EpgOrchestratorTests
 
     private sealed class StaticResponseHandler(string content) : HttpMessageHandler
     {
+        /// <inheritdoc/>
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)

@@ -175,6 +175,8 @@ public class DashboardComponentTests
         using var context = CreateContext(provider);
         context.JSInterop.Setup<string?>("localStorage.getItem", StorageKey).SetResult(null);
         var component = context.Render<Dashboard>();
+        var notifications = context.Services.GetRequiredService<IStatusNotificationService>();
+        notifications.ShowSuccess("Earlier notification");
 
         // Act
         component.Find("#refreshChannels").Click();
@@ -183,7 +185,11 @@ public class DashboardComponentTests
         await provider.Received(1).FetchChannelLineupAsync(Arg.Any<CancellationToken>());
         component.WaitForAssertion(() =>
         {
-            Assert.Contains("Refreshed 2 tuner channels.", component.Markup);
+            Assert.Equal(2, notifications.Notifications.Count);
+            Assert.Equal("Earlier notification", notifications.Notifications[0].Message);
+            var notification = notifications.Notifications[1];
+            Assert.Equal("Refreshed 2 tuner channels.", notification.Message);
+            Assert.False(notification.IsError);
             Assert.Equal("2", component.Find("#channelsSection .text-success").TextContent.Trim());
             Assert.DoesNotContain(component.FindAll("a"), link => link.GetAttribute("href") == "/channels");
         });
@@ -214,7 +220,7 @@ public class DashboardComponentTests
         var activeStreams = Substitute.For<IActiveStreamRegistry>();
         activeStreams.GetActiveStreams().Returns([]);
 
-        var store = new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-dashboard-{Guid.NewGuid():N}.json"));
+        var store = new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-dashboard-{Guid.NewGuid():N}.db"));
         var refreshService = new ChannelLineupRefreshService(
             NullLogger<ChannelLineupRefreshService>.Instance,
             channelProvider ?? Substitute.For<IChannelLineupProvider>(),
@@ -224,8 +230,8 @@ public class DashboardComponentTests
             store,
             null!,
             repository,
-            null!,
-            null!);
+            new LineupXmltvWriter(),
+            Substitute.For<IXmltvPublicationStore>());
 
         context.Services.AddSingleton(repository);
         context.Services.AddSingleton(settings);
@@ -236,6 +242,8 @@ public class DashboardComponentTests
         context.Services.AddSingleton(store);
         context.Services.AddSingleton(refreshService);
         context.Services.AddSingleton(orchestrator);
+        context.Services.AddScoped<IBrowserDataStore, BrowserDataStore>();
+        context.Services.AddSingleton<IXmltvPublicationStore, XmltvPublicationStore>();
         return context;
     }
 }

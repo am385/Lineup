@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Lineup.Web.Services;
 using Xunit;
 
@@ -8,6 +9,28 @@ namespace Lineup.Web.Tests.Services;
 /// </summary>
 public class ActiveStreamServiceTests
 {
+    /// <summary>
+    /// Verifies live and piped probes request decoded frames needed to detect embedded ATSC captions.
+    /// </summary>
+    [Fact]
+    public void MediaProbeArguments_RequestFramesForEmbeddedCaptionDetection()
+    {
+        // Arrange
+        var inputUri = new Uri("http://tuner.local/auto/v2.6");
+
+        // Act
+        var liveArguments = MediaProbeParser.CreateArguments(inputUri);
+        var pipeArguments = MediaProbeParser.CreatePipeArguments();
+
+        // Assert
+        Assert.Contains("-show_frames", liveArguments);
+        Assert.Contains("-show_frames", pipeArguments);
+        Assert.Equal("%+3", liveArguments[Array.IndexOf(liveArguments.ToArray(), "-read_intervals") + 1]);
+        Assert.Equal("%+3", pipeArguments[Array.IndexOf(pipeArguments.ToArray(), "-read_intervals") + 1]);
+        Assert.Contains(liveArguments, argument => argument.Contains("frame_side_data=side_data_type", StringComparison.Ordinal));
+        Assert.Contains(pipeArguments, argument => argument.Contains("frame_side_data=side_data_type", StringComparison.Ordinal));
+    }
+
     /// <summary>
     /// Verifies that registry snapshots are ordered and isolated from caller mutations.
     /// </summary>
@@ -73,6 +96,8 @@ public class ActiveStreamServiceTests
         Assert.True(requested);
         Assert.True(stopped);
         Assert.Equal("watch-one", notification?.ClientId);
+        Assert.Equal("one", Assert.Single(registry.GetActiveStreams()).SessionId);
+        registry.Unregister("one");
         Assert.Empty(registry.GetActiveStreams());
     }
 
@@ -92,6 +117,61 @@ public class ActiveStreamServiceTests
         // Assert
         Assert.False(requested);
         Assert.Equal("one", Assert.Single(registry.GetActiveStreams()).SessionId);
+    }
+
+    /// <summary>
+    /// Verifies that a client stop request closes every matching stream without affecting other clients.
+    /// </summary>
+    [Fact]
+    public void Registry_RequestStopByClientId_StopsOnlyMatchingStreams()
+    {
+        // Arrange
+        var registry = new ActiveStreamRegistry();
+        var stoppedSessions = new List<string>();
+        registry.Register(
+            new ActiveStreamSnapshot("one", "2.1", HostedStreamFormat.FragmentedMp4, DateTime.UtcNow, null, []) { ClientId = "watch-one" },
+            () => stoppedSessions.Add("one"));
+        registry.Register(
+            new ActiveStreamSnapshot("two", "5.1", HostedStreamFormat.FragmentedMp4, DateTime.UtcNow, null, []) { ClientId = "watch-one" },
+            () => stoppedSessions.Add("two"));
+        registry.Register(
+            new ActiveStreamSnapshot("other", "7.1", HostedStreamFormat.FragmentedMp4, DateTime.UtcNow, null, []) { ClientId = "watch-two" },
+            () => stoppedSessions.Add("other"));
+
+        // Act
+        var stoppedCount = registry.RequestStopByClientId("watch-one");
+
+        // Assert
+        Assert.Equal(2, stoppedCount);
+        Assert.Equal(["one", "two"], stoppedSessions.Order());
+        Assert.Equal(["one", "other", "two"], registry.GetActiveStreams().Select(stream => stream.SessionId).Order());
+        registry.Unregister("one");
+        registry.Unregister("two");
+        Assert.Equal("other", Assert.Single(registry.GetActiveStreams()).SessionId);
+    }
+
+    /// <summary>
+    /// Verifies that metadata updates cannot resurrect a stream while its asynchronous cleanup is running.
+    /// </summary>
+    [Fact]
+    public void Registry_MetadataUpdateAfterStopRequest_RemainsStoppingUntilUnregistered()
+    {
+        // Arrange
+        var registry = new ActiveStreamRegistry();
+        var initial = new ActiveStreamSnapshot("one", "2.1", HostedStreamFormat.FragmentedMp4, DateTime.UtcNow, null, []);
+        registry.Register(initial, () => { });
+
+        // Act
+        var requested = registry.RequestStop("one");
+        registry.Register(initial with { SourceBitRate = 8_000_000 });
+        var repeatedRequest = registry.RequestStop("one");
+
+        // Assert
+        Assert.True(requested);
+        Assert.False(repeatedRequest);
+        Assert.Equal(8_000_000, Assert.Single(registry.GetActiveStreams()).SourceBitRate);
+        registry.Unregister("one");
+        Assert.Empty(registry.GetActiveStreams());
     }
 
     /// <summary>
@@ -135,6 +215,84 @@ public class ActiveStreamServiceTests
         Assert.True(firstRegistered);
         Assert.False(secondRegistered);
         Assert.Equal("one", Assert.Single(registry.GetActiveStreams()).SessionId);
+    }
+
+    /// <summary>
+    /// Verifies shutdown requests every active stream and waits for their cleanup.
+    /// </summary>
+    [Fact]
+    public async Task Registry_StopAllAsync_StopsAndWaitsForEveryStream()
+    {
+        // Arrange
+        var registry = new ActiveStreamRegistry();
+        var stoppedSessions = new ConcurrentBag<string>();
+        var stopCount = 0;
+        var stopsRequested = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        registry.Register(new ActiveStreamSnapshot("one", "2.1", HostedStreamFormat.MpegTs, DateTime.UtcNow, null, []), () => RecordStop("one"));
+        registry.Register(new ActiveStreamSnapshot("two", "5.1", HostedStreamFormat.Hls, DateTime.UtcNow, null, []), () => RecordStop("two"));
+
+        // Act
+        var stopTask = registry.StopAllAsync(TestContext.Current.CancellationToken);
+        await stopsRequested.Task.WaitAsync(TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(["one", "two"], stoppedSessions.Order());
+        Assert.False(stopTask.IsCompleted);
+        Assert.False(registry.TryRegister(new ActiveStreamSnapshot("three", "7.1", HostedStreamFormat.MpegTs, DateTime.UtcNow, null, []), 0, () => { }));
+        registry.Unregister("one");
+        Assert.False(stopTask.IsCompleted);
+        registry.Unregister("two");
+        await stopTask;
+
+        void RecordStop(string sessionId)
+        {
+            stoppedSessions.Add(sessionId);
+            if (Interlocked.Increment(ref stopCount) == 2)
+            {
+                stopsRequested.TrySetResult();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Verifies shutdown waiting honors cancellation when a stream cannot unregister.
+    /// </summary>
+    [Fact]
+    public async Task Registry_StopAllAsync_StreamDoesNotUnregister_HonorsCancellation()
+    {
+        // Arrange
+        var registry = new ActiveStreamRegistry();
+        registry.Register(new ActiveStreamSnapshot("one", "2.1", HostedStreamFormat.MpegTs, DateTime.UtcNow, null, []), () => { });
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(20));
+
+        // Act
+        var exception = await Record.ExceptionAsync(() => registry.StopAllAsync(cancellation.Token));
+
+        // Assert
+        Assert.IsAssignableFrom<OperationCanceledException>(exception);
+        Assert.Equal("one", Assert.Single(registry.GetActiveStreams()).SessionId);
+    }
+
+    /// <summary>
+    /// Verifies shutdown waiting remains bounded when a synchronous lifecycle callback blocks.
+    /// </summary>
+    [Fact]
+    public async Task Registry_StopAllAsync_StopActionBlocks_HonorsCancellation()
+    {
+        // Arrange
+        var registry = new ActiveStreamRegistry();
+        using var releaseStop = new ManualResetEventSlim();
+        registry.Register(
+            new ActiveStreamSnapshot("one", "2.1", HostedStreamFormat.Hls, DateTime.UtcNow, null, []),
+            () => releaseStop.Wait(TestContext.Current.CancellationToken));
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(20));
+
+        // Act
+        var exception = await Record.ExceptionAsync(() => registry.StopAllAsync(cancellation.Token));
+        releaseStop.Set();
+
+        // Assert
+        Assert.IsAssignableFrom<OperationCanceledException>(exception);
     }
 
     /// <summary>
@@ -229,6 +387,44 @@ public class ActiveStreamServiceTests
     }
 
     /// <summary>
+    /// Verifies ATSC captions embedded in video frames become a selectable synthetic subtitle track.
+    /// </summary>
+    [Fact]
+    public void MediaProbeParser_EmbeddedAtscCaptions_CreatesSelectableSubtitleTrack()
+    {
+        // Arrange
+        const string json =
+            """
+            {
+              "streams": [
+                { "index": 0, "codec_type": "video", "codec_name": "mpeg2video" },
+                { "index": 1, "codec_type": "audio", "codec_name": "ac3", "channels": 2 }
+              ],
+              "frames": [
+                {
+                  "media_type": "video",
+                  "side_data_list": [
+                    { "side_data_type": "ATSC A53 Part 4 Closed Captions" }
+                  ]
+                }
+              ]
+            }
+            """;
+
+        // Act
+        var result = MediaProbeParser.Parse(json);
+
+        // Assert
+        Assert.True(result.Tracks[0].HasClosedCaptions);
+        var captions = Assert.Single(result.Tracks, track => track.Type == MediaTrackType.Subtitle);
+        Assert.Equal(2, captions.Index);
+        Assert.Equal("eia_608", captions.Codec);
+        Assert.Equal("Closed Captions", captions.Title);
+        Assert.True(captions.IsEmbeddedClosedCaptions);
+        Assert.Equal(SubtitlePresentation.WebVtt, captions.SubtitlePresentation);
+    }
+
+    /// <summary>
     /// Verifies that FFmpeg input descriptions provide source metadata without a second tuner connection.
     /// </summary>
     [Fact]
@@ -253,6 +449,47 @@ public class ActiveStreamServiceTests
         Assert.Equal("ac4", audio.Codec);
         Assert.Equal(6, audio.Channels);
         Assert.Equal(48_000, audio.SampleRate);
+    }
+
+    /// <summary>
+    /// Verifies decimal bitrates cannot be mistaken for an AC-4 surround layout.
+    /// </summary>
+    [Fact]
+    public void FfmpegInputMetadataParser_BitrateBeforeLayout_ParsesLayoutChannels()
+    {
+        // Arrange
+        const string line = "  Stream #0:1[0x32]: Audio: ac4, 62175.1 kb/s, 48000 Hz, 5.1(side), fltp";
+
+        // Act
+        var parsed = FfmpegInputMetadataParser.TryParseTrack(line, out var audio);
+
+        // Assert
+        Assert.True(parsed);
+        Assert.Equal(MediaTrackType.Audio, audio.Type);
+        Assert.Equal(6, audio.Channels);
+    }
+
+    /// <summary>
+    /// Verifies implausible FFprobe channel counts are discarded instead of reaching stream planning and the UI.
+    /// </summary>
+    [Fact]
+    public void MediaProbeParser_ImplausibleChannelCount_IsDiscarded()
+    {
+        // Arrange
+        const string json =
+            """
+            {
+              "streams": [
+                { "index": 1, "codec_type": "audio", "codec_name": "ac4", "channels": 621751, "sample_rate": "48000" }
+              ]
+            }
+            """;
+
+        // Act
+        var result = MediaProbeParser.Parse(json);
+
+        // Assert
+        Assert.Null(Assert.Single(result.Tracks).Channels);
     }
 
     /// <summary>
@@ -306,7 +543,7 @@ public class ActiveStreamServiceTests
         Assert.Equal("aac", stream.Tracks[1].OutputCodec);
         Assert.Equal(128_000, stream.Tracks[1].OutputBitRate);
         Assert.Equal(2, stream.Tracks[1].OutputChannels);
-        Assert.Equal(44_100, stream.Tracks[1].OutputSampleRate);
+        Assert.Equal(48_000, stream.Tracks[1].OutputSampleRate);
     }
 
     /// <summary>
@@ -338,6 +575,85 @@ public class ActiveStreamServiceTests
                 Assert.Equal("aac", audio.OutputCodec);
                 Assert.Equal(128_000, audio.OutputBitRate);
             });
+    }
+
+    /// <summary>
+    /// Verifies 7.1 fMP4 audio metadata describes the retained source channel count and scaled AAC bitrate.
+    /// </summary>
+    [Fact]
+    public void FragmentedMp4Plan_UpTo7Point1Audio_DescribesMultichannelOutput()
+    {
+        // Arrange
+        var source = new MediaProbeResult(
+        [
+            new MediaTrackMetadata(0, MediaTrackType.Video, "h264", null, 1920, 1080, null, null),
+            new MediaTrackMetadata(1, MediaTrackType.Audio, "ac3", 384_000, null, null, 6, 48_000)
+        ],
+        null);
+        var selection = WatchStreamPlanner.SelectTracks(source, 1, null);
+
+        // Act
+        var stream = ActiveStreamPlanFactory.CreateFragmentedMp4("session", "5.1", DateTime.UtcNow, source, selection: selection, audioOutput: WatchAudioOutput.UpTo7Point1);
+
+        // Assert
+        var audio = Assert.Single(stream.Tracks, track => track.Type == MediaTrackType.Audio);
+        Assert.Equal("aac", audio.OutputCodec);
+        Assert.Equal(384_000, audio.OutputBitRate);
+        Assert.Equal(6, audio.OutputChannels);
+        Assert.Equal(48_000, audio.OutputSampleRate);
+    }
+
+    /// <summary>
+    /// Verifies 7.1 fMP4 audio metadata reports the eight-channel limit for a 7.1.4 source.
+    /// </summary>
+    [Fact]
+    public void FragmentedMp4Plan_UpTo7Point1Audio_LimitsOutputMetadataToEightChannels()
+    {
+        // Arrange
+        var source = new MediaProbeResult(
+        [
+            new MediaTrackMetadata(0, MediaTrackType.Video, "hevc", null, 1920, 1080, null, null),
+            new MediaTrackMetadata(1, MediaTrackType.Audio, "ac4", null, null, null, 12, 46_034)
+        ],
+        null);
+        var selection = WatchStreamPlanner.SelectTracks(source, 1, null);
+
+        // Act
+        var stream = ActiveStreamPlanFactory.CreateFragmentedMp4("session", "105.1", DateTime.UtcNow, source, selection: selection, audioOutput: WatchAudioOutput.UpTo7Point1);
+
+        // Assert
+        var audio = Assert.Single(stream.Tracks, track => track.Type == MediaTrackType.Audio);
+        Assert.Equal(12, audio.SourceChannels);
+        Assert.Equal(8, audio.OutputChannels);
+        Assert.Equal(512_000, audio.OutputBitRate);
+        Assert.Equal(48_000, audio.OutputSampleRate);
+    }
+
+    /// <summary>
+    /// Verifies source audio passthrough metadata retains the selected track's encoding characteristics.
+    /// </summary>
+    [Fact]
+    public void FragmentedMp4Plan_SourceAudio_DescribesCopiedOutput()
+    {
+        // Arrange
+        var source = new MediaProbeResult(
+        [
+            new MediaTrackMetadata(0, MediaTrackType.Video, "h264", null, 1920, 1080, null, null),
+            new MediaTrackMetadata(1, MediaTrackType.Audio, "ac4", 768_000, null, null, 12, 46_034)
+        ],
+        null);
+        var selection = WatchStreamPlanner.SelectTracks(source, 1, null);
+
+        // Act
+        var stream = ActiveStreamPlanFactory.CreateFragmentedMp4("session", "105.1", DateTime.UtcNow, source, selection: selection, audioOutput: WatchAudioOutput.Source);
+
+        // Assert
+        var audio = Assert.Single(stream.Tracks, track => track.Type == MediaTrackType.Audio);
+        Assert.Equal("ac4", audio.SourceCodec);
+        Assert.Equal("copy", audio.OutputCodec);
+        Assert.Equal(768_000, audio.OutputBitRate);
+        Assert.Equal(12, audio.OutputChannels);
+        Assert.Equal(46_034, audio.OutputSampleRate);
     }
 
     private static ActiveStreamTrack CreateTrack(string sourceCodec, string outputCodec)

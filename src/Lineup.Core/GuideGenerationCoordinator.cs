@@ -1,14 +1,14 @@
 namespace Lineup.Core;
 
 /// <summary>
-/// Serializes canonical guide publication, normalized database replacement, and generation marker updates.
+/// Serializes normalized guide database updates.
 /// </summary>
 public sealed class GuideGenerationCoordinator
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     /// <summary>
-    /// Executes a complete guide generation transition exclusively.
+    /// Executes a complete guide database transition exclusively.
     /// </summary>
     /// <param name="transition">The generation transition to execute.</param>
     /// <param name="cancellationToken">A token used to cancel waiting for or executing the transition.</param>

@@ -20,7 +20,12 @@ public static class CoreServiceExtensions
     /// <param name="services">Service collection to configure</param>
     /// <param name="deviceAddress">HDHomeRun device hostname or IP address (used only if no IDeviceAddressProvider is registered)</param>
     /// <param name="databasePath">Path to the SQLite database file</param>
-    public static IServiceCollection AddEpgCore(this IServiceCollection services, string deviceAddress = AppConstants.DefaultDeviceAddress, string? databasePath = null)
+    /// <param name="appDataStore">Optional persistent application-data boundary for Lineup-owned file artifacts.</param>
+    public static IServiceCollection AddEpgCore(
+        this IServiceCollection services,
+        string deviceAddress = AppConstants.DefaultDeviceAddress,
+        string? databasePath = null,
+        IAppDataStore? appDataStore = null)
     {
         // Register default device address provider if not already registered
         // TryAdd will only add if no IDeviceAddressProvider is already registered
@@ -44,18 +49,21 @@ public static class CoreServiceExtensions
 
         // Configure EF Core with SQLite
         var dbPath = databasePath ?? AppConstants.DefaultDatabaseFileName;
-        services.AddDbContext<EpgDbContext>(options =>
+        services.AddDbContextFactory<EpgDbContext>(options =>
             options.UseSqlite($"Data Source={dbPath}"));
-        services.AddSingleton(new ChannelLineupStore(Path.ChangeExtension(dbPath, ".channels.json")));
+        services.AddSingleton(provider => new ChannelLineupStore(provider.GetRequiredService<IDbContextFactory<EpgDbContext>>()));
         services.AddScoped<ChannelLineupRefreshService>();
 
         // Register repository and data provider
         services.AddScoped<IEpgRepository, EpgRepository>();
+        services.TryAddSingleton<IEpgRetentionPolicy, DefaultEpgRetentionPolicy>();
         services.AddScoped<CachedEpgDataProvider>();
 
-        // Register XMLTV import, canonical document storage, and orchestration
+        // Register XMLTV import, publication, and orchestration
         services.AddSingleton<SiliconDustXmltvParser>();
-        services.AddSingleton(new XmltvGuideStore(Path.ChangeExtension(dbPath, ".xmltv")));
+        services.AddSingleton<GuideSnapshotProjector>();
+        services.AddSingleton<LineupXmltvWriter>();
+        services.TryAddSingleton<IXmltvPublicationStore, XmltvPublicationStore>();
         services.AddSingleton<GuideGenerationCoordinator>();
         services.AddScoped<EpgOrchestrator>();
 

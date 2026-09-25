@@ -13,6 +13,8 @@ public partial class Settings : IDisposable
     [Inject]
     private IAppSettingsService SettingsService { get; set; } = default!;
 
+    private readonly IFileSystemBrowser FileSystem = new FileSystemBrowser();
+
     [Inject]
     private NavigationManager Navigation { get; set; } = default!;
 
@@ -25,8 +27,12 @@ public partial class Settings : IDisposable
     [Inject]
     private IServiceProvider Services { get; set; } = default!;
 
+    [Inject]
+    private IStatusNotificationService Notifications { get; set; } = default!;
+
     private bool _autoFetchEnabled;
     private bool _refreshChannelsBeforeGuideFetch;
+    private int _epgHistoryRetentionHours;
     private string _deviceAddress = "";
     private int _deviceRefreshIntervalMinutes;
     private int _tunerRefreshIntervalSeconds;
@@ -60,8 +66,6 @@ public partial class Settings : IDisposable
     private bool _enableNetworkDiscovery;
     private List<HdHomeRunProxyProfileSettings> _proxyProfiles = [];
     private bool _isSaving;
-    private string _statusMessage = "";
-    private bool _isError;
     private bool _isInitialSetup;
     private SettingsTab _activeTab = SettingsTab.General;
     private bool _showDirectoryBrowser;
@@ -105,6 +109,7 @@ public partial class Settings : IDisposable
     {
         _autoFetchEnabled = SettingsService.Settings.IsAutoFetchEnabled;
         _refreshChannelsBeforeGuideFetch = SettingsService.Settings.RefreshChannelsBeforeGuideFetch;
+        _epgHistoryRetentionHours = SettingsService.Settings.EpgHistoryRetentionHours;
         _deviceAddress = SettingsService.Settings.DeviceAddress;
         _deviceRefreshIntervalMinutes = SettingsService.Settings.DeviceRefreshIntervalMinutes;
         _tunerRefreshIntervalSeconds = SettingsService.Settings.TunerRefreshIntervalSeconds;
@@ -212,15 +217,13 @@ public partial class Settings : IDisposable
     private async Task SaveSettings()
     {
         _isSaving = true;
-        _statusMessage = "";
         StateHasChanged();
 
         try
         {
             if (string.IsNullOrWhiteSpace(_deviceAddress))
             {
-                _statusMessage = "Device Address cannot be empty.";
-                _isError = true;
+                Notifications.ShowError("Device Address cannot be empty.");
                 return;
             }
 
@@ -231,22 +234,19 @@ public partial class Settings : IDisposable
 
             if (_deviceRefreshIntervalMinutes < 0 || _deviceRefreshIntervalMinutes > 60)
             {
-                _statusMessage = "Device Refresh Interval must be between 0 and 60 minutes.";
-                _isError = true;
+                Notifications.ShowError("Device Refresh Interval must be between 0 and 60 minutes.");
                 return;
             }
 
             if (_tunerRefreshIntervalSeconds < 0 || _tunerRefreshIntervalSeconds > 300)
             {
-                _statusMessage = "Tuner Refresh Interval must be between 0 and 300 seconds.";
-                _isError = true;
+                Notifications.ShowError("Tuner Refresh Interval must be between 0 and 300 seconds.");
                 return;
             }
 
             if (_activeStreamRefreshIntervalSeconds < 0 || _activeStreamRefreshIntervalSeconds > 300)
             {
-                _statusMessage = "Active Stream Refresh Interval must be between 0 and 300 seconds.";
-                _isError = true;
+                Notifications.ShowError("Active Stream Refresh Interval must be between 0 and 300 seconds.");
                 return;
             }
 
@@ -255,10 +255,15 @@ public partial class Settings : IDisposable
                 return;
             }
 
+            if (_epgHistoryRetentionHours is < 0 or > 720)
+            {
+                Notifications.ShowError("EPG history retention must be between 0 and 720 hours.");
+                return;
+            }
+
             if (_enableFileLogging && (_fileLogRetentionDays is < 1 or > 90 || _fileLogSizeLimitMb is < 1 or > 500))
             {
-                _statusMessage = "Log retention must be 1-90 days and file size must be 1-500 MB.";
-                _isError = true;
+                Notifications.ShowError("Log retention must be 1-90 days and file size must be 1-500 MB.");
                 return;
             }
 
@@ -275,6 +280,7 @@ public partial class Settings : IDisposable
             {
                 settings.AutoFetchInterval = _autoFetchEnabled ? TimeSpan.FromHours(24) : TimeSpan.Zero;
                 settings.RefreshChannelsBeforeGuideFetch = _refreshChannelsBeforeGuideFetch;
+                settings.EpgHistoryRetentionHours = _epgHistoryRetentionHours;
                 if (!_autoFetchEnabled || !wasAutoFetchEnabled)
                 {
                     settings.NextAutoFetchTime = null;
@@ -343,13 +349,11 @@ public partial class Settings : IDisposable
 
             if (applyErrors.Count > 0)
             {
-                _statusMessage = $"Settings were saved, but {string.Join("; ", applyErrors)}";
-                _isError = true;
+                Notifications.ShowError($"Settings were saved, but {string.Join("; ", applyErrors)}");
                 return;
             }
 
-            _statusMessage = "Settings saved successfully!";
-            _isError = false;
+            Notifications.ShowSuccess("Settings saved successfully!");
 
             if (completingInitialSetup)
             {
@@ -368,8 +372,7 @@ public partial class Settings : IDisposable
         }
         catch (Exception ex)
         {
-            _statusMessage = $"Error saving settings: {ex.Message}";
-            _isError = true;
+            Notifications.ShowError($"Error saving settings: {ex.Message}");
         }
         finally
         {
@@ -382,6 +385,7 @@ public partial class Settings : IDisposable
         var defaults = new AppSettings();
         _autoFetchEnabled = defaults.IsAutoFetchEnabled;
         _refreshChannelsBeforeGuideFetch = defaults.RefreshChannelsBeforeGuideFetch;
+        _epgHistoryRetentionHours = defaults.EpgHistoryRetentionHours;
         _deviceAddress = defaults.DeviceAddress;
         _deviceRefreshIntervalMinutes = defaults.DeviceRefreshIntervalMinutes;
         _tunerRefreshIntervalSeconds = defaults.TunerRefreshIntervalSeconds;
@@ -414,8 +418,7 @@ public partial class Settings : IDisposable
         _enableHdHomeRunProxy = defaults.EnableHdHomeRunProxy;
         _enableNetworkDiscovery = defaults.EnableNetworkDiscovery;
         _proxyProfiles = defaults.HdHomeRunProxyProfiles.Select(CloneProfile).ToList();
-        _statusMessage = "Settings reset to defaults. Click Save to apply.";
-        _isError = false;
+        Notifications.ShowSuccess("Settings reset to defaults. Click Save to apply.");
         SelectTab(SettingsTab.General);
     }
 
@@ -442,15 +445,13 @@ public partial class Settings : IDisposable
             level.Category.Length > 200 ||
             string.Equals(level.Category, "Default", StringComparison.OrdinalIgnoreCase)))
         {
-            _statusMessage = "Logging category prefixes must contain 1-200 characters and cannot be named Default.";
-            _isError = true;
+            Notifications.ShowError("Logging category prefixes must contain 1-200 characters and cannot be named Default.");
             return false;
         }
 
         if (_logCategoryOverrides.GroupBy(level => level.Category, StringComparer.OrdinalIgnoreCase).Any(group => group.Count() > 1))
         {
-            _statusMessage = "Logging category prefixes must be unique.";
-            _isError = true;
+            Notifications.ShowError("Logging category prefixes must be unique.");
             return false;
         }
 
@@ -522,15 +523,13 @@ public partial class Settings : IDisposable
     {
         LoadCurrentSettings();
         _showDirectoryBrowser = false;
-        _statusMessage = "Unsaved settings changes reverted.";
-        _isError = false;
+        Notifications.ShowSuccess("Unsaved settings changes reverted.");
     }
 
     private void ShowFactoryResetConfirmation()
     {
         _showFactoryResetConfirmation = true;
         _factoryResetConfirmation = "";
-        ClearStatus();
     }
 
     private void CancelFactoryReset()
@@ -547,9 +546,7 @@ public partial class Settings : IDisposable
         {
             return;
         }
-
         _isRestarting = true;
-        ClearStatus();
         await InvokeAsync(StateHasChanged);
         try
         {
@@ -558,8 +555,7 @@ public partial class Settings : IDisposable
         }
         catch (Exception ex)
         {
-            _statusMessage = $"Lineup could not be restarted: {ex.Message}";
-            _isError = true;
+            Notifications.ShowError($"Lineup could not be restarted: {ex.Message}");
             _isRestarting = false;
         }
     }
@@ -570,10 +566,7 @@ public partial class Settings : IDisposable
         {
             return;
         }
-
         _isFactoryResetting = true;
-        _statusMessage = "";
-        _isError = false;
         await InvokeAsync(StateHasChanged);
         try
         {
@@ -582,8 +575,7 @@ public partial class Settings : IDisposable
         }
         catch (Exception ex)
         {
-            _statusMessage = $"Factory reset could not be started: {ex.Message}";
-            _isError = true;
+            Notifications.ShowError($"Factory reset could not be started: {ex.Message}");
             _isFactoryResetting = false;
         }
     }
@@ -598,11 +590,6 @@ public partial class Settings : IDisposable
         Navigation.NavigateTo("/dashboard");
     }
 
-    private void ClearStatus()
-    {
-        _statusMessage = "";
-    }
-
     private void DeleteLogs()
     {
         if (_isDeletingLogs)
@@ -615,13 +602,11 @@ public partial class Settings : IDisposable
         {
             var deleted = Services.GetRequiredService<LogFileService>().DeleteFiles();
             RefreshRetainedLogFiles();
-            _statusMessage = deleted == 0 ? "No file logs were found." : $"Deleted {deleted} file log{(deleted == 1 ? "" : "s")}.";
-            _isError = false;
+            Notifications.ShowSuccess(deleted == 0 ? "No file logs were found." : $"Deleted {deleted} file log{(deleted == 1 ? "" : "s")}.");
         }
         catch (Exception ex)
         {
-            _statusMessage = $"File logs could not be deleted: {ex.Message}";
-            _isError = true;
+            Notifications.ShowError($"File logs could not be deleted: {ex.Message}");
         }
         finally
         {
@@ -632,7 +617,6 @@ public partial class Settings : IDisposable
     private void ResetXmltvOutputPath()
     {
         _xmltvOutputPath = SettingsService.ConfiguredXmltvOutputPath;
-        ClearStatus();
     }
 
     private bool XmltvOutputPathDiffersFromConfigured()
@@ -652,8 +636,7 @@ public partial class Settings : IDisposable
     {
         if (string.IsNullOrWhiteSpace(_xmltvOutputPath))
         {
-            _statusMessage = "XMLTV Output Destination cannot be empty.";
-            _isError = true;
+            Notifications.ShowError("XMLTV Output Destination cannot be empty.");
             return false;
         }
 
@@ -664,8 +647,7 @@ public partial class Settings : IDisposable
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
-            _statusMessage = "XMLTV Output Destination is invalid.";
-            _isError = true;
+            Notifications.ShowError("XMLTV Output Destination is invalid.");
             return false;
         }
     }
@@ -676,9 +658,9 @@ public partial class Settings : IDisposable
         _directoryError = null;
         try
         {
-            var resolvedPath = GetResolvedPath(_xmltvOutputPath);
+            var resolvedPath = FileSystem.ResolvePath(_xmltvOutputPath);
             var directory = Path.GetDirectoryName(resolvedPath);
-            if (!string.IsNullOrEmpty(directory) && Directory.Exists(directory))
+            if (!string.IsNullOrEmpty(directory) && FileSystem.DirectoryExists(directory))
             {
                 _currentDirectory = directory;
                 _selectedFilename = Path.GetFileName(resolvedPath);
@@ -691,7 +673,7 @@ public partial class Settings : IDisposable
             _directoryError = "The current XMLTV path is invalid. Select a server directory and filename.";
         }
 
-        _currentDirectory = Directory.GetCurrentDirectory();
+        _currentDirectory = FileSystem.GetCurrentDirectory();
         _selectedFilename = AppConstants.DefaultXmltvFileName;
         LoadDirectories();
     }
@@ -706,7 +688,7 @@ public partial class Settings : IDisposable
         _directoryError = null;
         try
         {
-            _directories = Directory.GetDirectories(_currentDirectory).OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase).ToArray();
+            _directories = FileSystem.GetDirectories(_currentDirectory).ToArray();
         }
         catch (UnauthorizedAccessException)
         {
@@ -728,15 +710,15 @@ public partial class Settings : IDisposable
 
     private void NavigateUp()
     {
-        var parent = Directory.GetParent(_currentDirectory);
+        var parent = FileSystem.GetParent(_currentDirectory);
         if (parent != null)
         {
-            _currentDirectory = parent.FullName;
+            _currentDirectory = parent;
             LoadDirectories();
         }
     }
 
-    private bool CanNavigateUp => !string.IsNullOrEmpty(_currentDirectory) && Directory.GetParent(_currentDirectory) != null;
+    private bool CanNavigateUp => !string.IsNullOrEmpty(_currentDirectory) && FileSystem.GetParent(_currentDirectory) != null;
 
     private void SelectXmltvPath()
     {
@@ -747,7 +729,6 @@ public partial class Settings : IDisposable
 
         _xmltvOutputPath = Path.Combine(_currentDirectory, _selectedFilename.Trim());
         _showDirectoryBrowser = false;
-        ClearStatus();
     }
 
     private string? ResolvedXmltvOutputPath
@@ -761,7 +742,7 @@ public partial class Settings : IDisposable
 
             try
             {
-                return GetResolvedPath(_xmltvOutputPath);
+                return FileSystem.ResolvePath(_xmltvOutputPath);
             }
             catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
             {
@@ -770,17 +751,11 @@ public partial class Settings : IDisposable
         }
     }
 
-    private static string GetResolvedPath(string path)
-    {
-        return Path.IsPathRooted(path) ? Path.GetFullPath(path) : Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), path));
-    }
-
     private bool ValidateProxyProfiles()
     {
         if (_proxyProfiles.Count == 0)
         {
-            _statusMessage = "At least one HDHomeRun proxy profile is required.";
-            _isError = true;
+            Notifications.ShowError("At least one HDHomeRun proxy profile is required.");
             return false;
         }
 
@@ -791,39 +766,34 @@ public partial class Settings : IDisposable
         {
             if (profile.Enabled && string.IsNullOrWhiteSpace(profile.PhysicalAddress))
             {
-                _statusMessage = "Enabled proxy profiles require a physical device address.";
-                _isError = true;
+                Notifications.ShowError("Enabled proxy profiles require a physical device address.");
                 return false;
             }
 
             if (profile.Enabled && !physicalAddresses.Add(profile.PhysicalAddress.Trim()))
             {
-                _statusMessage = "Enabled proxy profiles must use distinct physical device addresses.";
-                _isError = true;
+                Notifications.ShowError("Enabled proxy profiles must use distinct physical device addresses.");
                 return false;
             }
 
             if (!HdHomeRunProxyIdentity.IsValidDeviceId(profile.VirtualDeviceId) ||
                 !deviceIds.Add(profile.VirtualDeviceId))
             {
-                _statusMessage = "Each proxy profile must have a unique, valid virtual DeviceID.";
-                _isError = true;
+                Notifications.ShowError("Each proxy profile must have a unique, valid virtual DeviceID.");
                 return false;
             }
 
             if (!string.IsNullOrWhiteSpace(profile.AdvertisedBaseUrl) &&
                 !HdHomeRunProxyProfileResolver.TryGetHttpRoot(profile.AdvertisedBaseUrl, out _))
             {
-                _statusMessage = "Advertised base URLs must be absolute HTTP or HTTPS URLs.";
-                _isError = true;
+                Notifications.ShowError("Advertised base URLs must be absolute HTTP or HTTPS URLs.");
                 return false;
             }
 
             if (_enableNetworkDiscovery && profile.Enabled &&
                 !HdHomeRunProxyProfileResolver.TryGetHttpRoot(profile.AdvertisedBaseUrl, out _))
             {
-                _statusMessage = "Every enabled profile requires an advertised base URL when network discovery is enabled.";
-                _isError = true;
+                Notifications.ShowError("Every enabled profile requires an advertised base URL when network discovery is enabled.");
                 return false;
             }
         }
@@ -839,7 +809,6 @@ public partial class Settings : IDisposable
             VirtualDeviceId = HdHomeRunProxyIdentity.CreateDeviceId($"lineup-profile:{Guid.NewGuid():N}")
         };
         _proxyProfiles.Add(profile);
-        ClearStatus();
     }
 
     private void RemoveProxyProfile(int index)
@@ -848,9 +817,7 @@ public partial class Settings : IDisposable
         {
             return;
         }
-
         _proxyProfiles.RemoveAt(index);
-        ClearStatus();
     }
 
     private Uri GetProfileSetupBaseUri(HdHomeRunProxyProfileSettings profile, int index)

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Lineup.Core;
+using Lineup.Core.Storage;
 
 namespace Lineup.Web.Services;
 
@@ -20,7 +21,7 @@ public interface IFactoryResetService
 /// </summary>
 public sealed class FactoryResetService : IFactoryResetService
 {
-    private readonly AppDataStore _appDataStore;
+    private readonly IAppDataStore _appDataStore;
     private readonly IAppSettingsService _settings;
     private readonly IHostApplicationLifetime _applicationLifetime;
     private readonly ILogger<FactoryResetService> _logger;
@@ -32,7 +33,7 @@ public sealed class FactoryResetService : IFactoryResetService
     /// <param name="settings">Current persisted application settings.</param>
     /// <param name="applicationLifetime">Application shutdown controller.</param>
     /// <param name="logger">Reset diagnostics logger.</param>
-    public FactoryResetService(AppDataStore appDataStore, IAppSettingsService settings, IHostApplicationLifetime applicationLifetime, ILogger<FactoryResetService> logger)
+    public FactoryResetService(IAppDataStore appDataStore, IAppSettingsService settings, IHostApplicationLifetime applicationLifetime, ILogger<FactoryResetService> logger)
     {
         _appDataStore = appDataStore;
         _settings = settings;
@@ -71,7 +72,6 @@ public static class FactoryResetCoordinator
     /// </summary>
     public const string RequestFileName = ".lineup-factory-reset.json";
 
-    private const string HlsDirectoryName = "hdhomerun-hls";
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     /// <summary>
@@ -80,7 +80,7 @@ public static class FactoryResetCoordinator
     /// <param name="appDataStore">Lineup persistent application-data store.</param>
     /// <param name="request">Reset details needed for safe cleanup.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
-    public static Task WriteRequestAsync(AppDataStore appDataStore, FactoryResetRequest request, CancellationToken cancellationToken = default)
+    public static Task WriteRequestAsync(IAppDataStore appDataStore, FactoryResetRequest request, CancellationToken cancellationToken = default)
     {
         return appDataStore.WriteAtomicallyAsync(
             appDataStore.FactoryResetRequestPath,
@@ -95,12 +95,18 @@ public static class FactoryResetCoordinator
         WriteRequestAsync(new AppDataStore(appDataPath), request, cancellationToken);
 
     /// <summary>
-    /// Removes allowlisted Lineup-owned state when a reset request is present.
+    /// Removes all Lineup-owned application and transient data when a reset request is present.
     /// </summary>
     /// <param name="appDataStore">Lineup persistent application-data store.</param>
     /// <param name="configuredXmltvPath">Startup-configured XMLTV file or directory.</param>
+    /// <param name="transientDataStore">Configured transient data store.</param>
+    /// <param name="publicationStore">External XMLTV publication store.</param>
     /// <returns><see langword="true"/> when a pending reset was applied.</returns>
-    public static bool ApplyPendingReset(AppDataStore appDataStore, string? configuredXmltvPath)
+    public static bool ApplyPendingReset(
+        IAppDataStore appDataStore,
+        string? configuredXmltvPath,
+        ITransientDataStore transientDataStore,
+        IXmltvPublicationStore publicationStore)
     {
         if (!appDataStore.FileExists(appDataStore.FactoryResetRequestPath))
         {
@@ -112,87 +118,22 @@ public static class FactoryResetCoordinator
         var configuredOutputPath = AppSettingsService.ResolveConfiguredXmltvOutputPath(configuredXmltvPath);
         var configuredXmltvDirectory = ResolveConfiguredXmltvDirectory(configuredXmltvPath);
 
-        DeleteSettingsState(appDataStore);
-        DeleteGuideState(appDataStore);
-        appDataStore.DeleteDirectory(appDataStore.LogDirectoryPath, recursive: true);
-        appDataStore.DeleteDirectory(appDataStore.DataProtectionKeysPath, recursive: true);
-        DeleteOutputFile(configuredOutputPath);
+        publicationStore.Delete(configuredOutputPath);
         if (IsOwnedPersistedOutput(request.PersistedXmltvOutputPath, appDataStore.RootPath, configuredXmltvDirectory, configuredOutputPath))
         {
-            DeleteOutputFile(Path.GetFullPath(request.PersistedXmltvOutputPath!));
+            publicationStore.Delete(Path.GetFullPath(request.PersistedXmltvOutputPath!));
         }
 
-        var hlsDirectory = Path.Combine(Path.GetTempPath(), HlsDirectoryName);
-        if (Directory.Exists(hlsDirectory))
-        {
-            Directory.Delete(hlsDirectory, recursive: true);
-        }
-        var subtitleDirectory = Path.Combine(Path.GetTempPath(), SubtitleSidecarService.DirectoryName);
-        if (Directory.Exists(subtitleDirectory))
-        {
-            Directory.Delete(subtitleDirectory, recursive: true);
-        }
-
-        appDataStore.DeleteFile(appDataStore.FactoryResetRequestPath);
+        transientDataStore.DeleteContents();
+        appDataStore.DeleteContents();
         return true;
     }
 
     /// <summary>
     /// Applies a pending factory reset from an application-data path for direct tests.
     /// </summary>
-    internal static bool ApplyPendingReset(string appDataPath, string? configuredXmltvPath) =>
-        ApplyPendingReset(new AppDataStore(appDataPath), configuredXmltvPath);
-
-    private static void DeleteSettingsState(AppDataStore appDataStore)
-    {
-        appDataStore.DeleteFile(appDataStore.SettingsPath);
-        appDataStore.DeleteFile(appDataStore.SettingsBackupPath);
-        appDataStore.DeleteMatchingFiles(appDataStore.RootPath, $"{AppConstants.SettingsFileName}.*.tmp");
-    }
-
-    private static void DeleteGuideState(AppDataStore appDataStore)
-    {
-        appDataStore.DeleteFile(appDataStore.DatabasePath);
-        appDataStore.DeleteFile($"{appDataStore.DatabasePath}-wal");
-        appDataStore.DeleteFile($"{appDataStore.DatabasePath}-shm");
-        appDataStore.DeleteFile(appDataStore.GuideCachePath);
-        appDataStore.DeleteFile($"{appDataStore.GuideCachePath}.generation");
-        appDataStore.DeleteMatchingFiles(appDataStore.RootPath, $"{Path.GetFileName(appDataStore.GuideCachePath)}.*.tmp");
-        appDataStore.DeleteFile(appDataStore.ChannelLineupPath);
-        appDataStore.DeleteMatchingFiles(appDataStore.RootPath, $"{Path.GetFileName(appDataStore.ChannelLineupPath)}.*.tmp");
-    }
-
-    private static void DeleteOutputFile(string path)
-    {
-        DeleteFile(path);
-        DeleteFile($"{path}.generation");
-        var directory = Path.GetDirectoryName(path);
-        if (!string.IsNullOrEmpty(directory) && Directory.Exists(directory))
-        {
-            DeleteMatchingFiles(directory, $"{Path.GetFileName(path)}.*.tmp");
-        }
-    }
-
-    private static void DeleteFile(string path)
-    {
-        if (File.Exists(path))
-        {
-            File.Delete(path);
-        }
-    }
-
-    private static void DeleteMatchingFiles(string directory, string pattern)
-    {
-        if (!Directory.Exists(directory))
-        {
-            return;
-        }
-
-        foreach (var path in Directory.EnumerateFiles(directory, pattern, SearchOption.TopDirectoryOnly))
-        {
-            File.Delete(path);
-        }
-    }
+    internal static bool ApplyPendingReset(string appDataPath, string? configuredXmltvPath, ITransientDataStore transientData) =>
+        ApplyPendingReset(new AppDataStore(appDataPath), configuredXmltvPath, transientData, new XmltvPublicationStore());
 
     private static string? ResolveConfiguredXmltvDirectory(string? configuredXmltvPath)
     {

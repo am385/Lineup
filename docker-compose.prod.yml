@@ -13,6 +13,7 @@ services:
       - appdata:/appdata
       # Persist XMLTV output across container restarts (optional, only if you use the XMLTV output feature)
       - xmltv:/xmltv
+      - transient:/transient
       # Place the HTTPS certificate at ./certs/lineup.pfx.
       - ./certs:/app/certs:ro
     environment:
@@ -21,6 +22,7 @@ services:
       - ASPNETCORE_HTTP_PORTS=
       - Lineup__AppDataPath=/appdata
       - Lineup__XmltvPath=/xmltv
+      - Lineup__TransientPath=/transient
       - Lineup__Https__CertificatePath=/app/certs/lineup.pfx
       - Lineup__Https__CertificatePassword=${CERT_PASSWORD:-}
       # Optional vendor-neutral logging target. Keep credentials in the host environment.
@@ -34,3 +36,4 @@ services:
 volumes:
   appdata:
   xmltv:
+  transient:

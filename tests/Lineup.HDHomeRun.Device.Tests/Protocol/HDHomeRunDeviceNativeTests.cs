@@ -325,6 +325,7 @@ public class HDHomeRunDeviceNativeTests
             return ValueTask.CompletedTask;
         }
 
+        /// <inheritdoc/>
         protected override void Dispose(bool disposing)
         {
             WasDisposed = true;

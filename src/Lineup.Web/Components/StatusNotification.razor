@@ -1,0 +1,147 @@
+@implements IDisposable
+@using Lineup.Web.Services
+@inject IStatusNotificationService Notifications
+@inject NavigationManager Navigation
+
+@if (Notifications.Notifications.Count > 0)
+{
+    <div id="statusNotifications" class="status-notification-container" aria-live="polite">
+        @foreach (var notification in Notifications.Notifications)
+        {
+            <div @key="notification.Id"
+                 id="statusNotification-@notification.Id"
+                 class="status-notification alert @(notification.IsError ? "alert-danger" : "alert-success") alert-dismissible fade show"
+                 role="status">
+                @notification.Message
+                <span class="status-notification-timer" aria-hidden="true" title="Closes automatically">@GetSecondsRemaining(notification.Id)s</span>
+                <button type="button"
+                        class="btn-close"
+                        aria-label="Dismiss status message"
+                        @onclick="() => Notifications.Dismiss(notification.Id)"></button>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private readonly object _timerLock = new();
+    private readonly Dictionary<Guid, NotificationCountdown> _countdowns = [];
+    private bool _disposed;
+
+    [Parameter]
+    public int DurationSeconds { get; set; } = 5;
+
+    protected override void OnInitialized()
+    {
+        if (DurationSeconds <= 0)
+        {
+            throw new InvalidOperationException($"{nameof(DurationSeconds)} must be greater than zero.");
+        }
+
+        Notifications.OnChanged += OnNotificationChanged;
+        Navigation.LocationChanged += OnLocationChanged;
+        ReconcileCountdowns();
+    }
+
+    public void Dispose()
+    {
+        lock (_timerLock)
+        {
+            _disposed = true;
+            foreach (var countdown in _countdowns.Values)
+            {
+                countdown.Timer.Dispose();
+            }
+            _countdowns.Clear();
+        }
+
+        Notifications.OnChanged -= OnNotificationChanged;
+        Navigation.LocationChanged -= OnLocationChanged;
+    }
+
+    private int GetSecondsRemaining(Guid id)
+    {
+        lock (_timerLock)
+        {
+            return _countdowns.TryGetValue(id, out var countdown) ? countdown.SecondsRemaining : DurationSeconds;
+        }
+    }
+
+    private void OnNotificationChanged()
+    {
+        _ = InvokeAsync(() =>
+        {
+            ReconcileCountdowns();
+            StateHasChanged();
+        });
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        Notifications.Clear();
+    }
+
+    private void ReconcileCountdowns()
+    {
+        lock (_timerLock)
+        {
+            var activeIds = Notifications.Notifications.Select(notification => notification.Id).ToHashSet();
+            foreach (var removedId in _countdowns.Keys.Where(id => !activeIds.Contains(id)).ToArray())
+            {
+                _countdowns[removedId].Timer.Dispose();
+                _countdowns.Remove(removedId);
+            }
+
+            foreach (var notification in Notifications.Notifications)
+            {
+                if (_countdowns.ContainsKey(notification.Id))
+                {
+                    continue;
+                }
+
+                var timer = new Timer(UpdateCountdown, notification.Id, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+                _countdowns.Add(notification.Id, new NotificationCountdown(timer, DurationSeconds));
+            }
+        }
+    }
+
+    private void UpdateCountdown(object? state)
+    {
+        var id = (Guid)state!;
+        _ = InvokeAsync(() =>
+        {
+            var shouldDismiss = false;
+            lock (_timerLock)
+            {
+                if (_disposed || !_countdowns.TryGetValue(id, out var countdown))
+                {
+                    return;
+                }
+
+                countdown.SecondsRemaining--;
+                shouldDismiss = countdown.SecondsRemaining == 0;
+                if (shouldDismiss)
+                {
+                    countdown.Timer.Dispose();
+                    _countdowns.Remove(id);
+                }
+            }
+
+            if (shouldDismiss)
+            {
+                Notifications.Dismiss(id);
+            }
+            else
+            {
+                StateHasChanged();
+            }
+        });
+    }
+
+    private sealed class NotificationCountdown(Timer timer, int secondsRemaining)
+    {
+        public Timer Timer { get; } = timer;
+
+        public int SecondsRemaining { get; set; } = secondsRemaining;
+    }
+}

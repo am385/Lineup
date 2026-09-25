@@ -1,7 +1,6 @@
 @page "/"
 @page "/dashboard"
 @using Lineup.Web.Services
-@rendermode InteractiveServer
 
 <PageTitle>Dashboard</PageTitle>
 
@@ -173,6 +172,43 @@ else
                     </div>
                 </div>
                 <p class="text-muted mb-0">@AutoFetchState.CurrentProgress.Message</p>
+            </div>
+        </div>
+    }
+
+    @if (_fetchProgress != null && _isBusy && _currentAction == "fetch")
+    {
+        <div id="manualFetchProgress" class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><span class="bi bi-graph-up me-1"></span>Manual Fetch Progress</h5>
+            </div>
+            <div class="card-body">
+                <div class="row mb-2">
+                    <div class="col-md-3">
+                        <strong>Status:</strong>
+                        <span class="badge @GetStatusBadgeClass(_fetchProgress.Status)">@_fetchProgress.Status</span>
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Fetch #:</strong> @_fetchProgress.FetchCount
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Programs:</strong> @_fetchProgress.TotalProgramsFetched.ToString("N0")
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Channels:</strong> @_fetchProgress.TotalChannelsFetched
+                    </div>
+                </div>
+                <div class="progress mb-2" style="height: 25px;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated"
+                         role="progressbar"
+                         style="width: @(_fetchProgress.PercentComplete)%"
+                         aria-valuenow="@_fetchProgress.PercentComplete"
+                         aria-valuemin="0"
+                         aria-valuemax="100">
+                        @_fetchProgress.PercentComplete%
+                    </div>
+                </div>
+                <p class="text-muted mb-0">@_fetchProgress.Message</p>
             </div>
         </div>
     }
@@ -515,52 +551,6 @@ else
                     </div>
                 </div>
             </div>
-        </div>
-    }
-
-    @if (_fetchProgress != null && _isBusy && _currentAction == "fetch")
-    {
-        <div class="card mb-4">
-            <div class="card-header">
-                <h5 class="mb-0"><span class="bi bi-graph-up me-1"></span>Manual Fetch Progress</h5>
-            </div>
-            <div class="card-body">
-                <div class="row mb-2">
-                    <div class="col-md-3">
-                        <strong>Status:</strong>
-                        <span class="badge @GetStatusBadgeClass(_fetchProgress.Status)">@_fetchProgress.Status</span>
-                    </div>
-                    <div class="col-md-3">
-                        <strong>Fetch #:</strong> @_fetchProgress.FetchCount
-                    </div>
-                    <div class="col-md-3">
-                        <strong>Programs:</strong> @_fetchProgress.TotalProgramsFetched.ToString("N0")
-                    </div>
-                    <div class="col-md-3">
-                        <strong>Channels:</strong> @_fetchProgress.TotalChannelsFetched
-                    </div>
-                </div>
-                <div class="progress mb-2" style="height: 25px;">
-                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
-                         role="progressbar" 
-                         style="width: @(_fetchProgress.PercentComplete)%"
-                         aria-valuenow="@_fetchProgress.PercentComplete" 
-                         aria-valuemin="0" 
-                         aria-valuemax="100">
-                        @_fetchProgress.PercentComplete%
-                    </div>
-                </div>
-                <p class="text-muted mb-0">@_fetchProgress.Message</p>
-            </div>
-        </div>
-    }
-
-
-    @if (!string.IsNullOrEmpty(_statusMessage))
-    {
-        <div class="alert @(_isError ? "alert-danger" : "alert-success") alert-dismissible fade show">
-            @_statusMessage
-            <button type="button" class="btn-close" @onclick="ClearStatus"></button>
         </div>
     }
 
