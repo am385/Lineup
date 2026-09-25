@@ -63,9 +63,13 @@ RUN set -eux; \
 
 ENV PATH="/usr/lib/jellyfin-ffmpeg:${PATH}"
 
-# Fail the build if PATH does not select Jellyfin FFmpeg or AC-4 support is missing.
+# Fail the build if PATH does not select Jellyfin FFmpeg or required CMAF capabilities are missing.
 RUN test "$(readlink -f "$(command -v ffmpeg)")" = "/usr/lib/jellyfin-ffmpeg/ffmpeg" && \
-    ffmpeg -hide_banner -decoders 2>/dev/null | grep -Eq '[[:space:]]ac4[[:space:]]'
+    ffmpeg -hide_banner -decoders 2>/dev/null | grep -Eq '[[:space:]]ac4[[:space:]]' && \
+    ffmpeg -hide_banner -encoders 2>/dev/null | grep -Eq '[[:space:]]aac[[:space:]]' && \
+    ffmpeg -hide_banner -encoders 2>/dev/null | grep -Eq '[[:space:]]ac3[[:space:]]' && \
+    ffmpeg -hide_banner -encoders 2>/dev/null | grep -Eq '[[:space:]]eac3[[:space:]]' && \
+    ffmpeg -hide_banner -h muxer=dash 2>&1 | grep -q 'hls_playlist'
 
 # Create directories for persistent data and transient stream artifacts
 RUN mkdir -p /appdata /xmltv /transient

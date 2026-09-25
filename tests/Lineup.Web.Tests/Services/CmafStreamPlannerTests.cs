@@ -1,0 +1,342 @@
+using Lineup.Web.Services;
+using Xunit;
+
+namespace Lineup.Web.Tests.Services;
+
+/// <summary>
+/// Verifies shared CMAF DASH/HLS planning.
+/// </summary>
+public class CmafStreamPlannerTests
+{
+    /// <summary>
+    /// Verifies one DASH muxer emits both protocols over shared two-second fragmented MP4 media.
+    /// </summary>
+    [Fact]
+    public void CreateArguments_DefaultPresentation_UsesSharedDashAndHlsFragments()
+    {
+        // Arrange
+        var source = Source("aac");
+        var selection = WatchStreamPlanner.SelectTracks(source, 1, null);
+
+        // Act
+        var arguments = CmafStreamPlanner.CreateArguments(new AppSettings(), source, selection, new CmafStreamRequest(), "manifest.mpd");
+
+        // Assert
+        AssertOption(arguments, "-f", "dash");
+        AssertOption(arguments, "-hls_playlist", "1");
+        AssertOption(arguments, "-seg_duration", "2");
+        AssertOption(arguments, "-frag_duration", "2");
+        AssertOption(arguments, "-window_size", "10");
+        AssertOption(arguments, "-init_seg_name", "init-$RepresentationID$.mp4");
+        AssertOption(arguments, "-media_seg_name", "chunk-$RepresentationID$-$Number%05d$.m4s");
+        Assert.Equal("manifest.mpd", arguments[^1]);
+    }
+
+    /// <summary>
+    /// Verifies AC-4 is explicitly eligible for source copy without fallback normalization.
+    /// </summary>
+    [Fact]
+    public void CreateAudioPlan_Ac4Source_CopiesSource()
+    {
+        // Arrange
+        var audio = Source("ac4").Tracks[1] with { Channels = 12, SampleRate = 46_034 };
+
+        // Act
+        var plan = CmafStreamPlanner.CreateAudioPlan(audio, CmafPreferredAudio.Source, CmafFallbackAudio.AacStereo);
+
+        // Assert
+        Assert.True(plan.CopySource);
+        Assert.Equal("ac4", plan.Codec);
+        Assert.Equal(12, plan.Channels);
+        Assert.Equal(46_034, plan.SampleRate);
+    }
+
+    /// <summary>
+    /// Verifies source audio is packaged beside the configured independent fallback rendition.
+    /// </summary>
+    [Fact]
+    public void CreateAudioRenditions_Ac4Source_ProducesSourceAndFallback()
+    {
+        // Arrange
+        var audio = Source("ac4").Tracks[1] with { Channels = 6, SampleRate = 48_000 };
+
+        // Act
+        var renditions = CmafStreamPlanner.CreateAudioRenditions(audio, CmafPreferredAudio.Source, CmafFallbackAudio.Ac3);
+
+        // Assert
+        Assert.Collection(
+            renditions,
+            source =>
+            {
+                Assert.True(source.CopySource);
+                Assert.Equal("ac4", source.Codec);
+            },
+            fallback =>
+            {
+                Assert.False(fallback.CopySource);
+                Assert.Equal("ac3", fallback.Codec);
+                Assert.Equal(6, fallback.Channels);
+                Assert.Equal("Fallback AC3", fallback.Title);
+            });
+    }
+
+    /// <summary>
+    /// Verifies an explicit fallback preference omits an otherwise eligible source-copy rendition.
+    /// </summary>
+    [Fact]
+    public void CreateAudioRenditions_FallbackPreference_ProducesOnlyConfiguredFallback()
+    {
+        // Arrange
+        var audio = Source("ac4").Tracks[1];
+
+        // Act
+        var rendition = Assert.Single(CmafStreamPlanner.CreateAudioRenditions(audio, CmafPreferredAudio.Fallback, CmafFallbackAudio.Eac3));
+
+        // Assert
+        Assert.False(rendition.CopySource);
+        Assert.Equal("eac3", rendition.Codec);
+    }
+
+    /// <summary>
+    /// Verifies an AC-4 MP4 tag failure requests one fallback-only startup retry.
+    /// </summary>
+    [Fact]
+    public void ShouldRetryWithFallback_Ac4ContainerTagFailure_ReturnsTrue()
+    {
+        // Arrange
+        var audio = Source("ac4").Tracks[1];
+        var diagnostics = new[] { "[mp4] Could not find tag for codec ac4 in stream #0, codec not currently supported in container" };
+
+        // Act
+        var retry = CmafStreamPlanner.ShouldRetryWithFallback(new CmafStreamRequest { PreferredAudio = CmafPreferredAudio.Source }, audio, diagnostics);
+
+        // Assert
+        Assert.True(retry);
+    }
+
+    /// <summary>
+    /// Verifies unrelated conversion failures do not silently remove the requested source rendition.
+    /// </summary>
+    [Fact]
+    public void ShouldRetryWithFallback_UnrelatedFailure_ReturnsFalse()
+    {
+        // Arrange
+        var audio = Source("ac4").Tracks[1];
+
+        // Act
+        var retry = CmafStreamPlanner.ShouldRetryWithFallback(
+            new CmafStreamRequest { PreferredAudio = CmafPreferredAudio.Source },
+            audio,
+            ["Error while decoding video stream"]);
+
+        // Assert
+        Assert.False(retry);
+    }
+
+    /// <summary>
+    /// Verifies FFmpeg maps a Dolby source twice and applies distinct source-copy and fallback encoders.
+    /// </summary>
+    [Fact]
+    public void CreateArguments_Ac4Source_MapsTwoAudioRenditions()
+    {
+        // Arrange
+        var source = Source("ac4");
+        var selection = WatchStreamPlanner.SelectTracks(source, 1, null);
+
+        // Act
+        var arguments = CmafStreamPlanner.CreateArguments(new AppSettings(), source, selection, new CmafStreamRequest(), "manifest.mpd");
+
+        // Assert
+        Assert.Equal(2, arguments.Select((argument, index) => (argument, index)).Count(item => item.argument == "-map" && arguments[item.index + 1] == "0:1"));
+        AssertOption(arguments, "-c:a:0", "copy");
+        AssertOption(arguments, "-metadata:s:a:0", "title=Source");
+        AssertOption(arguments, "-c:a:1", "aac");
+        AssertOption(arguments, "-metadata:s:a:1", "title=Fallback AAC Stereo");
+    }
+
+    /// <summary>
+    /// Verifies codec-based fallback choices produce the expected FFmpeg encoder, bitrate, channels, and title.
+    /// </summary>
+    [Theory]
+    [InlineData(CmafFallbackAudio.Eac3, "eac3", "640k", "6", "title=Fallback EAC3")]
+    [InlineData(CmafFallbackAudio.Ac3, "ac3", "448k", "6", "title=Fallback AC3")]
+    public void CreateArguments_DolbyFallback_UsesSelectedProfile(
+        CmafFallbackAudio fallback,
+        string codec,
+        string bitRate,
+        string channels,
+        string title)
+    {
+        // Arrange
+        var source = Source("ac4") with
+        {
+            Tracks = [Track(0, MediaTrackType.Video, "h264"), Track(1, MediaTrackType.Audio, "ac4") with { Channels = 8 }]
+        };
+        var selection = WatchStreamPlanner.SelectTracks(source, 1, null);
+        var request = new CmafStreamRequest { PreferredAudio = CmafPreferredAudio.Fallback, FallbackAudio = fallback };
+
+        // Act
+        var arguments = CmafStreamPlanner.CreateArguments(new AppSettings(), source, selection, request, "manifest.mpd");
+
+        // Assert
+        AssertOption(arguments, "-c:a:0", codec);
+        AssertOption(arguments, "-b:a:0", bitRate);
+        AssertOption(arguments, "-ac:a:0", channels);
+        AssertOption(arguments, "-metadata:s:a:0", title);
+    }
+
+    /// <summary>
+    /// Verifies fallback profiles apply their codec-specific channel limits and bitrates.
+    /// </summary>
+    [Theory]
+    [InlineData(CmafFallbackAudio.Eac3, "eac3", 6, 640_000)]
+    [InlineData(CmafFallbackAudio.Ac3, "ac3", 6, 448_000)]
+    [InlineData(CmafFallbackAudio.AacUpTo7Point1, "aac", 8, 512_000)]
+    [InlineData(CmafFallbackAudio.AacUpTo5Point1, "aac", 6, 384_000)]
+    [InlineData(CmafFallbackAudio.AacStereo, "aac", 2, 128_000)]
+    public void CreateAudioPlan_IneligibleSource_UsesConfiguredFallback(CmafFallbackAudio fallback, string codec, int channels, int bitRate)
+    {
+        // Arrange
+        var audio = Source("mp2").Tracks[1] with { Channels = 8 };
+
+        // Act
+        var plan = CmafStreamPlanner.CreateAudioPlan(audio, CmafPreferredAudio.Source, fallback);
+
+        // Assert
+        Assert.False(plan.CopySource);
+        Assert.Equal(codec, plan.Codec);
+        Assert.Equal(channels, plan.Channels);
+        Assert.Equal(bitRate, plan.BitRate);
+        Assert.Equal(48_000, plan.SampleRate);
+    }
+
+    /// <summary>
+    /// Verifies the legacy AAC fallback request maps to the corresponding new profile.
+    /// </summary>
+    [Fact]
+    public void ResolveFallbackAudio_LegacyMultichannelAac_MapsToNewProfile()
+    {
+        // Arrange
+        var request = new CmafStreamRequest { AacFallback = WatchAudioOutput.UpTo7Point1 };
+
+        // Act
+        var fallback = CmafStreamPlanner.ResolveFallbackAudio(request);
+
+        // Assert
+        Assert.Equal(CmafFallbackAudio.AacUpTo7Point1, fallback);
+    }
+
+    /// <summary>
+    /// Verifies the legacy fallback contract still rejects recursive source passthrough.
+    /// </summary>
+    [Fact]
+    public void ResolveFallbackAudio_LegacySource_ThrowsExplicitError()
+    {
+        // Arrange
+        var request = new CmafStreamRequest { AacFallback = WatchAudioOutput.Source };
+
+        // Act
+        var exception = Assert.Throws<ArgumentException>(() => CmafStreamPlanner.ResolveFallbackAudio(request));
+
+        // Assert
+        Assert.Contains("cannot use source passthrough", exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies CMAF selection preserves Watch embedded-caption extraction metadata.
+    /// </summary>
+    [Fact]
+    public void SelectTracks_EmbeddedCaptions_PreservesExtractorSelection()
+    {
+        // Arrange
+        var source = new MediaProbeResult([], null);
+        var request = new CmafStreamRequest
+        {
+            SubtitleTrack = 2,
+            SubtitlePresentation = SubtitlePresentation.WebVtt,
+            EmbeddedCaptions = true
+        };
+
+        // Act
+        var selection = CmafStreamPlanner.SelectTracks(source, request);
+
+        // Assert
+        Assert.True(selection.Subtitle?.IsEmbeddedClosedCaptions);
+        Assert.Equal(SubtitlePresentation.WebVtt, selection.Subtitle?.SubtitlePresentation);
+    }
+
+    /// <summary>
+    /// Verifies embedded captions are registered before standalone text subtitles in the player-facing track list.
+    /// </summary>
+    [Fact]
+    public void GetSelectableSubtitles_EmbeddedCaptions_AreFirst()
+    {
+        // Arrange
+        var source = new MediaProbeResult(
+        [
+            Track(0, MediaTrackType.Video, "h264"),
+            Track(2, MediaTrackType.Subtitle, "subrip") with { SubtitlePresentation = SubtitlePresentation.WebVtt },
+            Track(5, MediaTrackType.Subtitle, "eia_608") with
+            {
+                SubtitlePresentation = SubtitlePresentation.WebVtt,
+                IsEmbeddedClosedCaptions = true
+            },
+            Track(3, MediaTrackType.Subtitle, "ass") with { SubtitlePresentation = SubtitlePresentation.WebVtt }
+        ], null);
+
+        // Act
+        var subtitles = CmafStreamPlanner.GetSelectableSubtitles(source);
+
+        // Assert
+        Assert.Collection(
+            subtitles,
+            subtitle => Assert.Equal(5, subtitle.Index),
+            subtitle => Assert.Equal(2, subtitle.Index),
+            subtitle => Assert.Equal(3, subtitle.Index));
+    }
+
+    /// <summary>
+    /// Verifies every text subtitle produces its own contained WebVTT artifact.
+    /// </summary>
+    [Fact]
+    public void CreateArguments_TextSubtitles_ProducesAllWebVttSidecars()
+    {
+        // Arrange
+        var source = new MediaProbeResult(
+        [
+            Track(0, MediaTrackType.Video, "h264"),
+            Track(1, MediaTrackType.Audio, "aac"),
+            Track(2, MediaTrackType.Subtitle, "subrip") with { SubtitlePresentation = SubtitlePresentation.WebVtt },
+            Track(3, MediaTrackType.Subtitle, "ass") with { SubtitlePresentation = SubtitlePresentation.WebVtt }
+        ], null);
+        var selection = WatchStreamPlanner.SelectTracks(source, 1, null);
+
+        // Act
+        var arguments = CmafStreamPlanner.CreateArguments(
+            new AppSettings(),
+            source,
+            selection,
+            new CmafStreamRequest(),
+            "manifest.mpd",
+            new Dictionary<int, string> { [2] = "captions-2.vtt", [3] = "captions-3.vtt" });
+
+        // Assert
+        Assert.Equal(2, arguments.Count(argument => argument.StartsWith("captions-", StringComparison.Ordinal)));
+        Assert.Contains("captions-2.vtt", arguments);
+        Assert.Equal("captions-3.vtt", arguments[^1]);
+    }
+
+    private static MediaProbeResult Source(string audioCodec) =>
+        new([Track(0, MediaTrackType.Video, "h264"), Track(1, MediaTrackType.Audio, audioCodec) with { Channels = 2 }], null);
+
+    private static MediaTrackMetadata Track(int index, MediaTrackType type, string codec) =>
+        new(index, type, codec, null, null, null, null, null);
+
+    private static void AssertOption(IReadOnlyList<string> arguments, string option, string value)
+    {
+        var index = arguments.ToList().IndexOf(option);
+        Assert.True(index >= 0, $"Expected option '{option}'.");
+        Assert.True(index + 1 < arguments.Count);
+        Assert.Equal(value, arguments[index + 1]);
+    }
+}

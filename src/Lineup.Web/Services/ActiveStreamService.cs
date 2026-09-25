@@ -162,6 +162,8 @@ public sealed partial record ActiveStreamTrack
     public string? Language { get; init; }
     /// <summary>Gets the source title.</summary>
     public string? Title { get; init; }
+    /// <summary>Gets the output rendition title when one source track produces multiple outputs.</summary>
+    public string? OutputTitle { get; init; }
     /// <summary>Gets whether the source marks this track as default.</summary>
     public bool IsDefault { get; init; }
     /// <summary>Gets whether the source marks this track as forced.</summary>
@@ -1075,6 +1077,81 @@ public static class ActiveStreamPlanFactory
     public static ActiveStreamSnapshot CreateHls(string sessionId, string channel, DateTime startedAtUtc, MediaProbeResult source, long outputVideoBitRate = 10_000_000)
     {
         return CreateFixedTranscode(sessionId, channel, HostedStreamFormat.Hls, startedAtUtc, source, outputVideoBitRate, copyVideo: false);
+    }
+
+    /// <summary>
+    /// Creates metadata for the selected video, audio, and subtitle renditions in a shared CMAF presentation.
+    /// </summary>
+    public static ActiveStreamSnapshot CreateCmaf(
+        string sessionId,
+        string channel,
+        DateTime startedAtUtc,
+        MediaProbeResult source,
+        WatchTrackSelection selection,
+        CmafStreamRequest request,
+        AppSettings settings)
+    {
+        var audioPlans = CmafStreamPlanner.CreateAudioRenditions(selection.Audio, request.PreferredAudio, CmafStreamPlanner.ResolveFallbackAudio(request));
+        var primaryAudioPlan = request.PreferredAudio == CmafPreferredAudio.Source
+            ? audioPlans.FirstOrDefault(plan => plan.CopySource) ?? audioPlans[0]
+            : audioPlans.First(plan => !plan.CopySource);
+        var sourceVideo = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video);
+        var copyVideo = selection.SubtitlePresentation != SubtitlePresentation.BurnIn &&
+            request.Quality == WebPlayerQuality.AppDefault &&
+            string.Equals(sourceVideo?.Codec, "h264", StringComparison.OrdinalIgnoreCase);
+        var outputVideoBitRate = WebVideoTranscodePlanner.GetMaximumBitRate(settings, request.Quality);
+        var tracks = source.Tracks.Select(track =>
+        {
+            var selected = track.Type switch
+            {
+                MediaTrackType.Video => track == sourceVideo,
+                MediaTrackType.Audio => track.Index == selection.Audio?.Index,
+                MediaTrackType.Subtitle => track.Index == selection.Subtitle?.Index,
+                _ => false
+            };
+            var outputCodec = track.Type switch
+            {
+                MediaTrackType.Video when selected => copyVideo ? "copy" : "h264",
+                MediaTrackType.Audio when selected => primaryAudioPlan.CopySource ? "copy" : primaryAudioPlan.Codec,
+                MediaTrackType.Subtitle when track.SubtitlePresentation == SubtitlePresentation.WebVtt => "webvtt",
+                MediaTrackType.Subtitle when selected => "burn-in",
+                _ => "not-mapped"
+            };
+            var outputBitRate = track.Type switch
+            {
+                MediaTrackType.Video when selected => copyVideo ? track.BitRate : outputVideoBitRate,
+                MediaTrackType.Audio when selected => primaryAudioPlan.BitRate,
+                _ => null
+            };
+            return CreateTrack(
+                track,
+                outputCodec,
+                outputBitRate,
+                track.Type == MediaTrackType.Audio && selected ? primaryAudioPlan.Channels : null,
+                track.Type == MediaTrackType.Audio && selected ? primaryAudioPlan.SampleRate : null) with
+            {
+                IsSelected = selected,
+                OutputTitle = track.Type == MediaTrackType.Audio && selected ? primaryAudioPlan.Title : null,
+                SubtitlePresentation = track.Type == MediaTrackType.Subtitle ? track.SubtitlePresentation : null
+            };
+        }).ToList();
+
+        if (audioPlans.Count > 1 && selection.Audio is not null)
+        {
+            var secondaryAudioPlan = audioPlans.First(plan => plan != primaryAudioPlan);
+            tracks.Add(CreateTrack(
+                selection.Audio,
+                secondaryAudioPlan.CopySource ? "copy" : secondaryAudioPlan.Codec,
+                secondaryAudioPlan.BitRate,
+                secondaryAudioPlan.Channels,
+                secondaryAudioPlan.SampleRate) with
+            {
+                IsSelected = true,
+                OutputTitle = secondaryAudioPlan.Title
+            });
+        }
+
+        return new ActiveStreamSnapshot(sessionId, channel, HostedStreamFormat.Hls, startedAtUtc, source.BitRate, tracks);
     }
 
     /// <summary>

@@ -10,6 +10,52 @@ namespace Lineup.Web.Tests.Services;
 public class ActiveStreamServiceTests
 {
     /// <summary>
+    /// Verifies shared CMAF metadata identifies source-copy and configured fallback renditions plus the selected subtitle output.
+    /// </summary>
+    [Fact]
+    public void CreateCmaf_SelectedRenditions_DescribeCopyFallbackAndSidecar()
+    {
+        // Arrange
+        var source = new MediaProbeResult(
+        [
+            new MediaTrackMetadata(0, MediaTrackType.Video, "h264", 8_000_000, 1920, 1080, null, null),
+            new MediaTrackMetadata(1, MediaTrackType.Audio, "ac4", 640_000, null, null, 6, 48_000),
+            new MediaTrackMetadata(2, MediaTrackType.Audio, "aac", 128_000, null, null, 2, 48_000),
+            new MediaTrackMetadata(3, MediaTrackType.Subtitle, "subrip", null, null, null, null, null)
+            {
+                SubtitlePresentation = SubtitlePresentation.WebVtt
+            }
+        ], 8_768_000);
+        var selection = WatchStreamPlanner.SelectTracks(source, 1, 3);
+        var request = new CmafStreamRequest { PreferredAudio = CmafPreferredAudio.Source, FallbackAudio = CmafFallbackAudio.Ac3 };
+
+        // Act
+        var snapshot = ActiveStreamPlanFactory.CreateCmaf("session", "7.1", DateTime.UtcNow, source, selection, request, new AppSettings());
+
+        // Assert
+        Assert.Equal(HostedStreamFormat.Hls, snapshot.Format);
+        Assert.Equal("copy", snapshot.Tracks.Single(track => track.SourceIndex == 0).OutputCodec);
+        var selectedAudioOutputs = snapshot.Tracks.Where(track => track.SourceIndex == 1).ToArray();
+        Assert.Collection(
+            selectedAudioOutputs,
+            source =>
+            {
+                Assert.Equal("Source", source.OutputTitle);
+                Assert.Equal("copy", source.OutputCodec);
+                Assert.True(source.IsSelected);
+            },
+            fallback =>
+            {
+                Assert.Equal("Fallback AC3", fallback.OutputTitle);
+                Assert.Equal("ac3", fallback.OutputCodec);
+                Assert.True(fallback.IsSelected);
+            });
+        Assert.False(snapshot.Tracks.Single(track => track.SourceIndex == 2).IsSelected);
+        Assert.Equal("not-mapped", snapshot.Tracks.Single(track => track.SourceIndex == 2).OutputCodec);
+        Assert.Equal("webvtt", snapshot.Tracks.Single(track => track.SourceIndex == 3).OutputCodec);
+    }
+
+    /// <summary>
     /// Verifies live and piped probes request decoded frames needed to detect embedded ATSC captions.
     /// </summary>
     [Fact]

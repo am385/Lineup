@@ -370,6 +370,12 @@ public class StreamControllerTests
     [InlineData("stream.m3u8")]
     [InlineData("stream0.ts")]
     [InlineData("stream1726358400.ts")]
+    [InlineData("manifest.mpd")]
+    [InlineData("master.m3u8")]
+    [InlineData("media_0.m3u8")]
+    [InlineData("init-0.mp4")]
+    [InlineData("chunk-0-00001.m4s")]
+    [InlineData("captions-2.vtt")]
     public void TryResolveHlsFilePath_GeneratedBasename_ReturnsContainedCanonicalPath(string filename)
     {
         // Arrange
@@ -401,6 +407,11 @@ public class StreamControllerTests
     [InlineData("other.m3u8")]
     [InlineData("stream.ts")]
     [InlineData("stream1.mp4")]
+    [InlineData("other.mpd")]
+    [InlineData("media_main.m3u8")]
+    [InlineData("init-video.mp4")]
+    [InlineData("chunk-0-any.m4s")]
+    [InlineData("captions.srt")]
     public void TryResolveHlsFilePath_TraversalOrInvalidName_ReturnsFalse(string filename)
     {
         // Arrange
@@ -515,6 +526,28 @@ public class StreamControllerTests
         Assert.IsType<PhysicalFileResult>(result);
         Assert.True(Directory.Exists(directory));
         Assert.True(GetHlsSessions().Contains(sessionId));
+        Assert.IsType<OkObjectResult>(controller.StopHls(sessionId));
+    }
+
+    /// <summary>
+    /// Verifies CMAF WebVTT clients can poll only bytes appended after their previous offset.
+    /// </summary>
+    [Fact]
+    public void GetHlsFile_WebVttOffset_ReturnsIncrementalChunk()
+    {
+        // Arrange
+        var controller = CreateLifecycleController(Substitute.For<IActiveStreamRegistry>());
+        CreateHlsSession(controller, Substitute.For<ITunerCapacityLease>(), out var sessionId, out var directory);
+        var subtitlePath = TestTransientData.GetFilePath(directory, "captions-2.vtt");
+        File.WriteAllText(subtitlePath, "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nHello\n\n");
+
+        // Act
+        var result = controller.GetHlsFile(sessionId, "captions-2.vtt", offset: 8);
+
+        // Assert
+        var file = Assert.IsType<FileContentResult>(result);
+        Assert.Equal("00:00:00.000 --> 00:00:01.000\nHello\n\n", System.Text.Encoding.UTF8.GetString(file.FileContents));
+        Assert.Equal("45", controller.Response.Headers["X-Lineup-Subtitle-Offset"]);
         Assert.IsType<OkObjectResult>(controller.StopHls(sessionId));
     }
 

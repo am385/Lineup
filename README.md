@@ -11,7 +11,7 @@ It includes a web-based dashboard, a terminal UI, live TV streaming with transco
 - **Automatic EPG fetching** — downloads SiliconDust's complete gzip-compressed XMLTV guide on the required randomized 20-28 hour schedule
 - **Database-generated XMLTV output** — normalizes SiliconDust guide data in SQLite, filters out unavailable channels, and publishes updates atomically
 - **Per-channel availability** — keeps disabled channels visible in Lineup while excluding them from published guides, virtual lineups, and physical tuner streams
-- **Live TV streaming** — multi-track MPEG-TS proxy plus selectable Watch audio and subtitles, with Jellyfin FFmpeg AC-4 decoding
+- **Live TV streaming** — multi-track MPEG-TS proxy, raw-fMP4 Watch playback, and experimental shared-CMAF HLS/DASH playback with selectable audio and subtitles
 - **Device diagnostics** — connectivity checks across DNS, ping, HTTP API, TCP, and UDP discovery
 - **Active stream monitoring** — Dashboard visibility into hosted MPEG-TS, fMP4, and HLS sessions with source/output codec and bitrate details
 - **Application diagnostics** — live in-app structured logs, optional rolling files, and opt-in external observability targets
@@ -282,6 +282,29 @@ WebVTT sidecar and rendered by the browser without re-encoding H.264 video. Bitm
 selected and force H.264 encoding, which increases CPU use. Unsupported tracks are disabled and invalid or unavailable
 source indexes return an explicit stream error.
 
+**Watch CMAF** is available alongside the existing Watch page at `/watch-cmaf`. It creates one two-second fragmented-MP4
+presentation and exposes the same initialization and media fragments through both a DASH MPD and HLS playlists. Auto mode
+uses DASH first and retries HLS without opening another tuner or packaging session; explicit DASH or HLS selections never
+switch protocols silently. Shaka Player provides the initial cross-browser playback implementation. Eligible AAC, AC-3,
+E-AC-3, and AC-4 source audio is copied into a source rendition, while a separately encoded fallback rendition provides
+per-stream compatibility without changing the saved Source preference. Fallback Audio choices are ordered from highest
+quality/lowest compatibility to highest compatibility: EAC3 up to 5.1, AC3 up to 5.1, AAC up to 7.1, AAC up to 5.1, and
+AAC Stereo. AAC Stereo is the default. FFmpeg encodes channel-based E-AC-3 but cannot create E-AC-3 JOC/Atmos; existing
+E-AC-3 Atmos metadata can be retained only when the Source rendition is copied successfully.
+
+Watch CMAF has independent browser preferences for protocol, quality, preferred Source or Fallback audio, fallback profile, and subtitles.
+Every standalone text subtitle and detected embedded-caption track is prepared as a transient WebVTT sidecar so the browser can
+offer all of them through the video player's native captions control without restarting the shared session. The page-level
+subtitle selector lists only bitmap burn-in choices. Text conversion is inexpensive; embedded-caption extraction adds one moderate
+fixed decode/demux workload per session. Bitmap subtitles remain explicit burn-in choices because each simultaneous bitmap rendition
+would require another video encode.
+Captions that the tuner and FFmpeg do not expose or detect remain unavailable. The canonical API is under `/api/stream/cmaf`; existing
+`/api/stream/hls` routes remain compatibility aliases backed by the same CMAF session.
+
+Future CMAF work includes an adaptive video bitrate ladder, LL-HLS and low-latency DASH evaluation, and a native Safari HLS
+path. Native Safari, Dolby audio, AirPlay, background playback, and power behavior require validation on real macOS and iOS
+hardware before replacing the Shaka-first implementation.
+
 WebVTT sidecars live only beneath the application-owned `lineup-subtitles` temporary directory. They are removed on
 disconnect, stop, application startup, and Factory Reset. If captions do not appear, inspect the active-stream details and
 logs: captions embedded in video but not exposed by the tuner or FFmpeg as an addressable subtitle stream can be preserved
@@ -289,7 +312,7 @@ in MPEG-TS but cannot be synthesized as a Watch text track.
 
 Virtual Tuner Video can optionally transcode HEVC to H.264 for clients that cannot process HEVC Live TV, at the cost of CPU and generation loss. Virtual Tuner Audio can preserve non-AC-4 codecs or transcode those tracks to AC-3 or E-AC-3. AC-4 can be preserved for compatible receivers or transcoded separately. Audio above 5.1 channels is capped at 5.1 when transcoded. An explicit `transcode` query parameter remains available for HDHomeRun hardware profiles (`mobile`, `heavy`, `internet720`, `internet480`, or `internet360`), but defaults to `none`.
 
-Jellyfin FFmpeg's AC-4 support is decoder-only and does not support every object-based or Dolby Atmos AC-4 presentation. Unsupported presentations are reported as stream errors rather than silently copied or discarded. The HLS and fMP4 endpoints continue to encode audio as AAC.
+Jellyfin FFmpeg's AC-4 support is decoder-only and does not support every object-based or Dolby Atmos AC-4 presentation. Unsupported presentations are reported as stream errors rather than silently copied or discarded. Raw-fMP4 Watch can copy selected source audio or encode AAC; Watch CMAF pairs eligible source copy with the configured AAC, AC-3, or E-AC-3 fallback rendition.
 
 When an HDHomeRun reports DRM error 811, API streams return a protected-content error by default. The Transcode Settings page can instead enable a synthetic **Content Protected** slate. The fallback is generated locally as H.264 video with silent AAC audio in the requested MPEG-TS, fMP4, or HLS format; protected programming is never decrypted. Synthetic DRM and disabled-channel slates count toward **Maximum Concurrent Streams** but do not consume physical tuner capacity.
 

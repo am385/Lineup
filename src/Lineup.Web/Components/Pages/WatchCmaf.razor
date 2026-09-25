@@ -1,0 +1,195 @@
+@page "/watch-cmaf"
+@page "/watch-cmaf/{ChannelNumber}"
+@using Lineup.Web.Services
+
+<PageTitle>Watch CMAF</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h1><span class="bi bi-broadcast-pin me-2"></span>Watch CMAF</h1>
+        <p class="text-muted mb-0">Experimental shared-segment HLS and DASH player</p>
+    </div>
+    <div class="d-flex flex-wrap justify-content-end align-items-center gap-2">
+        <label for="cmafProtocol" class="form-label mb-0">Protocol</label>
+        <select id="cmafProtocol" class="form-select form-select-sm w-auto" value="@_protocol" @onchange="ChangeProtocol">
+            <option value="@CmafPlaybackProtocol.Auto">Auto</option>
+            <option value="@CmafPlaybackProtocol.Hls">HLS</option>
+            <option value="@CmafPlaybackProtocol.Dash">DASH</option>
+        </select>
+        <label for="cmafQuality" class="form-label mb-0">Quality</label>
+        <select id="cmafQuality" class="form-select form-select-sm w-auto" value="@_quality" @onchange="ChangeQuality">
+            <option value="@WebPlayerQuality.AppDefault">App Default</option>
+            <option value="@WebPlayerQuality.High">High</option>
+            <option value="@WebPlayerQuality.Medium">Medium (720p)</option>
+            <option value="@WebPlayerQuality.Low">Low (480p)</option>
+        </select>
+        <label for="cmafPreferredAudio" class="form-label mb-0">Preferred Audio</label>
+        <select id="cmafPreferredAudio" class="form-select form-select-sm w-auto" value="@_preferredAudio" @onchange="ChangePreferredAudio">
+            <option value="@CmafPreferredAudio.Source">Source</option>
+            <option value="@CmafPreferredAudio.Fallback">Fallback</option>
+        </select>
+        <label for="cmafFallbackAudio" class="form-label mb-0">Fallback Audio</label>
+        <select id="cmafFallbackAudio" class="form-select form-select-sm w-auto" value="@_fallbackAudio" @onchange="ChangeFallbackAudio">
+            <option value="@CmafFallbackAudio.Eac3">EAC3</option>
+            <option value="@CmafFallbackAudio.Ac3">AC3</option>
+            <option value="@CmafFallbackAudio.AacUpTo7Point1">AAC up to 7.1</option>
+            <option value="@CmafFallbackAudio.AacUpTo5Point1">AAC up to 5.1</option>
+            <option value="@CmafFallbackAudio.AacStereo">AAC Stereo</option>
+        </select>
+        @if (_activeStream?.Tracks.Where(track => track.Type == MediaTrackType.Audio).DistinctBy(track => track.SourceIndex).ToArray() is { Length: > 0 } audioTracks)
+        {
+            <label for="cmafAudioTrack" class="form-label mb-0">Audio</label>
+            <select id="cmafAudioTrack" class="form-select form-select-sm w-auto" value="@_audioTrack" @onchange="ChangeAudioTrack">
+                @foreach (var track in audioTracks)
+                {
+                    <option value="@track.SourceIndex">@FormatTrackLabel(track)</option>
+                }
+            </select>
+        }
+        @if (_activeStream?.Tracks
+            .Where(track => track.Type == MediaTrackType.Subtitle && track.SubtitlePresentation == SubtitlePresentation.BurnIn)
+            .DistinctBy(track => track.SourceIndex)
+            .ToArray() is { Length: > 0 } subtitleTracks)
+        {
+            <label for="cmafSubtitleTrack" class="form-label mb-0">Bitmap subtitles</label>
+            <select id="cmafSubtitleTrack" class="form-select form-select-sm w-auto"
+                    value="@(_subtitlePresentation == SubtitlePresentation.BurnIn ? _subtitleTrack?.ToString() : "-1")"
+                    @onchange="ChangeSubtitleTrack">
+                <option value="-1">Off</option>
+                @foreach (var track in subtitleTracks)
+                {
+                    <option value="@track.SourceIndex">@FormatTrackLabel(track) (burn-in; higher CPU)</option>
+                }
+            </select>
+        }
+        @if (_isPlaying)
+        {
+            <button class="btn btn-danger" @onclick="StopStreamAsync">
+                <span class="bi bi-stop-fill me-1"></span>Stop
+            </button>
+        }
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-lg-9 mb-4">
+        <div class="card">
+            <div class="card-body p-0">
+                @if (_isPlaying && _session is not null)
+                {
+                    <div class="ratio ratio-16x9 bg-dark">
+                        <video id="cmafVideoPlayer" controls autoplay muted class="w-100">
+                            Your browser does not support CMAF playback.
+                        </video>
+                    </div>
+                    <div class="p-3 border-top d-flex justify-content-between align-items-center">
+                        <div>
+                            <h5 class="mb-1">
+                                <span class="badge bg-primary me-2">@_selectedChannelNumber</span>
+                                @(_selectedChannel?.GuideName ?? "Manual Tune")
+                            </h5>
+                            @if (_currentProgram is not null)
+                            {
+                                <p class="text-muted mb-0"><strong>Now Playing:</strong> @_currentProgram.Title</p>
+                            }
+                        </div>
+                        <div class="text-muted small">
+                            <span class="bi bi-broadcast text-success me-1"></span>@_effectiveProtocol
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="ratio ratio-16x9 bg-dark d-flex align-items-center justify-content-center">
+                        <div class="text-center text-white-50">
+                            <span class="bi bi-broadcast-pin display-1"></span>
+                            <p class="mt-3">Select a channel to start CMAF playback</p>
+                            <p class="small">One shared fragment set serves both HLS and DASH.</p>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(_errorMessage))
+        {
+            <div class="alert alert-danger mt-3" role="alert">
+                <h6 class="alert-heading"><span class="bi bi-exclamation-triangle me-2"></span>Stream Error</h6>
+                <pre class="mb-0 small" style="white-space: pre-wrap;">@_errorMessage</pre>
+            </div>
+        }
+
+        <div class="card mt-3">
+            <div class="card-header"><h6 class="mb-0"><span class="bi bi-info-circle me-1"></span>CMAF Stream Information</h6></div>
+            <div class="card-body">
+                @if (_session is not null)
+                {
+                    <p class="small mb-1"><strong>Session:</strong> <code>@_session.SessionId</code></p>
+                    <p class="small mb-1"><strong>DASH:</strong> <code>@_session.DashManifestUrl</code></p>
+                    <p class="small mb-3"><strong>HLS:</strong> <code>@_session.HlsManifestUrl</code></p>
+                }
+                @if (_activeStream is not null)
+                {
+                    @foreach (var track in _activeStream.Tracks)
+                    {
+                        <div class="small mb-1">
+                            <span class="badge @(track.Type == MediaTrackType.Video ? "bg-primary" : "bg-secondary") me-1">@track.Type</span>
+                            @if (!string.IsNullOrWhiteSpace(track.OutputTitle))
+                            {
+                                <strong>@track.OutputTitle:</strong>
+                            }
+                            @FormatTrackLabel(track)
+                            <span class="bi bi-arrow-right mx-1"></span>
+                            @(track.OutputCodec == "copy" ? $"{track.SourceCodec} (copy)" : track.OutputCodec)
+                        </div>
+                    }
+                }
+                else
+                {
+                    <p class="small text-muted mb-0">Waiting for hosted stream metadata.</p>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-3">
+        <div class="card">
+            <div class="card-header"><h6 class="mb-0"><span class="bi bi-list-ul me-1"></span>Channels</h6></div>
+            <div class="card-body p-0">
+                <form class="p-3 border-bottom" @onsubmit="ManualTuneAsync" @onsubmit:preventDefault="true">
+                    <label for="cmafManualChannel" class="form-label">Manual Tune</label>
+                    <div class="input-group input-group-sm">
+                        <input id="cmafManualChannel" class="form-control" type="text" inputmode="decimal" autocomplete="off"
+                               placeholder="Channel number" value="@_manualChannelNumber" @oninput="UpdateManualChannelNumber" />
+                        <button class="btn btn-primary" type="submit"><span class="bi bi-play-fill me-1"></span>Tune</button>
+                    </div>
+                    @if (_manualTuneValidationMessage is not null)
+                    {
+                        <div class="invalid-feedback d-block">@_manualTuneValidationMessage</div>
+                    }
+                </form>
+                @if (_isLoadingChannels)
+                {
+                    <div class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary" role="status"></div></div>
+                }
+                else if (_channels.Count == 0)
+                {
+                    <p class="text-muted small text-center p-3 mb-0">No enabled channels available.</p>
+                }
+                else
+                {
+                    <div class="cmaf-channel-list">
+                        @foreach (var channel in _channels)
+                        {
+                            <button class="cmaf-channel-item @(channel.GuideNumber == _selectedChannelNumber ? "active" : "")"
+                                    @onclick="() => TuneChannelAsync(channel.GuideNumber, channel)">
+                                <strong class="me-2">@channel.GuideNumber</strong>
+                                <span class="text-truncate">@channel.GuideName</span>
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
