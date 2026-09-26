@@ -202,6 +202,10 @@ public sealed class ChannelLineupStore
     {
         private readonly DbContextOptions<EpgDbContext> _options;
 
+        /// <summary>
+        /// Initializes a database context factory for the specified SQLite database.
+        /// </summary>
+        /// <param name="databasePath">Path to the SQLite database file.</param>
         internal PathDbContextFactory(string databasePath)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(databasePath);

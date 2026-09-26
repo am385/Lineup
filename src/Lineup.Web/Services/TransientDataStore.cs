@@ -96,6 +96,10 @@ public sealed class TransientDataStore : ITransientDataStore
         DeleteInactiveOwnerDirectories(TransientDirectoryOwnership.GetOwnerStatus);
     }
 
+    /// <summary>
+    /// Deletes transient owner directories identified as inactive by the supplied status resolver.
+    /// </summary>
+    /// <param name="getOwnerStatus">Resolves the status of a transient owner directory.</param>
     internal void DeleteInactiveOwnerDirectories(Func<string, TransientDirectoryOwnerStatus> getOwnerStatus)
     {
         DeleteInactiveDirectories(HlsRootPath, getOwnerStatus);
