@@ -52,4 +52,15 @@ public class StoredChannel
     /// When this channel data was last updated
     /// </summary>
     public DateTime LastUpdatedUtc { get; set; }
+
+    /// <summary>
+    /// Identifier of the most recent authoritative import that contained this channel.
+    /// </summary>
+    [MaxLength(32)]
+    public string? LastSeenImportId { get; set; }
+
+    /// <summary>
+    /// Gets or sets supplemental XMLTV channel metadata.
+    /// </summary>
+    public string? SupplementalXml { get; set; }
 }

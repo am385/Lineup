@@ -210,7 +210,7 @@ public class MpegTsTranscodePlannerTests
         AssertOption(arguments, "-rw_timeout", "10000000");
         AssertOption(arguments, "-reconnect_on_http_error", "503");
         AssertOption(arguments, "-reconnect_max_retries", "3");
-        AssertOption(arguments, "-read_intervals", "%+#100");
+        AssertOption(arguments, "-read_intervals", "%+3");
         // Assert
         Assert.Equal(InputUri.AbsoluteUri, arguments[^1]);
     }

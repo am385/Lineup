@@ -9,6 +9,33 @@ namespace Lineup.Web.Tests.Services;
 public class SubtitleSidecarServiceTests
 {
     /// <summary>
+    /// Verifies default stores remain isolated when multiple hosts run in one process.
+    /// </summary>
+    [Fact]
+    public void DefaultStores_MultipleInstances_UseDistinctOwnedDirectories()
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-subtitle-stores-");
+        var transientStore = new TransientDataStore(root.FullName);
+        var firstService = new SubtitleSidecarService(transientStore);
+        var firstPath = firstService.Create("first");
+        File.WriteAllText(firstPath, "first");
+
+        // Act
+        var secondService = new SubtitleSidecarService(transientStore);
+        var secondPath = secondService.Create("second");
+        File.WriteAllText(secondPath, "second");
+
+        // Assert
+        Assert.NotEqual(Path.GetDirectoryName(firstPath), Path.GetDirectoryName(secondPath));
+        Assert.True(File.Exists(firstPath));
+        Assert.True(File.Exists(secondPath));
+        Directory.Delete(Assert.IsType<string>(Path.GetDirectoryName(firstPath)), recursive: true);
+        Directory.Delete(Assert.IsType<string>(Path.GetDirectoryName(secondPath)), recursive: true);
+        root.Delete(recursive: true);
+    }
+
+    /// <summary>
     /// Verifies active sidecars support incremental reads and are deleted on removal.
     /// </summary>
     [Fact]

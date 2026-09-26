@@ -1,5 +1,6 @@
 using Bunit;
 using Lineup.Core;
+using Lineup.Core.Storage;
 using Lineup.HDHomeRun.Device;
 using Lineup.HDHomeRun.Device.Models;
 using Lineup.Web.Components.Pages;
@@ -27,7 +28,7 @@ public class ChannelsTests
         var root = Directory.CreateTempSubdirectory("lineup-channels-page-");
         try
         {
-            var store = new ChannelLineupStore(Path.Combine(root.FullName, "channels.json"));
+            var store = new ChannelLineupStore(Path.Combine(root.FullName, "lineup.db"));
             await store.StoreAsync(
             [
                 new HDHomeRunChannel
@@ -61,8 +62,9 @@ public class ChannelsTests
                 store,
                 null!,
                 null!,
-                null!,
-                new SiliconDustXmltvParser()));
+                new LineupXmltvWriter(),
+                Substitute.For<IXmltvPublicationStore>()));
+            context.Services.AddSingleton<IXmltvPublicationStore, XmltvPublicationStore>();
 
             // Act
             var component = context.Render<Channels>();

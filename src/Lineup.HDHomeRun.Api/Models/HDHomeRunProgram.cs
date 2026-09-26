@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Lineup.HDHomeRun.Api.Models;
 
 /// <summary>
@@ -57,4 +59,16 @@ public record HDHomeRunProgram
     /// Gets or sets guide number.
     /// </summary>
     public string? GuideNumber { get; set; }
+
+    /// <summary>
+    /// Gets supplemental XMLTV metadata not represented by typed properties.
+    /// </summary>
+    [JsonIgnore]
+    public string? SupplementalXml { get; init; }
+
+    /// <summary>
+    /// Gets structured official XMLTV metadata derived from <see cref="SupplementalXml"/>.
+    /// </summary>
+    [JsonIgnore]
+    public XmltvProgrammeMetadata? Metadata { get; init; }
 }

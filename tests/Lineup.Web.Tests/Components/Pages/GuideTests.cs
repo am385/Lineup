@@ -34,7 +34,7 @@ public class GuideTests
         timeZoneService.Now.Returns(DateTime.Now);
         context.Services.AddSingleton(repository);
         context.Services.AddSingleton(timeZoneService);
-        context.Services.AddSingleton(new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-guide-{Guid.NewGuid():N}.json")));
+        context.Services.AddSingleton(new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-guide-{Guid.NewGuid():N}.db")));
         context.JSInterop.Mode = JSRuntimeMode.Loose;
 
         // Act
@@ -64,7 +64,7 @@ public class GuideTests
         timeZoneService.Now.Returns(DateTime.Now);
         context.Services.AddSingleton(repository);
         context.Services.AddSingleton(timeZoneService);
-        context.Services.AddSingleton(new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-guide-{Guid.NewGuid():N}.json")));
+        context.Services.AddSingleton(new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-guide-{Guid.NewGuid():N}.db")));
         context.JSInterop.Mode = JSRuntimeMode.Loose;
 
         // Act
@@ -92,7 +92,7 @@ public class GuideTests
         var timeZoneService = Substitute.For<ITimeZoneService>();
         timeZoneService.Today.Returns(DateTime.Today);
         timeZoneService.Now.Returns(DateTime.Now);
-        var store = new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-guide-{Guid.NewGuid():N}.json"));
+        var store = new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-guide-{Guid.NewGuid():N}.db"));
         await store.StoreAsync(
             [new Lineup.HDHomeRun.Device.Models.HDHomeRunChannel { GuideNumber = "9.1", GuideName = "Disabled", URL = "http://device/auto/v9.1" }],
             Xunit.TestContext.Current.CancellationToken);
@@ -110,6 +110,51 @@ public class GuideTests
         {
             Assert.Contains("Disabled", component.Markup);
             Assert.NotNull(component.Find("[aria-label='Disabled channel']"));
+        });
+    }
+
+    /// <summary>
+    /// Verifies selecting a programme displays its structured XMLTV metadata in the details modal.
+    /// </summary>
+    [Fact]
+    public void ProgrammeWithMetadata_Selected_DisplaysMetadataDetails()
+    {
+        // Arrange
+        using var context = new BunitContext();
+        var repository = Substitute.For<IEpgRepository>();
+        repository.GetChannelsAsync().Returns([new HDHomeRunChannelEpgSegment { GuideNumber = "7.1", GuideName = "Metadata" }]);
+        var start = new DateTimeOffset(2026, 9, 14, 10, 0, 0, TimeSpan.Zero);
+        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns(
+        [
+            new HDHomeRunProgram
+            {
+                GuideNumber = "7.1",
+                Title = "Metadata Show",
+                StartTime = start.ToUnixTimeSeconds(),
+                EndTime = start.AddMinutes(30).ToUnixTimeSeconds(),
+                Metadata = new XmltvProgrammeMetadata
+                {
+                    Ratings = [new XmltvRating("TV-14", "MPAA", [])]
+                }
+            }
+        ]);
+        var timeZoneService = Substitute.For<ITimeZoneService>();
+        timeZoneService.Today.Returns(start.Date);
+        timeZoneService.Now.Returns(start.DateTime);
+        context.Services.AddSingleton(repository);
+        context.Services.AddSingleton(timeZoneService);
+        context.Services.AddSingleton(new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-guide-{Guid.NewGuid():N}.db")));
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        var component = context.Render<Guide>();
+
+        // Act
+        component.WaitForElement(".guide-program").Click();
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            Assert.Contains("Metadata Show", component.Find(".modal-title").TextContent);
+            Assert.Contains("MPAA: TV-14", component.Find(".programme-metadata").TextContent);
         });
     }
 }

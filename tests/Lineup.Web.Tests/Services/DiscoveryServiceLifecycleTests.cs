@@ -512,7 +512,10 @@ public class DiscoveryServiceLifecycleTests
     private sealed class TestHdHomeRunDiscoveryService(IHdHomeRunProxyProfileProvider profiles, IAppSettingsService settings, IDeviceStateService deviceState, ListenerState listener, TimeSpan restartDelay)
         : HdHomeRunDiscoveryService(profiles, settings, deviceState, NullLogger<HdHomeRunDiscoveryService>.Instance)
     {
+        /// <inheritdoc/>
         protected override TimeSpan ListenerRestartDelay => restartDelay;
+
+        /// <inheritdoc/>
         protected override DateTimeOffset UtcNow => listener.UtcNow;
 
         public Task<IReadOnlyList<HdHomeRunAdvertisedDevice>> ResolveAdvertisedDevicesAsync()
@@ -534,6 +537,7 @@ public class DiscoveryServiceLifecycleTests
             return replies.Count;
         }
 
+        /// <inheritdoc/>
         protected override Task RunListenerSessionAsync(CancellationToken cancellationToken)
         {
             return listener.RunAsync(cancellationToken);
@@ -554,7 +558,10 @@ public class DiscoveryServiceLifecycleTests
             _restartDelay = restartDelay;
         }
 
+        /// <inheritdoc/>
         protected override TimeSpan ListenerRestartDelay => _restartDelay;
+
+        /// <inheritdoc/>
         protected override DateTimeOffset UtcNow => _listener.UtcNow;
 
         public Task<IReadOnlyList<HdHomeRunAdvertisedDevice>> ResolveAdvertisedDevicesAsync()
@@ -573,6 +580,7 @@ public class DiscoveryServiceLifecycleTests
             return responses.Count;
         }
 
+        /// <inheritdoc/>
         protected override async Task<bool> RunListenerSessionAsync(CancellationToken cancellationToken)
         {
             if (_listener.BeginSessionAttempt())
@@ -599,12 +607,14 @@ public class DiscoveryServiceLifecycleTests
             return true;
         }
 
+        /// <inheritdoc/>
         protected override Task SendAliveNotificationsAsync(CancellationToken cancellationToken)
         {
             _listener.RecordNotification(_settings.Settings.HdHomeRunProxyProfiles[0].AdvertisedBaseUrl);
             return Task.CompletedTask;
         }
 
+        /// <inheritdoc/>
         protected override ValueTask WaitForNextAliveNotificationAsync(CancellationToken cancellationToken)
         {
             return _listener.WaitForRenewalAsync(cancellationToken);

@@ -1,5 +1,4 @@
 @page "/settings"
-@rendermode InteractiveServer
 @using Lineup.Web.Services
 
 <PageTitle>Settings</PageTitle>
@@ -158,6 +157,13 @@
                         Queries enabled physical HDHomeRun devices and saves their current channels before manual or automatic guide refreshes.
                     </div>
                 </div>
+                <div class="mt-3">
+                    <label for="epgHistoryRetentionHours" class="form-label">Past guide history (hours)</label>
+                    <input type="number" class="form-control" id="epgHistoryRetentionHours" min="0" max="720" @bind="_epgHistoryRetentionHours" />
+                    <div class="form-text">
+                        Retains programmes that ended within this window in SQLite. The default is 24 hours; use 0 to remove ended programmes after a successful import.
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -170,7 +176,7 @@
                     <input type="checkbox" class="form-check-input" id="autoGenerateXmltv" 
                            @bind="_autoGenerateXmltv" />
                     <label class="form-check-label" for="autoGenerateXmltv">Publish XMLTV after fetch</label>
-                    <div class="form-text">Atomically publishes the canonical SiliconDust XMLTV document when a refresh completes.</div>
+                    <div class="form-text">Atomically publishes XMLTV generated from the authoritative SQLite guide when a refresh completes.</div>
                 </div>
                 
                 <div class="mb-3">
@@ -840,13 +846,6 @@
             </div>
         }
 
-        @if (!string.IsNullOrEmpty(_statusMessage))
-        {
-            <div class="alert @(_isError ? "alert-danger" : "alert-success") mt-3 alert-dismissible fade show">
-                @_statusMessage
-                <button type="button" class="btn-close" @onclick="ClearStatus"></button>
-            </div>
-        }
     </div>
 
     <div class="col-md-4">

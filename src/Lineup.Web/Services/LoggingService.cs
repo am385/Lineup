@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json;
+using Lineup.Core.Storage;
 using Serilog;
 using Serilog.Core;
 using Serilog.Events;
@@ -151,7 +152,7 @@ public sealed class LoggingRuntimeState
     /// <param name="fileManager">Optional runtime-managed file sink.</param>
     /// <param name="applicationFilter">Optional runtime-managed application filter.</param>
     public LoggingRuntimeState(
-        AppDataStore appDataStore,
+        IAppDataStore appDataStore,
         FileLoggingSettings fileSettings,
         IReadOnlyList<ExternalLogTargetStatus> externalTargets,
         FileLogManager? fileManager = null,
@@ -186,7 +187,7 @@ public sealed class LoggingRuntimeState
     /// <summary>
     /// Persistent application-data store used by logging services.
     /// </summary>
-    internal AppDataStore AppDataStore { get; }
+    internal IAppDataStore AppDataStore { get; }
 
     /// <summary>
     /// File settings active for this process.
@@ -500,7 +501,7 @@ public static class LoggingBootstrapper
     /// <param name="builder">Web application builder.</param>
     /// <param name="appDataStore">Persistent application-data store.</param>
     /// <returns>The active logging services.</returns>
-    public static LoggingBootstrapResult Configure(WebApplicationBuilder builder, AppDataStore appDataStore)
+    public static LoggingBootstrapResult Configure(WebApplicationBuilder builder, IAppDataStore appDataStore)
     {
         var persistedSettings = LoadPersistedSettings(appDataStore);
         var fileSettings = new FileLoggingSettings(persistedSettings.EnableFileLogging, ParseLevel(persistedSettings.FileLogLevel), persistedSettings.FileLogRetentionDays, persistedSettings.FileLogSizeLimitMb);
@@ -534,7 +535,7 @@ public static class LoggingBootstrapper
     internal static LoggingBootstrapResult Configure(WebApplicationBuilder builder, string appDataPath) =>
         Configure(builder, new AppDataStore(appDataPath));
 
-    private static AppSettings LoadPersistedSettings(AppDataStore appDataStore)
+    private static AppSettings LoadPersistedSettings(IAppDataStore appDataStore)
     {
         foreach (var path in new[] { appDataStore.SettingsPath, appDataStore.SettingsBackupPath })
         {

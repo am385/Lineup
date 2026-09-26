@@ -112,7 +112,10 @@ public class SettingsLoggingTests
         Assert.Equal(LogEventLevel.Warning, runtime.FileSettings.MinimumLevel);
         Assert.True(Directory.Exists(runtime.LogDirectory));
         Assert.Empty(component.FindAll("#loggingSettingsTab #restartLineup"));
-        Assert.Contains("Settings saved successfully", component.Markup);
+        var notifications = context.Services.GetRequiredService<IStatusNotificationService>();
+        var notification = Assert.Single(notifications.Notifications);
+        Assert.Equal("Settings saved successfully!", notification.Message);
+        Assert.False(notification.IsError);
         manager.Dispose();
         root.Delete(recursive: true);
     }
@@ -151,7 +154,10 @@ public class SettingsLoggingTests
         Assert.Contains(settings.LogCategoryOverrides, level => level.Category == "Lineup.Noisy" && level.Level == "None");
         Assert.Equal("Debug", filter.ActiveSettings.DefaultLevel);
         Assert.Contains(filter.ActiveSettings.CategoryLevels, level => level.Category == "Lineup.Noisy" && level.Level == "None");
-        Assert.Contains("Settings saved successfully", component.Markup);
+        var notifications = context.Services.GetRequiredService<IStatusNotificationService>();
+        var notification = Assert.Single(notifications.Notifications);
+        Assert.Equal("Settings saved successfully!", notification.Message);
+        Assert.False(notification.IsError);
     }
 
     /// <summary>
@@ -242,7 +248,10 @@ public class SettingsLoggingTests
 
         // Assert
         Assert.False(settings.OverrideLoggingDefaults);
-        Assert.Contains("Logging category prefixes must be unique", component.Markup);
+        var notifications = context.Services.GetRequiredService<IStatusNotificationService>();
+        var notification = Assert.Single(notifications.Notifications);
+        Assert.Equal("Logging category prefixes must be unique.", notification.Message);
+        Assert.True(notification.IsError);
     }
 
     private static BunitContext CreateContext(out AppSettings settings)

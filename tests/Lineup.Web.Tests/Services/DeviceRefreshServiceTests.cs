@@ -140,7 +140,7 @@ public class DeviceRefreshServiceTests
         var channelProvider = Substitute.For<IChannelLineupProvider>();
         channelProvider.FetchChannelLineupAsync(Arg.Any<CancellationToken>())
             .Returns([new HDHomeRunChannel { GuideNumber = "7.1", GuideName = "Channel", URL = "http://tuner.local/auto/v7.1" }]);
-        var channelStore = new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-startup-{Guid.NewGuid():N}.json"));
+        var channelStore = new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-startup-{Guid.NewGuid():N}.db"));
         var channelRefresh = new ChannelLineupRefreshService(NullLogger<ChannelLineupRefreshService>.Instance, channelProvider, channelStore);
         var scopedProvider = Substitute.For<IServiceProvider>();
         scopedProvider.GetService(typeof(ChannelLineupRefreshService)).Returns(channelRefresh);
@@ -152,10 +152,5 @@ public class DeviceRefreshServiceTests
         return new Fixture(service, state, client, channelProvider, channelStore);
     }
 
-    private sealed record Fixture(
-        DeviceRefreshService Service,
-        DeviceStateService State,
-        HDHomeRunDeviceClient Client,
-        IChannelLineupProvider ChannelProvider,
-        ChannelLineupStore ChannelStore);
+    private sealed record Fixture(DeviceRefreshService Service, DeviceStateService State, HDHomeRunDeviceClient Client, IChannelLineupProvider ChannelProvider, ChannelLineupStore ChannelStore);
 }

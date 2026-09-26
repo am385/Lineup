@@ -1,4 +1,5 @@
 using Lineup.Core;
+using Lineup.Core.Storage;
 using Lineup.Web.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -75,8 +76,6 @@ public class AppDataStoreTests
         Assert.Equal(Path.Combine(root.FullName, AppConstants.SettingsFileName), store.SettingsPath);
         Assert.Equal($"{store.SettingsPath}.bak", store.SettingsBackupPath);
         Assert.Equal(Path.Combine(root.FullName, AppConstants.DefaultDatabaseFileName), store.DatabasePath);
-        Assert.Equal(Path.ChangeExtension(store.DatabasePath, ".xmltv"), store.GuideCachePath);
-        Assert.Equal(Path.ChangeExtension(store.DatabasePath, ".channels.json"), store.ChannelLineupPath);
         Assert.Equal(Path.Combine(root.FullName, AppConstants.LogDirectoryName), store.LogDirectoryPath);
         Assert.Equal(Path.Combine(root.FullName, AppConstants.DataProtectionKeysDirectoryName), store.DataProtectionKeysPath);
         Assert.Equal(Path.Combine(root.FullName, FactoryResetCoordinator.RequestFileName), store.FactoryResetRequestPath);
@@ -145,7 +144,9 @@ public class AppDataStoreTests
         var root = Directory.CreateTempSubdirectory("lineup-app-data-");
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton(new AppDataStore(root.FullName));
+        var appDataStore = new AppDataStore(root.FullName);
+        services.AddSingleton(appDataStore);
+        services.AddSingleton<IAppDataStore>(appDataStore);
         services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
         services.AddSingleton(Substitute.For<IHostApplicationLifetime>());
         services.AddSingleton<IAppSettingsService, AppSettingsService>();
@@ -159,8 +160,10 @@ public class AppDataStoreTests
         });
 
         // Assert
+        Assert.Same(appDataStore, provider.GetRequiredService<IAppDataStore>());
         Assert.IsType<AppSettingsService>(provider.GetRequiredService<IAppSettingsService>());
         Assert.IsType<FactoryResetService>(provider.GetRequiredService<IFactoryResetService>());
         root.Delete(recursive: true);
     }
+
 }

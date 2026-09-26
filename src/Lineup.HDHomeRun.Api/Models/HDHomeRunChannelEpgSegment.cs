@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Lineup.HDHomeRun.Api.Models;
 
 /// <summary>
@@ -40,4 +42,10 @@ public record HDHomeRunChannelEpgSegment
     /// Gets the channel's program listings.
     /// </summary>
     public List<HDHomeRunProgram> Guide { get; init; } = [];
+
+    /// <summary>
+    /// Gets supplemental XMLTV metadata not represented by typed properties.
+    /// </summary>
+    [JsonIgnore]
+    public string? SupplementalXml { get; init; }
 }

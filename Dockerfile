@@ -4,7 +4,7 @@ WORKDIR /src
 
 # Git commit hash for version stamping (no .git directory in Docker context)
 ARG GIT_HASH=unknown
-ARG BUILD_VERSION
+ARG BUILD_VERSION=""
 
 # Copy project files first for better layer caching
 COPY Directory.Build.props ./
@@ -67,8 +67,8 @@ ENV PATH="/usr/lib/jellyfin-ffmpeg:${PATH}"
 RUN test "$(readlink -f "$(command -v ffmpeg)")" = "/usr/lib/jellyfin-ffmpeg/ffmpeg" && \
     ffmpeg -hide_banner -decoders 2>/dev/null | grep -Eq '[[:space:]]ac4[[:space:]]'
 
-# Create directories for persistent data
-RUN mkdir -p /appdata /xmltv
+# Create directories for persistent data and transient stream artifacts
+RUN mkdir -p /appdata /xmltv /transient
 
 COPY --from=build /app/publish .
 
@@ -85,6 +85,7 @@ ENV ASPNETCORE_ENVIRONMENT=Production
 ENV ASPNETCORE_HTTP_PORTS=""
 ENV Lineup__AppDataPath=/appdata
 ENV Lineup__XmltvPath=/xmltv
+ENV Lineup__TransientPath=/transient
 ENV Lineup__HttpPort=8080
 ENV Lineup__HttpsPort=8443
 

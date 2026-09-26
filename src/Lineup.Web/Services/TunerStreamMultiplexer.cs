@@ -15,6 +15,12 @@ public interface ITunerStreamMultiplexer
     /// <param name="cancellationToken">Stops the subscription while it is being created.</param>
     /// <returns>A stream that receives a copy of the shared tuner input.</returns>
     ValueTask<Stream> SubscribeAsync(Uri sourceUri, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Rejects new subscriptions, cancels active tuner sources, and waits for them to stop.
+    /// </summary>
+    /// <param name="cancellationToken">Stops waiting for source cleanup.</param>
+    Task StopAsync(CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -27,6 +33,8 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<TunerStreamMultiplexer> _logger;
     private readonly ConcurrentDictionary<string, SharedTunerSource> _sources = new(StringComparer.Ordinal);
+    private readonly Lock _lifecycleGate = new();
+    private bool _isStopping;
 
     /// <summary>
     /// Initializes the tuner stream multiplexer.
@@ -46,20 +54,46 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer
         var key = sourceUri.AbsoluteUri;
         while (true)
         {
-            var source = _sources.GetOrAdd(
-                key,
-                _ => new SharedTunerSource(
-                    sourceUri,
-                    _httpClientFactory,
-                    _logger,
-                    completedSource => _sources.TryRemove(new KeyValuePair<string, SharedTunerSource>(key, completedSource))));
-            if (source.TrySubscribe(out var subscription))
+            lock (_lifecycleGate)
             {
-                return ValueTask.FromResult(subscription);
-            }
+                if (_isStopping)
+                {
+                    throw new ObjectDisposedException(nameof(TunerStreamMultiplexer), "The tuner stream multiplexer is shutting down.");
+                }
 
-            _sources.TryRemove(new KeyValuePair<string, SharedTunerSource>(key, source));
+                var source = _sources.GetOrAdd(
+                    key,
+                    _ => new SharedTunerSource(
+                        sourceUri,
+                        _httpClientFactory,
+                        _logger,
+                        completedSource => _sources.TryRemove(new KeyValuePair<string, SharedTunerSource>(key, completedSource))));
+                if (source.TrySubscribe(out var subscription))
+                {
+                    return ValueTask.FromResult(subscription);
+                }
+
+                _sources.TryRemove(new KeyValuePair<string, SharedTunerSource>(key, source));
+            }
         }
+    }
+
+    /// <inheritdoc />
+    public async Task StopAsync(CancellationToken cancellationToken)
+    {
+        SharedTunerSource[] sources;
+        lock (_lifecycleGate)
+        {
+            _isStopping = true;
+            sources = _sources.Values.ToArray();
+        }
+
+        foreach (var source in sources)
+        {
+            source.Stop();
+        }
+
+        await Task.WhenAll(sources.Select(source => source.Completion)).WaitAsync(cancellationToken);
     }
 
     private sealed class SharedTunerSource
@@ -73,6 +107,11 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer
         private readonly CancellationTokenSource _lifetime = new();
         private Task? _runTask;
         private bool _completed;
+
+        /// <summary>
+        /// Gets the source processing task.
+        /// </summary>
+        public Task Completion => _runTask ?? Task.CompletedTask;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="SharedTunerSource"/> class.
@@ -113,6 +152,29 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer
 
             subscription = new SubscriptionStream(channel.Reader, () => RemoveSubscriber(id));
             return true;
+        }
+
+        /// <summary>
+        /// Stops the source and completes every subscriber.
+        /// </summary>
+        public void Stop()
+        {
+            lock (_gate)
+            {
+                if (_completed)
+                {
+                    return;
+                }
+
+                _completed = true;
+                foreach (var channel in _subscribers.Values)
+                {
+                    channel.Writer.TryComplete();
+                }
+
+                _subscribers.Clear();
+                _lifetime.Cancel();
+            }
         }
 
         private async Task RunAsync()

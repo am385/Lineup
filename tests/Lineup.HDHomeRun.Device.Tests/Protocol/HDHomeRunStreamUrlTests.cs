@@ -109,6 +109,7 @@ public class HDHomeRunStreamUrlTests
 
     private sealed class CancelableHandler : HttpMessageHandler
     {
+        /// <inheritdoc/>
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);

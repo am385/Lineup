@@ -1,15 +1,14 @@
 using Lineup.Core;
+using Lineup.Core.Storage;
 
 namespace Lineup.Web.Services;
 
 /// <summary>
 /// Defines and safely manages Lineup-owned persistent application data.
 /// </summary>
-public sealed class AppDataStore
+public sealed class AppDataStore : IAppDataStore
 {
-    private readonly StringComparison _pathComparison = OperatingSystem.IsWindows()
-        ? StringComparison.OrdinalIgnoreCase
-        : StringComparison.Ordinal;
+    private readonly ContainedFileStore _files;
 
     /// <summary>
     /// Initializes a store rooted at the specified persistent application-data directory.
@@ -17,14 +16,11 @@ public sealed class AppDataStore
     /// <param name="rootPath">Persistent application-data directory.</param>
     public AppDataStore(string rootPath)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(rootPath);
-        RootPath = Path.GetFullPath(rootPath);
-        Directory.CreateDirectory(RootPath);
+        _files = new ContainedFileStore(rootPath);
+        RootPath = _files.RootPath;
         SettingsPath = GetPath(AppConstants.SettingsFileName);
         SettingsBackupPath = $"{SettingsPath}.bak";
         DatabasePath = GetPath(AppConstants.DefaultDatabaseFileName);
-        GuideCachePath = Path.ChangeExtension(DatabasePath, ".xmltv");
-        ChannelLineupPath = Path.ChangeExtension(DatabasePath, ".channels.json");
         LogDirectoryPath = GetPath(AppConstants.LogDirectoryName);
         DataProtectionKeysPath = GetPath(AppConstants.DataProtectionKeysDirectoryName);
         FactoryResetRequestPath = GetPath(FactoryResetCoordinator.RequestFileName);
@@ -49,16 +45,6 @@ public sealed class AppDataStore
     /// Gets the SQLite guide database path.
     /// </summary>
     public string DatabasePath { get; }
-
-    /// <summary>
-    /// Gets the canonical downloaded guide cache path.
-    /// </summary>
-    public string GuideCachePath { get; }
-
-    /// <summary>
-    /// Gets the persisted physical tuner channel lineup path.
-    /// </summary>
-    public string ChannelLineupPath { get; }
 
     /// <summary>
     /// Gets the rolling-log directory path.
@@ -104,26 +90,20 @@ public sealed class AppDataStore
     /// <returns>The contained absolute path.</returns>
     public string GetPath(string relativePath)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(relativePath);
-        if (Path.IsPathRooted(relativePath))
-        {
-            throw new ArgumentException("App-data paths must be relative.", nameof(relativePath));
-        }
-
-        return EnsureContainedPath(Path.Combine(RootPath, relativePath));
+        return _files.GetPath(relativePath);
     }
 
     /// <summary>
     /// Returns whether a contained app-data file exists.
     /// </summary>
     /// <param name="path">Absolute contained path.</param>
-    public bool FileExists(string path) => File.Exists(EnsureContainedPath(path));
+    public bool FileExists(string path) => _files.FileExists(path);
 
     /// <summary>
     /// Returns whether a contained app-data directory exists.
     /// </summary>
     /// <param name="path">Absolute contained directory path.</param>
-    public bool DirectoryExists(string path) => Directory.Exists(EnsureContainedPath(path));
+    public bool DirectoryExists(string path) => _files.DirectoryExists(path);
 
     /// <summary>
     /// Creates a contained app-data directory when needed.
@@ -131,14 +111,14 @@ public sealed class AppDataStore
     /// <param name="path">Absolute contained directory path.</param>
     public void EnsureDirectory(string path)
     {
-        Directory.CreateDirectory(EnsureContainedPath(path));
+        _files.EnsureDirectory(path);
     }
 
     /// <summary>
     /// Reads a contained app-data text file.
     /// </summary>
     /// <param name="path">Absolute contained path.</param>
-    public string ReadAllText(string path) => File.ReadAllText(EnsureContainedPath(path));
+    public string ReadAllText(string path) => _files.ReadAllText(path);
 
     /// <summary>
     /// Reads a contained app-data text file asynchronously.
@@ -146,7 +126,7 @@ public sealed class AppDataStore
     /// <param name="path">Absolute contained path.</param>
     /// <param name="cancellationToken">Cancels the read.</param>
     public Task<string> ReadAllTextAsync(string path, CancellationToken cancellationToken = default) =>
-        File.ReadAllTextAsync(EnsureContainedPath(path), cancellationToken);
+        _files.ReadAllTextAsync(path, cancellationToken);
 
     /// <summary>
     /// Atomically writes a contained app-data file, optionally replacing it with a backup.
@@ -156,39 +136,8 @@ public sealed class AppDataStore
     /// <param name="backupPath">Optional contained replacement backup.</param>
     /// <param name="preserveBackup">Whether to preserve an existing backup instead of replacing it.</param>
     /// <param name="cancellationToken">Cancels the write before replacement.</param>
-    public async Task WriteAtomicallyAsync(string destinationPath, Func<Stream, CancellationToken, Task> writeAsync, string? backupPath = null, bool preserveBackup = false, CancellationToken cancellationToken = default)
-    {
-        var destination = EnsureContainedPath(destinationPath);
-        var backup = backupPath == null ? null : EnsureContainedPath(backupPath);
-        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-        var temporaryPath = EnsureContainedPath($"{destination}.{Guid.NewGuid():N}.tmp");
-        try
-        {
-            await using (var stream = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.Asynchronous | FileOptions.WriteThrough))
-            {
-                await writeAsync(stream, cancellationToken);
-                await stream.FlushAsync(cancellationToken);
-                stream.Flush(flushToDisk: true);
-            }
-
-            if (!File.Exists(destination))
-            {
-                File.Move(temporaryPath, destination);
-            }
-            else if (backup == null || preserveBackup)
-            {
-                File.Move(temporaryPath, destination, overwrite: true);
-            }
-            else
-            {
-                File.Replace(temporaryPath, destination, backup, ignoreMetadataErrors: true);
-            }
-        }
-        finally
-        {
-            File.Delete(temporaryPath);
-        }
-    }
+    public Task WriteAtomicallyAsync(string destinationPath, Func<Stream, CancellationToken, Task> writeAsync, string? backupPath = null, bool preserveBackup = false, CancellationToken cancellationToken = default) =>
+        _files.WriteAtomicallyAsync(destinationPath, writeAsync, backupPath, preserveBackup, cancellationToken);
 
     /// <summary>
     /// Deletes a contained app-data file when present.
@@ -196,7 +145,7 @@ public sealed class AppDataStore
     /// <param name="path">Absolute contained path.</param>
     public void DeleteFile(string path)
     {
-        File.Delete(EnsureContainedPath(path));
+        _files.DeleteFile(path);
     }
 
     /// <summary>
@@ -206,16 +155,15 @@ public sealed class AppDataStore
     /// <param name="recursive">Whether to recursively remove its contents.</param>
     public void DeleteDirectory(string path, bool recursive = false)
     {
-        var directory = EnsureContainedPath(path);
-        if (PathsEqual(directory, RootPath))
-        {
-            throw new InvalidOperationException("The app-data root cannot be deleted.");
-        }
+        _files.DeleteDirectory(path, recursive);
+    }
 
-        if (Directory.Exists(directory))
-        {
-            Directory.Delete(directory, recursive);
-        }
+    /// <summary>
+    /// Deletes every file and directory beneath the app-data root.
+    /// </summary>
+    public void DeleteContents()
+    {
+        _files.DeleteContents();
     }
 
     /// <summary>
@@ -225,16 +173,7 @@ public sealed class AppDataStore
     /// <param name="pattern">Allowlisted top-level search pattern.</param>
     public void DeleteMatchingFiles(string directoryPath, string pattern)
     {
-        var directory = EnsureContainedPath(directoryPath);
-        if (!Directory.Exists(directory))
-        {
-            return;
-        }
-
-        foreach (var path in Directory.EnumerateFiles(directory, pattern, SearchOption.TopDirectoryOnly))
-        {
-            File.Delete(EnsureContainedPath(path));
-        }
+        _files.DeleteMatchingFiles(directoryPath, pattern);
     }
 
     /// <summary>
@@ -245,12 +184,7 @@ public sealed class AppDataStore
     /// <returns>A stable snapshot of contained matching paths.</returns>
     public IReadOnlyList<string> EnumerateFiles(string directoryPath, string pattern)
     {
-        var directory = EnsureContainedPath(directoryPath);
-        return Directory.Exists(directory)
-            ? Directory.EnumerateFiles(directory, pattern, SearchOption.TopDirectoryOnly)
-                .Select(EnsureContainedPath)
-                .ToArray()
-            : [];
+        return _files.EnumerateFiles(directoryPath, pattern);
     }
 
     /// <summary>
@@ -260,27 +194,10 @@ public sealed class AppDataStore
     /// <returns>A readable stream, or <see langword="null"/> when the file does not exist.</returns>
     public Stream? OpenRead(string path)
     {
-        var filePath = EnsureContainedPath(path);
-        return File.Exists(filePath)
-            ? new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete)
-            : null;
+        return _files.OpenRead(path);
     }
 
-    private string EnsureContainedPath(string path)
-    {
-        var fullPath = Path.GetFullPath(path);
-        var relativePath = Path.GetRelativePath(RootPath, fullPath);
-        if (Path.IsPathRooted(relativePath) ||
-            relativePath == ".." ||
-            relativePath.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException($"Path '{fullPath}' is outside the app-data root.");
-        }
-
-        return fullPath;
-    }
-
-    private bool PathsEqual(string left, string right) =>
-        string.Equals(Path.TrimEndingDirectorySeparator(left), Path.TrimEndingDirectorySeparator(right), _pathComparison);
-
+    /// <inheritdoc />
+    public Task<IStagedFileWrite> StageWriteAsync(string destinationPath, ReadOnlyMemory<byte> content, CancellationToken cancellationToken = default) =>
+        _files.StageWriteAsync(destinationPath, content, cancellationToken);
 }

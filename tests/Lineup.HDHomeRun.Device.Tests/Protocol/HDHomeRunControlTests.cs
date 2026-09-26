@@ -509,6 +509,7 @@ public class HDHomeRunControlTests
         public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
             => ValueTask.CompletedTask;
 
+        /// <inheritdoc/>
         protected override void Dispose(bool disposing)
         {
             WasDisposed = true;

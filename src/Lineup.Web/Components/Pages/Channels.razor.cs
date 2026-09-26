@@ -1,4 +1,5 @@
 using Lineup.Core;
+using Lineup.Core.Storage;
 using Lineup.Web.Services;
 using Microsoft.AspNetCore.Components;
 
@@ -22,17 +23,21 @@ public partial class Channels
     private IAppSettingsService SettingsService { get; set; } = default!;
 
     [Inject]
+    private IXmltvPublicationStore Publications { get; set; } = default!;
+
+    [Inject]
     private ITimeZoneService Tz { get; set; } = default!;
 
     [Inject]
     private NavigationManager Navigation { get; set; } = default!;
 
+    [Inject]
+    private IStatusNotificationService Notifications { get; set; } = default!;
+
     private ChannelLineupSnapshot? _channelLineup;
     private bool _isLoading = true;
     private bool _isRefreshing;
     private readonly HashSet<string> _updatingChannels = new(StringComparer.OrdinalIgnoreCase);
-    private string _statusMessage = string.Empty;
-    private bool _isError;
 
     /// <inheritdoc />
     protected override async Task OnInitializedAsync()
@@ -49,8 +54,7 @@ public partial class Channels
         }
         catch (Exception ex)
         {
-            _statusMessage = $"Error loading the saved channel lineup: {ex.Message}";
-            _isError = true;
+            Notifications.ShowError($"Error loading the saved channel lineup: {ex.Message}");
         }
         finally
         {
@@ -61,28 +65,20 @@ public partial class Channels
     private async Task RefreshChannels()
     {
         _isRefreshing = true;
-        _statusMessage = string.Empty;
 
         try
         {
             _channelLineup = await ChannelLineupRefresh.RefreshAsync();
-            _statusMessage = $"Refreshed {_channelLineup.Channels.Count} tuner channels. The saved lineup will be applied during the next guide fetch.";
-            _isError = false;
+            Notifications.ShowSuccess($"Refreshed {_channelLineup.Channels.Count} tuner channels. The saved lineup will be applied during the next guide fetch.");
         }
         catch (Exception ex)
         {
-            _statusMessage = $"Error refreshing channels: {ex.Message}";
-            _isError = true;
+            Notifications.ShowError($"Error refreshing channels: {ex.Message}");
         }
         finally
         {
             _isRefreshing = false;
         }
-    }
-
-    private void ClearStatus()
-    {
-        _statusMessage = string.Empty;
     }
 
     private async Task SetChannelEnabled(string guideNumber, bool enabled)
@@ -92,12 +88,10 @@ public partial class Channels
             return;
         }
 
-        _statusMessage = string.Empty;
         try
         {
             _channelLineup = await ChannelLineupStore.SetChannelEnabledAsync(guideNumber, enabled);
-            _isError = false;
-            if (File.Exists(SettingsService.Settings.XmltvOutputPath))
+            if (Publications.Exists(SettingsService.Settings.XmltvOutputPath))
             {
                 try
                 {
@@ -105,15 +99,13 @@ public partial class Channels
                 }
                 catch (Exception ex)
                 {
-                    _statusMessage = $"The channel setting was saved, but the published XMLTV guide could not be updated: {ex.Message}";
-                    _isError = true;
+                    Notifications.ShowError($"The channel setting was saved, but the published XMLTV guide could not be updated: {ex.Message}");
                 }
             }
         }
         catch (Exception ex)
         {
-            _statusMessage = $"Error updating channel {guideNumber}: {ex.Message}";
-            _isError = true;
+            Notifications.ShowError($"Error updating channel {guideNumber}: {ex.Message}");
         }
         finally
         {

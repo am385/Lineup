@@ -45,7 +45,7 @@ public class SettingsInitialSetupTests
         var channelProvider = Substitute.For<IChannelLineupProvider>();
         channelProvider.FetchChannelLineupAsync(Arg.Any<CancellationToken>())
             .Returns([new HDHomeRunChannel { GuideNumber = "7.1", GuideName = "Channel", URL = "http://tuner.local/auto/v7.1" }]);
-        var channelStore = new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-setup-{Guid.NewGuid():N}.json"));
+        var channelStore = new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-setup-{Guid.NewGuid():N}.db"));
         var channelRefresh = new ChannelLineupRefreshService(NullLogger<ChannelLineupRefreshService>.Instance, channelProvider, channelStore);
         context.Services.AddSingleton(settingsService);
         context.Services.AddSingleton(timeZoneService);
@@ -56,7 +56,7 @@ public class SettingsInitialSetupTests
         var component = context.Render<Settings>();
 
         // Act
-        component.Find("button.btn-primary").Click();
+        await component.Find("button.btn-primary").ClickAsync(new());
 
         // Assert
         await deviceState.Received(1).DiscoverDeviceAsync(Arg.Any<CancellationToken>());

@@ -87,6 +87,8 @@ public sealed partial record MediaTrackMetadata
     public bool IsHearingImpaired { get; init; }
     /// <summary>Gets whether a video track reports embedded closed captions.</summary>
     public bool HasClosedCaptions { get; init; }
+    /// <summary>Gets whether this synthetic subtitle track represents captions embedded in a video stream.</summary>
+    public bool IsEmbeddedClosedCaptions { get; init; }
     /// <summary>Gets the supported Watch subtitle presentation.</summary>
     public SubtitlePresentation SubtitlePresentation { get; init; }
 }
@@ -168,6 +170,8 @@ public sealed partial record ActiveStreamTrack
     public bool IsHearingImpaired { get; init; }
     /// <summary>Gets whether the source reports embedded closed captions.</summary>
     public bool HasClosedCaptions { get; init; }
+    /// <summary>Gets whether this synthetic subtitle track represents captions embedded in a video stream.</summary>
+    public bool IsEmbeddedClosedCaptions { get; init; }
     /// <summary>Gets whether this track is selected in the output.</summary>
     public bool IsSelected { get; init; } = true;
     /// <summary>Gets the subtitle presentation used for this output.</summary>
@@ -230,6 +234,19 @@ public interface IActiveStreamRegistry
     bool RequestStop(string sessionId);
 
     /// <summary>
+    /// Requests that every active stream owned by a client stop.
+    /// </summary>
+    /// <param name="clientId">The owning client identifier.</param>
+    /// <returns>The number of streams for which stop was requested.</returns>
+    int RequestStopByClientId(string clientId);
+
+    /// <summary>
+    /// Stops accepting new streams, requests every active stream to stop, and waits for all registrations to be removed.
+    /// </summary>
+    /// <param name="cancellationToken">Stops waiting for stream cleanup.</param>
+    Task StopAllAsync(CancellationToken cancellationToken);
+
+    /// <summary>
     /// Removes an active stream.
     /// </summary>
     /// <param name="sessionId">The runtime session identifier.</param>
@@ -248,7 +265,19 @@ public interface IActiveStreamRegistry
 public sealed class ActiveStreamRegistry : IActiveStreamRegistry
 {
     private readonly ConcurrentDictionary<string, ActiveStreamRegistration> _streams = new(StringComparer.Ordinal);
-    private readonly object _registrationLock = new();
+    private readonly Lock _registrationLock = new();
+    private readonly ILogger<ActiveStreamRegistry> _logger;
+    private TaskCompletionSource _allStreamsStopped = CompletedTaskCompletionSource();
+    private bool _isStopping;
+
+    /// <summary>
+    /// Initializes an active stream registry.
+    /// </summary>
+    /// <param name="logger">Optional stream lifecycle diagnostics logger.</param>
+    public ActiveStreamRegistry(ILogger<ActiveStreamRegistry>? logger = null)
+    {
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<ActiveStreamRegistry>.Instance;
+    }
 
     /// <inheritdoc />
     public event Action<ActiveStreamSnapshot>? StopRequested;
@@ -258,6 +287,11 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
     {
         lock (_registrationLock)
         {
+            if (_isStopping && !_streams.ContainsKey(stream.SessionId))
+            {
+                return;
+            }
+
             RegisterCore(stream, stop);
         }
     }
@@ -267,7 +301,8 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
     {
         lock (_registrationLock)
         {
-            if (!_streams.ContainsKey(stream.SessionId) &&
+            if (_isStopping ||
+                !_streams.ContainsKey(stream.SessionId) &&
                 maximumConcurrentStreams > 0 &&
                 _streams.Count >= maximumConcurrentStreams)
             {
@@ -287,15 +322,14 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
         lock (_registrationLock)
         {
             if (!_streams.TryGetValue(sessionId, out var current) ||
-                current.Stop is not { } stopAction ||
-                !_streams.TryRemove(sessionId, out var removed) ||
-                removed is null)
+                current.Stop is not { } stopAction)
             {
                 return false;
             }
 
-            registration = removed;
+            registration = current;
             stop = stopAction;
+            _streams[sessionId] = current with { Stop = null };
         }
 
         StopRequested?.Invoke(registration.Snapshot);
@@ -304,11 +338,65 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
     }
 
     /// <inheritdoc />
+    public int RequestStopByClientId(string clientId)
+    {
+        if (string.IsNullOrWhiteSpace(clientId))
+        {
+            return 0;
+        }
+
+        string[] sessionIds;
+        lock (_registrationLock)
+        {
+            sessionIds = _streams.Values
+                .Where(registration => string.Equals(registration.Snapshot.ClientId, clientId, StringComparison.Ordinal))
+                .Select(registration => registration.Snapshot.SessionId)
+                .ToArray();
+        }
+
+        return sessionIds.Count(RequestStop);
+    }
+
+    /// <inheritdoc />
+    public async Task StopAllAsync(CancellationToken cancellationToken)
+    {
+        ActiveStreamRegistration[] registrations;
+        Task allStreamsStopped;
+        lock (_registrationLock)
+        {
+            _isStopping = true;
+            registrations = _streams.Values.ToArray();
+            foreach (var registration in registrations)
+            {
+                if (registration.Stop is not null)
+                {
+                    _streams[registration.Snapshot.SessionId] = registration with { Stop = null };
+                }
+            }
+
+            allStreamsStopped = _allStreamsStopped.Task;
+        }
+
+        var stopTasks = registrations
+            .Where(registration => registration.Stop is not null)
+            .Select(registration => Task.Run(() => RequestShutdown(registration)))
+            .ToArray();
+        await Task.WhenAll(stopTasks).WaitAsync(cancellationToken);
+        await allStreamsStopped.WaitAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
     public bool Unregister(string sessionId)
     {
         lock (_registrationLock)
         {
-            return _streams.TryRemove(sessionId, out _);
+            var removed = _streams.TryRemove(sessionId, out _);
+            if (removed && _streams.IsEmpty)
+            {
+                _allStreamsStopped.TrySetResult();
+            }
+
+            return removed;
         }
     }
 
@@ -326,6 +414,11 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
 
     private void RegisterCore(ActiveStreamSnapshot stream, Action? stop)
     {
+        if (_streams.IsEmpty)
+        {
+            _allStreamsStopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+
         _streams.AddOrUpdate(
             stream.SessionId,
             _ => new ActiveStreamRegistration(stream with { Tracks = stream.Tracks.ToArray() }, stop),
@@ -337,6 +430,26 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
                     Tracks = stream.Tracks.ToArray()
                 },
                 stop ?? current.Stop));
+    }
+
+    private static TaskCompletionSource CompletedTaskCompletionSource()
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        completion.SetResult();
+        return completion;
+    }
+
+    private void RequestShutdown(ActiveStreamRegistration registration)
+    {
+        try
+        {
+            StopRequested?.Invoke(registration.Snapshot);
+            registration.Stop!();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Unable to request shutdown of active stream {SessionId}", registration.Snapshot.SessionId);
+        }
     }
 }
 
@@ -492,6 +605,8 @@ public sealed class MediaProbeService : IMediaProbeService
 /// </summary>
 public static class MediaProbeParser
 {
+    private const string ShowEntries = "stream=index,codec_type,codec_name,bit_rate,width,height,channels,sample_rate,closed_captions:stream_tags=language,title:" +
+        "stream_disposition=default,forced,hearing_impaired:frame=media_type:frame_side_data=side_data_type:format=bit_rate";
     private static readonly string[] CommonArguments =
     [
         "-v", "error",
@@ -513,8 +628,9 @@ public static class MediaProbeParser
         "-reconnect_on_http_error", "503",
         "-reconnect_delay_max", "2",
         "-reconnect_max_retries", "3",
-        "-read_intervals", "%+#100",
-        "-show_entries", "stream=index,codec_type,codec_name,bit_rate,width,height,channels,sample_rate,closed_captions:stream_tags=language,title:stream_disposition=default,forced,hearing_impaired:format=bit_rate",
+        "-read_intervals", "%+3",
+        "-show_frames",
+        "-show_entries", ShowEntries,
         "-of", "json",
         inputUri.AbsoluteUri
     ];
@@ -526,8 +642,9 @@ public static class MediaProbeParser
     public static IReadOnlyList<string> CreatePipeArguments() =>
     [
         .. CommonArguments,
-        "-read_intervals", "%+#100",
-        "-show_entries", "stream=index,codec_type,codec_name,bit_rate,width,height,channels,sample_rate,closed_captions:stream_tags=language,title:stream_disposition=default,forced,hearing_impaired:format=bit_rate",
+        "-read_intervals", "%+3",
+        "-show_frames",
+        "-show_entries", ShowEntries,
         "-of", "json",
         "pipe:0"
     ];
@@ -542,11 +659,25 @@ public static class MediaProbeParser
         try
         {
             var result = JsonSerializer.Deserialize<FfprobeResult>(json) ?? new FfprobeResult();
+            var hasEmbeddedClosedCaptions = result.Frames.Any(frame =>
+                string.Equals(frame.MediaType, "video", StringComparison.OrdinalIgnoreCase) &&
+                frame.SideDataList.Any(sideData => string.Equals(sideData.SideDataType, "ATSC A53 Part 4 Closed Captions", StringComparison.OrdinalIgnoreCase)));
             var tracks = result.Streams
-                .Select(ParseTrack)
+                .Select(stream => ParseTrack(stream, hasEmbeddedClosedCaptions))
                 .Where(track => track is not null)
                 .Cast<MediaTrackMetadata>()
-                .ToArray();
+                .ToList();
+            if (hasEmbeddedClosedCaptions &&
+                !tracks.Any(track => track.Type == MediaTrackType.Subtitle && track.Codec is "eia_608" or "eia_708"))
+            {
+                int index = tracks.Count == 0 ? 0 : tracks.Max(track => track.Index) + 1;
+                tracks.Add(new MediaTrackMetadata(index, MediaTrackType.Subtitle, "eia_608", null, null, null, null, null)
+                {
+                    Title = "Closed Captions",
+                    IsEmbeddedClosedCaptions = true,
+                    SubtitlePresentation = SubtitlePresentation.WebVtt
+                });
+            }
             return new MediaProbeResult(tracks, ParseLong(result.Format?.BitRate));
         }
         catch (JsonException ex)
@@ -555,7 +686,7 @@ public static class MediaProbeParser
         }
     }
 
-    private static MediaTrackMetadata? ParseTrack(FfprobeStream stream)
+    private static MediaTrackMetadata? ParseTrack(FfprobeStream stream, bool hasEmbeddedClosedCaptions)
     {
         var type = stream.CodecType switch
         {
@@ -567,14 +698,14 @@ public static class MediaProbeParser
 
         return type is null
             ? null
-            : new MediaTrackMetadata(stream.Index, type.Value, stream.CodecName ?? "unknown", ParseLong(stream.BitRate), stream.Width, stream.Height, stream.Channels, ParseInt(stream.SampleRate))
+            : new MediaTrackMetadata(stream.Index, type.Value, stream.CodecName ?? "unknown", ParseLong(stream.BitRate), stream.Width, stream.Height, NormalizeChannelCount(stream.Channels), ParseInt(stream.SampleRate))
             {
                 Language = NormalizeMetadata(stream.Tags?.Language),
                 Title = NormalizeMetadata(stream.Tags?.Title),
                 IsDefault = stream.Disposition?.Default == 1,
                 IsForced = stream.Disposition?.Forced == 1,
                 IsHearingImpaired = stream.Disposition?.HearingImpaired == 1,
-                HasClosedCaptions = stream.ClosedCaptions > 0,
+                HasClosedCaptions = type == MediaTrackType.Video && (stream.ClosedCaptions > 0 || hasEmbeddedClosedCaptions),
                 SubtitlePresentation = type == MediaTrackType.Subtitle
                     ? SubtitleCapabilityPolicy.Classify(stream.CodecName)
                     : SubtitlePresentation.Unsupported
@@ -591,6 +722,8 @@ public static class MediaProbeParser
         return int.TryParse(value, out var parsed) && parsed > 0 ? parsed : null;
     }
 
+    private static int? NormalizeChannelCount(int? value) => value is >= 1 and <= 64 ? value : null;
+
     private static string? NormalizeMetadata(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
@@ -602,11 +735,33 @@ public static class MediaProbeParser
         [JsonPropertyName("streams")]
         public List<FfprobeStream> Streams { get; init; } = [];
 
+        /// <summary>Gets the probed media frames used for side-data inspection.</summary>
+        [JsonPropertyName("frames")]
+        public List<FfprobeFrame> Frames { get; init; } = [];
+
         /// <summary>
         /// Gets or sets format.
         /// </summary>
         [JsonPropertyName("format")]
         public FfprobeFormat? Format { get; init; }
+    }
+
+    private sealed class FfprobeFrame
+    {
+        /// <summary>Gets the frame media type.</summary>
+        [JsonPropertyName("media_type")]
+        public string? MediaType { get; init; }
+
+        /// <summary>Gets the frame side-data entries.</summary>
+        [JsonPropertyName("side_data_list")]
+        public List<FfprobeSideData> SideDataList { get; init; } = [];
+    }
+
+    private sealed class FfprobeSideData
+    {
+        /// <summary>Gets the side-data type.</summary>
+        [JsonPropertyName("side_data_type")]
+        public string? SideDataType { get; init; }
     }
 
     private sealed class FfprobeStream
@@ -659,30 +814,41 @@ public static class MediaProbeParser
         [JsonPropertyName("sample_rate")]
         public string? SampleRate { get; init; }
 
+        /// <summary>Gets whether the stream reports embedded closed captions.</summary>
         [JsonPropertyName("closed_captions")]
         public int ClosedCaptions { get; init; }
 
+        /// <summary>Gets the stream metadata tags.</summary>
         [JsonPropertyName("tags")]
         public FfprobeTags? Tags { get; init; }
 
+        /// <summary>Gets the stream disposition flags.</summary>
         [JsonPropertyName("disposition")]
         public FfprobeDisposition? Disposition { get; init; }
     }
 
     private sealed class FfprobeTags
     {
+        /// <summary>Gets the stream language tag.</summary>
         [JsonPropertyName("language")]
         public string? Language { get; init; }
+
+        /// <summary>Gets the stream title.</summary>
         [JsonPropertyName("title")]
         public string? Title { get; init; }
     }
 
     private sealed class FfprobeDisposition
     {
+        /// <summary>Gets the default disposition flag.</summary>
         [JsonPropertyName("default")]
         public int Default { get; init; }
+
+        /// <summary>Gets the forced disposition flag.</summary>
         [JsonPropertyName("forced")]
         public int Forced { get; init; }
+
+        /// <summary>Gets the hearing-impaired disposition flag.</summary>
         [JsonPropertyName("hearing_impaired")]
         public int HearingImpaired { get; init; }
     }
@@ -756,15 +922,23 @@ public static partial class FfmpegInputMetadataParser
         }
 
         var surroundMatch = SurroundPattern().Match(details);
-        return surroundMatch.Success
-            ? int.Parse(surroundMatch.Groups["major"].Value) + int.Parse(surroundMatch.Groups["minor"].Value)
-            : ParseOptionalInt(ChannelCountPattern().Match(details), "count");
+        if (surroundMatch.Success)
+        {
+            var channels = int.Parse(surroundMatch.Groups["major"].Value) +
+                int.Parse(surroundMatch.Groups["minor"].Value) +
+                ParseOptionalInt(surroundMatch, "height").GetValueOrDefault();
+            return NormalizeChannelCount(channels);
+        }
+
+        return NormalizeChannelCount(ParseOptionalInt(ChannelCountPattern().Match(details), "count"));
     }
 
     private static int? ParseOptionalInt(Match match, string groupName)
     {
         return match.Success && int.TryParse(match.Groups[groupName].Value, out var value) ? value : null;
     }
+
+    private static int? NormalizeChannelCount(int? value) => value is >= 1 and <= 64 ? value : null;
 
     [GeneratedRegex(@"^\s*Stream #0:(?<index>\d+)(?:\[[^\]]+\])?(?:\([^)]+\))?: (?<type>Video|Audio|Subtitle): (?<codec>[^,\s]+)(?<details>.*)$")]
     private static partial Regex StreamPattern();
@@ -775,10 +949,10 @@ public static partial class FfmpegInputMetadataParser
     [GeneratedRegex(@"(?<rate>\d+) Hz")]
     private static partial Regex SampleRatePattern();
 
-    [GeneratedRegex(@"(?<major>\d+)\.(?<minor>\d+)")]
+    [GeneratedRegex(@"(?:^|,\s*)(?<major>\d{1,2})\.(?<minor>\d{1,2})(?:\.(?<height>\d{1,2}))?(?:\([^,)]*\))?(?=,|$)")]
     private static partial Regex SurroundPattern();
 
-    [GeneratedRegex(@"(?<count>\d+) channels?")]
+    [GeneratedRegex(@"(?<!\d)(?<count>\d{1,2}) channels?(?!\d)")]
     private static partial Regex ChannelCountPattern();
 }
 
@@ -837,33 +1011,51 @@ public static class ActiveStreamPlanFactory
         MediaProbeResult source,
         long outputVideoBitRate = 10_000_000,
         bool copyVideo = false,
-        WatchTrackSelection? selection = null)
+        WatchTrackSelection? selection = null,
+        WatchAudioOutput audioOutput = WatchAudioOutput.Stereo)
     {
-        if (selection is null)
-        {
-            selection = WatchStreamPlanner.SelectTracks(source, null, null);
-        }
+        selection ??= WatchStreamPlanner.SelectTracks(source, null, null);
 
         var tracks = source.Tracks.Select(track =>
         {
-            var selected = track.Type == MediaTrackType.Video ||
-                track.Type == MediaTrackType.Audio && track.Index == selection.Audio?.Index ||
-                track.Type == MediaTrackType.Subtitle && track.Index == selection.Subtitle?.Index;
+            var selected = track.Type switch
+            {
+                MediaTrackType.Video => true,
+                MediaTrackType.Audio when track.Index == selection.Audio?.Index => true,
+                MediaTrackType.Subtitle when track.Index == selection.Subtitle?.Index => true,
+                _ => false
+            };
+
+            var copyAudio = track.Type == MediaTrackType.Audio && selected && audioOutput == WatchAudioOutput.Source;
             var outputCodec = track.Type switch
             {
                 MediaTrackType.Video => copyVideo ? "copy" : "h264",
+                MediaTrackType.Audio when copyAudio => "copy",
                 MediaTrackType.Audio when selected => "aac",
                 MediaTrackType.Subtitle when selected && selection.SubtitlePresentation == SubtitlePresentation.WebVtt => "webvtt",
                 MediaTrackType.Subtitle when selected => "burn-in",
                 _ => "not-mapped"
             };
+
+            WatchAudioOutputProfile? audioProfile = track.Type switch
+            {
+                MediaTrackType.Audio when selected && !copyAudio => (WatchAudioOutputProfile?)WatchStreamPlanner.GetAudioOutputProfile(audioOutput, track.Channels),
+                _ => null,
+            };
+
+            long? outputBitRate = track.Type switch
+            {
+                MediaTrackType.Video => (copyVideo ? track.BitRate : outputVideoBitRate),
+                MediaTrackType.Audio when copyAudio => track.BitRate,
+                _ => (audioProfile?.BitRate),
+            };
+
             return CreateTrack(
                 track,
                 outputCodec,
-                track.Type == MediaTrackType.Video ? (copyVideo ? track.BitRate : outputVideoBitRate) :
-                    track.Type == MediaTrackType.Audio && selected ? 128_000 : null,
-                track.Type == MediaTrackType.Audio && selected ? 2 : track.Channels,
-                track.Type == MediaTrackType.Audio && selected ? 44_100 : track.SampleRate) with
+                outputBitRate,
+                copyAudio ? track.Channels : audioProfile?.Channels,
+                copyAudio ? track.SampleRate : audioProfile?.SampleRate) with
             {
                 IsSelected = selected,
                 SubtitlePresentation = track.Type == MediaTrackType.Subtitle ? track.SubtitlePresentation : null
@@ -871,7 +1063,7 @@ public static class ActiveStreamPlanFactory
         }).ToArray();
         if (tracks.Length == 0)
         {
-            return CreateFixedTranscode(sessionId, channel, HostedStreamFormat.FragmentedMp4, startedAtUtc, source, outputVideoBitRate, copyVideo);
+            return CreateFixedTranscode(sessionId, channel, HostedStreamFormat.FragmentedMp4, startedAtUtc, source, outputVideoBitRate, copyVideo, audioOutput);
         }
 
         return new ActiveStreamSnapshot(sessionId, channel, HostedStreamFormat.FragmentedMp4, startedAtUtc, source.BitRate, tracks);
@@ -911,16 +1103,25 @@ public static class ActiveStreamPlanFactory
         return new ActiveStreamSnapshot(sessionId, channel, format, startedAtUtc, null, tracks);
     }
 
-    private static ActiveStreamSnapshot CreateFixedTranscode(string sessionId, string channel, HostedStreamFormat format, DateTime startedAtUtc, MediaProbeResult source, long outputVideoBitRate, bool copyVideo)
+    private static ActiveStreamSnapshot CreateFixedTranscode(
+        string sessionId,
+        string channel,
+        HostedStreamFormat format,
+        DateTime startedAtUtc,
+        MediaProbeResult source,
+        long outputVideoBitRate,
+        bool copyVideo,
+        WatchAudioOutput audioOutput = WatchAudioOutput.Stereo)
     {
         var video = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video)
             ?? new MediaTrackMetadata(0, MediaTrackType.Video, "unknown", null, null, null, null, null);
         var audio = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Audio)
             ?? new MediaTrackMetadata(1, MediaTrackType.Audio, "unknown", null, null, null, null, null);
+        var copyAudio = audioOutput == WatchAudioOutput.Source;
         ActiveStreamTrack[] tracks =
         [
             CreateTrack(video, copyVideo ? "copy" : "h264", copyVideo ? video.BitRate : outputVideoBitRate, null, null),
-            CreateTrack(audio, "aac", 128_000, 2, 44_100)
+            CreateTrack(audio, copyAudio ? "copy" : "aac", copyAudio ? audio.BitRate : 128_000, copyAudio ? audio.Channels : 2, copyAudio ? audio.SampleRate : 44_100)
         ];
         return new ActiveStreamSnapshot(sessionId, channel, format, startedAtUtc, source.BitRate, tracks);
     }
@@ -936,6 +1137,7 @@ public static class ActiveStreamPlanFactory
             IsForced = source.IsForced,
             IsHearingImpaired = source.IsHearingImpaired,
             HasClosedCaptions = source.HasClosedCaptions,
+            IsEmbeddedClosedCaptions = source.IsEmbeddedClosedCaptions,
             SubtitlePresentation = source.Type == MediaTrackType.Subtitle ? source.SubtitlePresentation : null
         };
     }

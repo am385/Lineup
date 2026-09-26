@@ -1,4 +1,5 @@
 @using Lineup.Web.Services
+@implements IDisposable
 @inject IAppSettingsService SettingsService
 
 <div class="top-row ps-3 navbar navbar-dark">
@@ -51,3 +52,22 @@
         </div>
     </nav>
 </div>
+
+@code {
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        SettingsService.OnSettingsChanged += OnSettingsChanged;
+    }
+
+    private void OnSettingsChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        SettingsService.OnSettingsChanged -= OnSettingsChanged;
+    }
+}

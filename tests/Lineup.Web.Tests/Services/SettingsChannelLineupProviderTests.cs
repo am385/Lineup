@@ -46,6 +46,7 @@ public class SettingsChannelLineupProviderTests
     {
         public List<string> RequestedHosts { get; } = [];
 
+        /// <inheritdoc/>
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var host = request.RequestUri!.Host;

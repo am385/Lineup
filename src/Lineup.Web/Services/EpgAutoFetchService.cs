@@ -54,10 +54,6 @@ public class EpgAutoFetchService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("EPG Auto-Fetch Service started. Randomized 20-28 hour scheduling enabled: {Enabled}", IsEnabled);
-        using (var scope = _scopeFactory.CreateScope())
-        {
-            await scope.ServiceProvider.GetRequiredService<EpgOrchestrator>().ReconcileCacheAsync(stoppingToken);
-        }
 
         // Calculate initial delay based on persisted last fetch time
         var initialDelay = CalculateInitialDelay();
@@ -225,13 +221,6 @@ public class EpgAutoFetchService : BackgroundService
 
             try
             {
-                // Ensure directory exists if path contains directories
-                var directory = Path.GetDirectoryName(outputPath);
-                if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
-                {
-                    Directory.CreateDirectory(directory);
-                }
-
                 await orchestrator.GenerateEpgFromCacheAsync(TargetDays, outputPath);
                 _logger.LogInformation("XMLTV file generated successfully to {OutputPath}", outputPath);
             }

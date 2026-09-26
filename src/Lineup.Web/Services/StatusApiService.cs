@@ -207,6 +207,7 @@ internal sealed class StatusApiService
     private readonly VirtualDeviceStatusCache _virtualDevices;
     private readonly StatusApiRuntime _runtime;
     private readonly ILogger<StatusApiService> _logger;
+    private readonly IXmltvPublicationStore _publications;
 
     /// <summary>
     /// Initializes the status aggregation service.
@@ -219,7 +220,8 @@ internal sealed class StatusApiService
         IActiveStreamRegistry activeStreams,
         VirtualDeviceStatusCache virtualDevices,
         StatusApiRuntime runtime,
-        ILogger<StatusApiService> logger)
+        ILogger<StatusApiService> logger,
+        IXmltvPublicationStore publications)
     {
         _repository = repository;
         _settings = settings;
@@ -229,6 +231,7 @@ internal sealed class StatusApiService
         _virtualDevices = virtualDevices;
         _runtime = runtime;
         _logger = logger;
+        _publications = publications;
     }
 
     /// <summary>
@@ -306,7 +309,7 @@ internal sealed class StatusApiService
             ToUtc(_autoFetch.NextFetchTime));
     }
 
-    private static XmltvStatusResponse GetXmltvStatus(AppSettings settings)
+    private XmltvStatusResponse GetXmltvStatus(AppSettings settings)
     {
         if (!settings.AutoGenerateXmltv)
         {
@@ -315,12 +318,12 @@ internal sealed class StatusApiService
 
         try
         {
-            var available = File.Exists(settings.XmltvOutputPath);
+            var available = _publications.Exists(settings.XmltvOutputPath);
             return new XmltvStatusResponse(
                 true,
                 available,
                 settings.RedactApiUrls || !available ? null : "/api/xmltv",
-                available ? File.GetLastWriteTimeUtc(settings.XmltvOutputPath) : null);
+                available ? _publications.GetLastWriteTimeUtc(settings.XmltvOutputPath) : null);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {

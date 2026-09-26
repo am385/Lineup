@@ -51,7 +51,10 @@ public class SettingsLogDeletionTests
         Assert.Equal("/api/logs/files/lineup-test.log", retainedFileHref);
         Assert.Equal("lineup-test.log", retainedFileDownload);
         Assert.False(File.Exists(logPath));
-        Assert.Contains("Deleted 1 file log.", component.Markup);
+        var notifications = context.Services.GetRequiredService<IStatusNotificationService>();
+        var notification = Assert.Single(notifications.Notifications);
+        Assert.Equal("Deleted 1 file log.", notification.Message);
+        Assert.False(notification.IsError);
         Assert.Empty(component.FindAll("#retainedLogFileManagement"));
         root.Delete(recursive: true);
     }

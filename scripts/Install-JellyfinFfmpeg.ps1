@@ -10,7 +10,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 if ([string]::IsNullOrWhiteSpace($InstallDirectory)) {
-    $InstallDirectory = Join-Path $PSScriptRoot '..\src\Lineup.Web\.ffmpeg'
+    $InstallDirectory = Join-Path $PSScriptRoot '..\.ffmpeg'
 }
 
 $version = '8.1.2-4'
