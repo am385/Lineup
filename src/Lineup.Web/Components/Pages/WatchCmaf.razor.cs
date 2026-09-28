@@ -2,6 +2,7 @@ using Lineup.Core;
 using Lineup.Core.Storage;
 using Lineup.HDHomeRun.Api.Models;
 using Lineup.HDHomeRun.Device.Models;
+using Lineup.HDHomeRun.Device.Protocol;
 using Lineup.Web.Services;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Routing;
@@ -26,6 +27,9 @@ public partial class WatchCmaf : IAsyncDisposable
 
     [Inject]
     private IActiveStreamRegistry ActiveStreamRegistry { get; set; } = default!;
+
+    [Inject]
+    private IAppSettingsService SettingsService { get; set; } = default!;
 
     [Inject]
     private IDeviceStateService DeviceState { get; set; } = default!;
@@ -55,6 +59,8 @@ public partial class WatchCmaf : IAsyncDisposable
     private HDHomeRunChannelEpgSegment? _selectedChannel;
     private HDHomeRunProgram? _currentProgram;
     private ActiveStreamSnapshot? _activeStream;
+    private CmafPlayerAudio? _playerAudio;
+    private CmafPlayerVideo? _playerVideo;
     private CmafStartResponse? _session;
     private DotNetObjectReference<WatchCmaf>? _dotNetReference;
     private IDisposable? _locationChangingRegistration;
@@ -68,8 +74,11 @@ public partial class WatchCmaf : IAsyncDisposable
     private string _effectiveProtocol = "Waiting";
     private CmafPlaybackProtocol _protocol = CmafPlaybackProtocol.Auto;
     private WebPlayerQuality _quality = WebPlayerQuality.AppDefault;
+    private CmafPreferredVideo _preferredVideo = CmafPreferredVideo.Source;
+    private CmafPreferredVideo _streamPreferredVideo = CmafPreferredVideo.Source;
     private CmafPreferredAudio _preferredAudio = CmafPreferredAudio.Source;
     private CmafFallbackAudio _fallbackAudio = CmafFallbackAudio.AacStereo;
+    private CmafFallbackAudio _streamFallbackAudio = CmafFallbackAudio.AacStereo;
     private int? _audioTrack;
     private int? _subtitleTrack;
     private SubtitlePresentation? _subtitlePresentation;
@@ -83,6 +92,8 @@ public partial class WatchCmaf : IAsyncDisposable
     private bool _isStarting;
     private bool _isStopping;
     private bool _disposed;
+    private DateTime _lastTunerRefreshRequestUtc = DateTime.MinValue;
+    private TunerStatus? SelectedTuner => DeviceState.TunerStatuses.FirstOrDefault(tuner => string.Equals(tuner.VirtualChannel, _selectedChannelNumber, StringComparison.Ordinal));
 
     /// <summary>Loads channel and programme data and registers stream lifecycle handlers.</summary>
     protected override async Task OnInitializedAsync()
@@ -145,16 +156,48 @@ public partial class WatchCmaf : IAsyncDisposable
                 manifestUrl,
                 fallbackUrl,
                 _preferredAudio.ToString(),
+                _streamPreferredVideo.ToString(),
+                _session.SourceVideoCodec,
+                _session.FallbackAudioCodec,
                 _session.Subtitles ?? [],
                 _dotNetReference);
             if (!result.Success)
             {
+                var retryVideo = result.ErrorCode == 4032 &&
+                    _session.HasSourceVideoRendition &&
+                    _streamPreferredVideo == CmafPreferredVideo.Source &&
+                    result.SourceVideoSupported == false;
+                var retryAudio = result.ErrorCode == 4032 &&
+                    _streamFallbackAudio != CmafFallbackAudio.AacStereo &&
+                    result.FallbackAudioSupported == false;
+                if ((retryVideo || retryAudio) && _selectedChannelNumber is { } retryChannelNumber)
+                {
+                    var videoPreference = retryVideo ? CmafPreferredVideo.Fallback : _streamPreferredVideo;
+                    var fallbackAudio = retryAudio ? CmafFallbackAudio.AacStereo : _streamFallbackAudio;
+                    var unavailable = retryVideo && retryAudio
+                        ? $"Source video and {FormatFallbackAudio(_streamFallbackAudio)} are unavailable"
+                        : retryVideo
+                            ? "Source video is unavailable"
+                            : $"{FormatFallbackAudio(_streamFallbackAudio)} is unavailable";
+                    var replacement = retryVideo && retryAudio
+                        ? "H.264 and AAC Stereo"
+                        : retryVideo
+                            ? "H.264"
+                            : "AAC Stereo";
+                    Notifications.ShowError($"{unavailable} in this browser. Retrying this stream with {replacement}.");
+                    await TuneChannelAsync(retryChannelNumber, _selectedChannel, fallbackAudio, videoPreference);
+                    StateHasChanged();
+                    return;
+                }
+
                 _errorMessage = result.Error ?? "Unable to initialize CMAF playback.";
                 await StopStreamAsync();
             }
             else
             {
                 _effectiveProtocol = string.Equals(result.ManifestUrl, _session.DashManifestUrl, StringComparison.Ordinal) ? "DASH" : "HLS";
+                _playerAudio = result.Audio;
+                _playerVideo = result.Video;
                 await DeviceState.RefreshTunerStatusAsync();
             }
             StateHasChanged();
@@ -173,6 +216,12 @@ public partial class WatchCmaf : IAsyncDisposable
     {
         if (string.Equals(playerEvent.Kind, "audio-fallback", StringComparison.Ordinal))
         {
+            _playerAudio = CmafPlayerAudio.FromDetails(playerEvent.Details);
+            Notifications.ShowError(playerEvent.Message);
+        }
+        else if (string.Equals(playerEvent.Kind, "video-fallback", StringComparison.Ordinal))
+        {
+            _playerVideo = CmafPlayerVideo.FromDetails(playerEvent.Details);
             Notifications.ShowError(playerEvent.Message);
         }
         else if (string.Equals(playerEvent.Kind, "protocol-fallback", StringComparison.Ordinal))
@@ -248,7 +297,11 @@ public partial class WatchCmaf : IAsyncDisposable
         await TuneChannelAsync(channelNumber, _channels.FirstOrDefault(channel => channel.GuideNumber == channelNumber));
     }
 
-    private async Task TuneChannelAsync(string? channelNumber, HDHomeRunChannelEpgSegment? channel)
+    private async Task TuneChannelAsync(
+        string? channelNumber,
+        HDHomeRunChannelEpgSegment? channel,
+        CmafFallbackAudio? streamFallbackAudio = null,
+        CmafPreferredVideo? streamPreferredVideo = null)
     {
         if (_isStarting)
         {
@@ -281,6 +334,8 @@ public partial class WatchCmaf : IAsyncDisposable
             _currentProgram = GetCurrentProgram(normalized);
             _errorMessage = null;
             _manualTuneValidationMessage = null;
+            _streamFallbackAudio = streamFallbackAudio ?? _fallbackAudio;
+            _streamPreferredVideo = streamPreferredVideo ?? _preferredVideo;
             _session = await JS.InvokeAsync<CmafStartResponse>("startCmafSession", BuildStartUrl(normalized));
             if (_session.SourceAudioFallbackApplied)
             {
@@ -305,7 +360,7 @@ public partial class WatchCmaf : IAsyncDisposable
 
     private string BuildStartUrl(string channelNumber)
     {
-        var url = $"/api/stream/cmaf/start/{Uri.EscapeDataString(channelNumber)}?clientId={_clientId}&quality={_quality}&preferredAudio={_preferredAudio}&fallbackAudio={_fallbackAudio}";
+        var url = $"/api/stream/cmaf/start/{Uri.EscapeDataString(channelNumber)}?clientId={_clientId}&quality={_quality}&preferredVideo={_streamPreferredVideo}&preferredAudio={_preferredAudio}&fallbackAudio={_streamFallbackAudio}";
         if (_audioTrack.HasValue)
         {
             url += $"&audioTrack={_audioTrack.Value}";
@@ -347,6 +402,15 @@ public partial class WatchCmaf : IAsyncDisposable
         if (Enum.TryParse<WebPlayerQuality>(args.Value?.ToString(), out var value))
         {
             _quality = value;
+            await SavePreferencesAndRestartAsync();
+        }
+    }
+
+    private async Task ChangePreferredVideo(ChangeEventArgs args)
+    {
+        if (Enum.TryParse<CmafPreferredVideo>(args.Value?.ToString(), out var value))
+        {
+            _preferredVideo = value;
             await SavePreferencesAndRestartAsync();
         }
     }
@@ -437,6 +501,8 @@ public partial class WatchCmaf : IAsyncDisposable
             _isPlaying = false;
             _needsPlayerInit = false;
             _activeStream = null;
+            _playerAudio = null;
+            _playerVideo = null;
             _sessionUsesBurnIn = false;
             _streamInfoTimer?.Dispose();
             _streamInfoTimer = null;
@@ -463,8 +529,9 @@ public partial class WatchCmaf : IAsyncDisposable
 
         RefreshStreamInfo();
         StateHasChanged();
-        if (_isPlaying)
+        if (_isPlaying && DateTime.UtcNow - _lastTunerRefreshRequestUtc >= TimeSpan.FromSeconds(5))
         {
+            _lastTunerRefreshRequestUtc = DateTime.UtcNow;
             await DeviceState.RefreshTunerStatusAsync();
         }
     }
@@ -505,6 +572,10 @@ public partial class WatchCmaf : IAsyncDisposable
             {
                 _quality = preferences.Quality;
             }
+            if (Enum.IsDefined(preferences.PreferredVideo))
+            {
+                _preferredVideo = preferences.PreferredVideo;
+            }
             if (Enum.IsDefined(preferences.PreferredAudio))
             {
                 _preferredAudio = preferences.PreferredAudio;
@@ -540,6 +611,7 @@ public partial class WatchCmaf : IAsyncDisposable
                 {
                     Protocol = _protocol,
                     Quality = _quality,
+                    PreferredVideo = _preferredVideo,
                     PreferredAudio = _preferredAudio,
                     FallbackAudio = _fallbackAudio,
                     SubtitleTrack = _subtitleTrack
@@ -553,15 +625,76 @@ public partial class WatchCmaf : IAsyncDisposable
 
     private HDHomeRunProgram? GetCurrentProgram(string? guideNumber)
     {
+        if (string.IsNullOrWhiteSpace(guideNumber))
+        {
+            return null;
+        }
+
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         return _programs.FirstOrDefault(program => program.GuideNumber == guideNumber && program.StartTime <= now && program.EndTime > now);
     }
 
+    private static string FormatBitRate(long? bitRate)
+    {
+        if (!bitRate.HasValue)
+        {
+            return "unknown";
+        }
+
+        return bitRate.Value >= 1_000_000
+            ? $"{bitRate.Value / 1_000_000d:0.##} Mbps"
+            : $"{bitRate.Value / 1_000d:0} kbps";
+    }
+
+    private static string FormatSourceTrack(ActiveStreamTrack track)
+    {
+        var details = track.Type == MediaTrackType.Video && track.SourceWidth.HasValue && track.SourceHeight.HasValue
+            ? $"{track.SourceWidth}x{track.SourceHeight}"
+            : track.Type == MediaTrackType.Audio && track.SourceChannels.HasValue
+                ? $"{track.SourceChannels} ch"
+                : null;
+        return string.Join(
+            " · ",
+            new[] { $"#{track.SourceIndex}", track.Language, track.Title, track.SourceCodec, details, FormatBitRate(track.SourceBitRate) }
+                .Where(value => !string.IsNullOrEmpty(value)));
+    }
+
+    private static string FormatOutputTrack(ActiveStreamTrack track)
+    {
+        var codec = track.OutputCodec == "copy" ? $"{track.SourceCodec} (copy)" : track.OutputCodec;
+        var details = track.Type == MediaTrackType.Audio && track.OutputChannels.HasValue ? $"{track.OutputChannels} ch" : null;
+        return string.Join(
+            " · ",
+            new[] { track.OutputTitle, codec, details, FormatBitRate(track.OutputBitRate) }
+                .Where(value => !string.IsNullOrEmpty(value)));
+    }
+
     private static string FormatTrackLabel(ActiveStreamTrack track)
     {
+        var disposition = string.Join(
+            "/",
+            new[]
+            {
+                track.IsDefault ? "default" : null,
+                track.IsForced ? "forced" : null,
+                track.IsHearingImpaired ? "hearing impaired" : null
+            }.Where(value => value is not null));
         var channels = track.SourceChannels.HasValue ? $"{track.SourceChannels} ch" : null;
-        return string.Join(" · ", new[] { track.Language ?? "und", track.Title, track.SourceCodec, channels }.Where(value => !string.IsNullOrWhiteSpace(value)));
+        return string.Join(
+            " · ",
+            new[] { track.Language ?? "und", track.Title, track.SourceCodec, channels, string.IsNullOrEmpty(disposition) ? null : disposition }
+                .Where(value => !string.IsNullOrWhiteSpace(value)));
     }
+
+    private static string FormatFallbackAudio(CmafFallbackAudio fallbackAudio) =>
+        fallbackAudio switch
+        {
+            CmafFallbackAudio.Eac3 => "EAC3",
+            CmafFallbackAudio.Ac3 => "AC3",
+            CmafFallbackAudio.AacUpTo7Point1 => "AAC up to 7.1",
+            CmafFallbackAudio.AacUpTo5Point1 => "AAC up to 5.1",
+            _ => "AAC Stereo"
+        };
 
     private void UpdateManualChannelNumber(ChangeEventArgs args)
     {
@@ -604,6 +737,7 @@ public partial class WatchCmaf : IAsyncDisposable
     {
         public CmafPlaybackProtocol Protocol { get; init; }
         public WebPlayerQuality Quality { get; init; }
+        public CmafPreferredVideo PreferredVideo { get; init; }
         public CmafPreferredAudio PreferredAudio { get; init; }
         public CmafFallbackAudio? FallbackAudio { get; init; }
         public WatchAudioOutput? AacFallback { get; init; }
@@ -618,6 +752,9 @@ public partial class WatchCmaf : IAsyncDisposable
     /// <param name="SourceAudioFallbackApplied">Whether startup retried with only the configured fallback rendition.</param>
     /// <param name="FallbackAudioTitle">The configured fallback rendition title.</param>
     /// <param name="Subtitles">The browser-selectable WebVTT sidecars prepared for the session.</param>
+    /// <param name="HasSourceVideoRendition">Whether source video is packaged beside H.264 fallback.</param>
+    /// <param name="SourceVideoCodec">The copied source-video codec used for browser capability testing.</param>
+    /// <param name="FallbackAudioCodec">The configured fallback-audio codec used for browser capability testing.</param>
     public sealed record CmafStartResponse(
         string SessionId,
         string HlsManifestUrl,
@@ -625,7 +762,10 @@ public partial class WatchCmaf : IAsyncDisposable
         string DashManifestUrl,
         bool SourceAudioFallbackApplied = false,
         string? FallbackAudioTitle = null,
-        IReadOnlyList<CmafSubtitleResponse>? Subtitles = null);
+        IReadOnlyList<CmafSubtitleResponse>? Subtitles = null,
+        bool HasSourceVideoRendition = false,
+        string? SourceVideoCodec = null,
+        string? FallbackAudioCodec = null);
 
     /// <summary>Describes one browser-selectable CMAF subtitle sidecar.</summary>
     /// <param name="SourceIndex">The absolute source subtitle index.</param>
@@ -639,7 +779,68 @@ public partial class WatchCmaf : IAsyncDisposable
     /// <param name="Success">Whether the selected manifest loaded.</param>
     /// <param name="Error">The failure message, when unsuccessful.</param>
     /// <param name="ManifestUrl">The effective manifest URL after protocol fallback.</param>
-    public sealed record CmafPlayerResult(bool Success, string? Error, string? ManifestUrl);
+    /// <param name="ErrorCode">The Shaka error code, when initialization fails.</param>
+    /// <param name="Audio">The audio variant Shaka selected after loading the presentation.</param>
+    /// <param name="Video">The video variant Shaka selected after loading the presentation.</param>
+    /// <param name="SourceVideoSupported">Whether the browser reports MSE support for copied source video.</param>
+    /// <param name="FallbackAudioSupported">Whether the browser reports MSE support for configured fallback audio.</param>
+    public sealed record CmafPlayerResult(
+        bool Success,
+        string? Error,
+        string? ManifestUrl,
+        int? ErrorCode = null,
+        CmafPlayerAudio? Audio = null,
+        CmafPlayerVideo? Video = null,
+        bool? SourceVideoSupported = null,
+        bool? FallbackAudioSupported = null);
+
+    /// <summary>Describes the audio variant actively selected by Shaka Player.</summary>
+    /// <param name="Label">The manifest rendition label.</param>
+    /// <param name="Codec">The browser codec identifier.</param>
+    /// <param name="Channels">The reported channel count.</param>
+    public sealed record CmafPlayerAudio(string? Label, string? Codec, int? Channels)
+    {
+        /// <summary>Reads active-audio metadata from an asynchronous player event.</summary>
+        /// <param name="details">The structured player event details.</param>
+        /// <returns>The active audio metadata, or <see langword="null"/> when unavailable.</returns>
+        public static CmafPlayerAudio? FromDetails(JsonElement? details)
+        {
+            if (details is not { ValueKind: JsonValueKind.Object } value)
+            {
+                return null;
+            }
+
+            var label = value.TryGetProperty("label", out var labelProperty) ? labelProperty.GetString() : null;
+            var codec = value.TryGetProperty("codec", out var codecProperty) ? codecProperty.GetString() : null;
+            int? channels = value.TryGetProperty("channels", out var channelsProperty) && channelsProperty.TryGetInt32(out var channelCount)
+                ? channelCount
+                : null;
+            return new CmafPlayerAudio(label, codec, channels);
+        }
+    }
+
+    /// <summary>Describes the video variant actively selected by Shaka Player.</summary>
+    /// <param name="Codec">The browser codec identifier.</param>
+    /// <param name="Width">The reported coded width.</param>
+    /// <param name="Height">The reported coded height.</param>
+    public sealed record CmafPlayerVideo(string? Codec, int? Width, int? Height)
+    {
+        /// <summary>Reads active-video metadata from an asynchronous player event.</summary>
+        /// <param name="details">The structured player event details.</param>
+        /// <returns>The active video metadata, or <see langword="null"/> when unavailable.</returns>
+        public static CmafPlayerVideo? FromDetails(JsonElement? details)
+        {
+            if (details is not { ValueKind: JsonValueKind.Object } value)
+            {
+                return null;
+            }
+
+            var codec = value.TryGetProperty("codec", out var codecProperty) ? codecProperty.GetString() : null;
+            int? width = value.TryGetProperty("width", out var widthProperty) && widthProperty.TryGetInt32(out var widthValue) ? widthValue : null;
+            int? height = value.TryGetProperty("height", out var heightProperty) && heightProperty.TryGetInt32(out var heightValue) ? heightValue : null;
+            return new CmafPlayerVideo(codec, width, height);
+        }
+    }
 
     /// <summary>Describes one asynchronous Shaka player event.</summary>
     /// <param name="Kind">The event category.</param>

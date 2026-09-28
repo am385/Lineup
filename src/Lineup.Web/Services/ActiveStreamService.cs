@@ -75,6 +75,10 @@ public enum SubtitlePresentation
 public sealed partial record MediaTrackMetadata(int Index, MediaTrackType Type, string Codec, long? BitRate, int? Width, int? Height, int? Channels, int? SampleRate);
 public sealed partial record MediaTrackMetadata
 {
+    /// <summary>Gets the codec profile reported by FFprobe.</summary>
+    public string? Profile { get; init; }
+    /// <summary>Gets the codec level reported by FFprobe.</summary>
+    public int? Level { get; init; }
     /// <summary>Gets the ISO language tag reported by the source.</summary>
     public string? Language { get; init; }
     /// <summary>Gets the source track title.</summary>
@@ -702,6 +706,8 @@ public static class MediaProbeParser
             ? null
             : new MediaTrackMetadata(stream.Index, type.Value, stream.CodecName ?? "unknown", ParseLong(stream.BitRate), stream.Width, stream.Height, NormalizeChannelCount(stream.Channels), ParseInt(stream.SampleRate))
             {
+                Profile = NormalizeMetadata(stream.Profile),
+                Level = stream.Level,
                 Language = NormalizeMetadata(stream.Tags?.Language),
                 Title = NormalizeMetadata(stream.Tags?.Title),
                 IsDefault = stream.Disposition?.Default == 1,
@@ -785,6 +791,14 @@ public static class MediaProbeParser
         /// </summary>
         [JsonPropertyName("codec_name")]
         public string? CodecName { get; init; }
+
+        /// <summary>Gets the codec profile.</summary>
+        [JsonPropertyName("profile")]
+        public string? Profile { get; init; }
+
+        /// <summary>Gets the codec level.</summary>
+        [JsonPropertyName("level")]
+        public int? Level { get; init; }
 
         /// <summary>
         /// Gets or sets bit rate.
@@ -1096,9 +1110,8 @@ public static class ActiveStreamPlanFactory
             ? audioPlans.FirstOrDefault(plan => plan.CopySource) ?? audioPlans[0]
             : audioPlans.First(plan => !plan.CopySource);
         var sourceVideo = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video);
-        var copyVideo = selection.SubtitlePresentation != SubtitlePresentation.BurnIn &&
-            request.Quality == WebPlayerQuality.AppDefault &&
-            string.Equals(sourceVideo?.Codec, "h264", StringComparison.OrdinalIgnoreCase);
+        var videoPlans = CmafStreamPlanner.CreateVideoRenditions(sourceVideo, request, selection.SubtitlePresentation == SubtitlePresentation.BurnIn);
+        var primaryVideoPlan = videoPlans[0];
         var outputVideoBitRate = WebVideoTranscodePlanner.GetMaximumBitRate(settings, request.Quality);
         var tracks = source.Tracks.Select(track =>
         {
@@ -1111,7 +1124,7 @@ public static class ActiveStreamPlanFactory
             };
             var outputCodec = track.Type switch
             {
-                MediaTrackType.Video when selected => copyVideo ? "copy" : "h264",
+                MediaTrackType.Video when selected => primaryVideoPlan.CopySource ? "copy" : primaryVideoPlan.Codec,
                 MediaTrackType.Audio when selected => primaryAudioPlan.CopySource ? "copy" : primaryAudioPlan.Codec,
                 MediaTrackType.Subtitle when track.SubtitlePresentation == SubtitlePresentation.WebVtt => "webvtt",
                 MediaTrackType.Subtitle when selected => "burn-in",
@@ -1119,7 +1132,7 @@ public static class ActiveStreamPlanFactory
             };
             var outputBitRate = track.Type switch
             {
-                MediaTrackType.Video when selected => copyVideo ? track.BitRate : outputVideoBitRate,
+                MediaTrackType.Video when selected => primaryVideoPlan.CopySource ? track.BitRate : outputVideoBitRate,
                 MediaTrackType.Audio when selected => primaryAudioPlan.BitRate,
                 _ => null
             };
@@ -1131,10 +1144,30 @@ public static class ActiveStreamPlanFactory
                 track.Type == MediaTrackType.Audio && selected ? primaryAudioPlan.SampleRate : null) with
             {
                 IsSelected = selected,
-                OutputTitle = track.Type == MediaTrackType.Audio && selected ? primaryAudioPlan.Title : null,
+                OutputTitle = track.Type switch
+                {
+                    MediaTrackType.Video when selected => primaryVideoPlan.Title,
+                    MediaTrackType.Audio when selected => primaryAudioPlan.Title,
+                    _ => null
+                },
                 SubtitlePresentation = track.Type == MediaTrackType.Subtitle ? track.SubtitlePresentation : null
             };
         }).ToList();
+
+        if (videoPlans.Count > 1 && sourceVideo is not null)
+        {
+            var secondaryVideoPlan = videoPlans[1];
+            tracks.Add(CreateTrack(
+                sourceVideo,
+                secondaryVideoPlan.CopySource ? "copy" : secondaryVideoPlan.Codec,
+                secondaryVideoPlan.CopySource ? sourceVideo.BitRate : outputVideoBitRate,
+                null,
+                null) with
+            {
+                IsSelected = true,
+                OutputTitle = secondaryVideoPlan.Title
+            });
+        }
 
         if (audioPlans.Count > 1 && selection.Audio is not null)
         {

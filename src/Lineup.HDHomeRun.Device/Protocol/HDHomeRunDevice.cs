@@ -380,28 +380,17 @@ public class HDHomeRunDevice : IDisposable
     /// </summary>
     public async Task<TunerStatus> GetTunerStatusAsync(int tunerIndex, CancellationToken cancellationToken = default)
     {
-        // Try HTTP API first - get status from /status.json (modern devices)
+        HttpTunerStatus? httpStatus = null;
         try
         {
             var httpControl = GetHttpControl();
-            var httpStatus = await httpControl.GetTunerStatusAsync(tunerIndex, cancellationToken);
-            if (httpStatus != null)
+            httpStatus = await httpControl.GetTunerStatusAsync(tunerIndex, cancellationToken);
+            if (httpStatus is { IsActive: false })
             {
-                return new TunerStatus
-                {
-                    TunerIndex = tunerIndex,
-                    Channel = httpStatus.Channel,
-                    VirtualChannel = httpStatus.VirtualChannel,
-                    Target = httpStatus.TargetIP,
-                    LockType = httpStatus.IsActive ? "locked" : null,
-                    SignalStrength = httpStatus.SignalStrengthPercent ?? (httpStatus.IsActive ? 100 : 0),
-                    SignalToNoiseQuality = httpStatus.SignalQualityPercent ?? (httpStatus.IsActive ? 100 : 0),
-                    SymbolErrorQuality = httpStatus.SymbolQualityPercent ?? (httpStatus.IsActive ? 100 : 0),
-                    BitsPerSecond = (httpStatus.NetworkRate ?? 0) * 8 // NetworkRate is in bytes/sec
-                };
+                return CreateHttpTunerStatus(httpStatus);
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             _logger.LogDebug(ex, "HTTP tuner status failed, trying native protocol");
         }
@@ -415,12 +404,34 @@ public class HDHomeRunDevice : IDisposable
             var vchannelStr = await control.GetAsync($"/tuner{tunerIndex}/vchannel", cancellationToken);
             var targetStr = await control.GetAsync($"/tuner{tunerIndex}/target", cancellationToken);
 
-            return TunerStatus.Parse(tunerIndex, statusStr, channelStr, vchannelStr, targetStr);
+            var nativeStatus = TunerStatus.Parse(tunerIndex, statusStr, channelStr, vchannelStr, targetStr);
+            return nativeStatus.BitsPerSecond == 0 && httpStatus?.NetworkRate is > 0
+                ? nativeStatus with { BitsPerSecond = (long)httpStatus.NetworkRate.Value * 8 }
+                : nativeStatus;
+        }
+
+        if (httpStatus != null)
+        {
+            return CreateHttpTunerStatus(httpStatus);
         }
 
         // Return empty status if nothing works
         return new TunerStatus { TunerIndex = tunerIndex };
     }
+
+    private static TunerStatus CreateHttpTunerStatus(HttpTunerStatus status) =>
+        new()
+        {
+            TunerIndex = status.TunerIndex,
+            Channel = status.Channel,
+            VirtualChannel = status.VirtualChannel,
+            Target = status.TargetIP,
+            LockType = status.IsActive ? "locked" : null,
+            SignalStrength = status.SignalStrengthPercent ?? (status.IsActive ? 100 : 0),
+            SignalToNoiseQuality = status.SignalQualityPercent ?? (status.IsActive ? 100 : 0),
+            SymbolErrorQuality = status.SymbolQualityPercent ?? (status.IsActive ? 100 : 0),
+            BitsPerSecond = (long)(status.NetworkRate ?? 0) * 8
+        };
 
     /// <summary>
     /// Gets detailed tuner debug information (native protocol only)

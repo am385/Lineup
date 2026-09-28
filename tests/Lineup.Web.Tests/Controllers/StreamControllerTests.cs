@@ -552,6 +552,49 @@ public class StreamControllerTests
     }
 
     /// <summary>
+    /// Verifies CMAF WebVTT polling remains successful while FFmpeg has not emitted the first caption cue.
+    /// </summary>
+    [Fact]
+    public void GetHlsFile_WebVttNotCreatedYet_ReturnsEmptyChunk()
+    {
+        // Arrange
+        var controller = CreateLifecycleController(Substitute.For<IActiveStreamRegistry>());
+        CreateHlsSession(controller, Substitute.For<ITunerCapacityLease>(), out var sessionId, out _);
+
+        // Act
+        var result = controller.GetHlsFile(sessionId, "captions-2.vtt", offset: 12);
+
+        // Assert
+        var file = Assert.IsType<FileContentResult>(result);
+        Assert.Empty(file.FileContents);
+        Assert.Equal("text/vtt; charset=utf-8", file.ContentType);
+        Assert.Equal("12", controller.Response.Headers["X-Lineup-Subtitle-Offset"]);
+        Assert.IsType<OkObjectResult>(controller.StopHls(sessionId));
+    }
+
+    /// <summary>
+    /// Verifies copied HEVC representations receive browser-compatible codec signaling when served.
+    /// </summary>
+    [Fact]
+    public void GetHlsFile_HevcManifest_RewritesMissingCodec()
+    {
+        // Arrange
+        var controller = CreateLifecycleController(Substitute.For<IActiveStreamRegistry>());
+        var session = CreateHlsSession(controller, Substitute.For<ITunerCapacityLease>(), out var sessionId, out var directory);
+        File.WriteAllText(Path.Combine(directory, CmafStreamPlanner.DashManifestName), "<Representation codecs=\"\" />");
+        SetProperty(session.GetType(), session, "SourceVideoCodec", "hvc1.2.4.L123");
+
+        // Act
+        var result = controller.GetHlsFile(sessionId, CmafStreamPlanner.DashManifestName);
+
+        // Assert
+        var content = Assert.IsType<ContentResult>(result);
+        Assert.Contains("codecs=\"hvc1.2.4.L123\"", content.Content, StringComparison.Ordinal);
+        Assert.Equal("application/dash+xml", content.ContentType);
+        Assert.IsType<OkObjectResult>(controller.StopHls(sessionId));
+    }
+
+    /// <summary>
     /// Verifies that application shutdown terminates and removes every registered HLS session.
     /// </summary>
     [Fact]

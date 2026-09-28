@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text;
 using Lineup.HDHomeRun.Device.Protocol;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -11,6 +12,54 @@ namespace Lineup.HDHomeRun.Device.Tests.Protocol;
 /// </summary>
 public class HDHomeRunDeviceNativeTests
 {
+    /// <summary>
+    /// Verifies ATSC 3.0 native status retains detailed metrics while using the HTTP network rate when native bitrate is zero.
+    /// </summary>
+    [Fact]
+    public async Task GetTunerStatusAsync_Atsc3NativeBitrateMissing_UsesHttpNetworkRate()
+    {
+        // Arrange
+        static byte[] Response(string value) => new HDHomeRunPacketBuilder()
+            .AddTag(HDHomeRunTagType.GetSetValue, $"{value}\0")
+            .Build(HDHomeRunPacketType.GetSetReply);
+        using var nativeStream = new ResponseStream(
+        [
+            .. Response("ch=atsc3:527000000:0 lock=atsc3 ss=99 snq=98 seq=100 bps=0 pps=109"),
+            .. Response("atsc3:527000000:0"),
+            .. Response("104.1"),
+            .. Response("http://192.0.2.50:5000")
+        ]);
+        using var nativeControl = new HDHomeRunControl(nativeStream, NullLogger<HDHomeRunControl>.Instance);
+        using var httpControl = new HDHomeRunHttpControl(
+            "http://192.0.2.10",
+            NullLogger<HDHomeRunHttpControl>.Instance,
+            new HttpClient(new StaticResponseHandler(
+                """[{"Resource":"tuner0","VctNumber":"104.1","VctName":"PBS","Frequency":527000000,"NetworkRate":1636864}]""")));
+        var httpFactory = Substitute.For<IHDHomeRunHttpControlFactory>();
+        httpFactory.Create(Arg.Any<string>()).Returns(httpControl);
+        using var device = new HDHomeRunDevice(
+            new HDHomeRunDiscoveredDevice
+            {
+                IpAddress = IPAddress.Parse("192.0.2.10"),
+                DeviceId = 0x12345678,
+                DeviceType = HDHomeRunDeviceType.Tuner,
+                BaseUrl = "http://192.0.2.10"
+            },
+            NullLoggerFactory.Instance,
+            httpFactory,
+            nativeControl);
+
+        // Act
+        var status = await device.GetTunerStatusAsync(0, TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal("atsc3", status.LockType);
+        Assert.Equal(109, status.PacketsPerSecond);
+        Assert.Equal(13_094_912, status.BitsPerSecond);
+        Assert.Equal("atsc3:527000000:0", status.Channel);
+        Assert.Equal("104.1", status.VirtualChannel);
+    }
+
     /// <summary>
     /// Verifies a transient connection failure does not prevent a later successful attempt.
     /// </summary>
@@ -331,5 +380,15 @@ public class HDHomeRunDeviceNativeTests
             WasDisposed = true;
             base.Dispose(disposing);
         }
+    }
+
+    private sealed class StaticResponseHandler(string content) : HttpMessageHandler
+    {
+        /// <inheritdoc/>
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(content, Encoding.UTF8, "application/json")
+            });
     }
 }

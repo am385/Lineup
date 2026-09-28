@@ -56,6 +56,38 @@ public class ActiveStreamServiceTests
     }
 
     /// <summary>
+    /// Verifies shared CMAF metadata reports both copied HEVC source video and encoded H.264 fallback.
+    /// </summary>
+    [Fact]
+    public void CreateCmaf_HevcSource_DescribesSourceAndFallbackVideo()
+    {
+        // Arrange
+        var source = new MediaProbeResult(
+        [
+            new MediaTrackMetadata(0, MediaTrackType.Video, "hevc", 12_000_000, 1920, 1080, null, null) { Profile = "Main 10", Level = 123 },
+            new MediaTrackMetadata(1, MediaTrackType.Audio, "aac", 128_000, null, null, 2, 48_000)
+        ], 12_128_000);
+        var selection = WatchStreamPlanner.SelectTracks(source, 1, null);
+
+        // Act
+        var snapshot = ActiveStreamPlanFactory.CreateCmaf("session", "105.1", DateTime.UtcNow, source, selection, new CmafStreamRequest(), new AppSettings());
+
+        // Assert
+        Assert.Collection(
+            snapshot.Tracks.Where(track => track.Type == MediaTrackType.Video),
+            sourceVideo =>
+            {
+                Assert.Equal("Source", sourceVideo.OutputTitle);
+                Assert.Equal("copy", sourceVideo.OutputCodec);
+            },
+            fallbackVideo =>
+            {
+                Assert.Equal("Fallback H.264", fallbackVideo.OutputTitle);
+                Assert.Equal("h264", fallbackVideo.OutputCodec);
+            });
+    }
+
+    /// <summary>
     /// Verifies live and piped probes request decoded frames needed to detect embedded ATSC captions.
     /// </summary>
     [Fact]
@@ -352,7 +384,7 @@ public class ActiveStreamServiceTests
             """
             {
               "streams": [
-                { "index": 0, "codec_type": "video", "codec_name": "hevc", "bit_rate": "8000000", "width": 1920, "height": 1080 },
+                { "index": 0, "codec_type": "video", "codec_name": "hevc", "profile": "Main 10", "level": 123, "bit_rate": "8000000", "width": 1920, "height": 1080 },
                 { "index": 1, "codec_type": "audio", "codec_name": "ac4", "channels": 8, "sample_rate": "48000" },
                 { "index": 2, "codec_type": "subtitle", "codec_name": "dvb_subtitle" }
               ],
@@ -374,6 +406,8 @@ public class ActiveStreamServiceTests
                 Assert.Equal(8_000_000, video.BitRate);
                 Assert.Equal(1920, video.Width);
                 Assert.Equal(1080, video.Height);
+                Assert.Equal("Main 10", video.Profile);
+                Assert.Equal(123, video.Level);
             },
             audio =>
             {

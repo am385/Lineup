@@ -125,7 +125,16 @@
         runLineupFactoryResetWatch();
     }
         
-        async function initCmafPlayer(videoElementId, manifestUrl, protocolFallbackUrl, preferredAudio, subtitles, dotNetReference) {
+        async function initCmafPlayer(
+            videoElementId,
+            manifestUrl,
+            protocolFallbackUrl,
+            preferredAudio,
+            preferredVideo,
+            sourceVideoCodec,
+            fallbackAudioCodec,
+            subtitles,
+            dotNetReference) {
             stopMediaPlayer(videoElementId);
 
             const video = document.getElementById(videoElementId);
@@ -144,23 +153,53 @@
             window.lineupMediaPlayers.set(videoElementId, video);
 
             let sourceFallbackApplied = false;
+            let videoFallbackApplied = false;
+            const codecMimeTypes = {
+                aac: 'audio/mp4; codecs="mp4a.40.2"',
+                ac3: 'audio/mp4; codecs="ac-3"',
+                eac3: 'audio/mp4; codecs="ec-3"'
+            };
+            const supportsMediaSourceType = type => {
+                const mediaSource = window.MediaSource || window.ManagedMediaSource;
+                if (!type || !mediaSource?.isTypeSupported) {
+                    return null;
+                }
+                try {
+                    return mediaSource.isTypeSupported(type);
+                } catch {
+                    return null;
+                }
+            };
+            const sourceVideoSupported = sourceVideoCodec
+                ? supportsMediaSourceType(`video/mp4; codecs="${sourceVideoCodec}"`)
+                : null;
+            const fallbackAudioSupported = supportsMediaSourceType(codecMimeTypes[fallbackAudioCodec] || null);
             const report = (kind, message, details = null) => {
                 if (dotNetReference) {
                     void dotNetReference.invokeMethodAsync('OnCmafPlayerEvent', { kind, message, details });
                 }
             };
-            const choosePreferredAudio = () => {
+            const isFallbackVideo = track => /(^|[.,])avc[13]/i.test(track.videoCodec || '');
+            const choosePreferredVariant = () => {
                 const variants = player.getVariantTracks().filter(track => track.audioCodec);
                 const wantsSource = preferredAudio === 'Source';
-                const preferred = variants.find(track => {
+                const wantsSourceVideo = preferredVideo === 'Source';
+                const videoCandidates = variants.filter(track => wantsSourceVideo ? !isFallbackVideo(track) : isFallbackVideo(track));
+                const candidates = videoCandidates.length > 0 ? videoCandidates : variants;
+                const preferred = candidates.find(track => {
                     const label = (track.label || '').toLowerCase();
                     return wantsSource ? label.includes('source') : label.includes('fallback');
-                });
+                }) || candidates[0];
                 if (preferred && !preferred.active) {
                     player.selectVariantTrack(preferred, true, 0);
                 }
                 const active = player.getVariantTracks().find(track => track.active);
-                return active ? { label: active.label, codec: active.audioCodec, channels: active.channelsCount } : null;
+                return active
+                    ? {
+                        audio: { label: active.label, codec: active.audioCodec, channels: active.channelsCount },
+                        video: { codec: active.videoCodec, width: active.width, height: active.height }
+                    }
+                    : { audio: null, video: null };
             };
             const tryAudioFallback = async error => {
                 if (sourceFallbackApplied || preferredAudio !== 'Source') {
@@ -175,20 +214,44 @@
                 }
                 const fallback = player.getVariantTracks().find(track => {
                     const label = (track.label || '').toLowerCase();
-                    return label.includes('fallback');
+                    return label.includes('fallback') && track.videoId === activeAudio.videoId;
                 });
                 if (!fallback) {
                     return false;
                 }
                 sourceFallbackApplied = true;
                 player.selectVariantTrack(fallback, true, 0);
-                report('audio-fallback', 'Source audio is unavailable in this browser. Using the configured fallback rendition for this stream.', error?.detail || null);
+                report(
+                    'audio-fallback',
+                    'Source audio is unavailable in this browser. Using the configured fallback rendition for this stream.',
+                    { label: fallback.label, codec: fallback.audioCodec, channels: fallback.channelsCount });
+                return true;
+            };
+            const tryVideoFallback = async error => {
+                if (videoFallbackApplied || preferredVideo !== 'Source' || error?.category !== shaka.util.Error.Category.MEDIA) {
+                    return false;
+                }
+                const activeVideo = player.getVariantTracks().find(track => track.active);
+                if (!activeVideo || isFallbackVideo(activeVideo)) {
+                    return false;
+                }
+                const fallback = player.getVariantTracks().find(track =>
+                    isFallbackVideo(track) && track.audioId === activeVideo.audioId);
+                if (!fallback) {
+                    return false;
+                }
+                videoFallbackApplied = true;
+                player.selectVariantTrack(fallback, true, 0);
+                report(
+                    'video-fallback',
+                    'Source video is unavailable in this browser. Using the H.264 fallback rendition for this stream.',
+                    { codec: fallback.videoCodec, width: fallback.width, height: fallback.height });
                 return true;
             };
 
             player.addEventListener('error', event => {
                 void (async () => {
-                    if (!await tryAudioFallback(event.detail)) {
+                    if (!await tryVideoFallback(event.detail) && !await tryAudioFallback(event.detail)) {
                         report('error', 'CMAF playback failed.', event.detail || null);
                     }
                 })();
@@ -201,7 +264,13 @@
                 if (!protocolFallbackUrl) {
                     await player.destroy();
                     window.lineupCmafPlayers.delete(videoElementId);
-                    return { success: false, error: error?.message || 'Unable to load the CMAF presentation.' };
+                    return {
+                        success: false,
+                        error: error?.message || 'Unable to load the CMAF presentation.',
+                        errorCode: error?.code || null,
+                        sourceVideoSupported,
+                        fallbackAudioSupported
+                    };
                 }
                 report('protocol-fallback', 'The preferred protocol could not start. Retrying with the alternate CMAF manifest.');
                 effectiveManifestUrl = protocolFallbackUrl;
@@ -210,11 +279,17 @@
                 } catch (fallbackError) {
                     await player.destroy();
                     window.lineupCmafPlayers.delete(videoElementId);
-                    return { success: false, error: fallbackError?.message || 'Unable to load either CMAF manifest.' };
+                    return {
+                        success: false,
+                        error: fallbackError?.message || 'Unable to load either CMAF manifest.',
+                        errorCode: fallbackError?.code || null,
+                        sourceVideoSupported,
+                        fallbackAudioSupported
+                    };
                 }
             }
 
-            const audio = choosePreferredAudio();
+            const activeVariant = choosePreferredVariant();
             for (const subtitle of subtitles || []) {
                 startLineupSubtitlePolling(
                     video,
@@ -229,7 +304,14 @@
             } catch {
                 // Browser autoplay policy may require user interaction; loaded playback remains usable.
             }
-            return { success: true, manifestUrl: effectiveManifestUrl, audio };
+            return {
+                success: true,
+                manifestUrl: effectiveManifestUrl,
+                audio: activeVariant.audio,
+                video: activeVariant.video,
+                sourceVideoSupported,
+                fallbackAudioSupported
+            };
         }
 
         async function startCmafSession(startUrl) {
@@ -412,6 +494,11 @@
                     const response = await fetch(
                         `${subtitleUrl}${separator}offset=${offset}`,
                         { cache: 'no-store', signal: abortController.signal });
+                    if (response.status === 404) {
+                        abortController.abort();
+                        clearInterval(timer);
+                        return;
+                    }
                     if (!response.ok) {
                         return;
                     }

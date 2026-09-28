@@ -1057,6 +1057,13 @@ public class StreamController : ControllerBase
                 HlsDirectory = directory,
                 PlaylistPath = manifestPath,
                 StartTime = startedAt,
+                SourceVideoCodec = CmafStreamPlanner.CreateVideoRenditions(
+                    source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video),
+                    request,
+                    selection.SubtitlePresentation == SubtitlePresentation.BurnIn)
+                    .Any(plan => plan.CopySource)
+                        ? CmafStreamPlanner.CreateHevcCodecString(source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video))
+                        : null,
                 CapacityLease = capacityLease,
                 CaptionProcess = captionProcess,
                 CaptionErrorTask = captionErrorTask
@@ -1118,6 +1125,7 @@ public class StreamController : ControllerBase
                             HlsDirectory = directory,
                             PlaylistPath = manifestPath,
                             StartTime = startedAt,
+                            SourceVideoCodec = sourceSession.SourceVideoCodec,
                             CapacityLease = sourceSession.CapacityLease,
                             CaptionProcess = sourceSession.CaptionProcess,
                             CaptionErrorTask = sourceSession.CaptionErrorTask
@@ -1189,10 +1197,17 @@ public class StreamController : ControllerBase
                     Volatile.Write(ref session.IsStarting, 0);
                     var baseUrl = $"/api/stream/cmaf/{sessionId}";
                     var hlsUrl = $"{baseUrl}/{CmafStreamPlanner.HlsManifestName}";
+                    var fallbackAudioPlan = CmafStreamPlanner.CreateAudioPlan(selection.Audio, CmafPreferredAudio.Fallback, fallbackAudio);
                     return Ok(new CmafStreamResponse(sessionId, hlsUrl, $"/api/stream/hls/{sessionId}/{CmafStreamPlanner.HlsManifestName}", $"{baseUrl}/{CmafStreamPlanner.DashManifestName}")
                     {
                         SourceAudioFallbackApplied = sourceAudioFallbackApplied,
-                        FallbackAudioTitle = CmafStreamPlanner.CreateAudioPlan(selection.Audio, CmafPreferredAudio.Fallback, fallbackAudio).Title,
+                        FallbackAudioTitle = fallbackAudioPlan.Title,
+                        FallbackAudioCodec = fallbackAudioPlan.Codec,
+                        HasSourceVideoRendition = CmafStreamPlanner.CreateVideoRenditions(
+                            source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video),
+                            request,
+                            selection.SubtitlePresentation == SubtitlePresentation.BurnIn).Any(plan => plan.CopySource),
+                        SourceVideoCodec = session.SourceVideoCodec,
                         Subtitles = selectableSubtitles.Select(subtitle => new CmafSubtitleRendition(
                             subtitle.Index,
                             subtitle.Title ?? subtitle.Language ?? $"Subtitle {subtitle.Index}",
@@ -1248,9 +1263,11 @@ public class StreamController : ControllerBase
             return BadRequest(new { error = "Invalid HLS filename" });
         }
 
-        if (!_transientData.FileExists(filePath))
+        var extension = Path.GetExtension(filename);
+        var isSubtitle = string.Equals(extension, ".vtt", StringComparison.OrdinalIgnoreCase);
+        if (isSubtitle && offset < 0)
         {
-            return NotFound(new { error = "File not found" });
+            return BadRequest(new { error = "Invalid subtitle offset." });
         }
 
         lock (session.LifecycleGate)
@@ -1265,18 +1282,26 @@ public class StreamController : ControllerBase
             Interlocked.Exchange(ref session.LastAccessTimestamp, _timeProvider.GetTimestamp());
         }
 
-        var extension = Path.GetExtension(filename);
-        if (string.Equals(extension, ".vtt", StringComparison.OrdinalIgnoreCase))
+        if (!_transientData.FileExists(filePath))
         {
-            if (offset < 0)
+            if (!isSubtitle)
             {
-                return BadRequest(new { error = "Invalid subtitle offset." });
+                return NotFound(new { error = "File not found" });
             }
 
+            Response.Headers.CacheControl = "no-cache, no-store";
+            Response.Headers["X-Lineup-Subtitle-Offset"] = offset.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            return File(Array.Empty<byte>(), "text/vtt; charset=utf-8");
+        }
+
+        if (isSubtitle)
+        {
             using var stream = _transientData.OpenRead(filePath);
             if (stream is null)
             {
-                return NotFound(new { error = "File not found" });
+                Response.Headers.CacheControl = "no-cache, no-store";
+                Response.Headers["X-Lineup-Subtitle-Offset"] = offset.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                return File(Array.Empty<byte>(), "text/vtt; charset=utf-8");
             }
             var effectiveOffset = Math.Min(offset, stream.Length);
             stream.Position = effectiveOffset;
@@ -1285,6 +1310,24 @@ public class StreamController : ControllerBase
             Response.Headers.CacheControl = "no-cache, no-store";
             Response.Headers["X-Lineup-Subtitle-Offset"] = (effectiveOffset + data.Length).ToString(System.Globalization.CultureInfo.InvariantCulture);
             return File(data, "text/vtt; charset=utf-8");
+        }
+
+        if (session.SourceVideoCodec is { } sourceVideoCodec &&
+            (string.Equals(extension, ".mpd", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(filename, CmafStreamPlanner.HlsManifestName, StringComparison.Ordinal)))
+        {
+            using var stream = _transientData.OpenRead(filePath);
+            if (stream is null)
+            {
+                return NotFound(new { error = "File not found" });
+            }
+
+            using var reader = new StreamReader(stream);
+            var manifest = CmafStreamPlanner.RewriteManifestCodecs(reader.ReadToEnd(), sourceVideoCodec);
+            Response.Headers.CacheControl = "no-cache, no-store";
+            return Content(
+                manifest,
+                string.Equals(extension, ".mpd", StringComparison.OrdinalIgnoreCase) ? "application/dash+xml" : "application/vnd.apple.mpegurl");
         }
 
         var contentType = extension switch
@@ -1864,6 +1907,8 @@ public class StreamController : ControllerBase
         /// Gets or sets start time.
         /// </summary>
         public DateTime StartTime { get; init; }
+        /// <summary>Gets the browser codec string inserted into manifests for copied HEVC video.</summary>
+        public string? SourceVideoCodec { get; init; }
         /// <summary>
         /// Gets or sets the physical tuner capacity lease owned by this session.
         /// </summary>

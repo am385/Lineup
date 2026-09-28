@@ -285,14 +285,18 @@ source indexes return an explicit stream error.
 **Watch CMAF** is available alongside the existing Watch page at `/watch-cmaf`. It creates one two-second fragmented-MP4
 presentation and exposes the same initialization and media fragments through both a DASH MPD and HLS playlists. Auto mode
 uses DASH first and retries HLS without opening another tuner or packaging session; explicit DASH or HLS selections never
-switch protocols silently. Shaka Player provides the initial cross-browser playback implementation. Eligible AAC, AC-3,
-E-AC-3, and AC-4 source audio is copied into a source rendition, while a separately encoded fallback rendition provides
+switch protocols silently. Shaka Player provides the initial cross-browser playback implementation. At App Default quality,
+eligible H.264 or HEVC source video is copied when Source video is preferred. HEVC is packaged beside an H.264 compatibility
+rendition so Shaka can select source video when the browser exposes it and use H.264 otherwise. Explicit H.264 Fallback,
+scaled quality settings, and bitmap subtitle burn-in produce only H.264. Eligible AAC, AC-3, E-AC-3, and AC-4 source audio is
+copied into a source rendition, while a separately encoded fallback rendition provides
 per-stream compatibility without changing the saved Source preference. Fallback Audio choices are ordered from highest
 quality/lowest compatibility to highest compatibility: EAC3 up to 5.1, AC3 up to 5.1, AAC up to 7.1, AAC up to 5.1, and
 AAC Stereo. AAC Stereo is the default. FFmpeg encodes channel-based E-AC-3 but cannot create E-AC-3 JOC/Atmos; existing
 E-AC-3 Atmos metadata can be retained only when the Source rendition is copied successfully.
 
-Watch CMAF has independent browser preferences for protocol, quality, preferred Source or Fallback audio, fallback profile, and subtitles.
+Watch CMAF has independent browser preferences for protocol, quality, preferred Source or H.264 Fallback video, preferred
+Source or Fallback audio, fallback profile, and subtitles.
 Every standalone text subtitle and detected embedded-caption track is prepared as a transient WebVTT sidecar so the browser can
 offer all of them through the video player's native captions control without restarting the shared session. The page-level
 subtitle selector lists only bitmap burn-in choices. Text conversion is inexpensive; embedded-caption extraction adds one moderate

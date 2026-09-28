@@ -98,6 +98,89 @@ public class CmafStreamPlannerTests
     }
 
     /// <summary>
+    /// Verifies HEVC source video is packaged beside an independently encoded H.264 compatibility rendition.
+    /// </summary>
+    [Fact]
+    public void CreateArguments_HevcSource_MapsSourceAndH264Fallback()
+    {
+        // Arrange
+        var source = Source("aac") with
+        {
+            Tracks =
+            [
+                Track(0, MediaTrackType.Video, "hevc") with { BitRate = 12_000_000, Profile = "Main 10", Level = 123 },
+                Track(1, MediaTrackType.Audio, "aac") with { Channels = 2 }
+            ]
+        };
+        var selection = WatchStreamPlanner.SelectTracks(source, 1, null);
+
+        // Act
+        var arguments = CmafStreamPlanner.CreateArguments(new AppSettings(), source, selection, new CmafStreamRequest(), "manifest.mpd");
+
+        // Assert
+        Assert.Equal(2, arguments.Select((argument, index) => (argument, index)).Count(item => item.argument == "-map" && arguments[item.index + 1] == "0:v:0?"));
+        AssertOption(arguments, "-c:v:0", "copy");
+        AssertOption(arguments, "-tag:v:0", "hvc1");
+        AssertOption(arguments, "-metadata:s:v:0", "title=Source");
+        AssertOption(arguments, "-c:v:1", "libx264");
+        AssertOption(arguments, "-metadata:s:v:1", "title=Fallback H.264");
+    }
+
+    /// <summary>
+    /// Verifies explicit fallback video omits the otherwise eligible HEVC source rendition.
+    /// </summary>
+    [Fact]
+    public void CreateVideoRenditions_FallbackPreference_ProducesOnlyH264()
+    {
+        // Arrange
+        var video = Track(0, MediaTrackType.Video, "hevc") with { BitRate = 12_000_000, Profile = "Main 10", Level = 123 };
+        var request = new CmafStreamRequest { PreferredVideo = CmafPreferredVideo.Fallback };
+
+        // Act
+        var rendition = Assert.Single(CmafStreamPlanner.CreateVideoRenditions(video, request, burnIn: false));
+
+        // Assert
+        Assert.False(rendition.CopySource);
+        Assert.Equal("h264", rendition.Codec);
+        Assert.Equal("Fallback H.264", rendition.Title);
+    }
+
+    /// <summary>
+    /// Verifies HEVC source metadata produces the RFC 6381 codec string required by browser manifests.
+    /// </summary>
+    [Theory]
+    [InlineData("Main", 120, "hvc1.1.6.L120")]
+    [InlineData("Main 10", 123, "hvc1.2.4.L123")]
+    public void CreateHevcCodecString_KnownProfileAndLevel_ReturnsBrowserCodec(string profile, int level, string expected)
+    {
+        // Arrange
+        var video = Track(0, MediaTrackType.Video, "hevc") with { Profile = profile, Level = level };
+
+        // Act
+        var codec = CmafStreamPlanner.CreateHevcCodecString(video);
+
+        // Assert
+        Assert.Equal(expected, codec);
+    }
+
+    /// <summary>
+    /// Verifies omitted FFmpeg HEVC codec values are supplied in both DASH and HLS manifests.
+    /// </summary>
+    [Fact]
+    public void RewriteManifestCodecs_EmptyHevcValue_InsertsBrowserCodec()
+    {
+        // Arrange
+        const string manifest = "<Representation codecs=\"\" />\n#EXT-X-STREAM-INF:CODECS=\",mp4a.40.2\"";
+
+        // Act
+        var rewritten = CmafStreamPlanner.RewriteManifestCodecs(manifest, "hvc1.2.4.L123");
+
+        // Assert
+        Assert.Contains("codecs=\"hvc1.2.4.L123\"", rewritten, StringComparison.Ordinal);
+        Assert.Contains("CODECS=\"hvc1.2.4.L123,mp4a.40.2\"", rewritten, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies an AC-4 MP4 tag failure requests one fallback-only startup retry.
     /// </summary>
     [Fact]

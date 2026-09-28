@@ -43,6 +43,18 @@ public enum CmafPreferredAudio
 }
 
 /// <summary>
+/// Selects the video policy for a shared CMAF presentation.
+/// </summary>
+public enum CmafPreferredVideo
+{
+    /// <summary>Copies eligible source video and packages H.264 beside it when compatibility fallback may be needed.</summary>
+    Source,
+
+    /// <summary>Always uses the H.264 compatibility output.</summary>
+    Fallback
+}
+
+/// <summary>
 /// Selects the codec and channel limit for the CMAF compatibility rendition.
 /// </summary>
 public enum CmafFallbackAudio
@@ -70,6 +82,9 @@ public sealed record CmafStreamRequest
 {
     /// <summary>Gets the selected video quality.</summary>
     public WebPlayerQuality Quality { get; init; } = WebPlayerQuality.AppDefault;
+
+    /// <summary>Gets the requested source-video or H.264 fallback policy.</summary>
+    public CmafPreferredVideo PreferredVideo { get; init; } = CmafPreferredVideo.Source;
 
     /// <summary>Gets the absolute selected source audio stream index.</summary>
     public int? AudioTrack { get; init; }
@@ -117,8 +132,17 @@ public sealed record CmafStreamResponse(string SessionId, string HlsManifestUrl,
     /// <summary>Gets the configured fallback rendition title.</summary>
     public string? FallbackAudioTitle { get; init; }
 
+    /// <summary>Gets the configured fallback rendition codec.</summary>
+    public string? FallbackAudioCodec { get; init; }
+
     /// <summary>Gets browser-selectable text and closed-caption sidecars prepared for this session.</summary>
     public IReadOnlyList<CmafSubtitleRendition> Subtitles { get; init; } = [];
+
+    /// <summary>Gets whether this presentation includes a source-video rendition beside H.264 fallback.</summary>
+    public bool HasSourceVideoRendition { get; init; }
+
+    /// <summary>Gets the RFC 6381 codec string for copied source video when browser capability testing is required.</summary>
+    public string? SourceVideoCodec { get; init; }
 }
 
 /// <summary>
@@ -143,6 +167,15 @@ public sealed record CmafSubtitleRendition(int SourceIndex, string Label, string
 public sealed record CmafAudioPlan(bool CopySource, string Codec, int? Channels, long? BitRate, int? SampleRate, string Title);
 
 /// <summary>
+/// Describes one CMAF video output.
+/// </summary>
+/// <param name="CopySource">Whether FFmpeg copies the source stream.</param>
+/// <param name="Codec">The output codec name.</param>
+/// <param name="BitRate">The source or configured output bitrate.</param>
+/// <param name="Title">The rendition title exposed to players and diagnostics.</param>
+public sealed record CmafVideoPlan(bool CopySource, string Codec, long? BitRate, string Title);
+
+/// <summary>
 /// Builds the single FFmpeg DASH muxer presentation shared by DASH and HLS clients.
 /// </summary>
 public static class CmafStreamPlanner
@@ -150,6 +183,10 @@ public static class CmafStreamPlanner
     private static readonly HashSet<string> CopyEligibleAudioCodecs = new(StringComparer.OrdinalIgnoreCase)
     {
         "aac", "ac3", "eac3", "ac4"
+    };
+    private static readonly HashSet<string> CopyEligibleVideoCodecs = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "h264", "hevc"
     };
 
     /// <summary>Gets the DASH manifest filename.</summary>
@@ -160,6 +197,37 @@ public static class CmafStreamPlanner
 
     /// <summary>Returns whether the selected source audio codec can be copied into fragmented MP4.</summary>
     public static bool CanCopySourceAudio(string? codec) => codec is not null && CopyEligibleAudioCodecs.Contains(codec);
+
+    /// <summary>Returns whether the selected source video codec can be copied into fragmented MP4.</summary>
+    public static bool CanCopySourceVideo(string? codec) => codec is not null && CopyEligibleVideoCodecs.Contains(codec);
+
+    /// <summary>Creates an RFC 6381 HEVC codec string from FFprobe profile and level metadata.</summary>
+    public static string? CreateHevcCodecString(MediaTrackMetadata? video)
+    {
+        if (video is null || !string.Equals(video.Codec, "hevc", StringComparison.OrdinalIgnoreCase) || video.Level is not > 0)
+        {
+            return null;
+        }
+
+        var profile = video.Profile?.Trim() switch
+        {
+            "Main" => "1.6",
+            "Main 10" => "2.4",
+            "Main Still Picture" => "3",
+            _ => null
+        };
+        return profile is null ? null : $"hvc1.{profile}.L{video.Level.Value}";
+    }
+
+    /// <summary>Supplies HEVC codec signaling omitted by FFmpeg's DASH muxer when source video is copied.</summary>
+    public static string RewriteManifestCodecs(string manifest, string hevcCodec)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(manifest);
+        ArgumentException.ThrowIfNullOrWhiteSpace(hevcCodec);
+        return manifest
+            .Replace("codecs=\"\"", $"codecs=\"{hevcCodec}\"", StringComparison.Ordinal)
+            .Replace("CODECS=\",", $"CODECS=\"{hevcCodec},", StringComparison.Ordinal);
+    }
 
     /// <summary>Validates selected CMAF tracks with the same selection and caption-extraction policy as Watch.</summary>
     public static WatchTrackSelection SelectTracks(MediaProbeResult source, CmafStreamRequest request)
@@ -227,6 +295,31 @@ public static class CmafStreamPlanner
         return [CreateAudioPlan(audio, CmafPreferredAudio.Source, fallback), fallbackPlan];
     }
 
+    /// <summary>Creates the video renditions packaged into one shared CMAF presentation.</summary>
+    public static IReadOnlyList<CmafVideoPlan> CreateVideoRenditions(MediaTrackMetadata? video, CmafStreamRequest request, bool burnIn)
+    {
+        if (!Enum.IsDefined(request.PreferredVideo))
+        {
+            throw new ArgumentOutOfRangeException(nameof(request), request.PreferredVideo, "Unsupported CMAF preferred video.");
+        }
+
+        var fallback = new CmafVideoPlan(false, "h264", null, "Fallback H.264");
+        var canSignalSource = !string.Equals(video?.Codec, "hevc", StringComparison.OrdinalIgnoreCase) || CreateHevcCodecString(video) is not null;
+        if (burnIn ||
+            request.PreferredVideo != CmafPreferredVideo.Source ||
+            request.Quality != WebPlayerQuality.AppDefault ||
+            !CanCopySourceVideo(video?.Codec) ||
+            !canSignalSource)
+        {
+            return [fallback];
+        }
+
+        var source = new CmafVideoPlan(true, video!.Codec, video.BitRate, "Source");
+        return string.Equals(video.Codec, "h264", StringComparison.OrdinalIgnoreCase)
+            ? [source]
+            : [source, fallback];
+    }
+
     /// <summary>Returns whether startup diagnostics identify an unsupported source-audio MP4 muxer tag that can be retried with fallback audio.</summary>
     public static bool ShouldRetryWithFallback(CmafStreamRequest request, MediaTrackMetadata? audio, IEnumerable<string> diagnostics)
     {
@@ -261,6 +354,8 @@ public static class CmafStreamPlanner
         ArgumentException.ThrowIfNullOrWhiteSpace(manifestPath);
         var audioPlans = CreateAudioRenditions(selection.Audio, request.PreferredAudio, ResolveFallbackAudio(request));
         var burnIn = selection.SubtitlePresentation == SubtitlePresentation.BurnIn;
+        var sourceVideo = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video);
+        var videoPlans = CreateVideoRenditions(sourceVideo, request, burnIn);
         List<string> arguments =
         [
             "-hide_banner", "-loglevel", "info",
@@ -280,10 +375,16 @@ public static class CmafStreamPlanner
         }
         else
         {
-            arguments.AddRange(["-map", "0:v:0?"]);
+            foreach (var _ in videoPlans)
+            {
+                arguments.AddRange(["-map", "0:v:0?"]);
+            }
         }
 
-        AddVideoArguments(arguments, settings, source, request.Quality, burnIn);
+        for (var index = 0; index < videoPlans.Count; index++)
+        {
+            AddVideoArguments(arguments, settings, videoPlans[index], index, request.Quality, burnIn);
+        }
         foreach (var _ in audioPlans)
         {
             arguments.AddRange(selection.Audio is not null ? ["-map", $"0:{selection.Audio.Index}"] : ["-map", "0:a:0?"]);
@@ -340,12 +441,16 @@ public static class CmafStreamPlanner
         ]);
     }
 
-    private static void AddVideoArguments(List<string> arguments, AppSettings settings, MediaProbeResult source, WebPlayerQuality quality, bool burnIn)
+    private static void AddVideoArguments(List<string> arguments, AppSettings settings, CmafVideoPlan plan, int outputIndex, WebPlayerQuality quality, bool burnIn)
     {
-        var codec = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video)?.Codec;
-        if (!burnIn && quality == WebPlayerQuality.AppDefault && string.Equals(codec, "h264", StringComparison.OrdinalIgnoreCase))
+        var streamSpecifier = $":v:{outputIndex}";
+        if (plan.CopySource)
         {
-            arguments.AddRange(["-c:v", "copy"]);
+            arguments.AddRange([$"-c{streamSpecifier}", "copy", $"-metadata:s{streamSpecifier}", $"title={plan.Title}"]);
+            if (string.Equals(plan.Codec, "hevc", StringComparison.OrdinalIgnoreCase))
+            {
+                arguments.AddRange([$"-tag{streamSpecifier}", "hvc1"]);
+            }
             return;
         }
 
@@ -357,16 +462,17 @@ public static class CmafStreamPlanner
             _ => settings.WebVideoQuality
         };
         arguments.AddRange([
-            "-c:v", "libx264", "-preset", settings.WebVideoPreset.ToString().ToLowerInvariant(),
+            $"-c{streamSpecifier}", "libx264", $"-preset{streamSpecifier}", settings.WebVideoPreset.ToString().ToLowerInvariant(),
             "-tune", "zerolatency", "-crf", crf.ToString(),
-            "-maxrate", $"{maximumBitRate}M", "-bufsize", $"{maximumBitRate * 2}M",
-            "-profile:v", "high", "-level", "4.2", "-pix_fmt", "yuv420p",
+            $"-maxrate{streamSpecifier}", $"{maximumBitRate}M", $"-bufsize{streamSpecifier}", $"{maximumBitRate * 2}M",
+            $"-profile{streamSpecifier}", "high", $"-level{streamSpecifier}", "4.2", $"-pix_fmt{streamSpecifier}", "yuv420p",
             "-flags", "+cgop", "-g", "120", "-keyint_min", "60", "-sc_threshold", "0",
-            "-force_key_frames", "expr:gte(t,n_forced*2)"
+            $"-force_key_frames{streamSpecifier}", "expr:gte(t,n_forced*2)",
+            $"-metadata:s{streamSpecifier}", $"title={plan.Title}"
         ]);
         if (!burnIn && quality is (WebPlayerQuality.Medium or WebPlayerQuality.Low))
         {
-            arguments.AddRange(["-vf", quality == WebPlayerQuality.Medium ? "scale=-2:min(720\\,ih)" : "scale=-2:min(480\\,ih)"]);
+            arguments.AddRange([$"-filter{streamSpecifier}", quality == WebPlayerQuality.Medium ? "scale=-2:min(720\\,ih)" : "scale=-2:min(480\\,ih)"]);
         }
     }
 }
