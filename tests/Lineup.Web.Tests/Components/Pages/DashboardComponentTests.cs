@@ -195,7 +195,29 @@ public class DashboardComponentTests
         });
     }
 
-    private static BunitContext CreateContext(IChannelLineupProvider? channelProvider = null)
+    /// <summary>
+    /// Verifies shared CMAF presentations are not mislabeled as HLS-only sessions.
+    /// </summary>
+    [Fact]
+    public void ActiveStreams_CmafPresentation_UsesCmafLabel()
+    {
+        // Arrange
+        var activeStreams = Substitute.For<IActiveStreamRegistry>();
+        activeStreams.GetActiveStreams().Returns([
+            new ActiveStreamSnapshot("session", "2.1", HostedStreamFormat.Cmaf, DateTime.UtcNow, null, [])
+        ]);
+        using var context = CreateContext(activeStreams: activeStreams);
+        context.JSInterop.Setup<string?>("localStorage.getItem", StorageKey).SetResult(null);
+
+        // Act
+        var component = context.Render<Dashboard>();
+
+        // Assert
+        Assert.Contains("CMAF", component.Find("#activeStreamsSection").TextContent, StringComparison.Ordinal);
+        Assert.DoesNotContain("HLS", component.Find("#activeStreamsSection").TextContent, StringComparison.Ordinal);
+    }
+
+    private static BunitContext CreateContext(IChannelLineupProvider? channelProvider = null, IActiveStreamRegistry? activeStreams = null)
     {
         var context = new BunitContext();
         var repository = Substitute.For<IEpgRepository>();
@@ -217,8 +239,11 @@ public class DashboardComponentTests
         autoFetchState.IsEnabled.Returns(false);
         var timeZone = Substitute.For<ITimeZoneService>();
         timeZone.ConvertFromUtc(Arg.Any<DateTime>()).Returns(call => call.Arg<DateTime>());
-        var activeStreams = Substitute.For<IActiveStreamRegistry>();
-        activeStreams.GetActiveStreams().Returns([]);
+        if (activeStreams is null)
+        {
+            activeStreams = Substitute.For<IActiveStreamRegistry>();
+            activeStreams.GetActiveStreams().Returns([]);
+        }
 
         var store = new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-dashboard-{Guid.NewGuid():N}.db"));
         var refreshService = new ChannelLineupRefreshService(

@@ -60,9 +60,9 @@ public sealed class ProtectedContentSlateService : IProtectedContentSlateService
     /// <inheritdoc />
     public async Task StreamAsync(HostedStreamFormat format, string channel, Stream output, CancellationToken cancellationToken, ChannelSlateReason reason = ChannelSlateReason.ContentProtected)
     {
-        if (format == HostedStreamFormat.Hls)
+        if (format == HostedStreamFormat.Cmaf)
         {
-            throw new ArgumentOutOfRangeException(nameof(format), format, "HLS slates must be started with StartHls.");
+            throw new ArgumentOutOfRangeException(nameof(format), format, "CMAF slates must be started with StartCmaf.");
         }
 
         using var process = StartProcess(ProtectedContentSlatePlanner.CreatePipeArguments(format, channel, reason));

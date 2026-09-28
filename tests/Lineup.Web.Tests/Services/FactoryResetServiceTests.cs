@@ -31,7 +31,7 @@ public class FactoryResetServiceTests
         var logDirectory = configDirectory.CreateSubdirectory(AppConstants.LogDirectoryName);
         var dataProtectionDirectory = configDirectory.CreateSubdirectory(AppConstants.DataProtectionKeysDirectoryName);
         var unknownDirectory = configDirectory.CreateSubdirectory("unknown").CreateSubdirectory("nested");
-        var transientDirectory = Directory.CreateDirectory(transientStore.HlsRootPath).CreateSubdirectory("unknown-owner");
+        var transientDirectory = Directory.CreateDirectory(transientStore.CmafRootPath).CreateSubdirectory("unknown-owner");
         await File.WriteAllTextAsync(Path.Combine(logDirectory.FullName, "lineup-test.log"), "log", TestContext.Current.CancellationToken);
         await File.WriteAllTextAsync(Path.Combine(dataProtectionDirectory.FullName, "key-test.xml"), "key", TestContext.Current.CancellationToken);
         await File.WriteAllTextAsync(Path.Combine(unknownDirectory.FullName, "unknown.bin"), "unknown", TestContext.Current.CancellationToken);
@@ -153,10 +153,10 @@ public class FactoryResetServiceTests
         // Arrange
         var root = Directory.CreateTempSubdirectory("lineup-transient-cleanup-");
         var store = new TransientDataStore(root.FullName);
-        var hlsRoot = Directory.CreateDirectory(store.HlsRootPath);
-        var inactive = hlsRoot.CreateSubdirectory("inactive");
-        var active = hlsRoot.CreateSubdirectory("active");
-        var unknown = hlsRoot.CreateSubdirectory("unknown");
+        var cmafRoot = Directory.CreateDirectory(store.CmafRootPath);
+        var inactive = cmafRoot.CreateSubdirectory("inactive");
+        var active = cmafRoot.CreateSubdirectory("active");
+        var unknown = cmafRoot.CreateSubdirectory("unknown");
 
         // Act
         store.DeleteInactiveOwnerDirectories(
@@ -175,22 +175,22 @@ public class FactoryResetServiceTests
     }
 
     /// <summary>
-    /// Verifies transient cleanup applies the same owner policy to HLS and subtitle process directories.
+    /// Verifies transient cleanup applies the same owner policy to CMAF and subtitle process directories.
     /// </summary>
     [Fact]
-    public void DeleteInactiveOwnerDirectories_InactiveOwners_RemovesHlsAndSubtitleDirectories()
+    public void DeleteInactiveOwnerDirectories_InactiveOwners_RemovesCmafAndSubtitleDirectories()
     {
         // Arrange
         var root = Directory.CreateTempSubdirectory("lineup-transient-state-");
         var store = new TransientDataStore(root.FullName);
-        var hlsDirectory = Directory.CreateDirectory(store.HlsRootPath).CreateSubdirectory("inactive");
+        var cmafDirectory = Directory.CreateDirectory(store.CmafRootPath).CreateSubdirectory("inactive");
         var subtitleDirectory = Directory.CreateDirectory(store.SubtitleRootPath).CreateSubdirectory("inactive");
 
         // Act
         store.DeleteInactiveOwnerDirectories(_ => TransientDirectoryOwnerStatus.Inactive);
 
         // Assert
-        Assert.False(hlsDirectory.Exists);
+        Assert.False(cmafDirectory.Exists);
         Assert.False(subtitleDirectory.Exists);
         root.Delete(recursive: true);
     }

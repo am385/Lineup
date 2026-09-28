@@ -8,14 +8,14 @@ public interface ITransientDataStore
     /// <summary>Gets the normalized transient root.</summary>
     string RootPath { get; }
 
-    /// <summary>Gets the shared HLS process-directory root.</summary>
-    string HlsRootPath { get; }
+    /// <summary>Gets the shared CMAF process-directory root.</summary>
+    string CmafRootPath { get; }
 
     /// <summary>Gets the shared subtitle process-directory root.</summary>
     string SubtitleRootPath { get; }
 
-    /// <summary>Creates and returns a contained HLS session directory.</summary>
-    string CreateHlsSessionDirectory(string sessionId);
+    /// <summary>Creates and returns a contained CMAF session directory.</summary>
+    string CreateCmafSessionDirectory(string sessionId);
 
     /// <summary>Creates a fresh process-owned subtitle workspace.</summary>
     string ResetSubtitleWorkspace();

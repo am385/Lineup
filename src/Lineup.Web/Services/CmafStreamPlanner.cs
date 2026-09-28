@@ -39,7 +39,10 @@ public enum CmafPreferredAudio
     Fallback,
 
     /// <summary>Legacy name for <see cref="Fallback"/> retained for query compatibility.</summary>
-    Aac = Fallback
+    Aac = Fallback,
+
+    /// <summary>Uses measured browser capabilities to choose source copy or one fallback.</summary>
+    Auto
 }
 
 /// <summary>
@@ -51,7 +54,10 @@ public enum CmafPreferredVideo
     Source,
 
     /// <summary>Always uses the H.264 compatibility output.</summary>
-    Fallback
+    Fallback,
+
+    /// <summary>Uses measured browser capabilities to choose source copy or H.264.</summary>
+    Auto
 }
 
 /// <summary>
@@ -73,6 +79,30 @@ public enum CmafFallbackAudio
 
     /// <summary>Encodes channel-based E-AC-3 matching the source up to 5.1 channels.</summary>
     Eac3
+}
+
+/// <summary>
+/// Describes optional per-setting manual overrides applied over a measured browser profile.
+/// </summary>
+public sealed record CmafStreamOverrides
+{
+    /// <summary>Gets whether manual stream-setting overrides are enabled.</summary>
+    public bool Enabled { get; init; }
+
+    /// <summary>Gets the explicit protocol, or <see langword="null"/> to preserve the browser profile.</summary>
+    public CmafPlaybackProtocol? Protocol { get; init; }
+
+    /// <summary>Gets the explicit quality cap, or <see langword="null"/> to preserve automatic quality.</summary>
+    public WebPlayerQuality? Quality { get; init; }
+
+    /// <summary>Gets the explicit video policy, or <see langword="null"/> to preserve the browser profile.</summary>
+    public CmafPreferredVideo? Video { get; init; }
+
+    /// <summary>Gets the explicit audio policy, or <see langword="null"/> to preserve the browser profile.</summary>
+    public CmafPreferredAudio? Audio { get; init; }
+
+    /// <summary>Gets the explicit fallback profile, or <see langword="null"/> to preserve measured fallback ranking.</summary>
+    public CmafFallbackAudio? FallbackAudio { get; init; }
 }
 
 /// <summary>
@@ -109,6 +139,12 @@ public sealed record CmafStreamRequest
 
     /// <summary>Gets the optional owning web-player identifier.</summary>
     public string? ClientId { get; init; }
+
+    /// <summary>Gets the optional completed browser compatibility profile used by Auto policies.</summary>
+    public CmafCompatibilityProfile? CompatibilityProfile { get; init; }
+
+    /// <summary>Gets optional manual settings applied over the measured compatibility profile.</summary>
+    public CmafStreamOverrides Overrides { get; init; } = new();
 }
 
 /// <summary>
@@ -138,7 +174,7 @@ public sealed record CmafStreamResponse(string SessionId, string HlsManifestUrl,
     /// <summary>Gets browser-selectable text and closed-caption sidecars prepared for this session.</summary>
     public IReadOnlyList<CmafSubtitleRendition> Subtitles { get; init; } = [];
 
-    /// <summary>Gets whether this presentation includes a source-video rendition beside H.264 fallback.</summary>
+    /// <summary>Gets whether this presentation includes a copied source-video rendition.</summary>
     public bool HasSourceVideoRendition { get; init; }
 
     /// <summary>Gets the RFC 6381 codec string for copied source video when browser capability testing is required.</summary>
@@ -165,6 +201,13 @@ public sealed record CmafSubtitleRendition(int SourceIndex, string Label, string
 /// <param name="SampleRate">The output sample rate when configured.</param>
 /// <param name="Title">The rendition title exposed to players and diagnostics.</param>
 public sealed record CmafAudioPlan(bool CopySource, string Codec, int? Channels, long? BitRate, int? SampleRate, string Title);
+
+/// <summary>
+/// Associates one packaged CMAF audio output with the source track that produces it.
+/// </summary>
+/// <param name="Source">The source audio track.</param>
+/// <param name="Plan">The copy or fallback output plan.</param>
+public sealed record CmafAudioRendition(MediaTrackMetadata Source, CmafAudioPlan Plan);
 
 /// <summary>
 /// Describes one CMAF video output.
@@ -201,6 +244,58 @@ public static class CmafStreamPlanner
     /// <summary>Returns whether the selected source video codec can be copied into fragmented MP4.</summary>
     public static bool CanCopySourceVideo(string? codec) => codec is not null && CopyEligibleVideoCodecs.Contains(codec);
 
+    /// <summary>Validates and applies request-scoped stream overrides over the measured compatibility profile.</summary>
+    public static CmafStreamRequest ApplyOverrides(CmafStreamRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var overrides = request.Overrides ?? throw new ArgumentException("Stream overrides are required.", nameof(request));
+        ValidateOverrides(overrides);
+        if (!overrides.Enabled)
+        {
+            return request;
+        }
+
+        var hasProfile = CmafCompatibilityProfilePolicy.IsValid(request.CompatibilityProfile);
+        return request with
+        {
+            Quality = overrides.Quality ?? (hasProfile ? WebPlayerQuality.AppDefault : request.Quality),
+            PreferredVideo = overrides.Video ?? (hasProfile ? CmafPreferredVideo.Auto : request.PreferredVideo),
+            PreferredAudio = overrides.Audio ?? (hasProfile ? CmafPreferredAudio.Auto : request.PreferredAudio),
+            FallbackAudio = overrides.FallbackAudio ?? request.FallbackAudio,
+            CompatibilityProfile = CmafCompatibilityOverridePolicy.CreateEffectiveProfile(request.CompatibilityProfile, overrides)
+        };
+    }
+
+    /// <summary>Validates manual override values without accepting Auto as an explicit override.</summary>
+    public static void ValidateOverrides(CmafStreamOverrides overrides)
+    {
+        ArgumentNullException.ThrowIfNull(overrides);
+        if (!overrides.Enabled)
+        {
+            return;
+        }
+        if (overrides.Protocol is { } protocol && protocol is not (CmafPlaybackProtocol.Dash or CmafPlaybackProtocol.Hls))
+        {
+            throw new ArgumentException("A protocol override must select DASH or HLS.", nameof(overrides));
+        }
+        if (overrides.Quality is { } quality && !Enum.IsDefined(quality))
+        {
+            throw new ArgumentException("The quality override is invalid.", nameof(overrides));
+        }
+        if (overrides.Video is { } video && video is not (CmafPreferredVideo.Source or CmafPreferredVideo.Fallback))
+        {
+            throw new ArgumentException("A video override must select Source or H.264 fallback.", nameof(overrides));
+        }
+        if (overrides.Audio is { } audio && audio is not (CmafPreferredAudio.Source or CmafPreferredAudio.Fallback))
+        {
+            throw new ArgumentException("An audio override must select Source or fallback.", nameof(overrides));
+        }
+        if (overrides.FallbackAudio is { } fallback && !Enum.IsDefined(fallback))
+        {
+            throw new ArgumentException("The fallback-audio override is invalid.", nameof(overrides));
+        }
+    }
+
     /// <summary>Creates an RFC 6381 HEVC codec string from FFprobe profile and level metadata.</summary>
     public static string? CreateHevcCodecString(MediaTrackMetadata? video)
     {
@@ -227,6 +322,46 @@ public static class CmafStreamPlanner
         return manifest
             .Replace("codecs=\"\"", $"codecs=\"{hevcCodec}\"", StringComparison.Ordinal)
             .Replace("CODECS=\",", $"CODECS=\"{hevcCodec},", StringComparison.Ordinal);
+    }
+
+    /// <summary>Supplies user-facing audio labels omitted by FFmpeg's DASH and HLS manifest writers.</summary>
+    public static string RewriteManifestAudioLabels(string manifest, IReadOnlyList<CmafAudioRendition> renditions)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(manifest);
+        ArgumentNullException.ThrowIfNull(renditions);
+        if (renditions.Count == 0)
+        {
+            return manifest;
+        }
+
+        if (manifest.TrimStart().StartsWith("#EXTM3U", StringComparison.Ordinal))
+        {
+            for (var index = 0; index < renditions.Count; index++)
+            {
+                var rendition = renditions[index];
+                var marker = $"NAME=\"audio_{index + 1}\"";
+                var replacement = $"NAME=\"{EscapeHlsAttribute(rendition.Plan.Title)}\"";
+                var language = rendition.Source.Language;
+                if (!string.IsNullOrWhiteSpace(language))
+                {
+                    replacement += $",LANGUAGE=\"{EscapeHlsAttribute(language)}\"";
+                }
+                manifest = manifest.Replace(marker, replacement, StringComparison.Ordinal);
+            }
+            return manifest;
+        }
+
+        var document = System.Xml.Linq.XDocument.Parse(manifest, System.Xml.Linq.LoadOptions.PreserveWhitespace);
+        var root = document.Root ?? throw new System.Xml.XmlException("The DASH manifest has no root element.");
+        var audioSets = root
+            .Descendants(root.Name.Namespace + "AdaptationSet")
+            .Where(element => string.Equals((string?)element.Attribute("contentType"), "audio", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        for (var index = 0; index < Math.Min(audioSets.Length, renditions.Count); index++)
+        {
+            audioSets[index].AddFirst(new System.Xml.Linq.XElement(root.Name.Namespace + "Label", renditions[index].Plan.Title));
+        }
+        return document.ToString(System.Xml.Linq.SaveOptions.DisableFormatting);
     }
 
     /// <summary>Validates selected CMAF tracks with the same selection and caption-extraction policy as Watch.</summary>
@@ -263,7 +398,7 @@ public static class CmafStreamPlanner
             throw new ArgumentOutOfRangeException(nameof(preferredAudio), preferredAudio, "Unsupported CMAF preferred audio.");
         }
 
-        if (preferredAudio == CmafPreferredAudio.Source && CanCopySourceAudio(audio?.Codec))
+        if (preferredAudio is CmafPreferredAudio.Source or CmafPreferredAudio.Auto && CanCopySourceAudio(audio?.Codec))
         {
             return new CmafAudioPlan(true, audio!.Codec, audio.Channels, audio.BitRate, audio.SampleRate, "Source");
         }
@@ -283,16 +418,58 @@ public static class CmafStreamPlanner
         return new CmafAudioPlan(false, codec, channels, effectiveBitRate, 48_000, title);
     }
 
-    /// <summary>Creates the audio renditions packaged into one shared CMAF presentation.</summary>
+    /// <summary>Creates one source-copy or configured fallback audio rendition without speculative duplicate encoding.</summary>
     public static IReadOnlyList<CmafAudioPlan> CreateAudioRenditions(MediaTrackMetadata? audio, CmafPreferredAudio preferredAudio, CmafFallbackAudio fallback)
     {
-        var fallbackPlan = CreateAudioPlan(audio, CmafPreferredAudio.Fallback, fallback);
-        if (preferredAudio != CmafPreferredAudio.Source || !CanCopySourceAudio(audio?.Codec))
-        {
-            return [fallbackPlan];
-        }
+        return [CreateAudioPlan(audio, preferredAudio, fallback)];
+    }
 
-        return [CreateAudioPlan(audio, CmafPreferredAudio.Source, fallback), fallbackPlan];
+    /// <summary>Creates one copy-first or compatibility rendition for every source audio track.</summary>
+    public static IReadOnlyList<CmafAudioRendition> CreatePresentationAudioRenditions(
+        MediaProbeResult source,
+        MediaTrackMetadata? preferredAudio,
+        CmafPreferredAudio preferredAudioPolicy,
+        CmafFallbackAudio fallback,
+        CmafCompatibilityProfile? compatibilityProfile = null,
+        CmafFallbackAudio? automaticFallbackOverride = null,
+        bool manualPolicyOverride = false)
+    {
+        var audioTracks = source.Tracks
+            .Where(track => track.Type == MediaTrackType.Audio)
+            .OrderByDescending(track => track.Index == preferredAudio?.Index)
+            .ThenBy(track => track.Index)
+            .ToArray();
+        var renditions = new List<CmafAudioRendition>();
+        foreach (var audio in audioTracks)
+        {
+            if (preferredAudioPolicy == CmafPreferredAudio.Auto && CmafCompatibilityProfilePolicy.IsUsable(compatibilityProfile))
+            {
+                if (CmafCompatibilityProfilePolicy.SupportsAudio(compatibilityProfile!, audio) && CanCopySourceAudio(audio.Codec))
+                {
+                    var sourcePlan = CreateAudioPlan(audio, CmafPreferredAudio.Source, fallback);
+                    renditions.Add(new CmafAudioRendition(audio, sourcePlan with { Title = CreateAudioTitle(audio, "Auto · Source (browser tested)") }));
+                    continue;
+                }
+
+                var measuredFallback = automaticFallbackOverride ?? CmafCompatibilityProfilePolicy.SelectFallbackAudio(compatibilityProfile!, audio.Channels ?? 2);
+                if (!measuredFallback.HasValue)
+                {
+                    throw new InvalidOperationException($"The browser compatibility profile has no playable audio output for source track {audio.Index}.");
+                }
+                var fallbackPlan = CreateAudioPlan(audio, CmafPreferredAudio.Fallback, measuredFallback.Value);
+                var fallbackReason = automaticFallbackOverride.HasValue ? "manual fallback override" : "source unverified";
+                renditions.Add(new CmafAudioRendition(audio, fallbackPlan with { Title = CreateAudioTitle(audio, $"Auto · {fallbackPlan.Title} ({fallbackReason})") }));
+                continue;
+            }
+
+            var effectivePolicy = preferredAudioPolicy == CmafPreferredAudio.Auto ? CmafPreferredAudio.Source : preferredAudioPolicy;
+            foreach (var plan in CreateAudioRenditions(audio, effectivePolicy, fallback))
+            {
+                var title = manualPolicyOverride ? $"Override · {plan.Title}" : plan.Title;
+                renditions.Add(new CmafAudioRendition(audio, plan with { Title = CreateAudioTitle(audio, title) }));
+            }
+        }
+        return renditions;
     }
 
     /// <summary>Creates the video renditions packaged into one shared CMAF presentation.</summary>
@@ -303,10 +480,20 @@ public static class CmafStreamPlanner
             throw new ArgumentOutOfRangeException(nameof(request), request.PreferredVideo, "Unsupported CMAF preferred video.");
         }
 
-        var fallback = new CmafVideoPlan(false, "h264", null, "Fallback H.264");
+        var fallbackTitle = request.Overrides.Enabled && request.Overrides.Video.HasValue
+            ? "Override · Fallback H.264"
+            : request.PreferredVideo == CmafPreferredVideo.Auto
+                ? "Auto · Fallback H.264 (source unverified)"
+                : "Fallback H.264";
+        var fallback = new CmafVideoPlan(false, "h264", null, fallbackTitle);
         var canSignalSource = !string.Equals(video?.Codec, "hevc", StringComparison.OrdinalIgnoreCase) || CreateHevcCodecString(video) is not null;
+        var autoProfile = request.PreferredVideo == CmafPreferredVideo.Auto && CmafCompatibilityProfilePolicy.IsUsable(request.CompatibilityProfile)
+            ? request.CompatibilityProfile
+            : null;
+        var copyRequested = request.PreferredVideo == CmafPreferredVideo.Source ||
+            request.PreferredVideo == CmafPreferredVideo.Auto && (autoProfile is null || CmafCompatibilityProfilePolicy.SupportsVideo(autoProfile, video));
         if (burnIn ||
-            request.PreferredVideo != CmafPreferredVideo.Source ||
+            !copyRequested ||
             request.Quality != WebPlayerQuality.AppDefault ||
             !CanCopySourceVideo(video?.Codec) ||
             !canSignalSource)
@@ -314,16 +501,19 @@ public static class CmafStreamPlanner
             return [fallback];
         }
 
-        var source = new CmafVideoPlan(true, video!.Codec, video.BitRate, "Source");
-        return string.Equals(video.Codec, "h264", StringComparison.OrdinalIgnoreCase)
-            ? [source]
-            : [source, fallback];
+        var sourceTitle = request.Overrides.Enabled && request.Overrides.Video.HasValue
+            ? "Override · Source"
+            : request.PreferredVideo == CmafPreferredVideo.Auto
+                ? "Auto · Source (browser tested)"
+                : "Source";
+        var source = new CmafVideoPlan(true, video!.Codec, video.BitRate, sourceTitle);
+        return [source];
     }
 
     /// <summary>Returns whether startup diagnostics identify an unsupported source-audio MP4 muxer tag that can be retried with fallback audio.</summary>
     public static bool ShouldRetryWithFallback(CmafStreamRequest request, MediaTrackMetadata? audio, IEnumerable<string> diagnostics)
     {
-        if (request.PreferredAudio != CmafPreferredAudio.Source || !CanCopySourceAudio(audio?.Codec))
+        if (request.PreferredAudio is not (CmafPreferredAudio.Source or CmafPreferredAudio.Auto) || !CanCopySourceAudio(audio?.Codec))
         {
             return false;
         }
@@ -333,6 +523,11 @@ public static class CmafStreamPlanner
             line.Contains(codecDiagnostic, StringComparison.OrdinalIgnoreCase) &&
             line.Contains("not currently supported in container", StringComparison.OrdinalIgnoreCase));
     }
+
+    /// <summary>Returns whether any packaged source-audio codec requires a fallback-only muxer retry.</summary>
+    public static bool ShouldRetryWithFallback(CmafStreamRequest request, IEnumerable<MediaTrackMetadata> audioTracks, IEnumerable<string> diagnostics) =>
+        request.PreferredAudio is CmafPreferredAudio.Source or CmafPreferredAudio.Auto &&
+        audioTracks.Any(audio => ShouldRetryWithFallback(request, audio, diagnostics));
 
     /// <summary>Returns every text or detected closed-caption source that can be exposed as WebVTT without video encoding.</summary>
     public static IReadOnlyList<MediaTrackMetadata> GetSelectableSubtitles(MediaProbeResult source) =>
@@ -352,7 +547,14 @@ public static class CmafStreamPlanner
         IReadOnlyDictionary<int, string>? webVttPaths = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(manifestPath);
-        var audioPlans = CreateAudioRenditions(selection.Audio, request.PreferredAudio, ResolveFallbackAudio(request));
+        var audioRenditions = CreatePresentationAudioRenditions(
+            source,
+            selection.Audio,
+            request.PreferredAudio,
+            ResolveFallbackAudio(request),
+            request.CompatibilityProfile,
+            request.Overrides.Enabled ? request.Overrides.FallbackAudio : null,
+            request.Overrides.Enabled && request.Overrides.Audio.HasValue);
         var burnIn = selection.SubtitlePresentation == SubtitlePresentation.BurnIn;
         var sourceVideo = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video);
         var videoPlans = CreateVideoRenditions(sourceVideo, request, burnIn);
@@ -385,13 +587,13 @@ public static class CmafStreamPlanner
         {
             AddVideoArguments(arguments, settings, videoPlans[index], index, request.Quality, burnIn);
         }
-        foreach (var _ in audioPlans)
+        foreach (var rendition in audioRenditions)
         {
-            arguments.AddRange(selection.Audio is not null ? ["-map", $"0:{selection.Audio.Index}"] : ["-map", "0:a:0?"]);
+            arguments.AddRange(["-map", $"0:{rendition.Source.Index}"]);
         }
-        for (var index = 0; index < audioPlans.Count; index++)
+        for (var index = 0; index < audioRenditions.Count; index++)
         {
-            AddAudioArguments(arguments, audioPlans[index], index);
+            AddAudioArguments(arguments, audioRenditions[index], index);
         }
         arguments.AddRange([
             "-f", "dash",
@@ -407,7 +609,7 @@ public static class CmafStreamPlanner
             "-hls_master_name", HlsManifestName,
             "-init_seg_name", "init-$RepresentationID$.mp4",
             "-media_seg_name", "chunk-$RepresentationID$-$Number%05d$.m4s",
-            "-adaptation_sets", "id=0,streams=v id=1,streams=a",
+            "-adaptation_sets", CreateAdaptationSets(videoPlans.Count, audioRenditions.Count),
             manifestPath
         ]);
 
@@ -423,23 +625,55 @@ public static class CmafStreamPlanner
         return arguments;
     }
 
-    private static void AddAudioArguments(List<string> arguments, CmafAudioPlan plan, int outputIndex)
+    private static void AddAudioArguments(List<string> arguments, CmafAudioRendition rendition, int outputIndex)
     {
+        var plan = rendition.Plan;
         var streamSpecifier = $":a:{outputIndex}";
         if (plan.CopySource)
         {
-            arguments.AddRange([$"-c{streamSpecifier}", "copy", $"-metadata:s{streamSpecifier}", "title=Source"]);
-            return;
+            arguments.AddRange([$"-c{streamSpecifier}", "copy"]);
         }
-
-        arguments.AddRange([
-            $"-c{streamSpecifier}", plan.Codec,
-            $"-b{streamSpecifier}", $"{plan.BitRate!.Value / 1_000}k",
-            $"-ar{streamSpecifier}", plan.SampleRate!.Value.ToString(),
-            $"-ac{streamSpecifier}", plan.Channels!.Value.ToString(),
-            $"-metadata:s{streamSpecifier}", $"title={plan.Title}"
-        ]);
+        else
+        {
+            arguments.AddRange([
+                $"-c{streamSpecifier}", plan.Codec,
+                $"-b{streamSpecifier}", $"{plan.BitRate!.Value / 1_000}k",
+                $"-ar{streamSpecifier}", plan.SampleRate!.Value.ToString(),
+                $"-ac{streamSpecifier}", plan.Channels!.Value.ToString()
+            ]);
+        }
+        arguments.AddRange([$"-metadata:s{streamSpecifier}", $"title={plan.Title}"]);
+        if (!string.IsNullOrWhiteSpace(rendition.Source.Language))
+        {
+            arguments.AddRange([$"-metadata:s{streamSpecifier}", $"language={rendition.Source.Language}"]);
+        }
     }
+
+    private static string CreateAudioTitle(MediaTrackMetadata audio, string renditionTitle)
+    {
+        return string.Join(
+            " · ",
+            new[] { $"Audio #{audio.Index}", audio.Language, audio.Title, renditionTitle }
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Distinct(StringComparer.OrdinalIgnoreCase));
+    }
+
+    private static string CreateAdaptationSets(int videoCount, int audioCount)
+    {
+        var videoStreams = string.Join(',', Enumerable.Range(0, videoCount));
+        var adaptationSets = new List<string> { $"id=0,streams={videoStreams}" };
+        adaptationSets.AddRange(
+            Enumerable.Range(0, audioCount)
+                .Select(index => $"id={index + 1},streams={videoCount + index}"));
+        return string.Join(' ', adaptationSets);
+    }
+
+    private static string EscapeHlsAttribute(string value) =>
+        value
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("\"", "\\\"", StringComparison.Ordinal)
+            .Replace("\r", " ", StringComparison.Ordinal)
+            .Replace("\n", " ", StringComparison.Ordinal);
 
     private static void AddVideoArguments(List<string> arguments, AppSettings settings, CmafVideoPlan plan, int outputIndex, WebPlayerQuality quality, bool burnIn)
     {

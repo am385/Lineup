@@ -8,6 +8,10 @@
     <ResourcePreloader />
     <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+    <link rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/shaka-player@5.2.11/dist/controls.css"
+          integrity="sha384-U/1YJ0qAHHgnh2/Kn+KM9OTVDkUMy0VkOO1YWROI4ZsLuhhP7WZ48YYAYGeBVo+J"
+          crossorigin="anonymous" />
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["Lineup.Web.styles.css"]" />
     <ImportMap />
@@ -15,8 +19,8 @@
     <HeadOutlet @rendermode="InteractiveServer" />
     <!-- Legacy HLS player plus Shaka for shared CMAF HLS/DASH playback. -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/shaka-player@5.2.11/dist/shaka-player.compiled.js"
-            integrity="sha384-RUI75L5iYQIP2YpgPc2zm3mChZMdbSkMaIYegUr+UVYJ4FPuELiQ6348E3T6TVj5"
+    <script src="https://cdn.jsdelivr.net/npm/shaka-player@5.2.11/dist/shaka-player.ui.js"
+            integrity="sha384-ghyp/QciHlmviIclg7x6TA6ickR8CIKZTrHD0TLFcsm+CNLHnmUOCCmvguhuQydN"
             crossorigin="anonymous"></script>
     <script>
         // This must read localStorage before Blazor and BrowserDataStore are available to prevent a flash of the wrong theme.
@@ -59,6 +63,7 @@
     // HLS Player functions
     window.hlsPlayer = null;
     window.lineupCmafPlayers = new Map();
+    window.lineupCmafUis = new Map();
         
     function isSafari() {
         // Detect Safari browser (the only browser with native HLS support)
@@ -124,6 +129,138 @@
 
         runLineupFactoryResetWatch();
     }
+
+    function dismissLineupShakaMenus(controls) {
+        controls.dispatchEvent(new Event('submenuclose'));
+        controls.hideSettingsMenus();
+        const controlsContainer = controls.getControlsContainer();
+        for (const menu of controlsContainer.querySelectorAll('.shaka-settings-menu, .shaka-overflow-menu, .shaka-sub-menu')) {
+            menu.classList.add('shaka-hidden');
+        }
+        const overflowButton = controlsContainer.querySelector('.shaka-overflow-menu-button');
+        overflowButton?.setAttribute('aria-expanded', 'false');
+    }
+
+    function registerLineupShakaUiElements() {
+        if (window.lineupShakaUiElementsRegistered) {
+            return;
+        }
+
+        class LineupSubtitleSelection {
+            constructor(parent, controls) {
+                this.parent = parent;
+                this.controls = controls;
+                this.video = controls.getLocalVideo();
+                this.onTracksChanged = () => this.updateTracks();
+                this.onSubmenuClose = () => this.closeSubmenu();
+                this.siblingVisibility = null;
+
+                this.button = document.createElement('button');
+                this.button.classList.add('shaka-overflow-button', 'shaka-lineup-subtitles-button');
+                this.button.ariaLabel = 'Subtitles';
+                this.button.innerHTML =
+                    '<label class="shaka-overflow-button-label shaka-overflow-menu-only shaka-overflow-button-label-inline">' +
+                    '<span>Subtitles</span><span class="shaka-current-selection-span"></span></label>';
+                this.currentSelection = this.button.querySelector('.shaka-current-selection-span');
+                this.button.addEventListener('click', () => {
+                    this.openSubmenu();
+                });
+                this.parent.appendChild(this.button);
+
+                this.menu = document.createElement('div');
+                this.menu.classList.add('shaka-sub-menu', 'shaka-lineup-subtitles-menu', 'shaka-no-propagation', 'shaka-show-controls-on-mouse-over', 'shaka-hidden');
+                this.menu.setAttribute('role', 'menu');
+                this.parent.appendChild(this.menu);
+                this.menuObserver = new MutationObserver(() => {
+                    if (this.menu.classList.contains('shaka-hidden')) {
+                        this.restoreSiblings();
+                    }
+                });
+                this.menuObserver.observe(this.menu, { attributes: true, attributeFilter: ['class'] });
+                this.video.addEventListener('lineuptexttrackschanged', this.onTracksChanged);
+                this.controls.addEventListener('submenuclose', this.onSubmenuClose);
+                this.updateTracks();
+            }
+
+            openSubmenu() {
+                this.controls.dispatchEvent(new Event('submenuclose'));
+                this.siblingVisibility = new Map();
+                for (const sibling of this.parent.children) {
+                    if (sibling !== this.menu) {
+                        this.siblingVisibility.set(sibling, sibling.classList.contains('shaka-hidden'));
+                        sibling.classList.add('shaka-hidden');
+                    }
+                }
+                this.menu.classList.remove('shaka-hidden');
+            }
+
+            closeSubmenu() {
+                this.menu.classList.add('shaka-hidden');
+                this.restoreSiblings();
+            }
+
+            restoreSiblings() {
+                for (const [sibling, wasHidden] of this.siblingVisibility || []) {
+                    sibling.classList.toggle('shaka-hidden', wasHidden);
+                }
+                this.siblingVisibility = null;
+            }
+
+            updateTracks() {
+                const tracks = Array.from(this.video.textTracks || []);
+                this.button.classList.toggle('shaka-hidden', tracks.length === 0);
+                this.menu.replaceChildren();
+
+                const back = document.createElement('button');
+                back.classList.add('shaka-back-to-overflow-button');
+                back.textContent = 'Subtitles';
+                back.addEventListener('click', () => {
+                    this.closeSubmenu();
+                });
+                this.menu.appendChild(back);
+
+                const selected = tracks.find(track => track.mode === 'showing');
+                this.currentSelection.textContent = selected?.label || 'Off';
+                this.menu.appendChild(this.createChoice('Off', !selected, () => {
+                    for (const track of tracks) {
+                        track.mode = 'disabled';
+                    }
+                }));
+                for (const track of tracks) {
+                    this.menu.appendChild(this.createChoice(track.label || track.language || 'Subtitles', track === selected, () => {
+                        for (const candidate of tracks) {
+                            candidate.mode = candidate === track ? 'showing' : 'disabled';
+                        }
+                    }));
+                }
+            }
+
+            createChoice(label, selected, select) {
+                const button = document.createElement('button');
+                button.textContent = label;
+                button.classList.toggle('shaka-chosen-item', selected);
+                button.addEventListener('click', () => {
+                    select();
+                    this.updateTracks();
+                    dismissLineupShakaMenus(this.controls);
+                });
+                return button;
+            }
+
+            release() {
+                this.menuObserver.disconnect();
+                this.video.removeEventListener('lineuptexttrackschanged', this.onTracksChanged);
+                this.controls.removeEventListener('submenuclose', this.onSubmenuClose);
+                this.button.remove();
+                this.menu.remove();
+            }
+        }
+
+        shaka.ui.OverflowMenu.registerElement('lineup_captions', {
+            create: (rootElement, controls) => new LineupSubtitleSelection(rootElement, controls)
+        });
+        window.lineupShakaUiElementsRegistered = true;
+    }
         
         async function initCmafPlayer(
             videoElementId,
@@ -141,14 +278,29 @@
             if (!video) {
                 return { success: false, error: 'Video player element was not found.' };
             }
-            if (!window.shaka?.Player?.isBrowserSupported()) {
+            if (!window.shaka?.Player?.isBrowserSupported() || !window.shaka?.ui?.Overlay) {
                 return { success: false, error: 'This browser does not support Shaka Player playback.' };
             }
+            const videoContainer = video.closest('[data-lineup-cmaf-container]');
+            if (!videoContainer) {
+                return { success: false, error: 'The CMAF player container was not found.' };
+            }
 
+            registerLineupShakaUiElements();
             const player = new shaka.Player();
             await player.attach(video);
             player.configure({ abr: { enabled: false } });
+            const ui = new shaka.ui.Overlay(player, videoContainer, video);
+            ui.configure({
+                controlPanelElements: ['play_pause', 'mute_volume', 'time_and_duration', 'spacer', 'overflow_menu', 'fullscreen'],
+                overflowMenuButtons: ['lineup_captions', 'language', 'picture_in_picture'],
+                trackLabelFormat: shaka.ui.Overlay.TrackLabelFormat.LABEL_OR_LANGUAGE,
+                addSeekBar: true,
+                showAudioChannelCountVariants: true,
+                showAudioCodec: true
+            });
             window.lineupCmafPlayers.set(videoElementId, player);
+            window.lineupCmafUis.set(videoElementId, ui);
             window.lineupMediaPlayers ??= new Map();
             window.lineupMediaPlayers.set(videoElementId, video);
 
@@ -180,10 +332,13 @@
                 }
             };
             const isFallbackVideo = track => /(^|[.,])avc[13]/i.test(track.videoCodec || '');
+            const audioSourceKey = track => (track.label || '')
+                .replace(/\s+·\s+(Source|Fallback.*)$/i, '')
+                .toLowerCase();
             const choosePreferredVariant = () => {
                 const variants = player.getVariantTracks().filter(track => track.audioCodec);
-                const wantsSource = preferredAudio === 'Source';
-                const wantsSourceVideo = preferredVideo === 'Source';
+                const wantsSource = preferredAudio !== 'Fallback';
+                const wantsSourceVideo = preferredVideo !== 'Fallback';
                 const videoCandidates = variants.filter(track => wantsSourceVideo ? !isFallbackVideo(track) : isFallbackVideo(track));
                 const candidates = videoCandidates.length > 0 ? videoCandidates : variants;
                 const preferred = candidates.find(track => {
@@ -196,13 +351,13 @@
                 const active = player.getVariantTracks().find(track => track.active);
                 return active
                     ? {
-                        audio: { label: active.label, codec: active.audioCodec, channels: active.channelsCount },
+                        audio: { id: String(active.audioId ?? active.id), label: active.label, language: active.language, codec: active.audioCodec, channels: active.channelsCount },
                         video: { codec: active.videoCodec, width: active.width, height: active.height }
                     }
                     : { audio: null, video: null };
             };
             const tryAudioFallback = async error => {
-                if (sourceFallbackApplied || preferredAudio !== 'Source') {
+                if (sourceFallbackApplied || preferredAudio === 'Fallback') {
                     return false;
                 }
                 if (error?.category !== shaka.util.Error.Category.MEDIA) {
@@ -212,9 +367,13 @@
                 if (!activeAudio || (activeAudio.label || '').toLowerCase().includes('fallback')) {
                     return false;
                 }
+                const sourceKey = audioSourceKey(activeAudio);
                 const fallback = player.getVariantTracks().find(track => {
                     const label = (track.label || '').toLowerCase();
-                    return label.includes('fallback') && track.videoId === activeAudio.videoId;
+                    return label.includes('fallback') &&
+                        track.videoId === activeAudio.videoId &&
+                        (audioSourceKey(track) === sourceKey ||
+                            (!sourceKey && track.language === activeAudio.language));
                 });
                 if (!fallback) {
                     return false;
@@ -224,11 +383,18 @@
                 report(
                     'audio-fallback',
                     'Source audio is unavailable in this browser. Using the configured fallback rendition for this stream.',
-                    { label: fallback.label, codec: fallback.audioCodec, channels: fallback.channelsCount });
+                    {
+                        id: String(fallback.audioId ?? fallback.id),
+                        label: fallback.label,
+                        language: fallback.language,
+                        codec: fallback.audioCodec,
+                        channels: fallback.channelsCount
+                    });
                 return true;
             };
+            let presentationLoaded = false;
             const tryVideoFallback = async error => {
-                if (videoFallbackApplied || preferredVideo !== 'Source' || error?.category !== shaka.util.Error.Category.MEDIA) {
+                if (!presentationLoaded || videoFallbackApplied || preferredVideo === 'Fallback' || error?.category !== shaka.util.Error.Category.MEDIA) {
                     return false;
                 }
                 const activeVideo = player.getVariantTracks().find(track => track.active);
@@ -238,7 +404,12 @@
                 const fallback = player.getVariantTracks().find(track =>
                     isFallbackVideo(track) && track.audioId === activeVideo.audioId);
                 if (!fallback) {
-                    return false;
+                    videoFallbackApplied = true;
+                    report(
+                        'video-fallback-required',
+                        'Source video failed in this browser. Restarting this stream with H.264.',
+                        { codec: activeVideo.videoCodec, width: activeVideo.width, height: activeVideo.height });
+                    return true;
                 }
                 videoFallbackApplied = true;
                 player.selectVariantTrack(fallback, true, 0);
@@ -256,14 +427,28 @@
                     }
                 })();
             });
+            player.addEventListener('audiotrackchanged', () => {
+                dismissLineupShakaMenus(ui.getControls());
+                const active = player.getVariantTracks().find(track => track.active);
+                if (active) {
+                    report('audio-track-changed', 'Audio track changed.', {
+                        id: String(active.audioId ?? active.id),
+                        label: active.label,
+                        language: active.language,
+                        codec: active.audioCodec,
+                        channels: active.channelsCount
+                    });
+                }
+            });
 
             let effectiveManifestUrl = manifestUrl;
             try {
                 await player.load(manifestUrl);
             } catch (error) {
                 if (!protocolFallbackUrl) {
-                    await player.destroy();
+                    await ui.destroy();
                     window.lineupCmafPlayers.delete(videoElementId);
+                    window.lineupCmafUis.delete(videoElementId);
                     return {
                         success: false,
                         error: error?.message || 'Unable to load the CMAF presentation.',
@@ -277,8 +462,9 @@
                 try {
                     await player.load(protocolFallbackUrl);
                 } catch (fallbackError) {
-                    await player.destroy();
+                    await ui.destroy();
                     window.lineupCmafPlayers.delete(videoElementId);
+                    window.lineupCmafUis.delete(videoElementId);
                     return {
                         success: false,
                         error: fallbackError?.message || 'Unable to load either CMAF manifest.',
@@ -289,6 +475,7 @@
                 }
             }
 
+            presentationLoaded = true;
             const activeVariant = choosePreferredVariant();
             for (const subtitle of subtitles || []) {
                 startLineupSubtitlePolling(
@@ -297,7 +484,11 @@
                     subtitle.label,
                     subtitle.language || 'und',
                     'hidden',
-                    false);
+                    false,
+                    () => {
+                        const seekRange = player.seekRange();
+                        return seekRange.end - video.currentTime;
+                    });
             }
             try {
                 await video.play();
@@ -314,8 +505,159 @@
             };
         }
 
-        async function startCmafSession(startUrl) {
-            const response = await fetch(startUrl, { method: 'POST', cache: 'no-store' });
+        function getCmafTestCapabilities() {
+            const mediaSource = window.MediaSource || window.ManagedMediaSource;
+            const supports = type => {
+                if (!mediaSource?.isTypeSupported) {
+                    return null;
+                }
+                try {
+                    return mediaSource.isTypeSupported(type);
+                } catch {
+                    return null;
+                }
+            };
+            return {
+                browserIdentity: `${navigator.userAgent}|${navigator.platform || ''}`,
+                shakaSupported: window.shaka?.Player?.isBrowserSupported() === true,
+                mediaSourceAvailable: !!mediaSource,
+                nativeHls: document.createElement('video').canPlayType('application/vnd.apple.mpegurl') || '',
+                h264: supports('video/mp4; codecs="avc1.64002a"'),
+                hevc: supports('video/mp4; codecs="hvc1.1.6.L120"'),
+                hevcMain10: supports('video/mp4; codecs="hvc1.2.4.L120"'),
+                aac: supports('audio/mp4; codecs="mp4a.40.2"'),
+                ac3: supports('audio/mp4; codecs="ac-3"'),
+                eac3: supports('audio/mp4; codecs="ec-3"'),
+                ac4: supports('audio/mp4; codecs="ac-4"')
+            };
+        }
+
+        function getCmafBrowserIdentity() {
+            return `${navigator.userAgent}|${navigator.platform || ''}`;
+        }
+
+        async function initCmafTestPlayer(videoElementId, manifestUrl, expectedVideoCodec, expectedAudioCodec, subtitleUrl, dotNetReference) {
+            stopMediaPlayer(videoElementId);
+            const video = document.getElementById(videoElementId);
+            if (!video) {
+                return { success: false, playbackStarted: false, error: 'Video player element was not found.' };
+            }
+            if (!window.shaka?.Player?.isBrowserSupported()) {
+                return { success: false, playbackStarted: false, error: 'This browser does not support Shaka Player playback.' };
+            }
+
+            const player = new shaka.Player();
+            await player.attach(video);
+            player.configure({ abr: { enabled: false } });
+            window.lineupCmafPlayers.set(videoElementId, player);
+            window.lineupMediaPlayers ??= new Map();
+            window.lineupMediaPlayers.set(videoElementId, video);
+            const mediaSource = window.MediaSource || window.ManagedMediaSource;
+            const supports = type => {
+                if (!type || !mediaSource?.isTypeSupported) {
+                    return null;
+                }
+                try {
+                    return mediaSource.isTypeSupported(type);
+                } catch {
+                    return null;
+                }
+            };
+            const videoSupported = supports(expectedVideoCodec ? `video/mp4; codecs="${expectedVideoCodec}"` : null);
+            const audioSupported = supports(expectedAudioCodec ? `audio/mp4; codecs="${expectedAudioCodec}"` : null);
+            player.addEventListener('error', event => {
+                const error = event.detail || null;
+                if (dotNetReference) {
+                    void dotNetReference.invokeMethodAsync('OnCmafTestPlayerError', {
+                        message: error?.message || 'CMAF compatibility playback failed.',
+                        errorCode: error?.code || null,
+                        details: error ? {
+                            severity: error.severity ?? null,
+                            category: error.category ?? null,
+                            code: error.code ?? null,
+                            data: error.data ?? null
+                        } : null
+                    });
+                }
+            });
+
+            let playbackStarted = false;
+            let subtitleCueVisible = false;
+            const playing = new Promise(resolve => {
+                video.addEventListener('playing', () => {
+                    playbackStarted = true;
+                    resolve(true);
+                }, { once: true });
+            });
+            try {
+                await player.load(manifestUrl);
+                if (subtitleUrl) {
+                    const track = document.createElement('track');
+                    track.kind = 'subtitles';
+                    track.label = 'Lineup WebVTT compatibility test';
+                    track.srclang = 'en';
+                    track.src = subtitleUrl;
+                    track.default = true;
+                    video.appendChild(track);
+                    await new Promise(resolve => {
+                        const timeout = setTimeout(resolve, 3000);
+                        track.addEventListener('load', () => {
+                            clearTimeout(timeout);
+                            track.track.mode = 'showing';
+                            subtitleCueVisible = (track.track.cues?.length ?? 0) > 0;
+                            resolve();
+                        }, { once: true });
+                    });
+                }
+                const variants = player.getVariantTracks();
+                const selected = variants[0] || null;
+                if (selected && !selected.active) {
+                    player.selectVariantTrack(selected, true, 0);
+                }
+                try {
+                    await video.play();
+                } catch {
+                    // The result distinguishes autoplay policy from manifest and decoder support.
+                }
+                await Promise.race([playing, new Promise(resolve => setTimeout(() => resolve(false), 5000))]);
+                const active = player.getVariantTracks().find(track => track.active) || selected;
+                return {
+                    success: true,
+                    playbackStarted,
+                    manifestUrl,
+                    videoSupported,
+                    audioSupported,
+                    subtitleCueVisible,
+                    audio: active ? { label: active.label, codec: active.audioCodec, channels: active.channelsCount } : null,
+                    video: active ? { codec: active.videoCodec, width: active.width, height: active.height } : null
+                };
+            } catch (error) {
+                await player.destroy();
+                window.lineupCmafPlayers.delete(videoElementId);
+                return {
+                    success: false,
+                    playbackStarted: false,
+                    videoSupported,
+                    audioSupported,
+                    error: error?.message || 'Unable to load the selected compatibility presentation.',
+                    errorCode: error?.code || null,
+                    errorDetails: error ? {
+                        severity: error.severity ?? null,
+                        category: error.category ?? null,
+                        code: error.code ?? null,
+                        data: error.data ?? null
+                    } : null
+                };
+            }
+        }
+
+        async function startCmafSession(startUrl, requestBody) {
+            const options = { method: 'POST', cache: 'no-store' };
+            if (requestBody !== undefined && requestBody !== null) {
+                options.headers = { 'Content-Type': 'application/json' };
+                options.body = JSON.stringify(requestBody);
+            }
+            const response = await fetch(startUrl, options);
             const body = await response.json().catch(() => null);
             if (!response.ok) {
                 throw new Error(body?.error || `Unable to start CMAF playback (${response.status}).`);
@@ -410,8 +752,14 @@
             for (const poller of video._lineupSubtitlePollers || []) {
                 poller.abortController.abort();
                 clearInterval(poller.timer);
+                for (const cue of Array.from(poller.track.cues || [])) {
+                    poller.track.removeCue(cue);
+                }
+                poller.track.mode = 'disabled';
+                poller.trackElement.remove();
             }
             video._lineupSubtitlePollers = [];
+            video.dispatchEvent(new Event('lineuptexttrackschanged'));
         }
 
         function stopMediaPlayer(videoElementId = 'videoPlayer') {
@@ -438,8 +786,13 @@
                 window.hlsPlayer.destroy();
                 window.hlsPlayer = null;
             }
+            const cmafUi = window.lineupCmafUis?.get(videoElementId);
             const cmafPlayer = window.lineupCmafPlayers?.get(videoElementId);
-            if (cmafPlayer) {
+            if (cmafUi) {
+                void cmafUi.destroy();
+                window.lineupCmafUis.delete(videoElementId);
+                window.lineupCmafPlayers.delete(videoElementId);
+            } else if (cmafPlayer) {
                 void cmafPlayer.destroy();
                 window.lineupCmafPlayers.delete(videoElementId);
             }
@@ -463,11 +816,22 @@
             label = 'Selected subtitles',
             language = 'und',
             initialMode = 'showing',
-            replaceExisting = true) {
+            replaceExisting = true,
+            getPlaybackDelaySeconds = null) {
             if (replaceExisting) {
                 stopLineupSubtitlePolling(video);
             }
-            const track = video.addTextTrack('subtitles', label, language);
+            const trackElement = document.createElement('track');
+            trackElement.kind = 'subtitles';
+            trackElement.label = label;
+            trackElement.srclang = language;
+            trackElement.src = 'data:text/vtt;charset=utf-8,WEBVTT%0A%0A';
+            trackElement.addEventListener(
+                'load',
+                () => video.dispatchEvent(new Event('lineuptexttrackschanged')),
+                { once: true });
+            video.appendChild(trackElement);
+            const track = trackElement.track;
             track.mode = initialMode;
             const cuesByKey = new Map();
             const decoder = new TextDecoder('utf-8');
@@ -495,8 +859,6 @@
                         `${subtitleUrl}${separator}offset=${offset}`,
                         { cache: 'no-store', signal: abortController.signal });
                     if (response.status === 404) {
-                        abortController.abort();
-                        clearInterval(timer);
                         return;
                     }
                     if (!response.ok) {
@@ -530,8 +892,14 @@
                         }
                     }
                     const newestCue = parsedCues.at(-1);
+                    const playbackDelaySeconds = typeof getPlaybackDelaySeconds === 'function'
+                        ? Number(getPlaybackDelaySeconds())
+                        : 0;
+                    const effectivePlaybackDelaySeconds = Number.isFinite(playbackDelaySeconds)
+                        ? Math.max(0, playbackDelaySeconds)
+                        : 0;
                     const presentationOffset = newestCue
-                        ? Math.max(0, video.currentTime + presentationLeadSeconds - newestCue.startTime)
+                        ? Math.max(0, video.currentTime + effectivePlaybackDelaySeconds + presentationLeadSeconds - newestCue.startTime)
                         : 0;
                     for (const parsedCue of parsedCues) {
                         const cue = new VTTCue(
@@ -567,7 +935,8 @@
             };
             const timer = setInterval(refresh, 100);
             video._lineupSubtitlePollers ??= [];
-            video._lineupSubtitlePollers.push({ abortController, timer });
+            video._lineupSubtitlePollers.push({ abortController, timer, track, trackElement });
+            video.dispatchEvent(new Event('lineuptexttrackschanged'));
             refresh();
         }
 

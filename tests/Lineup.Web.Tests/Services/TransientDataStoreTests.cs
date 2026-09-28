@@ -11,7 +11,7 @@ namespace Lineup.Web.Tests.Services;
 public class TransientDataStoreTests
 {
     /// <summary>
-    /// Verifies the configured transient path controls HLS and subtitle roots.
+    /// Verifies the configured transient path controls CMAF and subtitle roots.
     /// </summary>
     [Fact]
     public void Create_TransientPathConfigured_UsesConfiguredRoot()
@@ -29,7 +29,7 @@ public class TransientDataStoreTests
 
         // Assert
         Assert.Equal(Path.GetFullPath(configuredPath), store.RootPath);
-        Assert.Equal(Path.Combine(store.RootPath, TransientDirectoryOwnership.HlsDirectoryName), store.HlsRootPath);
+        Assert.Equal(Path.Combine(store.RootPath, TransientDirectoryOwnership.CmafDirectoryName), store.CmafRootPath);
         Assert.Equal(Path.Combine(store.RootPath, SubtitleSidecarService.DirectoryName), store.SubtitleRootPath);
         Assert.True(Directory.Exists(configuredPath));
         root.Delete(recursive: true);

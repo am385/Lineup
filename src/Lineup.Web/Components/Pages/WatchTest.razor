@@ -1,0 +1,303 @@
+@page "/watch-test"
+@using Lineup.Web.Services
+
+<PageTitle>Watch Test</PageTitle>
+
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+    <div>
+        <h1><span class="bi bi-clipboard-pulse me-2"></span>Watch Test</h1>
+        <p class="text-muted mb-0">Test one exact CMAF codec combination with no automatic fallback.</p>
+    </div>
+    <div id="automatedCompatibilityActions" class="d-flex align-items-center gap-2">
+        @if (_isRunningAll)
+        {
+            <div style="min-width: 14rem;">
+                <div class="progress position-relative"
+                     role="progressbar"
+                     aria-label="Compatibility test progress"
+                     aria-valuenow="@_runResults.Count"
+                     aria-valuemin="0"
+                     aria-valuemax="@CmafCompatibilityTestCatalog.All.Count">
+                    <div class="progress-bar" style="width: @((100 * _runResults.Count) / CmafCompatibilityTestCatalog.All.Count)%"></div>
+                    <span id="compatibilityProgressText"
+                          class="position-absolute top-50 start-50 translate-middle text-body fw-semibold small"
+                          style="z-index: 1;">
+                        @_runResults.Count / @CmafCompatibilityTestCatalog.All.Count
+                    </span>
+                </div>
+                <div class="small text-muted mt-1">Testing: @(_currentCase?.Label ?? "Preparing")</div>
+            </div>
+            <button id="cancelCompatibilityTests" class="btn btn-outline-danger" @onclick="CancelRun">Cancel</button>
+        }
+        else
+        {
+            <button id="runAllCompatibilityTests"
+                    class="btn btn-primary"
+                    @onclick="RunAllAsync"
+                    disabled="@(_capabilities is null || IsAnyTestBusy || _session is not null)">
+                <span class="bi bi-play-circle me-1"></span>Run All
+            </button>
+        }
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-xl-8">
+        <div class="card">
+            <div class="card-body p-0">
+                @if (_session is not null)
+                {
+                    <div class="ratio ratio-16x9 bg-dark">
+                        <video id="cmafTestVideoPlayer" controls autoplay muted="@IsAutomatedTestBusy" class="w-100">
+                            Your browser does not support CMAF playback.
+                        </video>
+                    </div>
+                }
+                else
+                {
+                    <div class="ratio ratio-16x9 bg-dark d-flex align-items-center justify-content-center">
+                        <div class="text-center text-white-50">
+                            <span class="bi bi-badge-4k display-1"></span>
+                            <p class="mt-3 mb-1">Select an exact codec combination and start the test.</p>
+                            <p class="small mb-0">The synthetic presentation contains one video and one audio rendition.</p>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(_errorMessage))
+        {
+            <div class="alert alert-danger mt-3" role="alert">
+                <h6 class="alert-heading"><span class="bi bi-exclamation-triangle me-2"></span>Test Error</h6>
+                <pre class="mb-0 small" style="white-space: pre-wrap;">@_errorMessage</pre>
+            </div>
+        }
+
+        @if (_playerResult is not null)
+        {
+            <div id="observedPlayback" class="card mt-3">
+                <div class="card-header"><h6 class="mb-0">Observed Playback</h6></div>
+                <div class="card-body">
+                    <dl class="row mb-0">
+                        <dt class="col-sm-4">Manifest loaded</dt>
+                        <dd class="col-sm-8">@FormatClaim(_playerResult.Success)</dd>
+                        <dt class="col-sm-4">Playback started</dt>
+                        <dd class="col-sm-8">@FormatClaim(_playerResult.PlaybackStarted)</dd>
+                        <dt class="col-sm-4">Protocol</dt>
+                        <dd class="col-sm-8">@_protocol</dd>
+                        <dt class="col-sm-4">Active video claim</dt>
+                        <dd class="col-sm-8">@FormatClaim(_playerResult.VideoSupported)</dd>
+                        <dt class="col-sm-4">Active audio claim</dt>
+                        <dd class="col-sm-8">@FormatClaim(_playerResult.AudioSupported)</dd>
+                        <dt class="col-sm-4">Active video</dt>
+                        <dd class="col-sm-8">@FormatVideo(_playerResult.Video)</dd>
+                        <dt class="col-sm-4">Active audio</dt>
+                        <dd class="col-sm-8">@FormatAudio(_playerResult.Audio)</dd>
+                        @if (_subtitleMode == CmafTestSubtitleMode.WebVttSidecar)
+                        {
+                            <dt class="col-sm-4">Subtitle cue</dt>
+                            <dd class="col-sm-8">@FormatClaim(_playerResult.SubtitleCueVisible)</dd>
+                        }
+                        @if (_session is not null)
+                        {
+                            <dt class="col-sm-4">Manifest</dt>
+                            <dd class="col-sm-8"><code>@_session.ManifestUrl</code></dd>
+                            <dt class="col-sm-4">Expected codecs</dt>
+                            <dd class="col-sm-8"><code>@_session.VideoCodec, @_session.AudioCodec</code></dd>
+                        }
+                    </dl>
+                </div>
+            </div>
+        }
+
+        <div id="automatedCompatibilityProfile" class="card mt-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="mb-0">Automated Compatibility Profile</h6>
+                @if (_storedProfile is not null)
+                {
+                    <span class="small text-muted">Last completed: @_storedProfile.CompletedAtUtc.ToLocalTime().ToString("g")</span>
+                }
+                else
+                {
+                    <span class="small text-muted">Not yet complete</span>
+                }
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table id="compatibilityTestResults" class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Test</th>
+                                <th>Result</th>
+                                <th class="text-end">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var test in CmafCompatibilityTestCatalog.All)
+                            {
+                                var result = GetResult(test.Id);
+                                <tr data-test-case="@test.Id">
+                                    <td>@test.Label</td>
+                                    <td>
+                                        @if (result is null)
+                                        {
+                                            <span class="badge bg-light text-dark border">Not run</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge @(result.Status == CmafCapabilityStatus.Passed ? "bg-success" : result.Status == CmafCapabilityStatus.Unavailable ? "bg-secondary" : "bg-danger")">
+                                                @result.Status
+                                            </span>
+                                        }
+                                    </td>
+                                    <td class="text-end">
+                                        <button id="@($"runCompatibilityTest-{test.Id}")"
+                                                class="btn btn-outline-primary btn-sm"
+                                                @onclick="() => RunSingleCaseAsync(test)"
+                                                disabled="@(_capabilities is null || IsAnyTestBusy || _session is not null)">
+                                            @if (_isRunningCase && _currentCase?.Id == test.Id)
+                                            {
+                                                <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                            }
+                                            else
+                                            {
+                                                <span class="bi bi-play-fill me-1"></span>
+                                            }
+                                            Run Test
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <p class="small text-muted mt-2 mb-0">
+                    Individual tests update a completed profile immediately. Before the first complete profile, results are saved only after every row has a result.
+                    Browser claims alone never authorize source copy.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-4">
+        <div id="exactTestSelection" class="card mb-3">
+            <div class="card-header"><h6 class="mb-0">Exact Test Selection</h6></div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="testProtocol" class="form-label">Protocol</label>
+                    <select id="testProtocol" class="form-select" @bind="_protocol" disabled="@IsAnyTestBusy">
+                        <option value="@CmafProtocol.Dash">DASH</option>
+                        <option value="@CmafProtocol.Hls">HLS</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label for="testSubtitleMode" class="form-label">Subtitles</label>
+                    <select id="testSubtitleMode" class="form-select" @bind="_subtitleMode" disabled="@IsAnyTestBusy">
+                        <option value="@CmafTestSubtitleMode.None">None</option>
+                        <option value="@CmafTestSubtitleMode.WebVttSidecar">WebVTT sidecar</option>
+                        <option value="@CmafTestSubtitleMode.BurnIn">Burn-in slate</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label for="testQuality" class="form-label">Quality profile</label>
+                    <select id="testQuality" class="form-select" @bind="_quality" disabled="@IsAnyTestBusy">
+                        <option value="@WebPlayerQuality.AppDefault">App Default (1080p slate)</option>
+                        <option value="@WebPlayerQuality.High">High (1080p)</option>
+                        <option value="@WebPlayerQuality.Medium">Medium (720p)</option>
+                        <option value="@WebPlayerQuality.Low">Low (480p)</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label for="testVideoCodec" class="form-label">Video codec</label>
+                    <select id="testVideoCodec" class="form-select" value="@_videoCodec" @onchange="ChangeVideoCodec" disabled="@IsAnyTestBusy">
+                        <option value="@CmafTestVideoCodec.H264">H.264 / AVC</option>
+                        <option value="@CmafTestVideoCodec.Hevc">HEVC / H.265</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label for="testVideoProfile" class="form-label">Video profile</label>
+                    <select id="testVideoProfile" class="form-select" @bind="_videoProfile" disabled="@(IsAnyTestBusy || _videoCodec == CmafTestVideoCodec.H264)">
+                        <option value="@CmafTestVideoProfile.Main">Main (8-bit)</option>
+                        <option value="@CmafTestVideoProfile.Main10">Main 10 (10-bit)</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label for="testAudioCodec" class="form-label">Audio codec</label>
+                    <select id="testAudioCodec" class="form-select" value="@_audioCodec" @onchange="ChangeAudioCodec" disabled="@IsAnyTestBusy">
+                        <option value="@CmafTestAudioCodec.Aac">AAC</option>
+                        <option value="@CmafTestAudioCodec.Ac3">AC-3</option>
+                        <option value="@CmafTestAudioCodec.Eac3">E-AC-3</option>
+                        <option value="@CmafTestAudioCodec.Ac4">AC-4 (claim only)</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label for="testChannelLayout" class="form-label">Audio layout</label>
+                    <select id="testChannelLayout" class="form-select" @bind="_channelLayout" disabled="@(IsAnyTestBusy || !CanEncodeSelectedAudio)">
+                        @foreach (var layout in SupportedLayouts)
+                        {
+                            <option value="@(layout)">@FormatLayout(layout)</option>
+                        }
+                    </select>
+                    @if (CanEncodeSelectedAudio)
+                    {
+                        <div id="channelTestSequence" class="form-text">
+                            A tone cycles continuously through one channel per second: @SelectedChannelSequence. Use the player's sound control to adjust volume; press Play if audible autoplay is blocked.
+                        </div>
+                    }
+                </div>
+                @if (!CanEncodeSelectedAudio)
+                {
+                    <div class="alert alert-warning small">
+                        The bundled Jellyfin FFmpeg can decode AC-4 but has no AC-4 encoder. The browser claim is shown below, but Lineup cannot generate a synthetic AC-4 test.
+                    </div>
+                }
+                <div class="d-flex gap-2">
+                    <button id="startManualCompatibilityTest" class="btn btn-primary" @onclick="StartTestAsync" disabled="@(IsAnyTestBusy || !CanEncodeSelectedAudio)">
+                        @if (_isStarting)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                        }
+                        else
+                        {
+                            <span class="bi bi-play-fill me-1"></span>
+                        }
+                        Start Test
+                    </button>
+                    @if (_session is not null && !IsAutomatedTestBusy)
+                    {
+                        <button class="btn btn-outline-danger" @onclick="StopTestAsync" disabled="@_isStarting">Stop</button>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div id="browserClaims" class="card">
+            <div class="card-header"><h6 class="mb-0">Browser Claims</h6></div>
+            <div class="card-body">
+                @if (_capabilities is null)
+                {
+                    <p class="text-muted small mb-0">Reading browser capabilities…</p>
+                }
+                else
+                {
+                    <table class="table table-sm mb-0">
+                        <tbody>
+                            <tr><th scope="row">Shaka Player</th><td>@FormatClaim(_capabilities.ShakaSupported)</td></tr>
+                            <tr><th scope="row">Media Source</th><td>@FormatClaim(_capabilities.MediaSourceAvailable)</td></tr>
+                            <tr><th scope="row">Native HLS</th><td>@(string.IsNullOrWhiteSpace(_capabilities.NativeHls) ? "No claim" : _capabilities.NativeHls)</td></tr>
+                            <tr><th scope="row">H.264</th><td>@FormatClaim(_capabilities.H264)</td></tr>
+                            <tr><th scope="row">HEVC</th><td>@FormatClaim(_capabilities.Hevc)</td></tr>
+                            <tr><th scope="row">HEVC Main 10</th><td>@FormatClaim(_capabilities.HevcMain10)</td></tr>
+                            <tr><th scope="row">AAC</th><td>@FormatClaim(_capabilities.Aac)</td></tr>
+                            <tr><th scope="row">AC-3</th><td>@FormatClaim(_capabilities.Ac3)</td></tr>
+                            <tr><th scope="row">E-AC-3</th><td>@FormatClaim(_capabilities.Eac3)</td></tr>
+                            <tr><th scope="row">AC-4</th><td>@FormatClaim(_capabilities.Ac4)</td></tr>
+                        </tbody>
+                    </table>
+                    <p class="small text-muted mt-2 mb-0">A browser claim is diagnostic evidence, not proof of successful decoding. Run a playback test where an encoder is available.</p>
+                }
+            </div>
+        </div>
+    </div>
+</div>

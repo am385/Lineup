@@ -17,8 +17,6 @@ namespace Lineup.Web.Components.Pages;
 /// </summary>
 public partial class WatchCmaf : IAsyncDisposable
 {
-    private const string PreferencesStorageKey = "lineup-watch-cmaf-preferences-v1";
-
     [Inject]
     private IEpgRepository Repository { get; set; } = default!;
 
@@ -77,6 +75,12 @@ public partial class WatchCmaf : IAsyncDisposable
     private CmafPreferredVideo _preferredVideo = CmafPreferredVideo.Source;
     private CmafPreferredVideo _streamPreferredVideo = CmafPreferredVideo.Source;
     private CmafPreferredAudio _preferredAudio = CmafPreferredAudio.Source;
+    private CmafPreferredAudio _streamPreferredAudio = CmafPreferredAudio.Source;
+    private CmafCompatibilityProfile? _compatibilityProfile;
+    private CmafStreamOverrides _streamOverrides = new();
+    private CmafPreferredVideo? _runtimeVideoOverride;
+    private CmafPreferredAudio? _runtimeAudioOverride;
+    private CmafFallbackAudio? _runtimeFallbackAudioOverride;
     private CmafFallbackAudio _fallbackAudio = CmafFallbackAudio.AacStereo;
     private CmafFallbackAudio _streamFallbackAudio = CmafFallbackAudio.AacStereo;
     private int? _audioTrack;
@@ -91,9 +95,16 @@ public partial class WatchCmaf : IAsyncDisposable
     private bool _preferencesRestored;
     private bool _isStarting;
     private bool _isStopping;
+    private bool _isPlayerLoading;
     private bool _disposed;
     private DateTime _lastTunerRefreshRequestUtc = DateTime.MinValue;
     private TunerStatus? SelectedTuner => DeviceState.TunerStatuses.FirstOrDefault(tuner => string.Equals(tuner.VirtualChannel, _selectedChannelNumber, StringComparison.Ordinal));
+    private string OverrideProtocolValue => _streamOverrides.Enabled ? _streamOverrides.Protocol?.ToString() ?? string.Empty : _protocol.ToString();
+    private string OverrideQualityValue => _streamOverrides.Enabled ? _streamOverrides.Quality?.ToString() ?? string.Empty : _quality.ToString();
+    private string OverrideVideoValue => _streamOverrides.Enabled ? _streamOverrides.Video?.ToString() ?? string.Empty : _preferredVideo.ToString();
+    private string OverrideAudioValue => _streamOverrides.Enabled ? _streamOverrides.Audio?.ToString() ?? string.Empty : _preferredAudio.ToString();
+    private string OverrideFallbackAudioValue => _streamOverrides.Enabled ? _streamOverrides.FallbackAudio?.ToString() ?? string.Empty : _fallbackAudio.ToString();
+    private CmafPlaybackProtocol EffectiveProtocol => _streamOverrides.Enabled ? _streamOverrides.Protocol ?? CmafPlaybackProtocol.Auto : _protocol;
 
     /// <summary>Loads channel and programme data and registers stream lifecycle handlers.</summary>
     protected override async Task OnInitializedAsync()
@@ -155,7 +166,7 @@ public partial class WatchCmaf : IAsyncDisposable
                 "cmafVideoPlayer",
                 manifestUrl,
                 fallbackUrl,
-                _preferredAudio.ToString(),
+                _streamPreferredAudio.ToString(),
                 _streamPreferredVideo.ToString(),
                 _session.SourceVideoCodec,
                 _session.FallbackAudioCodec,
@@ -165,14 +176,25 @@ public partial class WatchCmaf : IAsyncDisposable
             {
                 var retryVideo = result.ErrorCode == 4032 &&
                     _session.HasSourceVideoRendition &&
-                    _streamPreferredVideo == CmafPreferredVideo.Source &&
+                    _streamPreferredVideo is CmafPreferredVideo.Source or CmafPreferredVideo.Auto &&
                     result.SourceVideoSupported == false;
-                var retryAudio = result.ErrorCode == 4032 &&
+                var retrySourceAudio = result.ErrorCode == 4032 &&
+                    !retryVideo &&
+                    _session.FallbackAudioCodec is null &&
+                    _streamPreferredAudio is CmafPreferredAudio.Source or CmafPreferredAudio.Auto;
+                var retryPackagedFallbackAudio = result.ErrorCode == 4032 &&
+                    _session.FallbackAudioCodec is not null &&
                     _streamFallbackAudio != CmafFallbackAudio.AacStereo &&
                     result.FallbackAudioSupported == false;
+                var retryAudio = retrySourceAudio || retryPackagedFallbackAudio;
                 if ((retryVideo || retryAudio) && _selectedChannelNumber is { } retryChannelNumber)
                 {
+                    if (_streamPreferredVideo == CmafPreferredVideo.Auto || _streamPreferredAudio == CmafPreferredAudio.Auto)
+                    {
+                        await InvalidateCompatibilityProfileAsync();
+                    }
                     var videoPreference = retryVideo ? CmafPreferredVideo.Fallback : _streamPreferredVideo;
+                    var audioPreference = retryAudio ? CmafPreferredAudio.Fallback : _streamPreferredAudio;
                     var fallbackAudio = retryAudio ? CmafFallbackAudio.AacStereo : _streamFallbackAudio;
                     var unavailable = retryVideo && retryAudio
                         ? $"Source video and {FormatFallbackAudio(_streamFallbackAudio)} are unavailable"
@@ -185,7 +207,7 @@ public partial class WatchCmaf : IAsyncDisposable
                             ? "H.264"
                             : "AAC Stereo";
                     Notifications.ShowError($"{unavailable} in this browser. Retrying this stream with {replacement}.");
-                    await TuneChannelAsync(retryChannelNumber, _selectedChannel, fallbackAudio, videoPreference);
+                    await TuneChannelAsync(retryChannelNumber, _selectedChannel, fallbackAudio, videoPreference, audioPreference);
                     StateHasChanged();
                     return;
                 }
@@ -198,6 +220,7 @@ public partial class WatchCmaf : IAsyncDisposable
                 _effectiveProtocol = string.Equals(result.ManifestUrl, _session.DashManifestUrl, StringComparison.Ordinal) ? "DASH" : "HLS";
                 _playerAudio = result.Audio;
                 _playerVideo = result.Video;
+                _isPlayerLoading = false;
                 await DeviceState.RefreshTunerStatusAsync();
             }
             StateHasChanged();
@@ -212,9 +235,13 @@ public partial class WatchCmaf : IAsyncDisposable
 
     /// <summary>Receives asynchronous player fallback and failure events from Shaka.</summary>
     [JSInvokable]
-    public Task OnCmafPlayerEvent(CmafPlayerEvent playerEvent)
+    public async Task OnCmafPlayerEvent(CmafPlayerEvent playerEvent)
     {
-        if (string.Equals(playerEvent.Kind, "audio-fallback", StringComparison.Ordinal))
+        if (string.Equals(playerEvent.Kind, "audio-track-changed", StringComparison.Ordinal))
+        {
+            _playerAudio = CmafPlayerAudio.FromDetails(playerEvent.Details);
+        }
+        else if (string.Equals(playerEvent.Kind, "audio-fallback", StringComparison.Ordinal))
         {
             _playerAudio = CmafPlayerAudio.FromDetails(playerEvent.Details);
             Notifications.ShowError(playerEvent.Message);
@@ -223,6 +250,17 @@ public partial class WatchCmaf : IAsyncDisposable
         {
             _playerVideo = CmafPlayerVideo.FromDetails(playerEvent.Details);
             Notifications.ShowError(playerEvent.Message);
+        }
+        else if (string.Equals(playerEvent.Kind, "video-fallback-required", StringComparison.Ordinal) &&
+            _streamPreferredVideo is CmafPreferredVideo.Source or CmafPreferredVideo.Auto &&
+            _selectedChannelNumber is { } channelNumber)
+        {
+            Notifications.ShowError(playerEvent.Message);
+            if (_streamPreferredVideo == CmafPreferredVideo.Auto)
+            {
+                await InvalidateCompatibilityProfileAsync();
+            }
+            await TuneChannelAsync(channelNumber, _selectedChannel, _streamFallbackAudio, CmafPreferredVideo.Fallback);
         }
         else if (string.Equals(playerEvent.Kind, "protocol-fallback", StringComparison.Ordinal))
         {
@@ -233,9 +271,7 @@ public partial class WatchCmaf : IAsyncDisposable
         {
             _errorMessage = playerEvent.Message;
         }
-
         StateHasChanged();
-        return Task.CompletedTask;
     }
 
     private async Task LoadChannelsAsync()
@@ -301,7 +337,8 @@ public partial class WatchCmaf : IAsyncDisposable
         string? channelNumber,
         HDHomeRunChannelEpgSegment? channel,
         CmafFallbackAudio? streamFallbackAudio = null,
-        CmafPreferredVideo? streamPreferredVideo = null)
+        CmafPreferredVideo? streamPreferredVideo = null,
+        CmafPreferredAudio? streamPreferredAudio = null)
     {
         if (_isStarting)
         {
@@ -317,10 +354,12 @@ public partial class WatchCmaf : IAsyncDisposable
         }
 
         _isStarting = true;
+        _isPlayerLoading = true;
+        StateHasChanged();
         try
         {
             var changed = !string.Equals(_selectedChannelNumber, normalized, StringComparison.Ordinal);
-            await StopStreamAsync();
+            await StopStreamAsync(preserveLoadingIndicator: true);
             if (changed)
             {
                 _audioTrack = null;
@@ -334,9 +373,20 @@ public partial class WatchCmaf : IAsyncDisposable
             _currentProgram = GetCurrentProgram(normalized);
             _errorMessage = null;
             _manualTuneValidationMessage = null;
-            _streamFallbackAudio = streamFallbackAudio ?? _fallbackAudio;
-            _streamPreferredVideo = streamPreferredVideo ?? _preferredVideo;
-            _session = await JS.InvokeAsync<CmafStartResponse>("startCmafSession", BuildStartUrl(normalized));
+            _runtimeVideoOverride = streamPreferredVideo;
+            _runtimeAudioOverride = streamPreferredAudio;
+            _runtimeFallbackAudioOverride = streamFallbackAudio;
+            var useMeasuredProfile = _compatibilityProfile is not null && _streamOverrides.Enabled;
+            _streamFallbackAudio = streamFallbackAudio ?? (_streamOverrides.Enabled ? _streamOverrides.FallbackAudio ?? _fallbackAudio : _fallbackAudio);
+            _streamPreferredVideo = streamPreferredVideo ?? (_streamOverrides.Enabled ? _streamOverrides.Video ?? (useMeasuredProfile ? CmafPreferredVideo.Auto : _preferredVideo) : _preferredVideo);
+            _streamPreferredAudio = streamPreferredAudio ??
+                (_streamOverrides.Enabled ? _streamOverrides.Audio ?? (useMeasuredProfile ? CmafPreferredAudio.Auto : _preferredAudio) : _preferredAudio);
+            _session = _compatibilityProfile is null && !_streamOverrides.Enabled
+                ? await JS.InvokeAsync<CmafStartResponse>("startCmafSession", BuildStartUrl(normalized))
+                : await JS.InvokeAsync<CmafStartResponse>(
+                    "startCmafSession",
+                    $"/api/stream/cmaf/start-v2/{Uri.EscapeDataString(normalized)}",
+                    BuildStartRequest());
             if (_session.SourceAudioFallbackApplied)
             {
                 Notifications.ShowError($"Source audio cannot be packaged by this FFmpeg build. Using {_session.FallbackAudioTitle ?? "fallback audio"} for this stream.");
@@ -344,11 +394,12 @@ public partial class WatchCmaf : IAsyncDisposable
             _isPlaying = true;
             _sessionUsesBurnIn = _subtitlePresentation == SubtitlePresentation.BurnIn;
             _needsPlayerInit = true;
-            _effectiveProtocol = _protocol == CmafPlaybackProtocol.Auto ? "DASH (Auto)" : _protocol.ToString().ToUpperInvariant();
+            _effectiveProtocol = EffectiveProtocol == CmafPlaybackProtocol.Auto ? "DASH (Auto)" : EffectiveProtocol.ToString().ToUpperInvariant();
             StartStreamInfoRefresh();
         }
         catch (JSException ex)
         {
+            _isPlayerLoading = false;
             _errorMessage = ex.Message;
             Notifications.ShowError($"Unable to start CMAF playback: {ex.Message}");
         }
@@ -380,16 +431,58 @@ public partial class WatchCmaf : IAsyncDisposable
         return url;
     }
 
+    private CmafStreamRequest BuildStartRequest() =>
+        new()
+        {
+            ClientId = _clientId,
+            Quality = _quality,
+            PreferredVideo = _streamPreferredVideo,
+            PreferredAudio = _streamPreferredAudio,
+            FallbackAudio = _streamFallbackAudio,
+            AudioTrack = _audioTrack,
+            SubtitleTrack = _subtitleTrack,
+            SubtitlePresentation = _subtitlePresentation,
+            EmbeddedCaptions = _subtitleEmbedded,
+            CompatibilityProfile = _compatibilityProfile,
+            Overrides = _streamOverrides with
+            {
+                Video = _runtimeVideoOverride ?? _streamOverrides.Video,
+                Audio = _runtimeAudioOverride ?? _streamOverrides.Audio,
+                FallbackAudio = _runtimeFallbackAudioOverride ?? _streamOverrides.FallbackAudio
+            }
+        };
+
     private (string ManifestUrl, string? FallbackUrl) ResolveManifestUrls(CmafStartResponse session) =>
-        _protocol switch
+        EffectiveProtocol switch
         {
             CmafPlaybackProtocol.Hls => (session.HlsManifestUrl, null),
             CmafPlaybackProtocol.Dash => (session.DashManifestUrl, null),
+            CmafPlaybackProtocol.Auto when _compatibilityProfile is not null &&
+                !CmafCompatibilityProfilePolicy.SupportsProtocol(_compatibilityProfile, CmafProtocol.Dash) &&
+                CmafCompatibilityProfilePolicy.SupportsProtocol(_compatibilityProfile, CmafProtocol.Hls) => (session.HlsManifestUrl, null),
+            CmafPlaybackProtocol.Auto when _compatibilityProfile is not null &&
+                CmafCompatibilityProfilePolicy.SupportsProtocol(_compatibilityProfile, CmafProtocol.Dash) &&
+                !CmafCompatibilityProfilePolicy.SupportsProtocol(_compatibilityProfile, CmafProtocol.Hls) => (session.DashManifestUrl, null),
             _ => (session.DashManifestUrl, session.HlsManifestUrl)
         };
 
+    private async Task ChangeOverrideEnabled(ChangeEventArgs args)
+    {
+        _streamOverrides = _streamOverrides with { Enabled = bool.TryParse(args.Value?.ToString(), out var enabled) && enabled };
+        await SavePreferencesAndRestartAsync();
+    }
+
     private async Task ChangeProtocol(ChangeEventArgs args)
     {
+        if (_streamOverrides.Enabled)
+        {
+            _streamOverrides = _streamOverrides with
+            {
+                Protocol = Enum.TryParse<CmafPlaybackProtocol>(args.Value?.ToString(), out var overridden) ? overridden : null
+            };
+            await SavePreferencesAndRestartAsync();
+            return;
+        }
         if (Enum.TryParse<CmafPlaybackProtocol>(args.Value?.ToString(), out var value))
         {
             _protocol = value;
@@ -399,6 +492,15 @@ public partial class WatchCmaf : IAsyncDisposable
 
     private async Task ChangeQuality(ChangeEventArgs args)
     {
+        if (_streamOverrides.Enabled)
+        {
+            _streamOverrides = _streamOverrides with
+            {
+                Quality = Enum.TryParse<WebPlayerQuality>(args.Value?.ToString(), out var overridden) ? overridden : null
+            };
+            await SavePreferencesAndRestartAsync();
+            return;
+        }
         if (Enum.TryParse<WebPlayerQuality>(args.Value?.ToString(), out var value))
         {
             _quality = value;
@@ -408,6 +510,15 @@ public partial class WatchCmaf : IAsyncDisposable
 
     private async Task ChangePreferredVideo(ChangeEventArgs args)
     {
+        if (_streamOverrides.Enabled)
+        {
+            _streamOverrides = _streamOverrides with
+            {
+                Video = Enum.TryParse<CmafPreferredVideo>(args.Value?.ToString(), out var overridden) ? overridden : null
+            };
+            await SavePreferencesAndRestartAsync();
+            return;
+        }
         if (Enum.TryParse<CmafPreferredVideo>(args.Value?.ToString(), out var value))
         {
             _preferredVideo = value;
@@ -417,6 +528,15 @@ public partial class WatchCmaf : IAsyncDisposable
 
     private async Task ChangePreferredAudio(ChangeEventArgs args)
     {
+        if (_streamOverrides.Enabled)
+        {
+            _streamOverrides = _streamOverrides with
+            {
+                Audio = Enum.TryParse<CmafPreferredAudio>(args.Value?.ToString(), out var overridden) ? overridden : null
+            };
+            await SavePreferencesAndRestartAsync();
+            return;
+        }
         if (Enum.TryParse<CmafPreferredAudio>(args.Value?.ToString(), out var value))
         {
             _preferredAudio = value;
@@ -426,19 +546,19 @@ public partial class WatchCmaf : IAsyncDisposable
 
     private async Task ChangeFallbackAudio(ChangeEventArgs args)
     {
+        if (_streamOverrides.Enabled)
+        {
+            _streamOverrides = _streamOverrides with
+            {
+                FallbackAudio = Enum.TryParse<CmafFallbackAudio>(args.Value?.ToString(), out var overridden) ? overridden : null
+            };
+            await SavePreferencesAndRestartAsync();
+            return;
+        }
         if (Enum.TryParse<CmafFallbackAudio>(args.Value?.ToString(), out var value))
         {
             _fallbackAudio = value;
             await SavePreferencesAndRestartAsync();
-        }
-    }
-
-    private async Task ChangeAudioTrack(ChangeEventArgs args)
-    {
-        if (int.TryParse(args.Value?.ToString(), out var value))
-        {
-            _audioTrack = value;
-            await RestartCurrentStreamAsync();
         }
     }
 
@@ -470,7 +590,9 @@ public partial class WatchCmaf : IAsyncDisposable
             ? TuneChannelAsync(channelNumber, _selectedChannel)
             : Task.CompletedTask;
 
-    private async Task StopStreamAsync()
+    private Task StopStreamAsync() => StopStreamAsync(preserveLoadingIndicator: false);
+
+    private async Task StopStreamAsync(bool preserveLoadingIndicator)
     {
         if (_isStopping)
         {
@@ -504,6 +626,10 @@ public partial class WatchCmaf : IAsyncDisposable
             _playerAudio = null;
             _playerVideo = null;
             _sessionUsesBurnIn = false;
+            if (!preserveLoadingIndicator)
+            {
+                _isPlayerLoading = false;
+            }
             _streamInfoTimer?.Dispose();
             _streamInfoTimer = null;
         }
@@ -559,32 +685,28 @@ public partial class WatchCmaf : IAsyncDisposable
     {
         try
         {
-            var preferences = await BrowserData.ReadAsync<CmafPreferences>(PreferencesStorageKey);
-            if (preferences is null)
-            {
-                return;
-            }
-            if (Enum.IsDefined(preferences.Protocol))
+            var preferences = await BrowserData.ReadAsync<CmafWatchPreferences>(CmafWatchPreferences.StorageKey);
+            if (preferences is not null && Enum.IsDefined(preferences.Protocol))
             {
                 _protocol = preferences.Protocol;
             }
-            if (Enum.IsDefined(preferences.Quality))
+            if (preferences is not null && Enum.IsDefined(preferences.Quality))
             {
                 _quality = preferences.Quality;
             }
-            if (Enum.IsDefined(preferences.PreferredVideo))
+            if (preferences is not null && Enum.IsDefined(preferences.PreferredVideo))
             {
                 _preferredVideo = preferences.PreferredVideo;
             }
-            if (Enum.IsDefined(preferences.PreferredAudio))
+            if (preferences is not null && Enum.IsDefined(preferences.PreferredAudio))
             {
                 _preferredAudio = preferences.PreferredAudio;
             }
-            if (preferences.FallbackAudio is { } fallbackAudio && Enum.IsDefined(fallbackAudio))
+            if (preferences?.FallbackAudio is { } fallbackAudio && Enum.IsDefined(fallbackAudio))
             {
                 _fallbackAudio = fallbackAudio;
             }
-            else if (preferences.AacFallback is { } legacyFallback && legacyFallback != WatchAudioOutput.Source)
+            else if (preferences?.AacFallback is { } legacyFallback && legacyFallback != WatchAudioOutput.Source)
             {
                 _fallbackAudio = legacyFallback switch
                 {
@@ -593,7 +715,30 @@ public partial class WatchCmaf : IAsyncDisposable
                     _ => CmafFallbackAudio.AacStereo
                 };
             }
-            _subtitleTrack = preferences.SubtitleTrack;
+            if (preferences?.Overrides is { } overrides)
+            {
+                try
+                {
+                    CmafStreamPlanner.ValidateOverrides(overrides);
+                    _streamOverrides = overrides;
+                }
+                catch (ArgumentException ex)
+                {
+                    Logger.LogWarning(ex, "Ignoring invalid Watch CMAF stream overrides");
+                }
+            }
+            _subtitleTrack = preferences?.SubtitleTrack;
+            var profile = await BrowserData.ReadAsync<CmafCompatibilityProfile>(CmafCompatibilityProfile.StorageKey);
+            if (CmafCompatibilityProfilePolicy.IsValid(profile))
+            {
+                var browserIdentity = await JS.InvokeAsync<string>("getCmafBrowserIdentity");
+                _compatibilityProfile = string.Equals(profile!.BrowserIdentity, browserIdentity, StringComparison.Ordinal) ? profile : null;
+            }
+            if (_compatibilityProfile is not null && preferences?.PolicyVersion != CmafWatchPreferences.CurrentPolicyVersion)
+            {
+                _preferredVideo = CmafPreferredVideo.Auto;
+                _preferredAudio = CmafPreferredAudio.Auto;
+            }
         }
         catch (Exception ex) when (ex is JsonException or JSException or InvalidOperationException or OperationCanceledException)
         {
@@ -605,21 +750,36 @@ public partial class WatchCmaf : IAsyncDisposable
     {
         try
         {
-            await BrowserData.WriteAsync(
-                PreferencesStorageKey,
-                new CmafPreferences
-                {
-                    Protocol = _protocol,
-                    Quality = _quality,
-                    PreferredVideo = _preferredVideo,
-                    PreferredAudio = _preferredAudio,
-                    FallbackAudio = _fallbackAudio,
-                    SubtitleTrack = _subtitleTrack
-                });
+            CmafWatchPreferences watchPreferences = new()
+            {
+                PolicyVersion = CmafWatchPreferences.CurrentPolicyVersion,
+                Protocol = _protocol,
+                Quality = _quality,
+                PreferredVideo = _preferredVideo,
+                PreferredAudio = _preferredAudio,
+                FallbackAudio = _fallbackAudio,
+                Overrides = _streamOverrides,
+                SubtitleTrack = _subtitleTrack
+            };
+            await BrowserData.WriteAsync(CmafWatchPreferences.StorageKey, watchPreferences);
         }
         catch (Exception ex) when (ex is JSException or InvalidOperationException or OperationCanceledException)
         {
             Logger.LogWarning(ex, "Unable to save Watch CMAF preferences");
+        }
+    }
+
+    private async Task InvalidateCompatibilityProfileAsync()
+    {
+        _compatibilityProfile = null;
+        try
+        {
+            await BrowserData.RemoveAsync(CmafCompatibilityProfile.StorageKey);
+            Notifications.ShowError("The saved browser compatibility profile contradicted runtime playback and was cleared. Run Watch Test again to refresh it.");
+        }
+        catch (Exception ex) when (ex is JSException or InvalidOperationException or OperationCanceledException)
+        {
+            Logger.LogWarning(ex, "Unable to clear a contradicted Watch CMAF compatibility profile");
         }
     }
 
@@ -661,12 +821,95 @@ public partial class WatchCmaf : IAsyncDisposable
 
     private static string FormatOutputTrack(ActiveStreamTrack track)
     {
+        if (string.Equals(track.OutputCodec, "not-mapped", StringComparison.OrdinalIgnoreCase))
+        {
+            return "not included";
+        }
+        if (IsWebVttSidecar(track))
+        {
+            return "WebVTT sidecar";
+        }
+
         var codec = track.OutputCodec == "copy" ? $"{track.SourceCodec} (copy)" : track.OutputCodec;
         var details = track.Type == MediaTrackType.Audio && track.OutputChannels.HasValue ? $"{track.OutputChannels} ch" : null;
         return string.Join(
             " · ",
             new[] { track.OutputTitle, codec, details, FormatBitRate(track.OutputBitRate) }
                 .Where(value => !string.IsNullOrEmpty(value)));
+    }
+
+    private bool IsPlayingTrack(ActiveStreamTrack track)
+    {
+        if (!track.IsSelected)
+        {
+            return false;
+        }
+
+        if (track.Type == MediaTrackType.Video && _playerVideo is not null)
+        {
+            return CodecsMatch(GetOutputCodec(track), _playerVideo.Codec);
+        }
+
+        if (track.Type == MediaTrackType.Audio && _playerAudio is not null)
+        {
+            var labelMatches = string.IsNullOrWhiteSpace(_playerAudio.Label) ||
+                string.IsNullOrWhiteSpace(track.OutputTitle) ||
+                string.Equals(track.OutputTitle, _playerAudio.Label, StringComparison.OrdinalIgnoreCase);
+            return labelMatches &&
+                CodecsMatch(GetOutputCodec(track), _playerAudio.Codec) &&
+                (!track.OutputChannels.HasValue || !_playerAudio.Channels.HasValue || track.OutputChannels == _playerAudio.Channels);
+        }
+
+        return false;
+    }
+
+    private static bool IsWebVttSidecar(ActiveStreamTrack track) =>
+        track.Type == MediaTrackType.Subtitle &&
+        string.Equals(track.OutputCodec, "webvtt", StringComparison.OrdinalIgnoreCase);
+
+    private static string GetOutputCodec(ActiveStreamTrack track) =>
+        string.Equals(track.OutputCodec, "copy", StringComparison.OrdinalIgnoreCase)
+            ? track.SourceCodec
+            : track.OutputCodec;
+
+    private static bool CodecsMatch(string? plannedCodec, string? playerCodec)
+    {
+        if (string.IsNullOrWhiteSpace(plannedCodec) || string.IsNullOrWhiteSpace(playerCodec))
+        {
+            return false;
+        }
+
+        return NormalizeCodec(plannedCodec) == NormalizeCodec(playerCodec);
+    }
+
+    private static string NormalizeCodec(string codec)
+    {
+        var normalized = codec.Trim().ToLowerInvariant();
+        if (normalized is "h264" || normalized.StartsWith("avc1", StringComparison.Ordinal) || normalized.StartsWith("avc3", StringComparison.Ordinal))
+        {
+            return "h264";
+        }
+        if (normalized is "hevc" or "h265" || normalized.StartsWith("hvc1", StringComparison.Ordinal) || normalized.StartsWith("hev1", StringComparison.Ordinal))
+        {
+            return "hevc";
+        }
+        if (normalized is "aac" || normalized.StartsWith("mp4a.40", StringComparison.Ordinal))
+        {
+            return "aac";
+        }
+        if (normalized is "ac3" or "ac-3")
+        {
+            return "ac3";
+        }
+        if (normalized is "eac3" or "ec-3")
+        {
+            return "eac3";
+        }
+        if (normalized is "ac4" or "ac-4")
+        {
+            return "ac4";
+        }
+        return normalized;
     }
 
     private static string FormatTrackLabel(ActiveStreamTrack track)
@@ -733,17 +976,6 @@ public partial class WatchCmaf : IAsyncDisposable
         _streamInfoTimer?.Dispose();
     }
 
-    private sealed record CmafPreferences
-    {
-        public CmafPlaybackProtocol Protocol { get; init; }
-        public WebPlayerQuality Quality { get; init; }
-        public CmafPreferredVideo PreferredVideo { get; init; }
-        public CmafPreferredAudio PreferredAudio { get; init; }
-        public CmafFallbackAudio? FallbackAudio { get; init; }
-        public WatchAudioOutput? AacFallback { get; init; }
-        public int? SubtitleTrack { get; init; }
-    }
-
     /// <summary>Describes a started shared CMAF presentation returned by the streaming API.</summary>
     /// <param name="SessionId">The server session identifier.</param>
     /// <param name="HlsManifestUrl">The canonical HLS master-playlist URL.</param>
@@ -752,7 +984,7 @@ public partial class WatchCmaf : IAsyncDisposable
     /// <param name="SourceAudioFallbackApplied">Whether startup retried with only the configured fallback rendition.</param>
     /// <param name="FallbackAudioTitle">The configured fallback rendition title.</param>
     /// <param name="Subtitles">The browser-selectable WebVTT sidecars prepared for the session.</param>
-    /// <param name="HasSourceVideoRendition">Whether source video is packaged beside H.264 fallback.</param>
+    /// <param name="HasSourceVideoRendition">Whether the presentation contains copied source video.</param>
     /// <param name="SourceVideoCodec">The copied source-video codec used for browser capability testing.</param>
     /// <param name="FallbackAudioCodec">The configured fallback-audio codec used for browser capability testing.</param>
     public sealed record CmafStartResponse(
@@ -798,7 +1030,9 @@ public partial class WatchCmaf : IAsyncDisposable
     /// <param name="Label">The manifest rendition label.</param>
     /// <param name="Codec">The browser codec identifier.</param>
     /// <param name="Channels">The reported channel count.</param>
-    public sealed record CmafPlayerAudio(string? Label, string? Codec, int? Channels)
+    /// <param name="Id">The Shaka audio-stream identifier.</param>
+    /// <param name="Language">The manifest language.</param>
+    public sealed record CmafPlayerAudio(string? Label, string? Codec, int? Channels, string? Id = null, string? Language = null)
     {
         /// <summary>Reads active-audio metadata from an asynchronous player event.</summary>
         /// <param name="details">The structured player event details.</param>
@@ -811,11 +1045,13 @@ public partial class WatchCmaf : IAsyncDisposable
             }
 
             var label = value.TryGetProperty("label", out var labelProperty) ? labelProperty.GetString() : null;
+            var id = value.TryGetProperty("id", out var idProperty) ? idProperty.GetString() : null;
+            var language = value.TryGetProperty("language", out var languageProperty) ? languageProperty.GetString() : null;
             var codec = value.TryGetProperty("codec", out var codecProperty) ? codecProperty.GetString() : null;
             int? channels = value.TryGetProperty("channels", out var channelsProperty) && channelsProperty.TryGetInt32(out var channelCount)
                 ? channelCount
                 : null;
-            return new CmafPlayerAudio(label, codec, channels);
+            return new CmafPlayerAudio(label, codec, channels, id, language);
         }
     }
 

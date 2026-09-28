@@ -52,10 +52,10 @@ public class CmafStreamPlannerTests
     }
 
     /// <summary>
-    /// Verifies source audio is packaged beside the configured independent fallback rendition.
+    /// Verifies eligible source audio is copied without continuously encoding an unused fallback rendition.
     /// </summary>
     [Fact]
-    public void CreateAudioRenditions_Ac4Source_ProducesSourceAndFallback()
+    public void CreateAudioRenditions_Ac4Source_ProducesOnlySource()
     {
         // Arrange
         var audio = Source("ac4").Tracks[1] with { Channels = 6, SampleRate = 48_000 };
@@ -64,20 +64,9 @@ public class CmafStreamPlannerTests
         var renditions = CmafStreamPlanner.CreateAudioRenditions(audio, CmafPreferredAudio.Source, CmafFallbackAudio.Ac3);
 
         // Assert
-        Assert.Collection(
-            renditions,
-            source =>
-            {
-                Assert.True(source.CopySource);
-                Assert.Equal("ac4", source.Codec);
-            },
-            fallback =>
-            {
-                Assert.False(fallback.CopySource);
-                Assert.Equal("ac3", fallback.Codec);
-                Assert.Equal(6, fallback.Channels);
-                Assert.Equal("Fallback AC3", fallback.Title);
-            });
+        var source = Assert.Single(renditions);
+        Assert.True(source.CopySource);
+        Assert.Equal("ac4", source.Codec);
     }
 
     /// <summary>
@@ -98,10 +87,10 @@ public class CmafStreamPlannerTests
     }
 
     /// <summary>
-    /// Verifies HEVC source video is packaged beside an independently encoded H.264 compatibility rendition.
+    /// Verifies eligible HEVC source video is copied without paying for an unused H.264 encode.
     /// </summary>
     [Fact]
-    public void CreateArguments_HevcSource_MapsSourceAndH264Fallback()
+    public void CreateArguments_HevcSource_MapsOnlySource()
     {
         // Arrange
         var source = Source("aac") with
@@ -118,12 +107,12 @@ public class CmafStreamPlannerTests
         var arguments = CmafStreamPlanner.CreateArguments(new AppSettings(), source, selection, new CmafStreamRequest(), "manifest.mpd");
 
         // Assert
-        Assert.Equal(2, arguments.Select((argument, index) => (argument, index)).Count(item => item.argument == "-map" && arguments[item.index + 1] == "0:v:0?"));
+        Assert.Single(arguments.Select((argument, index) => (argument, index)), item => item.argument == "-map" && arguments[item.index + 1] == "0:v:0?");
         AssertOption(arguments, "-c:v:0", "copy");
         AssertOption(arguments, "-tag:v:0", "hvc1");
         AssertOption(arguments, "-metadata:s:v:0", "title=Source");
-        AssertOption(arguments, "-c:v:1", "libx264");
-        AssertOption(arguments, "-metadata:s:v:1", "title=Fallback H.264");
+        Assert.DoesNotContain("-c:v:1", arguments);
+        Assert.DoesNotContain("title=Fallback H.264", arguments);
     }
 
     /// <summary>
@@ -151,6 +140,7 @@ public class CmafStreamPlannerTests
     [Theory]
     [InlineData("Main", 120, "hvc1.1.6.L120")]
     [InlineData("Main 10", 123, "hvc1.2.4.L123")]
+    [InlineData("Main 10", 153, "hvc1.2.4.L153")]
     public void CreateHevcCodecString_KnownProfileAndLevel_ReturnsBrowserCodec(string profile, int level, string expected)
     {
         // Arrange
@@ -178,6 +168,44 @@ public class CmafStreamPlannerTests
         // Assert
         Assert.Contains("codecs=\"hvc1.2.4.L123\"", rewritten, StringComparison.Ordinal);
         Assert.Contains("CODECS=\"hvc1.2.4.L123,mp4a.40.2\"", rewritten, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the sole source label is inserted into DASH and HLS manifests.
+    /// </summary>
+    [Fact]
+    public void RewriteManifestAudioLabels_FfmpegDefaults_InsertsRenditionMetadata()
+    {
+        // Arrange
+        const string dash = """
+            <MPD xmlns="urn:mpeg:dash:schema:mpd:2011"><Period>
+            <AdaptationSet contentType="video"><Representation id="0" /></AdaptationSet>
+            <AdaptationSet contentType="audio" lang="eng"><Representation id="1" /></AdaptationSet>
+            </Period></MPD>
+            """;
+        const string hls = """
+            #EXTM3U
+            #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="group_A1",NAME="audio_1",DEFAULT=YES,URI="media_1.m3u8"
+            """;
+        var source = Source("ac3") with
+        {
+            Tracks = [Track(0, MediaTrackType.Video, "h264"), Track(1, MediaTrackType.Audio, "ac3") with { Language = "eng" }]
+        };
+        var renditions = CmafStreamPlanner.CreatePresentationAudioRenditions(
+            source,
+            source.Tracks[1],
+            CmafPreferredAudio.Source,
+            CmafFallbackAudio.AacStereo);
+
+        // Act
+        var rewrittenDash = CmafStreamPlanner.RewriteManifestAudioLabels(dash, renditions);
+        var rewrittenHls = CmafStreamPlanner.RewriteManifestAudioLabels(hls, renditions);
+
+        // Assert
+        Assert.Contains("<Label>Audio #1 · eng · Source</Label>", rewrittenDash, StringComparison.Ordinal);
+        Assert.Contains("NAME=\"Audio #1 · eng · Source\",LANGUAGE=\"eng\"", rewrittenHls, StringComparison.Ordinal);
+        Assert.DoesNotContain("Fallback", rewrittenDash, StringComparison.Ordinal);
+        Assert.DoesNotContain("Fallback", rewrittenHls, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -217,10 +245,10 @@ public class CmafStreamPlannerTests
     }
 
     /// <summary>
-    /// Verifies FFmpeg maps a Dolby source twice and applies distinct source-copy and fallback encoders.
+    /// Verifies FFmpeg maps a compatible Dolby source once without an unused fallback encoder.
     /// </summary>
     [Fact]
-    public void CreateArguments_Ac4Source_MapsTwoAudioRenditions()
+    public void CreateArguments_Ac4Source_MapsOnlySourceAudio()
     {
         // Arrange
         var source = Source("ac4");
@@ -230,11 +258,42 @@ public class CmafStreamPlannerTests
         var arguments = CmafStreamPlanner.CreateArguments(new AppSettings(), source, selection, new CmafStreamRequest(), "manifest.mpd");
 
         // Assert
-        Assert.Equal(2, arguments.Select((argument, index) => (argument, index)).Count(item => item.argument == "-map" && arguments[item.index + 1] == "0:1"));
+        Assert.Equal(1, arguments.Select((argument, index) => (argument, index)).Count(item => item.argument == "-map" && arguments[item.index + 1] == "0:1"));
         AssertOption(arguments, "-c:a:0", "copy");
-        AssertOption(arguments, "-metadata:s:a:0", "title=Source");
-        AssertOption(arguments, "-c:a:1", "aac");
-        AssertOption(arguments, "-metadata:s:a:1", "title=Fallback AAC Stereo");
+        AssertOption(arguments, "-metadata:s:a:0", "title=Audio #1 · Source");
+        Assert.DoesNotContain("-c:a:1", arguments);
+    }
+
+    /// <summary>
+    /// Verifies every compatible source audio track is mapped exactly once.
+    /// </summary>
+    [Fact]
+    public void CreateArguments_MultipleAudioTracks_MapsEachSourceOnce()
+    {
+        // Arrange
+        var source = Source("ac3") with
+        {
+            Tracks =
+            [
+                Track(0, MediaTrackType.Video, "h264"),
+                Track(1, MediaTrackType.Audio, "ac3") with { Channels = 6, Language = "eng" },
+                Track(2, MediaTrackType.Audio, "ac3") with { Channels = 2, Language = "spa" }
+            ]
+        };
+        var selection = WatchStreamPlanner.SelectTracks(source, 1, null);
+
+        // Act
+        var arguments = CmafStreamPlanner.CreateArguments(new AppSettings(), source, selection, new CmafStreamRequest(), "manifest.mpd");
+
+        // Assert
+        Assert.Equal(1, arguments.Select((argument, index) => (argument, index)).Count(item => item.argument == "-map" && arguments[item.index + 1] == "0:1"));
+        Assert.Equal(1, arguments.Select((argument, index) => (argument, index)).Count(item => item.argument == "-map" && arguments[item.index + 1] == "0:2"));
+        AssertOptionValue(arguments, "-metadata:s:a:0", "language=eng");
+        AssertOptionValue(arguments, "-metadata:s:a:1", "language=spa");
+        Assert.Contains("title=Audio #1 · eng · Source", arguments);
+        Assert.Contains("title=Audio #2 · spa · Source", arguments);
+        Assert.DoesNotContain(arguments, argument => argument.Contains("Fallback", StringComparison.Ordinal));
+        AssertOption(arguments, "-adaptation_sets", "id=0,streams=0 id=1,streams=1 id=2,streams=2");
     }
 
     /// <summary>
@@ -265,7 +324,7 @@ public class CmafStreamPlannerTests
         AssertOption(arguments, "-c:a:0", codec);
         AssertOption(arguments, "-b:a:0", bitRate);
         AssertOption(arguments, "-ac:a:0", channels);
-        AssertOption(arguments, "-metadata:s:a:0", title);
+        AssertOption(arguments, "-metadata:s:a:0", title.Replace("title=", "title=Audio #1 · ", StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -421,5 +480,12 @@ public class CmafStreamPlannerTests
         Assert.True(index >= 0, $"Expected option '{option}'.");
         Assert.True(index + 1 < arguments.Count);
         Assert.Equal(value, arguments[index + 1]);
+    }
+
+    private static void AssertOptionValue(IReadOnlyList<string> arguments, string option, string value)
+    {
+        Assert.Contains(
+            arguments.Select((argument, index) => (argument, index)),
+            item => item.argument == option && item.index + 1 < arguments.Count && arguments[item.index + 1] == value);
     }
 }

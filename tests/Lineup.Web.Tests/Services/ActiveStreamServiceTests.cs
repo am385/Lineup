@@ -10,10 +10,10 @@ namespace Lineup.Web.Tests.Services;
 public class ActiveStreamServiceTests
 {
     /// <summary>
-    /// Verifies shared CMAF metadata identifies source-copy and configured fallback renditions plus the selected subtitle output.
+    /// Verifies shared CMAF metadata identifies one source-copy rendition per audio track plus the selected subtitle output.
     /// </summary>
     [Fact]
-    public void CreateCmaf_SelectedRenditions_DescribeCopyFallbackAndSidecar()
+    public void CreateCmaf_SelectedRenditions_DescribeSingleCopyAndSidecar()
     {
         // Arrange
         var source = new MediaProbeResult(
@@ -33,33 +33,27 @@ public class ActiveStreamServiceTests
         var snapshot = ActiveStreamPlanFactory.CreateCmaf("session", "7.1", DateTime.UtcNow, source, selection, request, new AppSettings());
 
         // Assert
-        Assert.Equal(HostedStreamFormat.Hls, snapshot.Format);
+        Assert.Equal(HostedStreamFormat.Cmaf, snapshot.Format);
+        Assert.Equal([0, 1, 2, 3], snapshot.Tracks.Select(track => track.SourceIndex));
         Assert.Equal("copy", snapshot.Tracks.Single(track => track.SourceIndex == 0).OutputCodec);
         var selectedAudioOutputs = snapshot.Tracks.Where(track => track.SourceIndex == 1).ToArray();
-        Assert.Collection(
-            selectedAudioOutputs,
-            source =>
-            {
-                Assert.Equal("Source", source.OutputTitle);
-                Assert.Equal("copy", source.OutputCodec);
-                Assert.True(source.IsSelected);
-            },
-            fallback =>
-            {
-                Assert.Equal("Fallback AC3", fallback.OutputTitle);
-                Assert.Equal("ac3", fallback.OutputCodec);
-                Assert.True(fallback.IsSelected);
-            });
-        Assert.False(snapshot.Tracks.Single(track => track.SourceIndex == 2).IsSelected);
-        Assert.Equal("not-mapped", snapshot.Tracks.Single(track => track.SourceIndex == 2).OutputCodec);
+        var selectedSource = Assert.Single(selectedAudioOutputs);
+        Assert.Equal("Audio #1 · Source", selectedSource.OutputTitle);
+        Assert.Equal("copy", selectedSource.OutputCodec);
+        Assert.True(selectedSource.IsSelected);
+        var alternateAudioOutputs = snapshot.Tracks.Where(track => track.SourceIndex == 2).ToArray();
+        var alternateSource = Assert.Single(alternateAudioOutputs);
+        Assert.Equal("Audio #2 · Source", alternateSource.OutputTitle);
+        Assert.Equal("copy", alternateSource.OutputCodec);
+        Assert.True(alternateSource.IsSelected);
         Assert.Equal("webvtt", snapshot.Tracks.Single(track => track.SourceIndex == 3).OutputCodec);
     }
 
     /// <summary>
-    /// Verifies shared CMAF metadata reports both copied HEVC source video and encoded H.264 fallback.
+    /// Verifies shared CMAF metadata reports copied HEVC without an unused H.264 fallback encode.
     /// </summary>
     [Fact]
-    public void CreateCmaf_HevcSource_DescribesSourceAndFallbackVideo()
+    public void CreateCmaf_HevcSource_DescribesOnlySourceVideo()
     {
         // Arrange
         var source = new MediaProbeResult(
@@ -73,18 +67,9 @@ public class ActiveStreamServiceTests
         var snapshot = ActiveStreamPlanFactory.CreateCmaf("session", "105.1", DateTime.UtcNow, source, selection, new CmafStreamRequest(), new AppSettings());
 
         // Assert
-        Assert.Collection(
-            snapshot.Tracks.Where(track => track.Type == MediaTrackType.Video),
-            sourceVideo =>
-            {
-                Assert.Equal("Source", sourceVideo.OutputTitle);
-                Assert.Equal("copy", sourceVideo.OutputCodec);
-            },
-            fallbackVideo =>
-            {
-                Assert.Equal("Fallback H.264", fallbackVideo.OutputTitle);
-                Assert.Equal("h264", fallbackVideo.OutputCodec);
-            });
+        var videoTrack = Assert.Single(snapshot.Tracks, track => track.Type == MediaTrackType.Video);
+        Assert.Equal("Source", videoTrack.OutputTitle);
+        Assert.Equal("copy", videoTrack.OutputCodec);
     }
 
     /// <summary>
@@ -107,6 +92,8 @@ public class ActiveStreamServiceTests
         Assert.Equal("%+3", pipeArguments[Array.IndexOf(pipeArguments.ToArray(), "-read_intervals") + 1]);
         Assert.Contains(liveArguments, argument => argument.Contains("frame_side_data=side_data_type", StringComparison.Ordinal));
         Assert.Contains(pipeArguments, argument => argument.Contains("frame_side_data=side_data_type", StringComparison.Ordinal));
+        Assert.Contains(liveArguments, argument => argument.Contains("profile,level", StringComparison.Ordinal));
+        Assert.Contains(pipeArguments, argument => argument.Contains("profile,level", StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -142,7 +129,7 @@ public class ActiveStreamServiceTests
         // Arrange
         var registry = new ActiveStreamRegistry();
         registry.Register(new ActiveStreamSnapshot("one", "2.1", HostedStreamFormat.MpegTs, DateTime.UtcNow, null, []));
-        registry.Register(new ActiveStreamSnapshot("two", "5.1", HostedStreamFormat.Hls, DateTime.UtcNow, null, []));
+        registry.Register(new ActiveStreamSnapshot("two", "5.1", HostedStreamFormat.Cmaf, DateTime.UtcNow, null, []));
 
         // Act
         var removed = registry.Unregister("one");
@@ -307,7 +294,7 @@ public class ActiveStreamServiceTests
         var stopCount = 0;
         var stopsRequested = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         registry.Register(new ActiveStreamSnapshot("one", "2.1", HostedStreamFormat.MpegTs, DateTime.UtcNow, null, []), () => RecordStop("one"));
-        registry.Register(new ActiveStreamSnapshot("two", "5.1", HostedStreamFormat.Hls, DateTime.UtcNow, null, []), () => RecordStop("two"));
+        registry.Register(new ActiveStreamSnapshot("two", "5.1", HostedStreamFormat.Cmaf, DateTime.UtcNow, null, []), () => RecordStop("two"));
 
         // Act
         var stopTask = registry.StopAllAsync(TestContext.Current.CancellationToken);
@@ -361,7 +348,7 @@ public class ActiveStreamServiceTests
         var registry = new ActiveStreamRegistry();
         using var releaseStop = new ManualResetEventSlim();
         registry.Register(
-            new ActiveStreamSnapshot("one", "2.1", HostedStreamFormat.Hls, DateTime.UtcNow, null, []),
+            new ActiveStreamSnapshot("one", "2.1", HostedStreamFormat.Cmaf, DateTime.UtcNow, null, []),
             () => releaseStop.Wait(TestContext.Current.CancellationToken));
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(20));
 

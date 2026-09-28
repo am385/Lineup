@@ -475,7 +475,7 @@ public partial class Dashboard : IDisposable
     {
         HostedStreamFormat.MpegTs => "MPEG-TS",
         HostedStreamFormat.FragmentedMp4 => "fMP4",
-        HostedStreamFormat.Hls => "HLS",
+        HostedStreamFormat.Cmaf => "CMAF",
         _ => format.ToString()
     };
 

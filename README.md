@@ -13,7 +13,7 @@ It includes a web-based dashboard, a terminal UI, live TV streaming with transco
 - **Per-channel availability** — keeps disabled channels visible in Lineup while excluding them from published guides, virtual lineups, and physical tuner streams
 - **Live TV streaming** — multi-track MPEG-TS proxy, raw-fMP4 Watch playback, and experimental shared-CMAF HLS/DASH playback with selectable audio and subtitles
 - **Device diagnostics** — connectivity checks across DNS, ping, HTTP API, TCP, and UDP discovery
-- **Active stream monitoring** — Dashboard visibility into hosted MPEG-TS, fMP4, and HLS sessions with source/output codec and bitrate details
+- **Active stream monitoring** — Dashboard visibility into hosted MPEG-TS, fMP4, and CMAF sessions with source/output codec and bitrate details
 - **Application diagnostics** — live in-app structured logs, optional rolling files, and opt-in external observability targets
 - **Native HDHomeRun protocol** — binary protocol implementation for UDP discovery, TCP control, and channel scanning
 - **Multi-device HDHomeRun proxy** — one isolated virtual profile per physical tuner, with optional SiliconDust and SSDP discovery
@@ -235,7 +235,7 @@ Or using the production image:
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-These commands run from a source checkout. The Docker image includes Jellyfin FFmpeg for live TV transcoding and ATSC 3.0 AC-4 audio decoding. Data is persisted via the `appdata` named volume mounted at `/appdata`. HLS segments and subtitle sidecars use the separate `transient` volume mounted at `/transient`. Lineup uses fixed container ports for HTTP (`8080`), HTTPS (`8443`), HDHomeRun discovery (`65001/udp`), and SSDP (`1900/udp`). The Compose `HTTP_PORT`, `HTTPS_PORT`, `HDHOMERUN_DISCOVERY_PORT`, and `SSDP_PORT` variables change only the corresponding host-facing ports. Keep the UDP ports at their defaults for standards-based automatic discovery. Native Linux deployments can use `network_mode: host` if the HDHomeRun device requires local network discovery.
+These commands run from a source checkout. The Docker image includes Jellyfin FFmpeg for live TV transcoding and ATSC 3.0 AC-4 audio decoding. Data is persisted via the `appdata` named volume mounted at `/appdata`. CMAF fragments and subtitle sidecars use the separate `transient` volume mounted at `/transient`. Lineup uses fixed container ports for HTTP (`8080`), HTTPS (`8443`), HDHomeRun discovery (`65001/udp`), and SSDP (`1900/udp`). The Compose `HTTP_PORT`, `HTTPS_PORT`, `HDHOMERUN_DISCOVERY_PORT`, and `SSDP_PORT` variables change only the corresponding host-facing ports. Keep the UDP ports at their defaults for standards-based automatic discovery. Native Linux deployments can use `network_mode: host` if the HDHomeRun device requires local network discovery.
 
 ### Publishing a Development Build
 
@@ -283,27 +283,50 @@ selected and force H.264 encoding, which increases CPU use. Unsupported tracks a
 source indexes return an explicit stream error.
 
 **Watch CMAF** is available alongside the existing Watch page at `/watch-cmaf`. It creates one two-second fragmented-MP4
-presentation and exposes the same initialization and media fragments through both a DASH MPD and HLS playlists. Auto mode
-uses DASH first and retries HLS without opening another tuner or packaging session; explicit DASH or HLS selections never
-switch protocols silently. Shaka Player provides the initial cross-browser playback implementation. At App Default quality,
-eligible H.264 or HEVC source video is copied when Source video is preferred. HEVC is packaged beside an H.264 compatibility
-rendition so Shaka can select source video when the browser exposes it and use H.264 otherwise. Explicit H.264 Fallback,
-scaled quality settings, and bitmap subtitle burn-in produce only H.264. Eligible AAC, AC-3, E-AC-3, and AC-4 source audio is
-copied into a source rendition, while a separately encoded fallback rendition provides
-per-stream compatibility without changing the saved Source preference. Fallback Audio choices are ordered from highest
+presentation and exposes the same initialization and media fragments through both a DASH MPD and HLS playlists. With a
+completed browser compatibility profile, Auto protocol selects a measured protocol and Auto video/audio chooses a measured
+source-copy path first. Without a current profile, existing DASH-first and user-selected behavior is preserved. Explicit
+DASH/HLS, Source, and Fallback selections remain overrides. Shaka Player provides the initial cross-browser playback
+implementation. At App Default quality, eligible H.264 or HEVC source video is copied when source playback was measured or
+Source video is explicitly preferred, without simultaneously encoding H.264. If source video unexpectedly fails in the
+browser, Watch CMAF clears the contradicted profile and restarts that browser's stream once with H.264. Explicit H.264 Fallback,
+scaled quality settings, and bitmap subtitle burn-in produce only H.264. Every source audio track produces one copy-first
+or compatibility rendition; Lineup does not continuously encode a duplicate fallback beside a compatible source. If real
+playback contradicts the saved profile or FFmpeg cannot package a source codec, the session performs one bounded restart
+using the configured fallback. Fallback Audio choices are ordered from highest
 quality/lowest compatibility to highest compatibility: EAC3 up to 5.1, AC3 up to 5.1, AAC up to 7.1, AAC up to 5.1, and
 AAC Stereo. AAC Stereo is the default. FFmpeg encodes channel-based E-AC-3 but cannot create E-AC-3 JOC/Atmos; existing
 E-AC-3 Atmos metadata can be retained only when the Source rendition is copied successfully.
 
-Watch CMAF has independent browser preferences for protocol, quality, preferred Source or H.264 Fallback video, preferred
-Source or Fallback audio, fallback profile, and subtitles.
-Every standalone text subtitle and detected embedded-caption track is prepared as a transient WebVTT sidecar so the browser can
-offer all of them through the video player's native captions control without restarting the shared session. The page-level
+Watch CMAF hides manual stream policy controls behind **Override stream settings**. Each protocol, quality, video, audio, and
+fallback-audio setting can independently use **Browser profile** or a manual value. Overrides are applied to a request-scoped
+effective capability matrix, so an audio-only override preserves measured video, protocol, and subtitle decisions and never
+modifies the browser's saved Watch Test profile. Shaka's in-player menu switches active audio renditions and text subtitles
+without restarting the shared session; the bitmap-subtitle selector remains available independently of the override panel.
+Every standalone text subtitle and detected embedded-caption track is prepared as a transient WebVTT sidecar so Lineup's Shaka
+captions menu can offer all of them without restarting the shared session. The page-level
 subtitle selector lists only bitmap burn-in choices. Text conversion is inexpensive; embedded-caption extraction adds one moderate
 fixed decode/demux workload per session. Bitmap subtitles remain explicit burn-in choices because each simultaneous bitmap rendition
 would require another video encode.
 Captions that the tuner and FFmpeg do not expose or detect remain unavailable. The canonical API is under `/api/stream/cmaf`; existing
 `/api/stream/hls` routes remain compatibility aliases backed by the same CMAF session.
+
+**Watch Test** at `/watch-test` keeps its manual, tuner-free exact-presentation player and adds an explicit **Run All**
+compatibility suite. The suite measures DASH and HLS, H.264, HEVC Main and Main 10, AAC through 7.1, AC-3/E-AC-3 through 5.1,
+WebVTT sidecars, and subtitle burn-in as independent cases rather than an impractical full cross-product. Every generated
+presentation contains one video and one audio rendition and never retries another protocol or codec. Its audio contains a
+low-volume repeating tone sequence that activates one channel at a time. Manual Exact Test Selection
+starts with audio enabled for speaker-order verification; if the browser blocks audible autoplay, use the native Play control.
+WebVTT and burn-in subtitle modes identify the active channel in sync with its tone; None omits the label. Automated full-suite
+and row tests remain muted. Each synthetic presentation is bounded to ten minutes so its repeating audio, WebVTT timeline, and
+burned-in labels share the same lifetime.
+Browser Media Source claims are stored separately from observed Shaka playback and do not authorize source copy by themselves. A completed,
+versioned profile is saved in browser-local storage and sent only with that browser's tune requests; cancelled or incomplete
+runs keep the previous completed profile. AC-4 remains claim-only because bundled Jellyfin FFmpeg has an AC-4 decoder but no
+AC-4 encoder. Auto planning copies measured-compatible source media and otherwise emits one best-supported transcode,
+prioritizing channel preservation before codec quality. Profiles with an old schema or invalid catalog data are ignored or
+rejected, and a runtime contradiction clears the profile so it can be rerun. Compatibility tests never modify global
+transcoder settings.
 
 Future CMAF work includes an adaptive video bitrate ladder, LL-HLS and low-latency DASH evaluation, and a native Safari HLS
 path. Native Safari, Dolby audio, AirPlay, background playback, and power behavior require validation on real macOS and iOS
@@ -316,9 +339,9 @@ in MPEG-TS but cannot be synthesized as a Watch text track.
 
 Virtual Tuner Video can optionally transcode HEVC to H.264 for clients that cannot process HEVC Live TV, at the cost of CPU and generation loss. Virtual Tuner Audio can preserve non-AC-4 codecs or transcode those tracks to AC-3 or E-AC-3. AC-4 can be preserved for compatible receivers or transcoded separately. Audio above 5.1 channels is capped at 5.1 when transcoded. An explicit `transcode` query parameter remains available for HDHomeRun hardware profiles (`mobile`, `heavy`, `internet720`, `internet480`, or `internet360`), but defaults to `none`.
 
-Jellyfin FFmpeg's AC-4 support is decoder-only and does not support every object-based or Dolby Atmos AC-4 presentation. Unsupported presentations are reported as stream errors rather than silently copied or discarded. Raw-fMP4 Watch can copy selected source audio or encode AAC; Watch CMAF pairs eligible source copy with the configured AAC, AC-3, or E-AC-3 fallback rendition.
+Jellyfin FFmpeg's AC-4 support is decoder-only and does not support every object-based or Dolby Atmos AC-4 presentation. Unsupported presentations are reported as stream errors rather than silently copied or discarded. Raw-fMP4 Watch can copy selected source audio or encode AAC; Watch CMAF copies eligible source audio and starts a configured fallback rendition only if source packaging or playback fails.
 
-When an HDHomeRun reports DRM error 811, API streams return a protected-content error by default. The Transcode Settings page can instead enable a synthetic **Content Protected** slate. The fallback is generated locally as H.264 video with silent AAC audio in the requested MPEG-TS, fMP4, or HLS format; protected programming is never decrypted. Synthetic DRM and disabled-channel slates count toward **Maximum Concurrent Streams** but do not consume physical tuner capacity.
+When an HDHomeRun reports DRM error 811, API streams return a protected-content error by default. The Transcode Settings page can instead enable a synthetic **Content Protected** slate. The fallback is generated locally as H.264 video with silent AAC audio in the requested MPEG-TS, fMP4, or CMAF format; protected programming is never decrypted. Synthetic DRM and disabled-channel slates count toward **Maximum Concurrent Streams** but do not consume physical tuner capacity.
 
 ## Configuration
 
@@ -373,9 +396,9 @@ The Settings **Reset** tab can stage default settings for review or perform a Fa
 
 Lineup-owned persistent data defaults to `/appdata`. The optional `Lineup:AppDataPath` setting overrides that root for custom deployments. This data includes settings and backups, the authoritative SQLite channel and guide database, rolling logs, ASP.NET Core Data Protection keys, and the restart-safe Factory Reset marker.
 
-Transient HLS segments and subtitle sidecars default to `/transient`. When `Lineup:AppDataPath` is configured but `Lineup:TransientPath` is not, Lineup uses a `lineup` directory beneath the operating system's temporary path so existing standalone installations remain writable after upgrade without placing stream artifacts in persistent application data. The optional `Lineup:TransientPath` setting (environment variable `Lineup__TransientPath`) overrides either default. The Compose files mount a `transient` named volume at `/transient`, matching the `appdata` and `xmltv` volume conventions. Custom deployments can replace that named-volume mount with a memory-backed bind mount or Compose `tmpfs`, or with disk-backed storage when transient data must not consume system memory.
+Transient CMAF fragments and subtitle sidecars default to `/transient`. When `Lineup:AppDataPath` is configured but `Lineup:TransientPath` is not, Lineup uses a `lineup` directory beneath the operating system's temporary path so existing standalone installations remain writable after upgrade without placing stream artifacts in persistent application data. The optional `Lineup:TransientPath` setting (environment variable `Lineup__TransientPath`) overrides either default. The Compose files mount a `transient` named volume at `/transient`, matching the `appdata` and `xmltv` volume conventions. Custom deployments can replace that named-volume mount with a memory-backed bind mount or Compose `tmpfs`, or with disk-backed storage when transient data must not consume system memory.
 
-Lineup routes application-owned files through explicit storage boundaries. `AppDataStore` owns persistent settings, database, reset, and log artifacts; `TransientDataStore` owns disposable HLS and subtitle workspaces; and `XmltvPublicationStore` owns the configured public XMLTV destination, including destinations outside app-data. Browser preferences remain client-local through `BrowserDataStore`. Framework and process infrastructure such as SQLite, Serilog sinks, Data Protection, and FFmpeg continue to receive managed paths and perform their own I/O.
+Lineup routes application-owned files through explicit storage boundaries. `AppDataStore` owns persistent settings, database, reset, and log artifacts; `TransientDataStore` owns disposable CMAF and subtitle workspaces; and `XmltvPublicationStore` owns the configured public XMLTV destination, including destinations outside app-data. Browser preferences remain client-local through `BrowserDataStore`. Framework and process infrastructure such as SQLite, Serilog sinks, Data Protection, and FFmpeg continue to receive managed paths and perform their own I/O.
 
 The 2.0 Compose files rename the `config` volume to `appdata` and mount it at `/appdata`. Existing installations must preserve their data during the upgrade. Either copy the contents of the old named volume into the new `appdata` volume, or configure the `appdata` volume's `name` property to reference the existing Docker volume. Bind-mount users can mount the same host directory at `/appdata`. Starting 2.0 with a new empty volume begins with a new Lineup installation.
 
@@ -460,7 +483,7 @@ languages, identifiers, status, and advanced technical details. Raw supplemental
 Lineup atomically limits HDHomeRun-compatible MPEG-TS routes to each profile's effective physical tuner count. Receivers for the exact same upstream
 channel and hardware-transcode source share one tuner lease through the stream multiplexer. Different channels consume separate slots. This includes
 the legacy `/api/stream/{channel}` route for the primary profile, so it does not double-count a matching `/auto/v{channel}` source. Browser-specific
-fMP4 and HLS workflows are outside the HDHomeRun-compatible route lease boundary and remain governed by **Maximum Concurrent Streams**. The same
+fMP4 and CMAF workflows are outside the HDHomeRun-compatible route lease boundary and remain governed by **Maximum Concurrent Streams**. The same
 host-wide stream limit applies to synthetic DRM and disabled-channel slates in every format even though those slates do not consume tuner capacity.
 
 Network discovery is disabled by default to avoid UDP port conflicts. To enable it, turn on **Enable UDP and SSDP network discovery** and configure an

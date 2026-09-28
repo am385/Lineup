@@ -22,9 +22,9 @@ public enum HostedStreamFormat
     FragmentedMp4,
 
     /// <summary>
-    /// HTTP Live Streaming output.
+    /// Shared Common Media Application Format output.
     /// </summary>
-    Hls
+    Cmaf
 }
 
 /// <summary>
@@ -611,7 +611,7 @@ public sealed class MediaProbeService : IMediaProbeService
 /// </summary>
 public static class MediaProbeParser
 {
-    private const string ShowEntries = "stream=index,codec_type,codec_name,bit_rate,width,height,channels,sample_rate,closed_captions:stream_tags=language,title:" +
+    private const string ShowEntries = "stream=index,codec_type,codec_name,profile,level,bit_rate,width,height,channels,sample_rate,closed_captions:stream_tags=language,title:" +
         "stream_disposition=default,forced,hearing_impaired:frame=media_type:frame_side_data=side_data_type:format=bit_rate";
     private static readonly string[] CommonArguments =
     [
@@ -1086,11 +1086,11 @@ public static class ActiveStreamPlanFactory
     }
 
     /// <summary>
-    /// Creates an HLS active stream snapshot.
+    /// Creates a CMAF active stream snapshot.
     /// </summary>
-    public static ActiveStreamSnapshot CreateHls(string sessionId, string channel, DateTime startedAtUtc, MediaProbeResult source, long outputVideoBitRate = 10_000_000)
+    public static ActiveStreamSnapshot CreateCmaf(string sessionId, string channel, DateTime startedAtUtc, MediaProbeResult source, long outputVideoBitRate = 10_000_000)
     {
-        return CreateFixedTranscode(sessionId, channel, HostedStreamFormat.Hls, startedAtUtc, source, outputVideoBitRate, copyVideo: false);
+        return CreateFixedTranscode(sessionId, channel, HostedStreamFormat.Cmaf, startedAtUtc, source, outputVideoBitRate, copyVideo: false);
     }
 
     /// <summary>
@@ -1105,27 +1105,31 @@ public static class ActiveStreamPlanFactory
         CmafStreamRequest request,
         AppSettings settings)
     {
-        var audioPlans = CmafStreamPlanner.CreateAudioRenditions(selection.Audio, request.PreferredAudio, CmafStreamPlanner.ResolveFallbackAudio(request));
-        var primaryAudioPlan = request.PreferredAudio == CmafPreferredAudio.Source
-            ? audioPlans.FirstOrDefault(plan => plan.CopySource) ?? audioPlans[0]
-            : audioPlans.First(plan => !plan.CopySource);
+        var audioRenditions = CmafStreamPlanner.CreatePresentationAudioRenditions(
+            source,
+            selection.Audio,
+            request.PreferredAudio,
+            CmafStreamPlanner.ResolveFallbackAudio(request),
+            request.CompatibilityProfile,
+            request.Overrides.Enabled ? request.Overrides.FallbackAudio : null,
+            request.Overrides.Enabled && request.Overrides.Audio.HasValue);
         var sourceVideo = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video);
         var videoPlans = CmafStreamPlanner.CreateVideoRenditions(sourceVideo, request, selection.SubtitlePresentation == SubtitlePresentation.BurnIn);
         var primaryVideoPlan = videoPlans[0];
         var outputVideoBitRate = WebVideoTranscodePlanner.GetMaximumBitRate(settings, request.Quality);
-        var tracks = source.Tracks.Select(track =>
+        var tracks = source.Tracks
+            .Where(track => track.Type != MediaTrackType.Audio)
+            .Select(track =>
         {
             var selected = track.Type switch
             {
                 MediaTrackType.Video => track == sourceVideo,
-                MediaTrackType.Audio => track.Index == selection.Audio?.Index,
                 MediaTrackType.Subtitle => track.Index == selection.Subtitle?.Index,
                 _ => false
             };
             var outputCodec = track.Type switch
             {
                 MediaTrackType.Video when selected => primaryVideoPlan.CopySource ? "copy" : primaryVideoPlan.Codec,
-                MediaTrackType.Audio when selected => primaryAudioPlan.CopySource ? "copy" : primaryAudioPlan.Codec,
                 MediaTrackType.Subtitle when track.SubtitlePresentation == SubtitlePresentation.WebVtt => "webvtt",
                 MediaTrackType.Subtitle when selected => "burn-in",
                 _ => "not-mapped"
@@ -1133,26 +1137,36 @@ public static class ActiveStreamPlanFactory
             var outputBitRate = track.Type switch
             {
                 MediaTrackType.Video when selected => primaryVideoPlan.CopySource ? track.BitRate : outputVideoBitRate,
-                MediaTrackType.Audio when selected => primaryAudioPlan.BitRate,
                 _ => null
             };
             return CreateTrack(
                 track,
                 outputCodec,
                 outputBitRate,
-                track.Type == MediaTrackType.Audio && selected ? primaryAudioPlan.Channels : null,
-                track.Type == MediaTrackType.Audio && selected ? primaryAudioPlan.SampleRate : null) with
+                null,
+                null) with
             {
                 IsSelected = selected,
                 OutputTitle = track.Type switch
                 {
                     MediaTrackType.Video when selected => primaryVideoPlan.Title,
-                    MediaTrackType.Audio when selected => primaryAudioPlan.Title,
                     _ => null
                 },
                 SubtitlePresentation = track.Type == MediaTrackType.Subtitle ? track.SubtitlePresentation : null
             };
         }).ToList();
+
+        tracks.AddRange(audioRenditions.Select(rendition =>
+            CreateTrack(
+                rendition.Source,
+                rendition.Plan.CopySource ? "copy" : rendition.Plan.Codec,
+                rendition.Plan.BitRate,
+                rendition.Plan.Channels,
+                rendition.Plan.SampleRate) with
+            {
+                IsSelected = true,
+                OutputTitle = rendition.Plan.Title
+            }));
 
         if (videoPlans.Count > 1 && sourceVideo is not null)
         {
@@ -1169,22 +1183,13 @@ public static class ActiveStreamPlanFactory
             });
         }
 
-        if (audioPlans.Count > 1 && selection.Audio is not null)
-        {
-            var secondaryAudioPlan = audioPlans.First(plan => plan != primaryAudioPlan);
-            tracks.Add(CreateTrack(
-                selection.Audio,
-                secondaryAudioPlan.CopySource ? "copy" : secondaryAudioPlan.Codec,
-                secondaryAudioPlan.BitRate,
-                secondaryAudioPlan.Channels,
-                secondaryAudioPlan.SampleRate) with
-            {
-                IsSelected = true,
-                OutputTitle = secondaryAudioPlan.Title
-            });
-        }
-
-        return new ActiveStreamSnapshot(sessionId, channel, HostedStreamFormat.Hls, startedAtUtc, source.BitRate, tracks);
+        return new ActiveStreamSnapshot(
+            sessionId,
+            channel,
+            HostedStreamFormat.Cmaf,
+            startedAtUtc,
+            source.BitRate,
+            tracks.OrderBy(track => track.SourceIndex).ToArray());
     }
 
     /// <summary>

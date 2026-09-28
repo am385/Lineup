@@ -58,7 +58,7 @@ RUN set -eux; \
         'Signed-By: /etc/apt/keyrings/jellyfin.gpg' \
         > /etc/apt/sources.list.d/jellyfin.sources; \
     apt-get update; \
-    apt-get install -y --no-install-recommends jellyfin-ffmpeg8=8.1.2-4-noble; \
+    apt-get install -y --no-install-recommends fonts-dejavu-core jellyfin-ffmpeg8=8.1.2-4-noble; \
     rm -rf /var/lib/apt/lists/*
 
 ENV PATH="/usr/lib/jellyfin-ffmpeg:${PATH}"

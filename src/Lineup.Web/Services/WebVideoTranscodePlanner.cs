@@ -29,7 +29,7 @@ public static class WebVideoTranscodePlanner
     /// <param name="settings">The current transcoder settings.</param>
     /// <param name="sourceVideoCodec">The detected source video codec, when available.</param>
     /// <param name="quality">The requested browser playback quality.</param>
-    /// <returns>FFmpeg arguments suitable for fMP4 or HLS output.</returns>
+    /// <returns>FFmpeg arguments suitable for fMP4 or CMAF output.</returns>
     public static string CreateArguments(AppSettings settings, string? sourceVideoCodec = null, WebPlayerQuality quality = WebPlayerQuality.AppDefault)
     {
         if (quality == WebPlayerQuality.AppDefault &&

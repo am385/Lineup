@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.JSInterop;
 using NSubstitute;
 using System.Reflection;
+using System.Text.Json;
 using Xunit;
 
 namespace Lineup.Web.Tests.Components.Pages;
@@ -22,10 +23,122 @@ public class WatchCmafTests
     private const string PreferencesStorageKey = "lineup-watch-cmaf-preferences-v1";
 
     /// <summary>
+    /// Verifies the player area communicates that a CMAF stream is being prepared.
+    /// </summary>
+    [Fact]
+    public void StreamStartup_ShowsAccessibleLoadingOverlay()
+    {
+        // Arrange
+        using var context = CreateContext();
+        var component = context.Render<WatchCmaf>();
+        var loadingField = typeof(WatchCmaf).GetField("_isPlayerLoading", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(loadingField);
+
+        // Act
+        loadingField.SetValue(component.Instance, true);
+        component.Render();
+
+        // Assert
+        var loading = component.Find("#cmafStreamLoading");
+        Assert.Equal("status", loading.GetAttribute("role"));
+        Assert.Equal("polite", loading.GetAttribute("aria-live"));
+        Assert.Contains("Setting up CMAF stream", loading.TextContent, StringComparison.Ordinal);
+        Assert.Single(loading.QuerySelectorAll(".spinner-border"));
+        Assert.DoesNotContain("Select a channel to start CMAF playback", component.Markup, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies manual stream settings are hidden by default and reveal Browser profile choices when enabled.
+    /// </summary>
+    [Fact]
+    public void StreamOverrides_DefaultHiddenAndRevealBrowserProfileChoices()
+    {
+        // Arrange
+        using var context = CreateContext();
+        var component = context.Render<WatchCmaf>();
+        var initiallyHidden = component.Find("#cmafOverrideSettings").ClassList.Contains("d-none");
+
+        // Act
+        component.Find("#cmafOverrideStreamSettings").Change(true);
+
+        // Assert
+        Assert.True(initiallyHidden);
+        component.WaitForAssertion(() =>
+        {
+            Assert.DoesNotContain("d-none", component.Find("#cmafOverrideSettings").ClassList);
+            Assert.Equal("Browser profile", component.Find("#cmafPreferredVideo option").TextContent);
+            Assert.Equal("Browser profile", component.Find("#cmafPreferredAudio option").TextContent);
+            var storageWrite = Assert.Single(
+                context.JSInterop.Invocations,
+                invocation => invocation.Identifier == "localStorage.setItem" && Equals(invocation.Arguments[0], PreferencesStorageKey));
+            Assert.Contains("\"Overrides\":{\"Enabled\":true", Assert.IsType<string>(storageWrite.Arguments[1]), StringComparison.Ordinal);
+        });
+    }
+
+    /// <summary>
+    /// Verifies an audio-only UI override keeps video on the measured browser profile in the typed request.
+    /// </summary>
+    [Fact]
+    public void StreamOverrides_AudioOnly_SendsMeasuredProfileWithVideoPreserved()
+    {
+        // Arrange
+        var profile = CreateCompatibilityProfile();
+        using var context = CreateContext();
+        context.JSInterop.Setup<string?>("localStorage.getItem", CmafCompatibilityProfile.StorageKey).SetResult(JsonSerializer.Serialize(profile));
+        context.JSInterop.Setup<string>("getCmafBrowserIdentity").SetResult("test-browser");
+        ConfigureSuccessfulSession(context);
+        var component = context.Render<WatchCmaf>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
+
+        // Act
+        component.Find("#cmafOverrideStreamSettings").Change(true);
+        component.Find("#cmafPreferredAudio").Change(CmafPreferredAudio.Fallback.ToString());
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            var start = context.JSInterop.Invocations.Last(invocation => invocation.Identifier == "startCmafSession");
+            var request = Assert.IsType<CmafStreamRequest>(start.Arguments[1]);
+            Assert.True(request.Overrides.Enabled);
+            Assert.Equal(CmafPreferredAudio.Fallback, request.Overrides.Audio);
+            Assert.Null(request.Overrides.Video);
+            Assert.NotNull(request.CompatibilityProfile);
+        });
+    }
+
+    /// <summary>
+    /// Verifies a completed profile enables the typed Auto tune request.
+    /// </summary>
+    [Fact]
+    public void CompletedProfile_StartsTypedAutomaticSession()
+    {
+        // Arrange
+        var profile = CreateCompatibilityProfile();
+        using var context = CreateContext();
+        context.JSInterop.Setup<string?>("localStorage.getItem", CmafCompatibilityProfile.StorageKey).SetResult(JsonSerializer.Serialize(profile));
+        context.JSInterop.Setup<string>("getCmafBrowserIdentity").SetResult("test-browser");
+        ConfigureSuccessfulSession(context);
+
+        // Act
+        var component = context.Render<WatchCmaf>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            var start = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession");
+            Assert.Equal("/api/stream/cmaf/start-v2/42.1", start.Arguments[0]);
+            var request = Assert.IsType<CmafStreamRequest>(start.Arguments[1]);
+            Assert.Equal(CmafPreferredVideo.Auto, request.PreferredVideo);
+            Assert.Equal(CmafPreferredAudio.Auto, request.PreferredAudio);
+            Assert.NotNull(request.CompatibilityProfile);
+        });
+    }
+
+    /// <summary>
     /// Verifies Auto mode prefers DASH and provides HLS fallback for the same server session.
     /// </summary>
     [Fact]
-    public void DirectRoute_AutoModeStartsSharedDashAndHlsSession()
+    public void DirectRoute_AutoModeStartsSharedDashAndCmafSession()
     {
         // Arrange
         using var context = CreateContext();
@@ -87,6 +200,48 @@ public class WatchCmafTests
     }
 
     /// <summary>
+    /// Verifies Shaka UI audio changes update the hosted-stream details without restarting the server session.
+    /// </summary>
+    [Fact]
+    public async Task ShakaAudioRenditionChange_UpdatesDetailsWithoutRestart()
+    {
+        // Arrange
+        using var context = CreateContext();
+        context.JSInterop
+            .Setup<WatchCmaf.CmafStartResponse>("startCmafSession", _ => true)
+            .SetResult(new(
+                "session-1",
+                "/api/stream/cmaf/session-1/master.m3u8",
+                "/api/stream/hls/session-1/master.m3u8",
+                "/api/stream/cmaf/session-1/manifest.mpd"));
+        context.JSInterop
+            .Setup<WatchCmaf.CmafPlayerResult>("initCmafPlayer", _ => true)
+            .SetResult(new(
+                true,
+                null,
+                "/api/stream/cmaf/session-1/manifest.mpd",
+                Audio: new("eng · Fallback AAC Stereo", "mp4a.40.2", 2, "11", "eng"),
+                Video: new("avc1.64002a", 1920, 1080)));
+        var component = context.Render<WatchCmaf>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
+        using var details = JsonDocument.Parse("""{"id":"12","label":"spa · Source","language":"spa","codec":"ac-3","channels":2}""");
+
+        // Act
+        await component.InvokeAsync(() => component.Instance.OnCmafPlayerEvent(new("audio-track-changed", "Audio track changed.", details.RootElement)));
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession");
+            Assert.Empty(component.FindAll("#cmafAudioTrack"));
+            Assert.False(component.Find("#cmafVideoPlayer").HasAttribute("controls"));
+            Assert.True(component.Find("#cmafVideoPlayer").ParentElement?.HasAttribute("data-lineup-cmaf-container"));
+            Assert.Contains("spa · Source", component.Markup);
+            Assert.Contains("ac-3", component.Markup);
+        });
+    }
+
+    /// <summary>
     /// Verifies an unsupported source-video presentation retries H.264 without changing the saved Source preference.
     /// </summary>
     [Fact]
@@ -141,6 +296,53 @@ public class WatchCmafTests
             var notification = Assert.Single(context.Services.GetRequiredService<IStatusNotificationService>().Notifications);
             Assert.Equal("Source video is unavailable in this browser. Retrying this stream with H.264.", notification.Message);
             Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "localStorage.setItem");
+        });
+    }
+
+    /// <summary>
+    /// Verifies a runtime source-video decoder failure restarts once with H.264 rather than encoding fallback video continuously.
+    /// </summary>
+    [Fact]
+    public async Task SourceVideoRuntimeFailure_RestartsWithH264()
+    {
+        // Arrange
+        using var context = CreateContext();
+        context.JSInterop
+            .Setup<WatchCmaf.CmafStartResponse>(
+                "startCmafSession",
+                invocation => Assert.IsType<string>(invocation.Arguments[0]).Contains("preferredVideo=Source", StringComparison.Ordinal))
+            .SetResult(
+                new(
+                    "source-session",
+                    "/api/stream/cmaf/source-session/master.m3u8",
+                    "/api/stream/hls/source-session/master.m3u8",
+                    "/api/stream/cmaf/source-session/manifest.mpd",
+                    HasSourceVideoRendition: true,
+                    SourceVideoCodec: "hvc1.2.4.L153"));
+        context.JSInterop
+            .Setup<WatchCmaf.CmafStartResponse>(
+                "startCmafSession",
+                invocation => Assert.IsType<string>(invocation.Arguments[0]).Contains("preferredVideo=Fallback", StringComparison.Ordinal))
+            .SetResult(new("fallback-session", "/api/stream/cmaf/fallback-session/master.m3u8", "/api/stream/hls/fallback-session/master.m3u8", "/api/stream/cmaf/fallback-session/manifest.mpd"));
+        context.JSInterop
+            .Setup<WatchCmaf.CmafPlayerResult>("initCmafPlayer", _ => true)
+            .SetResult(new(true, null, "/api/stream/cmaf/source-session/manifest.mpd", Video: new("hvc1.2.4.L153", 1920, 1080)));
+        context.JSInterop.SetupVoid("stopCmafSession", "source-session").SetVoidResult();
+        context.JSInterop.SetupVoid("stopCmafSession", "fallback-session").SetVoidResult();
+        var component = context.Render<WatchCmaf>(parameters => parameters.Add(page => page.ChannelNumber, "104.1"));
+        component.WaitForAssertion(() => Assert.Contains("hvc1.2.4.L153", component.Markup));
+
+        // Act
+        await component.InvokeAsync(() => component.Instance.OnCmafPlayerEvent(
+            new("video-fallback-required", "Source video failed in this browser. Restarting this stream with H.264.", null)));
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            var starts = context.JSInterop.Invocations.Where(invocation => invocation.Identifier == "startCmafSession").ToArray();
+            Assert.Equal(2, starts.Length);
+            Assert.Contains("preferredVideo=Fallback", Assert.IsType<string>(starts[1].Arguments[0]), StringComparison.Ordinal);
+            Assert.Equal(nameof(CmafPreferredVideo.Source), component.Find("#cmafPreferredVideo").GetAttribute("value"));
         });
     }
 
@@ -261,7 +463,7 @@ public class WatchCmafTests
             var select = component.Find("#cmafFallbackAudio");
             Assert.Equal(nameof(CmafFallbackAudio.AacStereo), select.GetAttribute("value"));
             Assert.Equal(
-                ["EAC3", "AC3", "AAC up to 7.1", "AAC up to 5.1", "AAC Stereo"],
+                ["Browser profile", "EAC3", "AC3", "AAC up to 7.1", "AAC up to 5.1", "AAC Stereo"],
                 select.QuerySelectorAll("option").Select(option => option.TextContent.Trim()).ToArray());
         });
     }
@@ -435,7 +637,7 @@ public class WatchCmafTests
         registry.Register(new ActiveStreamSnapshot(
             "session-1",
             "42.1",
-            HostedStreamFormat.Hls,
+            HostedStreamFormat.Cmaf,
             DateTime.UtcNow,
             null,
             [
@@ -466,6 +668,8 @@ public class WatchCmafTests
             var initialize = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer");
             var subtitles = Assert.IsAssignableFrom<IReadOnlyList<WatchCmaf.CmafSubtitleResponse>>(initialize.Arguments[7]);
             Assert.Contains(subtitles, subtitle => subtitle.IsEmbeddedClosedCaptions && subtitle.SourceIndex == 3);
+            Assert.Contains("WebVTT sidecar", component.Markup);
+            Assert.Contains("sidecar", component.Markup);
         });
     }
 
@@ -486,7 +690,7 @@ public class WatchCmafTests
         context.Services.GetRequiredService<IActiveStreamRegistry>().Register(new ActiveStreamSnapshot(
             "session-1",
             "42.1",
-            HostedStreamFormat.Hls,
+            HostedStreamFormat.Cmaf,
             DateTime.UtcNow,
             null,
             [
@@ -501,6 +705,11 @@ public class WatchCmafTests
             ClientId = clientId
         });
         component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafSubtitleTrack")));
+        component.WaitForAssertion(() =>
+        {
+            Assert.Contains("not included", component.Markup);
+            Assert.DoesNotContain("not-mapped", component.Markup);
+        });
 
         // Act
         component.Find("#cmafSubtitleTrack").Change("4");
@@ -580,12 +789,23 @@ public class WatchCmafTests
         registry.Register(new ActiveStreamSnapshot(
             "session-1",
             "2.1",
-            HostedStreamFormat.Hls,
+            HostedStreamFormat.Cmaf,
             DateTime.UtcNow,
             18_000_000,
             [
                 new ActiveStreamTrack(MediaTrackType.Video, "hevc", "h264", 15_000_000, 2_500_000, 1920, 1080, null, null, null) { SourceIndex = 0, IsSelected = true },
-                new ActiveStreamTrack(MediaTrackType.Audio, "ac4", "aac", 512_000, 128_000, null, null, 6, 2, 48_000) { SourceIndex = 1, IsSelected = true }
+                new ActiveStreamTrack(MediaTrackType.Audio, "ac4", "copy", 512_000, 512_000, null, null, 6, 6, 48_000)
+                {
+                    SourceIndex = 1,
+                    IsSelected = true,
+                    OutputTitle = "Source"
+                },
+                new ActiveStreamTrack(MediaTrackType.Audio, "ac4", "aac", 512_000, 128_000, null, null, 6, 2, 48_000)
+                {
+                    SourceIndex = 1,
+                    IsSelected = true,
+                    OutputTitle = "Fallback AAC Stereo"
+                }
             ])
         {
             ClientId = clientId
@@ -611,7 +831,11 @@ public class WatchCmafTests
             Assert.Contains("hevc", component.Markup);
             Assert.Contains("h264", component.Markup);
             Assert.Contains("Source total: 18 Mbps", component.Markup);
-            Assert.Contains("packaged", component.Markup);
+            Assert.Contains("CMAF", component.Markup);
+            Assert.Contains("Playback protocol:", component.Markup);
+            Assert.Contains("DASH", component.Markup);
+            Assert.Contains("included", component.Markup);
+            Assert.Contains("playing", component.Markup);
         });
     }
 
@@ -649,6 +873,7 @@ public class WatchCmafTests
         context.Services.AddSingleton<IStatusNotificationService>(new StatusNotificationService());
         context.Services.AddScoped<IBrowserDataStore, BrowserDataStore>();
         context.JSInterop.Setup<string?>("localStorage.getItem", PreferencesStorageKey).SetResult(preferencesJson);
+        context.JSInterop.Setup<string?>("localStorage.getItem", CmafCompatibilityProfile.StorageKey).SetResult(null);
         context.JSInterop.SetupVoid("localStorage.setItem", _ => true).SetVoidResult();
         context.JSInterop.SetupVoid("stopMediaPlayer", "cmafVideoPlayer").SetVoidResult();
         context.JSInterop.SetupVoid("stopCmafSession", "session-1").SetVoidResult();
@@ -673,7 +898,12 @@ public class WatchCmafTests
                 FallbackAudioCodec: "aac"));
         context.JSInterop
             .Setup<WatchCmaf.CmafPlayerResult>("initCmafPlayer", _ => true)
-            .SetResult(new(true, null, "/api/stream/cmaf/session-1/manifest.mpd"));
+            .SetResult(new(
+                true,
+                null,
+                "/api/stream/cmaf/session-1/manifest.mpd",
+                Audio: new("Fallback AAC Stereo", "mp4a.40.2", 2),
+                Video: new("avc1.64002a", 1920, 1080)));
     }
 
     private static ChannelLineupStore CreateEmptyChannelStore()
@@ -682,4 +912,21 @@ public class WatchCmafTests
         _ = store.ReadAsync(Xunit.TestContext.Current.CancellationToken).GetAwaiter().GetResult();
         return store;
     }
+
+    private static CmafCompatibilityProfile CreateCompatibilityProfile() =>
+        new()
+        {
+            BrowserIdentity = "test-browser",
+            CompletedAtUtc = DateTimeOffset.UtcNow,
+            Claims = new CmafBrowserClaims(),
+            Results = CmafCompatibilityTestCatalog.All
+                .Select(test => new CmafCapabilityResult
+                {
+                    CaseId = test.Id,
+                    Kind = test.Kind,
+                    Request = test.Request,
+                    Status = test.IsUnavailable ? CmafCapabilityStatus.Unavailable : CmafCapabilityStatus.Passed
+                })
+                .ToArray()
+        };
 }

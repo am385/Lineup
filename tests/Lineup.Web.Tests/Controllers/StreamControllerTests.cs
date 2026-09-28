@@ -22,6 +22,80 @@ namespace Lineup.Web.Tests.Controllers;
 /// </summary>
 public class StreamControllerTests
 {
+    /// <summary>
+    /// Verifies capability-aware startup rejects incomplete client profiles before opening a tuner.
+    /// </summary>
+    [Fact]
+    public async Task StartCmafStreamV2_IncompleteProfile_ReturnsBadRequest()
+    {
+        // Arrange
+        var controller = CreateLifecycleController(new ActiveStreamRegistry());
+        var request = new CmafStreamRequest
+        {
+            CompatibilityProfile = new CmafCompatibilityProfile
+            {
+                BrowserIdentity = "test-browser",
+                CompletedAtUtc = DateTimeOffset.UtcNow,
+                Claims = new CmafBrowserClaims(),
+                Results = []
+            }
+        };
+
+        // Act
+        var result = await controller.StartCmafStreamV2("42.1", request);
+
+        // Assert
+        var response = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Contains("incomplete", response.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Verifies capability-aware startup rejects invalid override enum values before opening a tuner.
+    /// </summary>
+    [Fact]
+    public async Task StartCmafStreamV2_InvalidOverride_ReturnsBadRequest()
+    {
+        // Arrange
+        var controller = CreateLifecycleController(new ActiveStreamRegistry());
+        var request = new CmafStreamRequest
+        {
+            Overrides = new CmafStreamOverrides
+            {
+                Enabled = true,
+                Video = (CmafPreferredVideo)99
+            }
+        };
+
+        // Act
+        var result = await controller.StartCmafStreamV2("42.1", request);
+
+        // Assert
+        var response = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Contains("video override", response.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Verifies unavailable synthetic encoders are rejected before a compatibility session starts.
+    /// </summary>
+    [Fact]
+    public async Task StartCmafCompatibilityTest_Ac4ReturnsUnprocessableEntity()
+    {
+        // Arrange
+        var controller = CreateLifecycleController(new ActiveStreamRegistry());
+        var request = new CmafCompatibilityTestRequest
+        {
+            AudioCodec = CmafTestAudioCodec.Ac4,
+            ChannelLayout = CmafTestChannelLayout.Stereo
+        };
+
+        // Act
+        var result = await controller.StartCmafCompatibilityTest(request);
+
+        // Assert
+        var response = Assert.IsType<UnprocessableEntityObjectResult>(result);
+        Assert.Contains("AC-4 encoder", response.Value?.ToString(), StringComparison.Ordinal);
+    }
+
     private static readonly TransientDataStore TestTransientData =
         new(Path.Combine(Path.GetTempPath(), $"lineup-stream-controller-tests-{Environment.ProcessId}"));
 
@@ -68,7 +142,7 @@ public class StreamControllerTests
     }
 
     /// <summary>
-    /// Verifies disabled Watch and HLS requests return before acquiring tuner capacity.
+    /// Verifies disabled Watch and legacy HLS compatibility requests return before acquiring tuner capacity.
     /// </summary>
     [Fact]
     public async Task WatchStreams_DisabledChannel_ReturnForbiddenWithoutTuner()
@@ -150,7 +224,7 @@ public class StreamControllerTests
     }
 
     /// <summary>
-    /// Verifies a disabled HLS slate is rejected before its FFmpeg process or tuner capacity starts.
+    /// Verifies a disabled CMAF slate requested through the HLS compatibility route is rejected before its FFmpeg process or tuner capacity starts.
     /// </summary>
     [Fact]
     public async Task StartHlsStream_DisabledChannelAtStreamLimit_ReturnsTooManyRequestsWithoutStartingSlate()
@@ -176,7 +250,7 @@ public class StreamControllerTests
     }
 
     /// <summary>
-    /// Verifies an HLS stop request during admission prevents slate startup without aborting the completed request context.
+    /// Verifies a stop request during CMAF admission prevents slate startup without aborting the completed HLS compatibility request context.
     /// </summary>
     [Fact]
     public async Task StartHlsStream_DisabledChannelStoppedDuringAdmission_DoesNotStartSlate()
@@ -364,7 +438,7 @@ public class StreamControllerTests
     }
 
     /// <summary>
-    /// Verifies that generated playlist and segment basenames resolve beneath the HLS session directory.
+    /// Verifies that generated manifest, playlist, and segment basenames resolve beneath the CMAF session directory.
     /// </summary>
     [Theory]
     [InlineData("stream.m3u8")]
@@ -376,14 +450,14 @@ public class StreamControllerTests
     [InlineData("init-0.mp4")]
     [InlineData("chunk-0-00001.m4s")]
     [InlineData("captions-2.vtt")]
-    public void TryResolveHlsFilePath_GeneratedBasename_ReturnsContainedCanonicalPath(string filename)
+    public void TryResolveCmafFilePath_GeneratedBasename_ReturnsContainedCanonicalPath(string filename)
     {
         // Arrange
-        var hlsDirectory = Path.Combine(Environment.CurrentDirectory, "hls-session");
-        var expectedPath = Path.GetFullPath(Path.Combine(hlsDirectory, filename));
+        var cmafDirectory = Path.Combine(Environment.CurrentDirectory, "cmaf-session");
+        var expectedPath = Path.GetFullPath(Path.Combine(cmafDirectory, filename));
 
         // Act
-        var resolved = StreamController.TryResolveHlsFilePath(hlsDirectory, filename, out var filePath);
+        var resolved = StreamController.TryResolveCmafFilePath(cmafDirectory, filename, out var filePath);
 
         // Assert
         Assert.True(resolved);
@@ -391,7 +465,7 @@ public class StreamControllerTests
     }
 
     /// <summary>
-    /// Verifies that traversal, rooted, separator, encoded Windows separator, and invalid HLS names are rejected.
+    /// Verifies that traversal, rooted, separator, encoded Windows separator, and invalid CMAF artifact names are rejected.
     /// </summary>
     [Theory]
     [InlineData("../stream.m3u8")]
@@ -412,13 +486,13 @@ public class StreamControllerTests
     [InlineData("init-video.mp4")]
     [InlineData("chunk-0-any.m4s")]
     [InlineData("captions.srt")]
-    public void TryResolveHlsFilePath_TraversalOrInvalidName_ReturnsFalse(string filename)
+    public void TryResolveCmafFilePath_TraversalOrInvalidName_ReturnsFalse(string filename)
     {
         // Arrange
-        var hlsDirectory = Path.Combine(Environment.CurrentDirectory, "hls-session");
+        var cmafDirectory = Path.Combine(Environment.CurrentDirectory, "cmaf-session");
 
         // Act
-        var resolved = StreamController.TryResolveHlsFilePath(hlsDirectory, filename, out var filePath);
+        var resolved = StreamController.TryResolveCmafFilePath(cmafDirectory, filename, out var filePath);
 
         // Assert
         Assert.False(resolved);
@@ -442,6 +516,28 @@ public class StreamControllerTests
         // Assert
         var status = Assert.IsType<ObjectResult>(result, exactMatch: false);
         Assert.Equal(statusCode, status.StatusCode);
+    }
+
+    /// <summary>
+    /// Verifies direct Watch subtitle polling remains active while FFmpeg has not emitted the first caption cue.
+    /// </summary>
+    [Fact]
+    public void GetFmp4Subtitles_WebVttNotCreatedYet_ReturnsEmptyChunk()
+    {
+        // Arrange
+        var controller = CreateLifecycleController(Substitute.For<IActiveStreamRegistry>());
+        var sessionId = CreateFmp4Session(controller, out var sidecars);
+
+        // Act
+        var result = controller.GetFmp4Subtitles(sessionId, offset: 12);
+
+        // Assert
+        var file = Assert.IsType<FileContentResult>(result);
+        Assert.Empty(file.FileContents);
+        Assert.Equal("text/vtt; charset=utf-8", file.ContentType);
+        Assert.Equal("12", controller.Response.Headers["X-Lineup-Subtitle-Offset"]);
+        GetFmp4Sessions().Remove(sessionId);
+        sidecars.Remove(sessionId);
     }
 
     /// <summary>
@@ -486,119 +582,119 @@ public class StreamControllerTests
     }
 
     /// <summary>
-    /// Verifies that an abandoned HLS session expires and releases all owned resources.
+    /// Verifies that an abandoned CMAF session expires and releases all owned resources.
     /// </summary>
     [Fact]
-    public async Task HlsSession_Inactive_ExpiresAndCleansResources()
+    public async Task CmafSession_Inactive_ExpiresAndCleansResources()
     {
         // Arrange
         var activeStreams = Substitute.For<IActiveStreamRegistry>();
         var capacityLease = Substitute.For<ITunerCapacityLease>();
-        var controller = CreateLifecycleController(activeStreams, hlsInactivityTimeout: TimeSpan.FromMilliseconds(30));
-        var session = CreateHlsSession(controller, capacityLease, out var sessionId, out var directory);
+        var controller = CreateLifecycleController(activeStreams, cmafInactivityTimeout: TimeSpan.FromMilliseconds(30));
+        var session = CreateCmafSession(controller, capacityLease, out var sessionId, out var directory);
 
         // Act
         await WaitUntilAsync(() => !Directory.Exists(directory));
 
         // Assert
-        Assert.False(GetHlsSessions().Contains(sessionId));
+        Assert.False(GetCmafSessions().Contains(sessionId));
         activeStreams.Received().Unregister(sessionId);
         capacityLease.Received().Dispose();
         GC.KeepAlive(session);
     }
 
     /// <summary>
-    /// Verifies that valid HLS file access refreshes inactivity and prevents premature expiration.
+    /// Verifies that valid CMAF artifact access refreshes inactivity and prevents premature expiration.
     /// </summary>
     [Fact]
-    public async Task GetHlsFile_ValidAccess_RefreshesInactivity()
+    public async Task GetCmafFile_ValidAccess_RefreshesInactivity()
     {
         // Arrange
-        var controller = CreateLifecycleController(Substitute.For<IActiveStreamRegistry>(), hlsInactivityTimeout: TimeSpan.FromMilliseconds(150));
-        CreateHlsSession(controller, Substitute.For<ITunerCapacityLease>(), out var sessionId, out var directory);
+        var controller = CreateLifecycleController(Substitute.For<IActiveStreamRegistry>(), cmafInactivityTimeout: TimeSpan.FromMilliseconds(150));
+        CreateCmafSession(controller, Substitute.For<ITunerCapacityLease>(), out var sessionId, out var directory);
         await Task.Delay(90, TestContext.Current.CancellationToken);
 
         // Act
-        var result = controller.GetHlsFile(sessionId, "stream.m3u8");
+        var result = controller.GetCmafFile(sessionId, "stream.m3u8");
         await Task.Delay(90, TestContext.Current.CancellationToken);
 
         // Assert
         Assert.IsType<PhysicalFileResult>(result);
         Assert.True(Directory.Exists(directory));
-        Assert.True(GetHlsSessions().Contains(sessionId));
-        Assert.IsType<OkObjectResult>(controller.StopHls(sessionId));
+        Assert.True(GetCmafSessions().Contains(sessionId));
+        Assert.IsType<OkObjectResult>(controller.StopCmaf(sessionId));
     }
 
     /// <summary>
     /// Verifies CMAF WebVTT clients can poll only bytes appended after their previous offset.
     /// </summary>
     [Fact]
-    public void GetHlsFile_WebVttOffset_ReturnsIncrementalChunk()
+    public void GetCmafFile_WebVttOffset_ReturnsIncrementalChunk()
     {
         // Arrange
         var controller = CreateLifecycleController(Substitute.For<IActiveStreamRegistry>());
-        CreateHlsSession(controller, Substitute.For<ITunerCapacityLease>(), out var sessionId, out var directory);
+        CreateCmafSession(controller, Substitute.For<ITunerCapacityLease>(), out var sessionId, out var directory);
         var subtitlePath = TestTransientData.GetFilePath(directory, "captions-2.vtt");
         File.WriteAllText(subtitlePath, "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nHello\n\n");
 
         // Act
-        var result = controller.GetHlsFile(sessionId, "captions-2.vtt", offset: 8);
+        var result = controller.GetCmafFile(sessionId, "captions-2.vtt", offset: 8);
 
         // Assert
         var file = Assert.IsType<FileContentResult>(result);
         Assert.Equal("00:00:00.000 --> 00:00:01.000\nHello\n\n", System.Text.Encoding.UTF8.GetString(file.FileContents));
         Assert.Equal("45", controller.Response.Headers["X-Lineup-Subtitle-Offset"]);
-        Assert.IsType<OkObjectResult>(controller.StopHls(sessionId));
+        Assert.IsType<OkObjectResult>(controller.StopCmaf(sessionId));
     }
 
     /// <summary>
     /// Verifies CMAF WebVTT polling remains successful while FFmpeg has not emitted the first caption cue.
     /// </summary>
     [Fact]
-    public void GetHlsFile_WebVttNotCreatedYet_ReturnsEmptyChunk()
+    public void GetCmafFile_WebVttNotCreatedYet_ReturnsEmptyChunk()
     {
         // Arrange
         var controller = CreateLifecycleController(Substitute.For<IActiveStreamRegistry>());
-        CreateHlsSession(controller, Substitute.For<ITunerCapacityLease>(), out var sessionId, out _);
+        CreateCmafSession(controller, Substitute.For<ITunerCapacityLease>(), out var sessionId, out _);
 
         // Act
-        var result = controller.GetHlsFile(sessionId, "captions-2.vtt", offset: 12);
+        var result = controller.GetCmafFile(sessionId, "captions-2.vtt", offset: 12);
 
         // Assert
         var file = Assert.IsType<FileContentResult>(result);
         Assert.Empty(file.FileContents);
         Assert.Equal("text/vtt; charset=utf-8", file.ContentType);
         Assert.Equal("12", controller.Response.Headers["X-Lineup-Subtitle-Offset"]);
-        Assert.IsType<OkObjectResult>(controller.StopHls(sessionId));
+        Assert.IsType<OkObjectResult>(controller.StopCmaf(sessionId));
     }
 
     /// <summary>
     /// Verifies copied HEVC representations receive browser-compatible codec signaling when served.
     /// </summary>
     [Fact]
-    public void GetHlsFile_HevcManifest_RewritesMissingCodec()
+    public void GetCmafFile_HevcManifest_RewritesMissingCodec()
     {
         // Arrange
         var controller = CreateLifecycleController(Substitute.For<IActiveStreamRegistry>());
-        var session = CreateHlsSession(controller, Substitute.For<ITunerCapacityLease>(), out var sessionId, out var directory);
+        var session = CreateCmafSession(controller, Substitute.For<ITunerCapacityLease>(), out var sessionId, out var directory);
         File.WriteAllText(Path.Combine(directory, CmafStreamPlanner.DashManifestName), "<Representation codecs=\"\" />");
         SetProperty(session.GetType(), session, "SourceVideoCodec", "hvc1.2.4.L123");
 
         // Act
-        var result = controller.GetHlsFile(sessionId, CmafStreamPlanner.DashManifestName);
+        var result = controller.GetCmafFile(sessionId, CmafStreamPlanner.DashManifestName);
 
         // Assert
         var content = Assert.IsType<ContentResult>(result);
         Assert.Contains("codecs=\"hvc1.2.4.L123\"", content.Content, StringComparison.Ordinal);
         Assert.Equal("application/dash+xml", content.ContentType);
-        Assert.IsType<OkObjectResult>(controller.StopHls(sessionId));
+        Assert.IsType<OkObjectResult>(controller.StopCmaf(sessionId));
     }
 
     /// <summary>
-    /// Verifies that application shutdown terminates and removes every registered HLS session.
+    /// Verifies that application shutdown terminates and removes every registered CMAF session.
     /// </summary>
     [Fact]
-    public async Task ApplicationStopping_LiveHlsSession_CleansResources()
+    public async Task ApplicationStopping_LiveCmafSession_CleansResources()
     {
         // Arrange
         using var stopping = new CancellationTokenSource();
@@ -607,38 +703,38 @@ public class StreamControllerTests
         var activeStreams = Substitute.For<IActiveStreamRegistry>();
         var capacityLease = Substitute.For<ITunerCapacityLease>();
         var controller = CreateLifecycleController(activeStreams, lifetime);
-        CreateHlsSession(controller, capacityLease, out var sessionId, out var directory);
+        CreateCmafSession(controller, capacityLease, out var sessionId, out var directory);
 
         // Act
         stopping.Cancel();
         await WaitUntilAsync(() => !Directory.Exists(directory));
 
         // Assert
-        Assert.False(GetHlsSessions().Contains(sessionId));
+        Assert.False(GetCmafSessions().Contains(sessionId));
         activeStreams.Received().Unregister(sessionId);
         capacityLease.Received().Dispose();
     }
 
     /// <summary>
-    /// Verifies that same-channel HLS viewers retain independent sessions and can stop independently.
+    /// Verifies that same-channel CMAF viewers retain independent sessions and can stop independently.
     /// </summary>
     [Fact]
-    public void HlsSession_SameChannelViewers_CoexistAndStopIndependently()
+    public void CmafSession_SameChannelViewers_CoexistAndStopIndependently()
     {
         // Arrange
         var controller = CreateLifecycleController(Substitute.For<IActiveStreamRegistry>());
-        CreateHlsSession(controller, Substitute.For<ITunerCapacityLease>(), out var firstSessionId, out var firstDirectory);
+        CreateCmafSession(controller, Substitute.For<ITunerCapacityLease>(), out var firstSessionId, out var firstDirectory);
 
         // Act
-        CreateHlsSession(controller, Substitute.For<ITunerCapacityLease>(), out var secondSessionId, out var secondDirectory);
-        var firstStop = controller.StopHls(firstSessionId);
+        CreateCmafSession(controller, Substitute.For<ITunerCapacityLease>(), out var secondSessionId, out var secondDirectory);
+        var firstStop = controller.StopCmaf(firstSessionId);
 
         // Assert
         Assert.IsType<OkObjectResult>(firstStop);
         Assert.False(Directory.Exists(firstDirectory));
         Assert.True(Directory.Exists(secondDirectory));
-        Assert.True(GetHlsSessions().Contains(secondSessionId));
-        Assert.IsType<OkObjectResult>(controller.StopHls(secondSessionId));
+        Assert.True(GetCmafSessions().Contains(secondSessionId));
+        Assert.IsType<OkObjectResult>(controller.StopCmaf(secondSessionId));
         Assert.False(Directory.Exists(secondDirectory));
     }
 
@@ -740,7 +836,7 @@ public class StreamControllerTests
         };
     }
 
-    private static StreamController CreateLifecycleController(IActiveStreamRegistry activeStreams, IHostApplicationLifetime? lifetime = null, TimeSpan? hlsInactivityTimeout = null)
+    private static StreamController CreateLifecycleController(IActiveStreamRegistry activeStreams, IHostApplicationLifetime? lifetime = null, TimeSpan? cmafInactivityTimeout = null)
     {
         var settingsService = Substitute.For<IAppSettingsService>();
         settingsService.Settings.Returns(new AppSettings());
@@ -760,7 +856,7 @@ public class StreamControllerTests
             NullLogger<StreamController>.Instance,
             lifetime,
             TimeProvider.System,
-            hlsInactivityTimeout,
+            cmafInactivityTimeout,
             transientData: TestTransientData)
         {
             ControllerContext = new ControllerContext
@@ -770,10 +866,10 @@ public class StreamControllerTests
         };
     }
 
-    private static object CreateHlsSession(StreamController controller, ITunerCapacityLease capacityLease, out string sessionId, out string directory)
+    private static object CreateCmafSession(StreamController controller, ITunerCapacityLease capacityLease, out string sessionId, out string directory)
     {
         sessionId = Guid.NewGuid().ToString("N");
-        directory = TestTransientData.CreateHlsSessionDirectory(sessionId);
+        directory = TestTransientData.CreateCmafSessionDirectory(sessionId);
         var playlistPath = TestTransientData.GetFilePath(directory, "stream.m3u8");
         File.WriteAllText(playlistPath, "#EXTM3U");
         using var process = Process.Start(new ProcessStartInfo
@@ -786,21 +882,41 @@ public class StreamControllerTests
         });
         Assert.NotNull(process);
         process.WaitForExit();
-        var sessionType = typeof(StreamController).GetNestedType("HlsSession", BindingFlags.NonPublic);
+        var sessionType = typeof(StreamController).GetNestedType("CmafSession", BindingFlags.NonPublic);
         Assert.NotNull(sessionType);
         var session = Activator.CreateInstance(sessionType);
         Assert.NotNull(session);
         SetProperty(sessionType, session, "SessionId", sessionId);
         SetProperty(sessionType, session, "Channel", "20.1");
         SetProperty(sessionType, session, "Process", process);
-        SetProperty(sessionType, session, "HlsDirectory", directory);
+        SetProperty(sessionType, session, "CmafDirectory", directory);
         SetProperty(sessionType, session, "PlaylistPath", playlistPath);
         SetProperty(sessionType, session, "StartTime", DateTime.UtcNow);
         SetProperty(sessionType, session, "CapacityLease", capacityLease);
-        var register = typeof(StreamController).GetMethod("RegisterHlsSession", BindingFlags.Instance | BindingFlags.NonPublic);
+        var register = typeof(StreamController).GetMethod("RegisterCmafSession", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(register);
         register.Invoke(controller, [session]);
         return session;
+    }
+
+    private static string CreateFmp4Session(StreamController controller, out SubtitleSidecarService sidecars)
+    {
+        var sessionId = Guid.NewGuid().ToString("N");
+        var sessionType = typeof(StreamController).GetNestedType("FMp4Session", BindingFlags.NonPublic);
+        Assert.NotNull(sessionType);
+        var session = Activator.CreateInstance(sessionType);
+        Assert.NotNull(session);
+        SetProperty(sessionType, session, "SessionId", sessionId);
+        SetProperty(sessionType, session, "Channel", "20.1");
+        SetProperty(sessionType, session, "Process", Process.GetCurrentProcess());
+        SetProperty(sessionType, session, "StartTime", DateTime.UtcNow);
+        GetFmp4Sessions().Add(sessionId, session);
+
+        var sidecarsField = typeof(StreamController).GetField("_subtitleSidecars", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(sidecarsField);
+        sidecars = Assert.IsType<SubtitleSidecarService>(sidecarsField.GetValue(controller));
+        _ = sidecars.Create(sessionId);
+        return sessionId;
     }
 
     private static ChannelLineupStore CreateChannelLineupStore()
@@ -919,9 +1035,16 @@ public class StreamControllerTests
         }
     }
 
-    private static IDictionary GetHlsSessions()
+    private static IDictionary GetCmafSessions()
     {
-        var sessions = typeof(StreamController).GetField("_hlsSessions", BindingFlags.Static | BindingFlags.NonPublic);
+        var sessions = typeof(StreamController).GetField("_cmafSessions", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(sessions);
+        return Assert.IsType<IDictionary>(sessions.GetValue(null), exactMatch: false);
+    }
+
+    private static IDictionary GetFmp4Sessions()
+    {
+        var sessions = typeof(StreamController).GetField("_fmp4Sessions", BindingFlags.Static | BindingFlags.NonPublic);
         Assert.NotNull(sessions);
         return Assert.IsType<IDictionary>(sessions.GetValue(null), exactMatch: false);
     }

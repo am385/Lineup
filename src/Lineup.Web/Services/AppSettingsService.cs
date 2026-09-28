@@ -388,7 +388,7 @@ public class AppSettings
     public DisabledChannelMode DisabledChannelMode { get; set; } = DisabledChannelMode.ReturnError;
 
     /// <summary>
-    /// H.264 encoder preset used for browser-compatible fMP4 and HLS output.
+    /// H.264 encoder preset used for browser-compatible fMP4 and CMAF output.
     /// </summary>
     public WebVideoPreset WebVideoPreset { get; set; } = WebVideoPreset.VeryFast;
 
