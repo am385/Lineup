@@ -13,9 +13,9 @@ using System.Text.RegularExpressions;
 namespace Lineup.Web.Components.Pages;
 
 /// <summary>
-/// Provides experimental HLS and DASH playback over one shared CMAF presentation.
+/// Provides live TV playback over one shared CMAF presentation.
 /// </summary>
-public partial class WatchCmaf : IAsyncDisposable
+public partial class Watch : IAsyncDisposable
 {
     [Inject]
     private IEpgRepository Repository { get; set; } = default!;
@@ -45,7 +45,7 @@ public partial class WatchCmaf : IAsyncDisposable
     private NavigationManager NavigationManager { get; set; } = default!;
 
     [Inject]
-    private ILogger<WatchCmaf> Logger { get; set; } = default!;
+    private ILogger<Watch> Logger { get; set; } = default!;
 
     /// <summary>Gets or sets a channel number supplied through the route.</summary>
     [Parameter]
@@ -60,7 +60,7 @@ public partial class WatchCmaf : IAsyncDisposable
     private CmafPlayerAudio? _playerAudio;
     private CmafPlayerVideo? _playerVideo;
     private CmafStartResponse? _session;
-    private DotNetObjectReference<WatchCmaf>? _dotNetReference;
+    private DotNetObjectReference<Watch>? _dotNetReference;
     private IDisposable? _locationChangingRegistration;
     private Timer? _streamInfoTimer;
     private string? _selectedChannelNumber;

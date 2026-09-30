@@ -16,9 +16,9 @@ using Xunit;
 namespace Lineup.Web.Tests.Components.Pages;
 
 /// <summary>
-/// Verifies the shared CMAF Watch page lifecycle and independent preferences.
+/// Verifies the Watch page lifecycle and independent preferences.
 /// </summary>
-public class WatchCmafTests
+public class WatchTests
 {
     private const string PreferencesStorageKey = "lineup-watch-cmaf-preferences-v1";
 
@@ -32,7 +32,7 @@ public class WatchCmafTests
         using var context = CreateContext();
 
         // Act
-        var component = context.Render<WatchCmaf>();
+        var component = context.Render<Watch>();
 
         // Assert
         component.WaitForAssertion(() =>
@@ -56,7 +56,7 @@ public class WatchCmafTests
         context.JSInterop.Setup<string>("getCmafBrowserIdentity").SetResult("test-browser");
 
         // Act
-        var component = context.Render<WatchCmaf>();
+        var component = context.Render<Watch>();
 
         // Assert
         component.WaitForAssertion(() => Assert.Empty(component.FindAll("#runCmafCompatibilityTests")));
@@ -70,8 +70,8 @@ public class WatchCmafTests
     {
         // Arrange
         using var context = CreateContext();
-        var component = context.Render<WatchCmaf>();
-        var loadingField = typeof(WatchCmaf).GetField("_isPlayerLoading", BindingFlags.Instance | BindingFlags.NonPublic);
+        var component = context.Render<Watch>();
+        var loadingField = typeof(Watch).GetField("_isPlayerLoading", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(loadingField);
 
         // Act
@@ -95,7 +95,7 @@ public class WatchCmafTests
     {
         // Arrange
         using var context = CreateContext();
-        var component = context.Render<WatchCmaf>();
+        var component = context.Render<Watch>();
         var initiallyHidden = component.Find("#cmafOverrideSettings").ClassList.Contains("d-none");
 
         // Act
@@ -127,7 +127,7 @@ public class WatchCmafTests
         context.JSInterop.Setup<string?>("localStorage.getItem", CmafCompatibilityProfile.StorageKey).SetResult(JsonSerializer.Serialize(profile));
         context.JSInterop.Setup<string>("getCmafBrowserIdentity").SetResult("test-browser");
         ConfigureSuccessfulSession(context);
-        var component = context.Render<WatchCmaf>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
         component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
 
         // Act
@@ -160,7 +160,7 @@ public class WatchCmafTests
         ConfigureSuccessfulSession(context);
 
         // Act
-        var component = context.Render<WatchCmaf>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
 
         // Assert
         component.WaitForAssertion(() =>
@@ -189,7 +189,7 @@ public class WatchCmafTests
         ConfigureSuccessfulSession(context);
 
         // Act
-        var component = context.Render<WatchCmaf>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
 
         // Assert
         component.WaitForAssertion(() =>
@@ -214,7 +214,7 @@ public class WatchCmafTests
         ConfigureSuccessfulSession(context);
 
         // Act
-        var component = context.Render<WatchCmaf>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
 
         // Assert
         component.WaitForAssertion(() =>
@@ -232,7 +232,7 @@ public class WatchCmafTests
             Assert.Equal("Source", initialize.Arguments[4]);
             Assert.Null(initialize.Arguments[5]);
             Assert.Equal("aac", initialize.Arguments[6]);
-            var subtitles = Assert.IsAssignableFrom<IReadOnlyList<WatchCmaf.CmafSubtitleResponse>>(initialize.Arguments[7]);
+            var subtitles = Assert.IsAssignableFrom<IReadOnlyList<Watch.CmafSubtitleResponse>>(initialize.Arguments[7]);
             Assert.Collection(
                 subtitles,
                 subtitle => Assert.Equal(2, subtitle.SourceIndex),
@@ -249,7 +249,7 @@ public class WatchCmafTests
         // Arrange
         using var context = CreateContext();
         ConfigureSuccessfulSession(context);
-        var component = context.Render<WatchCmaf>(parameters => parameters.Add(page => page.ChannelNumber, "105.1"));
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "105.1"));
         component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
 
         // Act
@@ -277,21 +277,21 @@ public class WatchCmafTests
         // Arrange
         using var context = CreateContext();
         context.JSInterop
-            .Setup<WatchCmaf.CmafStartResponse>("startCmafSession", _ => true)
+            .Setup<Watch.CmafStartResponse>("startCmafSession", _ => true)
             .SetResult(new(
                 "session-1",
                 "/api/stream/cmaf/session-1/master.m3u8",
                 "/api/stream/hls/session-1/master.m3u8",
                 "/api/stream/cmaf/session-1/manifest.mpd"));
         context.JSInterop
-            .Setup<WatchCmaf.CmafPlayerResult>("initCmafPlayer", _ => true)
+            .Setup<Watch.CmafPlayerResult>("initCmafPlayer", _ => true)
             .SetResult(new(
                 true,
                 null,
                 "/api/stream/cmaf/session-1/manifest.mpd",
                 Audio: new("eng · Fallback AAC Stereo", "mp4a.40.2", 2, "11", "eng"),
                 Video: new("avc1.64002a", 1920, 1080)));
-        var component = context.Render<WatchCmaf>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
         component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
         using var details = JsonDocument.Parse("""{"id":"12","label":"spa · Source","language":"spa","codec":"ac-3","channels":2}""");
 
@@ -319,7 +319,7 @@ public class WatchCmafTests
         // Arrange
         using var context = CreateContext();
         context.JSInterop
-            .Setup<WatchCmaf.CmafStartResponse>(
+            .Setup<Watch.CmafStartResponse>(
                 "startCmafSession",
                 invocation => Assert.IsType<string>(invocation.Arguments[0]).Contains("preferredVideo=Source", StringComparison.Ordinal))
             .SetResult(
@@ -331,17 +331,17 @@ public class WatchCmafTests
                     HasSourceVideoRendition: true,
                     SourceVideoCodec: "hvc1.2.4.L123"));
         context.JSInterop
-            .Setup<WatchCmaf.CmafStartResponse>(
+            .Setup<Watch.CmafStartResponse>(
                 "startCmafSession",
                 invocation => Assert.IsType<string>(invocation.Arguments[0]).Contains("preferredVideo=Fallback", StringComparison.Ordinal))
             .SetResult(new("fallback-session", "/api/stream/cmaf/fallback-session/master.m3u8", "/api/stream/hls/fallback-session/master.m3u8", "/api/stream/cmaf/fallback-session/manifest.mpd"));
         context.JSInterop
-            .Setup<WatchCmaf.CmafPlayerResult>(
+            .Setup<Watch.CmafPlayerResult>(
                 "initCmafPlayer",
                 invocation => Equals(invocation.Arguments[1], "/api/stream/cmaf/source-session/manifest.mpd"))
             .SetResult(new(false, "Shaka Error 4032", null, 4032, SourceVideoSupported: false));
         context.JSInterop
-            .Setup<WatchCmaf.CmafPlayerResult>(
+            .Setup<Watch.CmafPlayerResult>(
                 "initCmafPlayer",
                 invocation => Equals(invocation.Arguments[1], "/api/stream/cmaf/fallback-session/manifest.mpd"))
             .SetResult(new(true, null, "/api/stream/cmaf/fallback-session/manifest.mpd", Video: new("avc1.64002a", 1920, 1080)));
@@ -349,7 +349,7 @@ public class WatchCmafTests
         context.JSInterop.SetupVoid("stopCmafSession", "fallback-session").SetVoidResult();
 
         // Act
-        var component = context.Render<WatchCmaf>(parameters => parameters.Add(page => page.ChannelNumber, "105.1"));
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "105.1"));
 
         // Assert
         component.WaitForAssertion(() =>
@@ -377,7 +377,7 @@ public class WatchCmafTests
         // Arrange
         using var context = CreateContext();
         context.JSInterop
-            .Setup<WatchCmaf.CmafStartResponse>(
+            .Setup<Watch.CmafStartResponse>(
                 "startCmafSession",
                 invocation => Assert.IsType<string>(invocation.Arguments[0]).Contains("preferredVideo=Source", StringComparison.Ordinal))
             .SetResult(
@@ -389,16 +389,16 @@ public class WatchCmafTests
                     HasSourceVideoRendition: true,
                     SourceVideoCodec: "hvc1.2.4.L153"));
         context.JSInterop
-            .Setup<WatchCmaf.CmafStartResponse>(
+            .Setup<Watch.CmafStartResponse>(
                 "startCmafSession",
                 invocation => Assert.IsType<string>(invocation.Arguments[0]).Contains("preferredVideo=Fallback", StringComparison.Ordinal))
             .SetResult(new("fallback-session", "/api/stream/cmaf/fallback-session/master.m3u8", "/api/stream/hls/fallback-session/master.m3u8", "/api/stream/cmaf/fallback-session/manifest.mpd"));
         context.JSInterop
-            .Setup<WatchCmaf.CmafPlayerResult>("initCmafPlayer", _ => true)
+            .Setup<Watch.CmafPlayerResult>("initCmafPlayer", _ => true)
             .SetResult(new(true, null, "/api/stream/cmaf/source-session/manifest.mpd", Video: new("hvc1.2.4.L153", 1920, 1080)));
         context.JSInterop.SetupVoid("stopCmafSession", "source-session").SetVoidResult();
         context.JSInterop.SetupVoid("stopCmafSession", "fallback-session").SetVoidResult();
-        var component = context.Render<WatchCmaf>(parameters => parameters.Add(page => page.ChannelNumber, "104.1"));
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "104.1"));
         component.WaitForAssertion(() => Assert.Contains("hvc1.2.4.L153", component.Markup));
 
         // Act
@@ -426,7 +426,7 @@ public class WatchCmafTests
         ConfigureSuccessfulSession(context);
 
         // Act
-        var component = context.Render<WatchCmaf>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
 
         // Assert
         component.WaitForAssertion(() =>
@@ -449,7 +449,7 @@ public class WatchCmafTests
         ConfigureSuccessfulSession(context);
 
         // Act
-        var component = context.Render<WatchCmaf>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
 
         // Assert
         component.WaitForAssertion(() =>
@@ -467,7 +467,7 @@ public class WatchCmafTests
         ConfigureSuccessfulSession(context, sourceAudioFallbackApplied: true);
 
         // Act
-        var component = context.Render<WatchCmaf>(parameters => parameters.Add(page => page.ChannelNumber, "104.1"));
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "104.1"));
 
         // Assert
         component.WaitForAssertion(() =>
@@ -490,7 +490,7 @@ public class WatchCmafTests
         // Arrange
         using var context = CreateContext();
         ConfigureSuccessfulSession(context);
-        var component = context.Render<WatchCmaf>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
         component.WaitForAssertion(() =>
         {
             Assert.NotNull(component.Find("#cmafVideoPlayer"));
@@ -524,7 +524,7 @@ public class WatchCmafTests
         ConfigureSuccessfulSession(context);
 
         // Act
-        var component = context.Render<WatchCmaf>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
 
         // Assert
         component.WaitForAssertion(() =>
@@ -546,7 +546,7 @@ public class WatchCmafTests
         // Arrange
         using var context = CreateContext();
         ConfigureSuccessfulSession(context);
-        var component = context.Render<WatchCmaf>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
         component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
 
         // Act
@@ -574,7 +574,7 @@ public class WatchCmafTests
         // Arrange
         using var context = CreateContext("""{"Protocol":2,"Quality":0,"PreferredAudio":1,"FallbackAudio":3,"SubtitleTrack":null}""");
         context.JSInterop
-            .Setup<WatchCmaf.CmafStartResponse>(
+            .Setup<Watch.CmafStartResponse>(
                 "startCmafSession",
                 invocation => Assert.IsType<string>(invocation.Arguments[0]).Contains("fallbackAudio=Ac3", StringComparison.Ordinal))
             .SetResult(
@@ -585,17 +585,17 @@ public class WatchCmafTests
                     "/api/stream/cmaf/ac3-session/manifest.mpd",
                     FallbackAudioCodec: "ac3"));
         context.JSInterop
-            .Setup<WatchCmaf.CmafStartResponse>(
+            .Setup<Watch.CmafStartResponse>(
                 "startCmafSession",
                 invocation => Assert.IsType<string>(invocation.Arguments[0]).Contains("fallbackAudio=AacStereo", StringComparison.Ordinal))
             .SetResult(new("aac-session", "/api/stream/cmaf/aac-session/master.m3u8", "/api/stream/hls/aac-session/master.m3u8", "/api/stream/cmaf/aac-session/manifest.mpd"));
         context.JSInterop
-            .Setup<WatchCmaf.CmafPlayerResult>(
+            .Setup<Watch.CmafPlayerResult>(
                 "initCmafPlayer",
                 invocation => Equals(invocation.Arguments[1], "/api/stream/cmaf/ac3-session/manifest.mpd"))
             .SetResult(new(false, "Shaka Error 4032", null, 4032, FallbackAudioSupported: false));
         context.JSInterop
-            .Setup<WatchCmaf.CmafPlayerResult>(
+            .Setup<Watch.CmafPlayerResult>(
                 "initCmafPlayer",
                 invocation => Equals(invocation.Arguments[1], "/api/stream/cmaf/aac-session/manifest.mpd"))
             .SetResult(new(true, null, "/api/stream/cmaf/aac-session/manifest.mpd", Audio: new("Fallback AAC Stereo", "mp4a.40.2", 2)));
@@ -603,7 +603,7 @@ public class WatchCmafTests
         context.JSInterop.SetupVoid("stopCmafSession", "aac-session").SetVoidResult();
 
         // Act
-        var component = context.Render<WatchCmaf>(parameters => parameters.Add(page => page.ChannelNumber, "105.1"));
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "105.1"));
 
         // Assert
         component.WaitForAssertion(() =>
@@ -633,7 +633,7 @@ public class WatchCmafTests
         // Arrange
         using var context = CreateContext("""{"Protocol":2,"Quality":0,"PreferredAudio":1,"FallbackAudio":3,"SubtitleTrack":null}""");
         context.JSInterop
-            .Setup<WatchCmaf.CmafStartResponse>("startCmafSession", _ => true)
+            .Setup<Watch.CmafStartResponse>("startCmafSession", _ => true)
             .SetResult(
                 new(
                     "ac3-session",
@@ -642,12 +642,12 @@ public class WatchCmafTests
                     "/api/stream/cmaf/ac3-session/manifest.mpd",
                     FallbackAudioCodec: "ac3"));
         context.JSInterop
-            .Setup<WatchCmaf.CmafPlayerResult>("initCmafPlayer", _ => true)
+            .Setup<Watch.CmafPlayerResult>("initCmafPlayer", _ => true)
             .SetResult(new(false, "Shaka Error 4032", null, 4032, FallbackAudioSupported: true));
         context.JSInterop.SetupVoid("stopCmafSession", "ac3-session").SetVoidResult();
 
         // Act
-        var component = context.Render<WatchCmaf>(parameters => parameters.Add(page => page.ChannelNumber, "105.1"));
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "105.1"));
 
         // Assert
         component.WaitForAssertion(() =>
@@ -667,7 +667,7 @@ public class WatchCmafTests
         // Arrange
         using var context = CreateContext();
         ConfigureSuccessfulSession(context);
-        var component = context.Render<WatchCmaf>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
         component.WaitForAssertion(() =>
         {
             Assert.NotNull(component.Find("#cmafVideoPlayer"));
@@ -695,9 +695,9 @@ public class WatchCmafTests
         // Arrange
         using var context = CreateContext();
         ConfigureSuccessfulSession(context);
-        var component = context.Render<WatchCmaf>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
         component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
-        var clientIdField = typeof(WatchCmaf).GetField("_clientId", BindingFlags.Instance | BindingFlags.NonPublic);
+        var clientIdField = typeof(Watch).GetField("_clientId", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(clientIdField);
         var clientId = Assert.IsType<string>(clientIdField.GetValue(component.Instance));
         var registry = context.Services.GetRequiredService<IActiveStreamRegistry>();
@@ -735,7 +735,7 @@ public class WatchCmafTests
             Assert.Single(starts);
             Assert.Empty(component.FindAll("#cmafSubtitleTrack"));
             var initialize = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer");
-            var subtitles = Assert.IsAssignableFrom<IReadOnlyList<WatchCmaf.CmafSubtitleResponse>>(initialize.Arguments[7]);
+            var subtitles = Assert.IsAssignableFrom<IReadOnlyList<Watch.CmafSubtitleResponse>>(initialize.Arguments[7]);
             Assert.Contains(subtitles, subtitle => subtitle.IsEmbeddedClosedCaptions && subtitle.SourceIndex == 3);
             Assert.Contains("WebVTT sidecar", component.Markup);
             Assert.Contains("sidecar", component.Markup);
@@ -751,9 +751,9 @@ public class WatchCmafTests
         // Arrange
         using var context = CreateContext();
         ConfigureSuccessfulSession(context);
-        var component = context.Render<WatchCmaf>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
         component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
-        var clientIdField = typeof(WatchCmaf).GetField("_clientId", BindingFlags.Instance | BindingFlags.NonPublic);
+        var clientIdField = typeof(Watch).GetField("_clientId", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(clientIdField);
         var clientId = Assert.IsType<string>(clientIdField.GetValue(component.Instance));
         context.Services.GetRequiredService<IActiveStreamRegistry>().Register(new ActiveStreamSnapshot(
@@ -851,8 +851,8 @@ public class WatchCmafTests
         var registry = new ActiveStreamRegistry();
         using var context = CreateContext(repository: repository, deviceState: deviceState, settingsService: settings, channelStore: channelStore, registry: registry);
         ConfigureSuccessfulSession(context);
-        var component = context.Render<WatchCmaf>();
-        var clientIdField = typeof(WatchCmaf).GetField("_clientId", BindingFlags.Instance | BindingFlags.NonPublic);
+        var component = context.Render<Watch>();
+        var clientIdField = typeof(Watch).GetField("_clientId", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(clientIdField);
         var clientId = Assert.IsType<string>(clientIdField.GetValue(component.Instance));
         registry.Register(new ActiveStreamSnapshot(
@@ -952,7 +952,7 @@ public class WatchCmafTests
     private static void ConfigureSuccessfulSession(BunitContext context, bool sourceAudioFallbackApplied = false)
     {
         context.JSInterop
-            .Setup<WatchCmaf.CmafStartResponse>("startCmafSession", _ => true)
+            .Setup<Watch.CmafStartResponse>("startCmafSession", _ => true)
             .SetResult(new(
                 "session-1",
                 "/api/stream/cmaf/session-1/master.m3u8",
@@ -966,7 +966,7 @@ public class WatchCmafTests
                 ],
                 FallbackAudioCodec: "aac"));
         context.JSInterop
-            .Setup<WatchCmaf.CmafPlayerResult>("initCmafPlayer", _ => true)
+            .Setup<Watch.CmafPlayerResult>("initCmafPlayer", _ => true)
             .SetResult(new(
                 true,
                 null,
