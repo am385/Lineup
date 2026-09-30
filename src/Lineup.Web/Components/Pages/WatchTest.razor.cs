@@ -10,6 +10,11 @@ namespace Lineup.Web.Components.Pages;
 /// </summary>
 public partial class WatchTest : IAsyncDisposable
 {
+    /// <summary>Gets or sets whether the complete compatibility suite starts automatically after page initialization.</summary>
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "runAll")]
+    public bool RunAllOnLoad { get; set; }
+
     [Inject]
     private IJSRuntime JS { get; set; } = default!;
 
@@ -45,6 +50,7 @@ public partial class WatchTest : IAsyncDisposable
     private bool _isRunningAll;
     private bool _isRunningCase;
     private bool _needsPlayerInit;
+    private bool _autoRunStarted;
     private bool _isDisposed;
 
     private bool CanEncodeSelectedAudio => CmafCompatibilityTestPlanner.IsEncoderAvailable(_audioCodec);
@@ -74,6 +80,11 @@ public partial class WatchTest : IAsyncDisposable
                 Logger.LogWarning(ex, "Unable to read Watch Test browser codec capabilities");
             }
             StateHasChanged();
+            if (RunAllOnLoad && !_autoRunStarted && _capabilities is not null)
+            {
+                _autoRunStarted = true;
+                await RunAllAsync();
+            }
         }
 
         if (!_needsPlayerInit || _session is null)
@@ -87,14 +98,7 @@ public partial class WatchTest : IAsyncDisposable
         var pendingPlayerResult = _pendingPlayerResult;
         try
         {
-            var playerResult = await JS.InvokeAsync<CmafTestPlayerResult>(
-                "initCmafTestPlayer",
-                "cmafTestVideoPlayer",
-                _session.ManifestUrl,
-                _session.VideoCodec,
-                _session.AudioCodec,
-                _session.SubtitleUrl,
-                _dotNetReference);
+            var playerResult = await JS.InvokeAsync<CmafTestPlayerResult>("initCmafTestPlayer", "cmafTestVideoPlayer", _session.ManifestUrl, _session.VideoCodec, _session.AudioCodec, _session.SubtitleUrl, _dotNetReference);
             if (!string.Equals(_session?.SessionId, initializingSessionId, StringComparison.Ordinal))
             {
                 return;
@@ -343,7 +347,7 @@ public partial class WatchTest : IAsyncDisposable
 
         await BrowserData.WriteAsync(CmafCompatibilityProfile.StorageKey, profile, cancellationToken);
         _storedProfile = profile;
-        Notifications.ShowSuccess("Browser compatibility profile saved. Watch CMAF can now optimize streams automatically.");
+        Notifications.ShowSuccess("Browser compatibility profile saved. Watch can now optimize streams automatically.");
     }
 
     private void RestoreStoredResults()
@@ -359,6 +363,7 @@ public partial class WatchTest : IAsyncDisposable
 
     private async Task<CmafTestPlayerResult> RunCaseAsync(CmafCapabilityTestCase test, CancellationToken cancellationToken)
     {
+        _errorMessage = null;
         await StopSessionAsync();
         _protocol = test.Request.Protocol;
         _quality = test.Request.Quality;

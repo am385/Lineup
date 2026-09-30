@@ -808,8 +808,6 @@
             stopMediaPlayer();
         }
         
-        // fMP4 player - simpler, just sets the src directly
-        // The browser's native video player handles fragmented MP4
         function startLineupSubtitlePolling(
             video,
             subtitleUrl,
@@ -940,102 +938,6 @@
             refresh();
         }
 
-        async function initFmp4Player(videoElementId, streamUrl, diagnosticUrl, subtitleUrl = null) {
-            stopMediaPlayer(videoElementId);
-            
-            const video = document.getElementById(videoElementId);
-            if (!video) {
-                return 'Video player element was not found.';
-            }
-            window.lineupMediaPlayers ??= new Map();
-            window.lineupMediaPlayers.set(videoElementId, video);
-            return await new Promise(resolve => {
-                let retryCount = 0;
-                let settled = false;
-                let diagnosing = false;
-                const finish = message => {
-                    if (settled) {
-                        return;
-                    }
-
-                    settled = true;
-                    clearTimeout(timeout);
-                    video.onerror = null;
-                    video.onloadedmetadata = null;
-                    video._lineupInitializationResolve = null;
-                    resolve(message);
-                };
-                const startPlayback = () => {
-                    if (settled || !video.isConnected) {
-                        return;
-                    }
-                    const separator = streamUrl.includes('?') ? '&' : '?';
-                    video.src = retryCount === 0 ? streamUrl : `${streamUrl}${separator}retry=${Date.now()}`;
-                    video.play().catch(() => {
-                        // Playback errors are handled by video.onerror with tuner diagnostics.
-                    });
-                };
-
-                video._lineupInitializationResolve = finish;
-                video.onloadedmetadata = () => {
-                    if (settled || !video.isConnected) {
-                        return;
-                    }
-                    if (subtitleUrl) {
-                        startLineupSubtitlePolling(video, subtitleUrl);
-                    }
-                    finish(null);
-                };
-                const handlePlaybackError = async errorOrMessage => {
-                    if (settled || diagnosing) {
-                        return;
-                    }
-
-                    const fallbackMessage = typeof errorOrMessage === 'string' ? errorOrMessage : null;
-                    diagnosing = true;
-                    video.onerror = null;
-                    let diagnostic;
-                    try {
-                        const response = await fetch(diagnosticUrl, { cache: 'no-store' });
-                        diagnostic = await response.json();
-                    } catch (error) {
-                        finish(fallbackMessage || `Unable to diagnose the stream failure: ${error.message}`);
-                        return;
-                    }
-
-                    if (settled) {
-                        return;
-                    }
-
-                    if (diagnostic.success && retryCount === 0) {
-                        retryCount++;
-                        await new Promise(retryResolve => setTimeout(retryResolve, 750));
-                        if (settled || !video.isConnected) {
-                            return;
-                        }
-                        diagnosing = false;
-                        video.onerror = handlePlaybackError;
-                        startPlayback();
-                        return;
-                    }
-
-                    if (diagnostic.success) {
-                        finish(fallbackMessage || video.error?.message || 'The transcoder could not produce a playable stream.');
-                        return;
-                    }
-
-                    finish(diagnostic.message || fallbackMessage || video.error?.message || 'The channel could not be opened.');
-                };
-                const timeout = setTimeout(
-                    () => handlePlaybackError('Timed out waiting for the channel to begin streaming.'),
-                    45000);
-                video.onerror = handlePlaybackError;
-
-                console.log('Initializing fMP4 player with URL:', streamUrl);
-                startPlayback();
-            });
-        }
-        
         function isHlsSupported() {
             // Check for native HLS or hls.js support
             const video = document.createElement('video');

@@ -16,7 +16,7 @@ public class CmafStreamPlannerTests
     {
         // Arrange
         var source = Source("aac");
-        var selection = WatchStreamPlanner.SelectTracks(source, 1, null);
+        var selection = WebPlayerTrackPlanner.SelectTracks(source, 1, null);
 
         // Act
         var arguments = CmafStreamPlanner.CreateArguments(new AppSettings(), source, selection, new CmafStreamRequest(), "manifest.mpd");
@@ -29,6 +29,9 @@ public class CmafStreamPlannerTests
         AssertOption(arguments, "-window_size", "10");
         AssertOption(arguments, "-init_seg_name", "init-$RepresentationID$.mp4");
         AssertOption(arguments, "-media_seg_name", "chunk-$RepresentationID$-$Number%05d$.m4s");
+        AssertOption(arguments, "-analyzeduration", "10000000");
+        AssertOption(arguments, "-probesize", "10000000");
+        AssertOption(arguments, "-tag:v:0", "avc1");
         Assert.Equal("manifest.mpd", arguments[^1]);
     }
 
@@ -101,7 +104,7 @@ public class CmafStreamPlannerTests
                 Track(1, MediaTrackType.Audio, "aac") with { Channels = 2 }
             ]
         };
-        var selection = WatchStreamPlanner.SelectTracks(source, 1, null);
+        var selection = WebPlayerTrackPlanner.SelectTracks(source, 1, null);
 
         // Act
         var arguments = CmafStreamPlanner.CreateArguments(new AppSettings(), source, selection, new CmafStreamRequest(), "manifest.mpd");
@@ -132,6 +135,33 @@ public class CmafStreamPlannerTests
         Assert.False(rendition.CopySource);
         Assert.Equal("h264", rendition.Codec);
         Assert.Equal("Fallback H.264", rendition.Title);
+    }
+
+    /// <summary>
+    /// Verifies confirmed interlaced video forces H.264 and composes deinterlacing before scaling.
+    /// </summary>
+    [Fact]
+    public void CreateArguments_InterlacedSource_DeinterlacesBeforeScaling()
+    {
+        // Arrange
+        var source = Source("aac") with
+        {
+            Tracks =
+            [
+                Track(0, MediaTrackType.Video, "h264") with { ScanType = VideoScanType.Interlaced },
+                Track(1, MediaTrackType.Audio, "aac") with { Channels = 2 }
+            ]
+        };
+        var selection = WebPlayerTrackPlanner.SelectTracks(source, 1, null);
+        var settings = new AppSettings { WebPlayerDeinterlaceMode = DeinterlaceMode.SourceFieldRate };
+        var request = new CmafStreamRequest { Quality = WebPlayerQuality.Medium };
+
+        // Act
+        var arguments = CmafStreamPlanner.CreateArguments(settings, source, selection, request, "manifest.mpd");
+
+        // Assert
+        AssertOption(arguments, "-c:v:0", "libx264");
+        AssertOption(arguments, "-filter:v:0", "bwdif=mode=send_field:parity=auto:deint=interlaced,scale=-2:min(720\\,ih)");
     }
 
     /// <summary>
@@ -252,7 +282,7 @@ public class CmafStreamPlannerTests
     {
         // Arrange
         var source = Source("ac4");
-        var selection = WatchStreamPlanner.SelectTracks(source, 1, null);
+        var selection = WebPlayerTrackPlanner.SelectTracks(source, 1, null);
 
         // Act
         var arguments = CmafStreamPlanner.CreateArguments(new AppSettings(), source, selection, new CmafStreamRequest(), "manifest.mpd");
@@ -280,7 +310,7 @@ public class CmafStreamPlannerTests
                 Track(2, MediaTrackType.Audio, "ac3") with { Channels = 2, Language = "spa" }
             ]
         };
-        var selection = WatchStreamPlanner.SelectTracks(source, 1, null);
+        var selection = WebPlayerTrackPlanner.SelectTracks(source, 1, null);
 
         // Act
         var arguments = CmafStreamPlanner.CreateArguments(new AppSettings(), source, selection, new CmafStreamRequest(), "manifest.mpd");
@@ -314,7 +344,7 @@ public class CmafStreamPlannerTests
         {
             Tracks = [Track(0, MediaTrackType.Video, "h264"), Track(1, MediaTrackType.Audio, "ac4") with { Channels = 8 }]
         };
-        var selection = WatchStreamPlanner.SelectTracks(source, 1, null);
+        var selection = WebPlayerTrackPlanner.SelectTracks(source, 1, null);
         var request = new CmafStreamRequest { PreferredAudio = CmafPreferredAudio.Fallback, FallbackAudio = fallback };
 
         // Act
@@ -359,7 +389,7 @@ public class CmafStreamPlannerTests
     public void ResolveFallbackAudio_LegacyMultichannelAac_MapsToNewProfile()
     {
         // Arrange
-        var request = new CmafStreamRequest { AacFallback = WatchAudioOutput.UpTo7Point1 };
+        var request = new CmafStreamRequest { AacFallback = CmafLegacyAacFallback.UpTo7Point1 };
 
         // Act
         var fallback = CmafStreamPlanner.ResolveFallbackAudio(request);
@@ -375,7 +405,7 @@ public class CmafStreamPlannerTests
     public void ResolveFallbackAudio_LegacySource_ThrowsExplicitError()
     {
         // Arrange
-        var request = new CmafStreamRequest { AacFallback = WatchAudioOutput.Source };
+        var request = new CmafStreamRequest { AacFallback = CmafLegacyAacFallback.Source };
 
         // Act
         var exception = Assert.Throws<ArgumentException>(() => CmafStreamPlanner.ResolveFallbackAudio(request));
@@ -451,7 +481,7 @@ public class CmafStreamPlannerTests
             Track(2, MediaTrackType.Subtitle, "subrip") with { SubtitlePresentation = SubtitlePresentation.WebVtt },
             Track(3, MediaTrackType.Subtitle, "ass") with { SubtitlePresentation = SubtitlePresentation.WebVtt }
         ], null);
-        var selection = WatchStreamPlanner.SelectTracks(source, 1, null);
+        var selection = WebPlayerTrackPlanner.SelectTracks(source, 1, null);
 
         // Act
         var arguments = CmafStreamPlanner.CreateArguments(

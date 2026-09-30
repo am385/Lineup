@@ -457,6 +457,15 @@
                             </div>
                         </div>
                         <div class="col-md-6">
+                            <label for="sourceDeinterlaceMode" class="form-label">Interlaced Video</label>
+                            <select class="form-select" id="sourceDeinterlaceMode" @bind="_sourceDeinterlaceMode">
+                                <option value="@DeinterlaceMode.Preserve">Preserve source (no deinterlacing)</option>
+                                <option value="@DeinterlaceMode.SourceFrameRate">Deinterlace to source frame rate (lower CPU)</option>
+                                <option value="@DeinterlaceMode.SourceFieldRate">Deinterlace to source field rate (smoother motion, higher CPU)</option>
+                            </select>
+                            <div class="form-text">Normalizes each confirmed interlaced tuner source once to progressive H.264 for all Lineup playback clients.</div>
+                        </div>
+                        <div class="col-md-6">
                             <label for="protectedContentMode" class="form-label">DRM-Protected Content</label>
                             <select class="form-select" id="protectedContentMode" @bind="_protectedContentMode">
                                 <option value="@ProtectedContentMode.ReturnError">Return a protected-content error</option>
@@ -512,6 +521,15 @@
                             <label for="webVideoQuality" class="form-label">Video Quality (CRF)</label>
                             <input type="number" class="form-control" id="webVideoQuality" @bind="_webVideoQuality" min="16" max="30" />
                             <div class="form-text">Lower is higher quality. Recommended: 21.</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="webPlayerDeinterlaceMode" class="form-label">Interlaced Video</label>
+                            <select class="form-select" id="webPlayerDeinterlaceMode" @bind="_webPlayerDeinterlaceMode">
+                                <option value="@DeinterlaceMode.Preserve">Preserve source (no deinterlacing)</option>
+                                <option value="@DeinterlaceMode.SourceFrameRate">Deinterlace to source frame rate (lower CPU)</option>
+                                <option value="@DeinterlaceMode.SourceFieldRate">Deinterlace to source field rate (smoother motion, higher CPU)</option>
+                            </select>
+                            <div class="form-text">Fallback for Watch when shared source deinterlacing is disabled.</div>
                         </div>
                     </div>
             </div>

@@ -129,7 +129,7 @@ public sealed record CmafStreamRequest
     public CmafFallbackAudio? FallbackAudio { get; init; }
 
     /// <summary>Gets the legacy AAC-only fallback setting retained for request compatibility.</summary>
-    public WatchAudioOutput? AacFallback { get; init; }
+    public CmafLegacyAacFallback? AacFallback { get; init; }
 
     /// <summary>Gets the previously validated subtitle presentation used after an incomplete retry probe.</summary>
     public SubtitlePresentation? SubtitlePresentation { get; init; }
@@ -365,9 +365,9 @@ public static class CmafStreamPlanner
     }
 
     /// <summary>Validates selected CMAF tracks with the same selection and caption-extraction policy as Watch.</summary>
-    public static WatchTrackSelection SelectTracks(MediaProbeResult source, CmafStreamRequest request)
+    public static WebPlayerTrackSelection SelectTracks(MediaProbeResult source, CmafStreamRequest request)
     {
-        return WatchStreamPlanner.SelectTracks(source, request.AudioTrack, request.SubtitleTrack, request.SubtitlePresentation, request.EmbeddedCaptions);
+        return WebPlayerTrackPlanner.SelectTracks(source, request.AudioTrack, request.SubtitleTrack, request.SubtitlePresentation, request.EmbeddedCaptions);
     }
 
     /// <summary>Resolves the fallback profile, including the legacy AAC-only request contract.</summary>
@@ -382,10 +382,10 @@ public static class CmafStreamPlanner
 
         return request.AacFallback switch
         {
-            null or WatchAudioOutput.Stereo => CmafFallbackAudio.AacStereo,
-            WatchAudioOutput.UpTo5Point1 => CmafFallbackAudio.AacUpTo5Point1,
-            WatchAudioOutput.UpTo7Point1 => CmafFallbackAudio.AacUpTo7Point1,
-            WatchAudioOutput.Source => throw new ArgumentException("CMAF fallback audio cannot use source passthrough.", nameof(request)),
+            null or CmafLegacyAacFallback.Stereo => CmafFallbackAudio.AacStereo,
+            CmafLegacyAacFallback.UpTo5Point1 => CmafFallbackAudio.AacUpTo5Point1,
+            CmafLegacyAacFallback.UpTo7Point1 => CmafFallbackAudio.AacUpTo7Point1,
+            CmafLegacyAacFallback.Source => throw new ArgumentException("CMAF fallback audio cannot use source passthrough.", nameof(request)),
             _ => throw new ArgumentOutOfRangeException(nameof(request), request.AacFallback, "Unsupported legacy CMAF fallback audio.")
         };
     }
@@ -473,7 +473,7 @@ public static class CmafStreamPlanner
     }
 
     /// <summary>Creates the video renditions packaged into one shared CMAF presentation.</summary>
-    public static IReadOnlyList<CmafVideoPlan> CreateVideoRenditions(MediaTrackMetadata? video, CmafStreamRequest request, bool burnIn)
+    public static IReadOnlyList<CmafVideoPlan> CreateVideoRenditions(MediaTrackMetadata? video, CmafStreamRequest request, bool burnIn, DeinterlaceMode deinterlaceMode = DeinterlaceMode.Preserve)
     {
         if (!Enum.IsDefined(request.PreferredVideo))
         {
@@ -493,6 +493,7 @@ public static class CmafStreamPlanner
         var copyRequested = request.PreferredVideo == CmafPreferredVideo.Source ||
             request.PreferredVideo == CmafPreferredVideo.Auto && (autoProfile is null || CmafCompatibilityProfilePolicy.SupportsVideo(autoProfile, video));
         if (burnIn ||
+            SourceDeinterlacePlanner.ShouldDeinterlace(video, deinterlaceMode) ||
             !copyRequested ||
             request.Quality != WebPlayerQuality.AppDefault ||
             !CanCopySourceVideo(video?.Codec) ||
@@ -541,7 +542,7 @@ public static class CmafStreamPlanner
     public static IReadOnlyList<string> CreateArguments(
         AppSettings settings,
         MediaProbeResult source,
-        WatchTrackSelection selection,
+        WebPlayerTrackSelection selection,
         CmafStreamRequest request,
         string manifestPath,
         IReadOnlyDictionary<int, string>? webVttPaths = null)
@@ -557,21 +558,25 @@ public static class CmafStreamPlanner
             request.Overrides.Enabled && request.Overrides.Audio.HasValue);
         var burnIn = selection.SubtitlePresentation == SubtitlePresentation.BurnIn;
         var sourceVideo = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video);
-        var videoPlans = CreateVideoRenditions(sourceVideo, request, burnIn);
+        var deinterlace = SourceDeinterlacePlanner.ShouldDeinterlace(sourceVideo, settings.WebPlayerDeinterlaceMode);
+        var videoPlans = CreateVideoRenditions(sourceVideo, request, burnIn, settings.WebPlayerDeinterlaceMode);
         List<string> arguments =
         [
             "-hide_banner", "-loglevel", "info",
-            "-analyzeduration", "1000000", "-probesize", "1000000",
+            "-analyzeduration", "10000000", "-probesize", "10000000",
             "-fflags", "+genpts", "-i", "pipe:0"
         ];
 
         if (burnIn)
         {
+            var input = deinterlace
+                ? $"[0:v:0]{SourceDeinterlacePlanner.CreateFilter(settings.WebPlayerDeinterlaceMode)}[deinterlaced];[deinterlaced]"
+                : "[0:v:0]";
             var filter = request.Quality switch
             {
-                WebPlayerQuality.Medium => $"[0:v:0][0:{selection.Subtitle!.Index}]overlay,scale=-2:min(720\\,ih)[v]",
-                WebPlayerQuality.Low => $"[0:v:0][0:{selection.Subtitle!.Index}]overlay,scale=-2:min(480\\,ih)[v]",
-                _ => $"[0:v:0][0:{selection.Subtitle!.Index}]overlay[v]"
+                WebPlayerQuality.Medium => $"{input}[0:{selection.Subtitle!.Index}]overlay,scale=-2:min(720\\,ih)[v]",
+                WebPlayerQuality.Low => $"{input}[0:{selection.Subtitle!.Index}]overlay,scale=-2:min(480\\,ih)[v]",
+                _ => $"{input}[0:{selection.Subtitle!.Index}]overlay[v]"
             };
             arguments.AddRange(["-filter_complex", filter, "-map", "[v]"]);
         }
@@ -585,7 +590,7 @@ public static class CmafStreamPlanner
 
         for (var index = 0; index < videoPlans.Count; index++)
         {
-            AddVideoArguments(arguments, settings, videoPlans[index], index, request.Quality, burnIn);
+            AddVideoArguments(arguments, settings, videoPlans[index], index, request.Quality, burnIn, deinterlace);
         }
         foreach (var rendition in audioRenditions)
         {
@@ -675,13 +680,24 @@ public static class CmafStreamPlanner
             .Replace("\r", " ", StringComparison.Ordinal)
             .Replace("\n", " ", StringComparison.Ordinal);
 
-    private static void AddVideoArguments(List<string> arguments, AppSettings settings, CmafVideoPlan plan, int outputIndex, WebPlayerQuality quality, bool burnIn)
+    private static void AddVideoArguments(
+        List<string> arguments,
+        AppSettings settings,
+        CmafVideoPlan plan,
+        int outputIndex,
+        WebPlayerQuality quality,
+        bool burnIn,
+        bool deinterlace)
     {
         var streamSpecifier = $":v:{outputIndex}";
         if (plan.CopySource)
         {
             arguments.AddRange([$"-c{streamSpecifier}", "copy", $"-metadata:s{streamSpecifier}", $"title={plan.Title}"]);
-            if (string.Equals(plan.Codec, "hevc", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(plan.Codec, "h264", StringComparison.OrdinalIgnoreCase))
+            {
+                arguments.AddRange([$"-tag{streamSpecifier}", "avc1"]);
+            }
+            else if (string.Equals(plan.Codec, "hevc", StringComparison.OrdinalIgnoreCase))
             {
                 arguments.AddRange([$"-tag{streamSpecifier}", "hvc1"]);
             }
@@ -704,9 +720,23 @@ public static class CmafStreamPlanner
             $"-force_key_frames{streamSpecifier}", "expr:gte(t,n_forced*2)",
             $"-metadata:s{streamSpecifier}", $"title={plan.Title}"
         ]);
-        if (!burnIn && quality is (WebPlayerQuality.Medium or WebPlayerQuality.Low))
+        if (burnIn)
         {
-            arguments.AddRange([$"-filter{streamSpecifier}", quality == WebPlayerQuality.Medium ? "scale=-2:min(720\\,ih)" : "scale=-2:min(480\\,ih)"]);
+            return;
+        }
+
+        List<string> filters = [];
+        if (deinterlace)
+        {
+            filters.Add(SourceDeinterlacePlanner.CreateFilter(settings.WebPlayerDeinterlaceMode));
+        }
+        if (quality is WebPlayerQuality.Medium or WebPlayerQuality.Low)
+        {
+            filters.Add(quality == WebPlayerQuality.Medium ? "scale=-2:min(720\\,ih)" : "scale=-2:min(480\\,ih)");
+        }
+        if (filters.Count > 0)
+        {
+            arguments.AddRange([$"-filter{streamSpecifier}", string.Join(',', filters)]);
         }
     }
 }

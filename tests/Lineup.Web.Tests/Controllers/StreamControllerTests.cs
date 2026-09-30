@@ -120,49 +120,22 @@ public class StreamControllerTests
     }
 
     /// <summary>
-    /// Verifies disabled channels cannot be reached through the diagnostic stream endpoint.
+    /// Verifies disabled Watch requests return before acquiring tuner capacity.
     /// </summary>
     [Fact]
-    public async Task TestTranscode_DisabledChannel_ReturnsForbidden()
+    public async Task WatchStream_DisabledChannel_ReturnsForbiddenWithoutTuner()
     {
         // Arrange
         var store = await CreateDisabledChannelStoreAsync("9.1");
-        var controller = CreateDisabledChannelController(
-            store,
-            DisabledChannelMode.ReturnError,
-            Substitute.For<ITunerCapacityLeaseRegistry>(),
-            Substitute.For<IProtectedContentSlateService>());
+        var capacity = Substitute.For<ITunerCapacityLeaseRegistry>();
+        var controller = CreateDisabledChannelController(store, DisabledChannelMode.ReturnError, capacity, Substitute.For<IProtectedContentSlateService>());
 
         // Act
-        var result = await controller.TestTranscode("9.1");
+        var result = await controller.StartHlsStream("9.1");
 
         // Assert
-        var forbidden = Assert.IsType<ObjectResult>(result);
-        Assert.Equal(StatusCodes.Status403Forbidden, forbidden.StatusCode);
-    }
-
-    /// <summary>
-    /// Verifies disabled Watch and legacy HLS compatibility requests return before acquiring tuner capacity.
-    /// </summary>
-    [Fact]
-    public async Task WatchStreams_DisabledChannel_ReturnForbiddenWithoutTuner()
-    {
-        // Arrange
-        var store = await CreateDisabledChannelStoreAsync("9.1");
-        var fmp4Capacity = Substitute.For<ITunerCapacityLeaseRegistry>();
-        var fmp4Controller = CreateDisabledChannelController(store, DisabledChannelMode.ReturnError, fmp4Capacity, Substitute.For<IProtectedContentSlateService>());
-        var hlsCapacity = Substitute.For<ITunerCapacityLeaseRegistry>();
-        var hlsController = CreateDisabledChannelController(store, DisabledChannelMode.ReturnError, hlsCapacity, Substitute.For<IProtectedContentSlateService>());
-
-        // Act
-        await fmp4Controller.StreamFmp4("9.1");
-        var hlsResult = await hlsController.StartHlsStream("9.1");
-
-        // Assert
-        Assert.Equal(StatusCodes.Status403Forbidden, fmp4Controller.Response.StatusCode);
-        Assert.Equal(StatusCodes.Status403Forbidden, Assert.IsType<ObjectResult>(hlsResult).StatusCode);
-        Assert.Empty(fmp4Capacity.ReceivedCalls());
-        Assert.Empty(hlsCapacity.ReceivedCalls());
+        Assert.Equal(StatusCodes.Status403Forbidden, Assert.IsType<ObjectResult>(result).StatusCode);
+        Assert.Empty(capacity.ReceivedCalls());
     }
 
     /// <summary>
@@ -189,10 +162,8 @@ public class StreamControllerTests
     /// <summary>
     /// Verifies disabled pipe slates respect the hosted-stream limit without starting FFmpeg or acquiring a tuner.
     /// </summary>
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task DisabledChannelSlate_AtStreamLimit_ReturnsTooManyRequestsWithoutStartingSlate(bool fragmentedMp4)
+    [Fact]
+    public async Task DisabledChannelSlate_AtStreamLimit_ReturnsTooManyRequestsWithoutStartingSlate()
     {
         // Arrange
         var store = await CreateDisabledChannelStoreAsync("9.1");
@@ -204,17 +175,8 @@ public class StreamControllerTests
         var controller = CreateDisabledChannelController(store, DisabledChannelMode.StreamSlate, capacity, slate, activeStreams, maximumConcurrentStreams: 1);
 
         // Act
-        int? statusCode;
-        if (fragmentedMp4)
-        {
-            await controller.StreamFmp4("9.1");
-            statusCode = controller.Response.StatusCode;
-        }
-        else
-        {
-            var result = await controller.Stream("9.1");
-            statusCode = Assert.IsType<ObjectResult>(result).StatusCode;
-        }
+        var result = await controller.Stream("9.1");
+        var statusCode = Assert.IsType<ObjectResult>(result).StatusCode;
 
         // Assert
         Assert.Equal(StatusCodes.Status429TooManyRequests, statusCode);
@@ -284,17 +246,15 @@ public class StreamControllerTests
     /// <summary>
     /// Verifies Dashboard Stop cancels disabled pipe slates and removes their active-stream registration.
     /// </summary>
-    [Theory]
-    [InlineData(false, HostedStreamFormat.MpegTs)]
-    [InlineData(true, HostedStreamFormat.FragmentedMp4)]
-    public async Task DisabledChannelSlate_RequestStop_CancelsSlateAndCleansRegistry(bool fragmentedMp4, HostedStreamFormat expectedFormat)
+    [Fact]
+    public async Task DisabledChannelSlate_RequestStop_CancelsSlateAndCleansRegistry()
     {
         // Arrange
         var store = await CreateDisabledChannelStoreAsync("9.1");
         var capacity = Substitute.For<ITunerCapacityLeaseRegistry>();
         var slateStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var slate = Substitute.For<IProtectedContentSlateService>();
-        slate.StreamAsync(expectedFormat, "9.1", Arg.Any<Stream>(), Arg.Any<CancellationToken>(), ChannelSlateReason.DisabledChannel)
+        slate.StreamAsync(HostedStreamFormat.MpegTs, "9.1", Arg.Any<Stream>(), Arg.Any<CancellationToken>(), ChannelSlateReason.DisabledChannel)
             .Returns(async call =>
             {
                 slateStarted.SetResult();
@@ -306,7 +266,7 @@ public class StreamControllerTests
         controller.HttpContext.Features.Set<IHttpRequestLifetimeFeature>(lifetime);
 
         // Act
-        Task streamTask = fragmentedMp4 ? controller.StreamFmp4("9.1", clientId: "watch-client") : controller.Stream("9.1");
+        Task streamTask = controller.Stream("9.1");
         await slateStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
         var activeStream = Assert.Single(activeStreams.GetActiveStreams());
         var sessionId = activeStream.SessionId;
@@ -315,33 +275,9 @@ public class StreamControllerTests
 
         // Assert
         Assert.True(stopped);
-        Assert.Equal(fragmentedMp4 ? "watch-client" : null, activeStream.ClientId);
+        Assert.Null(activeStream.ClientId);
         Assert.Empty(activeStreams.GetActiveStreams());
         Assert.Empty(capacity.ReceivedCalls());
-        if (fragmentedMp4)
-        {
-            Assert.False(lifetime.RequestAborted.IsCancellationRequested);
-        }
-    }
-
-    /// <summary>
-    /// Verifies that fMP4 error handling changes the status only before response headers are committed.
-    /// </summary>
-    [Theory]
-    [InlineData(false, StatusCodes.Status500InternalServerError)]
-    [InlineData(true, StatusCodes.Status200OK)]
-    public void SetInternalServerErrorStatus_ResponseState_PreservesCommittedStatus(bool hasStarted, int expectedStatus)
-    {
-        // Arrange
-        var responseFeature = new TestHttpResponseFeature(hasStarted);
-        var context = new DefaultHttpContext();
-        context.Features.Set<IHttpResponseFeature>(responseFeature);
-
-        // Act
-        StreamController.SetInternalServerErrorStatus(context.Response);
-
-        // Assert
-        Assert.Equal(expectedStatus, context.Response.StatusCode);
     }
 
     /// <summary>
@@ -497,88 +433,6 @@ public class StreamControllerTests
         // Assert
         Assert.False(resolved);
         Assert.Equal(string.Empty, filePath);
-    }
-
-    /// <summary>
-    /// Verifies malformed and stale Watch subtitle client identifiers do not expose files.
-    /// </summary>
-    [Theory]
-    [InlineData("../client", 400)]
-    [InlineData("missingclient", 404)]
-    public void GetFmp4ClientSubtitles_InvalidOrStaleClient_ReturnsExplicitStatus(string clientId, int statusCode)
-    {
-        // Arrange
-        var controller = CreateLifecycleController(Substitute.For<IActiveStreamRegistry>());
-
-        // Act
-        var result = controller.GetFmp4ClientSubtitles(clientId);
-
-        // Assert
-        var status = Assert.IsType<ObjectResult>(result, exactMatch: false);
-        Assert.Equal(statusCode, status.StatusCode);
-    }
-
-    /// <summary>
-    /// Verifies direct Watch subtitle polling remains active while FFmpeg has not emitted the first caption cue.
-    /// </summary>
-    [Fact]
-    public void GetFmp4Subtitles_WebVttNotCreatedYet_ReturnsEmptyChunk()
-    {
-        // Arrange
-        var controller = CreateLifecycleController(Substitute.For<IActiveStreamRegistry>());
-        var sessionId = CreateFmp4Session(controller, out var sidecars);
-
-        // Act
-        var result = controller.GetFmp4Subtitles(sessionId, offset: 12);
-
-        // Assert
-        var file = Assert.IsType<FileContentResult>(result);
-        Assert.Empty(file.FileContents);
-        Assert.Equal("text/vtt; charset=utf-8", file.ContentType);
-        Assert.Equal("12", controller.Response.Headers["X-Lineup-Subtitle-Offset"]);
-        GetFmp4Sessions().Remove(sessionId);
-        sidecars.Remove(sessionId);
-    }
-
-    /// <summary>
-    /// Verifies that an fMP4 protected-content slate releases physical tuner capacity and honors explicit stream cancellation.
-    /// </summary>
-    [Fact]
-    public async Task WriteFmp4StartupErrorAsync_ConnectedSlate_ReleasesPhysicalTunerCapacityAndHonorsCancellation()
-    {
-        // Arrange
-        var profileUri = new Uri("http://tuner.local/");
-        var registry = new TunerCapacityLeaseRegistry();
-        var physicalLease = await registry.TryAcquireAsync(profileUri, new Uri("http://tuner.local:5004/auto/v20.1"), 1, TestContext.Current.CancellationToken);
-        Assert.NotNull(physicalLease);
-        var slateStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var streamCancellation = new CancellationTokenSource();
-        var slateService = Substitute.For<IProtectedContentSlateService>();
-        slateService.StreamAsync(HostedStreamFormat.FragmentedMp4, "20.1", Arg.Any<Stream>(), Arg.Any<CancellationToken>())
-            .Returns(async call =>
-            {
-                slateStarted.SetResult();
-                await Task.Delay(Timeout.InfiniteTimeSpan, call.ArgAt<CancellationToken>(3));
-            });
-        var controller = CreateProtectedSlateController(registry, slateService);
-        var errorMethod = typeof(StreamController).GetMethod("WriteFmp4StartupErrorAsync", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(errorMethod);
-
-        // Act
-        object?[] parameters = ["20.1", "http://tuner.local:5004/auto/v20.1", "session", DateTime.UtcNow, physicalLease, streamCancellation.Token, null, null];
-        object? result = errorMethod.Invoke(controller, parameters);
-        var slateTask = Assert.IsType<Task>(result, exactMatch: false);
-        await slateStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
-        var nextLease = await registry.TryAcquireAsync(profileUri, new Uri("http://tuner.local:5004/auto/v21.1"), 1, TestContext.Current.CancellationToken);
-
-        // Assert
-        Assert.NotNull(nextLease);
-        Assert.False(slateTask.IsCompleted);
-        streamCancellation.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => slateTask);
-        await physicalLease.DisposeAsync();
-        await nextLease!.DisposeAsync();
-        Assert.Empty(registry.GetDiagnostics());
     }
 
     /// <summary>
@@ -899,26 +753,6 @@ public class StreamControllerTests
         return session;
     }
 
-    private static string CreateFmp4Session(StreamController controller, out SubtitleSidecarService sidecars)
-    {
-        var sessionId = Guid.NewGuid().ToString("N");
-        var sessionType = typeof(StreamController).GetNestedType("FMp4Session", BindingFlags.NonPublic);
-        Assert.NotNull(sessionType);
-        var session = Activator.CreateInstance(sessionType);
-        Assert.NotNull(session);
-        SetProperty(sessionType, session, "SessionId", sessionId);
-        SetProperty(sessionType, session, "Channel", "20.1");
-        SetProperty(sessionType, session, "Process", Process.GetCurrentProcess());
-        SetProperty(sessionType, session, "StartTime", DateTime.UtcNow);
-        GetFmp4Sessions().Add(sessionId, session);
-
-        var sidecarsField = typeof(StreamController).GetField("_subtitleSidecars", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(sidecarsField);
-        sidecars = Assert.IsType<SubtitleSidecarService>(sidecarsField.GetValue(controller));
-        _ = sidecars.Create(sessionId);
-        return sessionId;
-    }
-
     private static ChannelLineupStore CreateChannelLineupStore()
     {
         return new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-stream-{Guid.NewGuid():N}.db"));
@@ -1014,37 +848,9 @@ public class StreamControllerTests
         }
     }
 
-    private sealed class TestHttpResponseFeature(bool hasStarted) : IHttpResponseFeature
-    {
-        public int StatusCode { get; set; } = StatusCodes.Status200OK;
-
-        public string? ReasonPhrase { get; set; }
-
-        public IHeaderDictionary Headers { get; set; } = new HeaderDictionary();
-
-        public Stream Body { get; set; } = Stream.Null;
-
-        public bool HasStarted { get; } = hasStarted;
-
-        public void OnStarting(Func<object, Task> callback, object state)
-        {
-        }
-
-        public void OnCompleted(Func<object, Task> callback, object state)
-        {
-        }
-    }
-
     private static IDictionary GetCmafSessions()
     {
         var sessions = typeof(StreamController).GetField("_cmafSessions", BindingFlags.Static | BindingFlags.NonPublic);
-        Assert.NotNull(sessions);
-        return Assert.IsType<IDictionary>(sessions.GetValue(null), exactMatch: false);
-    }
-
-    private static IDictionary GetFmp4Sessions()
-    {
-        var sessions = typeof(StreamController).GetField("_fmp4Sessions", BindingFlags.Static | BindingFlags.NonPublic);
         Assert.NotNull(sessions);
         return Assert.IsType<IDictionary>(sessions.GetValue(null), exactMatch: false);
     }

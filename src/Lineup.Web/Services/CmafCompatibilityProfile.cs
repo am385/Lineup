@@ -154,7 +154,7 @@ public sealed record CmafCapabilityResult
 }
 
 /// <summary>
-/// Stores a complete browser-local Watch CMAF compatibility profile.
+/// Stores a complete browser-local Watch compatibility profile.
 /// </summary>
 public sealed record CmafCompatibilityProfile
 {

@@ -120,6 +120,44 @@ public class CmafCompatibilityProfileTests
     }
 
     /// <summary>
+    /// Verifies measured AC-3 rejection packages AAC directly instead of requiring a runtime browser fallback.
+    /// </summary>
+    [Fact]
+    public void CreatePresentationAudioRenditions_AutoWithAc3Rejected_UsesMeasuredAacFallback()
+    {
+        // Arrange
+        var source = new MediaProbeResult(
+        [
+            Track(0, MediaTrackType.Video, "h264") with { Width = 1920, Height = 1080 },
+            Track(1, MediaTrackType.Audio, "ac3") with { Channels = 6 }
+        ], null);
+        var profile = Profile();
+        profile = profile with
+        {
+            Results = profile.Results
+                .Select(result => result.Kind == CmafCapabilityKind.Audio &&
+                    result.Request.AudioCodec is CmafTestAudioCodec.Ac3 or CmafTestAudioCodec.Eac3
+                    ? result with { Status = CmafCapabilityStatus.Failed }
+                    : result)
+                .ToArray()
+        };
+
+        // Act
+        var rendition = Assert.Single(CmafStreamPlanner.CreatePresentationAudioRenditions(
+            source,
+            source.Tracks[1],
+            CmafPreferredAudio.Auto,
+            CmafFallbackAudio.AacStereo,
+            profile));
+
+        // Assert
+        Assert.False(rendition.Plan.CopySource);
+        Assert.Equal("aac", rendition.Plan.Codec);
+        Assert.Equal(6, rendition.Plan.Channels);
+        Assert.Contains("Auto · Fallback AAC", rendition.Plan.Title, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies an audio-only override leaves measured protocol, video, and subtitle results unchanged.
     /// </summary>
     [Fact]

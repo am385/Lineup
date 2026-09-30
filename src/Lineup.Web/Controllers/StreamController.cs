@@ -12,14 +12,13 @@ namespace Lineup.Web.Controllers;
 /// <summary>
 /// Proxies video streams from HDHomeRun devices to avoid mixed content issues.
 /// The browser connects to this HTTPS endpoint which forwards the HTTP stream from the device.
-/// Supports multiple output formats: direct proxy, shared CMAF (disk), and fMP4 (memory).
+/// Supports direct proxy and shared CMAF output.
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
 public class StreamController : ControllerBase
 {
     private static readonly TimeSpan TunerDiagnosticTimeout = TimeSpan.FromSeconds(5);
-    private static readonly TimeSpan Fmp4StartupTimeout = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan DefaultCmafInactivityTimeout = TimeSpan.FromMinutes(2);
     private const string StreamLimitError = "The maximum number of concurrent streams is already active.";
     private readonly IHttpClientFactory _httpClientFactory;
@@ -45,8 +44,6 @@ public class StreamController : ControllerBase
     // Track active CMAF streams by session ID
     private static readonly ConcurrentDictionary<string, CmafSession> _cmafSessions = new();
 
-    // Track active fMP4 streams
-    private static readonly ConcurrentDictionary<string, FMp4Session> _fmp4Sessions = new();
     /// <summary>
     /// Initializes the streaming API controller.
     /// </summary>
@@ -165,8 +162,10 @@ public class StreamController : ControllerBase
             Stream tunerInput;
             try
             {
-                source = await _mediaProbeService.ProbeAsync(streamUri, HttpContext.RequestAborted);
-                tunerInput = await _tunerStreamMultiplexer.SubscribeAsync(streamUri, HttpContext.RequestAborted);
+                var sourceSettings = CreateSourceDeinterlaceSettingsSnapshot(_settingsService.Settings);
+                var rawSource = await _mediaProbeService.ProbeAsync(streamUri, HttpContext.RequestAborted);
+                tunerInput = await SubscribeEffectiveSourceAsync(streamUri, rawSource, sourceSettings, HttpContext.RequestAborted);
+                source = GetEffectiveSource(rawSource, sourceSettings);
             }
             finally
             {
@@ -308,55 +307,6 @@ public class StreamController : ControllerBase
         return new EmptyResult();
     }
 
-    private async Task<bool> HandleDisabledPipeStreamAsync(string channel, HostedStreamFormat format, string? clientId = null)
-    {
-        if (!await IsChannelDisabledAsync(channel))
-        {
-            return false;
-        }
-
-        if (_settingsService.Settings.DisabledChannelMode == DisabledChannelMode.ReturnError)
-        {
-            Response.StatusCode = StatusCodes.Status403Forbidden;
-            await Response.WriteAsJsonAsync(new { error = $"Channel {channel} is disabled." }, HttpContext.RequestAborted);
-            return true;
-        }
-
-        using var streamCancellation = CancellationTokenSource.CreateLinkedTokenSource(HttpContext.RequestAborted);
-        var sessionId = Guid.NewGuid().ToString("N")[..8];
-        var activeStream = ActiveStreamPlanFactory.CreateDisabledSlate(sessionId, channel, format, DateTime.UtcNow) with
-        {
-            ClientAddress = FormatClientAddress(HttpContext.Connection.RemoteIpAddress, HttpContext.Connection.RemotePort),
-            ClientId = clientId
-        };
-        if (!_activeStreamRegistry.TryRegister(activeStream, _settingsService.Settings.MaximumConcurrentStreams, streamCancellation.Cancel))
-        {
-            Response.StatusCode = StatusCodes.Status429TooManyRequests;
-            await Response.WriteAsJsonAsync(new { error = StreamLimitError }, HttpContext.RequestAborted);
-            return true;
-        }
-
-        Response.ContentType = format == HostedStreamFormat.FragmentedMp4 ? "video/mp4" : "video/mp2t";
-        Response.Headers.CacheControl = "no-cache, no-store";
-        try
-        {
-            await _protectedContentSlateService.StreamAsync(format, channel, Response.Body, streamCancellation.Token, ChannelSlateReason.DisabledChannel);
-        }
-        catch (OperationCanceledException) when (streamCancellation.IsCancellationRequested)
-        {
-            if (!HttpContext.RequestAborted.IsCancellationRequested)
-            {
-                await Response.CompleteAsync();
-            }
-        }
-        finally
-        {
-            _activeStreamRegistry.Unregister(sessionId);
-        }
-
-        return true;
-    }
-
     private async Task<bool> IsChannelDisabledAsync(string channel)
     {
         var snapshot = await _channelLineupStore.ReadAsync(HttpContext.RequestAborted);
@@ -403,498 +353,6 @@ public class StreamController : ControllerBase
 
         streamUri = builder.Uri;
         return true;
-    }
-
-    /// <summary>
-    /// Test endpoint to verify the HDHomeRun device transcoding capability
-    /// </summary>
-    [HttpGet("test/{channel}")]
-    public async Task<IActionResult> TestTranscode(string channel, [FromQuery] string transcode = "heavy")
-    {
-        if (await IsChannelDisabledAsync(channel))
-        {
-            return StatusCode(StatusCodes.Status403Forbidden, new
-            {
-                success = false,
-                channel,
-                message = $"Channel {channel} is disabled."
-            });
-        }
-
-        if (!TryBuildStreamUri(_settingsService.Settings.DeviceAddress, channel, transcode, out var streamUri))
-        {
-            return BadRequest(new { success = false, message = "transcode must be one of: none, mobile, heavy, internet720, internet480, internet360" });
-        }
-
-        try
-        {
-            var httpClient = _httpClientFactory.CreateClient("StreamProxy");
-            httpClient.Timeout = TimeSpan.FromSeconds(15);
-
-            using var request = new HttpRequestMessage(HttpMethod.Get, streamUri);
-            using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, HttpContext.RequestAborted);
-            if (!response.IsSuccessStatusCode)
-            {
-                var tunerError = response.Headers.TryGetValues("X-HDHomeRun-Error", out var values)
-                    ? values.FirstOrDefault()
-                    : null;
-                return Ok(new
-                {
-                    success = false,
-                    channel,
-                    transcode,
-                    deviceUrl = streamUri.AbsoluteUri,
-                    statusCode = (int)response.StatusCode,
-                    message = tunerError ?? $"The tuner returned HTTP {(int)response.StatusCode} ({response.ReasonPhrase})."
-                });
-            }
-
-            // Read a small chunk to see if stream starts
-            await using var stream = await response.Content.ReadAsStreamAsync();
-            var buffer = new byte[1024];
-            var bytesRead = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), HttpContext.RequestAborted);
-
-            return Ok(new
-            {
-                success = true,
-                channel,
-                transcode,
-                deviceUrl = streamUri.AbsoluteUri,
-                statusCode = (int)response.StatusCode,
-                contentType = response.Content.Headers.ContentType?.ToString(),
-                bytesReceived = bytesRead,
-                message = bytesRead > 0 ? "Stream is responding" : "No data received"
-            });
-        }
-        catch (Exception ex)
-        {
-            return Ok(new { success = false, channel, transcode, deviceUrl = streamUri.AbsoluteUri, message = ex.Message });
-        }
-    }
-
-    /// <summary>
-    /// Streams video using fragmented MP4 (fMP4) directly to memory/pipe.
-    /// No disk I/O required - FFmpeg outputs to stdout which is piped to the browser.
-    /// Uses Media Source Extensions (MSE) compatible output.
-    /// </summary>
-    /// <param name="channel">The channel number (e.g., "2.1", "5.1")</param>
-    /// <param name="clientId">Optional Watch player identifier used for explicit stop notifications.</param>
-    /// <param name="quality">Optional per-session Watch player quality override.</param>
-    /// <param name="audioTrack">Optional absolute source audio stream index.</param>
-    /// <param name="subtitleTrack">Optional absolute source subtitle stream index; omitted means Off.</param>
-    /// <param name="subtitlePresentation">Previously validated subtitle presentation used only when a retry probe returns no tracks.</param>
-    /// <param name="embeddedCaptions">Whether a previously validated retry selection represents captions embedded in video.</param>
-    /// <param name="audioOutput">Browser audio output layout or source passthrough policy.</param>
-    /// <returns>Fragmented MP4 video stream</returns>
-    [HttpGet("fmp4/{channel}")]
-    public async Task StreamFmp4(
-        string channel,
-        [FromQuery] string? clientId = null,
-        [FromQuery] WebPlayerQuality quality = WebPlayerQuality.AppDefault,
-        [FromQuery] int? audioTrack = null,
-        [FromQuery] int? subtitleTrack = null,
-        [FromQuery] SubtitlePresentation? subtitlePresentation = null,
-        [FromQuery] bool embeddedCaptions = false,
-        [FromQuery] WatchAudioOutput audioOutput = WatchAudioOutput.Stereo)
-    {
-        if (await HandleDisabledPipeStreamAsync(channel, HostedStreamFormat.FragmentedMp4, clientId))
-        {
-            return;
-        }
-
-        var device = GetWatchDevice();
-        TryBuildStreamUri(device.PhysicalBaseUri.Host, channel, "none", out var sourceUri);
-        await using var tunerCapacityLease = await _tunerCapacityLeases.TryAcquireAsync(device.PhysicalBaseUri, sourceUri, device.TunerCount, HttpContext.RequestAborted);
-        if (tunerCapacityLease == null)
-        {
-            Response.Headers["X-HDHomeRun-Error"] = HdHomeRunStreamError.NoTunerAvailable;
-            Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-            return;
-        }
-
-        var streamUrl = sourceUri.AbsoluteUri;
-
-        _logger.LogInformation("Starting fMP4 stream for channel {Channel}", channel);
-
-        Process? ffmpegProcess = null;
-        Process? captionProcess = null;
-        Task? inputPumpTask = null;
-        Task? captionInputPumpTask = null;
-        Task<string>? captionErrorTask = null;
-        Stream? tunerInput = null;
-        Stream? captionInput = null;
-        Stream? tunerLease = null;
-        Task? tunerLeaseTask = null;
-        CancellationTokenSource? tunerLeaseCancellation = null;
-        FMp4Session? fmp4Session = null;
-        Exception? tunerInputError = null;
-        var ffmpegErrors = new ConcurrentQueue<string>();
-        var sessionId = Guid.NewGuid().ToString("N")[..8];
-        var outputVideoBitRate = WebVideoTranscodePlanner.GetMaximumBitRate(_settingsService.Settings, quality);
-        string? subtitlePath = null;
-        using var streamCancellation = CancellationTokenSource.CreateLinkedTokenSource(HttpContext.RequestAborted);
-        var streamCancellationToken = streamCancellation.Token;
-
-        try
-        {
-            tunerLease = await _tunerStreamMultiplexer.SubscribeAsync(sourceUri, streamCancellationToken);
-            tunerLeaseCancellation = CancellationTokenSource.CreateLinkedTokenSource(streamCancellationToken);
-            tunerLeaseTask = tunerLease.CopyToAsync(System.IO.Stream.Null, tunerLeaseCancellation.Token);
-            var source = await ProbeBestEffortAsync(sourceUri, streamCancellationToken);
-            var sourceVideoCodec = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video)?.Codec;
-            WatchTrackSelection selection;
-            try
-            {
-                selection = WatchStreamPlanner.SelectTracks(source, audioTrack, subtitleTrack, subtitlePresentation, embeddedCaptions);
-            }
-            catch (ArgumentException ex)
-            {
-                Response.StatusCode = StatusCodes.Status400BadRequest;
-                await Response.WriteAsJsonAsync(new { error = ex.Message }, HttpContext.RequestAborted);
-                return;
-            }
-            var copyVideo = selection.SubtitlePresentation != SubtitlePresentation.BurnIn &&
-                quality == WebPlayerQuality.AppDefault &&
-                string.Equals(sourceVideoCodec, "h264", StringComparison.OrdinalIgnoreCase);
-            tunerInput = await _tunerStreamMultiplexer.SubscribeAsync(sourceUri, streamCancellationToken);
-            tunerLeaseCancellation.Cancel();
-            await ObserveInputPumpAsync(tunerLeaseTask);
-            await tunerLease.DisposeAsync();
-            tunerLease = null;
-
-            if (selection.SubtitlePresentation == SubtitlePresentation.WebVtt)
-            {
-                subtitlePath = _subtitleSidecars.Create(sessionId);
-            }
-            var ffmpegArgs = WatchStreamPlanner.CreateArguments(_settingsService.Settings, source, selection, quality, subtitlePath, audioOutput);
-
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = "ffmpeg",
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            foreach (var argument in ffmpegArgs)
-            {
-                startInfo.ArgumentList.Add(argument);
-            }
-
-            ffmpegProcess = Process.Start(startInfo);
-
-            if (ffmpegProcess == null)
-            {
-                _logger.LogError("Failed to start FFmpeg process for fMP4");
-                Response.StatusCode = 500;
-                return;
-            }
-
-            if (selection.Subtitle?.IsEmbeddedClosedCaptions == true)
-            {
-                captionInput = await _tunerStreamMultiplexer.SubscribeAsync(sourceUri, streamCancellationToken);
-                var captionStartInfo = new ProcessStartInfo
-                {
-                    FileName = "ffmpeg",
-                    RedirectStandardInput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-                foreach (var argument in WatchStreamPlanner.CreateEmbeddedCaptionArguments(subtitlePath!))
-                {
-                    captionStartInfo.ArgumentList.Add(argument);
-                }
-
-                captionProcess = Process.Start(captionStartInfo) ??
-                    throw new InvalidOperationException("Failed to start FFmpeg embedded-caption extractor.");
-                captionErrorTask = captionProcess.StandardError.ReadToEndAsync();
-                captionInputPumpTask = TunerInputPump.PumpAsync(captionInput, sourceUri, captionProcess, _logger, streamCancellationToken);
-                captionInput = null;
-            }
-
-            inputPumpTask = TunerInputPump.PumpAsync(tunerInput, sourceUri, ffmpegProcess, _logger, streamCancellationToken, error => Volatile.Write(ref tunerInputError, error));
-            tunerInput = null;
-
-            var session = new FMp4Session
-            {
-                SessionId = sessionId,
-                Channel = channel,
-                Process = ffmpegProcess,
-                StartTime = DateTime.UtcNow
-            };
-            fmp4Session = session;
-            _fmp4Sessions[sessionId] = session;
-            var activeStream = ActiveStreamPlanFactory.CreateFragmentedMp4(sessionId, channel, session.StartTime, source, outputVideoBitRate, copyVideo, selection, audioOutput) with
-            {
-                ClientAddress = FormatClientAddress(HttpContext.Connection.RemoteIpAddress, HttpContext.Connection.RemotePort),
-                ClientId = clientId
-            };
-            if (!_activeStreamRegistry.TryRegister(activeStream, _settingsService.Settings.MaximumConcurrentStreams, streamCancellation.Cancel))
-            {
-                Response.StatusCode = StatusCodes.Status429TooManyRequests;
-                await Response.WriteAsJsonAsync(new { error = StreamLimitError });
-                return;
-            }
-
-            // Capture metadata from the same FFmpeg process that serves the browser so the tuner is opened only once.
-            _ = Task.Run(async () =>
-            {
-                var sourceTracks = source.Tracks.ToDictionary(track => track.Index);
-                var readingInputMetadata = true;
-                try
-                {
-                    while (!ffmpegProcess.HasExited)
-                    {
-                        var line = await ffmpegProcess.StandardError.ReadLineAsync();
-                        if (line == null)
-                        {
-                            // End of stream reached
-                            break;
-                        }
-                        if (!string.IsNullOrEmpty(line))
-                        {
-                            ffmpegErrors.Enqueue(line);
-                            while (ffmpegErrors.Count > 50)
-                            {
-                                ffmpegErrors.TryDequeue(out _);
-                            }
-
-                            if (line.StartsWith("Stream mapping:", StringComparison.Ordinal) || line.StartsWith("Output #0", StringComparison.Ordinal))
-                            {
-                                readingInputMetadata = false;
-                            }
-                            else if (readingInputMetadata && FfmpegInputMetadataParser.TryParseTrack(line, out var track))
-                            {
-                                sourceTracks[track.Index] = track;
-                                var source = new MediaProbeResult(sourceTracks.Values.OrderBy(value => value.Index).ToArray(), null);
-                                lock (session.LifecycleGate)
-                                {
-                                    if (session.IsActive &&
-                                        _fmp4Sessions.TryGetValue(sessionId, out var current) &&
-                                        ReferenceEquals(current, session))
-                                    {
-                                        _activeStreamRegistry.Register(ActiveStreamPlanFactory.CreateFragmentedMp4(sessionId, channel, session.StartTime, source, outputVideoBitRate, copyVideo, selection, audioOutput));
-                                    }
-                                }
-                            }
-
-                            _logger.LogDebug("FFmpeg fMP4 [{SessionId}]: {Line}", sessionId, line);
-                        }
-                    }
-                }
-                catch (Exception ex) when (ex is IOException or InvalidOperationException or ObjectDisposedException)
-                {
-                    _logger.LogDebug(ex, "Stopped reading FFmpeg diagnostics for fMP4 session {SessionId}", sessionId);
-                }
-            });
-
-            // Set response headers for fMP4 stream
-            Response.ContentType = "video/mp4";
-            Response.Headers.CacheControl = "no-cache, no-store";
-            Response.Headers["X-Session-Id"] = sessionId;
-
-            // Stream FFmpeg output directly to response
-            var buffer = new byte[64 * 1024];
-            var firstReadTask = ffmpegProcess.StandardOutput.BaseStream
-                .ReadAsync(buffer, streamCancellationToken)
-                .AsTask();
-            var startupDelayTask = Task.Delay(Fmp4StartupTimeout, streamCancellationToken);
-            if (await Task.WhenAny(firstReadTask, startupDelayTask) != firstReadTask)
-            {
-                streamCancellationToken.ThrowIfCancellationRequested();
-                await StopProcessAsync(ffmpegProcess);
-                await ObserveInputPumpAsync(inputPumpTask);
-                inputPumpTask = null;
-                await WriteFmp4StartupErrorAsync(channel, streamUrl, sessionId, session.StartTime, tunerCapacityLease, streamCancellationToken, ffmpegErrors, Volatile.Read(ref tunerInputError));
-                return;
-            }
-
-            var bytesRead = await firstReadTask;
-            if (bytesRead == 0)
-            {
-                await ffmpegProcess.WaitForExitAsync(streamCancellationToken);
-                await ObserveInputPumpAsync(inputPumpTask);
-                inputPumpTask = null;
-                await WriteFmp4StartupErrorAsync(channel, streamUrl, sessionId, session.StartTime, tunerCapacityLease, streamCancellationToken, ffmpegErrors, Volatile.Read(ref tunerInputError));
-                return;
-            }
-
-            do
-            {
-                await Response.Body.WriteAsync(buffer.AsMemory(0, bytesRead), HttpContext.RequestAborted);
-                await Response.Body.FlushAsync(HttpContext.RequestAborted);
-            }
-            while ((bytesRead = await ffmpegProcess.StandardOutput.BaseStream.ReadAsync(buffer, streamCancellationToken)) > 0);
-        }
-        catch (OperationCanceledException) when (streamCancellation.IsCancellationRequested)
-        {
-            if (HttpContext.RequestAborted.IsCancellationRequested)
-            {
-                _logger.LogDebug("fMP4 stream closed for channel {Channel} (client disconnected)", channel);
-            }
-            else
-            {
-                _logger.LogDebug("fMP4 stream stopped for channel {Channel}", channel);
-                await Response.CompleteAsync();
-            }
-        }
-        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 2)
-        {
-            _logger.LogError("FFmpeg not found for fMP4 streaming");
-            SetInternalServerErrorStatus(Response);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error in fMP4 stream for channel {Channel}", channel);
-            SetInternalServerErrorStatus(Response);
-        }
-        finally
-        {
-            var unregisterActiveStream = false;
-            if (fmp4Session != null)
-            {
-                lock (fmp4Session.LifecycleGate)
-                {
-                    fmp4Session.IsActive = false;
-                    if (((ICollection<KeyValuePair<string, FMp4Session>>)_fmp4Sessions).Remove(new KeyValuePair<string, FMp4Session>(sessionId, fmp4Session)))
-                    {
-                        unregisterActiveStream = true;
-                    }
-                }
-            }
-
-            if (ffmpegProcess != null && !ffmpegProcess.HasExited)
-            {
-                try
-                {
-                    ffmpegProcess.Kill(entireProcessTree: true);
-                }
-                catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException or System.ComponentModel.Win32Exception)
-                {
-                    _logger.LogDebug(ex, "Unable to stop FFmpeg process for fMP4 session {SessionId}", sessionId);
-                }
-            }
-            if (captionProcess != null && !captionProcess.HasExited)
-            {
-                try
-                {
-                    captionProcess.Kill(entireProcessTree: true);
-                }
-                catch (InvalidOperationException)
-                {
-                }
-            }
-            if (inputPumpTask is not null)
-            {
-                await ObserveInputPumpAsync(inputPumpTask);
-            }
-            if (captionInputPumpTask is not null)
-            {
-                await ObserveInputPumpAsync(captionInputPumpTask);
-            }
-            if (tunerInput is not null)
-            {
-                await tunerInput.DisposeAsync();
-            }
-            if (captionInput is not null)
-            {
-                await captionInput.DisposeAsync();
-            }
-            tunerLeaseCancellation?.Cancel();
-            if (tunerLeaseTask is not null)
-            {
-                await ObserveInputPumpAsync(tunerLeaseTask);
-            }
-            if (tunerLease is not null)
-            {
-                await tunerLease.DisposeAsync();
-            }
-            tunerLeaseCancellation?.Dispose();
-            ffmpegProcess?.Dispose();
-            if (captionErrorTask is not null)
-            {
-                var captionError = await captionErrorTask;
-                if (!string.IsNullOrWhiteSpace(captionError) && !streamCancellation.IsCancellationRequested)
-                {
-                    _logger.LogWarning("Embedded-caption extractor for fMP4 session {SessionId} reported: {CaptionError}", sessionId, captionError.Trim());
-                }
-            }
-            captionProcess?.Dispose();
-            if (subtitlePath is not null)
-            {
-                _subtitleSidecars.Remove(sessionId);
-            }
-            if (unregisterActiveStream)
-            {
-                _activeStreamRegistry.Unregister(sessionId);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Sets an internal-server-error response status when the response headers remain mutable.
-    /// </summary>
-    /// <param name="response">The response whose status should be updated.</param>
-    internal static void SetInternalServerErrorStatus(HttpResponse response)
-    {
-        if (!response.HasStarted)
-        {
-            response.StatusCode = StatusCodes.Status500InternalServerError;
-        }
-    }
-
-    /// <summary>Returns the incrementally written WebVTT sidecar for an active Watch session.</summary>
-    /// <param name="sessionId">The allowlisted active fMP4 session identifier.</param>
-    /// <param name="offset">The byte offset returned by the preceding sidecar request.</param>
-    [HttpGet("fmp4/{sessionId}/subtitles.vtt")]
-    public IActionResult GetFmp4Subtitles(string sessionId, [FromQuery] long offset = 0)
-    {
-        if (!_fmp4Sessions.ContainsKey(sessionId))
-        {
-            return NotFound(new { error = "Subtitle session not found." });
-        }
-
-        SubtitleSidecarChunk? chunk;
-        try
-        {
-            chunk = _subtitleSidecars.ReadFrom(sessionId, offset);
-        }
-        catch (ArgumentException)
-        {
-            return BadRequest(new { error = "Invalid subtitle session identifier or offset." });
-        }
-
-        if (chunk is null)
-        {
-            Response.Headers.CacheControl = "no-cache, no-store";
-            Response.Headers["X-Lineup-Subtitle-Offset"] = offset.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            return File(Array.Empty<byte>(), "text/vtt; charset=utf-8");
-        }
-
-        Response.Headers.CacheControl = "no-cache, no-store";
-        Response.Headers["X-Lineup-Subtitle-Offset"] = chunk.NextOffset.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        return File(chunk.Data, "text/vtt");
-    }
-
-    /// <summary>Returns WebVTT for the active fMP4 stream owned by one Watch client.</summary>
-    /// <param name="clientId">The per-component Watch client identifier.</param>
-    /// <param name="offset">The byte offset returned by the preceding sidecar request.</param>
-    [HttpGet("fmp4/client/{clientId}/subtitles.vtt")]
-    public IActionResult GetFmp4ClientSubtitles(string clientId, [FromQuery] long offset = 0)
-    {
-        if (clientId.Length is < 1 or > 64 || clientId.Any(character => !char.IsAsciiLetterOrDigit(character)))
-        {
-            return BadRequest(new { error = "Invalid Watch client identifier." });
-        }
-
-        var sessionId = _activeStreamRegistry.GetActiveStreams()
-            .Where(stream => string.Equals(stream.ClientId, clientId, StringComparison.Ordinal))
-            .OrderByDescending(stream => stream.StartedAtUtc)
-            .Select(stream => stream.SessionId)
-            .FirstOrDefault();
-        return sessionId is null ? NotFound(new { error = "Watch session not found." }) : GetFmp4Subtitles(sessionId, offset);
     }
 
     /// <summary>
@@ -1078,7 +536,9 @@ public class StreamController : ControllerBase
 
         ITunerCapacityLease? capacityLease = null;
         Uri? sourceUri = null;
-        MediaProbeResult source = new([], null);
+        var sourceSettings = CreateSourceDeinterlaceSettingsSnapshot(_settingsService.Settings);
+        MediaProbeResult rawSource = new([], null);
+        MediaProbeResult source = rawSource;
         if (!disabled)
         {
             var device = GetWatchDevice();
@@ -1088,10 +548,11 @@ public class StreamController : ControllerBase
             {
                 return HdHomeRunStreamError.CreateNoTunerAvailableResult(Response);
             }
-            source = await ProbeBestEffortAsync(sourceUri, HttpContext.RequestAborted);
+            rawSource = await ProbeBestEffortAsync(sourceUri, HttpContext.RequestAborted);
+            source = GetEffectiveSource(rawSource, sourceSettings);
         }
 
-        WatchTrackSelection selection;
+        WebPlayerTrackSelection selection;
         IReadOnlyList<CmafAudioRendition> audioRenditions;
         try
         {
@@ -1191,7 +652,7 @@ public class StreamController : ControllerBase
             }
             if (!disabled)
             {
-                _ = TunerInputPump.PumpAsync(_tunerStreamMultiplexer, sourceUri!, process, _logger, HttpContext.RequestAborted);
+                _ = PumpEffectiveSourceAsync(sourceUri!, rawSource, sourceSettings, process, HttpContext.RequestAborted);
             }
             var embeddedCaptions = selectableSubtitles.FirstOrDefault(subtitle => subtitle.IsEmbeddedClosedCaptions);
             if (!disabled && embeddedCaptions is not null)
@@ -1204,7 +665,7 @@ public class StreamController : ControllerBase
                     UseShellExecute = false,
                     CreateNoWindow = true
                 };
-                foreach (var argument in WatchStreamPlanner.CreateEmbeddedCaptionArguments(subtitlePaths[embeddedCaptions.Index]))
+                foreach (var argument in WebPlayerTrackPlanner.CreateEmbeddedCaptionArguments(subtitlePaths[embeddedCaptions.Index]))
                 {
                     captionStartInfo.ArgumentList.Add(argument);
                 }
@@ -1226,7 +687,8 @@ public class StreamController : ControllerBase
                 SourceVideoCodec = CmafStreamPlanner.CreateVideoRenditions(
                     source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video),
                     request,
-                    selection.SubtitlePresentation == SubtitlePresentation.BurnIn)
+                    selection.SubtitlePresentation == SubtitlePresentation.BurnIn,
+                    _settingsService.Settings.WebPlayerDeinterlaceMode)
                     .Any(plan => plan.CopySource)
                         ? CmafStreamPlanner.CreateHevcCodecString(source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video))
                         : null,
@@ -1314,7 +776,7 @@ public class StreamController : ControllerBase
                         DeactivateCmafSession(sourceSession);
                         RegisterCmafSession(session);
                         sourceSession.Process.Dispose();
-                        _ = TunerInputPump.PumpAsync(_tunerStreamMultiplexer, sourceUri!, process, _logger, HttpContext.RequestAborted);
+                        _ = PumpEffectiveSourceAsync(sourceUri!, rawSource, sourceSettings, process, HttpContext.RequestAborted);
                         _activeStreamRegistry.Register(ActiveStreamPlanFactory.CreateCmaf(
                             sessionId,
                             channel,
@@ -1384,7 +846,8 @@ public class StreamController : ControllerBase
                         HasSourceVideoRendition = CmafStreamPlanner.CreateVideoRenditions(
                             source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video),
                             request,
-                            selection.SubtitlePresentation == SubtitlePresentation.BurnIn).Any(plan => plan.CopySource),
+                            selection.SubtitlePresentation == SubtitlePresentation.BurnIn,
+                            _settingsService.Settings.WebPlayerDeinterlaceMode).Any(plan => plan.CopySource),
                         SourceVideoCodec = session.SourceVideoCodec,
                         Subtitles = selectableSubtitles.Select(subtitle => new CmafSubtitleRendition(
                             subtitle.Index,
@@ -1875,6 +1338,31 @@ public class StreamController : ControllerBase
         }
     }
 
+    private MediaProbeResult GetEffectiveSource(MediaProbeResult source, AppSettings settings) =>
+        _tunerStreamMultiplexer is IEffectiveTunerStreamMultiplexer effective
+            ? effective.GetEffectiveSource(source, settings)
+            : source;
+
+    private ValueTask<Stream> SubscribeEffectiveSourceAsync(Uri sourceUri, MediaProbeResult source, AppSettings settings, CancellationToken cancellationToken) =>
+        _tunerStreamMultiplexer is IEffectiveTunerStreamMultiplexer effective
+            ? effective.SubscribeEffectiveAsync(sourceUri, source, settings, cancellationToken)
+            : _tunerStreamMultiplexer.SubscribeAsync(sourceUri, cancellationToken);
+
+    private async Task PumpEffectiveSourceAsync(Uri sourceUri, MediaProbeResult source, AppSettings settings, Process process, CancellationToken cancellationToken)
+    {
+        await using var input = await SubscribeEffectiveSourceAsync(sourceUri, source, settings, cancellationToken);
+        await TunerInputPump.PumpAsync(input, sourceUri, process, _logger, cancellationToken);
+    }
+
+    private static AppSettings CreateSourceDeinterlaceSettingsSnapshot(AppSettings settings) =>
+        new()
+        {
+            SourceDeinterlaceMode = settings.SourceDeinterlaceMode,
+            WebVideoPreset = settings.WebVideoPreset,
+            WebVideoQuality = settings.WebVideoQuality,
+            MaximumVideoBitRateMbps = settings.MaximumVideoBitRateMbps
+        };
+
     private async Task<MediaProbeResult> ProbeBestEffortAsync(Uri inputUri, CancellationToken cancellationToken)
     {
         try
@@ -1920,43 +1408,6 @@ public class StreamController : ControllerBase
         var separatorIndex = tunerError.IndexOf(' ');
         var codeText = separatorIndex >= 0 ? tunerError[..separatorIndex] : tunerError;
         return int.TryParse(codeText, out var code) ? code : null;
-    }
-
-    private async Task WriteFmp4StartupErrorAsync(
-        string channel,
-        string streamUrl,
-        string sessionId,
-        DateTime startedAtUtc,
-        ITunerCapacityLease tunerCapacityLease,
-        CancellationToken cancellationToken,
-        IReadOnlyCollection<string>? ffmpegErrors = null,
-        Exception? tunerInputError = null)
-    {
-        var tunerError = tunerInputError?.Message ?? await GetTunerErrorAsync(new Uri(streamUrl), cancellationToken);
-        if (await IsContentProtectedAsync(channel, tunerError))
-        {
-            if (_settingsService.Settings.ProtectedContentMode == ProtectedContentMode.StreamSlate)
-            {
-                await tunerCapacityLease.DisposeAsync();
-                _activeStreamRegistry.Register(ActiveStreamPlanFactory.CreateProtectedSlate(sessionId, channel, HostedStreamFormat.FragmentedMp4, startedAtUtc));
-                await _protectedContentSlateService.StreamAsync(HostedStreamFormat.FragmentedMp4, channel, Response.Body, cancellationToken);
-                return;
-            }
-
-            Response.StatusCode = StatusCodes.Status403Forbidden;
-            await Response.WriteAsJsonAsync(new { code = 811, error = tunerError }, HttpContext.RequestAborted);
-            return;
-        }
-
-        var recentFfmpegErrors = ffmpegErrors?.TakeLast(10).ToArray() ?? [];
-        _logger.LogWarning(
-            "FFmpeg could not start fMP4 channel {Channel}; tuner reported {TunerError}. Recent FFmpeg output: {FfmpegErrors}",
-            channel,
-            tunerError ?? "no diagnostic error",
-            recentFfmpegErrors.Length == 0 ? "none" : string.Join(Environment.NewLine, recentFfmpegErrors));
-        var error = tunerError ?? recentFfmpegErrors.LastOrDefault() ?? "The tuner did not provide video data.";
-        Response.StatusCode = StatusCodes.Status502BadGateway;
-        await Response.WriteAsJsonAsync(new { code = TryGetTunerErrorCode(tunerError), error }, HttpContext.RequestAborted);
     }
 
     private async Task<bool> IsContentProtectedAsync(string channel, string? tunerError)
@@ -2126,29 +1577,4 @@ public class StreamController : ControllerBase
         public IDisposable? ShutdownRegistration;
     }
 
-    private class FMp4Session
-    {
-        /// <summary>
-        /// Gets or sets session id.
-        /// </summary>
-        public required string SessionId { get; init; }
-        /// <summary>
-        /// Gets or sets channel.
-        /// </summary>
-        public required string Channel { get; init; }
-        /// <summary>
-        /// Gets or sets process.
-        /// </summary>
-        public required Process Process { get; init; }
-        /// <summary>
-        /// Gets or sets start time.
-        /// </summary>
-        public DateTime StartTime { get; init; }
-
-        /// <summary>Synchronizes session lifecycle changes.</summary>
-        public readonly object LifecycleGate = new();
-
-        /// <summary>Tracks whether the session remains active.</summary>
-        public bool IsActive = true;
-    }
 }

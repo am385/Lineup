@@ -1,6 +1,7 @@
 using Bunit;
 using Lineup.Web.Components.Pages;
 using Lineup.Web.Services;
+using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
 using System.Reflection;
 using System.Text.Json;
@@ -13,6 +14,46 @@ namespace Lineup.Web.Tests.Components.Pages;
 /// </summary>
 public class WatchTestTests
 {
+    /// <summary>
+    /// Verifies the Watch launch flag automatically runs and saves the complete compatibility suite.
+    /// </summary>
+    [Fact]
+    public void RunAllOnLoad_StartsCompleteCompatibilitySuite()
+    {
+        // Arrange
+        using var context = CreateContext();
+        context.JSInterop
+            .Setup<CmafCompatibilityTestResponse>("startCmafSession", _ => true)
+            .SetResult(new("test-1", "/api/stream/cmaf/test-1/manifest.mpd", "avc1.64002a", "mp4a.40.2", 8, 1920, 1080, "/api/stream/cmaf/test-1/captions-0.vtt"));
+        context.JSInterop
+            .Setup<WatchTest.CmafTestPlayerResult>("initCmafTestPlayer", _ => true)
+            .SetResult(new(
+                true,
+                true,
+                Video: new("avc1.64002a", 1920, 1080),
+                Audio: new("Audio", "mp4a.40.2", 8),
+                SubtitleCueVisible: true));
+        context.Services.GetRequiredService<NavigationManager>().NavigateTo("/watch-test?runAll=true");
+
+        // Act
+        var component = context.Render<WatchTest>();
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            Assert.Equal(
+                CmafCompatibilityTestCatalog.All.Count(test => !test.IsUnavailable),
+                context.JSInterop.Invocations.Count(invocation => invocation.Identifier == "startCmafSession"));
+            Assert.Contains(
+                context.JSInterop.Invocations,
+                invocation => invocation.Identifier == "localStorage.setItem" &&
+                    Equals(invocation.Arguments[0], CmafCompatibilityProfile.StorageKey));
+        }, TimeSpan.FromSeconds(15));
+        var startedSessionCount = context.JSInterop.Invocations.Count(invocation => invocation.Identifier == "startCmafSession");
+        component.Render();
+        Assert.Equal(startedSessionCount, context.JSInterop.Invocations.Count(invocation => invocation.Identifier == "startCmafSession"));
+    }
+
     /// <summary>
     /// Verifies Run All measures the server-owned catalog and atomically saves a complete browser profile.
     /// </summary>
@@ -87,6 +128,42 @@ public class WatchTestTests
         Assert.Equal($"0 / {CmafCompatibilityTestCatalog.All.Count}", progressText.TextContent.Trim());
         component.Find("#cancelCompatibilityTests").Click();
         await runTask.WaitAsync(TimeSpan.FromSeconds(1), Xunit.TestContext.Current.CancellationToken);
+    }
+
+    /// <summary>
+    /// Verifies a successful compatibility case clears the page-level error left by the preceding case.
+    /// </summary>
+    [Fact]
+    public async Task RunCase_AfterPreviousFailure_ClearsPageError()
+    {
+        // Arrange
+        using var context = CreateContext();
+        context.JSInterop
+            .Setup<CmafCompatibilityTestResponse>("startCmafSession", _ => true)
+            .SetResult(new("test-1", "/api/stream/cmaf/test-1/manifest.mpd", "avc1.64002a", "mp4a.40.2", 2, 1920, 1080));
+        context.JSInterop
+            .Setup<WatchTest.CmafTestPlayerResult>("initCmafTestPlayer", _ => true)
+            .SetResult(new(true, true, Video: new("avc1.64002a", 1920, 1080)));
+        var component = context.Render<WatchTest>();
+        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal));
+        var errorField = typeof(WatchTest).GetField("_errorMessage", BindingFlags.Instance | BindingFlags.NonPublic);
+        var runCase = typeof(WatchTest).GetMethod("RunCaseAsync", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(errorField);
+        Assert.NotNull(runCase);
+        errorField.SetValue(component.Instance, "Shaka Error 4032");
+        component.Render();
+        var test = CmafCompatibilityTestCatalog.All.Single(candidate => candidate.Id == "video-h264-1080p");
+
+        // Act
+        Task runTask = null!;
+        await component.InvokeAsync(() =>
+        {
+            runTask = Assert.IsAssignableFrom<Task>(runCase.Invoke(component.Instance, [test, Xunit.TestContext.Current.CancellationToken]));
+        });
+        await runTask.WaitAsync(TimeSpan.FromSeconds(1), Xunit.TestContext.Current.CancellationToken);
+
+        // Assert
+        component.WaitForAssertion(() => Assert.Empty(component.FindAll(".alert-danger")));
     }
 
     /// <summary>

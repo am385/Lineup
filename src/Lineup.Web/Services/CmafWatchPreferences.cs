@@ -1,7 +1,25 @@
 namespace Lineup.Web.Services;
 
 /// <summary>
-/// Stores browser-local defaults shared by the Watch CMAF and Watch Test pages.
+/// Identifies legacy AAC fallback values retained only for browser-preference and request migration.
+/// </summary>
+public enum CmafLegacyAacFallback
+{
+    /// <summary>Uses stereo AAC.</summary>
+    Stereo,
+
+    /// <summary>Uses AAC with up to 5.1 channels.</summary>
+    UpTo5Point1,
+
+    /// <summary>Uses AAC with up to 7.1 channels.</summary>
+    UpTo7Point1,
+
+    /// <summary>Represents the unsupported historical source-passthrough value.</summary>
+    Source
+}
+
+/// <summary>
+/// Stores browser-local defaults shared by the Watch and Watch Test pages.
 /// </summary>
 public sealed record CmafWatchPreferences
 {
@@ -30,7 +48,7 @@ public sealed record CmafWatchPreferences
     public CmafFallbackAudio? FallbackAudio { get; init; }
 
     /// <summary>Gets the legacy AAC fallback value retained for stored-data migration.</summary>
-    public WatchAudioOutput? AacFallback { get; init; }
+    public CmafLegacyAacFallback? AacFallback { get; init; }
 
     /// <summary>Gets the persisted request-scoped manual stream overrides.</summary>
     public CmafStreamOverrides Overrides { get; init; } = new();

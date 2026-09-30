@@ -228,7 +228,7 @@ public class CmafCompatibilityTestServiceTests
     }
 
     /// <summary>
-    /// Verifies the quality choices use deterministic resolutions that map to Watch CMAF.
+    /// Verifies the quality choices use deterministic resolutions that map to Watch.
     /// </summary>
     [Theory]
     [InlineData(WebPlayerQuality.AppDefault, 1920, 1080)]

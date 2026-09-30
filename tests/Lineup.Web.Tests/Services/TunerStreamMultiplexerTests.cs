@@ -46,6 +46,37 @@ public class TunerStreamMultiplexerTests
     }
 
     /// <summary>
+    /// Verifies effective subscriptions bypass normalization for progressive sources.
+    /// </summary>
+    [Fact]
+    public async Task EffectiveSubscription_ProgressiveSource_UsesRawSharedInput()
+    {
+        // Arrange
+        var responseSource = new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handler = new ControlledResponseHandler(responseSource.Task);
+        var httpClientFactory = Substitute.For<IHttpClientFactory>();
+        httpClientFactory.CreateClient("StreamProxy").Returns(new HttpClient(handler, disposeHandler: false));
+        var multiplexer = new TunerStreamMultiplexer(httpClientFactory, NullLogger<TunerStreamMultiplexer>.Instance);
+        var sourceUri = new Uri("http://tuner/auto/v2.1");
+        var source = new MediaProbeResult(
+            [new MediaTrackMetadata(0, MediaTrackType.Video, "h264", null, 1280, 720, null, null) { ScanType = VideoScanType.Progressive }],
+            null);
+        var settings = new AppSettings { SourceDeinterlaceMode = DeinterlaceMode.SourceFieldRate };
+        var payload = new byte[] { 1, 2, 3, 4 };
+
+        // Act
+        await using var subscription = await multiplexer.SubscribeEffectiveAsync(sourceUri, source, settings, TestContext.Current.CancellationToken);
+        responseSource.SetResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(payload) });
+        var received = new byte[payload.Length];
+        await subscription.ReadExactlyAsync(received, TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(1, handler.RequestCount);
+        Assert.Equal(payload, received);
+        Assert.Same(source, multiplexer.GetEffectiveSource(source, settings));
+    }
+
+    /// <summary>
     /// Verifies that normal FFmpeg startup buffering does not disconnect a temporarily delayed subscriber.
     /// </summary>
     [Fact]

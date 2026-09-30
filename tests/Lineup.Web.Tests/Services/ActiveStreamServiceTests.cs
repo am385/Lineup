@@ -26,7 +26,7 @@ public class ActiveStreamServiceTests
                 SubtitlePresentation = SubtitlePresentation.WebVtt
             }
         ], 8_768_000);
-        var selection = WatchStreamPlanner.SelectTracks(source, 1, 3);
+        var selection = WebPlayerTrackPlanner.SelectTracks(source, 1, 3);
         var request = new CmafStreamRequest { PreferredAudio = CmafPreferredAudio.Source, FallbackAudio = CmafFallbackAudio.Ac3 };
 
         // Act
@@ -61,7 +61,7 @@ public class ActiveStreamServiceTests
             new MediaTrackMetadata(0, MediaTrackType.Video, "hevc", 12_000_000, 1920, 1080, null, null) { Profile = "Main 10", Level = 123 },
             new MediaTrackMetadata(1, MediaTrackType.Audio, "aac", 128_000, null, null, 2, 48_000)
         ], 12_128_000);
-        var selection = WatchStreamPlanner.SelectTracks(source, 1, null);
+        var selection = WebPlayerTrackPlanner.SelectTracks(source, 1, null);
 
         // Act
         var snapshot = ActiveStreamPlanFactory.CreateCmaf("session", "105.1", DateTime.UtcNow, source, selection, new CmafStreamRequest(), new AppSettings());
@@ -109,7 +109,7 @@ public class ActiveStreamServiceTests
             CreateTrack("hevc", "copy")
         };
         registry.Register(new ActiveStreamSnapshot("later", "5.1", HostedStreamFormat.MpegTs, DateTime.UtcNow, null, mutableTracks));
-        registry.Register(new ActiveStreamSnapshot("earlier", "2.1", HostedStreamFormat.FragmentedMp4, DateTime.UtcNow.AddMinutes(-1), null, []));
+        registry.Register(new ActiveStreamSnapshot("earlier", "2.1", HostedStreamFormat.Cmaf, DateTime.UtcNow.AddMinutes(-1), null, []));
 
         mutableTracks.Clear();
         // Act
@@ -194,13 +194,13 @@ public class ActiveStreamServiceTests
         var registry = new ActiveStreamRegistry();
         var stoppedSessions = new List<string>();
         registry.Register(
-            new ActiveStreamSnapshot("one", "2.1", HostedStreamFormat.FragmentedMp4, DateTime.UtcNow, null, []) { ClientId = "watch-one" },
+            new ActiveStreamSnapshot("one", "2.1", HostedStreamFormat.Cmaf, DateTime.UtcNow, null, []) { ClientId = "watch-one" },
             () => stoppedSessions.Add("one"));
         registry.Register(
-            new ActiveStreamSnapshot("two", "5.1", HostedStreamFormat.FragmentedMp4, DateTime.UtcNow, null, []) { ClientId = "watch-one" },
+            new ActiveStreamSnapshot("two", "5.1", HostedStreamFormat.Cmaf, DateTime.UtcNow, null, []) { ClientId = "watch-one" },
             () => stoppedSessions.Add("two"));
         registry.Register(
-            new ActiveStreamSnapshot("other", "7.1", HostedStreamFormat.FragmentedMp4, DateTime.UtcNow, null, []) { ClientId = "watch-two" },
+            new ActiveStreamSnapshot("other", "7.1", HostedStreamFormat.Cmaf, DateTime.UtcNow, null, []) { ClientId = "watch-two" },
             () => stoppedSessions.Add("other"));
 
         // Act
@@ -223,7 +223,7 @@ public class ActiveStreamServiceTests
     {
         // Arrange
         var registry = new ActiveStreamRegistry();
-        var initial = new ActiveStreamSnapshot("one", "2.1", HostedStreamFormat.FragmentedMp4, DateTime.UtcNow, null, []);
+        var initial = new ActiveStreamSnapshot("one", "2.1", HostedStreamFormat.Cmaf, DateTime.UtcNow, null, []);
         registry.Register(initial, () => { });
 
         // Act
@@ -271,7 +271,7 @@ public class ActiveStreamServiceTests
         var registry = new ActiveStreamRegistry();
         // Act
         var first = new ActiveStreamSnapshot("one", "2.1", HostedStreamFormat.MpegTs, DateTime.UtcNow, null, []);
-        var second = new ActiveStreamSnapshot("two", "5.1", HostedStreamFormat.FragmentedMp4, DateTime.UtcNow, null, []);
+        var second = new ActiveStreamSnapshot("two", "5.1", HostedStreamFormat.Cmaf, DateTime.UtcNow, null, []);
 
         var firstRegistered = registry.TryRegister(first, 1, () => { });
         var secondRegistered = registry.TryRegister(second, 1, () => { });
@@ -371,7 +371,7 @@ public class ActiveStreamServiceTests
             """
             {
               "streams": [
-                { "index": 0, "codec_type": "video", "codec_name": "hevc", "profile": "Main 10", "level": 123, "bit_rate": "8000000", "width": 1920, "height": 1080 },
+                { "index": 0, "codec_type": "video", "codec_name": "hevc", "profile": "Main 10", "level": 123, "bit_rate": "8000000", "width": 1920, "height": 1080, "field_order": "tt" },
                 { "index": 1, "codec_type": "audio", "codec_name": "ac4", "channels": 8, "sample_rate": "48000" },
                 { "index": 2, "codec_type": "subtitle", "codec_name": "dvb_subtitle" }
               ],
@@ -395,6 +395,7 @@ public class ActiveStreamServiceTests
                 Assert.Equal(1080, video.Height);
                 Assert.Equal("Main 10", video.Profile);
                 Assert.Equal(123, video.Level);
+                Assert.Equal(VideoScanType.Interlaced, video.ScanType);
             },
             audio =>
             {
@@ -410,6 +411,85 @@ public class ActiveStreamServiceTests
                 Assert.Equal("dvb_subtitle", subtitle.Codec);
                 Assert.Equal(SubtitlePresentation.BurnIn, subtitle.SubtitlePresentation);
             });
+    }
+
+    /// <summary>
+    /// Verifies FFprobe progressive and unknown field orders remain distinct from confirmed interlaced video.
+    /// </summary>
+    [Fact]
+    public void MediaProbeParser_FieldOrder_ClassifiesProgressiveAndUnknownVideo()
+    {
+        // Arrange
+        const string json =
+            """
+            {
+              "streams": [
+                { "index": 0, "codec_type": "video", "codec_name": "h264", "field_order": "progressive" },
+                { "index": 1, "codec_type": "video", "codec_name": "h264", "field_order": "unknown" }
+              ]
+            }
+            """;
+
+        // Act
+        var result = MediaProbeParser.Parse(json);
+
+        // Assert
+        Assert.Equal(VideoScanType.Progressive, result.Tracks[0].ScanType);
+        Assert.Equal(VideoScanType.Unknown, result.Tracks[1].ScanType);
+    }
+
+    /// <summary>
+    /// Verifies sampled frame flags detect interlacing when stream-level field order is unknown.
+    /// </summary>
+    [Fact]
+    public void MediaProbeParser_InterlacedFrame_OverridesUnknownFieldOrder()
+    {
+        // Arrange
+        const string json =
+            """
+            {
+              "streams": [
+                { "index": 0, "codec_type": "video", "codec_name": "mpeg2video", "field_order": "unknown" }
+              ],
+              "frames": [
+                { "media_type": "video", "stream_index": 0, "interlaced_frame": 1 }
+              ]
+            }
+            """;
+
+        // Act
+        var result = MediaProbeParser.Parse(json);
+
+        // Assert
+        Assert.Equal(VideoScanType.Interlaced, Assert.Single(result.Tracks).ScanType);
+    }
+
+    /// <summary>
+    /// Verifies sampled interlacing evidence applies only to the video stream that emitted the frame.
+    /// </summary>
+    [Fact]
+    public void MediaProbeParser_InterlacedFrame_ClassifiesMatchingVideoOnly()
+    {
+        // Arrange
+        const string json =
+            """
+            {
+              "streams": [
+                { "index": 0, "codec_type": "video", "codec_name": "h264", "field_order": "progressive" },
+                { "index": 3, "codec_type": "video", "codec_name": "mpeg2video", "field_order": "unknown" }
+              ],
+              "frames": [
+                { "media_type": "video", "stream_index": 3, "interlaced_frame": 1 }
+              ]
+            }
+            """;
+
+        // Act
+        var result = MediaProbeParser.Parse(json);
+
+        // Assert
+        Assert.Equal(VideoScanType.Progressive, result.Tracks[0].ScanType);
+        Assert.Equal(VideoScanType.Interlaced, result.Tracks[1].ScanType);
     }
 
     /// <summary>
@@ -585,142 +665,6 @@ public class ActiveStreamServiceTests
         Assert.Equal("ac3", stream.Tracks[2].OutputCodec);
         Assert.Equal(448_000, stream.Tracks[2].OutputBitRate);
         Assert.Equal(6, stream.Tracks[2].OutputChannels);
-    }
-
-    /// <summary>
-    /// Verifies the fixed browser-compatible fMP4 output metadata.
-    /// </summary>
-    [Fact]
-    public void FragmentedMp4Plan_DescribesConfiguredTargets()
-    {
-        // Arrange
-        var source = new MediaProbeResult(
-        [
-            new MediaTrackMetadata(0, MediaTrackType.Video, "mpeg2video", null, 1920, 1080, null, null),
-            new MediaTrackMetadata(1, MediaTrackType.Audio, "ac3", 384_000, null, null, 6, 48_000)
-        ],
-        null);
-
-        // Act
-        var stream = ActiveStreamPlanFactory.CreateFragmentedMp4("session", "5.1", DateTime.UtcNow, source);
-
-        // Assert
-        Assert.Equal("h264", stream.Tracks[0].OutputCodec);
-        Assert.Equal(10_000_000, stream.Tracks[0].OutputBitRate);
-        Assert.Equal("aac", stream.Tracks[1].OutputCodec);
-        Assert.Equal(128_000, stream.Tracks[1].OutputBitRate);
-        Assert.Equal(2, stream.Tracks[1].OutputChannels);
-        Assert.Equal(48_000, stream.Tracks[1].OutputSampleRate);
-    }
-
-    /// <summary>
-    /// Verifies that fixed transcodes retain their known output plan when source probing fails.
-    /// </summary>
-    [Fact]
-    public void FragmentedMp4Plan_ProbeFailureStillDescribesConfiguredTargets()
-    {
-        // Arrange
-        var source = new MediaProbeResult([], null);
-
-        // Act
-        var stream = ActiveStreamPlanFactory.CreateFragmentedMp4("session", "104.1", DateTime.UtcNow, source);
-
-        // Assert
-        Assert.Collection(
-            stream.Tracks,
-            video =>
-            {
-                Assert.Equal(MediaTrackType.Video, video.Type);
-                Assert.Equal("unknown", video.SourceCodec);
-                Assert.Equal("h264", video.OutputCodec);
-                Assert.Equal(10_000_000, video.OutputBitRate);
-            },
-            audio =>
-            {
-                Assert.Equal(MediaTrackType.Audio, audio.Type);
-                Assert.Equal("unknown", audio.SourceCodec);
-                Assert.Equal("aac", audio.OutputCodec);
-                Assert.Equal(128_000, audio.OutputBitRate);
-            });
-    }
-
-    /// <summary>
-    /// Verifies 7.1 fMP4 audio metadata describes the retained source channel count and scaled AAC bitrate.
-    /// </summary>
-    [Fact]
-    public void FragmentedMp4Plan_UpTo7Point1Audio_DescribesMultichannelOutput()
-    {
-        // Arrange
-        var source = new MediaProbeResult(
-        [
-            new MediaTrackMetadata(0, MediaTrackType.Video, "h264", null, 1920, 1080, null, null),
-            new MediaTrackMetadata(1, MediaTrackType.Audio, "ac3", 384_000, null, null, 6, 48_000)
-        ],
-        null);
-        var selection = WatchStreamPlanner.SelectTracks(source, 1, null);
-
-        // Act
-        var stream = ActiveStreamPlanFactory.CreateFragmentedMp4("session", "5.1", DateTime.UtcNow, source, selection: selection, audioOutput: WatchAudioOutput.UpTo7Point1);
-
-        // Assert
-        var audio = Assert.Single(stream.Tracks, track => track.Type == MediaTrackType.Audio);
-        Assert.Equal("aac", audio.OutputCodec);
-        Assert.Equal(384_000, audio.OutputBitRate);
-        Assert.Equal(6, audio.OutputChannels);
-        Assert.Equal(48_000, audio.OutputSampleRate);
-    }
-
-    /// <summary>
-    /// Verifies 7.1 fMP4 audio metadata reports the eight-channel limit for a 7.1.4 source.
-    /// </summary>
-    [Fact]
-    public void FragmentedMp4Plan_UpTo7Point1Audio_LimitsOutputMetadataToEightChannels()
-    {
-        // Arrange
-        var source = new MediaProbeResult(
-        [
-            new MediaTrackMetadata(0, MediaTrackType.Video, "hevc", null, 1920, 1080, null, null),
-            new MediaTrackMetadata(1, MediaTrackType.Audio, "ac4", null, null, null, 12, 46_034)
-        ],
-        null);
-        var selection = WatchStreamPlanner.SelectTracks(source, 1, null);
-
-        // Act
-        var stream = ActiveStreamPlanFactory.CreateFragmentedMp4("session", "105.1", DateTime.UtcNow, source, selection: selection, audioOutput: WatchAudioOutput.UpTo7Point1);
-
-        // Assert
-        var audio = Assert.Single(stream.Tracks, track => track.Type == MediaTrackType.Audio);
-        Assert.Equal(12, audio.SourceChannels);
-        Assert.Equal(8, audio.OutputChannels);
-        Assert.Equal(512_000, audio.OutputBitRate);
-        Assert.Equal(48_000, audio.OutputSampleRate);
-    }
-
-    /// <summary>
-    /// Verifies source audio passthrough metadata retains the selected track's encoding characteristics.
-    /// </summary>
-    [Fact]
-    public void FragmentedMp4Plan_SourceAudio_DescribesCopiedOutput()
-    {
-        // Arrange
-        var source = new MediaProbeResult(
-        [
-            new MediaTrackMetadata(0, MediaTrackType.Video, "h264", null, 1920, 1080, null, null),
-            new MediaTrackMetadata(1, MediaTrackType.Audio, "ac4", 768_000, null, null, 12, 46_034)
-        ],
-        null);
-        var selection = WatchStreamPlanner.SelectTracks(source, 1, null);
-
-        // Act
-        var stream = ActiveStreamPlanFactory.CreateFragmentedMp4("session", "105.1", DateTime.UtcNow, source, selection: selection, audioOutput: WatchAudioOutput.Source);
-
-        // Assert
-        var audio = Assert.Single(stream.Tracks, track => track.Type == MediaTrackType.Audio);
-        Assert.Equal("ac4", audio.SourceCodec);
-        Assert.Equal("copy", audio.OutputCodec);
-        Assert.Equal(768_000, audio.OutputBitRate);
-        Assert.Equal(12, audio.OutputChannels);
-        Assert.Equal(46_034, audio.OutputSampleRate);
     }
 
     private static ActiveStreamTrack CreateTrack(string sourceCodec, string outputCodec)

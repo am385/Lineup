@@ -9,27 +9,6 @@ namespace Lineup.Web.Tests.Services;
 public class ProtectedContentSlateServiceTests
 {
     /// <summary>
-    /// Verifies that fMP4 slates contain browser-compatible video and silent audio.
-    /// </summary>
-    [Fact]
-    public void Fmp4Arguments_CreateProtectedContentSlate()
-    {
-        // Arrange
-        const string channel = "117.1";
-
-        // Act
-        var arguments = ProtectedContentSlatePlanner.CreatePipeArguments(HostedStreamFormat.FragmentedMp4, channel);
-
-        // Assert
-        Assert.Contains("color=c=0x20252b:s=1280x720:r=30", arguments);
-        Assert.Contains(arguments, argument => argument.Contains("Content Protected - Channel 117.1", StringComparison.Ordinal));
-        AssertOption(arguments, "-c:v", "libx264");
-        AssertOption(arguments, "-c:a", "aac");
-        AssertOption(arguments, "-f", "mp4");
-        Assert.Equal("pipe:1", arguments[^1]);
-    }
-
-    /// <summary>
     /// Verifies that HLS slates target the requested playlist.
     /// </summary>
     [Fact]

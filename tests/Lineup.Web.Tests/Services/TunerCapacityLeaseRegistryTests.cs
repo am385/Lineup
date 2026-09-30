@@ -230,28 +230,6 @@ public class TunerCapacityLeaseRegistryTests
     }
 
     /// <summary>
-    /// Verifies that an fMP4 browser stream observes capacity occupied by a different MPEG-TS source.
-    /// </summary>
-    [Fact]
-    public async Task StreamFmp4_MpegTsSourceOccupiesCapacity_ReturnsHdHomeRun503()
-    {
-        // Arrange
-        var registry = new TunerCapacityLeaseRegistry();
-        var profile = CreateProfile(tunerCount: 1);
-        await using var occupied = await registry.TryAcquireAsync(profile.PhysicalBaseUri, Source("20.1"), profile.TunerCount, TestContext.Current.CancellationToken);
-        var controller = CreateController(registry, profile, out var profileProvider);
-
-        // Act
-        await controller.StreamFmp4("21.1");
-
-        // Assert
-        Assert.NotNull(occupied);
-        Assert.Equal(StatusCodes.Status503ServiceUnavailable, controller.Response.StatusCode);
-        Assert.Equal(HdHomeRunStreamError.NoTunerAvailable, controller.Response.Headers["X-HDHomeRun-Error"]);
-        await profileProvider.DidNotReceive().GetPrimaryProfileAsync(Arg.Any<CancellationToken>());
-    }
-
-    /// <summary>
     /// Verifies that an HLS browser stream observes capacity occupied by a different MPEG-TS source.
     /// </summary>
     [Fact]

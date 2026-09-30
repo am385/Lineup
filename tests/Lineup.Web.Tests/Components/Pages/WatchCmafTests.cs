@@ -23,6 +23,46 @@ public class WatchCmafTests
     private const string PreferencesStorageKey = "lineup-watch-cmaf-preferences-v1";
 
     /// <summary>
+    /// Verifies a browser without a completed compatibility profile can launch the complete Watch Test suite.
+    /// </summary>
+    [Fact]
+    public void MissingCompatibilityProfile_ShowsRunAllWatchTestLink()
+    {
+        // Arrange
+        using var context = CreateContext();
+
+        // Act
+        var component = context.Render<WatchCmaf>();
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            var link = component.Find("#runCmafCompatibilityTests");
+            Assert.Equal("/watch-test?runAll=true", link.GetAttribute("href"));
+            Assert.Contains("Run Compatibility Tests", link.TextContent, StringComparison.Ordinal);
+        });
+    }
+
+    /// <summary>
+    /// Verifies a valid compatibility profile for the current browser suppresses the Watch Test prompt.
+    /// </summary>
+    [Fact]
+    public void CurrentCompatibilityProfile_HidesRunAllWatchTestLink()
+    {
+        // Arrange
+        var profile = CreateCompatibilityProfile();
+        using var context = CreateContext();
+        context.JSInterop.Setup<string?>("localStorage.getItem", CmafCompatibilityProfile.StorageKey).SetResult(JsonSerializer.Serialize(profile));
+        context.JSInterop.Setup<string>("getCmafBrowserIdentity").SetResult("test-browser");
+
+        // Act
+        var component = context.Render<WatchCmaf>();
+
+        // Assert
+        component.WaitForAssertion(() => Assert.Empty(component.FindAll("#runCmafCompatibilityTests")));
+    }
+
+    /// <summary>
     /// Verifies the player area communicates that a CMAF stream is being prepared.
     /// </summary>
     [Fact]
@@ -42,9 +82,9 @@ public class WatchCmafTests
         var loading = component.Find("#cmafStreamLoading");
         Assert.Equal("status", loading.GetAttribute("role"));
         Assert.Equal("polite", loading.GetAttribute("aria-live"));
-        Assert.Contains("Setting up CMAF stream", loading.TextContent, StringComparison.Ordinal);
+        Assert.Contains("Setting up stream", loading.TextContent, StringComparison.Ordinal);
         Assert.Single(loading.QuerySelectorAll(".spinner-border"));
-        Assert.DoesNotContain("Select a channel to start CMAF playback", component.Markup, StringComparison.Ordinal);
+        Assert.DoesNotContain("Select a channel to start watching", component.Markup, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -130,6 +170,35 @@ public class WatchCmafTests
             var request = Assert.IsType<CmafStreamRequest>(start.Arguments[1]);
             Assert.Equal(CmafPreferredVideo.Auto, request.PreferredVideo);
             Assert.Equal(CmafPreferredAudio.Auto, request.PreferredAudio);
+            Assert.NotNull(request.CompatibilityProfile);
+        });
+    }
+
+    /// <summary>
+    /// Verifies a current stored source preference cannot bypass a measured browser profile when overrides are disabled.
+    /// </summary>
+    [Fact]
+    public void CompletedProfile_CurrentSourcePreferenceWithoutOverrides_StartsTypedAutomaticSession()
+    {
+        // Arrange
+        var profile = CreateCompatibilityProfile();
+        using var context = CreateContext(
+            """{"PolicyVersion":1,"Protocol":0,"Quality":0,"PreferredVideo":0,"PreferredAudio":0,"FallbackAudio":0,"Overrides":{"Enabled":false}}""");
+        context.JSInterop.Setup<string?>("localStorage.getItem", CmafCompatibilityProfile.StorageKey).SetResult(JsonSerializer.Serialize(profile));
+        context.JSInterop.Setup<string>("getCmafBrowserIdentity").SetResult("test-browser");
+        ConfigureSuccessfulSession(context);
+
+        // Act
+        var component = context.Render<WatchCmaf>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            var start = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession");
+            var request = Assert.IsType<CmafStreamRequest>(start.Arguments[1]);
+            Assert.Equal(CmafPreferredVideo.Auto, request.PreferredVideo);
+            Assert.Equal(CmafPreferredAudio.Auto, request.PreferredAudio);
+            Assert.False(request.Overrides.Enabled);
             Assert.NotNull(request.CompatibilityProfile);
         });
     }

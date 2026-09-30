@@ -132,22 +132,18 @@ public sealed class ProtectedContentSlateService : IProtectedContentSlateService
 public static class ProtectedContentSlatePlanner
 {
     /// <summary>
-    /// Creates arguments for a pipe-based fMP4 or MPEG-TS slate.
+    /// Creates arguments for a pipe-based MPEG-TS slate.
     /// </summary>
     public static IReadOnlyList<string> CreatePipeArguments(HostedStreamFormat format, string channel, ChannelSlateReason reason = ChannelSlateReason.ContentProtected)
     {
         var arguments = CreateCommonArguments(channel, reason);
-        if (format == HostedStreamFormat.FragmentedMp4)
-        {
-            arguments.AddRange(["-movflags", "frag_keyframe+empty_moov+default_base_moof", "-frag_duration", "1000000", "-f", "mp4", "pipe:1"]);
-        }
-        else if (format == HostedStreamFormat.MpegTs)
+        if (format == HostedStreamFormat.MpegTs)
         {
             arguments.AddRange(["-mpegts_flags", "+resend_headers", "-f", "mpegts", "pipe:1"]);
         }
         else
         {
-            throw new ArgumentOutOfRangeException(nameof(format), format, "Only fMP4 and MPEG-TS support pipe output.");
+            throw new ArgumentOutOfRangeException(nameof(format), format, "Only MPEG-TS supports pipe output.");
         }
 
         return arguments;

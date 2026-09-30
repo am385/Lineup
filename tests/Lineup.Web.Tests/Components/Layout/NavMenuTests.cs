@@ -40,6 +40,9 @@ public sealed class NavMenuTests
             Assert.Contains("Guide", component.Markup);
             Assert.Contains("Watch", component.Markup);
             Assert.Contains("Logs", component.Markup);
+            var watchLink = Assert.Single(component.FindAll("a.nav-link"), link => string.Equals(link.GetAttribute("href"), "watch", StringComparison.Ordinal));
+            Assert.Equal("Watch", watchLink.TextContent.Trim());
+            Assert.DoesNotContain(component.FindAll("a.nav-link"), link => string.Equals(link.GetAttribute("href"), "watch-cmaf", StringComparison.Ordinal));
         });
     }
 }

@@ -140,6 +140,7 @@ public partial class WatchCmaf : IAsyncDisposable
         {
             await RestorePreferencesAsync();
             _preferencesRestored = true;
+            StateHasChanged();
             if (!string.IsNullOrWhiteSpace(_pendingRouteChannelNumber))
             {
                 var channelNumber = _pendingRouteChannelNumber;
@@ -376,11 +377,16 @@ public partial class WatchCmaf : IAsyncDisposable
             _runtimeVideoOverride = streamPreferredVideo;
             _runtimeAudioOverride = streamPreferredAudio;
             _runtimeFallbackAudioOverride = streamFallbackAudio;
-            var useMeasuredProfile = _compatibilityProfile is not null && _streamOverrides.Enabled;
+            var useMeasuredProfile = _compatibilityProfile is not null;
             _streamFallbackAudio = streamFallbackAudio ?? (_streamOverrides.Enabled ? _streamOverrides.FallbackAudio ?? _fallbackAudio : _fallbackAudio);
-            _streamPreferredVideo = streamPreferredVideo ?? (_streamOverrides.Enabled ? _streamOverrides.Video ?? (useMeasuredProfile ? CmafPreferredVideo.Auto : _preferredVideo) : _preferredVideo);
+            _streamPreferredVideo = streamPreferredVideo ??
+                (_streamOverrides.Enabled && _streamOverrides.Video.HasValue
+                    ? _streamOverrides.Video.Value
+                    : useMeasuredProfile ? CmafPreferredVideo.Auto : _preferredVideo);
             _streamPreferredAudio = streamPreferredAudio ??
-                (_streamOverrides.Enabled ? _streamOverrides.Audio ?? (useMeasuredProfile ? CmafPreferredAudio.Auto : _preferredAudio) : _preferredAudio);
+                (_streamOverrides.Enabled && _streamOverrides.Audio.HasValue
+                    ? _streamOverrides.Audio.Value
+                    : useMeasuredProfile ? CmafPreferredAudio.Auto : _preferredAudio);
             _session = _compatibilityProfile is null && !_streamOverrides.Enabled
                 ? await JS.InvokeAsync<CmafStartResponse>("startCmafSession", BuildStartUrl(normalized))
                 : await JS.InvokeAsync<CmafStartResponse>(
@@ -411,7 +417,7 @@ public partial class WatchCmaf : IAsyncDisposable
 
     private string BuildStartUrl(string channelNumber)
     {
-        var url = $"/api/stream/cmaf/start/{Uri.EscapeDataString(channelNumber)}?clientId={_clientId}&quality={_quality}&preferredVideo={_streamPreferredVideo}&preferredAudio={_preferredAudio}&fallbackAudio={_streamFallbackAudio}";
+        var url = $"/api/stream/cmaf/start/{Uri.EscapeDataString(channelNumber)}?clientId={_clientId}&quality={_quality}&preferredVideo={_streamPreferredVideo}&preferredAudio={_streamPreferredAudio}&fallbackAudio={_streamFallbackAudio}";
         if (_audioTrack.HasValue)
         {
             url += $"&audioTrack={_audioTrack.Value}";
@@ -706,12 +712,12 @@ public partial class WatchCmaf : IAsyncDisposable
             {
                 _fallbackAudio = fallbackAudio;
             }
-            else if (preferences?.AacFallback is { } legacyFallback && legacyFallback != WatchAudioOutput.Source)
+            else if (preferences?.AacFallback is { } legacyFallback && legacyFallback != CmafLegacyAacFallback.Source)
             {
                 _fallbackAudio = legacyFallback switch
                 {
-                    WatchAudioOutput.UpTo5Point1 => CmafFallbackAudio.AacUpTo5Point1,
-                    WatchAudioOutput.UpTo7Point1 => CmafFallbackAudio.AacUpTo7Point1,
+                    CmafLegacyAacFallback.UpTo5Point1 => CmafFallbackAudio.AacUpTo5Point1,
+                    CmafLegacyAacFallback.UpTo7Point1 => CmafFallbackAudio.AacUpTo7Point1,
                     _ => CmafFallbackAudio.AacStereo
                 };
             }
@@ -724,7 +730,7 @@ public partial class WatchCmaf : IAsyncDisposable
                 }
                 catch (ArgumentException ex)
                 {
-                    Logger.LogWarning(ex, "Ignoring invalid Watch CMAF stream overrides");
+                    Logger.LogWarning(ex, "Ignoring invalid Watch stream overrides");
                 }
             }
             _subtitleTrack = preferences?.SubtitleTrack;
@@ -742,7 +748,7 @@ public partial class WatchCmaf : IAsyncDisposable
         }
         catch (Exception ex) when (ex is JsonException or JSException or InvalidOperationException or OperationCanceledException)
         {
-            Logger.LogWarning(ex, "Unable to restore Watch CMAF preferences");
+            Logger.LogWarning(ex, "Unable to restore Watch preferences");
         }
     }
 
@@ -765,7 +771,7 @@ public partial class WatchCmaf : IAsyncDisposable
         }
         catch (Exception ex) when (ex is JSException or InvalidOperationException or OperationCanceledException)
         {
-            Logger.LogWarning(ex, "Unable to save Watch CMAF preferences");
+            Logger.LogWarning(ex, "Unable to save Watch preferences");
         }
     }
 
@@ -779,7 +785,7 @@ public partial class WatchCmaf : IAsyncDisposable
         }
         catch (Exception ex) when (ex is JSException or InvalidOperationException or OperationCanceledException)
         {
-            Logger.LogWarning(ex, "Unable to clear a contradicted Watch CMAF compatibility profile");
+            Logger.LogWarning(ex, "Unable to clear a contradicted Watch compatibility profile");
         }
     }
 
