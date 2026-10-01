@@ -201,7 +201,8 @@ public class StreamController : ControllerBase
             if (!Response.HasStarted)
             {
                 var tunerError = await GetTunerErrorAsync(streamUri, HttpContext.RequestAborted);
-                if (await IsContentProtectedAsync(channel, tunerError))
+                var protection = await DetectContentProtectionAsync(channel, tunerError);
+                if (protection.IsProtected)
                 {
                     if (_settingsService.Settings.ProtectedContentMode == ProtectedContentMode.StreamSlate)
                     {
@@ -230,7 +231,7 @@ public class StreamController : ControllerBase
                         return new EmptyResult();
                     }
 
-                    return StatusCode(StatusCodes.Status403Forbidden, new { code = 811, error = tunerError });
+                    return CreateProtectedContentResult(protection);
                 }
 
                 return StatusCode(StatusCodes.Status502BadGateway, new { error = ex.Message });
@@ -795,7 +796,10 @@ public class StreamController : ControllerBase
                     }
 
                     var tunerError = usingSlate ? null : await GetTunerErrorAsync(sourceUri!, HttpContext.RequestAborted);
-                    if (!usingSlate && await IsContentProtectedAsync(channel, tunerError) && _settingsService.Settings.ProtectedContentMode == ProtectedContentMode.StreamSlate)
+                    var protection = usingSlate
+                        ? new ProtectedContentDetection(IsProtected: false, IsInferred: false, Message: null)
+                        : await DetectContentProtectionAsync(channel, tunerError);
+                    if (protection.IsProtected && _settingsService.Settings.ProtectedContentMode == ProtectedContentMode.StreamSlate)
                     {
                         capacityLease = null;
                         DeleteCmafFiles(directory);
@@ -824,9 +828,9 @@ public class StreamController : ControllerBase
                     }
 
                     StopCmafSession(sessionId);
-                    if (!usingSlate && await IsContentProtectedAsync(channel, tunerError))
+                    if (protection.IsProtected)
                     {
-                        return StatusCode(StatusCodes.Status403Forbidden, new { code = 811, error = tunerError });
+                        return CreateProtectedContentResult(protection);
                     }
                     return StatusCode(StatusCodes.Status502BadGateway, new { error = errors.LastOrDefault() ?? "FFmpeg exited before the CMAF presentation was ready." });
                 }
@@ -837,7 +841,7 @@ public class StreamController : ControllerBase
                     Volatile.Write(ref session.IsStarting, 0);
                     var baseUrl = $"/api/stream/cmaf/{sessionId}";
                     var hlsUrl = $"{baseUrl}/{CmafStreamPlanner.HlsManifestName}";
-                    var packagedFallback = audioRenditions.FirstOrDefault(rendition => !rendition.Plan.CopySource)?.Plan;
+                    var packagedFallback = session.AudioRenditions.FirstOrDefault(rendition => !rendition.Plan.CopySource)?.Plan;
                     return Ok(new CmafStreamResponse(sessionId, hlsUrl, $"/api/stream/hls/{sessionId}/{CmafStreamPlanner.HlsManifestName}", $"{baseUrl}/{CmafStreamPlanner.DashManifestName}")
                     {
                         SourceAudioFallbackApplied = sourceAudioFallbackApplied,
@@ -1410,17 +1414,26 @@ public class StreamController : ControllerBase
         return int.TryParse(codeText, out var code) ? code : null;
     }
 
-    private async Task<bool> IsContentProtectedAsync(string channel, string? tunerError)
+    private async Task<ProtectedContentDetection> DetectContentProtectionAsync(string channel, string? tunerError)
     {
         if (!string.IsNullOrWhiteSpace(tunerError))
         {
-            return ProtectedContentDetector.IsProtected(tunerError, cachedDrm: false);
+            return ProtectedContentDetector.Detect(tunerError, cachedDrm: false);
         }
 
         var cachedChannel = (await _epgRepository.GetChannelsAsync())
             .FirstOrDefault(candidate => string.Equals(candidate.GuideNumber, channel, StringComparison.Ordinal));
-        return ProtectedContentDetector.IsProtected(tunerError, cachedChannel?.DRM == true);
+        return ProtectedContentDetector.Detect(tunerError, cachedChannel?.DRM == true);
     }
+
+    private ObjectResult CreateProtectedContentResult(ProtectedContentDetection protection) =>
+        StatusCode(StatusCodes.Status403Forbidden, new
+        {
+            code = 811,
+            error = protection.Message,
+            inferred = protection.IsInferred,
+            source = protection.IsInferred ? "channel-lineup" : "tuner"
+        });
 
     private static async Task StopProcessAsync(Process process)
     {

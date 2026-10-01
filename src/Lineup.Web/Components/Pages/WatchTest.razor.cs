@@ -459,9 +459,16 @@ public partial class WatchTest : IAsyncDisposable
     {
         _runtimeError = error;
         _errorMessage = FormatRuntimeError(error);
-        if (_playerResult is not null)
+        if (_playerResult is not null || _pendingPlayerResult is not null)
         {
-            _playerResult = _playerResult with { PlaybackStarted = false };
+            _playerResult = (_playerResult ?? new(false, false)) with
+            {
+                Success = false,
+                PlaybackStarted = false,
+                Error = error.Message,
+                ErrorCode = error.ErrorCode,
+                ErrorDetails = error.Details
+            };
             _pendingPlayerResult?.TrySetResult(_playerResult);
         }
         StateHasChanged();

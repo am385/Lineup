@@ -230,9 +230,10 @@ public class WatchTests
             Assert.Equal("/api/stream/cmaf/session-1/master.m3u8", initialize.Arguments[2]);
             Assert.Equal("Source", initialize.Arguments[3]);
             Assert.Equal("Source", initialize.Arguments[4]);
-            Assert.Null(initialize.Arguments[5]);
-            Assert.Equal("aac", initialize.Arguments[6]);
-            var subtitles = Assert.IsAssignableFrom<IReadOnlyList<Watch.CmafSubtitleResponse>>(initialize.Arguments[7]);
+            Assert.Equal(false, initialize.Arguments[5]);
+            Assert.Null(initialize.Arguments[6]);
+            Assert.Equal("aac", initialize.Arguments[7]);
+            var subtitles = Assert.IsAssignableFrom<IReadOnlyList<Watch.CmafSubtitleResponse>>(initialize.Arguments[8]);
             Assert.Collection(
                 subtitles,
                 subtitle => Assert.Equal(2, subtitle.SourceIndex),
@@ -311,6 +312,83 @@ public class WatchTests
     }
 
     /// <summary>
+    /// Verifies a fatal player failure stops the missing server session and its browser pollers.
+    /// </summary>
+    [Fact]
+    public async Task FatalPlayerFailure_StopsPlaybackSession()
+    {
+        // Arrange
+        using var context = CreateContext();
+        ConfigureSuccessfulSession(context);
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
+
+        // Act
+        await component.InvokeAsync(() => component.Instance.OnCmafPlayerEvent(
+            new("error", "The stream session is no longer available.", null)));
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            Assert.Contains("The stream session is no longer available.", component.Markup);
+            Assert.Contains(
+                context.JSInterop.Invocations,
+                invocation => invocation.Identifier == "stopMediaPlayer" && Equals(invocation.Arguments[0], "cmafVideoPlayer"));
+            Assert.Contains(
+                context.JSInterop.Invocations,
+                invocation => invocation.Identifier == "stopCmafSession" && Equals(invocation.Arguments[0], "session-1"));
+        });
+    }
+
+    /// <summary>
+    /// Verifies selecting another channel clears the previous channel error before the replacement stream finishes starting.
+    /// </summary>
+    [Fact]
+    public async Task SelectChannel_PreviousError_ClearsBeforeReplacementStarts()
+    {
+        // Arrange
+        var repository = Substitute.For<IEpgRepository>();
+        repository.GetChannelsAsync().Returns(
+        [
+            new HDHomeRunChannelEpgSegment { GuideNumber = "2.1", GuideName = "First" },
+            new HDHomeRunChannelEpgSegment { GuideNumber = "2.2", GuideName = "Second" }
+        ]);
+        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
+        using var context = CreateContext(repository: repository);
+        context.JSInterop
+            .Setup<Watch.CmafStartResponse>(
+                "startCmafSession",
+                invocation => Assert.IsType<string>(invocation.Arguments[0]).Contains("/2.1?", StringComparison.Ordinal))
+            .SetResult(new("session-1", "/api/stream/cmaf/session-1/master.m3u8", "/api/stream/hls/session-1/master.m3u8", "/api/stream/cmaf/session-1/manifest.mpd"));
+        var replacementStart = context.JSInterop.Setup<Watch.CmafStartResponse>(
+            "startCmafSession",
+            invocation => Assert.IsType<string>(invocation.Arguments[0]).Contains("/2.2?", StringComparison.Ordinal));
+        context.JSInterop
+            .Setup<Watch.CmafPlayerResult>("initCmafPlayer", _ => true)
+            .SetResult(new(true, null, "/api/stream/cmaf/session-1/manifest.mpd"));
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "2.1"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer"));
+        await component.InvokeAsync(() => component.Instance.OnCmafPlayerEvent(new("error", "First channel failed.", null)));
+        component.WaitForAssertion(() => Assert.Contains("First channel failed.", component.Markup, StringComparison.Ordinal));
+
+        // Act
+        var replacementTune = component.InvokeAsync(() =>
+            component.FindAll(".cmaf-channel-item").Single(item => item.TextContent.Contains("2.2", StringComparison.Ordinal)).Click());
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            Assert.DoesNotContain("First channel failed.", component.Markup, StringComparison.Ordinal);
+            Assert.Contains(
+                context.JSInterop.Invocations,
+                invocation => invocation.Identifier == "startCmafSession" &&
+                    Assert.IsType<string>(invocation.Arguments[0]).Contains("/2.2?", StringComparison.Ordinal));
+        });
+        replacementStart.SetResult(new("session-2", "/api/stream/cmaf/session-2/master.m3u8", "/api/stream/hls/session-2/master.m3u8", "/api/stream/cmaf/session-2/manifest.mpd"));
+        await replacementTune;
+    }
+
+    /// <summary>
     /// Verifies an unsupported source-video presentation retries H.264 without changing the saved Source preference.
     /// </summary>
     [Fact]
@@ -369,10 +447,93 @@ public class WatchTests
     }
 
     /// <summary>
+    /// Verifies a source-video decoder failure during initialization retries H.264 without changing the saved Source preference.
+    /// </summary>
+    [Fact]
+    public void SourceVideoInitializationDecodeFailure_RetriesWithH264WithoutChangingPreference()
+    {
+        // Arrange
+        using var context = CreateContext();
+        context.JSInterop
+            .Setup<Watch.CmafStartResponse>(
+                "startCmafSession",
+                invocation => Assert.IsType<string>(invocation.Arguments[0]).Contains("preferredVideo=Source", StringComparison.Ordinal))
+            .SetResult(
+                new(
+                    "source-session",
+                    "/api/stream/cmaf/source-session/master.m3u8",
+                    "/api/stream/hls/source-session/master.m3u8",
+                    "/api/stream/cmaf/source-session/manifest.mpd",
+                    HasSourceVideoRendition: true));
+        context.JSInterop
+            .Setup<Watch.CmafStartResponse>(
+                "startCmafSession",
+                invocation => Assert.IsType<string>(invocation.Arguments[0]).Contains("preferredVideo=Fallback", StringComparison.Ordinal))
+            .SetResult(new("fallback-session", "/api/stream/cmaf/fallback-session/master.m3u8", "/api/stream/hls/fallback-session/master.m3u8", "/api/stream/cmaf/fallback-session/manifest.mpd"));
+        context.JSInterop
+            .Setup<Watch.CmafPlayerResult>(
+                "initCmafPlayer",
+                invocation => Equals(invocation.Arguments[1], "/api/stream/cmaf/source-session/manifest.mpd"))
+            .SetResult(new(false, "Shaka Error 3016", null, 3016));
+        context.JSInterop
+            .Setup<Watch.CmafPlayerResult>(
+                "initCmafPlayer",
+                invocation => Equals(invocation.Arguments[1], "/api/stream/cmaf/fallback-session/manifest.mpd"))
+            .SetResult(new(true, null, "/api/stream/cmaf/fallback-session/manifest.mpd", Video: new("avc1.64002a", 853, 480)));
+        context.JSInterop.SetupVoid("stopCmafSession", "source-session").SetVoidResult();
+        context.JSInterop.SetupVoid("stopCmafSession", "fallback-session").SetVoidResult();
+
+        // Act
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "40.3"));
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            var starts = context.JSInterop.Invocations.Where(invocation => invocation.Identifier == "startCmafSession").ToArray();
+            Assert.Equal(2, starts.Length);
+            Assert.Contains("preferredVideo=Source", Assert.IsType<string>(starts[0].Arguments[0]), StringComparison.Ordinal);
+            Assert.Contains("preferredVideo=Fallback", Assert.IsType<string>(starts[1].Arguments[0]), StringComparison.Ordinal);
+            Assert.Equal(nameof(CmafPreferredVideo.Source), component.Find("#cmafPreferredVideo").GetAttribute("value"));
+            Assert.Contains("avc1.64002a", component.Markup);
+            Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "localStorage.setItem");
+        });
+    }
+
+    /// <summary>
+    /// Verifies an H.264 fallback decoder failure during initialization does not start another fallback session.
+    /// </summary>
+    [Fact]
+    public void FallbackVideoInitializationDecodeFailure_DoesNotRetry()
+    {
+        // Arrange
+        using var context = CreateContext("""{"Protocol":0,"Quality":0,"PreferredAudio":0,"PreferredVideo":1,"AacFallback":0,"SubtitleTrack":null}""");
+        context.JSInterop
+            .Setup<Watch.CmafStartResponse>(
+                "startCmafSession",
+                invocation => Assert.IsType<string>(invocation.Arguments[0]).Contains("preferredVideo=Fallback", StringComparison.Ordinal))
+            .SetResult(new("fallback-session", "/api/stream/cmaf/fallback-session/master.m3u8", "/api/stream/hls/fallback-session/master.m3u8", "/api/stream/cmaf/fallback-session/manifest.mpd"));
+        context.JSInterop
+            .Setup<Watch.CmafPlayerResult>("initCmafPlayer", _ => true)
+            .SetResult(new(false, "Shaka Error 3016", null, 3016));
+        context.JSInterop.SetupVoid("stopCmafSession", "fallback-session").SetVoidResult();
+
+        // Act
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "40.3"));
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            var start = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession");
+            Assert.Contains("preferredVideo=Fallback", Assert.IsType<string>(start.Arguments[0]), StringComparison.Ordinal);
+            Assert.Contains("Shaka Error 3016", component.Markup);
+        });
+    }
+
+    /// <summary>
     /// Verifies a runtime source-video decoder failure restarts once with H.264 rather than encoding fallback video continuously.
     /// </summary>
     [Fact]
-    public async Task SourceVideoRuntimeFailure_RestartsWithH264()
+    public async Task SourceH264RuntimeFailure_RestartsWithH264()
     {
         // Arrange
         using var context = CreateContext();
@@ -387,7 +548,7 @@ public class WatchTests
                     "/api/stream/hls/source-session/master.m3u8",
                     "/api/stream/cmaf/source-session/manifest.mpd",
                     HasSourceVideoRendition: true,
-                    SourceVideoCodec: "hvc1.2.4.L153"));
+                    SourceVideoCodec: null));
         context.JSInterop
             .Setup<Watch.CmafStartResponse>(
                 "startCmafSession",
@@ -395,11 +556,17 @@ public class WatchTests
             .SetResult(new("fallback-session", "/api/stream/cmaf/fallback-session/master.m3u8", "/api/stream/hls/fallback-session/master.m3u8", "/api/stream/cmaf/fallback-session/manifest.mpd"));
         context.JSInterop
             .Setup<Watch.CmafPlayerResult>("initCmafPlayer", _ => true)
-            .SetResult(new(true, null, "/api/stream/cmaf/source-session/manifest.mpd", Video: new("hvc1.2.4.L153", 1920, 1080)));
+            .SetResult(new(true, null, "/api/stream/cmaf/source-session/manifest.mpd", Video: new("avc1.4d401e", 853, 480)));
         context.JSInterop.SetupVoid("stopCmafSession", "source-session").SetVoidResult();
         context.JSInterop.SetupVoid("stopCmafSession", "fallback-session").SetVoidResult();
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "104.1"));
-        component.WaitForAssertion(() => Assert.Contains("hvc1.2.4.L153", component.Markup));
+        component.WaitForAssertion(() => Assert.Contains("avc1.4d401e", component.Markup));
+        var initialize = Assert.Single(
+            context.JSInterop.Invocations,
+            invocation => invocation.Identifier == "initCmafPlayer" &&
+                Equals(invocation.Arguments[1], "/api/stream/cmaf/source-session/manifest.mpd"));
+        Assert.Equal(true, initialize.Arguments[5]);
+        Assert.Null(initialize.Arguments[6]);
 
         // Act
         await component.InvokeAsync(() => component.Instance.OnCmafPlayerEvent(
@@ -687,6 +854,39 @@ public class WatchTests
     }
 
     /// <summary>
+    /// Verifies a superseded player initialization cannot overwrite the replacement session state.
+    /// </summary>
+    [Fact]
+    public void PlayerInitialization_WhenSessionWasReplaced_IgnoresStaleResult()
+    {
+        // Arrange
+        using var context = CreateContext();
+        context.JSInterop
+            .Setup<Watch.CmafStartResponse>("startCmafSession", _ => true)
+            .SetResult(new("session-1", "/api/stream/cmaf/session-1/master.m3u8", "/api/stream/hls/session-1/master.m3u8", "/api/stream/cmaf/session-1/manifest.mpd"));
+        var initialization = context.JSInterop.Setup<Watch.CmafPlayerResult>("initCmafPlayer", _ => true);
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer"));
+        var sessionField = typeof(Watch).GetField("_session", BindingFlags.Instance | BindingFlags.NonPublic);
+        var playerVideoField = typeof(Watch).GetField("_playerVideo", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(sessionField);
+        Assert.NotNull(playerVideoField);
+        sessionField.SetValue(
+            component.Instance,
+            new Watch.CmafStartResponse(
+                "session-2",
+                "/api/stream/cmaf/session-2/master.m3u8",
+                "/api/stream/hls/session-2/master.m3u8",
+                "/api/stream/cmaf/session-2/manifest.mpd"));
+
+        // Act
+        initialization.SetResult(new(true, null, "/api/stream/cmaf/session-1/manifest.mpd", Video: new("stale-codec", 1920, 1080)));
+
+        // Assert
+        component.WaitForAssertion(() => Assert.Null(playerVideoField.GetValue(component.Instance)));
+    }
+
+    /// <summary>
     /// Verifies all prepared text and caption sidecars are supplied to the player and omitted from the burn-in selector.
     /// </summary>
     [Fact]
@@ -735,7 +935,7 @@ public class WatchTests
             Assert.Single(starts);
             Assert.Empty(component.FindAll("#cmafSubtitleTrack"));
             var initialize = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer");
-            var subtitles = Assert.IsAssignableFrom<IReadOnlyList<Watch.CmafSubtitleResponse>>(initialize.Arguments[7]);
+            var subtitles = Assert.IsAssignableFrom<IReadOnlyList<Watch.CmafSubtitleResponse>>(initialize.Arguments[8]);
             Assert.Contains(subtitles, subtitle => subtitle.IsEmbeddedClosedCaptions && subtitle.SourceIndex == 3);
             Assert.Contains("WebVTT sidecar", component.Markup);
             Assert.Contains("sidecar", component.Markup);

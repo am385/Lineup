@@ -15,6 +15,35 @@ namespace Lineup.Web.Tests.Components.Pages;
 public class WatchTestTests
 {
     /// <summary>
+    /// Verifies a playback error completes a pending compatibility case as failed before its result can be persisted.
+    /// </summary>
+    [Fact]
+    public async Task OnCmafTestPlayerError_WhileCaseIsPending_CompletesCaseAsFailure()
+    {
+        // Arrange
+        using var context = CreateContext();
+        var component = context.Render<WatchTest>();
+        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal));
+        var pendingField = typeof(WatchTest).GetField("_pendingPlayerResult", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(pendingField);
+        var pending = new TaskCompletionSource<WatchTest.CmafTestPlayerResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        pendingField.SetValue(component.Instance, pending);
+        using var details = JsonDocument.Parse("""{"severity":2,"category":4,"code":4032}""");
+
+        // Act
+        await component.InvokeAsync(() => component.Instance.OnCmafTestPlayerError(
+            new("Decoder failed after playback started.", 4032, details.RootElement.Clone())));
+        var result = await pending.Task.WaitAsync(Xunit.TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.False(result.Success);
+        Assert.False(result.PlaybackStarted);
+        Assert.Equal("Decoder failed after playback started.", result.Error);
+        Assert.Equal(4032, result.ErrorCode);
+        Assert.Equal(4032, result.ErrorDetails?.GetProperty("code").GetInt32());
+    }
+
+    /// <summary>
     /// Verifies the Watch launch flag automatically runs and saves the complete compatibility suite.
     /// </summary>
     [Fact]

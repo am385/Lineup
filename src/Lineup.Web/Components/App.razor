@@ -268,11 +268,12 @@
             protocolFallbackUrl,
             preferredAudio,
             preferredVideo,
+            hasSourceVideoRendition,
             sourceVideoCodec,
             fallbackAudioCodec,
             subtitles,
             dotNetReference) {
-            stopMediaPlayer(videoElementId);
+            await stopMediaPlayer(videoElementId);
 
             const video = document.getElementById(videoElementId);
             if (!video) {
@@ -288,7 +289,14 @@
 
             registerLineupShakaUiElements();
             const player = new shaka.Player();
+            const playerToken = Symbol('lineupCmafPlayer');
+            video._lineupPlayerToken = playerToken;
+            const isCurrentPlayer = () => video._lineupPlayerToken === playerToken;
             await player.attach(video);
+            if (!isCurrentPlayer()) {
+                await player.destroy();
+                return { success: false, error: 'Playback initialization was superseded.' };
+            }
             player.configure({ abr: { enabled: false } });
             const ui = new shaka.ui.Overlay(player, videoContainer, video);
             ui.configure({
@@ -331,7 +339,22 @@
                     void dotNetReference.invokeMethodAsync('OnCmafPlayerEvent', { kind, message, details });
                 }
             };
-            const isFallbackVideo = track => /(^|[.,])avc[13]/i.test(track.videoCodec || '');
+            let sessionUnavailable = false;
+            const stopUnavailableSession = details => {
+                if (sessionUnavailable || !isCurrentPlayer()) {
+                    return;
+                }
+                sessionUnavailable = true;
+                void stopMediaPlayer(videoElementId).then(
+                    () => report('error', 'The stream session is no longer available.', details));
+            };
+            const isSourceVideo = track =>
+                hasSourceVideoRendition &&
+                (!sourceVideoCodec ||
+                    (track.videoCodec || '').toLowerCase() === sourceVideoCodec.toLowerCase());
+            const isFallbackVideo = track =>
+                !isSourceVideo(track) &&
+                /(^|[.,])avc[13]/i.test(track.videoCodec || '');
             const audioSourceKey = track => (track.label || '')
                 .replace(/\s+·\s+(Source|Fallback.*)$/i, '')
                 .toLowerCase();
@@ -422,8 +445,14 @@
 
             player.addEventListener('error', event => {
                 void (async () => {
-                    if (!await tryVideoFallback(event.detail) && !await tryAudioFallback(event.detail)) {
-                        report('error', 'CMAF playback failed.', event.detail || null);
+                    const error = event.detail || null;
+                    const statusCode = Number(error?.data?.[1]);
+                    if (error?.category === shaka.util.Error.Category.NETWORK &&
+                        error?.code === shaka.util.Error.Code.BAD_HTTP_STATUS &&
+                        (statusCode === 404 || statusCode === 410)) {
+                        stopUnavailableSession(error);
+                    } else if (!await tryVideoFallback(error) && !await tryAudioFallback(error)) {
+                        report('error', 'CMAF playback failed.', error);
                     }
                 })();
             });
@@ -445,10 +474,18 @@
             try {
                 await player.load(manifestUrl);
             } catch (error) {
+                if (!isCurrentPlayer()) {
+                    await ui.destroy();
+                    return { success: false, error: 'Playback initialization was superseded.' };
+                }
                 if (!protocolFallbackUrl) {
                     await ui.destroy();
-                    window.lineupCmafPlayers.delete(videoElementId);
-                    window.lineupCmafUis.delete(videoElementId);
+                    if (window.lineupCmafPlayers.get(videoElementId) === player) {
+                        window.lineupCmafPlayers.delete(videoElementId);
+                    }
+                    if (window.lineupCmafUis.get(videoElementId) === ui) {
+                        window.lineupCmafUis.delete(videoElementId);
+                    }
                     return {
                         success: false,
                         error: error?.message || 'Unable to load the CMAF presentation.',
@@ -463,8 +500,12 @@
                     await player.load(protocolFallbackUrl);
                 } catch (fallbackError) {
                     await ui.destroy();
-                    window.lineupCmafPlayers.delete(videoElementId);
-                    window.lineupCmafUis.delete(videoElementId);
+                    if (window.lineupCmafPlayers.get(videoElementId) === player) {
+                        window.lineupCmafPlayers.delete(videoElementId);
+                    }
+                    if (window.lineupCmafUis.get(videoElementId) === ui) {
+                        window.lineupCmafUis.delete(videoElementId);
+                    }
                     return {
                         success: false,
                         error: fallbackError?.message || 'Unable to load either CMAF manifest.',
@@ -476,6 +517,10 @@
             }
 
             presentationLoaded = true;
+            if (!isCurrentPlayer()) {
+                await ui.destroy();
+                return { success: false, error: 'Playback initialization was superseded.' };
+            }
             const activeVariant = choosePreferredVariant();
             for (const subtitle of subtitles || []) {
                 startLineupSubtitlePolling(
@@ -488,7 +533,8 @@
                     () => {
                         const seekRange = player.seekRange();
                         return seekRange.end - video.currentTime;
-                    });
+                    },
+                    () => stopUnavailableSession(null));
             }
             try {
                 await video.play();
@@ -537,7 +583,7 @@
         }
 
         async function initCmafTestPlayer(videoElementId, manifestUrl, expectedVideoCodec, expectedAudioCodec, subtitleUrl, dotNetReference) {
-            stopMediaPlayer(videoElementId);
+            await stopMediaPlayer(videoElementId);
             const video = document.getElementById(videoElementId);
             if (!video) {
                 return { success: false, playbackStarted: false, error: 'Video player element was not found.' };
@@ -565,19 +611,25 @@
             };
             const videoSupported = supports(expectedVideoCodec ? `video/mp4; codecs="${expectedVideoCodec}"` : null);
             const audioSupported = supports(expectedAudioCodec ? `audio/mp4; codecs="${expectedAudioCodec}"` : null);
+            let resolvePlaybackError;
+            const playbackError = new Promise(resolve => {
+                resolvePlaybackError = resolve;
+            });
             player.addEventListener('error', event => {
                 const error = event.detail || null;
+                const runtimeError = {
+                    message: error?.message || 'CMAF compatibility playback failed.',
+                    errorCode: error?.code || null,
+                    details: error ? {
+                        severity: error.severity ?? null,
+                        category: error.category ?? null,
+                        code: error.code ?? null,
+                        data: error.data ?? null
+                    } : null
+                };
+                resolvePlaybackError(runtimeError);
                 if (dotNetReference) {
-                    void dotNetReference.invokeMethodAsync('OnCmafTestPlayerError', {
-                        message: error?.message || 'CMAF compatibility playback failed.',
-                        errorCode: error?.code || null,
-                        details: error ? {
-                            severity: error.severity ?? null,
-                            category: error.category ?? null,
-                            code: error.code ?? null,
-                            data: error.data ?? null
-                        } : null
-                    });
+                    void dotNetReference.invokeMethodAsync('OnCmafTestPlayerError', runtimeError);
                 }
             });
 
@@ -619,7 +671,39 @@
                 } catch {
                     // The result distinguishes autoplay policy from manifest and decoder support.
                 }
-                await Promise.race([playing, new Promise(resolve => setTimeout(() => resolve(false), 5000))]);
+                const startupError = await Promise.race([
+                    playing.then(() => null),
+                    playbackError,
+                    new Promise(resolve => setTimeout(() => resolve(null), 5000))
+                ]);
+                if (startupError) {
+                    return {
+                        success: false,
+                        playbackStarted,
+                        videoSupported,
+                        audioSupported,
+                        error: startupError.message,
+                        errorCode: startupError.errorCode,
+                        errorDetails: startupError.details
+                    };
+                }
+                if (playbackStarted) {
+                    const stabilityError = await Promise.race([
+                        playbackError,
+                        new Promise(resolve => setTimeout(() => resolve(null), 2000))
+                    ]);
+                    if (stabilityError) {
+                        return {
+                            success: false,
+                            playbackStarted: false,
+                            videoSupported,
+                            audioSupported,
+                            error: stabilityError.message,
+                            errorCode: stabilityError.errorCode,
+                            errorDetails: stabilityError.details
+                        };
+                    }
+                }
                 const active = player.getVariantTracks().find(track => track.active) || selected;
                 return {
                     success: true,
@@ -660,7 +744,11 @@
             const response = await fetch(startUrl, options);
             const body = await response.json().catch(() => null);
             if (!response.ok) {
-                throw new Error(body?.error || `Unable to start CMAF playback (${response.status}).`);
+                const message = body?.error || `Unable to start CMAF playback (${response.status}).`;
+                const codePrefix = body?.code && !message.startsWith(`${body.code} `)
+                    ? `${body.code} `
+                    : '';
+                throw new Error(`${codePrefix}${message}`);
             }
             return body;
         }
@@ -762,11 +850,13 @@
             video.dispatchEvent(new Event('lineuptexttrackschanged'));
         }
 
-        function stopMediaPlayer(videoElementId = 'videoPlayer') {
-            const video = document.getElementById(videoElementId) ||
-                window.lineupMediaPlayers?.get(videoElementId);
-            stopLineupSubtitlePolling(video);
-            if (video) {
+        async function stopMediaPlayer(videoElementId = 'videoPlayer') {
+            const currentVideo = document.getElementById(videoElementId);
+            const registeredVideo = window.lineupMediaPlayers?.get(videoElementId);
+            const videos = [...new Set([currentVideo, registeredVideo].filter(Boolean))];
+            for (const video of videos) {
+                video._lineupPlayerToken = null;
+                stopLineupSubtitlePolling(video);
                 video.onerror = null;
                 video.onloadedmetadata = null;
                 for (const track of video.textTracks) {
@@ -789,15 +879,21 @@
             const cmafUi = window.lineupCmafUis?.get(videoElementId);
             const cmafPlayer = window.lineupCmafPlayers?.get(videoElementId);
             if (cmafUi) {
-                void cmafUi.destroy();
-                window.lineupCmafUis.delete(videoElementId);
-                window.lineupCmafPlayers.delete(videoElementId);
+                await Promise.allSettled([cmafUi.destroy()]);
+                if (window.lineupCmafUis.get(videoElementId) === cmafUi) {
+                    window.lineupCmafUis.delete(videoElementId);
+                }
+                if (window.lineupCmafPlayers.get(videoElementId) === cmafPlayer) {
+                    window.lineupCmafPlayers.delete(videoElementId);
+                }
             } else if (cmafPlayer) {
-                void cmafPlayer.destroy();
-                window.lineupCmafPlayers.delete(videoElementId);
+                await Promise.allSettled([cmafPlayer.destroy()]);
+                if (window.lineupCmafPlayers.get(videoElementId) === cmafPlayer) {
+                    window.lineupCmafPlayers.delete(videoElementId);
+                }
             }
 
-            if (video) {
+            for (const video of videos) {
                 video.removeAttribute('src');
                 video.load();
             }
@@ -805,7 +901,7 @@
         }
 
         function destroyHlsPlayer() {
-            stopMediaPlayer();
+            void stopMediaPlayer();
         }
         
         function startLineupSubtitlePolling(
@@ -815,7 +911,8 @@
             language = 'und',
             initialMode = 'showing',
             replaceExisting = true,
-            getPlaybackDelaySeconds = null) {
+            getPlaybackDelaySeconds = null,
+            onSessionUnavailable = null) {
             if (replaceExisting) {
                 stopLineupSubtitlePolling(video);
             }
@@ -856,7 +953,12 @@
                     const response = await fetch(
                         `${subtitleUrl}${separator}offset=${offset}`,
                         { cache: 'no-store', signal: abortController.signal });
-                    if (response.status === 404) {
+                    if (response.status === 404 || response.status === 410) {
+                        if (typeof onSessionUnavailable === 'function') {
+                            onSessionUnavailable();
+                        } else {
+                            stopLineupSubtitlePolling(video);
+                        }
                         return;
                     }
                     if (!response.ok) {

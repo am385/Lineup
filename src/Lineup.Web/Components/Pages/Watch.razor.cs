@@ -158,7 +158,8 @@ public partial class Watch : IAsyncDisposable
         }
 
         _needsPlayerInit = false;
-        var (manifestUrl, fallbackUrl) = ResolveManifestUrls(_session);
+        var initializingSession = _session;
+        var (manifestUrl, fallbackUrl) = ResolveManifestUrls(initializingSession);
         _dotNetReference ??= DotNetObjectReference.Create(this);
         try
         {
@@ -169,22 +170,27 @@ public partial class Watch : IAsyncDisposable
                 fallbackUrl,
                 _streamPreferredAudio.ToString(),
                 _streamPreferredVideo.ToString(),
-                _session.SourceVideoCodec,
-                _session.FallbackAudioCodec,
-                _session.Subtitles ?? [],
+                initializingSession.HasSourceVideoRendition,
+                initializingSession.SourceVideoCodec,
+                initializingSession.FallbackAudioCodec,
+                initializingSession.Subtitles ?? [],
                 _dotNetReference);
+            if (!string.Equals(_session?.SessionId, initializingSession.SessionId, StringComparison.Ordinal))
+            {
+                return;
+            }
             if (!result.Success)
             {
-                var retryVideo = result.ErrorCode == 4032 &&
-                    _session.HasSourceVideoRendition &&
+                var retryVideo = result.ErrorCode is 3016 or 4032 &&
+                    initializingSession.HasSourceVideoRendition &&
                     _streamPreferredVideo is CmafPreferredVideo.Source or CmafPreferredVideo.Auto &&
-                    result.SourceVideoSupported == false;
+                    (result.ErrorCode == 3016 || result.SourceVideoSupported == false);
                 var retrySourceAudio = result.ErrorCode == 4032 &&
                     !retryVideo &&
-                    _session.FallbackAudioCodec is null &&
+                    initializingSession.FallbackAudioCodec is null &&
                     _streamPreferredAudio is CmafPreferredAudio.Source or CmafPreferredAudio.Auto;
                 var retryPackagedFallbackAudio = result.ErrorCode == 4032 &&
-                    _session.FallbackAudioCodec is not null &&
+                    initializingSession.FallbackAudioCodec is not null &&
                     _streamFallbackAudio != CmafFallbackAudio.AacStereo &&
                     result.FallbackAudioSupported == false;
                 var retryAudio = retrySourceAudio || retryPackagedFallbackAudio;
@@ -218,7 +224,7 @@ public partial class Watch : IAsyncDisposable
             }
             else
             {
-                _effectiveProtocol = string.Equals(result.ManifestUrl, _session.DashManifestUrl, StringComparison.Ordinal) ? "DASH" : "HLS";
+                _effectiveProtocol = string.Equals(result.ManifestUrl, initializingSession.DashManifestUrl, StringComparison.Ordinal) ? "DASH" : "HLS";
                 _playerAudio = result.Audio;
                 _playerVideo = result.Video;
                 _isPlayerLoading = false;
@@ -271,6 +277,7 @@ public partial class Watch : IAsyncDisposable
         else if (string.Equals(playerEvent.Kind, "error", StringComparison.Ordinal))
         {
             _errorMessage = playerEvent.Message;
+            await StopStreamAsync();
         }
         StateHasChanged();
     }
@@ -356,6 +363,7 @@ public partial class Watch : IAsyncDisposable
 
         _isStarting = true;
         _isPlayerLoading = true;
+        _errorMessage = null;
         StateHasChanged();
         try
         {
@@ -372,7 +380,6 @@ public partial class Watch : IAsyncDisposable
             _selectedChannelNumber = normalized;
             _selectedChannel = channel;
             _currentProgram = GetCurrentProgram(normalized);
-            _errorMessage = null;
             _manualTuneValidationMessage = null;
             _runtimeVideoOverride = streamPreferredVideo;
             _runtimeAudioOverride = streamPreferredAudio;

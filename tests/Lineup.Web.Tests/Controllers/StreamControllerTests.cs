@@ -4,6 +4,7 @@ using System.Net;
 using System.Reflection;
 using Lineup.Core;
 using Lineup.Core.Storage;
+using Lineup.HDHomeRun.Api.Models;
 using Lineup.HDHomeRun.Device.Models;
 using Lineup.Web.Controllers;
 using Lineup.Web.Services;
@@ -340,6 +341,60 @@ public class StreamControllerTests
     }
 
     /// <summary>
+    /// Verifies a tuner-confirmed DRM startup failure returns structured 811 diagnostics.
+    /// </summary>
+    [Fact]
+    public async Task Stream_ConfirmedProtectedContent_ReturnsTunerClassification()
+    {
+        // Arrange
+        var controller = CreateMpegTsProtectedSlateController(
+            new ActiveStreamRegistry(),
+            Substitute.For<IProtectedContentSlateService>(),
+            new TunerCapacityLeaseRegistry(),
+            maximumConcurrentStreams: 1,
+            protectedContentMode: ProtectedContentMode.ReturnError);
+
+        // Act
+        var result = await controller.Stream("20.1");
+
+        // Assert
+        var forbidden = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status403Forbidden, forbidden.StatusCode);
+        Assert.Equal(811, GetPropertyValue(forbidden.Value!, "code"));
+        Assert.Equal("811 DRM Content", GetPropertyValue(forbidden.Value!, "error"));
+        Assert.Equal(false, GetPropertyValue(forbidden.Value!, "inferred"));
+        Assert.Equal("tuner", GetPropertyValue(forbidden.Value!, "source"));
+    }
+
+    /// <summary>
+    /// Verifies a failed startup with no tuner diagnostic uses cached DRM metadata and identifies the result as inferred.
+    /// </summary>
+    [Fact]
+    public async Task Stream_CachedProtectedContentWithoutTunerError_ReturnsInferredClassification()
+    {
+        // Arrange
+        var controller = CreateMpegTsProtectedSlateController(
+            new ActiveStreamRegistry(),
+            Substitute.For<IProtectedContentSlateService>(),
+            new TunerCapacityLeaseRegistry(),
+            maximumConcurrentStreams: 1,
+            protectedContentMode: ProtectedContentMode.ReturnError,
+            tunerError: null,
+            cachedDrm: true);
+
+        // Act
+        var result = await controller.Stream("20.1");
+
+        // Assert
+        var forbidden = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status403Forbidden, forbidden.StatusCode);
+        Assert.Equal(811, GetPropertyValue(forbidden.Value!, "code"));
+        Assert.Equal("811 DRM content inferred from channel lineup metadata after playback startup failed.", GetPropertyValue(forbidden.Value!, "error"));
+        Assert.Equal(true, GetPropertyValue(forbidden.Value!, "inferred"));
+        Assert.Equal("channel-lineup", GetPropertyValue(forbidden.Value!, "source"));
+    }
+
+    /// <summary>
     /// Verifies that IPv4 and IPv6 client endpoints are formatted unambiguously for diagnostics.
     /// </summary>
     [Theory]
@@ -624,17 +679,29 @@ public class StreamControllerTests
         };
     }
 
-    private static StreamController CreateMpegTsProtectedSlateController(IActiveStreamRegistry activeStreams, IProtectedContentSlateService slateService, ITunerCapacityLeaseRegistry capacity, int maximumConcurrentStreams)
+    private static StreamController CreateMpegTsProtectedSlateController(
+        IActiveStreamRegistry activeStreams,
+        IProtectedContentSlateService slateService,
+        ITunerCapacityLeaseRegistry capacity,
+        int maximumConcurrentStreams,
+        ProtectedContentMode protectedContentMode = ProtectedContentMode.StreamSlate,
+        string? tunerError = "811 DRM Content",
+        bool cachedDrm = false)
     {
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
-        httpClientFactory.CreateClient("StreamProxy").Returns(new HttpClient(new ProtectedContentResponseHandler()));
+        httpClientFactory.CreateClient("StreamProxy").Returns(new HttpClient(new ProtectedContentResponseHandler(tunerError)));
         var settingsService = Substitute.For<IAppSettingsService>();
         settingsService.Settings.Returns(new AppSettings
         {
             DeviceAddress = "tuner.local",
-            ProtectedContentMode = ProtectedContentMode.StreamSlate,
+            ProtectedContentMode = protectedContentMode,
             MaximumConcurrentStreams = maximumConcurrentStreams
         });
+        var epgRepository = Substitute.For<IEpgRepository>();
+        epgRepository.GetChannelsAsync().Returns(
+            cachedDrm
+                ? [new HDHomeRunChannelEpgSegment { GuideNumber = "20.1", DRM = true }]
+                : []);
         var profiles = Substitute.For<IHdHomeRunProxyProfileProvider>();
         profiles.GetPrimaryProfileAsync(Arg.Any<CancellationToken>()).Returns(new HdHomeRunProxyProfileSnapshot
         {
@@ -666,7 +733,7 @@ public class StreamControllerTests
             .Returns(_ => Task.FromException<MediaProbeResult>(new MpegTsTranscodeException("DRM")));
         return new StreamController(
             httpClientFactory,
-            Substitute.For<IEpgRepository>(),
+            epgRepository,
             settingsService,
             CreateChannelLineupStore(),
             Substitute.For<IDeviceStateService>(),
@@ -862,6 +929,13 @@ public class StreamControllerTests
         property.SetValue(instance, value);
     }
 
+    private static object? GetPropertyValue(object instance, string name)
+    {
+        var property = instance.GetType().GetProperty(name, BindingFlags.Instance | BindingFlags.Public);
+        Assert.NotNull(property);
+        return property.GetValue(instance);
+    }
+
     private static async Task WaitUntilAsync(Func<bool> predicate)
     {
         var timeout = DateTime.UtcNow + TimeSpan.FromSeconds(5);
@@ -873,13 +947,16 @@ public class StreamControllerTests
         Assert.True(predicate());
     }
 
-    private sealed class ProtectedContentResponseHandler : HttpMessageHandler
+    private sealed class ProtectedContentResponseHandler(string? tunerError = "811 DRM Content") : HttpMessageHandler
     {
         /// <inheritdoc/>
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var response = new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
-            response.Headers.Add("X-HDHomeRun-Error", "811 DRM Content");
+            if (tunerError is not null)
+            {
+                response.Headers.Add("X-HDHomeRun-Error", tunerError);
+            }
             return Task.FromResult(response);
         }
     }

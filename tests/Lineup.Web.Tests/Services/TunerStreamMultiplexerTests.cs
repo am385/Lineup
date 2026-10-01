@@ -77,10 +77,10 @@ public class TunerStreamMultiplexerTests
     }
 
     /// <summary>
-    /// Verifies that normal FFmpeg startup buffering does not disconnect a temporarily delayed subscriber.
+    /// Verifies that an HD tuner startup burst does not disconnect a temporarily delayed FFmpeg subscriber.
     /// </summary>
     [Fact]
-    public async Task DelayedSubscriber_ReceivesBurstLargerThanLegacyBuffer()
+    public async Task DelayedSubscriber_ReceivesHdStartupBurst()
     {
         // Arrange
         // Act
@@ -89,7 +89,7 @@ public class TunerStreamMultiplexerTests
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient("StreamProxy").Returns(new HttpClient(handler, disposeHandler: false));
         var multiplexer = new TunerStreamMultiplexer(httpClientFactory, NullLogger<TunerStreamMultiplexer>.Instance);
-        var payload = Enumerable.Range(0, 8 * 1024 * 1024).Select(index => (byte)(index % 251)).ToArray();
+        var payload = Enumerable.Range(0, 40 * 1024 * 1024).Select(index => (byte)(index % 251)).ToArray();
         var cancellationToken = TestContext.Current.CancellationToken;
         await using var subscription = await multiplexer.SubscribeAsync(new Uri("http://tuner/auto/v2.1"), cancellationToken);
 

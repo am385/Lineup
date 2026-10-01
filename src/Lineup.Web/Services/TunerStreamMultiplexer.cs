@@ -46,7 +46,7 @@ public interface IEffectiveTunerStreamMultiplexer
 public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffectiveTunerStreamMultiplexer
 {
     private const int BufferSize = 64 * 1024;
-    private const int SubscriberBufferCount = 512;
+    private const int SubscriberBufferCount = 2048;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<TunerStreamMultiplexer> _logger;
     private readonly ConcurrentDictionary<string, SharedTunerSource> _sources = new(StringComparer.Ordinal);

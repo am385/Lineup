@@ -61,6 +61,54 @@ public class HDHomeRunDeviceNativeTests
     }
 
     /// <summary>
+    /// Verifies a native exchange failure does not discard tuner status already returned by HTTP.
+    /// </summary>
+    [Fact]
+    public async Task GetTunerStatusAsync_WhenNativeExchangeFails_ReturnsHttpStatus()
+    {
+        // Arrange
+        using var nativeStream = new FailingReadStream(new IOException("native unavailable"));
+        using var nativeControl = new HDHomeRunControl(nativeStream, NullLogger<HDHomeRunControl>.Instance);
+        using var httpControl = CreateActiveHttpControl();
+        var httpFactory = Substitute.For<IHDHomeRunHttpControlFactory>();
+        httpFactory.Create(Arg.Any<string>()).Returns(httpControl);
+        using var device = CreateDevice(httpFactory, nativeControl);
+
+        // Act
+        var status = await device.GetTunerStatusAsync(0, TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal("527000000", status.Channel);
+        Assert.Equal("104.1", status.VirtualChannel);
+        Assert.Equal("locked", status.LockType);
+        Assert.Equal(13_094_912, status.BitsPerSecond);
+    }
+
+    /// <summary>
+    /// Verifies caller cancellation during native enrichment is propagated even when HTTP status succeeded.
+    /// </summary>
+    [Fact]
+    public async Task GetTunerStatusAsync_WhenNativeExchangeIsCanceled_PropagatesCallerCancellation()
+    {
+        // Arrange
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        using var nativeStream = new CancelingReadStream(cancellation);
+        using var nativeControl = new HDHomeRunControl(nativeStream, NullLogger<HDHomeRunControl>.Instance);
+        using var httpControl = CreateActiveHttpControl();
+        var httpFactory = Substitute.For<IHDHomeRunHttpControlFactory>();
+        httpFactory.Create(Arg.Any<string>()).Returns(httpControl);
+        using var device = CreateDevice(httpFactory, nativeControl);
+
+        // Act
+        var exception = await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => device.GetTunerStatusAsync(0, cancellation.Token));
+
+        // Assert
+        Assert.NotNull(exception);
+        Assert.True(cancellation.IsCancellationRequested);
+    }
+
+    /// <summary>
     /// Verifies a transient connection failure does not prevent a later successful attempt.
     /// </summary>
     [Fact]
@@ -348,6 +396,26 @@ public class HDHomeRunDeviceNativeTests
             Substitute.For<IHDHomeRunHttpControlFactory>(),
             control);
 
+    private static HDHomeRunDevice CreateDevice(IHDHomeRunHttpControlFactory httpControlFactory, HDHomeRunControl control)
+        => new(
+            new HDHomeRunDiscoveredDevice
+            {
+                IpAddress = IPAddress.Parse("192.0.2.10"),
+                DeviceId = 0x12345678,
+                DeviceType = HDHomeRunDeviceType.Tuner,
+                BaseUrl = "http://192.0.2.10"
+            },
+            NullLoggerFactory.Instance,
+            httpControlFactory,
+            control);
+
+    private static HDHomeRunHttpControl CreateActiveHttpControl() =>
+        new(
+            "http://192.0.2.10",
+            NullLogger<HDHomeRunHttpControl>.Instance,
+            new HttpClient(new StaticResponseHandler(
+                """[{"Resource":"tuner0","VctNumber":"104.1","VctName":"PBS","Frequency":527000000,"NetworkRate":1636864}]""")));
+
     private static HDHomeRunDevice CreateDevice(Func<HDHomeRunControl> controlFactory)
         => new(
             new HDHomeRunDiscoveredDevice
@@ -380,6 +448,31 @@ public class HDHomeRunDeviceNativeTests
             WasDisposed = true;
             base.Dispose(disposing);
         }
+    }
+
+    private sealed class FailingReadStream(Exception exception) : MemoryStream
+    {
+        public override bool CanWrite => true;
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<int>(exception);
+
+        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default) =>
+            ValueTask.CompletedTask;
+    }
+
+    private sealed class CancelingReadStream(CancellationTokenSource cancellation) : MemoryStream
+    {
+        public override bool CanWrite => true;
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            cancellation.Cancel();
+            return ValueTask.FromCanceled<int>(cancellation.Token);
+        }
+
+        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default) =>
+            ValueTask.CompletedTask;
     }
 
     private sealed class StaticResponseHandler(string content) : HttpMessageHandler

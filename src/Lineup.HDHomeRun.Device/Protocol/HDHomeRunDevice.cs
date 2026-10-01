@@ -399,15 +399,22 @@ public class HDHomeRunDevice : IDisposable
         var control = await TryConnectNativeAsync(cancellationToken);
         if (control != null)
         {
-            var statusStr = await control.GetAsync($"/tuner{tunerIndex}/status", cancellationToken);
-            var channelStr = await control.GetAsync($"/tuner{tunerIndex}/channel", cancellationToken);
-            var vchannelStr = await control.GetAsync($"/tuner{tunerIndex}/vchannel", cancellationToken);
-            var targetStr = await control.GetAsync($"/tuner{tunerIndex}/target", cancellationToken);
+            try
+            {
+                var statusStr = await control.GetAsync($"/tuner{tunerIndex}/status", cancellationToken);
+                var channelStr = await control.GetAsync($"/tuner{tunerIndex}/channel", cancellationToken);
+                var vchannelStr = await control.GetAsync($"/tuner{tunerIndex}/vchannel", cancellationToken);
+                var targetStr = await control.GetAsync($"/tuner{tunerIndex}/target", cancellationToken);
 
-            var nativeStatus = TunerStatus.Parse(tunerIndex, statusStr, channelStr, vchannelStr, targetStr);
-            return nativeStatus.BitsPerSecond == 0 && httpStatus?.NetworkRate is > 0
-                ? nativeStatus with { BitsPerSecond = (long)httpStatus.NetworkRate.Value * 8 }
-                : nativeStatus;
+                var nativeStatus = TunerStatus.Parse(tunerIndex, statusStr, channelStr, vchannelStr, targetStr);
+                return nativeStatus.BitsPerSecond == 0 && httpStatus?.NetworkRate is > 0
+                    ? nativeStatus with { BitsPerSecond = (long)httpStatus.NetworkRate.Value * 8 }
+                    : nativeStatus;
+            }
+            catch (Exception ex) when (httpStatus != null && ex is HDHomeRunException or IOException or TimeoutException)
+            {
+                _logger.LogDebug(ex, "Native tuner status failed, using successful HTTP status");
+            }
         }
 
         if (httpStatus != null)
