@@ -43,6 +43,7 @@ public partial class WatchTest : IAsyncDisposable
     private readonly CancellationTokenSource _lifetimeCancellation = new();
     private CancellationTokenSource? _runCancellation;
     private TaskCompletionSource<CmafTestPlayerResult>? _pendingPlayerResult;
+    private string? _pendingStartId;
     private CmafCapabilityTestCase? _currentCase;
     private DotNetObjectReference<WatchTest>? _dotNetReference;
     private string? _errorMessage;
@@ -98,7 +99,15 @@ public partial class WatchTest : IAsyncDisposable
         var pendingPlayerResult = _pendingPlayerResult;
         try
         {
-            var playerResult = await JS.InvokeAsync<CmafTestPlayerResult>("initCmafTestPlayer", "cmafTestVideoPlayer", _session.ManifestUrl, _session.VideoCodec, _session.AudioCodec, _session.SubtitleUrl, _dotNetReference);
+            var playerResult = await JS.InvokeAsync<CmafTestPlayerResult>(
+                "initCmafTestPlayer",
+                "cmafTestVideoPlayer",
+                _session.ManifestUrl,
+                _session.VideoCodec,
+                _session.AudioCodec,
+                _session.SubtitleUrl,
+                _dotNetReference,
+                initializingSessionId);
             if (!string.Equals(_session?.SessionId, initializingSessionId, StringComparison.Ordinal))
             {
                 return;
@@ -149,8 +158,13 @@ public partial class WatchTest : IAsyncDisposable
                 ChannelLayout = _channelLayout,
                 SubtitleMode = _subtitleMode
             });
-            _session = await JS.InvokeAsync<CmafCompatibilityTestResponse>("startCmafSession", startUrl);
-            _needsPlayerInit = true;
+            if (await StartSessionAsync(startUrl, _lifetimeCancellation.Token) is not null)
+            {
+                _needsPlayerInit = true;
+            }
+        }
+        catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
+        {
         }
         catch (JSException ex)
         {
@@ -376,7 +390,11 @@ public partial class WatchTest : IAsyncDisposable
         _playerResult = null;
         var pendingPlayerResult = new TaskCompletionSource<CmafTestPlayerResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         _pendingPlayerResult = pendingPlayerResult;
-        _session = await JS.InvokeAsync<CmafCompatibilityTestResponse>("startCmafSession", cancellationToken, BuildStartUrl(test.Request));
+        _session = await StartSessionAsync(BuildStartUrl(test.Request), cancellationToken);
+        if (_session is null)
+        {
+            throw new OperationCanceledException(cancellationToken);
+        }
         _needsPlayerInit = true;
         await InvokeAsync(StateHasChanged);
         try
@@ -401,6 +419,56 @@ public partial class WatchTest : IAsyncDisposable
         $"&audioCodec={Uri.EscapeDataString(request.AudioCodec.ToString())}" +
         $"&channelLayout={Uri.EscapeDataString(request.ChannelLayout.ToString())}" +
         $"&subtitleMode={Uri.EscapeDataString(request.SubtitleMode.ToString())}";
+
+    private async Task<CmafCompatibilityTestResponse?> StartSessionAsync(string startUrl, CancellationToken cancellationToken)
+    {
+        var startupId = Guid.NewGuid().ToString("N");
+        _pendingStartId = startupId;
+        using var cancellationRegistration = cancellationToken.Register(() => _ = InvokeAsync(() => CancelPendingStartAsync(startupId)));
+        try
+        {
+            var startedSession = await JS.InvokeAsync<CmafCompatibilityTestResponse>("startCmafSession", startUrl, null, startupId);
+            if (_isDisposed || cancellationToken.IsCancellationRequested || !string.Equals(_pendingStartId, startupId, StringComparison.Ordinal))
+            {
+                await StopCmafSessionAsync(startedSession);
+                cancellationToken.ThrowIfCancellationRequested();
+                return null;
+            }
+
+            _pendingStartId = null;
+            _session = startedSession;
+            return startedSession;
+        }
+        catch (JSException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(cancellationToken);
+        }
+        finally
+        {
+            if (string.Equals(_pendingStartId, startupId, StringComparison.Ordinal))
+            {
+                _pendingStartId = null;
+            }
+        }
+    }
+
+    private async Task CancelPendingStartAsync(string startupId)
+    {
+        if (!string.Equals(_pendingStartId, startupId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _pendingStartId = null;
+        try
+        {
+            await JS.InvokeVoidAsync("cancelCmafStart", startupId);
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or InvalidOperationException)
+        {
+            Logger.LogDebug(ex, "Watch Test browser session was already disconnected while cancelling startup");
+        }
+    }
 
     private static bool IsCaseSuccessful(CmafCapabilityTestCase test, CmafTestPlayerResult result, CmafCompatibilityTestResponse? session)
     {
@@ -427,23 +495,26 @@ public partial class WatchTest : IAsyncDisposable
 
     private async Task StopSessionAsync(bool clearPlayerResult = true)
     {
-        var sessionId = _session?.SessionId;
+        var startupId = _pendingStartId;
+        _pendingStartId = null;
+        var session = _session;
+        _session = null;
         try
         {
+            if (startupId is not null)
+            {
+                await JS.InvokeVoidAsync("cancelCmafStart", startupId);
+            }
             await JS.InvokeVoidAsync("stopMediaPlayer", "cmafTestVideoPlayer");
         }
         finally
         {
             try
             {
-                if (sessionId is not null)
-                {
-                    await JS.InvokeVoidAsync("stopCmafSession", sessionId);
-                }
+                await StopCmafSessionAsync(session);
             }
             finally
             {
-                _session = null;
                 if (clearPlayerResult)
                 {
                     _playerResult = null;
@@ -453,10 +524,23 @@ public partial class WatchTest : IAsyncDisposable
         }
     }
 
+    private async Task StopCmafSessionAsync(CmafCompatibilityTestResponse? session)
+    {
+        if (session is not null)
+        {
+            await JS.InvokeVoidAsync("stopCmafSession", session.SessionId);
+        }
+    }
+
     /// <summary>Records a Shaka playback error without applying any fallback.</summary>
     [JSInvokable]
     public Task OnCmafTestPlayerError(CmafTestRuntimeError error)
     {
+        if (!string.Equals(error.SessionId, _session?.SessionId, StringComparison.Ordinal))
+        {
+            return Task.CompletedTask;
+        }
+
         _runtimeError = error;
         _errorMessage = FormatRuntimeError(error);
         if (_playerResult is not null || _pendingPlayerResult is not null)
@@ -606,7 +690,7 @@ public partial class WatchTest : IAsyncDisposable
     public sealed record CmafTestPlayerVideo(string? Codec, int? Width, int? Height);
 
     /// <summary>Describes an asynchronous Shaka playback error.</summary>
-    public sealed record CmafTestRuntimeError(string Message, int? ErrorCode = null, JsonElement? Details = null);
+    public sealed record CmafTestRuntimeError(string SessionId, string Message, int? ErrorCode = null, JsonElement? Details = null);
 
     /// <summary>Describes the exact no-fallback Shaka playback result.</summary>
     public sealed record CmafTestPlayerResult(

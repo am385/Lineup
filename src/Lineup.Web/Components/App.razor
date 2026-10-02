@@ -64,6 +64,7 @@
     window.hlsPlayer = null;
     window.lineupCmafPlayers = new Map();
     window.lineupCmafUis = new Map();
+    window.lineupCmafStarts = new Map();
         
     function isSafari() {
         // Detect Safari browser (the only browser with native HLS support)
@@ -272,7 +273,8 @@
             sourceVideoCodec,
             fallbackAudioCodec,
             subtitles,
-            dotNetReference) {
+            dotNetReference,
+            sessionId) {
             await stopMediaPlayer(videoElementId);
 
             const video = document.getElementById(videoElementId);
@@ -335,8 +337,8 @@
                 : null;
             const fallbackAudioSupported = supportsMediaSourceType(codecMimeTypes[fallbackAudioCodec] || null);
             const report = (kind, message, details = null) => {
-                if (dotNetReference) {
-                    void dotNetReference.invokeMethodAsync('OnCmafPlayerEvent', { kind, message, details });
+                if (dotNetReference && isCurrentPlayer()) {
+                    void dotNetReference.invokeMethodAsync('OnCmafPlayerEvent', { kind, message, details, sessionId });
                 }
             };
             let sessionUnavailable = false;
@@ -345,8 +347,8 @@
                     return;
                 }
                 sessionUnavailable = true;
-                void stopMediaPlayer(videoElementId).then(
-                    () => report('error', 'The stream session is no longer available.', details));
+                report('error', 'The stream session is no longer available.', details);
+                void stopMediaPlayer(videoElementId);
             };
             const isSourceVideo = track =>
                 hasSourceVideoRendition &&
@@ -582,7 +584,7 @@
             return `${navigator.userAgent}|${navigator.platform || ''}`;
         }
 
-        async function initCmafTestPlayer(videoElementId, manifestUrl, expectedVideoCodec, expectedAudioCodec, subtitleUrl, dotNetReference) {
+        async function initCmafTestPlayer(videoElementId, manifestUrl, expectedVideoCodec, expectedAudioCodec, subtitleUrl, dotNetReference, sessionId) {
             await stopMediaPlayer(videoElementId);
             const video = document.getElementById(videoElementId);
             if (!video) {
@@ -618,6 +620,7 @@
             player.addEventListener('error', event => {
                 const error = event.detail || null;
                 const runtimeError = {
+                    sessionId,
                     message: error?.message || 'CMAF compatibility playback failed.',
                     errorCode: error?.code || null,
                     details: error ? {
@@ -735,22 +738,41 @@
             }
         }
 
-        async function startCmafSession(startUrl, requestBody) {
-            const options = { method: 'POST', cache: 'no-store' };
+        async function startCmafSession(startUrl, requestBody, startupId) {
+            const controller = new AbortController();
+            if (startupId) {
+                window.lineupCmafStarts.set(startupId, controller);
+            }
+            const options = { method: 'POST', cache: 'no-store', signal: controller.signal };
             if (requestBody !== undefined && requestBody !== null) {
                 options.headers = { 'Content-Type': 'application/json' };
                 options.body = JSON.stringify(requestBody);
             }
-            const response = await fetch(startUrl, options);
-            const body = await response.json().catch(() => null);
-            if (!response.ok) {
-                const message = body?.error || `Unable to start CMAF playback (${response.status}).`;
-                const codePrefix = body?.code && !message.startsWith(`${body.code} `)
-                    ? `${body.code} `
-                    : '';
-                throw new Error(`${codePrefix}${message}`);
+            try {
+                const response = await fetch(startUrl, options);
+                const body = await response.json().catch(() => null);
+                if (!response.ok) {
+                    const message = body?.error || `Unable to start CMAF playback (${response.status}).`;
+                    const codePrefix = body?.code && !message.startsWith(`${body.code} `)
+                        ? `${body.code} `
+                        : '';
+                    throw new Error(`${codePrefix}${message}`);
+                }
+                return body;
+            } finally {
+                if (startupId && window.lineupCmafStarts.get(startupId) === controller) {
+                    window.lineupCmafStarts.delete(startupId);
+                }
             }
-            return body;
+        }
+
+        function cancelCmafStart(startupId) {
+            const controller = startupId ? window.lineupCmafStarts.get(startupId) : null;
+            if (!controller) {
+                return;
+            }
+            window.lineupCmafStarts.delete(startupId);
+            controller.abort();
         }
 
         async function stopCmafSession(sessionId) {

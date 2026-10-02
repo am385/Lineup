@@ -81,7 +81,7 @@ public sealed class ApiRequestLoggingMiddleware
             return true;
         }
 
-        return context.Request.Path.StartsWithSegments("/api/stream/hls", out var remaining) &&
+        return context.Request.Path.StartsWithSegments("/api/stream/cmaf", out var remaining) &&
                remaining.Value?.Split('/', StringSplitOptions.RemoveEmptyEntries).Length >= 2;
     }
 

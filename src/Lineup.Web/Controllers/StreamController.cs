@@ -390,14 +390,6 @@ public class StreamController : ControllerBase
     }
 
     /// <summary>
-    /// Starts a compatibility HLS request backed by the shared CMAF presentation.
-    /// </summary>
-    /// <param name="channel">The virtual channel.</param>
-    /// <returns>The session and both manifest URLs.</returns>
-    [HttpPost("hls/start/{channel}")]
-    public Task<IActionResult> StartHlsStream(string channel) => StartCmafStreamCore(channel, new CmafStreamRequest { PreferredAudio = CmafPreferredAudio.Fallback });
-
-    /// <summary>
     /// Starts an exact single-rendition synthetic CMAF browser compatibility test.
     /// </summary>
     /// <param name="request">The codec, layout, quality, and protocol selection.</param>
@@ -842,7 +834,7 @@ public class StreamController : ControllerBase
                     var baseUrl = $"/api/stream/cmaf/{sessionId}";
                     var hlsUrl = $"{baseUrl}/{CmafStreamPlanner.HlsManifestName}";
                     var packagedFallback = session.AudioRenditions.FirstOrDefault(rendition => !rendition.Plan.CopySource)?.Plan;
-                    return Ok(new CmafStreamResponse(sessionId, hlsUrl, $"/api/stream/hls/{sessionId}/{CmafStreamPlanner.HlsManifestName}", $"{baseUrl}/{CmafStreamPlanner.DashManifestName}")
+                    return Ok(new CmafStreamResponse(sessionId, hlsUrl, $"{baseUrl}/{CmafStreamPlanner.DashManifestName}")
                     {
                         SourceAudioFallbackApplied = sourceAudioFallbackApplied,
                         FallbackAudioTitle = packagedFallback?.Title,
@@ -894,7 +886,6 @@ public class StreamController : ControllerBase
     /// <summary>
     /// Serves contained shared CMAF manifests, fragments, and subtitle artifacts.
     /// </summary>
-    [HttpGet("hls/{sessionId}/{filename}")]
     [HttpGet("cmaf/{sessionId}/{filename}")]
     public IActionResult GetCmafFile(string sessionId, string filename, [FromQuery] long offset = 0)
     {
@@ -1095,7 +1086,6 @@ public class StreamController : ControllerBase
     /// <summary>
     /// Stops a shared CMAF stream session.
     /// </summary>
-    [HttpPost("hls/stop/{sessionId}")]
     [HttpPost("cmaf/stop/{sessionId}")]
     public IActionResult StopCmaf(string sessionId)
     {
@@ -1107,10 +1097,9 @@ public class StreamController : ControllerBase
     }
 
     /// <summary>
-    /// Lists active shared CMAF sessions through the legacy HLS compatibility route.
+    /// Lists active shared CMAF sessions.
     /// </summary>
     [HttpGet("cmaf/sessions")]
-    [HttpGet("hls/sessions")]
     public IActionResult GetCmafSessions()
     {
         var sessions = _cmafSessions.Values.Select(s => new

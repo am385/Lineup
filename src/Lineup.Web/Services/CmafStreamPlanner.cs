@@ -152,15 +152,11 @@ public sealed record CmafStreamRequest
 /// </summary>
 /// <param name="SessionId">The stream session identifier.</param>
 /// <param name="HlsManifestUrl">The shared HLS master-playlist URL.</param>
-/// <param name="HlsCompatibilityManifestUrl">The compatibility alias for the HLS master playlist.</param>
 /// <param name="DashManifestUrl">The DASH MPD URL.</param>
-public sealed record CmafStreamResponse(string SessionId, string HlsManifestUrl, string HlsCompatibilityManifestUrl, string DashManifestUrl)
+public sealed record CmafStreamResponse(string SessionId, string HlsManifestUrl, string DashManifestUrl)
 {
     /// <summary>Gets the protocols backed by the shared fragments.</summary>
     public IReadOnlyList<CmafProtocol> Protocols { get; init; } = [CmafProtocol.Dash, CmafProtocol.Hls];
-
-    /// <summary>Gets the legacy HLS response property retained for compatibility.</summary>
-    public string PlaylistUrl => HlsManifestUrl;
 
     /// <summary>Gets whether an unsupported source-audio MP4 tag required a fallback-only startup retry.</summary>
     public bool SourceAudioFallbackApplied { get; init; }

@@ -301,8 +301,8 @@ captions menu can offer all of them without restarting the shared session. The p
 subtitle selector lists only bitmap burn-in choices. Text conversion is inexpensive; embedded-caption extraction adds one moderate
 fixed decode/demux workload per session. Bitmap subtitles remain explicit burn-in choices because each simultaneous bitmap rendition
 would require another video encode.
-Captions that the tuner and FFmpeg do not expose or detect remain unavailable. The canonical API is under `/api/stream/cmaf`; existing
-`/api/stream/hls` routes remain compatibility aliases backed by the same CMAF session.
+Captions that the tuner and FFmpeg do not expose or detect remain unavailable. Shared DASH and HLS presentations are served through the
+canonical `/api/stream/cmaf` API.
 
 **Watch Test** at `/watch-test` keeps its manual, tuner-free exact-presentation player and adds an explicit **Run All**
 compatibility suite. The suite measures DASH and HLS, H.264, HEVC Main and Main 10, AAC through 7.1, AC-3/E-AC-3 through 5.1,

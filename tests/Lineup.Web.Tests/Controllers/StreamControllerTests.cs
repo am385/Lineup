@@ -132,7 +132,7 @@ public class StreamControllerTests
         var controller = CreateDisabledChannelController(store, DisabledChannelMode.ReturnError, capacity, Substitute.For<IProtectedContentSlateService>());
 
         // Act
-        var result = await controller.StartHlsStream("9.1");
+        var result = await controller.StartCmafStream("9.1", new CmafStreamRequest());
 
         // Assert
         Assert.Equal(StatusCodes.Status403Forbidden, Assert.IsType<ObjectResult>(result).StatusCode);
@@ -187,10 +187,10 @@ public class StreamControllerTests
     }
 
     /// <summary>
-    /// Verifies a disabled CMAF slate requested through the HLS compatibility route is rejected before its FFmpeg process or tuner capacity starts.
+    /// Verifies a disabled CMAF slate is rejected before its FFmpeg process or tuner capacity starts.
     /// </summary>
     [Fact]
-    public async Task StartHlsStream_DisabledChannelAtStreamLimit_ReturnsTooManyRequestsWithoutStartingSlate()
+    public async Task StartCmafStream_DisabledChannelAtStreamLimit_ReturnsTooManyRequestsWithoutStartingSlate()
     {
         // Arrange
         var store = await CreateDisabledChannelStoreAsync("9.1");
@@ -202,7 +202,7 @@ public class StreamControllerTests
         var controller = CreateDisabledChannelController(store, DisabledChannelMode.StreamSlate, capacity, slate, activeStreams, maximumConcurrentStreams: 1);
 
         // Act
-        var result = await controller.StartHlsStream("9.1");
+        var result = await controller.StartCmafStream("9.1", new CmafStreamRequest());
 
         // Assert
         var rejected = Assert.IsType<ObjectResult>(result);
@@ -213,10 +213,10 @@ public class StreamControllerTests
     }
 
     /// <summary>
-    /// Verifies a stop request during CMAF admission prevents slate startup without aborting the completed HLS compatibility request context.
+    /// Verifies a stop request during CMAF admission prevents slate startup without aborting the completed request context.
     /// </summary>
     [Fact]
-    public async Task StartHlsStream_DisabledChannelStoppedDuringAdmission_DoesNotStartSlate()
+    public async Task StartCmafStream_DisabledChannelStoppedDuringAdmission_DoesNotStartSlate()
     {
         // Arrange
         var store = await CreateDisabledChannelStoreAsync("9.1");
@@ -234,7 +234,7 @@ public class StreamControllerTests
         controller.HttpContext.Features.Set<IHttpRequestLifetimeFeature>(lifetime);
 
         // Act
-        var result = await controller.StartHlsStream("9.1");
+        var result = await controller.StartCmafStream("9.1", new CmafStreamRequest());
 
         // Assert
         Assert.IsType<EmptyResult>(result);

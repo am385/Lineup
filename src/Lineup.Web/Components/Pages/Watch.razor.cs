@@ -52,6 +52,7 @@ public partial class Watch : IAsyncDisposable
     public string? ChannelNumber { get; set; }
 
     private readonly string _clientId = Guid.NewGuid().ToString("N");
+    private readonly SemaphoreSlim _stopGate = new(1, 1);
     private List<HDHomeRunChannelEpgSegment> _channels = [];
     private List<HDHomeRunProgram> _programs = [];
     private HDHomeRunChannelEpgSegment? _selectedChannel;
@@ -69,6 +70,7 @@ public partial class Watch : IAsyncDisposable
     private string? _pendingRouteChannelNumber;
     private string _manualChannelNumber = string.Empty;
     private string? _manualTuneValidationMessage;
+    private string? _pendingStartId;
     private string _effectiveProtocol = "Waiting";
     private CmafPlaybackProtocol _protocol = CmafPlaybackProtocol.Auto;
     private WebPlayerQuality _quality = WebPlayerQuality.AppDefault;
@@ -97,6 +99,7 @@ public partial class Watch : IAsyncDisposable
     private bool _isStopping;
     private bool _isPlayerLoading;
     private bool _disposed;
+    private long _playbackGeneration;
     private DateTime _lastTunerRefreshRequestUtc = DateTime.MinValue;
     private TunerStatus? SelectedTuner => DeviceState.TunerStatuses.FirstOrDefault(tuner => string.Equals(tuner.VirtualChannel, _selectedChannelNumber, StringComparison.Ordinal));
     private string OverrideProtocolValue => _streamOverrides.Enabled ? _streamOverrides.Protocol?.ToString() ?? string.Empty : _protocol.ToString();
@@ -124,12 +127,7 @@ public partial class Watch : IAsyncDisposable
 
         _lastRouteChannelNumber = ChannelNumber;
         _pendingRouteChannelNumber = ChannelNumber;
-        if (_preferencesRestored && !string.IsNullOrWhiteSpace(ChannelNumber))
-        {
-            var channel = _channels.FirstOrDefault(candidate => string.Equals(candidate.GuideNumber, ChannelNumber, StringComparison.Ordinal));
-            _pendingRouteChannelNumber = null;
-            await TuneChannelAsync(ChannelNumber, channel);
-        }
+        await ProcessPendingRouteAsync();
     }
 
     /// <summary>Restores preferences and initializes Shaka after the video element is rendered.</summary>
@@ -141,12 +139,8 @@ public partial class Watch : IAsyncDisposable
             await RestorePreferencesAsync();
             _preferencesRestored = true;
             StateHasChanged();
-            if (!string.IsNullOrWhiteSpace(_pendingRouteChannelNumber))
+            if (await ProcessPendingRouteAsync())
             {
-                var channelNumber = _pendingRouteChannelNumber;
-                var channel = _channels.FirstOrDefault(candidate => string.Equals(candidate.GuideNumber, channelNumber, StringComparison.Ordinal));
-                _pendingRouteChannelNumber = null;
-                await TuneChannelAsync(channelNumber, channel);
                 StateHasChanged();
                 return;
             }
@@ -174,7 +168,8 @@ public partial class Watch : IAsyncDisposable
                 initializingSession.SourceVideoCodec,
                 initializingSession.FallbackAudioCodec,
                 initializingSession.Subtitles ?? [],
-                _dotNetReference);
+                _dotNetReference,
+                initializingSession.SessionId);
             if (!string.Equals(_session?.SessionId, initializingSession.SessionId, StringComparison.Ordinal))
             {
                 return;
@@ -244,6 +239,11 @@ public partial class Watch : IAsyncDisposable
     [JSInvokable]
     public async Task OnCmafPlayerEvent(CmafPlayerEvent playerEvent)
     {
+        if (!string.Equals(playerEvent.SessionId, _session?.SessionId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
         if (string.Equals(playerEvent.Kind, "audio-track-changed", StringComparison.Ordinal))
         {
             _playerAudio = CmafPlayerAudio.FromDetails(playerEvent.Details);
@@ -365,10 +365,20 @@ public partial class Watch : IAsyncDisposable
         _isPlayerLoading = true;
         _errorMessage = null;
         StateHasChanged();
+        var generation = 0L;
+        string? startupId = null;
         try
         {
             var changed = !string.Equals(_selectedChannelNumber, normalized, StringComparison.Ordinal);
             await StopStreamAsync(preserveLoadingIndicator: true);
+            if (_disposed)
+            {
+                return;
+            }
+
+            generation = Interlocked.Increment(ref _playbackGeneration);
+            startupId = Guid.NewGuid().ToString("N");
+            _pendingStartId = startupId;
             if (changed)
             {
                 _audioTrack = null;
@@ -394,15 +404,24 @@ public partial class Watch : IAsyncDisposable
                 (_streamOverrides.Enabled && _streamOverrides.Audio.HasValue
                     ? _streamOverrides.Audio.Value
                     : useMeasuredProfile ? CmafPreferredAudio.Auto : _preferredAudio);
-            _session = _compatibilityProfile is null && !_streamOverrides.Enabled
-                ? await JS.InvokeAsync<CmafStartResponse>("startCmafSession", BuildStartUrl(normalized))
+            var startedSession = _compatibilityProfile is null && !_streamOverrides.Enabled
+                ? await JS.InvokeAsync<CmafStartResponse>("startCmafSession", BuildStartUrl(normalized), null, startupId)
                 : await JS.InvokeAsync<CmafStartResponse>(
                     "startCmafSession",
                     $"/api/stream/cmaf/start-v2/{Uri.EscapeDataString(normalized)}",
-                    BuildStartRequest());
-            if (_session.SourceAudioFallbackApplied)
+                    BuildStartRequest(),
+                    startupId);
+            if (_disposed || generation != Volatile.Read(ref _playbackGeneration) || !string.Equals(_pendingStartId, startupId, StringComparison.Ordinal))
             {
-                Notifications.ShowError($"Source audio cannot be packaged by this FFmpeg build. Using {_session.FallbackAudioTitle ?? "fallback audio"} for this stream.");
+                await StopCmafSessionAsync(startedSession);
+                return;
+            }
+
+            _pendingStartId = null;
+            _session = startedSession;
+            if (startedSession.SourceAudioFallbackApplied)
+            {
+                Notifications.ShowError($"Source audio cannot be packaged by this FFmpeg build. Using {startedSession.FallbackAudioTitle ?? "fallback audio"} for this stream.");
             }
             _isPlaying = true;
             _sessionUsesBurnIn = _subtitlePresentation == SubtitlePresentation.BurnIn;
@@ -412,14 +431,38 @@ public partial class Watch : IAsyncDisposable
         }
         catch (JSException ex)
         {
+            if (_disposed || generation != Volatile.Read(ref _playbackGeneration))
+            {
+                return;
+            }
+
             _isPlayerLoading = false;
             _errorMessage = ex.Message;
             Notifications.ShowError($"Unable to start CMAF playback: {ex.Message}");
         }
         finally
         {
+            if (string.Equals(_pendingStartId, startupId, StringComparison.Ordinal))
+            {
+                _pendingStartId = null;
+            }
             _isStarting = false;
+            await ProcessPendingRouteAsync();
         }
+    }
+
+    private async Task<bool> ProcessPendingRouteAsync()
+    {
+        if (_disposed || _isStarting || !_preferencesRestored || string.IsNullOrWhiteSpace(_pendingRouteChannelNumber))
+        {
+            return false;
+        }
+
+        var channelNumber = _pendingRouteChannelNumber;
+        _pendingRouteChannelNumber = null;
+        var channel = _channels.FirstOrDefault(candidate => string.Equals(candidate.GuideNumber, channelNumber, StringComparison.Ordinal));
+        await TuneChannelAsync(channelNumber, channel);
+        return true;
     }
 
     private string BuildStartUrl(string channelNumber)
@@ -607,11 +650,25 @@ public partial class Watch : IAsyncDisposable
 
     private async Task StopStreamAsync(bool preserveLoadingIndicator)
     {
-        if (_isStopping)
+        Interlocked.Increment(ref _playbackGeneration);
+        var startupId = _pendingStartId;
+        _pendingStartId = null;
+        var session = _session;
+        _session = null;
+        _isPlaying = false;
+        _needsPlayerInit = false;
+        _activeStream = null;
+        _playerAudio = null;
+        _playerVideo = null;
+        _sessionUsesBurnIn = false;
+        if (!preserveLoadingIndicator)
         {
-            return;
+            _isPlayerLoading = false;
         }
+        _streamInfoTimer?.Dispose();
+        _streamInfoTimer = null;
 
+        await _stopGate.WaitAsync();
         _isStopping = true;
         try
         {
@@ -619,11 +676,12 @@ public partial class Watch : IAsyncDisposable
             {
                 try
                 {
-                    await JS.InvokeVoidAsync("stopMediaPlayer", "cmafVideoPlayer");
-                    if (_session is not null)
+                    if (startupId is not null)
                     {
-                        await JS.InvokeVoidAsync("stopCmafSession", _session.SessionId);
+                        await JS.InvokeVoidAsync("cancelCmafStart", startupId);
                     }
+                    await JS.InvokeVoidAsync("stopMediaPlayer", "cmafVideoPlayer");
+                    await StopCmafSessionAsync(session);
                 }
                 catch (Exception ex) when (ex is JSDisconnectedException or ObjectDisposedException)
                 {
@@ -631,24 +689,19 @@ public partial class Watch : IAsyncDisposable
                 }
             }
             ActiveStreamRegistry.RequestStopByClientId(_clientId);
-
-            _session = null;
-            _isPlaying = false;
-            _needsPlayerInit = false;
-            _activeStream = null;
-            _playerAudio = null;
-            _playerVideo = null;
-            _sessionUsesBurnIn = false;
-            if (!preserveLoadingIndicator)
-            {
-                _isPlayerLoading = false;
-            }
-            _streamInfoTimer?.Dispose();
-            _streamInfoTimer = null;
         }
         finally
         {
             _isStopping = false;
+            _stopGate.Release();
+        }
+    }
+
+    private async Task StopCmafSessionAsync(CmafStartResponse? session)
+    {
+        if (_isJsInteropReady && session is not null)
+        {
+            await JS.InvokeVoidAsync("stopCmafSession", session.SessionId);
         }
     }
 
@@ -968,7 +1021,7 @@ public partial class Watch : IAsyncDisposable
 
     private void OnActiveStreamStopRequested(ActiveStreamSnapshot stream)
     {
-        if (!_disposed && string.Equals(stream.ClientId, _clientId, StringComparison.Ordinal))
+        if (!_disposed && !_isStopping && string.Equals(stream.ClientId, _clientId, StringComparison.Ordinal))
         {
             _ = InvokeAsync(async () =>
             {
@@ -992,7 +1045,6 @@ public partial class Watch : IAsyncDisposable
     /// <summary>Describes a started shared CMAF presentation returned by the streaming API.</summary>
     /// <param name="SessionId">The server session identifier.</param>
     /// <param name="HlsManifestUrl">The canonical HLS master-playlist URL.</param>
-    /// <param name="HlsCompatibilityManifestUrl">The compatibility HLS master-playlist URL.</param>
     /// <param name="DashManifestUrl">The DASH manifest URL.</param>
     /// <param name="SourceAudioFallbackApplied">Whether startup retried with only the configured fallback rendition.</param>
     /// <param name="FallbackAudioTitle">The configured fallback rendition title.</param>
@@ -1003,7 +1055,6 @@ public partial class Watch : IAsyncDisposable
     public sealed record CmafStartResponse(
         string SessionId,
         string HlsManifestUrl,
-        string HlsCompatibilityManifestUrl,
         string DashManifestUrl,
         bool SourceAudioFallbackApplied = false,
         string? FallbackAudioTitle = null,
@@ -1095,5 +1146,6 @@ public partial class Watch : IAsyncDisposable
     /// <param name="Kind">The event category.</param>
     /// <param name="Message">The user-facing event message.</param>
     /// <param name="Details">Optional structured player details.</param>
-    public sealed record CmafPlayerEvent(string Kind, string Message, JsonElement? Details);
+    /// <param name="SessionId">The server session that owns the player event.</param>
+    public sealed record CmafPlayerEvent(string Kind, string Message, JsonElement? Details, string SessionId);
 }

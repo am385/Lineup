@@ -28,11 +28,16 @@ public class WatchTestTests
         Assert.NotNull(pendingField);
         var pending = new TaskCompletionSource<WatchTest.CmafTestPlayerResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         pendingField.SetValue(component.Instance, pending);
+        var sessionField = typeof(WatchTest).GetField("_session", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(sessionField);
+        sessionField.SetValue(
+            component.Instance,
+            new CmafCompatibilityTestResponse("test-1", "/api/stream/cmaf/test-1/manifest.mpd", "avc1.64002a", "mp4a.40.2", 2, 1920, 1080));
         using var details = JsonDocument.Parse("""{"severity":2,"category":4,"code":4032}""");
 
         // Act
         await component.InvokeAsync(() => component.Instance.OnCmafTestPlayerError(
-            new("Decoder failed after playback started.", 4032, details.RootElement.Clone())));
+            new("test-1", "Decoder failed after playback started.", 4032, details.RootElement.Clone())));
         var result = await pending.Task.WaitAsync(Xunit.TestContext.Current.CancellationToken);
 
         // Assert
@@ -41,6 +46,34 @@ public class WatchTestTests
         Assert.Equal("Decoder failed after playback started.", result.Error);
         Assert.Equal(4032, result.ErrorCode);
         Assert.Equal(4032, result.ErrorDetails?.GetProperty("code").GetInt32());
+    }
+
+    /// <summary>
+    /// Verifies an error queued by a superseded compatibility player cannot fail the current case.
+    /// </summary>
+    [Fact]
+    public async Task OnCmafTestPlayerError_FromSupersededSession_DoesNotFailCurrentCase()
+    {
+        // Arrange
+        using var context = CreateContext();
+        var component = context.Render<WatchTest>();
+        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal));
+        var pendingField = typeof(WatchTest).GetField("_pendingPlayerResult", BindingFlags.Instance | BindingFlags.NonPublic);
+        var sessionField = typeof(WatchTest).GetField("_session", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(pendingField);
+        Assert.NotNull(sessionField);
+        var pending = new TaskCompletionSource<WatchTest.CmafTestPlayerResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        pendingField.SetValue(component.Instance, pending);
+        sessionField.SetValue(
+            component.Instance,
+            new CmafCompatibilityTestResponse("test-2", "/api/stream/cmaf/test-2/manifest.mpd", "avc1.64002a", "mp4a.40.2", 2, 1920, 1080));
+
+        // Act
+        await component.InvokeAsync(() => component.Instance.OnCmafTestPlayerError(new("test-1", "Stale decoder failure.", 4032)));
+
+        // Assert
+        Assert.False(pending.Task.IsCompleted);
+        Assert.DoesNotContain("Stale decoder failure.", component.Markup, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -390,6 +423,85 @@ public class WatchTestTests
             Assert.True(component.Find("#startManualCompatibilityTest").HasAttribute("disabled"));
             Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession");
         });
+    }
+
+    /// <summary>
+    /// Verifies cancelling the complete suite aborts its pending start and cleans up a session that still returns.
+    /// </summary>
+    [Fact]
+    public async Task CancelRun_DuringPendingStart_CancelsAndStopsLateSession()
+    {
+        // Arrange
+        using var context = CreateContext();
+        var start = context.JSInterop.Setup<CmafCompatibilityTestResponse>("startCmafSession", _ => true);
+        context.JSInterop.SetupVoid("stopCmafSession", "late-session").SetVoidResult();
+        var component = context.Render<WatchTest>();
+        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal));
+        var runAll = typeof(WatchTest).GetMethod("RunAllAsync", BindingFlags.Instance | BindingFlags.NonPublic);
+        var cancelRun = typeof(WatchTest).GetMethod("CancelRun", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(runAll);
+        Assert.NotNull(cancelRun);
+        Task runTask = null!;
+        await component.InvokeAsync(() =>
+        {
+            runTask = Assert.IsAssignableFrom<Task>(runAll.Invoke(component.Instance, null));
+        });
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession"));
+        var startInvocation = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession");
+        var startupId = Assert.IsType<string>(startInvocation.Arguments[2]);
+
+        // Act
+        await component.InvokeAsync(() => cancelRun.Invoke(component.Instance, null));
+        component.WaitForAssertion(() => Assert.Contains(
+            context.JSInterop.Invocations,
+            invocation => invocation.Identifier == "cancelCmafStart" && Equals(invocation.Arguments[0], startupId)));
+        start.SetResult(new("late-session", "/api/stream/cmaf/late-session/manifest.mpd", "avc1.64002a", "mp4a.40.2", 2, 1920, 1080));
+        await runTask.WaitAsync(TimeSpan.FromSeconds(1), Xunit.TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Contains(
+            context.JSInterop.Invocations,
+            invocation => invocation.Identifier == "stopCmafSession" && Equals(invocation.Arguments[0], "late-session"));
+        Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafTestPlayer");
+    }
+
+    /// <summary>
+    /// Verifies disposal aborts a pending start and cleans up a session that still returns.
+    /// </summary>
+    [Fact]
+    public async Task DisposeAsync_DuringPendingStart_CancelsAndStopsLateSession()
+    {
+        // Arrange
+        using var context = CreateContext();
+        var start = context.JSInterop.Setup<CmafCompatibilityTestResponse>("startCmafSession", _ => true);
+        context.JSInterop.SetupVoid("stopCmafSession", "late-session").SetVoidResult();
+        var component = context.Render<WatchTest>();
+        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal));
+        var runSingleCase = typeof(WatchTest).GetMethod("RunSingleCaseAsync", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(runSingleCase);
+        var test = CmafCompatibilityTestCatalog.All.Single(candidate => candidate.Id == "video-h264-1080p");
+        Task runTask = null!;
+        await component.InvokeAsync(() =>
+        {
+            runTask = Assert.IsAssignableFrom<Task>(runSingleCase.Invoke(component.Instance, [test]));
+        });
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession"));
+        var startInvocation = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession");
+        var startupId = Assert.IsType<string>(startInvocation.Arguments[2]);
+
+        // Act
+        await component.Instance.DisposeAsync();
+        start.SetResult(new("late-session", "/api/stream/cmaf/late-session/manifest.mpd", "avc1.64002a", "mp4a.40.2", 2, 1920, 1080));
+        await runTask.WaitAsync(TimeSpan.FromSeconds(1), Xunit.TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Contains(
+            context.JSInterop.Invocations,
+            invocation => invocation.Identifier == "cancelCmafStart" && Equals(invocation.Arguments[0], startupId));
+        Assert.Contains(
+            context.JSInterop.Invocations,
+            invocation => invocation.Identifier == "stopCmafSession" && Equals(invocation.Arguments[0], "late-session"));
+        Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafTestPlayer");
     }
 
     /// <summary>
