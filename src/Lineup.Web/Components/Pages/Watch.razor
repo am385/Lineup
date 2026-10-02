@@ -5,198 +5,175 @@
 <PageTitle>Watch TV</PageTitle>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
-    <h1><span class="bi bi-play-circle me-2"></span>Watch TV</h1>
+    <div>
+        <h1><span class="bi bi-play-circle me-2"></span>Watch TV</h1>
+        <p class="text-muted mb-0">Live TV with adaptive HLS and DASH playback</p>
+    </div>
     <div class="d-flex flex-wrap justify-content-end align-items-center gap-2">
-        <label for="streamQuality" class="form-label mb-0">Quality</label>
-        <select id="streamQuality" class="form-select form-select-sm w-auto" value="@_quality" @onchange="ChangeQuality">
-            <option value="@WebPlayerQuality.AppDefault">App Default</option>
-            <option value="@WebPlayerQuality.High">High</option>
-            <option value="@WebPlayerQuality.Medium">Medium (720p)</option>
-            <option value="@WebPlayerQuality.Low">Low (480p)</option>
-        </select>
-        <label for="audioOutput" class="form-label mb-0">Audio Output</label>
-        <select id="audioOutput" class="form-select form-select-sm w-auto" value="@_audioOutput" @onchange="ChangeAudioOutput">
-            <option value="@WatchAudioOutput.Stereo">Stereo (most compatible)</option>
-            <option value="@WatchAudioOutput.UpTo5Point1">Up to 5.1</option>
-            <option value="@WatchAudioOutput.UpTo7Point1">Up to 7.1</option>
-            <option value="@WatchAudioOutput.Source">Source audio (passthrough)</option>
-        </select>
-        @if (_activeStream?.Tracks.Where(track => track.Type == MediaTrackType.Audio).ToArray() is { Length: > 0 } audioTracks)
+        @if (_preferencesRestored && _compatibilityProfile is null)
         {
-            <label for="audioTrack" class="form-label mb-0">Audio</label>
-            <select id="audioTrack" class="form-select form-select-sm w-auto" value="@_audioTrack" @onchange="ChangeAudioTrack">
-                @foreach (var track in audioTracks)
-                {
-                    <option value="@track.SourceIndex">@FormatTrackLabel(track)</option>
-                }
-            </select>
+            <a id="runCmafCompatibilityTests" class="btn btn-outline-primary btn-sm" href="/watch-test?runAll=true">
+                <span class="bi bi-speedometer2 me-1"></span>Run Compatibility Tests
+            </a>
         }
-        @if (_activeStream?.Tracks.Where(track => track.Type == MediaTrackType.Subtitle).ToArray() is { Length: > 0 } subtitleTracks)
+        <div class="form-check form-switch mb-0">
+            <input id="cmafOverrideStreamSettings" class="form-check-input" type="checkbox" checked="@_streamOverrides.Enabled" @onchange="ChangeOverrideEnabled">
+            <label for="cmafOverrideStreamSettings" class="form-check-label">Override stream settings</label>
+        </div>
+        <div id="cmafOverrideSettings" class="d-flex flex-wrap align-items-center gap-2 @(_streamOverrides.Enabled ? null : "d-none")">
+            <label for="cmafProtocol" class="form-label mb-0">Protocol</label>
+            <select id="cmafProtocol" class="form-select form-select-sm w-auto" value="@OverrideProtocolValue" @onchange="ChangeProtocol">
+                <option value="">Browser profile</option>
+                <option value="@CmafPlaybackProtocol.Hls">HLS</option>
+                <option value="@CmafPlaybackProtocol.Dash">DASH</option>
+            </select>
+            <label for="cmafQuality" class="form-label mb-0">Quality</label>
+            <select id="cmafQuality" class="form-select form-select-sm w-auto" value="@OverrideQualityValue" @onchange="ChangeQuality">
+                <option value="">Browser profile</option>
+                <option value="@WebPlayerQuality.AppDefault">App Default</option>
+                <option value="@WebPlayerQuality.High">High</option>
+                <option value="@WebPlayerQuality.Medium">Medium (720p)</option>
+                <option value="@WebPlayerQuality.Low">Low (480p)</option>
+            </select>
+            <label for="cmafPreferredVideo" class="form-label mb-0">Preferred Video</label>
+            <select id="cmafPreferredVideo" class="form-select form-select-sm w-auto" value="@OverrideVideoValue" @onchange="ChangePreferredVideo">
+                <option value="">Browser profile</option>
+                <option value="@CmafPreferredVideo.Source">Source</option>
+                <option value="@CmafPreferredVideo.Fallback">H.264 Fallback</option>
+            </select>
+            <label for="cmafPreferredAudio" class="form-label mb-0">Preferred Audio</label>
+            <select id="cmafPreferredAudio" class="form-select form-select-sm w-auto" value="@OverrideAudioValue" @onchange="ChangePreferredAudio">
+                <option value="">Browser profile</option>
+                <option value="@CmafPreferredAudio.Source">Source</option>
+                <option value="@CmafPreferredAudio.Fallback">Fallback</option>
+            </select>
+            <label for="cmafFallbackAudio" class="form-label mb-0">Fallback Audio</label>
+            <select id="cmafFallbackAudio" class="form-select form-select-sm w-auto" value="@OverrideFallbackAudioValue" @onchange="ChangeFallbackAudio">
+                <option value="">Browser profile</option>
+                <option value="@CmafFallbackAudio.Eac3">EAC3</option>
+                <option value="@CmafFallbackAudio.Ac3">AC3</option>
+                <option value="@CmafFallbackAudio.AacUpTo7Point1">AAC up to 7.1</option>
+                <option value="@CmafFallbackAudio.AacUpTo5Point1">AAC up to 5.1</option>
+                <option value="@CmafFallbackAudio.AacStereo">AAC Stereo</option>
+            </select>
+        </div>
+        @if (_activeStream?.Tracks
+            .Where(track => track.Type == MediaTrackType.Subtitle && track.SubtitlePresentation == SubtitlePresentation.BurnIn)
+            .DistinctBy(track => track.SourceIndex)
+            .ToArray() is { Length: > 0 } subtitleTracks)
         {
-            <label for="subtitleTrack" class="form-label mb-0">Subtitles</label>
-            <select id="subtitleTrack" class="form-select form-select-sm w-auto" value="@(_subtitleTrack?.ToString() ?? "-1")" @onchange="ChangeSubtitleTrack">
+            <label for="cmafSubtitleTrack" class="form-label mb-0">Bitmap subtitles</label>
+            <select id="cmafSubtitleTrack" class="form-select form-select-sm w-auto"
+                    value="@(_subtitlePresentation == SubtitlePresentation.BurnIn ? _subtitleTrack?.ToString() : "-1")"
+                    @onchange="ChangeSubtitleTrack">
                 <option value="-1">Off</option>
                 @foreach (var track in subtitleTracks)
                 {
-                    <option value="@track.SourceIndex" disabled="@(track.SubtitlePresentation == SubtitlePresentation.Unsupported)">
-                        @FormatTrackLabel(track)@(track.SubtitlePresentation == SubtitlePresentation.BurnIn ? " (burn-in; higher CPU)" : "")
-                    </option>
+                    <option value="@track.SourceIndex">@FormatTrackLabel(track) (burn-in; higher CPU)</option>
                 }
             </select>
         }
         @if (_isPlaying)
         {
-            <button class="btn btn-danger" @onclick="StopStream">
+            <button class="btn btn-danger" @onclick="StopStreamAsync">
                 <span class="bi bi-stop-fill me-1"></span>Stop
             </button>
         }
     </div>
 </div>
 
-
 <div class="row">
-<!-- Video Player -->
-<div class="col-lg-9 mb-4">
-    <div class="card">
-        <div class="card-body p-0">
-            @if (_isPlaying && !string.IsNullOrEmpty(_streamUrl))
-            {
-                <div class="ratio ratio-16x9 bg-dark">
-                    <video id="videoPlayer" 
-                           controls 
-                           autoplay
-                           muted
-                           class="w-100">
-                        Your browser does not support HLS video playback.
-                    </video>
-                </div>
-                <div class="p-3 border-top">
-                    <div class="d-flex justify-content-between align-items-center">
+    <div class="col-lg-9 mb-4">
+        <div class="card">
+            <div class="card-body p-0">
+                @if (_isPlaying && _session is not null)
+                {
+                    <div class="ratio ratio-16x9 bg-dark shaka-video-container" data-lineup-cmaf-container>
+                        <video id="cmafVideoPlayer" autoplay muted class="w-100 shaka-video">
+                            Your browser does not support adaptive playback.
+                        </video>
+                        @if (_isPlayerLoading)
+                        {
+                            <div id="cmafStreamLoading" class="cmaf-loading-overlay text-white" role="status" aria-live="polite">
+                                <div class="spinner-border mb-3" aria-hidden="true"></div>
+                                <p class="mb-0">Setting up stream...</p>
+                            </div>
+                        }
+                    </div>
+                    <div class="p-3 border-top d-flex justify-content-between align-items-center">
                         <div>
                             <h5 class="mb-1">
                                 <span class="badge bg-primary me-2">@_selectedChannelNumber</span>
                                 @(_selectedChannel?.GuideName ?? "Manual Tune")
                             </h5>
-                            @if (_currentProgram != null)
-                                {
-                                    <p class="text-muted mb-0">
-                                        <strong>Now Playing:</strong> @_currentProgram.Title
-                                        @if (!string.IsNullOrEmpty(_currentProgram.EpisodeTitle))
-                                        {
-                                            <span> - @_currentProgram.EpisodeTitle</span>
-                                        }
-                                    </p>
-                                }
-                            </div>
-                            <div class="text-muted small">
-                                <span class="bi bi-broadcast text-success me-1"></span>Live
-                            </div>
-                        </div>
-                    </div>
-                }
-                else if (IsContentProtectedError)
-                {
-                    <div class="ratio ratio-16x9 bg-dark">
-                        <div class="d-flex align-items-center justify-content-center">
-                            <div class="text-center text-white px-4">
-                                <span class="bi bi-shield-lock display-1 text-warning"></span>
-                                <h3 class="mt-3 mb-2">Content Protected</h3>
-                                <p class="lead mb-2">
-                                    Channel @_selectedChannelNumber
-                                    @if (!string.IsNullOrWhiteSpace(_selectedChannel?.GuideName))
+                            @if (_currentProgram is not null)
+                            {
+                                <p class="text-muted mb-0">
+                                    <strong>Now Playing:</strong> @_currentProgram.Title
+                                    @if (!string.IsNullOrEmpty(_currentProgram.EpisodeTitle))
                                     {
-                                        <span> @_selectedChannel.GuideName</span>
+                                        <span> - @_currentProgram.EpisodeTitle</span>
                                     }
                                 </p>
-                                <p class="text-white-50 mb-0">
-                                    The broadcaster requires DRM playback. Use an authorized device or application that supports this channel's content protection.
-                                </p>
-                            </div>
+                            }
+                        </div>
+                        <div class="text-muted small">
+                            <span class="bi bi-broadcast text-success me-1"></span>@_effectiveProtocol
                         </div>
                     </div>
                 }
                 else
                 {
                     <div class="ratio ratio-16x9 bg-dark d-flex align-items-center justify-content-center">
-                        <div class="text-center text-white-50">
-                            <span class="bi bi-tv display-1"></span>
-                            <p class="mt-3">Select a channel to start watching</p>
-                            <p class="small">
-                                <span class="bi bi-info-circle me-1"></span>
-                                Streams directly with FFmpeg (no disk I/O)
-                            </p>
-                        </div>
+                        @if (_isPlayerLoading)
+                        {
+                            <div id="cmafStreamLoading" class="cmaf-loading-overlay text-white" role="status" aria-live="polite">
+                                <div class="spinner-border mb-3" aria-hidden="true"></div>
+                                <p class="mb-0">Setting up stream...</p>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="text-center text-white-50">
+                                <span class="bi bi-broadcast-pin display-1"></span>
+                                <p class="mt-3">Select a channel to start watching</p>
+                                <p class="small">One shared fragment set serves both HLS and DASH.</p>
+                            </div>
+                        }
                     </div>
                 }
             </div>
         </div>
-        
-        @if (!string.IsNullOrEmpty(_errorMessage))
+
+        @if (!string.IsNullOrWhiteSpace(_errorMessage))
         {
-            <div class="alert alert-danger mt-3">
-                <h6 class="alert-heading">
-                    <span class="bi bi-exclamation-triangle me-2"></span>
-                    Stream Error
-                </h6>
+            <div class="alert alert-danger mt-3" role="alert">
+                <h6 class="alert-heading"><span class="bi bi-exclamation-triangle me-2"></span>Stream Error</h6>
                 <pre class="mb-0 small" style="white-space: pre-wrap;">@_errorMessage</pre>
             </div>
         }
-        
-        @if (_showCodecError)
-        {
-            <div class="alert alert-danger mt-3">
-                <h6 class="alert-heading">
-                    <span class="bi bi-exclamation-octagon me-2"></span>
-                    Audio Codec Not Supported
-                </h6>
-                <p class="mb-2">
-                    Your browser cannot play AC-3 (Dolby Digital) audio. The transcoding may not be working correctly.
-                </p>
-                <hr />
-                <p class="mb-2"><strong>Try these troubleshooting steps:</strong></p>
-                <ul class="mb-2">
-                    <li>Try a different <strong>Quality setting</strong> above (mobile, internet720, etc.)</li>
-                    <li>Check that transcoding is enabled in your HDHomeRun settings at <a href="http://@(SettingsService.Settings.DeviceAddress)/" target="_blank">http://@(SettingsService.Settings.DeviceAddress)/</a></li>
-                    <li>Verify no other apps are using all the transcode slots</li>
-                    <li>Use <strong>VLC Media Player</strong> with the direct stream URL below</li>
-                </ul>
-                @if (_selectedChannelNumber is { } selectedChannelNumber)
-                {
-                    <p class="mb-0">
-                        <strong>Direct Stream URL for VLC:</strong><br/>
-                        <code class="user-select-all">http://@(SettingsService.Settings.DeviceAddress):5004/auto/v@(selectedChannelNumber)</code>
-                        <button class="btn btn-sm btn-outline-secondary ms-2" @onclick="CopyStreamUrlToClipboard">
-                            <span class="bi bi-clipboard"></span> Copy
-                        </button>
-                    </p>
-                }
-            </div>
-        }
-        
-        
-        
+
         <div class="card mt-3">
-            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-                <h6 class="mb-0"><span class="bi bi-info-circle me-1"></span>Stream Information</h6>
-            </div>
+            <div class="card-header"><h6 class="mb-0"><span class="bi bi-info-circle me-1"></span>Stream Information</h6></div>
             <div class="card-body">
                 <p class="mb-2"><strong>Device Address:</strong> <code>@SettingsService.Settings.DeviceAddress</code></p>
                 @if (_selectedChannelNumber is { } streamInfoChannelNumber)
                 {
                     <p class="mb-2"><strong>Device Stream:</strong> <code>http://@(SettingsService.Settings.DeviceAddress):5004/auto/v@(streamInfoChannelNumber)</code></p>
-                    @if (!string.IsNullOrEmpty(_streamUrl))
-                    {
-                        <p class="mb-2"><strong>Transcode URL:</strong> <code>@_streamUrl</code></p>
-                    }
                 }
-                <p class="@(_selectedChannelNumber == null ? "mb-0" : "mb-3")">
-                    <strong>Player:</strong> 
-                    <span class="badge bg-success">Fragmented MP4</span>
-                    <span class="badge bg-info ms-1">FFmpeg (Memory)</span>
-                    <span class="text-muted small ms-2">(H.264 + AAC, no disk I/O)</span>
+                <p class="@(_selectedChannelNumber is null ? "mb-0" : "mb-3")">
+                    <strong>Player:</strong>
+                    <span class="badge bg-success">CMAF/fMP4</span>
+                    <span class="badge bg-info ms-1">FFmpeg (Shared Segments)</span>
+                    <span class="text-muted small ms-2">(HLS + DASH)</span>
                 </p>
-
-                @if (_selectedChannelNumber != null)
+                @if (_session is not null)
+                {
+                    <p class="small mb-1"><strong>Session:</strong> <code>@_session.SessionId</code></p>
+                    <p class="small mb-1"><strong>DASH:</strong> <code>@_session.DashManifestUrl</code></p>
+                    <p class="small mb-3"><strong>HLS:</strong> <code>@_session.HlsManifestUrl</code></p>
+                }
+                @if (_selectedChannelNumber is not null)
                 {
                     <div class="row g-3">
                         <div class="col-md-6">
@@ -227,11 +204,30 @@
                         </div>
                         <div class="col-md-6">
                             <h6><span class="bi bi-broadcast-pin me-1"></span>Hosted Stream</h6>
+                            @if (_playerVideo is not null)
+                            {
+                                <p class="small mb-1">
+                                    <strong>Playing video:</strong>
+                                    @string.Join(" · ", new[] { _playerVideo.Codec, _playerVideo.Width.HasValue && _playerVideo.Height.HasValue ? $"{_playerVideo.Width}x{_playerVideo.Height}" : null }
+                                        .Where(value => !string.IsNullOrWhiteSpace(value)))
+                                </p>
+                            }
+                            @if (_playerAudio is not null)
+                            {
+                                <p class="small mb-1">
+                                    <strong>Playing audio:</strong>
+                                    @string.Join(" · ", new[] { _playerAudio.Label, _playerAudio.Codec, _playerAudio.Channels.HasValue ? $"{_playerAudio.Channels} ch" : null }
+                                        .Where(value => !string.IsNullOrWhiteSpace(value)))
+                                </p>
+                            }
                             @if (_activeStream is not null)
                             {
                                 <p class="small mb-1">
                                     <strong>Session:</strong> <code>@_activeStream.SessionId</code>
-                                    <span class="badge bg-info ms-1">@_activeStream.Format</span>
+                                    <span class="badge bg-info ms-1">CMAF</span>
+                                </p>
+                                <p class="small mb-1">
+                                    <strong>Playback protocol:</strong> @_effectiveProtocol
                                 </p>
                                 @foreach (var track in _activeStream.Tracks)
                                 {
@@ -240,9 +236,21 @@
                                         @FormatSourceTrack(track)
                                         <span class="bi bi-arrow-right mx-1"></span>
                                         @FormatOutputTrack(track)
-                                        @if (track.IsSelected)
+                                        @if (IsPlayingTrack(track))
                                         {
-                                            <span class="badge bg-success ms-1">selected</span>
+                                            <span class="badge bg-success ms-1">playing</span>
+                                        }
+                                        else if (IsWebVttSidecar(track))
+                                        {
+                                            <span class="badge bg-info ms-1">sidecar</span>
+                                        }
+                                        else if (track.IsSelected)
+                                        {
+                                            <span class="badge bg-secondary ms-1">included</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-dark ms-1">not included</span>
                                         }
                                     </div>
                                 }
@@ -261,86 +269,62 @@
             </div>
         </div>
     </div>
-    
-    <!-- Channel List -->
+
     <div class="col-lg-3">
         <div class="card">
-            <div class="card-header">
-                <h6 class="mb-0"><span class="bi bi-list-ul me-1"></span>Channels</h6>
-            </div>
+            <div class="card-header"><h6 class="mb-0"><span class="bi bi-list-ul me-1"></span>Channels</h6></div>
             <div class="card-body p-0">
                 <form class="p-3 border-bottom" @onsubmit="ManualTuneAsync" @onsubmit:preventDefault="true">
-                    <label for="manualTuneChannel" class="form-label">Manual Tune</label>
+                    <label for="cmafManualChannel" class="form-label">Manual Tune</label>
                     <div class="input-group input-group-sm">
-                        <input id="manualTuneChannel"
-                               class="form-control"
-                               type="text"
-                               inputmode="decimal"
-                               autocomplete="off"
-                               placeholder="Channel number"
-                               aria-describedby="manualTuneHelp"
-                               aria-invalid="@(_manualTuneValidationMessage != null ? "true" : "false")"
-                               value="@_manualChannelNumber"
-                               @oninput="UpdateManualChannelNumber" />
-                        <button id="manualTuneButton" class="btn btn-primary" type="submit">
-                            <span class="bi bi-play-fill me-1"></span>Tune
-                        </button>
+                        <input id="cmafManualChannel" class="form-control" type="text" inputmode="decimal" autocomplete="off"
+                               placeholder="Channel number" value="@_manualChannelNumber" @oninput="UpdateManualChannelNumber" />
+                        <button class="btn btn-primary" type="submit"><span class="bi bi-play-fill me-1"></span>Tune</button>
                     </div>
-                    <div id="manualTuneHelp" class="@(_manualTuneValidationMessage == null ? "form-text" : "invalid-feedback d-block")">
-                        @(_manualTuneValidationMessage ?? "Tune a virtual channel even when guide data is unavailable.")
-                    </div>
+                    @if (_manualTuneValidationMessage is not null)
+                    {
+                        <div class="invalid-feedback d-block">@_manualTuneValidationMessage</div>
+                    }
                 </form>
                 @if (_isLoadingChannels)
                 {
-                    <div class="text-center py-4">
-                        <div class="spinner-border spinner-border-sm text-primary" role="status">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
-                        <p class="text-muted small mt-2 mb-0">Loading channels...</p>
-                    </div>
+                    <div class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary" role="status"></div></div>
                 }
                 else if (_channels.Count == 0)
                 {
-                    <div class="text-center py-4">
-                        <span class="bi bi-info-circle text-muted"></span>
-                        <p class="text-muted small mt-2 mb-0">No enabled channels available.<br/>Enter a channel number above to tune manually.</p>
-                    </div>
+                    <p class="text-muted small text-center p-3 mb-0">No enabled channels available.</p>
                 }
                 else
                 {
-                    <div class="channel-list">
+                    <div class="cmaf-channel-list">
                         @foreach (var channel in _channels)
                         {
-                            var isSelected = _selectedChannelNumber == channel.GuideNumber;
                             var nowPlaying = GetCurrentProgram(channel.GuideNumber);
-                            
-                            <div class="channel-item @(isSelected ? "active" : "")" 
-                                 @onclick="() => SelectChannel(channel)">
-                                <div class="d-flex align-items-center">
-                                    <div class="channel-number me-2">@channel.GuideNumber</div>
-                                    <div class="flex-grow-1 overflow-hidden">
-                                        <div class="channel-name">
-                                            @channel.GuideName
-                                            @if (channel.Favorite)
-                                            {
-                                                <span class="bi bi-star-fill text-warning ms-1" title="Favorite channel" aria-label="Favorite channel"></span>
-                                            }
-                                            @if (channel.DRM)
-                                            {
-                                                <span class="bi bi-shield-lock-fill text-warning ms-1" title="DRM-protected channel" aria-label="DRM-protected channel"></span>
-                                            }
-                                        </div>
-                                        @if (nowPlaying != null)
+                            <button class="cmaf-channel-item @(channel.GuideNumber == _selectedChannelNumber ? "active" : "")"
+                                    @onclick="() => TuneChannelAsync(channel.GuideNumber, channel)">
+                                <span class="cmaf-channel-number me-2">@channel.GuideNumber</span>
+                                <span class="flex-grow-1 overflow-hidden">
+                                    <span class="cmaf-channel-name">
+                                        @channel.GuideName
+                                        @if (channel.Favorite)
                                         {
-                                            <div class="now-playing text-truncate">@nowPlaying.Title</div>
+                                            <span class="bi bi-star-fill text-warning ms-1" title="Favorite channel" aria-label="Favorite channel"></span>
                                         }
-                                    </div>
-                                    @if (isSelected && _isPlaying)
+                                        @if (channel.DRM)
+                                        {
+                                            <span class="bi bi-shield-lock-fill text-warning ms-1" title="DRM-protected channel" aria-label="DRM-protected channel"></span>
+                                        }
+                                    </span>
+                                    @if (nowPlaying is not null)
                                     {
-                                        <span class="bi bi-broadcast text-success ms-2"></span>
+                                        <span class="cmaf-now-playing text-truncate">@nowPlaying.Title</span>
                                     }
-                                </div>
-                            </div>
+                                </span>
+                                @if (channel.GuideNumber == _selectedChannelNumber && _isPlaying)
+                                {
+                                    <span class="bi bi-broadcast text-success ms-2"></span>
+                                }
+                            </button>
                         }
                     </div>
                 }
@@ -348,53 +332,3 @@
         </div>
     </div>
 </div>
-
-<style>
-    .channel-list {
-        max-height: 600px;
-        overflow-y: auto;
-    }
-    
-    .channel-item {
-        padding: 0.75rem 1rem;
-        border-bottom: 1px solid #dee2e6;
-        cursor: pointer;
-        transition: background-color 0.15s;
-    }
-    
-    .channel-item:hover {
-        background-color: #f8f9fa;
-    }
-    
-    .channel-item.active {
-        background-color: #e7f1ff;
-        border-left: 3px solid #0d6efd;
-    }
-    
-    .channel-item:last-child {
-        border-bottom: none;
-    }
-    
-    .channel-number {
-        font-weight: bold;
-        color: #0d6efd;
-        min-width: 40px;
-    }
-    
-    .channel-name {
-        font-weight: 500;
-        font-size: 0.9rem;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-    
-    .now-playing {
-        font-size: 0.75rem;
-        color: #6c757d;
-    }
-    
-    video {
-        background-color: #000;
-    }
-</style>

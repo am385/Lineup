@@ -6,8 +6,8 @@ using Lineup.HDHomeRun.Device.Models;
 using Lineup.HDHomeRun.Device.Protocol;
 using Lineup.Web.Components.Pages;
 using Lineup.Web.Services;
-using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.JSInterop;
 using NSubstitute;
 using System.Reflection;
 using System.Text.Json;
@@ -16,39 +16,20 @@ using Xunit;
 namespace Lineup.Web.Tests.Components.Pages;
 
 /// <summary>
-/// Verifies the Watch page media-player lifecycle.
+/// Verifies the Watch page lifecycle and independent preferences.
 /// </summary>
 public class WatchTests
 {
-    private const string PreferencesStorageKey = "lineup-watch-preferences-v1";
+    private const string PreferencesStorageKey = "lineup-watch-cmaf-preferences-v1";
 
     /// <summary>
-    /// Verifies discovered enabled channels appear even when no guide has been imported.
+    /// Verifies a browser without a completed compatibility profile can launch the complete Watch Test suite.
     /// </summary>
     [Fact]
-    public async Task PhysicalChannelWithoutGuideData_IsListed()
+    public void MissingCompatibilityProfile_ShowsRunAllWatchTestLink()
     {
         // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns([]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        var channelStore = new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-watch-{Guid.NewGuid():N}.db"));
-        await channelStore.StoreAsync(
-        [
-            new HDHomeRunChannel
-            {
-                GuideNumber = "42.1",
-                GuideName = "Discovered Channel",
-                Favorite = true,
-                URL = "http://device/auto/v42.1"
-            }
-        ], Xunit.TestContext.Current.CancellationToken);
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(context, channelStore: channelStore);
+        using var context = CreateContext();
 
         // Act
         var component = context.Render<Watch>();
@@ -56,113 +37,127 @@ public class WatchTests
         // Assert
         component.WaitForAssertion(() =>
         {
-            var channel = Assert.Single(component.FindAll(".channel-item"));
-            Assert.Contains("42.1", channel.TextContent);
-            Assert.Contains("Discovered Channel", channel.TextContent);
-            Assert.NotNull(channel.QuerySelector(".bi-star-fill"));
+            var link = component.Find("#runCmafCompatibilityTests");
+            Assert.Equal("/watch-test?runAll=true", link.GetAttribute("href"));
+            Assert.Contains("Run Compatibility Tests", link.TextContent, StringComparison.Ordinal);
         });
     }
 
     /// <summary>
-    /// Verifies that manual tuning starts playback without cached guide data.
+    /// Verifies a valid compatibility profile for the current browser suppresses the Watch Test prompt.
     /// </summary>
     [Fact]
-    public void ManualTuneWithoutGuideData_StartsRequestedChannel()
+    public void CurrentCompatibilityProfile_HidesRunAllWatchTestLink()
     {
         // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns([]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(context);
-        context.JSInterop.SetupVoid("stopMediaPlayer", "videoPlayer").SetVoidResult();
-        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 4).SetResult(null);
-        var component = context.Render<Watch>();
+        var profile = CreateCompatibilityProfile();
+        using var context = CreateContext();
+        context.JSInterop.Setup<string?>("localStorage.getItem", CmafCompatibilityProfile.StorageKey).SetResult(JsonSerializer.Serialize(profile));
+        context.JSInterop.Setup<string>("getCmafBrowserIdentity").SetResult("test-browser");
 
         // Act
-        component.Find("#manualTuneChannel").Input(" 42.1 ");
-        component.Find("form").Submit();
+        var component = context.Render<Watch>();
+
+        // Assert
+        component.WaitForAssertion(() => Assert.Empty(component.FindAll("#runCmafCompatibilityTests")));
+    }
+
+    /// <summary>
+    /// Verifies the player area communicates that a CMAF stream is being prepared.
+    /// </summary>
+    [Fact]
+    public void StreamStartup_ShowsAccessibleLoadingOverlay()
+    {
+        // Arrange
+        using var context = CreateContext();
+        var component = context.Render<Watch>();
+        var loadingField = typeof(Watch).GetField("_isPlayerLoading", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(loadingField);
+
+        // Act
+        loadingField.SetValue(component.Instance, true);
+        component.Render();
+
+        // Assert
+        var loading = component.Find("#cmafStreamLoading");
+        Assert.Equal("status", loading.GetAttribute("role"));
+        Assert.Equal("polite", loading.GetAttribute("aria-live"));
+        Assert.Contains("Setting up stream", loading.TextContent, StringComparison.Ordinal);
+        Assert.Single(loading.QuerySelectorAll(".spinner-border"));
+        Assert.DoesNotContain("Select a channel to start watching", component.Markup, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies manual stream settings are hidden by default and reveal Browser profile choices when enabled.
+    /// </summary>
+    [Fact]
+    public void StreamOverrides_DefaultHiddenAndRevealBrowserProfileChoices()
+    {
+        // Arrange
+        using var context = CreateContext();
+        var component = context.Render<Watch>();
+        var initiallyHidden = component.Find("#cmafOverrideSettings").ClassList.Contains("d-none");
+
+        // Act
+        component.Find("#cmafOverrideStreamSettings").Change(true);
+
+        // Assert
+        Assert.True(initiallyHidden);
+        component.WaitForAssertion(() =>
+        {
+            Assert.DoesNotContain("d-none", component.Find("#cmafOverrideSettings").ClassList);
+            Assert.Equal("Browser profile", component.Find("#cmafPreferredVideo option").TextContent);
+            Assert.Equal("Browser profile", component.Find("#cmafPreferredAudio option").TextContent);
+            var storageWrite = Assert.Single(
+                context.JSInterop.Invocations,
+                invocation => invocation.Identifier == "localStorage.setItem" && Equals(invocation.Arguments[0], PreferencesStorageKey));
+            Assert.Contains("\"Overrides\":{\"Enabled\":true", Assert.IsType<string>(storageWrite.Arguments[1]), StringComparison.Ordinal);
+        });
+    }
+
+    /// <summary>
+    /// Verifies an audio-only UI override keeps video on the measured browser profile in the typed request.
+    /// </summary>
+    [Fact]
+    public void StreamOverrides_AudioOnly_SendsMeasuredProfileWithVideoPreserved()
+    {
+        // Arrange
+        var profile = CreateCompatibilityProfile();
+        using var context = CreateContext();
+        context.JSInterop.Setup<string?>("localStorage.getItem", CmafCompatibilityProfile.StorageKey).SetResult(JsonSerializer.Serialize(profile));
+        context.JSInterop.Setup<string>("getCmafBrowserIdentity").SetResult("test-browser");
+        ConfigureSuccessfulSession(context);
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
+
+        // Act
+        component.Find("#cmafOverrideStreamSettings").Change(true);
+        component.Find("#cmafPreferredAudio").Change(CmafPreferredAudio.Fallback.ToString());
 
         // Assert
         component.WaitForAssertion(() =>
         {
-            Assert.NotNull(component.Find("#videoPlayer"));
-            Assert.Contains("42.1", component.Markup);
-            Assert.Contains("Manual Tune", component.Markup);
-            var initialization = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "initFmp4Player");
-            Assert.Contains("/api/stream/fmp4/42.1?", Assert.IsType<string>(initialization.Arguments[1]));
+            var start = context.JSInterop.Invocations.Last(invocation => invocation.Identifier == "startCmafSession");
+            var request = Assert.IsType<CmafStreamRequest>(start.Arguments[1]);
+            Assert.True(request.Overrides.Enabled);
+            Assert.Equal(CmafPreferredAudio.Fallback, request.Overrides.Audio);
+            Assert.Null(request.Overrides.Video);
+            Assert.NotNull(request.CompatibilityProfile);
         });
     }
 
     /// <summary>
-    /// Verifies changing audio output restarts Watch playback with the selected layout.
+    /// Verifies a completed profile enables the typed Auto tune request.
     /// </summary>
     [Fact]
-    public void UpTo7Point1AudioOutput_RestartsPlaybackWithSessionOverride()
+    public void CompletedProfile_StartsTypedAutomaticSession()
     {
         // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns([]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(context);
-        context.JSInterop.SetupVoid("stopMediaPlayer", "videoPlayer").SetVoidResult();
-        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 3).SetResult(null);
-        var component = context.Render<Watch>();
-        component.Find("#manualTuneChannel").Input("42.1");
-        component.Find("form").Submit();
-        component.WaitForAssertion(() => Assert.NotNull(component.Find("#videoPlayer")));
-
-        // Act
-        component.Find("#audioOutput").Change(WatchAudioOutput.UpTo7Point1.ToString());
-
-        // Assert
-        component.WaitForAssertion(() =>
-        {
-            var initializations = context.JSInterop.Invocations.Where(invocation => invocation.Identifier == "initFmp4Player").ToArray();
-            Assert.Equal(2, initializations.Length);
-            Assert.Contains("audioOutput=UpTo7Point1", Assert.IsType<string>(initializations[^1].Arguments[1]));
-        });
-    }
-
-    /// <summary>
-    /// Verifies unsupported source audio temporarily falls back to Stereo AAC without changing the preference.
-    /// </summary>
-    [Fact]
-    public void SourceAudioOutput_PlaybackFailureFallsBackToStereo()
-    {
-        // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns([]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(
-            context,
-            preferencesJson: """{"Quality":0,"AudioOutput":3,"SubtitlesEnabled":false,"Subtitle":null}""");
-        context.JSInterop.SetupVoid("stopMediaPlayer", "videoPlayer").SetVoidResult();
-        context.JSInterop.SetupVoid("localStorage.setItem", _ => true).SetVoidResult();
-        context.JSInterop
-            .Setup<string?>(
-                "initFmp4Player",
-                invocation => Assert.IsType<string>(invocation.Arguments[1]).Contains("audioOutput=Source", StringComparison.Ordinal))
-            .SetResult("The source audio codec is not supported.");
-        context.JSInterop
-            .Setup<string?>(
-                "initFmp4Player",
-                invocation => Assert.IsType<string>(invocation.Arguments[1]).Contains("audioOutput=Stereo", StringComparison.Ordinal))
-            .SetResult(null);
+        var profile = CreateCompatibilityProfile();
+        using var context = CreateContext();
+        context.JSInterop.Setup<string?>("localStorage.getItem", CmafCompatibilityProfile.StorageKey).SetResult(JsonSerializer.Serialize(profile));
+        context.JSInterop.Setup<string>("getCmafBrowserIdentity").SetResult("test-browser");
+        ConfigureSuccessfulSession(context);
 
         // Act
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
@@ -170,15 +165,624 @@ public class WatchTests
         // Assert
         component.WaitForAssertion(() =>
         {
-            var initializations = context.JSInterop.Invocations.Where(invocation => invocation.Identifier == "initFmp4Player").ToArray();
-            Assert.Equal(2, initializations.Length);
-            Assert.Contains("audioOutput=Source", Assert.IsType<string>(initializations[0].Arguments[1]));
-            Assert.Contains("audioOutput=Stereo", Assert.IsType<string>(initializations[1].Arguments[1]));
-            Assert.Equal(nameof(WatchAudioOutput.Source), component.Find("#audioOutput").GetAttribute("value"));
-            var notifications = context.Services.GetRequiredService<IStatusNotificationService>();
-            var notification = Assert.Single(notifications.Notifications);
-            Assert.Equal("Source audio could not be played by this browser. Retrying this stream with Stereo AAC.", notification.Message);
-            Assert.True(notification.IsError);
+            var start = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession");
+            Assert.Equal("/api/stream/cmaf/start-v2/42.1", start.Arguments[0]);
+            var request = Assert.IsType<CmafStreamRequest>(start.Arguments[1]);
+            Assert.Equal(CmafPreferredVideo.Auto, request.PreferredVideo);
+            Assert.Equal(CmafPreferredAudio.Auto, request.PreferredAudio);
+            Assert.NotNull(request.CompatibilityProfile);
+        });
+    }
+
+    /// <summary>
+    /// Verifies a current stored source preference cannot bypass a measured browser profile when overrides are disabled.
+    /// </summary>
+    [Fact]
+    public void CompletedProfile_CurrentSourcePreferenceWithoutOverrides_StartsTypedAutomaticSession()
+    {
+        // Arrange
+        var profile = CreateCompatibilityProfile();
+        using var context = CreateContext(
+            """{"PolicyVersion":1,"Protocol":0,"Quality":0,"PreferredVideo":0,"PreferredAudio":0,"FallbackAudio":0,"Overrides":{"Enabled":false}}""");
+        context.JSInterop.Setup<string?>("localStorage.getItem", CmafCompatibilityProfile.StorageKey).SetResult(JsonSerializer.Serialize(profile));
+        context.JSInterop.Setup<string>("getCmafBrowserIdentity").SetResult("test-browser");
+        ConfigureSuccessfulSession(context);
+
+        // Act
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            var start = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession");
+            var request = Assert.IsType<CmafStreamRequest>(start.Arguments[1]);
+            Assert.Equal(CmafPreferredVideo.Auto, request.PreferredVideo);
+            Assert.Equal(CmafPreferredAudio.Auto, request.PreferredAudio);
+            Assert.False(request.Overrides.Enabled);
+            Assert.NotNull(request.CompatibilityProfile);
+        });
+    }
+
+    /// <summary>
+    /// Verifies Auto mode prefers DASH and provides HLS fallback for the same server session.
+    /// </summary>
+    [Fact]
+    public void DirectRoute_AutoModeStartsSharedDashAndCmafSession()
+    {
+        // Arrange
+        using var context = CreateContext();
+        ConfigureSuccessfulSession(context);
+
+        // Act
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            Assert.NotNull(component.Find("#cmafVideoPlayer"));
+            var start = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession");
+            Assert.Equal(3, start.Arguments.Count);
+            var startUrl = Assert.IsType<string>(start.Arguments[0]);
+            Assert.Null(start.Arguments[1]);
+            Assert.False(string.IsNullOrWhiteSpace(Assert.IsType<string>(start.Arguments[2])));
+            Assert.Contains("/api/stream/cmaf/start/42.1?", startUrl, StringComparison.Ordinal);
+            Assert.Contains("preferredVideo=Source", startUrl, StringComparison.Ordinal);
+            Assert.Contains("preferredAudio=Source", startUrl, StringComparison.Ordinal);
+            var initialize = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer");
+            Assert.Equal("/api/stream/cmaf/session-1/manifest.mpd", initialize.Arguments[1]);
+            Assert.Equal("/api/stream/cmaf/session-1/master.m3u8", initialize.Arguments[2]);
+            Assert.Equal("Source", initialize.Arguments[3]);
+            Assert.Equal("Source", initialize.Arguments[4]);
+            Assert.Equal(false, initialize.Arguments[5]);
+            Assert.Null(initialize.Arguments[6]);
+            Assert.Equal("aac", initialize.Arguments[7]);
+            var subtitles = Assert.IsAssignableFrom<IReadOnlyList<Watch.CmafSubtitleResponse>>(initialize.Arguments[8]);
+            Assert.Collection(
+                subtitles,
+                subtitle => Assert.Equal(2, subtitle.SourceIndex),
+                subtitle => Assert.Equal(3, subtitle.SourceIndex));
+        });
+    }
+
+    /// <summary>
+    /// Verifies selecting H.264 fallback persists the video preference and restarts the presentation.
+    /// </summary>
+    [Fact]
+    public void PreferredVideoChange_PersistsAndRestartsWithH264Fallback()
+    {
+        // Arrange
+        using var context = CreateContext();
+        ConfigureSuccessfulSession(context);
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "105.1"));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
+
+        // Act
+        component.Find("#cmafPreferredVideo").Change(CmafPreferredVideo.Fallback.ToString());
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            var starts = context.JSInterop.Invocations.Where(invocation => invocation.Identifier == "startCmafSession").ToArray();
+            Assert.Equal(2, starts.Length);
+            Assert.Contains("preferredVideo=Fallback", Assert.IsType<string>(starts[^1].Arguments[0]), StringComparison.Ordinal);
+            var storageWrite = Assert.Single(
+                context.JSInterop.Invocations,
+                invocation => invocation.Identifier == "localStorage.setItem" && Equals(invocation.Arguments[0], PreferencesStorageKey));
+            Assert.Contains("\"PreferredVideo\":1", Assert.IsType<string>(storageWrite.Arguments[1]), StringComparison.Ordinal);
+        });
+    }
+
+    /// <summary>
+    /// Verifies Shaka UI audio changes update the hosted-stream details without restarting the server session.
+    /// </summary>
+    [Fact]
+    public async Task ShakaAudioRenditionChange_UpdatesDetailsWithoutRestart()
+    {
+        // Arrange
+        using var context = CreateContext();
+        context.JSInterop
+            .Setup<Watch.CmafStartResponse>("startCmafSession", _ => true)
+            .SetResult(new(
+                "session-1",
+                "/api/stream/cmaf/session-1/master.m3u8",
+                "/api/stream/cmaf/session-1/manifest.mpd"));
+        context.JSInterop
+            .Setup<Watch.CmafPlayerResult>("initCmafPlayer", _ => true)
+            .SetResult(new(
+                true,
+                null,
+                "/api/stream/cmaf/session-1/manifest.mpd",
+                Audio: new("eng · Fallback AAC Stereo", "mp4a.40.2", 2, "11", "eng"),
+                Video: new("avc1.64002a", 1920, 1080)));
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
+        using var details = JsonDocument.Parse("""{"id":"12","label":"spa · Source","language":"spa","codec":"ac-3","channels":2}""");
+
+        // Act
+        await component.InvokeAsync(() => component.Instance.OnCmafPlayerEvent(new("audio-track-changed", "Audio track changed.", details.RootElement, "session-1")));
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession");
+            Assert.Empty(component.FindAll("#cmafAudioTrack"));
+            Assert.False(component.Find("#cmafVideoPlayer").HasAttribute("controls"));
+            Assert.True(component.Find("#cmafVideoPlayer").ParentElement?.HasAttribute("data-lineup-cmaf-container"));
+            Assert.Contains("spa · Source", component.Markup);
+            Assert.Contains("ac-3", component.Markup);
+        });
+    }
+
+    /// <summary>
+    /// Verifies a fatal player failure stops the missing server session and its browser pollers.
+    /// </summary>
+    [Fact]
+    public async Task FatalPlayerFailure_StopsPlaybackSession()
+    {
+        // Arrange
+        using var context = CreateContext();
+        ConfigureSuccessfulSession(context);
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
+
+        // Act
+        await component.InvokeAsync(() => component.Instance.OnCmafPlayerEvent(
+            new("error", "The stream session is no longer available.", null, "session-1")));
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            Assert.Contains("The stream session is no longer available.", component.Markup);
+            Assert.Contains(
+                context.JSInterop.Invocations,
+                invocation => invocation.Identifier == "stopMediaPlayer" && Equals(invocation.Arguments[0], "cmafVideoPlayer"));
+            Assert.Contains(
+                context.JSInterop.Invocations,
+                invocation => invocation.Identifier == "stopCmafSession" && Equals(invocation.Arguments[0], "session-1"));
+        });
+    }
+
+    /// <summary>
+    /// Verifies selecting another channel clears the previous channel error before the replacement stream finishes starting.
+    /// </summary>
+    [Fact]
+    public async Task SelectChannel_PreviousError_ClearsBeforeReplacementStarts()
+    {
+        // Arrange
+        var repository = Substitute.For<IEpgRepository>();
+        repository.GetChannelsAsync().Returns(
+        [
+            new HDHomeRunChannelEpgSegment { GuideNumber = "2.1", GuideName = "First" },
+            new HDHomeRunChannelEpgSegment { GuideNumber = "2.2", GuideName = "Second" }
+        ]);
+        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
+        using var context = CreateContext(repository: repository);
+        context.JSInterop
+            .Setup<Watch.CmafStartResponse>(
+                "startCmafSession",
+                invocation => Assert.IsType<string>(invocation.Arguments[0]).Contains("/2.1?", StringComparison.Ordinal))
+            .SetResult(new("session-1", "/api/stream/cmaf/session-1/master.m3u8", "/api/stream/cmaf/session-1/manifest.mpd"));
+        var replacementStart = context.JSInterop.Setup<Watch.CmafStartResponse>(
+            "startCmafSession",
+            invocation => Assert.IsType<string>(invocation.Arguments[0]).Contains("/2.2?", StringComparison.Ordinal));
+        context.JSInterop
+            .Setup<Watch.CmafPlayerResult>("initCmafPlayer", _ => true)
+            .SetResult(new(true, null, "/api/stream/cmaf/session-1/manifest.mpd"));
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "2.1"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer"));
+        await component.InvokeAsync(() => component.Instance.OnCmafPlayerEvent(new("error", "First channel failed.", null, "session-1")));
+        component.WaitForAssertion(() => Assert.Contains("First channel failed.", component.Markup, StringComparison.Ordinal));
+
+        // Act
+        var replacementTune = component.InvokeAsync(() =>
+            component.FindAll(".cmaf-channel-item").Single(item => item.TextContent.Contains("2.2", StringComparison.Ordinal)).Click());
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            Assert.DoesNotContain("First channel failed.", component.Markup, StringComparison.Ordinal);
+            Assert.Contains(
+                context.JSInterop.Invocations,
+                invocation => invocation.Identifier == "startCmafSession" &&
+                    Assert.IsType<string>(invocation.Arguments[0]).Contains("/2.2?", StringComparison.Ordinal));
+        });
+        replacementStart.SetResult(new("session-2", "/api/stream/cmaf/session-2/master.m3u8", "/api/stream/cmaf/session-2/manifest.mpd"));
+        await replacementTune;
+    }
+
+    /// <summary>
+    /// Verifies an unsupported source-video presentation retries H.264 without changing the saved Source preference.
+    /// </summary>
+    [Fact]
+    public void UnsupportedSourceVideo_RetriesWithH264WithoutChangingPreference()
+    {
+        // Arrange
+        using var context = CreateContext();
+        context.JSInterop
+            .Setup<Watch.CmafStartResponse>(
+                "startCmafSession",
+                invocation => Assert.IsType<string>(invocation.Arguments[0]).Contains("preferredVideo=Source", StringComparison.Ordinal))
+            .SetResult(
+                new(
+                    "source-session",
+                    "/api/stream/cmaf/source-session/master.m3u8",
+                    "/api/stream/cmaf/source-session/manifest.mpd",
+                    HasSourceVideoRendition: true,
+                    SourceVideoCodec: "hvc1.2.4.L123"));
+        context.JSInterop
+            .Setup<Watch.CmafStartResponse>(
+                "startCmafSession",
+                invocation => Assert.IsType<string>(invocation.Arguments[0]).Contains("preferredVideo=Fallback", StringComparison.Ordinal))
+            .SetResult(new("fallback-session", "/api/stream/cmaf/fallback-session/master.m3u8", "/api/stream/cmaf/fallback-session/manifest.mpd"));
+        context.JSInterop
+            .Setup<Watch.CmafPlayerResult>(
+                "initCmafPlayer",
+                invocation => Equals(invocation.Arguments[1], "/api/stream/cmaf/source-session/manifest.mpd"))
+            .SetResult(new(false, "Shaka Error 4032", null, 4032, SourceVideoSupported: false));
+        context.JSInterop
+            .Setup<Watch.CmafPlayerResult>(
+                "initCmafPlayer",
+                invocation => Equals(invocation.Arguments[1], "/api/stream/cmaf/fallback-session/manifest.mpd"))
+            .SetResult(new(true, null, "/api/stream/cmaf/fallback-session/manifest.mpd", Video: new("avc1.64002a", 1920, 1080)));
+        context.JSInterop.SetupVoid("stopCmafSession", "source-session").SetVoidResult();
+        context.JSInterop.SetupVoid("stopCmafSession", "fallback-session").SetVoidResult();
+
+        // Act
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "105.1"));
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            var starts = context.JSInterop.Invocations.Where(invocation => invocation.Identifier == "startCmafSession").ToArray();
+            Assert.Equal(2, starts.Length);
+            Assert.Contains("preferredVideo=Source", Assert.IsType<string>(starts[0].Arguments[0]), StringComparison.Ordinal);
+            Assert.Contains("preferredVideo=Fallback", Assert.IsType<string>(starts[1].Arguments[0]), StringComparison.Ordinal);
+            Assert.Equal(nameof(CmafPreferredVideo.Source), component.Find("#cmafPreferredVideo").GetAttribute("value"));
+            Assert.Contains("Playing video:", component.Markup);
+            Assert.Contains("avc1.64002a", component.Markup);
+            Assert.Contains("1920x1080", component.Markup);
+            var notification = Assert.Single(context.Services.GetRequiredService<IStatusNotificationService>().Notifications);
+            Assert.Equal("Source video is unavailable in this browser. Retrying this stream with H.264.", notification.Message);
+            Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "localStorage.setItem");
+        });
+    }
+
+    /// <summary>
+    /// Verifies a source-video decoder failure during initialization retries H.264 without changing the saved Source preference.
+    /// </summary>
+    [Fact]
+    public void SourceVideoInitializationDecodeFailure_RetriesWithH264WithoutChangingPreference()
+    {
+        // Arrange
+        using var context = CreateContext();
+        context.JSInterop
+            .Setup<Watch.CmafStartResponse>(
+                "startCmafSession",
+                invocation => Assert.IsType<string>(invocation.Arguments[0]).Contains("preferredVideo=Source", StringComparison.Ordinal))
+            .SetResult(
+                new(
+                    "source-session",
+                    "/api/stream/cmaf/source-session/master.m3u8",
+                    "/api/stream/cmaf/source-session/manifest.mpd",
+                    HasSourceVideoRendition: true));
+        context.JSInterop
+            .Setup<Watch.CmafStartResponse>(
+                "startCmafSession",
+                invocation => Assert.IsType<string>(invocation.Arguments[0]).Contains("preferredVideo=Fallback", StringComparison.Ordinal))
+            .SetResult(new("fallback-session", "/api/stream/cmaf/fallback-session/master.m3u8", "/api/stream/cmaf/fallback-session/manifest.mpd"));
+        context.JSInterop
+            .Setup<Watch.CmafPlayerResult>(
+                "initCmafPlayer",
+                invocation => Equals(invocation.Arguments[1], "/api/stream/cmaf/source-session/manifest.mpd"))
+            .SetResult(new(false, "Shaka Error 3016", null, 3016));
+        context.JSInterop
+            .Setup<Watch.CmafPlayerResult>(
+                "initCmafPlayer",
+                invocation => Equals(invocation.Arguments[1], "/api/stream/cmaf/fallback-session/manifest.mpd"))
+            .SetResult(new(true, null, "/api/stream/cmaf/fallback-session/manifest.mpd", Video: new("avc1.64002a", 853, 480)));
+        context.JSInterop.SetupVoid("stopCmafSession", "source-session").SetVoidResult();
+        context.JSInterop.SetupVoid("stopCmafSession", "fallback-session").SetVoidResult();
+
+        // Act
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "40.3"));
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            var starts = context.JSInterop.Invocations.Where(invocation => invocation.Identifier == "startCmafSession").ToArray();
+            Assert.Equal(2, starts.Length);
+            Assert.Contains("preferredVideo=Source", Assert.IsType<string>(starts[0].Arguments[0]), StringComparison.Ordinal);
+            Assert.Contains("preferredVideo=Fallback", Assert.IsType<string>(starts[1].Arguments[0]), StringComparison.Ordinal);
+            Assert.Equal(nameof(CmafPreferredVideo.Source), component.Find("#cmafPreferredVideo").GetAttribute("value"));
+            Assert.Contains("avc1.64002a", component.Markup);
+            Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "localStorage.setItem");
+        });
+    }
+
+    /// <summary>
+    /// Verifies an H.264 fallback decoder failure during initialization does not start another fallback session.
+    /// </summary>
+    [Fact]
+    public void FallbackVideoInitializationDecodeFailure_DoesNotRetry()
+    {
+        // Arrange
+        using var context = CreateContext("""{"Protocol":0,"Quality":0,"PreferredAudio":0,"PreferredVideo":1,"AacFallback":0,"SubtitleTrack":null}""");
+        context.JSInterop
+            .Setup<Watch.CmafStartResponse>(
+                "startCmafSession",
+                invocation => Assert.IsType<string>(invocation.Arguments[0]).Contains("preferredVideo=Fallback", StringComparison.Ordinal))
+            .SetResult(new("fallback-session", "/api/stream/cmaf/fallback-session/master.m3u8", "/api/stream/cmaf/fallback-session/manifest.mpd"));
+        context.JSInterop
+            .Setup<Watch.CmafPlayerResult>("initCmafPlayer", _ => true)
+            .SetResult(new(false, "Shaka Error 3016", null, 3016));
+        context.JSInterop.SetupVoid("stopCmafSession", "fallback-session").SetVoidResult();
+
+        // Act
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "40.3"));
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            var start = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession");
+            Assert.Contains("preferredVideo=Fallback", Assert.IsType<string>(start.Arguments[0]), StringComparison.Ordinal);
+            Assert.Contains("Shaka Error 3016", component.Markup);
+        });
+    }
+
+    /// <summary>
+    /// Verifies a runtime source-video decoder failure restarts once with H.264 rather than encoding fallback video continuously.
+    /// </summary>
+    [Fact]
+    public async Task SourceH264RuntimeFailure_RestartsWithH264()
+    {
+        // Arrange
+        using var context = CreateContext();
+        context.JSInterop
+            .Setup<Watch.CmafStartResponse>(
+                "startCmafSession",
+                invocation => Assert.IsType<string>(invocation.Arguments[0]).Contains("preferredVideo=Source", StringComparison.Ordinal))
+            .SetResult(
+                new(
+                    "source-session",
+                    "/api/stream/cmaf/source-session/master.m3u8",
+                    "/api/stream/cmaf/source-session/manifest.mpd",
+                    HasSourceVideoRendition: true,
+                    SourceVideoCodec: null));
+        context.JSInterop
+            .Setup<Watch.CmafStartResponse>(
+                "startCmafSession",
+                invocation => Assert.IsType<string>(invocation.Arguments[0]).Contains("preferredVideo=Fallback", StringComparison.Ordinal))
+            .SetResult(new("fallback-session", "/api/stream/cmaf/fallback-session/master.m3u8", "/api/stream/cmaf/fallback-session/manifest.mpd"));
+        context.JSInterop
+            .Setup<Watch.CmafPlayerResult>("initCmafPlayer", _ => true)
+            .SetResult(new(true, null, "/api/stream/cmaf/source-session/manifest.mpd", Video: new("avc1.4d401e", 853, 480)));
+        context.JSInterop.SetupVoid("stopCmafSession", "source-session").SetVoidResult();
+        context.JSInterop.SetupVoid("stopCmafSession", "fallback-session").SetVoidResult();
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "104.1"));
+        component.WaitForAssertion(() => Assert.Contains("avc1.4d401e", component.Markup));
+        var initialize = Assert.Single(
+            context.JSInterop.Invocations,
+            invocation => invocation.Identifier == "initCmafPlayer" &&
+                Equals(invocation.Arguments[1], "/api/stream/cmaf/source-session/manifest.mpd"));
+        Assert.Equal(true, initialize.Arguments[5]);
+        Assert.Null(initialize.Arguments[6]);
+
+        // Act
+        await component.InvokeAsync(() => component.Instance.OnCmafPlayerEvent(
+            new("video-fallback-required", "Source video failed in this browser. Restarting this stream with H.264.", null, "source-session")));
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            var starts = context.JSInterop.Invocations.Where(invocation => invocation.Identifier == "startCmafSession").ToArray();
+            Assert.Equal(2, starts.Length);
+            Assert.Contains("preferredVideo=Fallback", Assert.IsType<string>(starts[1].Arguments[0]), StringComparison.Ordinal);
+            Assert.Equal(nameof(CmafPreferredVideo.Source), component.Find("#cmafPreferredVideo").GetAttribute("value"));
+        });
+    }
+
+    /// <summary>
+    /// Verifies explicit HLS mode does not silently provide a protocol fallback.
+    /// </summary>
+    [Fact]
+    public void StoredHlsMode_InitializesOnlyHlsManifest()
+    {
+        // Arrange
+        using var context = CreateContext("""{"Protocol":1,"Quality":0,"PreferredAudio":0,"AacFallback":0,"SubtitleTrack":null}""");
+        ConfigureSuccessfulSession(context);
+
+        // Act
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            var initialize = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer");
+            Assert.Equal("/api/stream/cmaf/session-1/master.m3u8", initialize.Arguments[1]);
+            Assert.Null(initialize.Arguments[2]);
+            Assert.Equal(nameof(CmafFallbackAudio.AacStereo), component.Find("#cmafFallbackAudio").GetAttribute("value"));
+        });
+    }
+
+    /// <summary>
+    /// Verifies the prior AAC channel-layout preference migrates to the matching fallback profile.
+    /// </summary>
+    [Fact]
+    public void StoredLegacyAacLayout_MigratesToFallbackProfile()
+    {
+        // Arrange
+        using var context = CreateContext("""{"Protocol":0,"Quality":0,"PreferredAudio":0,"AacFallback":2,"SubtitleTrack":null}""");
+        ConfigureSuccessfulSession(context);
+
+        // Act
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+
+        // Assert
+        component.WaitForAssertion(() =>
+            Assert.Equal(nameof(CmafFallbackAudio.AacUpTo7Point1), component.Find("#cmafFallbackAudio").GetAttribute("value")));
+    }
+
+    /// <summary>
+    /// Verifies a fallback-only server retry informs the user without changing the Source preference.
+    /// </summary>
+    [Fact]
+    public void SourceAudioMuxerFallback_NotifiesWithoutChangingPreference()
+    {
+        // Arrange
+        using var context = CreateContext();
+        ConfigureSuccessfulSession(context, sourceAudioFallbackApplied: true);
+
+        // Act
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "104.1"));
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            Assert.Equal(nameof(CmafPreferredAudio.Source), component.Find("#cmafPreferredAudio").GetAttribute("value"));
+            var notification = Assert.Single(context.Services.GetRequiredService<IStatusNotificationService>().Notifications);
+            Assert.Contains("Using Fallback AAC Stereo for this stream", notification.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                context.JSInterop.Invocations,
+                invocation => invocation.Identifier == "localStorage.setItem" && Equals(invocation.Arguments[0], PreferencesStorageKey));
+        });
+    }
+
+    /// <summary>
+    /// Verifies selecting fallback audio persists only the CMAF preference and restarts the presentation.
+    /// </summary>
+    [Fact]
+    public void PreferredAudioChange_PersistsAndRestartsWithFallback()
+    {
+        // Arrange
+        using var context = CreateContext();
+        ConfigureSuccessfulSession(context);
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        component.WaitForAssertion(() =>
+        {
+            Assert.NotNull(component.Find("#cmafVideoPlayer"));
+            Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer");
+        });
+
+        // Act
+        component.Find("#cmafPreferredAudio").Change(CmafPreferredAudio.Fallback.ToString());
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            var starts = context.JSInterop.Invocations.Where(invocation => invocation.Identifier == "startCmafSession").ToArray();
+            Assert.Equal(2, starts.Length);
+            Assert.Contains("preferredAudio=Fallback", Assert.IsType<string>(starts[^1].Arguments[0]), StringComparison.Ordinal);
+            var storageWrite = Assert.Single(
+                context.JSInterop.Invocations,
+                invocation => invocation.Identifier == "localStorage.setItem" && Equals(invocation.Arguments[0], PreferencesStorageKey));
+            Assert.Contains("\"PreferredAudio\":1", Assert.IsType<string>(storageWrite.Arguments[1]), StringComparison.Ordinal);
+        });
+    }
+
+    /// <summary>
+    /// Verifies fallback choices are quality ordered while AAC Stereo remains the compatibility default.
+    /// </summary>
+    [Fact]
+    public void FallbackAudio_DefaultAndOptions_AreCompatibilityAware()
+    {
+        // Arrange
+        using var context = CreateContext();
+        ConfigureSuccessfulSession(context);
+
+        // Act
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            var select = component.Find("#cmafFallbackAudio");
+            Assert.Equal(nameof(CmafFallbackAudio.AacStereo), select.GetAttribute("value"));
+            Assert.Equal(
+                ["Browser profile", "EAC3", "AC3", "AAC up to 7.1", "AAC up to 5.1", "AAC Stereo"],
+                select.QuerySelectorAll("option").Select(option => option.TextContent.Trim()).ToArray());
+        });
+    }
+
+    /// <summary>
+    /// Verifies selecting EAC3 persists the fallback profile and sends it to the CMAF API.
+    /// </summary>
+    [Fact]
+    public void FallbackAudioChange_PersistsAndRestartsWithEac3()
+    {
+        // Arrange
+        using var context = CreateContext();
+        ConfigureSuccessfulSession(context);
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
+
+        // Act
+        component.Find("#cmafFallbackAudio").Change(CmafFallbackAudio.Eac3.ToString());
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            var starts = context.JSInterop.Invocations.Where(invocation => invocation.Identifier == "startCmafSession").ToArray();
+            Assert.Equal(2, starts.Length);
+            Assert.Contains("fallbackAudio=Eac3", Assert.IsType<string>(starts[^1].Arguments[0]), StringComparison.Ordinal);
+            var storageWrite = Assert.Single(
+                context.JSInterop.Invocations,
+                invocation => invocation.Identifier == "localStorage.setItem" && Equals(invocation.Arguments[0], PreferencesStorageKey));
+            Assert.Contains("\"FallbackAudio\":4", Assert.IsType<string>(storageWrite.Arguments[1]), StringComparison.Ordinal);
+        });
+    }
+
+    /// <summary>
+    /// Verifies a browser that rejects the configured fallback gets a temporary AAC Stereo session without changing the saved preference.
+    /// </summary>
+    [Fact]
+    public void UnsupportedAc3Presentation_RetriesWithAacStereoWithoutChangingPreference()
+    {
+        // Arrange
+        using var context = CreateContext("""{"Protocol":2,"Quality":0,"PreferredAudio":1,"FallbackAudio":3,"SubtitleTrack":null}""");
+        context.JSInterop
+            .Setup<Watch.CmafStartResponse>(
+                "startCmafSession",
+                invocation => Assert.IsType<string>(invocation.Arguments[0]).Contains("fallbackAudio=Ac3", StringComparison.Ordinal))
+            .SetResult(
+                new(
+                    "ac3-session",
+                    "/api/stream/cmaf/ac3-session/master.m3u8",
+                    "/api/stream/cmaf/ac3-session/manifest.mpd",
+                    FallbackAudioCodec: "ac3"));
+        context.JSInterop
+            .Setup<Watch.CmafStartResponse>(
+                "startCmafSession",
+                invocation => Assert.IsType<string>(invocation.Arguments[0]).Contains("fallbackAudio=AacStereo", StringComparison.Ordinal))
+            .SetResult(new("aac-session", "/api/stream/cmaf/aac-session/master.m3u8", "/api/stream/cmaf/aac-session/manifest.mpd"));
+        context.JSInterop
+            .Setup<Watch.CmafPlayerResult>(
+                "initCmafPlayer",
+                invocation => Equals(invocation.Arguments[1], "/api/stream/cmaf/ac3-session/manifest.mpd"))
+            .SetResult(new(false, "Shaka Error 4032", null, 4032, FallbackAudioSupported: false));
+        context.JSInterop
+            .Setup<Watch.CmafPlayerResult>(
+                "initCmafPlayer",
+                invocation => Equals(invocation.Arguments[1], "/api/stream/cmaf/aac-session/manifest.mpd"))
+            .SetResult(new(true, null, "/api/stream/cmaf/aac-session/manifest.mpd", Audio: new("Fallback AAC Stereo", "mp4a.40.2", 2)));
+        context.JSInterop.SetupVoid("stopCmafSession", "ac3-session").SetVoidResult();
+        context.JSInterop.SetupVoid("stopCmafSession", "aac-session").SetVoidResult();
+
+        // Act
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "105.1"));
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            var starts = context.JSInterop.Invocations.Where(invocation => invocation.Identifier == "startCmafSession").ToArray();
+            Assert.Equal(2, starts.Length);
+            Assert.Contains("fallbackAudio=Ac3", Assert.IsType<string>(starts[0].Arguments[0]), StringComparison.Ordinal);
+            Assert.Contains("fallbackAudio=AacStereo", Assert.IsType<string>(starts[1].Arguments[0]), StringComparison.Ordinal);
+            Assert.Equal(nameof(CmafFallbackAudio.Ac3), component.Find("#cmafFallbackAudio").GetAttribute("value"));
+            var notification = Assert.Single(context.Services.GetRequiredService<IStatusNotificationService>().Notifications);
+            Assert.Equal("AC3 is unavailable in this browser. Retrying this stream with AAC Stereo.", notification.Message);
+            Assert.Contains("Playing audio:", component.Markup);
+            Assert.Contains("Fallback AAC Stereo", component.Markup);
+            Assert.Contains("mp4a.40.2", component.Markup);
             Assert.DoesNotContain(
                 context.JSInterop.Invocations,
                 invocation => invocation.Identifier == "localStorage.setItem");
@@ -186,1312 +790,368 @@ public class WatchTests
     }
 
     /// <summary>
-    /// Verifies that manual tuning rejects values that are not virtual channel numbers.
+    /// Verifies a generic Shaka 4032 does not replace AC3 when the browser reports AC3 support.
     /// </summary>
     [Fact]
-    public void ManualTuneWithInvalidChannel_ShowsValidationWithoutStartingPlayback()
+    public void SupportedAc3Presentation_GenericUnsupportedError_DoesNotRetryAac()
     {
         // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns([]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(context);
-        var component = context.Render<Watch>();
+        using var context = CreateContext("""{"Protocol":2,"Quality":0,"PreferredAudio":1,"FallbackAudio":3,"SubtitleTrack":null}""");
+        context.JSInterop
+            .Setup<Watch.CmafStartResponse>("startCmafSession", _ => true)
+            .SetResult(
+                new(
+                    "ac3-session",
+                    "/api/stream/cmaf/ac3-session/master.m3u8",
+                    "/api/stream/cmaf/ac3-session/manifest.mpd",
+                    FallbackAudioCodec: "ac3"));
+        context.JSInterop
+            .Setup<Watch.CmafPlayerResult>("initCmafPlayer", _ => true)
+            .SetResult(new(false, "Shaka Error 4032", null, 4032, FallbackAudioSupported: true));
+        context.JSInterop.SetupVoid("stopCmafSession", "ac3-session").SetVoidResult();
 
         // Act
-        component.Find("#manualTuneChannel").Input("channel five");
-        component.Find("form").Submit();
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "105.1"));
 
         // Assert
         component.WaitForAssertion(() =>
         {
-            Assert.Contains("Enter a channel number using digits", component.Markup);
-            Assert.Empty(component.FindAll("#videoPlayer"));
-            Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "initFmp4Player");
+            Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession");
+            Assert.Contains("Shaka Error 4032", component.Markup, StringComparison.Ordinal);
+            Assert.Empty(context.Services.GetRequiredService<IStatusNotificationService>().Notifications);
         });
     }
 
     /// <summary>
-    /// Verifies that a direct Watch URL tunes a channel that is absent from guide data.
+    /// Verifies component disposal destroys the player and explicitly stops its CMAF session.
     /// </summary>
     [Fact]
-    public void DirectUrlWithoutGuideData_StartsRequestedChannel()
+    public async Task Dispose_StopsPlayerAndServerSession()
     {
         // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns([]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(context);
-        context.JSInterop.SetupVoid("stopMediaPlayer", "videoPlayer").SetVoidResult();
-        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 3).SetResult(null);
-
-        // Act
+        using var context = CreateContext();
+        ConfigureSuccessfulSession(context);
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-
-        // Assert
         component.WaitForAssertion(() =>
         {
-            Assert.NotNull(component.Find("#videoPlayer"));
-            Assert.Contains("Manual Tune", component.Markup);
-            var initialization = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "initFmp4Player");
-            Assert.Contains("/api/stream/fmp4/42.1?", Assert.IsType<string>(initialization.Arguments[1]));
+            Assert.NotNull(component.Find("#cmafVideoPlayer"));
+            Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer");
         });
-    }
-
-    /// <summary>
-    /// Verifies that cached channel identifiers retain their existing selection behavior.
-    /// </summary>
-    [Fact]
-    public void CachedChannelWithNonstandardIdentifier_StartsSelectedChannel()
-    {
-        // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns(
-        [
-            new HDHomeRunChannelEpgSegment { GuideNumber = "7-1", GuideName = "Existing Channel" }
-        ]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(context);
-        context.JSInterop.SetupVoid("stopMediaPlayer", "videoPlayer").SetVoidResult();
-        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 3).SetResult(null);
-        var component = context.Render<Watch>();
-
-        // Act
-        component.WaitForElement(".channel-item").Click();
-
-        // Assert
-        component.WaitForAssertion(() =>
-        {
-            Assert.Contains("Existing Channel", component.Markup);
-            var initialization = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "initFmp4Player");
-            Assert.Contains("/api/stream/fmp4/7-1?", Assert.IsType<string>(initialization.Arguments[1]));
-        });
-    }
-
-    /// <summary>
-    /// Verifies that disposing an inactive page does not attempt browser interop.
-    /// </summary>
-    [Fact]
-    public void DisposeBeforePlayback_DoesNotInvokePlayerShutdown()
-    {
-        // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns([]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(context);
-
-        var component = context.Render<Watch>();
-
-        // Act
-        component.Dispose();
-
-        // Assert
-        Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopMediaPlayer");
-    }
-
-    /// <summary>
-    /// Verifies that leaving an active Watch page explicitly stops its server-side stream.
-    /// </summary>
-    [Fact]
-    public async Task DisposeDuringPlayback_StopsOwnedActiveStream()
-    {
-        // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns(
-        [
-            new HDHomeRunChannelEpgSegment
-            {
-                GuideNumber = "2.1",
-                GuideName = "Test Channel"
-            }
-        ]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        var registry = new ActiveStreamRegistry();
-        var streamStopped = false;
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(context, activeStreamRegistry: registry);
-        context.JSInterop.SetupVoid("stopMediaPlayer", "videoPlayer").SetVoidResult();
-        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 3).SetResult(null);
-        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "2.1"));
-        component.WaitForAssertion(() => Assert.NotNull(component.Find("#videoPlayer")));
-        component.WaitForAssertion(() => Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "initFmp4Player"));
-        var streamUrl = LastStreamUrl(context);
-        var clientIdStart = streamUrl.IndexOf("clientId=", StringComparison.Ordinal) + "clientId=".Length;
-        var clientId = streamUrl[clientIdStart..].Split('&')[0];
-        registry.Register(
-            new ActiveStreamSnapshot("session", "2.1", HostedStreamFormat.FragmentedMp4, DateTime.UtcNow, null, []) { ClientId = clientId },
-            () =>
-            {
-                streamStopped = true;
-                registry.Unregister("session");
-            });
 
         // Act
         await component.Instance.DisposeAsync();
 
         // Assert
-        Assert.True(streamStopped);
-        Assert.Empty(registry.GetActiveStreams());
-        Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopMediaPlayer");
+        Assert.Contains(
+            context.JSInterop.Invocations,
+            invocation => invocation.Identifier == "stopMediaPlayer" && Equals(invocation.Arguments[0], "cmafVideoPlayer"));
+        Assert.Contains(
+            context.JSInterop.Invocations,
+            invocation => invocation.Identifier == "stopCmafSession" && Equals(invocation.Arguments[0], "session-1"));
     }
 
     /// <summary>
-    /// Verifies that client-side navigation stops the active stream before the Watch page is removed.
+    /// Verifies disposal cancels an in-flight start and stops a server session that still completes after cancellation.
     /// </summary>
     [Fact]
-    public void NavigationAwayDuringPlayback_StopsOwnedActiveStream()
+    public async Task Dispose_DuringPendingStart_CancelsAndStopsLateSession()
     {
         // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns(
-        [
-            new HDHomeRunChannelEpgSegment
-            {
-                GuideNumber = "2.1",
-                GuideName = "Test Channel"
-            }
-        ]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        var registry = new ActiveStreamRegistry();
-        var streamStopped = false;
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(context, activeStreamRegistry: registry);
-        context.JSInterop.SetupVoid("stopMediaPlayer", "videoPlayer").SetVoidResult();
-        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 3).SetResult(null);
-        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "2.1"));
-        component.WaitForAssertion(() => Assert.NotNull(component.Find("#videoPlayer")));
-        component.WaitForAssertion(() => Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "initFmp4Player"));
-        var streamUrl = LastStreamUrl(context);
-        var clientIdStart = streamUrl.IndexOf("clientId=", StringComparison.Ordinal) + "clientId=".Length;
-        var clientId = streamUrl[clientIdStart..].Split('&')[0];
-        registry.Register(
-            new ActiveStreamSnapshot("session", "2.1", HostedStreamFormat.FragmentedMp4, DateTime.UtcNow, null, []) { ClientId = clientId },
-            () =>
-            {
-                streamStopped = true;
-                registry.Unregister("session");
-            });
-        var navigation = context.Services.GetRequiredService<NavigationManager>();
+        using var context = CreateContext();
+        var start = context.JSInterop.Setup<Watch.CmafStartResponse>("startCmafSession", _ => true);
+        context.JSInterop.SetupVoid("stopCmafSession", "late-session").SetVoidResult();
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession"));
+        var startInvocation = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession");
+        var startupId = Assert.IsType<string>(startInvocation.Arguments[2]);
 
         // Act
-        navigation.NavigateTo("/dashboard");
+        await component.InvokeAsync(() => component.Instance.DisposeAsync().AsTask());
+        start.SetResult(new("late-session", "/api/stream/cmaf/late-session/master.m3u8", "/api/stream/cmaf/late-session/manifest.mpd"));
 
         // Assert
         component.WaitForAssertion(() =>
         {
-            Assert.True(streamStopped);
-            Assert.Empty(registry.GetActiveStreams());
-            Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopMediaPlayer");
+            Assert.Contains(
+                context.JSInterop.Invocations,
+                invocation => invocation.Identifier == "cancelCmafStart" && Equals(invocation.Arguments[0], startupId));
+            Assert.Contains(
+                context.JSInterop.Invocations,
+                invocation => invocation.Identifier == "stopCmafSession" && Equals(invocation.Arguments[0], "late-session"));
+            Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer");
         });
     }
 
     /// <summary>
-    /// Verifies that Stop awaits browser-side player shutdown before removing the video element.
+    /// Verifies a route change made during startup is tuned after the pending start completes.
     /// </summary>
     [Fact]
-    public async Task Stop_AwaitsPlayerShutdownBeforeRemovingVideo()
+    public async Task RouteChange_DuringPendingStart_TunesLatestChannel()
     {
         // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns(
-        [
-            new HDHomeRunChannelEpgSegment
-            {
-                GuideNumber = "2.1",
-                GuideName = "Test Channel"
-            }
-        ]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(context);
-
-        context.JSInterop.SetupVoid("stopMediaPlayer", "videoPlayer").SetVoidResult();
-        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 3).SetResult(null);
+        using var context = CreateContext();
+        var start = context.JSInterop.Setup<Watch.CmafStartResponse>("startCmafSession", _ => true);
+        context.JSInterop
+            .Setup<Watch.CmafPlayerResult>("initCmafPlayer", _ => true)
+            .SetResult(new(true, null, "/api/stream/cmaf/session-1/manifest.mpd"));
+        context.JSInterop.SetupVoid("stopCmafSession", "session-1").SetVoidResult();
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        component.WaitForAssertion(() => Assert.Single(
+            context.JSInterop.Invocations,
+            invocation => invocation.Identifier == "startCmafSession"));
+        var setParameters = typeof(Watch).GetMethod("OnParametersSetAsync", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(setParameters);
 
         // Act
-        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "2.1"));
+        typeof(Watch).GetProperty(nameof(Watch.ChannelNumber))!.SetValue(component.Instance, "105.1");
+        await component.InvokeAsync(() => Assert.IsAssignableFrom<Task>(setParameters.Invoke(component.Instance, null)));
+        start.SetResult(new("session-1", "/api/stream/cmaf/session-1/master.m3u8", "/api/stream/cmaf/session-1/manifest.mpd"));
+
         // Assert
-        component.WaitForAssertion(() => Assert.NotNull(component.Find("#videoPlayer")));
-        var pendingShutdown = context.JSInterop.SetupVoid("stopMediaPlayer", "videoPlayer");
-
-        var stopTask = component.Find("button.btn-danger").ClickAsync(new());
-        await Task.Yield();
-
-        Assert.NotNull(component.Find("#videoPlayer"));
-        Assert.False(stopTask.IsCompleted);
-
-        pendingShutdown.SetVoidResult();
-        await stopTask;
-        component.WaitForAssertion(() => Assert.Empty(component.FindAll("#videoPlayer")));
-    }
-
-    /// <summary>
-    /// Verifies that an explicit registry stop closes the matching Watch player.
-    /// </summary>
-    [Fact]
-    public void ActiveStreamStopRequest_StopsMatchingWatchPlayer()
-    {
-        // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns(
-        [
-            new HDHomeRunChannelEpgSegment
-            {
-                GuideNumber = "2.1",
-                GuideName = "Test Channel"
-            }
-        ]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        var registry = new ActiveStreamRegistry();
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(context, activeStreamRegistry: registry);
-        context.JSInterop.SetupVoid("stopMediaPlayer", "videoPlayer").SetVoidResult();
-        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 3).SetResult(null);
-        // Act
-        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "2.1"));
-        // Assert
-        component.WaitForAssertion(() => Assert.NotNull(component.Find("#videoPlayer")));
-        var initialization = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "initFmp4Player");
-        var streamUrl = Assert.IsType<string>(initialization.Arguments[1]);
-        var clientIdStart = streamUrl.IndexOf("clientId=", StringComparison.Ordinal) + "clientId=".Length;
-        var clientId = streamUrl[clientIdStart..].Split('&')[0];
-        registry.Register(
-            new ActiveStreamSnapshot("session", "2.1", HostedStreamFormat.FragmentedMp4, DateTime.UtcNow, null, []) { ClientId = clientId },
-            () => registry.Unregister("session"));
-
-        var stopped = registry.RequestStop("session");
-
-        Assert.True(stopped);
         component.WaitForAssertion(() =>
         {
-            Assert.Empty(component.FindAll("#videoPlayer"));
-            Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopMediaPlayer");
-        });
-    }
-
-    /// <summary>
-    /// Verifies that changing Watch quality restarts only the active player with a per-session override.
-    /// </summary>
-    [Fact]
-    public void QualityChange_RestartsActivePlayerWithOverride()
-    {
-        // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns(
-        [
-            new HDHomeRunChannelEpgSegment
-            {
-                GuideNumber = "2.1",
-                GuideName = "Test Channel"
-            }
-        ]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(context);
-        context.JSInterop.SetupVoid("stopMediaPlayer", "videoPlayer").SetVoidResult();
-        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 3).SetResult(null);
-        // Act
-        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "2.1"));
-        // Assert
-        component.WaitForAssertion(() => Assert.NotNull(component.Find("#videoPlayer")));
-
-        component.Find("#streamQuality").Change(nameof(WebPlayerQuality.Low));
-
-        component.WaitForAssertion(() =>
-        {
-            var initializations = context.JSInterop.Invocations
-                .Where(invocation => invocation.Identifier == "initFmp4Player")
+            var starts = context.JSInterop.Invocations
+                .Where(invocation => invocation.Identifier == "startCmafSession")
                 .ToArray();
-            Assert.True(initializations.Length >= 2);
-            Assert.Contains("quality=Low", Assert.IsType<string>(initializations[^1].Arguments[1]));
-            Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopMediaPlayer");
+            Assert.Equal(2, starts.Length);
+            Assert.Contains("/105.1", Assert.IsType<string>(starts[1].Arguments[0]), StringComparison.Ordinal);
         });
-        Assert.Equal(nameof(WebPlayerQuality.Low), component.Find("#streamQuality").GetAttribute("value"));
     }
 
     /// <summary>
-    /// Verifies audio and subtitle choices restart only this Watch client and preserve quality.
+    /// Verifies a stop operation cannot terminate a replacement session assigned while browser cleanup is pending.
     /// </summary>
     [Fact]
-    public void TrackSelection_RestartsCurrentPlayerWithValidatedIndexes()
+    public async Task Stop_WhenSessionIsReplacedDuringBrowserCleanup_StopsCapturedSession()
     {
         // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns(
-        [
-            new HDHomeRunChannelEpgSegment { GuideNumber = "2.1", GuideName = "Test Channel" }
-        ]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        var registry = new ActiveStreamRegistry();
+        using var context = CreateContext();
+        ConfigureSuccessfulSession(context);
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer"));
+        var stopPlayer = context.JSInterop.SetupVoid("stopMediaPlayer", "cmafVideoPlayer");
+        var stop = component.InvokeAsync(() => component.Instance.OnCmafPlayerEvent(new("error", "Playback failed.", null, "session-1")));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopMediaPlayer"));
+        var sessionField = typeof(Watch).GetField("_session", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(sessionField);
+        sessionField.SetValue(
+            component.Instance,
+            new Watch.CmafStartResponse(
+                "replacement-session",
+                "/api/stream/cmaf/replacement-session/master.m3u8",
+                "/api/stream/cmaf/replacement-session/manifest.mpd"));
+
+        // Act
+        stopPlayer.SetVoidResult();
+        await stop;
+
+        // Assert
+        Assert.Contains(
+            context.JSInterop.Invocations,
+            invocation => invocation.Identifier == "stopCmafSession" && Equals(invocation.Arguments[0], "session-1"));
+        Assert.DoesNotContain(
+            context.JSInterop.Invocations,
+            invocation => invocation.Identifier == "stopCmafSession" && Equals(invocation.Arguments[0], "replacement-session"));
+    }
+
+    /// <summary>
+    /// Verifies a queued callback from a superseded player cannot stop or retune the replacement session.
+    /// </summary>
+    /// <param name="kind">The stale player event category.</param>
+    /// <param name="message">The stale player event message.</param>
+    [Theory]
+    [InlineData("error", "Stale playback failed.")]
+    [InlineData("video-fallback-required", "Stale source video failed.")]
+    public async Task PlayerEvent_FromSupersededSession_DoesNotMutateReplacement(string kind, string message)
+    {
+        // Arrange
+        using var context = CreateContext();
+        ConfigureSuccessfulSession(context);
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer"));
+        var sessionField = typeof(Watch).GetField("_session", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(sessionField);
+        sessionField.SetValue(
+            component.Instance,
+            new Watch.CmafStartResponse(
+                "replacement-session",
+                "/api/stream/cmaf/replacement-session/master.m3u8",
+                "/api/stream/cmaf/replacement-session/manifest.mpd"));
+        var invocationCount = context.JSInterop.Invocations.Count;
+
+        // Act
+        await component.InvokeAsync(() => component.Instance.OnCmafPlayerEvent(new(kind, message, null, "session-1")));
+
+        // Assert
+        Assert.Equal(invocationCount, context.JSInterop.Invocations.Count);
+        Assert.DoesNotContain(message, component.Markup, StringComparison.Ordinal);
+        Assert.Empty(context.Services.GetRequiredService<IStatusNotificationService>().Notifications);
+    }
+
+    /// <summary>
+    /// Verifies a superseded player initialization cannot overwrite the replacement session state.
+    /// </summary>
+    [Fact]
+    public void PlayerInitialization_WhenSessionWasReplaced_IgnoresStaleResult()
+    {
+        // Arrange
+        using var context = CreateContext();
+        context.JSInterop
+            .Setup<Watch.CmafStartResponse>("startCmafSession", _ => true)
+            .SetResult(new("session-1", "/api/stream/cmaf/session-1/master.m3u8", "/api/stream/cmaf/session-1/manifest.mpd"));
+        var initialization = context.JSInterop.Setup<Watch.CmafPlayerResult>("initCmafPlayer", _ => true);
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer"));
+        var sessionField = typeof(Watch).GetField("_session", BindingFlags.Instance | BindingFlags.NonPublic);
+        var playerVideoField = typeof(Watch).GetField("_playerVideo", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(sessionField);
+        Assert.NotNull(playerVideoField);
+        sessionField.SetValue(
+            component.Instance,
+            new Watch.CmafStartResponse(
+                "session-2",
+                "/api/stream/cmaf/session-2/master.m3u8",
+                "/api/stream/cmaf/session-2/manifest.mpd"));
+
+        // Act
+        initialization.SetResult(new(true, null, "/api/stream/cmaf/session-1/manifest.mpd", Video: new("stale-codec", 1920, 1080)));
+
+        // Assert
+        component.WaitForAssertion(() => Assert.Null(playerVideoField.GetValue(component.Instance)));
+    }
+
+    /// <summary>
+    /// Verifies all prepared text and caption sidecars are supplied to the player and omitted from the burn-in selector.
+    /// </summary>
+    [Fact]
+    public void PreparedSubtitles_ArePlayerControlledAndAbsentFromBurnInSelector()
+    {
+        // Arrange
+        using var context = CreateContext();
+        ConfigureSuccessfulSession(context);
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
+        var clientIdField = typeof(Watch).GetField("_clientId", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(clientIdField);
+        var clientId = Assert.IsType<string>(clientIdField.GetValue(component.Instance));
+        var registry = context.Services.GetRequiredService<IActiveStreamRegistry>();
+
+        // Act
         registry.Register(new ActiveStreamSnapshot(
-            "source",
-            "2.1",
-            HostedStreamFormat.FragmentedMp4,
+            "session-1",
+            "42.1",
+            HostedStreamFormat.Cmaf,
             DateTime.UtcNow,
             null,
             [
-                Track(1, MediaTrackType.Audio, "ac3", "eng", selected: true),
-                Track(3, MediaTrackType.Audio, "ac3", "spa"),
-                Track(5, MediaTrackType.Subtitle, "subrip", "eng", SubtitlePresentation.WebVtt),
-                Track(7, MediaTrackType.Subtitle, "dvb_subtitle", "spa", SubtitlePresentation.BurnIn)
-            ]));
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(context, activeStreamRegistry: registry);
-        context.JSInterop.SetupVoid("stopMediaPlayer", "videoPlayer").SetVoidResult();
-        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count is 3 or 4).SetResult(null);
-        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "2.1"));
-        component.WaitForAssertion(() => Assert.Equal(2, component.FindAll("#audioTrack option").Count));
-
-        // Act
-        component.Find("#audioTrack").Change("3");
-        component.WaitForAssertion(() => Assert.Contains("audioTrack=3", LastStreamUrl(context)));
-        component.Find("#subtitleTrack").Change("5");
-
-        // Assert
-        component.WaitForAssertion(() =>
-        {
-            var invocation = context.JSInterop.Invocations.Last(item => item.Identifier == "initFmp4Player");
-            var streamUrl = Assert.IsType<string>(invocation.Arguments[1]);
-            Assert.Contains("audioTrack=3", streamUrl);
-            Assert.Contains("subtitleTrack=5", streamUrl);
-            Assert.Contains("subtitlePresentation=WebVtt", streamUrl);
-            Assert.Equal(4, invocation.Arguments.Count);
-            Assert.Contains("burn-in; higher CPU", component.Markup);
-            var savedState = JsonDocument.Parse(
-                Assert.IsType<string>(
-                    context.JSInterop.Invocations.Last(item => item.Identifier == "localStorage.setItem").Arguments[1])).RootElement;
-            Assert.True(savedState.GetProperty("SubtitlesEnabled").GetBoolean());
-            Assert.Equal("eng", savedState.GetProperty("Subtitle").GetProperty("Language").GetString());
-            Assert.False(savedState.TryGetProperty("AudioTrack", out _));
-        });
-    }
-
-    /// <summary>
-    /// Verifies selecting embedded ATSC captions carries their extraction mode through the restart URL.
-    /// </summary>
-    [Fact]
-    public void EmbeddedCaptionSelection_RestartIdentifiesSyntheticTrack()
-    {
-        // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns([]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        var registry = Substitute.For<IActiveStreamRegistry>();
-        registry.GetActiveStreams().Returns(
-        [
-            new ActiveStreamSnapshot(
-                "stream",
-                "2.6",
-                HostedStreamFormat.FragmentedMp4,
-                DateTime.UtcNow,
-                null,
-                [Track(2, MediaTrackType.Subtitle, "eia_608", "und", SubtitlePresentation.WebVtt) with { IsEmbeddedClosedCaptions = true }])
-        ]);
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(context, activeStreamRegistry: registry);
-        context.JSInterop.SetupVoid("stopMediaPlayer", "videoPlayer").SetVoidResult();
-        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count is 3 or 4).SetResult(null);
-        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "2.6"));
-        component.WaitForElement("#subtitleTrack");
-
-        // Act
-        component.Find("#subtitleTrack").Change("2");
-
-        // Assert
-        component.WaitForAssertion(() =>
-        {
-            var streamUrl = LastStreamUrl(context);
-            Assert.Contains("subtitleTrack=2", streamUrl);
-            Assert.Contains("subtitlePresentation=WebVtt", streamUrl);
-            Assert.Contains("embeddedCaptions=true", streamUrl);
-        });
-    }
-
-    /// <summary>
-    /// Verifies saved quality and audio output are restored before direct-route playback starts.
-    /// </summary>
-    [Fact]
-    public void SavedPlaybackPreferences_DirectRouteStartsOnceWithRestoredValues()
-    {
-        // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns([]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(
-            context,
-            preferencesJson: """{"Quality":3,"AudioOutput":2,"SubtitlesEnabled":false,"Subtitle":null}""");
-        context.JSInterop.SetupVoid("stopMediaPlayer", "videoPlayer").SetVoidResult();
-        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 3).SetResult(null);
-
-        // Act
-        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-
-        // Assert
-        component.WaitForAssertion(() =>
-        {
-            var initialization = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "initFmp4Player");
-            var url = Assert.IsType<string>(initialization.Arguments[1]);
-            Assert.Contains("quality=Low", url);
-            Assert.Contains("audioOutput=UpTo7Point1", url);
-            Assert.Equal(nameof(WebPlayerQuality.Low), component.Find("#streamQuality").GetAttribute("value"));
-            Assert.Equal(nameof(WatchAudioOutput.UpTo7Point1), component.Find("#audioOutput").GetAttribute("value"));
-        });
-    }
-
-    /// <summary>
-    /// Verifies quality and audio-output changes persist the complete Watch preference state.
-    /// </summary>
-    [Fact]
-    public void PlaybackPreferenceChanges_AreSavedToBrowserStorage()
-    {
-        // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns([]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(context);
-        context.JSInterop.SetupVoid("localStorage.setItem", _ => true).SetVoidResult();
-        var component = context.Render<Watch>();
-
-        // Act
-        component.Find("#streamQuality").Change(nameof(WebPlayerQuality.Medium));
-        component.Find("#audioOutput").Change(nameof(WatchAudioOutput.UpTo5Point1));
-
-        // Assert
-        component.WaitForAssertion(() =>
-        {
-            var savedState = JsonDocument.Parse(
-                Assert.IsType<string>(
-                    context.JSInterop.Invocations.Last(item => item.Identifier == "localStorage.setItem").Arguments[1])).RootElement;
-            Assert.Equal((int)WebPlayerQuality.Medium, savedState.GetProperty("Quality").GetInt32());
-            Assert.Equal((int)WatchAudioOutput.UpTo5Point1, savedState.GetProperty("AudioOutput").GetInt32());
-        });
-    }
-
-    /// <summary>
-    /// Verifies invalid saved preferences retain the compatibility defaults.
-    /// </summary>
-    [Fact]
-    public void InvalidSavedPreferences_FallBackToDefaults()
-    {
-        // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns([]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(context, preferencesJson: """{"Quality":99,"AudioOutput":99,"SubtitlesEnabled":true,"Subtitle":null}""");
-
-        // Act
-        var component = context.Render<Watch>();
-
-        // Assert
-        Assert.Equal(nameof(WebPlayerQuality.AppDefault), component.Find("#streamQuality").GetAttribute("value"));
-        Assert.Equal(nameof(WatchAudioOutput.Stereo), component.Find("#audioOutput").GetAttribute("value"));
-    }
-
-    /// <summary>
-    /// Verifies malformed browser storage does not prevent the Watch page from using safe defaults.
-    /// </summary>
-    [Fact]
-    public void MalformedSavedPreferences_FallBackToDefaults()
-    {
-        // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns([]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(context, preferencesJson: "{invalid");
-
-        // Act
-        var component = context.Render<Watch>();
-
-        // Assert
-        Assert.Equal(nameof(WebPlayerQuality.AppDefault), component.Find("#streamQuality").GetAttribute("value"));
-        Assert.Equal(nameof(WatchAudioOutput.Stereo), component.Find("#audioOutput").GetAttribute("value"));
-    }
-
-    /// <summary>
-    /// Verifies a saved subtitle language maps to the current stream index before playback begins.
-    /// </summary>
-    [Fact]
-    public void SavedSubtitlePreference_MatchingTrackIsSelected()
-    {
-        // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns([]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        var registry = new ActiveStreamRegistry();
-        registry.Register(new ActiveStreamSnapshot(
-            "source",
-            "42.1",
-            HostedStreamFormat.FragmentedMp4,
-            DateTime.UtcNow,
-            null,
-            [Track(7, MediaTrackType.Subtitle, "subrip", "eng", SubtitlePresentation.WebVtt)]));
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(
-            context,
-            activeStreamRegistry: registry,
-            preferencesJson: """{"Quality":0,"AudioOutput":0,"SubtitlesEnabled":true,"Subtitle":{"Language":"eng","Title":null,"SourceCodec":"eia_608","IsForced":false,"IsHearingImpaired":false}}""");
-        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 4).SetResult(null);
-
-        // Act
-        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-
-        // Assert
-        component.WaitForAssertion(() =>
-        {
-            var initialization = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "initFmp4Player");
-            Assert.Contains("subtitleTrack=7", Assert.IsType<string>(initialization.Arguments[1]));
-            Assert.Equal(4, initialization.Arguments.Count);
-        });
-    }
-
-    /// <summary>
-    /// Verifies a saved subtitle preference falls back to the first supported track when its language is unavailable.
-    /// </summary>
-    [Fact]
-    public void SavedSubtitlePreference_UnavailableLanguageSelectsFirstSupportedTrack()
-    {
-        // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns([]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        var registry = new ActiveStreamRegistry();
-        registry.Register(new ActiveStreamSnapshot(
-            "source",
-            "42.1",
-            HostedStreamFormat.FragmentedMp4,
-            DateTime.UtcNow,
-            null,
-            [Track(7, MediaTrackType.Subtitle, "subrip", string.Empty, SubtitlePresentation.WebVtt)]));
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(
-            context,
-            activeStreamRegistry: registry,
-            preferencesJson: """{"Quality":0,"AudioOutput":0,"SubtitlesEnabled":true,"Subtitle":{"Language":"eng","Title":null,"SourceCodec":"subrip","IsForced":false,"IsHearingImpaired":false}}""");
-        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 3).SetResult(null);
-
-        // Act
-        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-
-        // Assert
-        component.WaitForAssertion(() =>
-        {
-            var initialization = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "initFmp4Player");
-            Assert.Contains("subtitleTrack=7", Assert.IsType<string>(initialization.Arguments[1]));
-            Assert.Equal(4, initialization.Arguments.Count);
-            Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "localStorage.setItem");
-        });
-    }
-
-    /// <summary>
-    /// Verifies an embedded preference survives a regular-subtitle fallback and is restored when switching back.
-    /// </summary>
-    [Fact]
-    public void ChannelSwitch_EmbeddedToRegularAndBackPreservesExplicitPreference()
-    {
-        // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns([]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        var registry = new ActiveStreamRegistry();
-        registry.Register(new ActiveStreamSnapshot(
-            "embedded",
-            "2.6",
-            HostedStreamFormat.FragmentedMp4,
-            DateTime.UtcNow,
-            null,
-            [
-                Track(2, MediaTrackType.Subtitle, "eia_608", string.Empty, SubtitlePresentation.WebVtt) with
+                new ActiveStreamTrack(MediaTrackType.Audio, "ac3", "copy", null, null, null, null, 2, 2, 48_000)
                 {
+                    SourceIndex = 1,
+                    IsSelected = true
+                },
+                new ActiveStreamTrack(MediaTrackType.Subtitle, "eia_608", "webvtt", null, null, null, null, null, null, null)
+                {
+                    SourceIndex = 3,
+                    Title = "Closed Captions",
+                    IsSelected = false,
                     IsEmbeddedClosedCaptions = true,
-                    Title = "Closed Captions"
+                    SubtitlePresentation = SubtitlePresentation.WebVtt
                 }
-            ]));
-        registry.Register(new ActiveStreamSnapshot(
-            "regular",
-            "3.1",
-            HostedStreamFormat.FragmentedMp4,
-            DateTime.UtcNow,
-            null,
-            [Track(8, MediaTrackType.Subtitle, "subrip", "eng", SubtitlePresentation.WebVtt)]));
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(
-            context,
-            activeStreamRegistry: registry,
-            preferencesJson:
-                """
-                {
-                  "Quality": 0,
-                  "AudioOutput": 0,
-                  "SubtitlesEnabled": true,
-                  "Subtitle": {
-                    "Language": null,
-                    "Title": "Closed Captions",
-                    "SourceCodec": "eia_608",
-                    "IsForced": false,
-                    "IsHearingImpaired": false,
-                    "IsEmbeddedClosedCaptions": true
-                  }
-                }
-                """);
-        context.JSInterop.SetupVoid("stopMediaPlayer", "videoPlayer").SetVoidResult();
-        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 4).SetResult(null);
-        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "2.6"));
-        component.WaitForAssertion(() => Assert.Contains("embeddedCaptions=true", LastStreamUrl(context)));
-
-        // Act
-        component.Find("#manualTuneChannel").Input("3.1");
-        component.Find("form").Submit();
-        component.WaitForAssertion(() =>
-        {
-            var regularUrl = LastStreamUrl(context);
-            Assert.Contains("/api/stream/fmp4/3.1?", regularUrl);
-            Assert.Contains("subtitleTrack=8", regularUrl);
-            Assert.DoesNotContain("embeddedCaptions=true", regularUrl);
-        });
-        component.Find("#manualTuneChannel").Input("2.6");
-        component.Find("form").Submit();
-
-        // Assert
-        component.WaitForAssertion(() =>
-        {
-            var embeddedUrl = LastStreamUrl(context);
-            Assert.Contains("/api/stream/fmp4/2.6?", embeddedUrl);
-            Assert.Contains("subtitleTrack=2", embeddedUrl);
-            Assert.Contains("embeddedCaptions=true", embeddedUrl);
-            Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "localStorage.setItem");
-        });
-    }
-
-    /// <summary>
-    /// Verifies same-language subtitles take priority over an earlier supported fallback.
-    /// </summary>
-    [Fact]
-    public void SavedSubtitlePreference_SameLanguageTakesPriorityOverFirstSupportedTrack()
-    {
-        // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns([]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        var registry = new ActiveStreamRegistry();
-        registry.Register(new ActiveStreamSnapshot(
-            "source",
-            "42.1",
-            HostedStreamFormat.FragmentedMp4,
-            DateTime.UtcNow,
-            null,
-            [
-                Track(5, MediaTrackType.Subtitle, "subrip", "spa", SubtitlePresentation.WebVtt),
-                Track(7, MediaTrackType.Subtitle, "subrip", "eng", SubtitlePresentation.WebVtt)
-            ]));
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(
-            context,
-            activeStreamRegistry: registry,
-            preferencesJson:
-                """
-                {
-                  "Quality": 0,
-                  "AudioOutput": 0,
-                  "SubtitlesEnabled": true,
-                  "Subtitle": {
-                    "Language": "eng",
-                    "Title": "Previous",
-                    "SourceCodec": "eia_608",
-                    "IsForced": false,
-                    "IsHearingImpaired": false,
-                    "IsEmbeddedClosedCaptions": true
-                  }
-                }
-                """);
-        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 4).SetResult(null);
-
-        // Act
-        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-
-        // Assert
-        component.WaitForAssertion(() =>
-        {
-            var streamUrl = LastStreamUrl(context);
-            Assert.Contains("subtitleTrack=7", streamUrl);
-            Assert.Contains("subtitlePresentation=WebVtt", streamUrl);
-            Assert.DoesNotContain("embeddedCaptions=true", streamUrl);
-        });
-    }
-
-    /// <summary>
-    /// Verifies embedded-caption preferences safely fall back to a regular subtitle without changing browser storage.
-    /// </summary>
-    [Fact]
-    public void SavedEmbeddedCaptionPreference_RegularSubtitleFallbackUsesCurrentTrackMetadata()
-    {
-        // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns([]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        var registry = new ActiveStreamRegistry();
-        registry.Register(new ActiveStreamSnapshot(
-            "source",
-            "42.1",
-            HostedStreamFormat.FragmentedMp4,
-            DateTime.UtcNow,
-            null,
-            [Track(8, MediaTrackType.Subtitle, "dvb_subtitle", "eng", SubtitlePresentation.BurnIn)]));
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(
-            context,
-            activeStreamRegistry: registry,
-            preferencesJson:
-                """
-                {
-                  "Quality": 0,
-                  "AudioOutput": 0,
-                  "SubtitlesEnabled": true,
-                  "Subtitle": {
-                    "Language": "eng",
-                    "Title": "Closed Captions",
-                    "SourceCodec": "eia_608",
-                    "IsForced": false,
-                    "IsHearingImpaired": false,
-                    "IsEmbeddedClosedCaptions": true
-                  }
-                }
-                """);
-        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 3).SetResult(null);
-
-        // Act
-        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-
-        // Assert
-        component.WaitForAssertion(() =>
-        {
-            var streamUrl = LastStreamUrl(context);
-            Assert.Contains("subtitleTrack=8", streamUrl);
-            Assert.Contains("subtitlePresentation=BurnIn", streamUrl);
-            Assert.DoesNotContain("embeddedCaptions=true", streamUrl);
-            Assert.Equal(3, context.JSInterop.Invocations.Last(invocation => invocation.Identifier == "initFmp4Player").Arguments.Count);
-            Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "localStorage.setItem");
-        });
-    }
-
-    /// <summary>
-    /// Verifies regular subtitle preferences can fall back to embedded captions using extractor retry metadata.
-    /// </summary>
-    [Fact]
-    public void SavedRegularSubtitlePreference_EmbeddedCaptionFallbackUsesCurrentTrackMetadata()
-    {
-        // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns([]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        var registry = new ActiveStreamRegistry();
-        registry.Register(new ActiveStreamSnapshot(
-            "source",
-            "42.1",
-            HostedStreamFormat.FragmentedMp4,
-            DateTime.UtcNow,
-            null,
-            [
-                Track(2, MediaTrackType.Subtitle, "eia_608", "und", SubtitlePresentation.WebVtt) with
-                {
-                    IsEmbeddedClosedCaptions = true,
-                    Title = "Closed Captions"
-                }
-            ]));
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(
-            context,
-            activeStreamRegistry: registry,
-            preferencesJson:
-                """
-                {
-                  "Quality": 0,
-                  "AudioOutput": 0,
-                  "SubtitlesEnabled": true,
-                  "Subtitle": {
-                    "Language": "eng",
-                    "Title": null,
-                    "SourceCodec": "subrip",
-                    "IsForced": false,
-                    "IsHearingImpaired": false,
-                    "IsEmbeddedClosedCaptions": false
-                  }
-                }
-                """);
-        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 4).SetResult(null);
-
-        // Act
-        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-
-        // Assert
-        component.WaitForAssertion(() =>
-        {
-            var streamUrl = LastStreamUrl(context);
-            Assert.Contains("subtitleTrack=2", streamUrl);
-            Assert.Contains("subtitlePresentation=WebVtt", streamUrl);
-            Assert.Contains("embeddedCaptions=true", streamUrl);
-        });
-    }
-
-    /// <summary>
-    /// Verifies a language-less preference restores a track with the same title before using fallback order.
-    /// </summary>
-    [Fact]
-    public void SavedLanguageLessSubtitlePreference_MatchingTitleTakesPriority()
-    {
-        // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns([]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        var registry = new ActiveStreamRegistry();
-        registry.Register(new ActiveStreamSnapshot(
-            "source",
-            "42.1",
-            HostedStreamFormat.FragmentedMp4,
-            DateTime.UtcNow,
-            null,
-            [
-                Track(4, MediaTrackType.Subtitle, "subrip", "spa", SubtitlePresentation.WebVtt) with { Title = "Other" },
-                Track(6, MediaTrackType.Subtitle, "subrip", string.Empty, SubtitlePresentation.WebVtt) with { Title = "CC" }
-            ]));
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(
-            context,
-            activeStreamRegistry: registry,
-            preferencesJson:
-                """
-                {
-                  "Quality": 0,
-                  "AudioOutput": 0,
-                  "SubtitlesEnabled": true,
-                  "Subtitle": {
-                    "Language": null,
-                    "Title": "CC",
-                    "SourceCodec": "eia_608",
-                    "IsForced": false,
-                    "IsHearingImpaired": false,
-                    "IsEmbeddedClosedCaptions": true
-                  }
-                }
-                """);
-        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 4).SetResult(null);
-
-        // Act
-        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-
-        // Assert
-        component.WaitForAssertion(() => Assert.Contains("subtitleTrack=6", LastStreamUrl(context)));
-    }
-
-    /// <summary>
-    /// Verifies unsupported subtitle tracks do not satisfy the enabled-subtitle fallback.
-    /// </summary>
-    [Fact]
-    public void SavedSubtitlePreference_NoSupportedTrackLeavesSubtitlesOffForChannel()
-    {
-        // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns([]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        var registry = new ActiveStreamRegistry();
-        registry.Register(new ActiveStreamSnapshot(
-            "source",
-            "42.1",
-            HostedStreamFormat.FragmentedMp4,
-            DateTime.UtcNow,
-            null,
-            [Track(7, MediaTrackType.Subtitle, "unknown", "eng", SubtitlePresentation.Unsupported)]));
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(
-            context,
-            activeStreamRegistry: registry,
-            preferencesJson: """{"Quality":0,"AudioOutput":0,"SubtitlesEnabled":true,"Subtitle":{"Language":"eng","Title":null,"SourceCodec":"subrip","IsForced":false,"IsHearingImpaired":false}}""");
-        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 3).SetResult(null);
-
-        // Act
-        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-
-        // Assert
-        component.WaitForAssertion(() =>
-        {
-            Assert.DoesNotContain("subtitleTrack=", LastStreamUrl(context));
-            Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "localStorage.setItem");
-        });
-    }
-
-    /// <summary>
-    /// Verifies a channel switch does not restore track indexes from the preceding client-owned stream.
-    /// </summary>
-    [Fact]
-    public void ChannelSwitch_PreviousClientStreamDoesNotRestoreStaleTracks()
-    {
-        // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns([]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        var registry = new ActiveStreamRegistry();
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(
-            context,
-            activeStreamRegistry: registry,
-            preferencesJson: """{"Quality":0,"AudioOutput":0,"SubtitlesEnabled":true,"Subtitle":{"Language":"eng","Title":null,"SourceCodec":"subrip","IsForced":false,"IsHearingImpaired":false}}""");
-        context.JSInterop.SetupVoid("stopMediaPlayer", "videoPlayer").SetVoidResult();
-        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count is 3 or 4).SetResult(null);
-        var component = context.Render<Watch>();
-        component.Find("#manualTuneChannel").Input("42.1");
-        component.Find("form").Submit();
-        component.WaitForAssertion(() => Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "initFmp4Player"));
-        var initialStreamUri = new Uri($"http://localhost{LastStreamUrl(context)}");
-        var clientId = initialStreamUri.Query
-            .TrimStart('?')
-            .Split('&')
-            .Select(parameter => parameter.Split('=', 2))
-            .Single(parameter => parameter[0] == "clientId")[1];
-        registry.Register(new ActiveStreamSnapshot(
-            "previous",
-            "42.1",
-            HostedStreamFormat.FragmentedMp4,
-            DateTime.UtcNow,
-            null,
-            [
-                Track(3, MediaTrackType.Audio, "ac3", "eng", selected: true),
-                Track(5, MediaTrackType.Subtitle, "subrip", "eng", SubtitlePresentation.WebVtt)
             ])
         {
             ClientId = clientId
         });
 
-        // Act
-        component.Find("#manualTuneChannel").Input("43.1");
-        component.Find("form").Submit();
-
         // Assert
         component.WaitForAssertion(() =>
         {
-            var initializations = context.JSInterop.Invocations.Where(invocation => invocation.Identifier == "initFmp4Player").ToArray();
-            Assert.Equal(2, initializations.Length);
-            var streamUrl = Assert.IsType<string>(initializations[^1].Arguments[1]);
-            Assert.Contains("/api/stream/fmp4/43.1?", streamUrl);
-            Assert.DoesNotContain("audioTrack=", streamUrl);
-            Assert.DoesNotContain("subtitleTrack=", streamUrl);
+            var starts = context.JSInterop.Invocations.Where(invocation => invocation.Identifier == "startCmafSession").ToArray();
+            Assert.Single(starts);
+            Assert.Empty(component.FindAll("#cmafSubtitleTrack"));
+            var initialize = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer");
+            var subtitles = Assert.IsAssignableFrom<IReadOnlyList<Watch.CmafSubtitleResponse>>(initialize.Arguments[8]);
+            Assert.Contains(subtitles, subtitle => subtitle.IsEmbeddedClosedCaptions && subtitle.SourceIndex == 3);
+            Assert.Contains("WebVTT sidecar", component.Markup);
+            Assert.Contains("sidecar", component.Markup);
         });
     }
 
     /// <summary>
-    /// Verifies selecting Off persists the disabled subtitle default and removes the stream override.
+    /// Verifies bitmap subtitles retain the explicit restart-and-burn-in path.
     /// </summary>
     [Fact]
-    public void SubtitleOff_PersistsDisabledPreference()
+    public void BitmapSubtitles_RestartsWithBurnInSelection()
     {
         // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns([]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        var registry = new ActiveStreamRegistry();
-        registry.Register(new ActiveStreamSnapshot(
-            "source",
+        using var context = CreateContext();
+        ConfigureSuccessfulSession(context);
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
+        var clientIdField = typeof(Watch).GetField("_clientId", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(clientIdField);
+        var clientId = Assert.IsType<string>(clientIdField.GetValue(component.Instance));
+        context.Services.GetRequiredService<IActiveStreamRegistry>().Register(new ActiveStreamSnapshot(
+            "session-1",
             "42.1",
-            HostedStreamFormat.FragmentedMp4,
+            HostedStreamFormat.Cmaf,
             DateTime.UtcNow,
             null,
-            [Track(7, MediaTrackType.Subtitle, "subrip", "eng", SubtitlePresentation.WebVtt)]));
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(
-            context,
-            activeStreamRegistry: registry,
-            preferencesJson: """{"Quality":0,"AudioOutput":0,"SubtitlesEnabled":true,"Subtitle":{"Language":"eng","Title":null,"SourceCodec":"subrip","IsForced":false,"IsHearingImpaired":false}}""");
-        context.JSInterop.SetupVoid("stopMediaPlayer", "videoPlayer").SetVoidResult();
-        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count is 3 or 4).SetResult(null);
-        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-        component.WaitForAssertion(() => Assert.Equal("7", component.Find("#subtitleTrack").GetAttribute("value")));
+            [
+                new ActiveStreamTrack(MediaTrackType.Subtitle, "dvb_subtitle", "not-mapped", null, null, null, null, null, null, null)
+                {
+                    SourceIndex = 4,
+                    Title = "Bitmap subtitles",
+                    SubtitlePresentation = SubtitlePresentation.BurnIn
+                }
+            ])
+        {
+            ClientId = clientId
+        });
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafSubtitleTrack")));
+        component.WaitForAssertion(() =>
+        {
+            Assert.Contains("not included", component.Markup);
+            Assert.DoesNotContain("not-mapped", component.Markup);
+        });
 
         // Act
-        component.Find("#subtitleTrack").Change("-1");
+        component.Find("#cmafSubtitleTrack").Change("4");
 
         // Assert
         component.WaitForAssertion(() =>
         {
-            Assert.DoesNotContain("subtitleTrack=", LastStreamUrl(context));
-            var savedState = JsonDocument.Parse(
-                Assert.IsType<string>(
-                    context.JSInterop.Invocations.Last(item => item.Identifier == "localStorage.setItem").Arguments[1])).RootElement;
-            Assert.False(savedState.GetProperty("SubtitlesEnabled").GetBoolean());
+            var starts = context.JSInterop.Invocations.Where(invocation => invocation.Identifier == "startCmafSession").ToArray();
+            Assert.Equal(2, starts.Length);
+            var url = Assert.IsType<string>(starts[^1].Arguments[0]);
+            Assert.Contains("subtitleTrack=4", url, StringComparison.Ordinal);
+            Assert.Contains("subtitlePresentation=BurnIn", url, StringComparison.Ordinal);
         });
     }
 
     /// <summary>
-    /// Verifies saved subtitles are applied when source track metadata arrives after initial playback.
+    /// Verifies CMAF retains Watch channel metadata and detailed tuner and hosted-stream diagnostics.
     /// </summary>
     [Fact]
-    public async Task SavedSubtitlePreference_DelayedTrackMetadataRestartsWithMatch()
+    public async Task ChannelAndStreamInformation_MatchesWatchDetails()
     {
         // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns([]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        var registry = new ActiveStreamRegistry();
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(
-            context,
-            activeStreamRegistry: registry,
-            preferencesJson: """{"Quality":0,"AudioOutput":0,"SubtitlesEnabled":true,"Subtitle":{"Language":"eng","Title":null,"SourceCodec":"subrip","IsForced":false,"IsHearingImpaired":false}}""");
-        context.JSInterop.SetupVoid("stopMediaPlayer", "videoPlayer").SetVoidResult();
-        context.JSInterop.Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count is 3 or 4).SetResult(null);
-        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-        component.WaitForAssertion(() => Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "initFmp4Player"));
-
-        // Act
-        registry.Register(new ActiveStreamSnapshot(
-            "source",
-            "42.1",
-            HostedStreamFormat.FragmentedMp4,
-            DateTime.UtcNow,
-            null,
-            [Track(7, MediaTrackType.Subtitle, "subrip", "eng", SubtitlePresentation.WebVtt)]));
-        var refreshMethod = typeof(Watch).GetMethod("RefreshStreamInfoAsync", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(refreshMethod);
-        await component.InvokeAsync(() => Assert.IsType<Task>(refreshMethod.Invoke(component.Instance, null), exactMatch: false));
-
-        // Assert
-        component.WaitForAssertion(() =>
-        {
-            var initializations = context.JSInterop.Invocations.Where(invocation => invocation.Identifier == "initFmp4Player").ToArray();
-            Assert.Equal(2, initializations.Length);
-            Assert.Contains("subtitleTrack=7", Assert.IsType<string>(initializations[^1].Arguments[1]));
-        });
-    }
-
-    /// <summary>
-    /// Verifies that a diagnosed tuner restriction is displayed after media initialization fails.
-    /// </summary>
-    [Fact]
-    public void PlayerInitializationFailure_DisplaysDiagnosedTunerError()
-    {
-        // Arrange
-        using var context = new BunitContext();
+        var now = DateTimeOffset.UtcNow;
         var repository = Substitute.For<IEpgRepository>();
         repository.GetChannelsAsync().Returns(
         [
-            new HDHomeRunChannelEpgSegment
+            new HDHomeRunChannelEpgSegment { GuideNumber = "2.1", GuideName = "Test Channel", Favorite = true, DRM = true }
+        ]);
+        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns(
+        [
+            new HDHomeRunProgram
             {
-                GuideNumber = "117.1",
-                GuideName = "Protected Channel"
+                GuideNumber = "2.1",
+                Title = "Current Show",
+                EpisodeTitle = "Current Episode",
+                StartTime = now.AddMinutes(-5).ToUnixTimeSeconds(),
+                EndTime = now.AddMinutes(55).ToUnixTimeSeconds()
             }
         ]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(context);
-
-        context.JSInterop.SetupVoid("stopMediaPlayer", "videoPlayer").SetVoidResult();
-        context.JSInterop
-            .Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 3)
-            .SetResult("811 Content Protection Required");
-
-        // Act
-        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "117.1"));
-
-        // Assert
-        component.WaitForAssertion(() =>
-        {
-            Assert.Contains("811 Content Protection Required", component.Markup);
-            Assert.Contains("Content Protected", component.Markup);
-            Assert.Contains("authorized device or application", component.Markup);
-            Assert.Empty(component.FindAll("#videoPlayer"));
-        });
-    }
-
-    /// <summary>
-    /// Verifies that cached DRM channels display an accessible protection marker.
-    /// </summary>
-    [Fact]
-    public void DrmChannel_DisplaysProtectionMarker()
-    {
-        // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns(
-        [
-            new HDHomeRunChannelEpgSegment { GuideNumber = "117.1", GuideName = "Protected", DRM = true }
-        ]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(context);
-
-        // Act
-        var component = context.Render<Watch>();
-
-        // Assert
-        component.WaitForAssertion(() =>
-        {
-            var marker = component.Find("[aria-label='DRM-protected channel']");
-            Assert.Contains("bi-shield-lock-fill", marker.ClassList);
-        });
-    }
-
-    /// <summary>
-    /// Verifies that cached favorite channels display an accessible favorite marker.
-    /// </summary>
-    [Fact]
-    public void FavoriteChannel_DisplaysFavoriteMarker()
-    {
-        // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns([new HDHomeRunChannelEpgSegment { GuideNumber = "7.1", GuideName = "Favorite", Favorite = true }]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(context);
-
-        // Act
-        var component = context.Render<Watch>();
-
-        // Assert
-        component.WaitForAssertion(() =>
-        {
-            var marker = component.Find("[aria-label='Favorite channel']");
-            Assert.Contains("bi-star-fill", marker.ClassList);
-        });
-    }
-
-    /// <summary>
-    /// Verifies that the selected channel displays its tuner and hosted stream details.
-    /// </summary>
-    [Fact]
-    public void SelectedChannel_DisplaysTunerAndHostedStreamDetails()
-    {
-        // Arrange
-        using var context = new BunitContext();
-        var repository = Substitute.For<IEpgRepository>();
-        repository.GetChannelsAsync().Returns(
-        [
-            new HDHomeRunChannelEpgSegment { GuideNumber = "2.1", GuideName = "Test Channel" }
-        ]);
-        repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
-        var settingsService = Substitute.For<IAppSettingsService>();
-        settingsService.Settings.Returns(new AppSettings());
         var deviceState = Substitute.For<IDeviceStateService>();
         deviceState.TunerStatuses.Returns(
         [
@@ -1508,79 +1168,168 @@ public class WatchTests
                 PacketsPerSecond = 1_200
             }
         ]);
+        var settings = Substitute.For<IAppSettingsService>();
+        settings.Settings.Returns(new AppSettings { DeviceAddress = "192.0.2.10" });
+        var channelStore = new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-watch-cmaf-{Guid.NewGuid():N}.db"));
+        await channelStore.StoreAsync(
+        [
+            new HDHomeRunChannel
+            {
+                GuideNumber = "2.1",
+                GuideName = "Test Channel",
+                Favorite = true,
+                DRM = true,
+                URL = "http://device/auto/v2.1"
+            }
+        ], Xunit.TestContext.Current.CancellationToken);
         var registry = new ActiveStreamRegistry();
+        using var context = CreateContext(repository: repository, deviceState: deviceState, settingsService: settings, channelStore: channelStore, registry: registry);
+        ConfigureSuccessfulSession(context);
+        var component = context.Render<Watch>();
+        var clientIdField = typeof(Watch).GetField("_clientId", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(clientIdField);
+        var clientId = Assert.IsType<string>(clientIdField.GetValue(component.Instance));
         registry.Register(new ActiveStreamSnapshot(
-            "session1",
+            "session-1",
             "2.1",
-            HostedStreamFormat.FragmentedMp4,
+            HostedStreamFormat.Cmaf,
             DateTime.UtcNow,
             18_000_000,
             [
-                new ActiveStreamTrack(MediaTrackType.Video, "hevc", "h264", null, 2_500_000, 1920, 1080, null, null, null),
-                new ActiveStreamTrack(MediaTrackType.Audio, "ac4", "aac", null, 128_000, null, null, 6, 2, 44_100)
-            ]));
-        context.Services.AddSingleton(repository);
-        context.Services.AddSingleton(settingsService);
-        AddWatchRuntimeServices(context, deviceState, registry);
-        context.JSInterop.SetupVoid("stopMediaPlayer", "videoPlayer").SetVoidResult();
-        context.JSInterop
-            .Setup<string?>("initFmp4Player", invocation => invocation.Arguments.Count == 3)
-            .SetResult(null);
+                new ActiveStreamTrack(MediaTrackType.Video, "hevc", "h264", 15_000_000, 2_500_000, 1920, 1080, null, null, null) { SourceIndex = 0, IsSelected = true },
+                new ActiveStreamTrack(MediaTrackType.Audio, "ac4", "copy", 512_000, 512_000, null, null, 6, 6, 48_000)
+                {
+                    SourceIndex = 1,
+                    IsSelected = true,
+                    OutputTitle = "Source"
+                },
+                new ActiveStreamTrack(MediaTrackType.Audio, "ac4", "aac", 512_000, 128_000, null, null, 6, 2, 48_000)
+                {
+                    SourceIndex = 1,
+                    IsSelected = true,
+                    OutputTitle = "Fallback AAC Stereo"
+                }
+            ])
+        {
+            ClientId = clientId
+        });
 
         // Act
-        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "2.1"));
+        component.WaitForElement(".cmaf-channel-item").Click();
 
         // Assert
         component.WaitForAssertion(() =>
         {
+            var channel = component.Find(".cmaf-channel-item");
+            Assert.Contains("Current Show", channel.TextContent);
+            Assert.NotNull(channel.QuerySelector("[aria-label='Favorite channel']"));
+            Assert.NotNull(channel.QuerySelector("[aria-label='DRM-protected channel']"));
+            Assert.Contains("Current Show", component.Markup);
+            Assert.Contains("Current Episode", component.Markup);
+            Assert.Contains("192.0.2.10", component.Markup);
             Assert.Contains("8vsb", component.Markup);
             Assert.Contains("85%", component.Markup);
-            Assert.Contains("session1", component.Markup);
+            Assert.Contains("19 Mbps", component.Markup);
+            Assert.Contains("session-1", component.Markup);
             Assert.Contains("hevc", component.Markup);
             Assert.Contains("h264", component.Markup);
-            Assert.Contains("ac4", component.Markup);
-            Assert.Contains("aac", component.Markup);
+            Assert.Contains("Source total: 18 Mbps", component.Markup);
+            Assert.Contains("CMAF", component.Markup);
+            Assert.Contains("Playback protocol:", component.Markup);
+            Assert.Contains("DASH", component.Markup);
+            Assert.Contains("included", component.Markup);
+            Assert.Contains("playing", component.Markup);
         });
     }
 
-    private static void AddWatchRuntimeServices(
-        BunitContext context,
+    private static BunitContext CreateContext(
+        string? preferencesJson = null,
+        IEpgRepository? repository = null,
         IDeviceStateService? deviceState = null,
-        IActiveStreamRegistry? activeStreamRegistry = null,
+        IAppSettingsService? settingsService = null,
         ChannelLineupStore? channelStore = null,
-        string? preferencesJson = null)
+        IActiveStreamRegistry? registry = null)
     {
         BunitContext.DefaultWaitTimeout = TimeSpan.FromSeconds(5);
-        if (deviceState == null)
+        var context = new BunitContext();
+        if (repository is null)
+        {
+            repository = Substitute.For<IEpgRepository>();
+            repository.GetChannelsAsync().Returns([]);
+            repository.GetProgramsAsync(Arg.Any<DateTime?>(), Arg.Any<DateTime?>()).Returns([]);
+        }
+        if (deviceState is null)
         {
             deviceState = Substitute.For<IDeviceStateService>();
             deviceState.TunerStatuses.Returns([]);
         }
-
+        if (settingsService is null)
+        {
+            settingsService = Substitute.For<IAppSettingsService>();
+            settingsService.Settings.Returns(new AppSettings());
+        }
+        context.Services.AddSingleton(repository);
         context.Services.AddSingleton(deviceState);
-        context.Services.AddSingleton(activeStreamRegistry ?? new ActiveStreamRegistry());
+        context.Services.AddSingleton(settingsService);
+        context.Services.AddSingleton(registry ?? new ActiveStreamRegistry());
         context.Services.AddSingleton(channelStore ?? CreateEmptyChannelStore());
+        context.Services.AddSingleton<IStatusNotificationService>(new StatusNotificationService());
         context.Services.AddScoped<IBrowserDataStore, BrowserDataStore>();
         context.JSInterop.Setup<string?>("localStorage.getItem", PreferencesStorageKey).SetResult(preferencesJson);
+        context.JSInterop.Setup<string?>("localStorage.getItem", CmafCompatibilityProfile.StorageKey).SetResult(null);
         context.JSInterop.SetupVoid("localStorage.setItem", _ => true).SetVoidResult();
+        context.JSInterop.SetupVoid("cancelCmafStart", _ => true).SetVoidResult();
+        context.JSInterop.SetupVoid("stopMediaPlayer", "cmafVideoPlayer").SetVoidResult();
+        context.JSInterop.SetupVoid("stopCmafSession", "session-1").SetVoidResult();
+        return context;
     }
 
-    private static ActiveStreamTrack Track(int index, MediaTrackType type, string codec, string language, SubtitlePresentation? presentation = null, bool selected = false) =>
-        new(type, codec, selected ? "aac" : "not-mapped", null, null, null, null, type == MediaTrackType.Audio ? 2 : null, null, null)
-        {
-            SourceIndex = index,
-            Language = language,
-            IsSelected = selected,
-            SubtitlePresentation = presentation
-        };
-
-    private static string LastStreamUrl(BunitContext context) =>
-        Assert.IsType<string>(context.JSInterop.Invocations.Last(item => item.Identifier == "initFmp4Player").Arguments[1]);
+    private static void ConfigureSuccessfulSession(BunitContext context, bool sourceAudioFallbackApplied = false)
+    {
+        context.JSInterop
+            .Setup<Watch.CmafStartResponse>("startCmafSession", _ => true)
+            .SetResult(new(
+                "session-1",
+                "/api/stream/cmaf/session-1/master.m3u8",
+                "/api/stream/cmaf/session-1/manifest.mpd",
+                sourceAudioFallbackApplied,
+                "Fallback AAC Stereo",
+                [
+                    new(2, "English", "eng", "/api/stream/cmaf/session-1/captions-2.vtt", false),
+                    new(3, "Closed Captions", "eng", "/api/stream/cmaf/session-1/captions-3.vtt", true)
+                ],
+                FallbackAudioCodec: "aac"));
+        context.JSInterop
+            .Setup<Watch.CmafPlayerResult>("initCmafPlayer", _ => true)
+            .SetResult(new(
+                true,
+                null,
+                "/api/stream/cmaf/session-1/manifest.mpd",
+                Audio: new("Fallback AAC Stereo", "mp4a.40.2", 2),
+                Video: new("avc1.64002a", 1920, 1080)));
+    }
 
     private static ChannelLineupStore CreateEmptyChannelStore()
     {
-        var store = new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-watch-{Guid.NewGuid():N}.db"));
+        var store = new ChannelLineupStore(Path.Combine(Path.GetTempPath(), $"lineup-watch-cmaf-{Guid.NewGuid():N}.db"));
         _ = store.ReadAsync(Xunit.TestContext.Current.CancellationToken).GetAwaiter().GetResult();
         return store;
     }
+
+    private static CmafCompatibilityProfile CreateCompatibilityProfile() =>
+        new()
+        {
+            BrowserIdentity = "test-browser",
+            CompletedAtUtc = DateTimeOffset.UtcNow,
+            Claims = new CmafBrowserClaims(),
+            Results = CmafCompatibilityTestCatalog.All
+                .Select(test => new CmafCapabilityResult
+                {
+                    CaseId = test.Id,
+                    Kind = test.Kind,
+                    Request = test.Request,
+                    Status = test.IsUnavailable ? CmafCapabilityStatus.Unavailable : CmafCapabilityStatus.Passed
+                })
+                .ToArray()
+        };
 }

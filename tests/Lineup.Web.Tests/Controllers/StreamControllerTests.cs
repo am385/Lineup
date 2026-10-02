@@ -4,6 +4,7 @@ using System.Net;
 using System.Reflection;
 using Lineup.Core;
 using Lineup.Core.Storage;
+using Lineup.HDHomeRun.Api.Models;
 using Lineup.HDHomeRun.Device.Models;
 using Lineup.Web.Controllers;
 using Lineup.Web.Services;
@@ -22,6 +23,80 @@ namespace Lineup.Web.Tests.Controllers;
 /// </summary>
 public class StreamControllerTests
 {
+    /// <summary>
+    /// Verifies capability-aware startup rejects incomplete client profiles before opening a tuner.
+    /// </summary>
+    [Fact]
+    public async Task StartCmafStreamV2_IncompleteProfile_ReturnsBadRequest()
+    {
+        // Arrange
+        var controller = CreateLifecycleController(new ActiveStreamRegistry());
+        var request = new CmafStreamRequest
+        {
+            CompatibilityProfile = new CmafCompatibilityProfile
+            {
+                BrowserIdentity = "test-browser",
+                CompletedAtUtc = DateTimeOffset.UtcNow,
+                Claims = new CmafBrowserClaims(),
+                Results = []
+            }
+        };
+
+        // Act
+        var result = await controller.StartCmafStreamV2("42.1", request);
+
+        // Assert
+        var response = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Contains("incomplete", response.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Verifies capability-aware startup rejects invalid override enum values before opening a tuner.
+    /// </summary>
+    [Fact]
+    public async Task StartCmafStreamV2_InvalidOverride_ReturnsBadRequest()
+    {
+        // Arrange
+        var controller = CreateLifecycleController(new ActiveStreamRegistry());
+        var request = new CmafStreamRequest
+        {
+            Overrides = new CmafStreamOverrides
+            {
+                Enabled = true,
+                Video = (CmafPreferredVideo)99
+            }
+        };
+
+        // Act
+        var result = await controller.StartCmafStreamV2("42.1", request);
+
+        // Assert
+        var response = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Contains("video override", response.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Verifies unavailable synthetic encoders are rejected before a compatibility session starts.
+    /// </summary>
+    [Fact]
+    public async Task StartCmafCompatibilityTest_Ac4ReturnsUnprocessableEntity()
+    {
+        // Arrange
+        var controller = CreateLifecycleController(new ActiveStreamRegistry());
+        var request = new CmafCompatibilityTestRequest
+        {
+            AudioCodec = CmafTestAudioCodec.Ac4,
+            ChannelLayout = CmafTestChannelLayout.Stereo
+        };
+
+        // Act
+        var result = await controller.StartCmafCompatibilityTest(request);
+
+        // Assert
+        var response = Assert.IsType<UnprocessableEntityObjectResult>(result);
+        Assert.Contains("AC-4 encoder", response.Value?.ToString(), StringComparison.Ordinal);
+    }
+
     private static readonly TransientDataStore TestTransientData =
         new(Path.Combine(Path.GetTempPath(), $"lineup-stream-controller-tests-{Environment.ProcessId}"));
 
@@ -46,49 +121,22 @@ public class StreamControllerTests
     }
 
     /// <summary>
-    /// Verifies disabled channels cannot be reached through the diagnostic stream endpoint.
+    /// Verifies disabled Watch requests return before acquiring tuner capacity.
     /// </summary>
     [Fact]
-    public async Task TestTranscode_DisabledChannel_ReturnsForbidden()
+    public async Task WatchStream_DisabledChannel_ReturnsForbiddenWithoutTuner()
     {
         // Arrange
         var store = await CreateDisabledChannelStoreAsync("9.1");
-        var controller = CreateDisabledChannelController(
-            store,
-            DisabledChannelMode.ReturnError,
-            Substitute.For<ITunerCapacityLeaseRegistry>(),
-            Substitute.For<IProtectedContentSlateService>());
+        var capacity = Substitute.For<ITunerCapacityLeaseRegistry>();
+        var controller = CreateDisabledChannelController(store, DisabledChannelMode.ReturnError, capacity, Substitute.For<IProtectedContentSlateService>());
 
         // Act
-        var result = await controller.TestTranscode("9.1");
+        var result = await controller.StartCmafStream("9.1", new CmafStreamRequest());
 
         // Assert
-        var forbidden = Assert.IsType<ObjectResult>(result);
-        Assert.Equal(StatusCodes.Status403Forbidden, forbidden.StatusCode);
-    }
-
-    /// <summary>
-    /// Verifies disabled Watch and HLS requests return before acquiring tuner capacity.
-    /// </summary>
-    [Fact]
-    public async Task WatchStreams_DisabledChannel_ReturnForbiddenWithoutTuner()
-    {
-        // Arrange
-        var store = await CreateDisabledChannelStoreAsync("9.1");
-        var fmp4Capacity = Substitute.For<ITunerCapacityLeaseRegistry>();
-        var fmp4Controller = CreateDisabledChannelController(store, DisabledChannelMode.ReturnError, fmp4Capacity, Substitute.For<IProtectedContentSlateService>());
-        var hlsCapacity = Substitute.For<ITunerCapacityLeaseRegistry>();
-        var hlsController = CreateDisabledChannelController(store, DisabledChannelMode.ReturnError, hlsCapacity, Substitute.For<IProtectedContentSlateService>());
-
-        // Act
-        await fmp4Controller.StreamFmp4("9.1");
-        var hlsResult = await hlsController.StartHlsStream("9.1");
-
-        // Assert
-        Assert.Equal(StatusCodes.Status403Forbidden, fmp4Controller.Response.StatusCode);
-        Assert.Equal(StatusCodes.Status403Forbidden, Assert.IsType<ObjectResult>(hlsResult).StatusCode);
-        Assert.Empty(fmp4Capacity.ReceivedCalls());
-        Assert.Empty(hlsCapacity.ReceivedCalls());
+        Assert.Equal(StatusCodes.Status403Forbidden, Assert.IsType<ObjectResult>(result).StatusCode);
+        Assert.Empty(capacity.ReceivedCalls());
     }
 
     /// <summary>
@@ -115,10 +163,8 @@ public class StreamControllerTests
     /// <summary>
     /// Verifies disabled pipe slates respect the hosted-stream limit without starting FFmpeg or acquiring a tuner.
     /// </summary>
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task DisabledChannelSlate_AtStreamLimit_ReturnsTooManyRequestsWithoutStartingSlate(bool fragmentedMp4)
+    [Fact]
+    public async Task DisabledChannelSlate_AtStreamLimit_ReturnsTooManyRequestsWithoutStartingSlate()
     {
         // Arrange
         var store = await CreateDisabledChannelStoreAsync("9.1");
@@ -130,17 +176,8 @@ public class StreamControllerTests
         var controller = CreateDisabledChannelController(store, DisabledChannelMode.StreamSlate, capacity, slate, activeStreams, maximumConcurrentStreams: 1);
 
         // Act
-        int? statusCode;
-        if (fragmentedMp4)
-        {
-            await controller.StreamFmp4("9.1");
-            statusCode = controller.Response.StatusCode;
-        }
-        else
-        {
-            var result = await controller.Stream("9.1");
-            statusCode = Assert.IsType<ObjectResult>(result).StatusCode;
-        }
+        var result = await controller.Stream("9.1");
+        var statusCode = Assert.IsType<ObjectResult>(result).StatusCode;
 
         // Assert
         Assert.Equal(StatusCodes.Status429TooManyRequests, statusCode);
@@ -150,10 +187,10 @@ public class StreamControllerTests
     }
 
     /// <summary>
-    /// Verifies a disabled HLS slate is rejected before its FFmpeg process or tuner capacity starts.
+    /// Verifies a disabled CMAF slate is rejected before its FFmpeg process or tuner capacity starts.
     /// </summary>
     [Fact]
-    public async Task StartHlsStream_DisabledChannelAtStreamLimit_ReturnsTooManyRequestsWithoutStartingSlate()
+    public async Task StartCmafStream_DisabledChannelAtStreamLimit_ReturnsTooManyRequestsWithoutStartingSlate()
     {
         // Arrange
         var store = await CreateDisabledChannelStoreAsync("9.1");
@@ -165,7 +202,7 @@ public class StreamControllerTests
         var controller = CreateDisabledChannelController(store, DisabledChannelMode.StreamSlate, capacity, slate, activeStreams, maximumConcurrentStreams: 1);
 
         // Act
-        var result = await controller.StartHlsStream("9.1");
+        var result = await controller.StartCmafStream("9.1", new CmafStreamRequest());
 
         // Assert
         var rejected = Assert.IsType<ObjectResult>(result);
@@ -176,10 +213,10 @@ public class StreamControllerTests
     }
 
     /// <summary>
-    /// Verifies an HLS stop request during admission prevents slate startup without aborting the completed request context.
+    /// Verifies a stop request during CMAF admission prevents slate startup without aborting the completed request context.
     /// </summary>
     [Fact]
-    public async Task StartHlsStream_DisabledChannelStoppedDuringAdmission_DoesNotStartSlate()
+    public async Task StartCmafStream_DisabledChannelStoppedDuringAdmission_DoesNotStartSlate()
     {
         // Arrange
         var store = await CreateDisabledChannelStoreAsync("9.1");
@@ -197,7 +234,7 @@ public class StreamControllerTests
         controller.HttpContext.Features.Set<IHttpRequestLifetimeFeature>(lifetime);
 
         // Act
-        var result = await controller.StartHlsStream("9.1");
+        var result = await controller.StartCmafStream("9.1", new CmafStreamRequest());
 
         // Assert
         Assert.IsType<EmptyResult>(result);
@@ -210,17 +247,15 @@ public class StreamControllerTests
     /// <summary>
     /// Verifies Dashboard Stop cancels disabled pipe slates and removes their active-stream registration.
     /// </summary>
-    [Theory]
-    [InlineData(false, HostedStreamFormat.MpegTs)]
-    [InlineData(true, HostedStreamFormat.FragmentedMp4)]
-    public async Task DisabledChannelSlate_RequestStop_CancelsSlateAndCleansRegistry(bool fragmentedMp4, HostedStreamFormat expectedFormat)
+    [Fact]
+    public async Task DisabledChannelSlate_RequestStop_CancelsSlateAndCleansRegistry()
     {
         // Arrange
         var store = await CreateDisabledChannelStoreAsync("9.1");
         var capacity = Substitute.For<ITunerCapacityLeaseRegistry>();
         var slateStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var slate = Substitute.For<IProtectedContentSlateService>();
-        slate.StreamAsync(expectedFormat, "9.1", Arg.Any<Stream>(), Arg.Any<CancellationToken>(), ChannelSlateReason.DisabledChannel)
+        slate.StreamAsync(HostedStreamFormat.MpegTs, "9.1", Arg.Any<Stream>(), Arg.Any<CancellationToken>(), ChannelSlateReason.DisabledChannel)
             .Returns(async call =>
             {
                 slateStarted.SetResult();
@@ -232,7 +267,7 @@ public class StreamControllerTests
         controller.HttpContext.Features.Set<IHttpRequestLifetimeFeature>(lifetime);
 
         // Act
-        Task streamTask = fragmentedMp4 ? controller.StreamFmp4("9.1", clientId: "watch-client") : controller.Stream("9.1");
+        Task streamTask = controller.Stream("9.1");
         await slateStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
         var activeStream = Assert.Single(activeStreams.GetActiveStreams());
         var sessionId = activeStream.SessionId;
@@ -241,33 +276,9 @@ public class StreamControllerTests
 
         // Assert
         Assert.True(stopped);
-        Assert.Equal(fragmentedMp4 ? "watch-client" : null, activeStream.ClientId);
+        Assert.Null(activeStream.ClientId);
         Assert.Empty(activeStreams.GetActiveStreams());
         Assert.Empty(capacity.ReceivedCalls());
-        if (fragmentedMp4)
-        {
-            Assert.False(lifetime.RequestAborted.IsCancellationRequested);
-        }
-    }
-
-    /// <summary>
-    /// Verifies that fMP4 error handling changes the status only before response headers are committed.
-    /// </summary>
-    [Theory]
-    [InlineData(false, StatusCodes.Status500InternalServerError)]
-    [InlineData(true, StatusCodes.Status200OK)]
-    public void SetInternalServerErrorStatus_ResponseState_PreservesCommittedStatus(bool hasStarted, int expectedStatus)
-    {
-        // Arrange
-        var responseFeature = new TestHttpResponseFeature(hasStarted);
-        var context = new DefaultHttpContext();
-        context.Features.Set<IHttpResponseFeature>(responseFeature);
-
-        // Act
-        StreamController.SetInternalServerErrorStatus(context.Response);
-
-        // Assert
-        Assert.Equal(expectedStatus, context.Response.StatusCode);
     }
 
     /// <summary>
@@ -330,6 +341,60 @@ public class StreamControllerTests
     }
 
     /// <summary>
+    /// Verifies a tuner-confirmed DRM startup failure returns structured 811 diagnostics.
+    /// </summary>
+    [Fact]
+    public async Task Stream_ConfirmedProtectedContent_ReturnsTunerClassification()
+    {
+        // Arrange
+        var controller = CreateMpegTsProtectedSlateController(
+            new ActiveStreamRegistry(),
+            Substitute.For<IProtectedContentSlateService>(),
+            new TunerCapacityLeaseRegistry(),
+            maximumConcurrentStreams: 1,
+            protectedContentMode: ProtectedContentMode.ReturnError);
+
+        // Act
+        var result = await controller.Stream("20.1");
+
+        // Assert
+        var forbidden = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status403Forbidden, forbidden.StatusCode);
+        Assert.Equal(811, GetPropertyValue(forbidden.Value!, "code"));
+        Assert.Equal("811 DRM Content", GetPropertyValue(forbidden.Value!, "error"));
+        Assert.Equal(false, GetPropertyValue(forbidden.Value!, "inferred"));
+        Assert.Equal("tuner", GetPropertyValue(forbidden.Value!, "source"));
+    }
+
+    /// <summary>
+    /// Verifies a failed startup with no tuner diagnostic uses cached DRM metadata and identifies the result as inferred.
+    /// </summary>
+    [Fact]
+    public async Task Stream_CachedProtectedContentWithoutTunerError_ReturnsInferredClassification()
+    {
+        // Arrange
+        var controller = CreateMpegTsProtectedSlateController(
+            new ActiveStreamRegistry(),
+            Substitute.For<IProtectedContentSlateService>(),
+            new TunerCapacityLeaseRegistry(),
+            maximumConcurrentStreams: 1,
+            protectedContentMode: ProtectedContentMode.ReturnError,
+            tunerError: null,
+            cachedDrm: true);
+
+        // Act
+        var result = await controller.Stream("20.1");
+
+        // Assert
+        var forbidden = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status403Forbidden, forbidden.StatusCode);
+        Assert.Equal(811, GetPropertyValue(forbidden.Value!, "code"));
+        Assert.Equal("811 DRM content inferred from channel lineup metadata after playback startup failed.", GetPropertyValue(forbidden.Value!, "error"));
+        Assert.Equal(true, GetPropertyValue(forbidden.Value!, "inferred"));
+        Assert.Equal("channel-lineup", GetPropertyValue(forbidden.Value!, "source"));
+    }
+
+    /// <summary>
     /// Verifies that IPv4 and IPv6 client endpoints are formatted unambiguously for diagnostics.
     /// </summary>
     [Theory]
@@ -364,20 +429,26 @@ public class StreamControllerTests
     }
 
     /// <summary>
-    /// Verifies that generated playlist and segment basenames resolve beneath the HLS session directory.
+    /// Verifies that generated manifest, playlist, and segment basenames resolve beneath the CMAF session directory.
     /// </summary>
     [Theory]
     [InlineData("stream.m3u8")]
     [InlineData("stream0.ts")]
     [InlineData("stream1726358400.ts")]
-    public void TryResolveHlsFilePath_GeneratedBasename_ReturnsContainedCanonicalPath(string filename)
+    [InlineData("manifest.mpd")]
+    [InlineData("master.m3u8")]
+    [InlineData("media_0.m3u8")]
+    [InlineData("init-0.mp4")]
+    [InlineData("chunk-0-00001.m4s")]
+    [InlineData("captions-2.vtt")]
+    public void TryResolveCmafFilePath_GeneratedBasename_ReturnsContainedCanonicalPath(string filename)
     {
         // Arrange
-        var hlsDirectory = Path.Combine(Environment.CurrentDirectory, "hls-session");
-        var expectedPath = Path.GetFullPath(Path.Combine(hlsDirectory, filename));
+        var cmafDirectory = Path.Combine(Environment.CurrentDirectory, "cmaf-session");
+        var expectedPath = Path.GetFullPath(Path.Combine(cmafDirectory, filename));
 
         // Act
-        var resolved = StreamController.TryResolveHlsFilePath(hlsDirectory, filename, out var filePath);
+        var resolved = StreamController.TryResolveCmafFilePath(cmafDirectory, filename, out var filePath);
 
         // Assert
         Assert.True(resolved);
@@ -385,7 +456,7 @@ public class StreamControllerTests
     }
 
     /// <summary>
-    /// Verifies that traversal, rooted, separator, encoded Windows separator, and invalid HLS names are rejected.
+    /// Verifies that traversal, rooted, separator, encoded Windows separator, and invalid CMAF artifact names are rejected.
     /// </summary>
     [Theory]
     [InlineData("../stream.m3u8")]
@@ -401,13 +472,18 @@ public class StreamControllerTests
     [InlineData("other.m3u8")]
     [InlineData("stream.ts")]
     [InlineData("stream1.mp4")]
-    public void TryResolveHlsFilePath_TraversalOrInvalidName_ReturnsFalse(string filename)
+    [InlineData("other.mpd")]
+    [InlineData("media_main.m3u8")]
+    [InlineData("init-video.mp4")]
+    [InlineData("chunk-0-any.m4s")]
+    [InlineData("captions.srt")]
+    public void TryResolveCmafFilePath_TraversalOrInvalidName_ReturnsFalse(string filename)
     {
         // Arrange
-        var hlsDirectory = Path.Combine(Environment.CurrentDirectory, "hls-session");
+        var cmafDirectory = Path.Combine(Environment.CurrentDirectory, "cmaf-session");
 
         // Act
-        var resolved = StreamController.TryResolveHlsFilePath(hlsDirectory, filename, out var filePath);
+        var resolved = StreamController.TryResolveCmafFilePath(cmafDirectory, filename, out var filePath);
 
         // Assert
         Assert.False(resolved);
@@ -415,114 +491,119 @@ public class StreamControllerTests
     }
 
     /// <summary>
-    /// Verifies malformed and stale Watch subtitle client identifiers do not expose files.
-    /// </summary>
-    [Theory]
-    [InlineData("../client", 400)]
-    [InlineData("missingclient", 404)]
-    public void GetFmp4ClientSubtitles_InvalidOrStaleClient_ReturnsExplicitStatus(string clientId, int statusCode)
-    {
-        // Arrange
-        var controller = CreateLifecycleController(Substitute.For<IActiveStreamRegistry>());
-
-        // Act
-        var result = controller.GetFmp4ClientSubtitles(clientId);
-
-        // Assert
-        var status = Assert.IsType<ObjectResult>(result, exactMatch: false);
-        Assert.Equal(statusCode, status.StatusCode);
-    }
-
-    /// <summary>
-    /// Verifies that an fMP4 protected-content slate releases physical tuner capacity and honors explicit stream cancellation.
+    /// Verifies that an abandoned CMAF session expires and releases all owned resources.
     /// </summary>
     [Fact]
-    public async Task WriteFmp4StartupErrorAsync_ConnectedSlate_ReleasesPhysicalTunerCapacityAndHonorsCancellation()
-    {
-        // Arrange
-        var profileUri = new Uri("http://tuner.local/");
-        var registry = new TunerCapacityLeaseRegistry();
-        var physicalLease = await registry.TryAcquireAsync(profileUri, new Uri("http://tuner.local:5004/auto/v20.1"), 1, TestContext.Current.CancellationToken);
-        Assert.NotNull(physicalLease);
-        var slateStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var streamCancellation = new CancellationTokenSource();
-        var slateService = Substitute.For<IProtectedContentSlateService>();
-        slateService.StreamAsync(HostedStreamFormat.FragmentedMp4, "20.1", Arg.Any<Stream>(), Arg.Any<CancellationToken>())
-            .Returns(async call =>
-            {
-                slateStarted.SetResult();
-                await Task.Delay(Timeout.InfiniteTimeSpan, call.ArgAt<CancellationToken>(3));
-            });
-        var controller = CreateProtectedSlateController(registry, slateService);
-        var errorMethod = typeof(StreamController).GetMethod("WriteFmp4StartupErrorAsync", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(errorMethod);
-
-        // Act
-        object?[] parameters = ["20.1", "http://tuner.local:5004/auto/v20.1", "session", DateTime.UtcNow, physicalLease, streamCancellation.Token, null, null];
-        object? result = errorMethod.Invoke(controller, parameters);
-        var slateTask = Assert.IsType<Task>(result, exactMatch: false);
-        await slateStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
-        var nextLease = await registry.TryAcquireAsync(profileUri, new Uri("http://tuner.local:5004/auto/v21.1"), 1, TestContext.Current.CancellationToken);
-
-        // Assert
-        Assert.NotNull(nextLease);
-        Assert.False(slateTask.IsCompleted);
-        streamCancellation.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => slateTask);
-        await physicalLease.DisposeAsync();
-        await nextLease!.DisposeAsync();
-        Assert.Empty(registry.GetDiagnostics());
-    }
-
-    /// <summary>
-    /// Verifies that an abandoned HLS session expires and releases all owned resources.
-    /// </summary>
-    [Fact]
-    public async Task HlsSession_Inactive_ExpiresAndCleansResources()
+    public async Task CmafSession_Inactive_ExpiresAndCleansResources()
     {
         // Arrange
         var activeStreams = Substitute.For<IActiveStreamRegistry>();
         var capacityLease = Substitute.For<ITunerCapacityLease>();
-        var controller = CreateLifecycleController(activeStreams, hlsInactivityTimeout: TimeSpan.FromMilliseconds(30));
-        var session = CreateHlsSession(controller, capacityLease, out var sessionId, out var directory);
+        var controller = CreateLifecycleController(activeStreams, cmafInactivityTimeout: TimeSpan.FromMilliseconds(30));
+        var session = CreateCmafSession(controller, capacityLease, out var sessionId, out var directory);
 
         // Act
         await WaitUntilAsync(() => !Directory.Exists(directory));
 
         // Assert
-        Assert.False(GetHlsSessions().Contains(sessionId));
+        Assert.False(GetCmafSessions().Contains(sessionId));
         activeStreams.Received().Unregister(sessionId);
         capacityLease.Received().Dispose();
         GC.KeepAlive(session);
     }
 
     /// <summary>
-    /// Verifies that valid HLS file access refreshes inactivity and prevents premature expiration.
+    /// Verifies that valid CMAF artifact access refreshes inactivity and prevents premature expiration.
     /// </summary>
     [Fact]
-    public async Task GetHlsFile_ValidAccess_RefreshesInactivity()
+    public async Task GetCmafFile_ValidAccess_RefreshesInactivity()
     {
         // Arrange
-        var controller = CreateLifecycleController(Substitute.For<IActiveStreamRegistry>(), hlsInactivityTimeout: TimeSpan.FromMilliseconds(150));
-        CreateHlsSession(controller, Substitute.For<ITunerCapacityLease>(), out var sessionId, out var directory);
+        var controller = CreateLifecycleController(Substitute.For<IActiveStreamRegistry>(), cmafInactivityTimeout: TimeSpan.FromMilliseconds(150));
+        CreateCmafSession(controller, Substitute.For<ITunerCapacityLease>(), out var sessionId, out var directory);
         await Task.Delay(90, TestContext.Current.CancellationToken);
 
         // Act
-        var result = controller.GetHlsFile(sessionId, "stream.m3u8");
+        var result = controller.GetCmafFile(sessionId, "stream.m3u8");
         await Task.Delay(90, TestContext.Current.CancellationToken);
 
         // Assert
         Assert.IsType<PhysicalFileResult>(result);
         Assert.True(Directory.Exists(directory));
-        Assert.True(GetHlsSessions().Contains(sessionId));
-        Assert.IsType<OkObjectResult>(controller.StopHls(sessionId));
+        Assert.True(GetCmafSessions().Contains(sessionId));
+        Assert.IsType<OkObjectResult>(controller.StopCmaf(sessionId));
     }
 
     /// <summary>
-    /// Verifies that application shutdown terminates and removes every registered HLS session.
+    /// Verifies CMAF WebVTT clients can poll only bytes appended after their previous offset.
     /// </summary>
     [Fact]
-    public async Task ApplicationStopping_LiveHlsSession_CleansResources()
+    public void GetCmafFile_WebVttOffset_ReturnsIncrementalChunk()
+    {
+        // Arrange
+        var controller = CreateLifecycleController(Substitute.For<IActiveStreamRegistry>());
+        CreateCmafSession(controller, Substitute.For<ITunerCapacityLease>(), out var sessionId, out var directory);
+        var subtitlePath = TestTransientData.GetFilePath(directory, "captions-2.vtt");
+        File.WriteAllText(subtitlePath, "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nHello\n\n");
+
+        // Act
+        var result = controller.GetCmafFile(sessionId, "captions-2.vtt", offset: 8);
+
+        // Assert
+        var file = Assert.IsType<FileContentResult>(result);
+        Assert.Equal("00:00:00.000 --> 00:00:01.000\nHello\n\n", System.Text.Encoding.UTF8.GetString(file.FileContents));
+        Assert.Equal("45", controller.Response.Headers["X-Lineup-Subtitle-Offset"]);
+        Assert.IsType<OkObjectResult>(controller.StopCmaf(sessionId));
+    }
+
+    /// <summary>
+    /// Verifies CMAF WebVTT polling remains successful while FFmpeg has not emitted the first caption cue.
+    /// </summary>
+    [Fact]
+    public void GetCmafFile_WebVttNotCreatedYet_ReturnsEmptyChunk()
+    {
+        // Arrange
+        var controller = CreateLifecycleController(Substitute.For<IActiveStreamRegistry>());
+        CreateCmafSession(controller, Substitute.For<ITunerCapacityLease>(), out var sessionId, out _);
+
+        // Act
+        var result = controller.GetCmafFile(sessionId, "captions-2.vtt", offset: 12);
+
+        // Assert
+        var file = Assert.IsType<FileContentResult>(result);
+        Assert.Empty(file.FileContents);
+        Assert.Equal("text/vtt; charset=utf-8", file.ContentType);
+        Assert.Equal("12", controller.Response.Headers["X-Lineup-Subtitle-Offset"]);
+        Assert.IsType<OkObjectResult>(controller.StopCmaf(sessionId));
+    }
+
+    /// <summary>
+    /// Verifies copied HEVC representations receive browser-compatible codec signaling when served.
+    /// </summary>
+    [Fact]
+    public void GetCmafFile_HevcManifest_RewritesMissingCodec()
+    {
+        // Arrange
+        var controller = CreateLifecycleController(Substitute.For<IActiveStreamRegistry>());
+        var session = CreateCmafSession(controller, Substitute.For<ITunerCapacityLease>(), out var sessionId, out var directory);
+        File.WriteAllText(Path.Combine(directory, CmafStreamPlanner.DashManifestName), "<Representation codecs=\"\" />");
+        SetProperty(session.GetType(), session, "SourceVideoCodec", "hvc1.2.4.L123");
+
+        // Act
+        var result = controller.GetCmafFile(sessionId, CmafStreamPlanner.DashManifestName);
+
+        // Assert
+        var content = Assert.IsType<ContentResult>(result);
+        Assert.Contains("codecs=\"hvc1.2.4.L123\"", content.Content, StringComparison.Ordinal);
+        Assert.Equal("application/dash+xml", content.ContentType);
+        Assert.IsType<OkObjectResult>(controller.StopCmaf(sessionId));
+    }
+
+    /// <summary>
+    /// Verifies that application shutdown terminates and removes every registered CMAF session.
+    /// </summary>
+    [Fact]
+    public async Task ApplicationStopping_LiveCmafSession_CleansResources()
     {
         // Arrange
         using var stopping = new CancellationTokenSource();
@@ -531,38 +612,38 @@ public class StreamControllerTests
         var activeStreams = Substitute.For<IActiveStreamRegistry>();
         var capacityLease = Substitute.For<ITunerCapacityLease>();
         var controller = CreateLifecycleController(activeStreams, lifetime);
-        CreateHlsSession(controller, capacityLease, out var sessionId, out var directory);
+        CreateCmafSession(controller, capacityLease, out var sessionId, out var directory);
 
         // Act
         stopping.Cancel();
         await WaitUntilAsync(() => !Directory.Exists(directory));
 
         // Assert
-        Assert.False(GetHlsSessions().Contains(sessionId));
+        Assert.False(GetCmafSessions().Contains(sessionId));
         activeStreams.Received().Unregister(sessionId);
         capacityLease.Received().Dispose();
     }
 
     /// <summary>
-    /// Verifies that same-channel HLS viewers retain independent sessions and can stop independently.
+    /// Verifies that same-channel CMAF viewers retain independent sessions and can stop independently.
     /// </summary>
     [Fact]
-    public void HlsSession_SameChannelViewers_CoexistAndStopIndependently()
+    public void CmafSession_SameChannelViewers_CoexistAndStopIndependently()
     {
         // Arrange
         var controller = CreateLifecycleController(Substitute.For<IActiveStreamRegistry>());
-        CreateHlsSession(controller, Substitute.For<ITunerCapacityLease>(), out var firstSessionId, out var firstDirectory);
+        CreateCmafSession(controller, Substitute.For<ITunerCapacityLease>(), out var firstSessionId, out var firstDirectory);
 
         // Act
-        CreateHlsSession(controller, Substitute.For<ITunerCapacityLease>(), out var secondSessionId, out var secondDirectory);
-        var firstStop = controller.StopHls(firstSessionId);
+        CreateCmafSession(controller, Substitute.For<ITunerCapacityLease>(), out var secondSessionId, out var secondDirectory);
+        var firstStop = controller.StopCmaf(firstSessionId);
 
         // Assert
         Assert.IsType<OkObjectResult>(firstStop);
         Assert.False(Directory.Exists(firstDirectory));
         Assert.True(Directory.Exists(secondDirectory));
-        Assert.True(GetHlsSessions().Contains(secondSessionId));
-        Assert.IsType<OkObjectResult>(controller.StopHls(secondSessionId));
+        Assert.True(GetCmafSessions().Contains(secondSessionId));
+        Assert.IsType<OkObjectResult>(controller.StopCmaf(secondSessionId));
         Assert.False(Directory.Exists(secondDirectory));
     }
 
@@ -598,17 +679,29 @@ public class StreamControllerTests
         };
     }
 
-    private static StreamController CreateMpegTsProtectedSlateController(IActiveStreamRegistry activeStreams, IProtectedContentSlateService slateService, ITunerCapacityLeaseRegistry capacity, int maximumConcurrentStreams)
+    private static StreamController CreateMpegTsProtectedSlateController(
+        IActiveStreamRegistry activeStreams,
+        IProtectedContentSlateService slateService,
+        ITunerCapacityLeaseRegistry capacity,
+        int maximumConcurrentStreams,
+        ProtectedContentMode protectedContentMode = ProtectedContentMode.StreamSlate,
+        string? tunerError = "811 DRM Content",
+        bool cachedDrm = false)
     {
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
-        httpClientFactory.CreateClient("StreamProxy").Returns(new HttpClient(new ProtectedContentResponseHandler()));
+        httpClientFactory.CreateClient("StreamProxy").Returns(new HttpClient(new ProtectedContentResponseHandler(tunerError)));
         var settingsService = Substitute.For<IAppSettingsService>();
         settingsService.Settings.Returns(new AppSettings
         {
             DeviceAddress = "tuner.local",
-            ProtectedContentMode = ProtectedContentMode.StreamSlate,
+            ProtectedContentMode = protectedContentMode,
             MaximumConcurrentStreams = maximumConcurrentStreams
         });
+        var epgRepository = Substitute.For<IEpgRepository>();
+        epgRepository.GetChannelsAsync().Returns(
+            cachedDrm
+                ? [new HDHomeRunChannelEpgSegment { GuideNumber = "20.1", DRM = true }]
+                : []);
         var profiles = Substitute.For<IHdHomeRunProxyProfileProvider>();
         profiles.GetPrimaryProfileAsync(Arg.Any<CancellationToken>()).Returns(new HdHomeRunProxyProfileSnapshot
         {
@@ -640,7 +733,7 @@ public class StreamControllerTests
             .Returns(_ => Task.FromException<MediaProbeResult>(new MpegTsTranscodeException("DRM")));
         return new StreamController(
             httpClientFactory,
-            Substitute.For<IEpgRepository>(),
+            epgRepository,
             settingsService,
             CreateChannelLineupStore(),
             Substitute.For<IDeviceStateService>(),
@@ -664,7 +757,7 @@ public class StreamControllerTests
         };
     }
 
-    private static StreamController CreateLifecycleController(IActiveStreamRegistry activeStreams, IHostApplicationLifetime? lifetime = null, TimeSpan? hlsInactivityTimeout = null)
+    private static StreamController CreateLifecycleController(IActiveStreamRegistry activeStreams, IHostApplicationLifetime? lifetime = null, TimeSpan? cmafInactivityTimeout = null)
     {
         var settingsService = Substitute.For<IAppSettingsService>();
         settingsService.Settings.Returns(new AppSettings());
@@ -684,7 +777,7 @@ public class StreamControllerTests
             NullLogger<StreamController>.Instance,
             lifetime,
             TimeProvider.System,
-            hlsInactivityTimeout,
+            cmafInactivityTimeout,
             transientData: TestTransientData)
         {
             ControllerContext = new ControllerContext
@@ -694,10 +787,10 @@ public class StreamControllerTests
         };
     }
 
-    private static object CreateHlsSession(StreamController controller, ITunerCapacityLease capacityLease, out string sessionId, out string directory)
+    private static object CreateCmafSession(StreamController controller, ITunerCapacityLease capacityLease, out string sessionId, out string directory)
     {
         sessionId = Guid.NewGuid().ToString("N");
-        directory = TestTransientData.CreateHlsSessionDirectory(sessionId);
+        directory = TestTransientData.CreateCmafSessionDirectory(sessionId);
         var playlistPath = TestTransientData.GetFilePath(directory, "stream.m3u8");
         File.WriteAllText(playlistPath, "#EXTM3U");
         using var process = Process.Start(new ProcessStartInfo
@@ -710,18 +803,18 @@ public class StreamControllerTests
         });
         Assert.NotNull(process);
         process.WaitForExit();
-        var sessionType = typeof(StreamController).GetNestedType("HlsSession", BindingFlags.NonPublic);
+        var sessionType = typeof(StreamController).GetNestedType("CmafSession", BindingFlags.NonPublic);
         Assert.NotNull(sessionType);
         var session = Activator.CreateInstance(sessionType);
         Assert.NotNull(session);
         SetProperty(sessionType, session, "SessionId", sessionId);
         SetProperty(sessionType, session, "Channel", "20.1");
         SetProperty(sessionType, session, "Process", process);
-        SetProperty(sessionType, session, "HlsDirectory", directory);
+        SetProperty(sessionType, session, "CmafDirectory", directory);
         SetProperty(sessionType, session, "PlaylistPath", playlistPath);
         SetProperty(sessionType, session, "StartTime", DateTime.UtcNow);
         SetProperty(sessionType, session, "CapacityLease", capacityLease);
-        var register = typeof(StreamController).GetMethod("RegisterHlsSession", BindingFlags.Instance | BindingFlags.NonPublic);
+        var register = typeof(StreamController).GetMethod("RegisterCmafSession", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(register);
         register.Invoke(controller, [session]);
         return session;
@@ -822,30 +915,9 @@ public class StreamControllerTests
         }
     }
 
-    private sealed class TestHttpResponseFeature(bool hasStarted) : IHttpResponseFeature
+    private static IDictionary GetCmafSessions()
     {
-        public int StatusCode { get; set; } = StatusCodes.Status200OK;
-
-        public string? ReasonPhrase { get; set; }
-
-        public IHeaderDictionary Headers { get; set; } = new HeaderDictionary();
-
-        public Stream Body { get; set; } = Stream.Null;
-
-        public bool HasStarted { get; } = hasStarted;
-
-        public void OnStarting(Func<object, Task> callback, object state)
-        {
-        }
-
-        public void OnCompleted(Func<object, Task> callback, object state)
-        {
-        }
-    }
-
-    private static IDictionary GetHlsSessions()
-    {
-        var sessions = typeof(StreamController).GetField("_hlsSessions", BindingFlags.Static | BindingFlags.NonPublic);
+        var sessions = typeof(StreamController).GetField("_cmafSessions", BindingFlags.Static | BindingFlags.NonPublic);
         Assert.NotNull(sessions);
         return Assert.IsType<IDictionary>(sessions.GetValue(null), exactMatch: false);
     }
@@ -855,6 +927,13 @@ public class StreamControllerTests
         var property = type.GetProperty(name, BindingFlags.Instance | BindingFlags.Public);
         Assert.NotNull(property);
         property.SetValue(instance, value);
+    }
+
+    private static object? GetPropertyValue(object instance, string name)
+    {
+        var property = instance.GetType().GetProperty(name, BindingFlags.Instance | BindingFlags.Public);
+        Assert.NotNull(property);
+        return property.GetValue(instance);
     }
 
     private static async Task WaitUntilAsync(Func<bool> predicate)
@@ -868,13 +947,16 @@ public class StreamControllerTests
         Assert.True(predicate());
     }
 
-    private sealed class ProtectedContentResponseHandler : HttpMessageHandler
+    private sealed class ProtectedContentResponseHandler(string? tunerError = "811 DRM Content") : HttpMessageHandler
     {
         /// <inheritdoc/>
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var response = new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
-            response.Headers.Add("X-HDHomeRun-Error", "811 DRM Content");
+            if (tunerError is not null)
+            {
+                response.Headers.Add("X-HDHomeRun-Error", tunerError);
+            }
             return Task.FromResult(response);
         }
     }

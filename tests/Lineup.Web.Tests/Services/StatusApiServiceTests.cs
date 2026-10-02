@@ -159,7 +159,7 @@ public class StatusApiServiceTests
             new ActiveStreamSnapshot(
                 "stream-1",
                 "5.1",
-                HostedStreamFormat.FragmentedMp4,
+                HostedStreamFormat.Cmaf,
                 DateTime.UtcNow.AddMinutes(-2),
                 18_000_000,
                 [new ActiveStreamTrack(MediaTrackType.Audio, "ac4", "aac", 256_000, 384_000, null, null, 6, 6, 48_000)])

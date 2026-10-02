@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Globalization;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 
@@ -112,7 +113,7 @@ public class HDHomeRunHttpControl : IDisposable
                             TunerIndex = tunerIndex,
                             IsActive = !string.IsNullOrEmpty(tunerEntry.VctName),
                             VirtualChannel = tunerEntry.VctNumber,
-                            Channel = tunerEntry.Frequency,
+                            Channel = tunerEntry.Frequency?.ToString(CultureInfo.InvariantCulture),
                             TargetIP = tunerEntry.TargetIP,
                             SignalStrengthPercent = tunerEntry.SignalStrengthPercent,
                             SignalQualityPercent = tunerEntry.SignalQualityPercent,
@@ -399,7 +400,8 @@ public class HttpStatusEntry
     /// Gets or sets frequency.
     /// </summary>
     [JsonPropertyName("Frequency")]
-    public string? Frequency { get; set; }
+    [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+    public long? Frequency { get; set; }
 
     /// <summary>
     /// Gets or sets signal strength percent.

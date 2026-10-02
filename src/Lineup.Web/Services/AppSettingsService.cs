@@ -67,6 +67,22 @@ public enum VirtualTunerVideoMode
 }
 
 /// <summary>
+/// Controls how confirmed interlaced video is converted to progressive video.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum DeinterlaceMode
+{
+    /// <summary>Preserves the source without deinterlacing.</summary>
+    Preserve,
+
+    /// <summary>Produces one progressive frame for each source frame.</summary>
+    SourceFrameRate,
+
+    /// <summary>Produces one progressive frame for each source field.</summary>
+    SourceFieldRate
+}
+
+/// <summary>
 /// Controls API behavior when the tuner reports DRM-protected content.
 /// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -378,6 +394,11 @@ public class AppSettings
     public VirtualTunerVideoMode VirtualTunerVideoMode { get; set; } = VirtualTunerVideoMode.Preserve;
 
     /// <summary>
+    /// Deinterlacing applied once to shared confirmed-interlaced tuner sources.
+    /// </summary>
+    public DeinterlaceMode SourceDeinterlaceMode { get; set; } = DeinterlaceMode.Preserve;
+
+    /// <summary>
     /// API behavior when the HDHomeRun reports content protection code 811.
     /// </summary>
     public ProtectedContentMode ProtectedContentMode { get; set; } = ProtectedContentMode.ReturnError;
@@ -388,9 +409,14 @@ public class AppSettings
     public DisabledChannelMode DisabledChannelMode { get; set; } = DisabledChannelMode.ReturnError;
 
     /// <summary>
-    /// H.264 encoder preset used for browser-compatible fMP4 and HLS output.
+    /// H.264 encoder preset used for browser-compatible CMAF output.
     /// </summary>
     public WebVideoPreset WebVideoPreset { get; set; } = WebVideoPreset.VeryFast;
+
+    /// <summary>
+    /// Per-session fallback deinterlacing applied by Watch.
+    /// </summary>
+    public DeinterlaceMode WebPlayerDeinterlaceMode { get; set; } = DeinterlaceMode.Preserve;
 
     /// <summary>
     /// Constant-rate-factor quality used for browser video, where lower values provide higher quality.

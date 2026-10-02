@@ -474,8 +474,7 @@ public partial class Dashboard : IDisposable
     private static string FormatHostedStreamFormat(HostedStreamFormat format) => format switch
     {
         HostedStreamFormat.MpegTs => "MPEG-TS",
-        HostedStreamFormat.FragmentedMp4 => "fMP4",
-        HostedStreamFormat.Hls => "HLS",
+        HostedStreamFormat.Cmaf => "CMAF",
         _ => format.ToString()
     };
 

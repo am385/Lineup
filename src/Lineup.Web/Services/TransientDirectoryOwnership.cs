@@ -9,8 +9,8 @@ namespace Lineup.Web.Services;
 /// </summary>
 internal static class TransientDirectoryOwnership
 {
-    /// <summary>Gets the application-owned transient HLS directory name.</summary>
-    public const string HlsDirectoryName = "hdhomerun-hls";
+    /// <summary>Gets the application-owned transient CMAF directory name, retaining the legacy disk path for upgrade cleanup.</summary>
+    public const string CmafDirectoryName = "hdhomerun-hls";
 
     private static readonly long ProcessStartTimeTicks = GetCurrentProcessStartTimeTicks();
     private static readonly string ProcessInstanceId = Guid.NewGuid().ToString("N");

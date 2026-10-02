@@ -112,6 +112,7 @@ builder.Services.AddSingleton<IActiveStreamRegistry, ActiveStreamRegistry>();
 builder.Services.AddSingleton(statusRuntime);
 builder.Services.AddScoped<StatusApiService>();
 builder.Services.AddSingleton<IProtectedContentSlateService, ProtectedContentSlateService>();
+builder.Services.AddSingleton<ICmafCompatibilityTestService, CmafCompatibilityTestService>();
 builder.Services.AddSingleton<ITunerStreamMultiplexer, TunerStreamMultiplexer>();
 builder.Services.AddSingleton<ITunerCapacityLeaseRegistry, TunerCapacityLeaseRegistry>();
 builder.Services.AddSingleton<SubtitleSidecarService>();

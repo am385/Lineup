@@ -17,24 +17,24 @@ public sealed class TransientDataStore : ITransientDataStore
     {
         _files = new ContainedFileStore(rootPath);
         RootPath = _files.RootPath;
-        HlsRootPath = Path.Combine(RootPath, TransientDirectoryOwnership.HlsDirectoryName);
+        CmafRootPath = Path.Combine(RootPath, TransientDirectoryOwnership.CmafDirectoryName);
         SubtitleRootPath = Path.Combine(RootPath, SubtitleSidecarService.DirectoryName);
     }
 
     /// <summary>Gets the normalized transient root.</summary>
     public string RootPath { get; }
 
-    /// <summary>Gets the shared HLS process-directory root.</summary>
-    public string HlsRootPath { get; }
+    /// <summary>Gets the shared CMAF process-directory root.</summary>
+    public string CmafRootPath { get; }
 
     /// <summary>Gets the shared subtitle process-directory root.</summary>
     public string SubtitleRootPath { get; }
 
     /// <inheritdoc />
-    public string CreateHlsSessionDirectory(string sessionId)
+    public string CreateCmafSessionDirectory(string sessionId)
     {
         ValidateSessionId(sessionId);
-        var processRoot = TransientDirectoryOwnership.GetCurrentDirectory(HlsRootPath);
+        var processRoot = TransientDirectoryOwnership.GetCurrentDirectory(CmafRootPath);
         var directory = _files.GetPath(Path.GetRelativePath(RootPath, Path.Combine(processRoot, sessionId)));
         _files.EnsureDirectory(directory);
         return directory;
@@ -102,7 +102,7 @@ public sealed class TransientDataStore : ITransientDataStore
     /// <param name="getOwnerStatus">Resolves the status of a transient owner directory.</param>
     internal void DeleteInactiveOwnerDirectories(Func<string, TransientDirectoryOwnerStatus> getOwnerStatus)
     {
-        DeleteInactiveDirectories(HlsRootPath, getOwnerStatus);
+        DeleteInactiveDirectories(CmafRootPath, getOwnerStatus);
         DeleteInactiveDirectories(SubtitleRootPath, getOwnerStatus);
     }
 

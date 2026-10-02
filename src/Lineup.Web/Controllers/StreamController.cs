@@ -12,15 +12,14 @@ namespace Lineup.Web.Controllers;
 /// <summary>
 /// Proxies video streams from HDHomeRun devices to avoid mixed content issues.
 /// The browser connects to this HTTPS endpoint which forwards the HTTP stream from the device.
-/// Supports multiple output formats: direct proxy, HLS (disk), and fMP4 (memory).
+/// Supports direct proxy and shared CMAF output.
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
 public class StreamController : ControllerBase
 {
     private static readonly TimeSpan TunerDiagnosticTimeout = TimeSpan.FromSeconds(5);
-    private static readonly TimeSpan Fmp4StartupTimeout = TimeSpan.FromSeconds(20);
-    private static readonly TimeSpan DefaultHlsInactivityTimeout = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan DefaultCmafInactivityTimeout = TimeSpan.FromMinutes(2);
     private const string StreamLimitError = "The maximum number of concurrent streams is already active.";
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IEpgRepository _epgRepository;
@@ -32,20 +31,19 @@ public class StreamController : ControllerBase
     private readonly IMediaProbeService _mediaProbeService;
     private readonly IActiveStreamRegistry _activeStreamRegistry;
     private readonly IProtectedContentSlateService _protectedContentSlateService;
+    private readonly ICmafCompatibilityTestService _compatibilityTestService;
     private readonly ITunerStreamMultiplexer _tunerStreamMultiplexer;
     private readonly ITunerCapacityLeaseRegistry _tunerCapacityLeases;
     private readonly ILogger<StreamController> _logger;
     private readonly IHostApplicationLifetime? _applicationLifetime;
     private readonly TimeProvider _timeProvider;
-    private readonly TimeSpan _hlsInactivityTimeout;
+    private readonly TimeSpan _cmafInactivityTimeout;
     private readonly SubtitleSidecarService _subtitleSidecars;
     private readonly ITransientDataStore _transientData;
 
-    // Track active HLS streams by session ID
-    private static readonly ConcurrentDictionary<string, HlsSession> _hlsSessions = new();
+    // Track active CMAF streams by session ID
+    private static readonly ConcurrentDictionary<string, CmafSession> _cmafSessions = new();
 
-    // Track active fMP4 streams
-    private static readonly ConcurrentDictionary<string, FMp4Session> _fmp4Sessions = new();
     /// <summary>
     /// Initializes the streaming API controller.
     /// </summary>
@@ -62,11 +60,12 @@ public class StreamController : ControllerBase
     /// <param name="tunerStreamMultiplexer">Shares tuner input among concurrent stream consumers.</param>
     /// <param name="tunerCapacityLeases">Tracks physical tuner capacity across shared sources.</param>
     /// <param name="logger">Logger used for stream lifecycle diagnostics.</param>
-    /// <param name="applicationLifetime">Signals application shutdown for live HLS cleanup.</param>
-    /// <param name="timeProvider">Provides time for HLS inactivity expiration.</param>
-    /// <param name="hlsInactivityTimeout">Overrides the internal HLS inactivity timeout.</param>
+    /// <param name="applicationLifetime">Signals application shutdown for live CMAF cleanup.</param>
+    /// <param name="timeProvider">Provides time for CMAF inactivity expiration.</param>
+    /// <param name="cmafInactivityTimeout">Overrides the internal CMAF inactivity timeout.</param>
     /// <param name="subtitleSidecars">Owns transient WebVTT sidecars.</param>
-    /// <param name="transientData">Provides the configured HLS artifact root.</param>
+    /// <param name="transientData">Provides the configured CMAF artifact root.</param>
+    /// <param name="compatibilityTestService">Generates synthetic single-rendition CMAF compatibility tests.</param>
     public StreamController(
         IHttpClientFactory httpClientFactory,
         IEpgRepository epgRepository,
@@ -83,9 +82,10 @@ public class StreamController : ControllerBase
         ILogger<StreamController> logger,
         IHostApplicationLifetime? applicationLifetime = null,
         TimeProvider? timeProvider = null,
-        TimeSpan? hlsInactivityTimeout = null,
+        TimeSpan? cmafInactivityTimeout = null,
         SubtitleSidecarService? subtitleSidecars = null,
-        ITransientDataStore? transientData = null)
+        ITransientDataStore? transientData = null,
+        ICmafCompatibilityTestService? compatibilityTestService = null)
     {
         _httpClientFactory = httpClientFactory;
         _epgRepository = epgRepository;
@@ -102,9 +102,10 @@ public class StreamController : ControllerBase
         _logger = logger;
         _applicationLifetime = applicationLifetime;
         _timeProvider = timeProvider ?? TimeProvider.System;
-        _hlsInactivityTimeout = NormalizeHlsInactivityTimeout(hlsInactivityTimeout);
+        _cmafInactivityTimeout = NormalizeCmafInactivityTimeout(cmafInactivityTimeout);
         _transientData = transientData ?? TransientDataStore.CreateDefault();
         _subtitleSidecars = subtitleSidecars ?? new SubtitleSidecarService(_transientData);
+        _compatibilityTestService = compatibilityTestService ?? new CmafCompatibilityTestService();
     }
 
     /// <summary>
@@ -161,8 +162,10 @@ public class StreamController : ControllerBase
             Stream tunerInput;
             try
             {
-                source = await _mediaProbeService.ProbeAsync(streamUri, HttpContext.RequestAborted);
-                tunerInput = await _tunerStreamMultiplexer.SubscribeAsync(streamUri, HttpContext.RequestAborted);
+                var sourceSettings = CreateSourceDeinterlaceSettingsSnapshot(_settingsService.Settings);
+                var rawSource = await _mediaProbeService.ProbeAsync(streamUri, HttpContext.RequestAborted);
+                tunerInput = await SubscribeEffectiveSourceAsync(streamUri, rawSource, sourceSettings, HttpContext.RequestAborted);
+                source = GetEffectiveSource(rawSource, sourceSettings);
             }
             finally
             {
@@ -198,7 +201,8 @@ public class StreamController : ControllerBase
             if (!Response.HasStarted)
             {
                 var tunerError = await GetTunerErrorAsync(streamUri, HttpContext.RequestAborted);
-                if (await IsContentProtectedAsync(channel, tunerError))
+                var protection = await DetectContentProtectionAsync(channel, tunerError);
+                if (protection.IsProtected)
                 {
                     if (_settingsService.Settings.ProtectedContentMode == ProtectedContentMode.StreamSlate)
                     {
@@ -227,7 +231,7 @@ public class StreamController : ControllerBase
                         return new EmptyResult();
                     }
 
-                    return StatusCode(StatusCodes.Status403Forbidden, new { code = 811, error = tunerError });
+                    return CreateProtectedContentResult(protection);
                 }
 
                 return StatusCode(StatusCodes.Status502BadGateway, new { error = ex.Message });
@@ -304,55 +308,6 @@ public class StreamController : ControllerBase
         return new EmptyResult();
     }
 
-    private async Task<bool> HandleDisabledPipeStreamAsync(string channel, HostedStreamFormat format, string? clientId = null)
-    {
-        if (!await IsChannelDisabledAsync(channel))
-        {
-            return false;
-        }
-
-        if (_settingsService.Settings.DisabledChannelMode == DisabledChannelMode.ReturnError)
-        {
-            Response.StatusCode = StatusCodes.Status403Forbidden;
-            await Response.WriteAsJsonAsync(new { error = $"Channel {channel} is disabled." }, HttpContext.RequestAborted);
-            return true;
-        }
-
-        using var streamCancellation = CancellationTokenSource.CreateLinkedTokenSource(HttpContext.RequestAborted);
-        var sessionId = Guid.NewGuid().ToString("N")[..8];
-        var activeStream = ActiveStreamPlanFactory.CreateDisabledSlate(sessionId, channel, format, DateTime.UtcNow) with
-        {
-            ClientAddress = FormatClientAddress(HttpContext.Connection.RemoteIpAddress, HttpContext.Connection.RemotePort),
-            ClientId = clientId
-        };
-        if (!_activeStreamRegistry.TryRegister(activeStream, _settingsService.Settings.MaximumConcurrentStreams, streamCancellation.Cancel))
-        {
-            Response.StatusCode = StatusCodes.Status429TooManyRequests;
-            await Response.WriteAsJsonAsync(new { error = StreamLimitError }, HttpContext.RequestAborted);
-            return true;
-        }
-
-        Response.ContentType = format == HostedStreamFormat.FragmentedMp4 ? "video/mp4" : "video/mp2t";
-        Response.Headers.CacheControl = "no-cache, no-store";
-        try
-        {
-            await _protectedContentSlateService.StreamAsync(format, channel, Response.Body, streamCancellation.Token, ChannelSlateReason.DisabledChannel);
-        }
-        catch (OperationCanceledException) when (streamCancellation.IsCancellationRequested)
-        {
-            if (!HttpContext.RequestAborted.IsCancellationRequested)
-            {
-                await Response.CompleteAsync();
-            }
-        }
-        finally
-        {
-            _activeStreamRegistry.Unregister(sessionId);
-        }
-
-        return true;
-    }
-
     private async Task<bool> IsChannelDisabledAsync(string channel)
     {
         var snapshot = await _channelLineupStore.ReadAsync(HttpContext.RequestAborted);
@@ -402,194 +357,299 @@ public class StreamController : ControllerBase
     }
 
     /// <summary>
-    /// Test endpoint to verify the HDHomeRun device transcoding capability
+    /// Starts the canonical shared CMAF DASH/HLS presentation.
     /// </summary>
-    [HttpGet("test/{channel}")]
-    public async Task<IActionResult> TestTranscode(string channel, [FromQuery] string transcode = "heavy")
+    /// <param name="channel">The virtual channel.</param>
+    /// <param name="request">The typed presentation request.</param>
+    /// <returns>The session and both manifest URLs.</returns>
+    [HttpPost("cmaf/start/{channel}")]
+    public Task<IActionResult> StartCmafStream(string channel, [FromQuery] CmafStreamRequest request) => StartCmafStreamCore(channel, request);
+
+    /// <summary>
+    /// Starts a capability-aware shared CMAF presentation from a typed JSON request.
+    /// </summary>
+    /// <param name="channel">The virtual channel.</param>
+    /// <param name="request">The presentation preferences and optional completed browser profile.</param>
+    /// <returns>The session and both manifest URLs.</returns>
+    [HttpPost("cmaf/start-v2/{channel}")]
+    public Task<IActionResult> StartCmafStreamV2(string channel, [FromBody] CmafStreamRequest request)
     {
-        if (await IsChannelDisabledAsync(channel))
+        if (request.CompatibilityProfile is not null && !CmafCompatibilityProfilePolicy.IsValid(request.CompatibilityProfile))
         {
-            return StatusCode(StatusCodes.Status403Forbidden, new
-            {
-                success = false,
-                channel,
-                message = $"Channel {channel} is disabled."
-            });
+            return Task.FromResult<IActionResult>(BadRequest(new { error = "The browser compatibility profile is incomplete, stale, oversized, or invalid." }));
         }
-
-        if (!TryBuildStreamUri(_settingsService.Settings.DeviceAddress, channel, transcode, out var streamUri))
-        {
-            return BadRequest(new { success = false, message = "transcode must be one of: none, mobile, heavy, internet720, internet480, internet360" });
-        }
-
         try
         {
-            var httpClient = _httpClientFactory.CreateClient("StreamProxy");
-            httpClient.Timeout = TimeSpan.FromSeconds(15);
-
-            using var request = new HttpRequestMessage(HttpMethod.Get, streamUri);
-            using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, HttpContext.RequestAborted);
-            if (!response.IsSuccessStatusCode)
-            {
-                var tunerError = response.Headers.TryGetValues("X-HDHomeRun-Error", out var values)
-                    ? values.FirstOrDefault()
-                    : null;
-                return Ok(new
-                {
-                    success = false,
-                    channel,
-                    transcode,
-                    deviceUrl = streamUri.AbsoluteUri,
-                    statusCode = (int)response.StatusCode,
-                    message = tunerError ?? $"The tuner returned HTTP {(int)response.StatusCode} ({response.ReasonPhrase})."
-                });
-            }
-
-            // Read a small chunk to see if stream starts
-            await using var stream = await response.Content.ReadAsStreamAsync();
-            var buffer = new byte[1024];
-            var bytesRead = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), HttpContext.RequestAborted);
-
-            return Ok(new
-            {
-                success = true,
-                channel,
-                transcode,
-                deviceUrl = streamUri.AbsoluteUri,
-                statusCode = (int)response.StatusCode,
-                contentType = response.Content.Headers.ContentType?.ToString(),
-                bytesReceived = bytesRead,
-                message = bytesRead > 0 ? "Stream is responding" : "No data received"
-            });
+            request = CmafStreamPlanner.ApplyOverrides(request);
         }
-        catch (Exception ex)
+        catch (ArgumentException ex)
         {
-            return Ok(new { success = false, channel, transcode, deviceUrl = streamUri.AbsoluteUri, message = ex.Message });
+            return Task.FromResult<IActionResult>(BadRequest(new { error = ex.Message }));
         }
+        return StartCmafStreamCore(channel, request);
     }
 
     /// <summary>
-    /// Streams video using fragmented MP4 (fMP4) directly to memory/pipe.
-    /// No disk I/O required - FFmpeg outputs to stdout which is piped to the browser.
-    /// Uses Media Source Extensions (MSE) compatible output.
+    /// Starts an exact single-rendition synthetic CMAF browser compatibility test.
     /// </summary>
-    /// <param name="channel">The channel number (e.g., "2.1", "5.1")</param>
-    /// <param name="clientId">Optional Watch player identifier used for explicit stop notifications.</param>
-    /// <param name="quality">Optional per-session Watch player quality override.</param>
-    /// <param name="audioTrack">Optional absolute source audio stream index.</param>
-    /// <param name="subtitleTrack">Optional absolute source subtitle stream index; omitted means Off.</param>
-    /// <param name="subtitlePresentation">Previously validated subtitle presentation used only when a retry probe returns no tracks.</param>
-    /// <param name="embeddedCaptions">Whether a previously validated retry selection represents captions embedded in video.</param>
-    /// <param name="audioOutput">Browser audio output layout or source passthrough policy.</param>
-    /// <returns>Fragmented MP4 video stream</returns>
-    [HttpGet("fmp4/{channel}")]
-    public async Task StreamFmp4(
-        string channel,
-        [FromQuery] string? clientId = null,
-        [FromQuery] WebPlayerQuality quality = WebPlayerQuality.AppDefault,
-        [FromQuery] int? audioTrack = null,
-        [FromQuery] int? subtitleTrack = null,
-        [FromQuery] SubtitlePresentation? subtitlePresentation = null,
-        [FromQuery] bool embeddedCaptions = false,
-        [FromQuery] WatchAudioOutput audioOutput = WatchAudioOutput.Stereo)
+    /// <param name="request">The codec, layout, quality, and protocol selection.</param>
+    /// <returns>The transient test session and exact manifest URL.</returns>
+    [HttpPost("cmaf/test/start")]
+    public async Task<IActionResult> StartCmafCompatibilityTest([FromQuery] CmafCompatibilityTestRequest request)
     {
-        if (await HandleDisabledPipeStreamAsync(channel, HostedStreamFormat.FragmentedMp4, clientId))
-        {
-            return;
-        }
-
-        var device = GetWatchDevice();
-        TryBuildStreamUri(device.PhysicalBaseUri.Host, channel, "none", out var sourceUri);
-        await using var tunerCapacityLease = await _tunerCapacityLeases.TryAcquireAsync(device.PhysicalBaseUri, sourceUri, device.TunerCount, HttpContext.RequestAborted);
-        if (tunerCapacityLease == null)
-        {
-            Response.Headers["X-HDHomeRun-Error"] = HdHomeRunStreamError.NoTunerAvailable;
-            Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-            return;
-        }
-
-        var streamUrl = sourceUri.AbsoluteUri;
-
-        _logger.LogInformation("Starting fMP4 stream for channel {Channel}", channel);
-
-        Process? ffmpegProcess = null;
-        Process? captionProcess = null;
-        Task? inputPumpTask = null;
-        Task? captionInputPumpTask = null;
-        Task<string>? captionErrorTask = null;
-        Stream? tunerInput = null;
-        Stream? captionInput = null;
-        Stream? tunerLease = null;
-        Task? tunerLeaseTask = null;
-        CancellationTokenSource? tunerLeaseCancellation = null;
-        FMp4Session? fmp4Session = null;
-        Exception? tunerInputError = null;
-        var ffmpegErrors = new ConcurrentQueue<string>();
-        var sessionId = Guid.NewGuid().ToString("N")[..8];
-        var outputVideoBitRate = WebVideoTranscodePlanner.GetMaximumBitRate(_settingsService.Settings, quality);
-        string? subtitlePath = null;
-        using var streamCancellation = CancellationTokenSource.CreateLinkedTokenSource(HttpContext.RequestAborted);
-        var streamCancellationToken = streamCancellation.Token;
-
         try
         {
-            tunerLease = await _tunerStreamMultiplexer.SubscribeAsync(sourceUri, streamCancellationToken);
-            tunerLeaseCancellation = CancellationTokenSource.CreateLinkedTokenSource(streamCancellationToken);
-            tunerLeaseTask = tunerLease.CopyToAsync(System.IO.Stream.Null, tunerLeaseCancellation.Token);
-            var source = await ProbeBestEffortAsync(sourceUri, streamCancellationToken);
-            var sourceVideoCodec = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video)?.Codec;
-            WatchTrackSelection selection;
-            try
-            {
-                selection = WatchStreamPlanner.SelectTracks(source, audioTrack, subtitleTrack, subtitlePresentation, embeddedCaptions);
-            }
-            catch (ArgumentException ex)
-            {
-                Response.StatusCode = StatusCodes.Status400BadRequest;
-                await Response.WriteAsJsonAsync(new { error = ex.Message }, HttpContext.RequestAborted);
-                return;
-            }
-            var copyVideo = selection.SubtitlePresentation != SubtitlePresentation.BurnIn &&
-                quality == WebPlayerQuality.AppDefault &&
-                string.Equals(sourceVideoCodec, "h264", StringComparison.OrdinalIgnoreCase);
-            tunerInput = await _tunerStreamMultiplexer.SubscribeAsync(sourceUri, streamCancellationToken);
-            tunerLeaseCancellation.Cancel();
-            await ObserveInputPumpAsync(tunerLeaseTask);
-            await tunerLease.DisposeAsync();
-            tunerLease = null;
+            CmafCompatibilityTestPlanner.ValidateRequest(request);
+        }
+        catch (NotSupportedException ex)
+        {
+            return UnprocessableEntity(new { error = ex.Message });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
 
-            if (selection.SubtitlePresentation == SubtitlePresentation.WebVtt)
+        var sessionId = Guid.NewGuid().ToString("N")[..8];
+        var directory = _transientData.CreateCmafSessionDirectory(sessionId);
+        var manifestPath = _transientData.GetFilePath(directory, CmafStreamPlanner.DashManifestName);
+        var subtitlePath = request.SubtitleMode == CmafTestSubtitleMode.WebVttSidecar
+            ? _transientData.GetFilePath(directory, "captions-0.vtt")
+            : null;
+        Process? process = null;
+        try
+        {
+            if (subtitlePath is not null)
             {
-                subtitlePath = _subtitleSidecars.Create(sessionId);
+                await System.IO.File.WriteAllTextAsync(
+                    subtitlePath,
+                    CmafCompatibilityTestPlanner.CreateChannelSubtitleWebVtt(request.ChannelLayout),
+                    HttpContext.RequestAborted);
             }
-            var ffmpegArgs = WatchStreamPlanner.CreateArguments(_settingsService.Settings, source, selection, quality, subtitlePath, audioOutput);
-
-            var startInfo = new ProcessStartInfo
+            process = _compatibilityTestService.Start(_settingsService.Settings, request, manifestPath);
+            var session = new CmafSession
             {
-                FileName = "ffmpeg",
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
+                SessionId = sessionId,
+                Channel = "Watch Test",
+                Process = process,
+                CmafDirectory = directory,
+                PlaylistPath = manifestPath,
+                StartTime = DateTime.UtcNow
             };
-            foreach (var argument in ffmpegArgs)
+            RegisterCmafSession(session);
+            var errors = new ConcurrentQueue<string>();
+            var outputVideoBitRate = WebVideoTranscodePlanner.GetMaximumBitRate(_settingsService.Settings, request.Quality);
+            var errorMonitorTask = StartCmafErrorMonitor(process, session, errors, parseSourceMetadata: false, outputVideoBitRate);
+
+            for (var attempt = 0; attempt < 200; attempt++)
             {
-                startInfo.ArgumentList.Add(argument);
+                if (process.HasExited)
+                {
+                    await errorMonitorTask;
+                    StopCmafSession(sessionId);
+                    return StatusCode(StatusCodes.Status502BadGateway, new { error = errors.LastOrDefault() ?? "FFmpeg exited before the Watch Test presentation was ready." });
+                }
+
+                var hlsPath = _transientData.GetFilePath(directory, CmafStreamPlanner.HlsManifestName);
+                if (_transientData.FileExists(manifestPath) && _transientData.FileExists(hlsPath) && _transientData.EnumerateFiles(directory, "*.m4s").Count >= 2)
+                {
+                    Volatile.Write(ref session.IsStarting, 0);
+                    var baseUrl = $"/api/stream/cmaf/{sessionId}";
+                    var manifestUrl = request.Protocol == CmafProtocol.Dash
+                        ? $"{baseUrl}/{CmafStreamPlanner.DashManifestName}"
+                        : $"{baseUrl}/{CmafStreamPlanner.HlsManifestName}";
+                    var (width, height) = CmafCompatibilityTestPlanner.GetResolution(request.Quality);
+                    using var manifestStream = _transientData.OpenRead(manifestPath) ?? throw new IOException("Watch Test manifest could not be opened.");
+                    using var manifestReader = new StreamReader(manifestStream);
+                    (string VideoCodec, string AudioCodec) codecs;
+                    try
+                    {
+                        codecs = CmafCompatibilityTestPlanner.ParseManifestCodecs(await manifestReader.ReadToEndAsync(HttpContext.RequestAborted));
+                    }
+                    catch (System.Xml.XmlException)
+                    {
+                        await Task.Delay(100, HttpContext.RequestAborted);
+                        continue;
+                    }
+                    return Ok(new CmafCompatibilityTestResponse(
+                        sessionId,
+                        manifestUrl,
+                        codecs.VideoCodec,
+                        codecs.AudioCodec,
+                        CmafCompatibilityTestPlanner.GetChannelCount(request.ChannelLayout),
+                        width,
+                        height,
+                        subtitlePath is null ? null : $"{baseUrl}/captions-0.vtt"));
+                }
+
+                await Task.Delay(100, HttpContext.RequestAborted);
             }
 
-            ffmpegProcess = Process.Start(startInfo);
-
-            if (ffmpegProcess == null)
+            StopCmafSession(sessionId);
+            return StatusCode(StatusCodes.Status504GatewayTimeout, new { error = "FFmpeg did not create the Watch Test manifests and fragments in time." });
+        }
+        catch (OperationCanceledException) when (HttpContext.RequestAborted.IsCancellationRequested)
+        {
+            if (!StopCmafSession(sessionId))
             {
-                _logger.LogError("Failed to start FFmpeg process for fMP4");
-                Response.StatusCode = 500;
-                return;
+                TryDeleteTransientDirectory(directory);
+                process?.Dispose();
+            }
+            return new EmptyResult();
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or IOException)
+        {
+            if (!StopCmafSession(sessionId))
+            {
+                TryDeleteTransientDirectory(directory);
+                process?.Dispose();
+            }
+            _logger.LogError(ex, "Error starting Watch Test CMAF session {SessionId}", sessionId);
+            return StatusCode(StatusCodes.Status500InternalServerError, new { error = ex.Message });
+        }
+    }
+
+    private async Task<IActionResult> StartCmafStreamCore(string channel, CmafStreamRequest request)
+    {
+        CmafFallbackAudio fallbackAudio;
+        try
+        {
+            fallbackAudio = CmafStreamPlanner.ResolveFallbackAudio(request);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+
+        var disabled = await IsChannelDisabledAsync(channel);
+        if (disabled && _settingsService.Settings.DisabledChannelMode == DisabledChannelMode.ReturnError)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = $"Channel {channel} is disabled." });
+        }
+
+        ITunerCapacityLease? capacityLease = null;
+        Uri? sourceUri = null;
+        var sourceSettings = CreateSourceDeinterlaceSettingsSnapshot(_settingsService.Settings);
+        MediaProbeResult rawSource = new([], null);
+        MediaProbeResult source = rawSource;
+        if (!disabled)
+        {
+            var device = GetWatchDevice();
+            TryBuildStreamUri(device.PhysicalBaseUri.Host, channel, "none", out sourceUri);
+            capacityLease = await _tunerCapacityLeases.TryAcquireAsync(device.PhysicalBaseUri, sourceUri, device.TunerCount, HttpContext.RequestAborted);
+            if (capacityLease == null)
+            {
+                return HdHomeRunStreamError.CreateNoTunerAvailableResult(Response);
+            }
+            rawSource = await ProbeBestEffortAsync(sourceUri, HttpContext.RequestAborted);
+            source = GetEffectiveSource(rawSource, sourceSettings);
+        }
+
+        WebPlayerTrackSelection selection;
+        IReadOnlyList<CmafAudioRendition> audioRenditions;
+        try
+        {
+            selection = CmafStreamPlanner.SelectTracks(source, request);
+            _ = CmafStreamPlanner.CreateAudioPlan(selection.Audio, request.PreferredAudio, fallbackAudio);
+            audioRenditions = disabled
+                ? []
+                : CmafStreamPlanner.CreatePresentationAudioRenditions(
+                    source,
+                    selection.Audio,
+                    request.PreferredAudio,
+                    fallbackAudio,
+                    request.CompatibilityProfile,
+                    request.Overrides.Enabled ? request.Overrides.FallbackAudio : null,
+                    request.Overrides.Enabled && request.Overrides.Audio.HasValue);
+        }
+        catch (ArgumentException ex)
+        {
+            capacityLease?.Dispose();
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            capacityLease?.Dispose();
+            return UnprocessableEntity(new { error = ex.Message });
+        }
+
+        var sessionId = Guid.NewGuid().ToString("N")[..8];
+        var directory = _transientData.CreateCmafSessionDirectory(sessionId);
+        var manifestPath = _transientData.GetFilePath(directory, CmafStreamPlanner.DashManifestName);
+        var selectableSubtitles = disabled ? [] : CmafStreamPlanner.GetSelectableSubtitles(source);
+        var subtitlePaths = selectableSubtitles.ToDictionary(
+            subtitle => subtitle.Index,
+            subtitle => _transientData.GetFilePath(directory, $"captions-{subtitle.Index}.vtt"));
+        var stopRequested = 0;
+        var startedAt = DateTime.UtcNow;
+        var outputVideoBitRate = WebVideoTranscodePlanner.GetMaximumBitRate(_settingsService.Settings, request.Quality);
+        var activeStream = disabled
+            ? ActiveStreamPlanFactory.CreateDisabledSlate(sessionId, channel, HostedStreamFormat.Cmaf, startedAt)
+            : ActiveStreamPlanFactory.CreateCmaf(sessionId, channel, startedAt, source, selection, request, _settingsService.Settings);
+        activeStream = activeStream with
+        {
+            ClientAddress = FormatClientAddress(HttpContext.Connection.RemoteIpAddress, HttpContext.Connection.RemotePort),
+            ClientId = request.ClientId
+        };
+        if (!_activeStreamRegistry.TryRegister(activeStream, _settingsService.Settings.MaximumConcurrentStreams, () =>
+            {
+                Interlocked.Exchange(ref stopRequested, 1);
+                StopCmafSession(sessionId);
+            }))
+        {
+            capacityLease?.Dispose();
+            TryDeleteTransientDirectory(directory);
+            return StatusCode(StatusCodes.Status429TooManyRequests, new { error = StreamLimitError });
+        }
+
+        Process? process = null;
+        Process? captionProcess = null;
+        Task<string>? captionErrorTask = null;
+        try
+        {
+            var ffmpegArguments = disabled ? null : CmafStreamPlanner.CreateArguments(_settingsService.Settings, source, selection, request, manifestPath, subtitlePaths);
+            if (Volatile.Read(ref stopRequested) != 0)
+            {
+                _activeStreamRegistry.Unregister(sessionId);
+                capacityLease?.Dispose();
+                TryDeleteTransientDirectory(directory);
+                return new EmptyResult();
             }
 
-            if (selection.Subtitle?.IsEmbeddedClosedCaptions == true)
+            if (disabled)
             {
-                captionInput = await _tunerStreamMultiplexer.SubscribeAsync(sourceUri, streamCancellationToken);
+                process = _protectedContentSlateService.StartCmaf(channel, manifestPath, ChannelSlateReason.DisabledChannel);
+            }
+            else
+            {
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = "ffmpeg",
+                    WorkingDirectory = directory,
+                    RedirectStandardInput = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                foreach (var argument in ffmpegArguments!)
+                {
+                    startInfo.ArgumentList.Add(argument);
+                }
+                process = Process.Start(startInfo);
+            }
+
+            if (process == null)
+            {
+                throw new InvalidOperationException("Failed to start FFmpeg process.");
+            }
+            if (!disabled)
+            {
+                _ = PumpEffectiveSourceAsync(sourceUri!, rawSource, sourceSettings, process, HttpContext.RequestAborted);
+            }
+            var embeddedCaptions = selectableSubtitles.FirstOrDefault(subtitle => subtitle.IsEmbeddedClosedCaptions);
+            if (!disabled && embeddedCaptions is not null)
+            {
                 var captionStartInfo = new ProcessStartInfo
                 {
                     FileName = "ffmpeg",
@@ -598,7 +658,7 @@ public class StreamController : ControllerBase
                     UseShellExecute = false,
                     CreateNoWindow = true
                 };
-                foreach (var argument in WatchStreamPlanner.CreateEmbeddedCaptionArguments(subtitlePath!))
+                foreach (var argument in WebPlayerTrackPlanner.CreateEmbeddedCaptionArguments(subtitlePaths[embeddedCaptions.Index]))
                 {
                     captionStartInfo.ArgumentList.Add(argument);
                 }
@@ -606,617 +666,250 @@ public class StreamController : ControllerBase
                 captionProcess = Process.Start(captionStartInfo) ??
                     throw new InvalidOperationException("Failed to start FFmpeg embedded-caption extractor.");
                 captionErrorTask = captionProcess.StandardError.ReadToEndAsync();
-                captionInputPumpTask = TunerInputPump.PumpAsync(captionInput, sourceUri, captionProcess, _logger, streamCancellationToken);
-                captionInput = null;
+                _ = TunerInputPump.PumpAsync(_tunerStreamMultiplexer, sourceUri!, captionProcess, _logger, HttpContext.RequestAborted);
             }
 
-            inputPumpTask = TunerInputPump.PumpAsync(tunerInput, sourceUri, ffmpegProcess, _logger, streamCancellationToken, error => Volatile.Write(ref tunerInputError, error));
-            tunerInput = null;
-
-            var session = new FMp4Session
-            {
-                SessionId = sessionId,
-                Channel = channel,
-                Process = ffmpegProcess,
-                StartTime = DateTime.UtcNow
-            };
-            fmp4Session = session;
-            _fmp4Sessions[sessionId] = session;
-            var activeStream = ActiveStreamPlanFactory.CreateFragmentedMp4(sessionId, channel, session.StartTime, source, outputVideoBitRate, copyVideo, selection, audioOutput) with
-            {
-                ClientAddress = FormatClientAddress(HttpContext.Connection.RemoteIpAddress, HttpContext.Connection.RemotePort),
-                ClientId = clientId
-            };
-            if (!_activeStreamRegistry.TryRegister(activeStream, _settingsService.Settings.MaximumConcurrentStreams, streamCancellation.Cancel))
-            {
-                Response.StatusCode = StatusCodes.Status429TooManyRequests;
-                await Response.WriteAsJsonAsync(new { error = StreamLimitError });
-                return;
-            }
-
-            // Capture metadata from the same FFmpeg process that serves the browser so the tuner is opened only once.
-            _ = Task.Run(async () =>
-            {
-                var sourceTracks = source.Tracks.ToDictionary(track => track.Index);
-                var readingInputMetadata = true;
-                try
-                {
-                    while (!ffmpegProcess.HasExited)
-                    {
-                        var line = await ffmpegProcess.StandardError.ReadLineAsync();
-                        if (line == null)
-                        {
-                            // End of stream reached
-                            break;
-                        }
-                        if (!string.IsNullOrEmpty(line))
-                        {
-                            ffmpegErrors.Enqueue(line);
-                            while (ffmpegErrors.Count > 50)
-                            {
-                                ffmpegErrors.TryDequeue(out _);
-                            }
-
-                            if (line.StartsWith("Stream mapping:", StringComparison.Ordinal) || line.StartsWith("Output #0", StringComparison.Ordinal))
-                            {
-                                readingInputMetadata = false;
-                            }
-                            else if (readingInputMetadata && FfmpegInputMetadataParser.TryParseTrack(line, out var track))
-                            {
-                                sourceTracks[track.Index] = track;
-                                var source = new MediaProbeResult(sourceTracks.Values.OrderBy(value => value.Index).ToArray(), null);
-                                lock (session.LifecycleGate)
-                                {
-                                    if (session.IsActive &&
-                                        _fmp4Sessions.TryGetValue(sessionId, out var current) &&
-                                        ReferenceEquals(current, session))
-                                    {
-                                        _activeStreamRegistry.Register(ActiveStreamPlanFactory.CreateFragmentedMp4(sessionId, channel, session.StartTime, source, outputVideoBitRate, copyVideo, selection, audioOutput));
-                                    }
-                                }
-                            }
-
-                            _logger.LogDebug("FFmpeg fMP4 [{SessionId}]: {Line}", sessionId, line);
-                        }
-                    }
-                }
-                catch (Exception ex) when (ex is IOException or InvalidOperationException or ObjectDisposedException)
-                {
-                    _logger.LogDebug(ex, "Stopped reading FFmpeg diagnostics for fMP4 session {SessionId}", sessionId);
-                }
-            });
-
-            // Set response headers for fMP4 stream
-            Response.ContentType = "video/mp4";
-            Response.Headers.CacheControl = "no-cache, no-store";
-            Response.Headers["X-Session-Id"] = sessionId;
-
-            // Stream FFmpeg output directly to response
-            var buffer = new byte[64 * 1024];
-            var firstReadTask = ffmpegProcess.StandardOutput.BaseStream
-                .ReadAsync(buffer, streamCancellationToken)
-                .AsTask();
-            var startupDelayTask = Task.Delay(Fmp4StartupTimeout, streamCancellationToken);
-            if (await Task.WhenAny(firstReadTask, startupDelayTask) != firstReadTask)
-            {
-                streamCancellationToken.ThrowIfCancellationRequested();
-                await StopProcessAsync(ffmpegProcess);
-                await ObserveInputPumpAsync(inputPumpTask);
-                inputPumpTask = null;
-                await WriteFmp4StartupErrorAsync(channel, streamUrl, sessionId, session.StartTime, tunerCapacityLease, streamCancellationToken, ffmpegErrors, Volatile.Read(ref tunerInputError));
-                return;
-            }
-
-            var bytesRead = await firstReadTask;
-            if (bytesRead == 0)
-            {
-                await ffmpegProcess.WaitForExitAsync(streamCancellationToken);
-                await ObserveInputPumpAsync(inputPumpTask);
-                inputPumpTask = null;
-                await WriteFmp4StartupErrorAsync(channel, streamUrl, sessionId, session.StartTime, tunerCapacityLease, streamCancellationToken, ffmpegErrors, Volatile.Read(ref tunerInputError));
-                return;
-            }
-
-            do
-            {
-                await Response.Body.WriteAsync(buffer.AsMemory(0, bytesRead), HttpContext.RequestAborted);
-                await Response.Body.FlushAsync(HttpContext.RequestAborted);
-            }
-            while ((bytesRead = await ffmpegProcess.StandardOutput.BaseStream.ReadAsync(buffer, streamCancellationToken)) > 0);
-        }
-        catch (OperationCanceledException) when (streamCancellation.IsCancellationRequested)
-        {
-            if (HttpContext.RequestAborted.IsCancellationRequested)
-            {
-                _logger.LogDebug("fMP4 stream closed for channel {Channel} (client disconnected)", channel);
-            }
-            else
-            {
-                _logger.LogDebug("fMP4 stream stopped for channel {Channel}", channel);
-                await Response.CompleteAsync();
-            }
-        }
-        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 2)
-        {
-            _logger.LogError("FFmpeg not found for fMP4 streaming");
-            SetInternalServerErrorStatus(Response);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error in fMP4 stream for channel {Channel}", channel);
-            SetInternalServerErrorStatus(Response);
-        }
-        finally
-        {
-            var unregisterActiveStream = false;
-            if (fmp4Session != null)
-            {
-                lock (fmp4Session.LifecycleGate)
-                {
-                    fmp4Session.IsActive = false;
-                    if (((ICollection<KeyValuePair<string, FMp4Session>>)_fmp4Sessions).Remove(new KeyValuePair<string, FMp4Session>(sessionId, fmp4Session)))
-                    {
-                        unregisterActiveStream = true;
-                    }
-                }
-            }
-
-            if (ffmpegProcess != null && !ffmpegProcess.HasExited)
-            {
-                try
-                {
-                    ffmpegProcess.Kill(entireProcessTree: true);
-                }
-                catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException or System.ComponentModel.Win32Exception)
-                {
-                    _logger.LogDebug(ex, "Unable to stop FFmpeg process for fMP4 session {SessionId}", sessionId);
-                }
-            }
-            if (captionProcess != null && !captionProcess.HasExited)
-            {
-                try
-                {
-                    captionProcess.Kill(entireProcessTree: true);
-                }
-                catch (InvalidOperationException)
-                {
-                }
-            }
-            if (inputPumpTask is not null)
-            {
-                await ObserveInputPumpAsync(inputPumpTask);
-            }
-            if (captionInputPumpTask is not null)
-            {
-                await ObserveInputPumpAsync(captionInputPumpTask);
-            }
-            if (tunerInput is not null)
-            {
-                await tunerInput.DisposeAsync();
-            }
-            if (captionInput is not null)
-            {
-                await captionInput.DisposeAsync();
-            }
-            tunerLeaseCancellation?.Cancel();
-            if (tunerLeaseTask is not null)
-            {
-                await ObserveInputPumpAsync(tunerLeaseTask);
-            }
-            if (tunerLease is not null)
-            {
-                await tunerLease.DisposeAsync();
-            }
-            tunerLeaseCancellation?.Dispose();
-            ffmpegProcess?.Dispose();
-            if (captionErrorTask is not null)
-            {
-                var captionError = await captionErrorTask;
-                if (!string.IsNullOrWhiteSpace(captionError) && !streamCancellation.IsCancellationRequested)
-                {
-                    _logger.LogWarning("Embedded-caption extractor for fMP4 session {SessionId} reported: {CaptionError}", sessionId, captionError.Trim());
-                }
-            }
-            captionProcess?.Dispose();
-            if (subtitlePath is not null)
-            {
-                _subtitleSidecars.Remove(sessionId);
-            }
-            if (unregisterActiveStream)
-            {
-                _activeStreamRegistry.Unregister(sessionId);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Sets an internal-server-error response status when the response headers remain mutable.
-    /// </summary>
-    /// <param name="response">The response whose status should be updated.</param>
-    internal static void SetInternalServerErrorStatus(HttpResponse response)
-    {
-        if (!response.HasStarted)
-        {
-            response.StatusCode = StatusCodes.Status500InternalServerError;
-        }
-    }
-
-    /// <summary>Returns the incrementally written WebVTT sidecar for an active Watch session.</summary>
-    /// <param name="sessionId">The allowlisted active fMP4 session identifier.</param>
-    /// <param name="offset">The byte offset returned by the preceding sidecar request.</param>
-    [HttpGet("fmp4/{sessionId}/subtitles.vtt")]
-    public IActionResult GetFmp4Subtitles(string sessionId, [FromQuery] long offset = 0)
-    {
-        if (!_fmp4Sessions.ContainsKey(sessionId))
-        {
-            return NotFound(new { error = "Subtitle session not found." });
-        }
-
-        SubtitleSidecarChunk? chunk;
-        try
-        {
-            chunk = _subtitleSidecars.ReadFrom(sessionId, offset);
-        }
-        catch (ArgumentException)
-        {
-            return BadRequest(new { error = "Invalid subtitle session identifier or offset." });
-        }
-
-        if (chunk is null)
-        {
-            return NotFound(new { error = "Subtitle data is not available yet." });
-        }
-
-        Response.Headers.CacheControl = "no-cache, no-store";
-        Response.Headers["X-Lineup-Subtitle-Offset"] = chunk.NextOffset.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        return File(chunk.Data, "text/vtt");
-    }
-
-    /// <summary>Returns WebVTT for the active fMP4 stream owned by one Watch client.</summary>
-    /// <param name="clientId">The per-component Watch client identifier.</param>
-    /// <param name="offset">The byte offset returned by the preceding sidecar request.</param>
-    [HttpGet("fmp4/client/{clientId}/subtitles.vtt")]
-    public IActionResult GetFmp4ClientSubtitles(string clientId, [FromQuery] long offset = 0)
-    {
-        if (clientId.Length is < 1 or > 64 || clientId.Any(character => !char.IsAsciiLetterOrDigit(character)))
-        {
-            return BadRequest(new { error = "Invalid Watch client identifier." });
-        }
-
-        var sessionId = _activeStreamRegistry.GetActiveStreams()
-            .Where(stream => string.Equals(stream.ClientId, clientId, StringComparison.Ordinal))
-            .OrderByDescending(stream => stream.StartedAtUtc)
-            .Select(stream => stream.SessionId)
-            .FirstOrDefault();
-        return sessionId is null ? NotFound(new { error = "Watch session not found." }) : GetFmp4Subtitles(sessionId, offset);
-    }
-
-    /// <summary>
-    /// Starts an HLS stream session and returns the playlist URL.
-    /// HLS has native browser support - no JavaScript player library needed.
-    /// Note: Uses disk for segment storage. For memory-only, use /fmp4/{channel}.
-    /// </summary>
-    /// <param name="channel">The channel number (e.g., "2.1", "5.1")</param>
-    /// <returns>HLS playlist information</returns>
-    [HttpPost("hls/start/{channel}")]
-    public async Task<IActionResult> StartHlsStream(string channel)
-    {
-        var disabled = await IsChannelDisabledAsync(channel);
-        if (disabled && _settingsService.Settings.DisabledChannelMode == DisabledChannelMode.ReturnError)
-        {
-            return StatusCode(StatusCodes.Status403Forbidden, new { error = $"Channel {channel} is disabled." });
-        }
-
-        ITunerCapacityLease? capacityLease = null;
-        string? streamUrl = null;
-        if (!disabled)
-        {
-            var device = GetWatchDevice();
-            TryBuildStreamUri(device.PhysicalBaseUri.Host, channel, "none", out var sourceUri);
-            capacityLease = await _tunerCapacityLeases.TryAcquireAsync(device.PhysicalBaseUri, sourceUri, device.TunerCount, HttpContext.RequestAborted);
-            if (capacityLease == null)
-            {
-                return HdHomeRunStreamError.CreateNoTunerAvailableResult(Response);
-            }
-
-            streamUrl = sourceUri.AbsoluteUri;
-        }
-
-        // Generate unique session ID
-        var sessionId = Guid.NewGuid().ToString("N")[..8];
-        var outputVideoBitRate = _settingsService.Settings.MaximumVideoBitRateMbps * 1_000_000L;
-        var hlsDir = _transientData.CreateHlsSessionDirectory(sessionId);
-        var stopRequested = 0;
-
-        if (disabled)
-        {
-            var activeStream = ActiveStreamPlanFactory.CreateDisabledSlate(sessionId, channel, HostedStreamFormat.Hls, DateTime.UtcNow) with
-            {
-                ClientAddress = FormatClientAddress(HttpContext.Connection.RemoteIpAddress, HttpContext.Connection.RemotePort)
-            };
-            if (!_activeStreamRegistry.TryRegister(
-                activeStream,
-                _settingsService.Settings.MaximumConcurrentStreams,
-                () =>
-                {
-                    Interlocked.Exchange(ref stopRequested, 1);
-                    StopHlsSession(sessionId);
-                }))
-            {
-                return StatusCode(StatusCodes.Status429TooManyRequests, new { error = StreamLimitError });
-            }
-        }
-
-        _logger.LogInformation("Starting HLS stream for channel {Channel}, session {SessionId}, dir {Dir}", channel, sessionId, hlsDir);
-
-        try
-        {
-            // FFmpeg HLS output command
-            var playlistPath = _transientData.GetFilePath(hlsDir, "stream.m3u8");
-
-            // FFmpeg HLS command optimized for live streaming:
-            // -fflags +genpts : Generate presentation timestamps
-            // -flags +cgop : Use closed GOP for better seeking
-            // -sc_threshold 0 : Disable scene change detection for consistent segments
-            // -force_key_frames : Force keyframes for segment alignment
-            // -hls_segment_type mpegts : Use MPEG-TS segments (better compatibility)
-            // -hls_playlist_type event : Event playlist (segments accumulate)
-            // -hls_init_time 0 : Start outputting segments immediately
-            var ffmpegArgs = "-analyzeduration 1000000 -probesize 1000000 " +
-                "-fflags +genpts " +
-                "-i pipe:0 " +
-                WebVideoTranscodePlanner.CreateArguments(
-                    new AppSettings { MaximumVideoBitRateMbps = _settingsService.Settings.MaximumVideoBitRateMbps }) + " " +
-                "-c:a aac -b:a 128k -ac 2 -ar 44100 " +
-                "-map 0:v:0? -map 0:a:0? " +
-                "-f hls " +
-                "-hls_time 4 " +
-                "-hls_list_size 10 " +
-                "-hls_segment_type mpegts " +
-                "-hls_flags delete_segments+append_list+omit_endlist " +
-                "-hls_allow_cache 0 " +
-                "-hls_start_number_source epoch " +
-                $"\"{playlistPath}\"";
-
-            _logger.LogInformation("FFmpeg command: ffmpeg {Args}", ffmpegArgs);
-            HttpContext.RequestAborted.ThrowIfCancellationRequested();
-            if (Volatile.Read(ref stopRequested) != 0)
-            {
-                _activeStreamRegistry.Unregister(sessionId);
-                _transientData.DeleteDirectory(hlsDir);
-                return new EmptyResult();
-            }
-
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = "ffmpeg",
-                Arguments = ffmpegArgs,
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-
-            var process = disabled
-                ? _protectedContentSlateService.StartHls(channel, playlistPath, ChannelSlateReason.DisabledChannel)
-                : Process.Start(startInfo);
-
-            if (process == null)
-            {
-                if (capacityLease != null)
-                {
-                    await capacityLease.DisposeAsync();
-                }
-                _transientData.DeleteDirectory(hlsDir);
-                _activeStreamRegistry.Unregister(sessionId);
-                return StatusCode(500, new { error = "Failed to start FFmpeg process" });
-            }
-
-            if (!disabled)
-            {
-                _ = TunerInputPump.PumpAsync(_tunerStreamMultiplexer, new Uri(streamUrl!), process, _logger, HttpContext.RequestAborted);
-            }
-
-            var session = new HlsSession
+            var session = new CmafSession
             {
                 SessionId = sessionId,
                 Channel = channel,
                 Process = process,
-                HlsDirectory = hlsDir,
-                PlaylistPath = playlistPath,
-                StartTime = DateTime.UtcNow,
-                CapacityLease = capacityLease
+                CmafDirectory = directory,
+                PlaylistPath = manifestPath,
+                StartTime = startedAt,
+                SourceVideoCodec = CmafStreamPlanner.CreateVideoRenditions(
+                    source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video),
+                    request,
+                    selection.SubtitlePresentation == SubtitlePresentation.BurnIn,
+                    _settingsService.Settings.WebPlayerDeinterlaceMode)
+                    .Any(plan => plan.CopySource)
+                        ? CmafStreamPlanner.CreateHevcCodecString(source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video))
+                        : null,
+                AudioRenditions = audioRenditions,
+                CapacityLease = capacityLease,
+                CaptionProcess = captionProcess,
+                CaptionErrorTask = captionErrorTask
             };
+            RegisterCmafSession(session);
+            var errors = new ConcurrentQueue<string>();
+            var errorMonitorTask = StartCmafErrorMonitor(process, session, errors, parseSourceMetadata: false, outputVideoBitRate);
+            var usingSlate = disabled;
+            var sourceAudioFallbackApplied = false;
 
-            RegisterHlsSession(session);
-            if (HttpContext.RequestAborted.IsCancellationRequested || Volatile.Read(ref stopRequested) != 0)
-            {
-                StopHlsSession(sessionId);
-                return new EmptyResult();
-            }
-
-            if (!disabled)
-            {
-                var activeStream = ActiveStreamPlanFactory.CreateHls(sessionId, channel, session.StartTime, new MediaProbeResult([], null), outputVideoBitRate) with
-                {
-                    ClientAddress = FormatClientAddress(HttpContext.Connection.RemoteIpAddress, HttpContext.Connection.RemotePort)
-                };
-                if (!_activeStreamRegistry.TryRegister(
-                    activeStream,
-                    _settingsService.Settings.MaximumConcurrentStreams,
-                    () =>
-                    {
-                        Interlocked.Exchange(ref stopRequested, 1);
-                        StopHlsSession(sessionId);
-                    }))
-                {
-                    StopHlsSession(sessionId);
-                    return StatusCode(StatusCodes.Status429TooManyRequests, new { error = StreamLimitError });
-                }
-            }
-
-            // Capture FFmpeg stderr for error reporting
-            var ffmpegErrors = new ConcurrentQueue<string>();
-
-            // Log FFmpeg output in background
-            StartHlsErrorMonitor(process, session, ffmpegErrors, parseSourceMetadata: !disabled, outputVideoBitRate);
-            var usingSyntheticSlate = disabled;
-
-            // Wait for playlist AND at least 2 segments to be created (up to 20 seconds)
-            // This ensures the browser has enough content to start playing
-            var segmentCount = 0;
-            for (int i = 0; i < 200; i++)
+            for (var attempt = 0; attempt < 200; attempt++)
             {
                 if (Volatile.Read(ref stopRequested) != 0)
                 {
-                    StopHlsSession(sessionId);
+                    StopCmafSession(sessionId);
                     return new EmptyResult();
                 }
-
-                // Check if process died
                 if (process.HasExited)
                 {
-                    var exitCode = process.ExitCode;
-                    var tunerError = usingSyntheticSlate ? null : await GetTunerErrorAsync(new Uri(streamUrl!), HttpContext.RequestAborted);
-                    if (!usingSyntheticSlate && await IsContentProtectedAsync(channel, tunerError))
+                    await errorMonitorTask;
+                    if (!usingSlate && CmafStreamPlanner.ShouldRetryWithFallback(
+                        request,
+                        source.Tracks.Where(track => track.Type == MediaTrackType.Audio),
+                        errors))
                     {
-                        if (_settingsService.Settings.ProtectedContentMode == ProtectedContentMode.StreamSlate)
+                        _logger.LogInformation(
+                            "CMAF source audio codec {Codec} is not supported by the MP4 muxer for session {SessionId}; retrying with {FallbackAudio}",
+                            selection.Audio?.Codec,
+                            sessionId,
+                            fallbackAudio);
+                        var retryRequest = request with { PreferredAudio = CmafPreferredAudio.Fallback };
+                        var retryStartInfo = new ProcessStartInfo
                         {
-                            capacityLease = null;
-                            DeleteHlsFiles(hlsDir);
-                            ffmpegErrors.Clear();
-                            var tunerSession = session;
-                            var slateProcess = _protectedContentSlateService.StartHls(channel, playlistPath);
-                            var slateSession = new HlsSession
-                            {
-                                SessionId = sessionId,
-                                Channel = channel,
-                                Process = slateProcess,
-                                HlsDirectory = hlsDir,
-                                PlaylistPath = playlistPath,
-                                StartTime = DateTime.UtcNow,
-                                CapacityLease = null
-                            };
-                            process = slateProcess;
-                            session = slateSession;
-                            DeactivateHlsSession(tunerSession);
-                            RegisterHlsSession(slateSession);
-                            tunerSession.CapacityLease?.Dispose();
-                            tunerSession.Process.Dispose();
-                            _activeStreamRegistry.Register(ActiveStreamPlanFactory.CreateProtectedSlate(sessionId, channel, HostedStreamFormat.Hls, session.StartTime));
-                            StartHlsErrorMonitor(process, session, ffmpegErrors, parseSourceMetadata: false, outputVideoBitRate);
-                            usingSyntheticSlate = true;
-                            continue;
+                            FileName = "ffmpeg",
+                            WorkingDirectory = directory,
+                            RedirectStandardInput = true,
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true,
+                            UseShellExecute = false,
+                            CreateNoWindow = true
+                        };
+                        foreach (var argument in CmafStreamPlanner.CreateArguments(_settingsService.Settings, source, selection, retryRequest, manifestPath, subtitlePaths))
+                        {
+                            retryStartInfo.ArgumentList.Add(argument);
                         }
 
-                        StopHlsSession(sessionId);
-                        return StatusCode(StatusCodes.Status403Forbidden, new { code = 811, error = tunerError });
+                        var retryProcess = Process.Start(retryStartInfo);
+                        if (retryProcess is null)
+                        {
+                            throw new InvalidOperationException("Failed to restart FFmpeg with CMAF AAC audio.");
+                        }
+
+                        var sourceSession = session;
+                        process = retryProcess;
+                        request = retryRequest;
+                        sourceAudioFallbackApplied = true;
+                        session = new CmafSession
+                        {
+                            SessionId = sessionId,
+                            Channel = channel,
+                            Process = process,
+                            CmafDirectory = directory,
+                            PlaylistPath = manifestPath,
+                            StartTime = startedAt,
+                            SourceVideoCodec = sourceSession.SourceVideoCodec,
+                            AudioRenditions = CmafStreamPlanner.CreatePresentationAudioRenditions(
+                                source,
+                                selection.Audio,
+                                retryRequest.PreferredAudio,
+                                fallbackAudio,
+                                retryRequest.CompatibilityProfile,
+                                retryRequest.Overrides.Enabled ? retryRequest.Overrides.FallbackAudio : null,
+                                retryRequest.Overrides.Enabled && retryRequest.Overrides.Audio.HasValue),
+                            CapacityLease = sourceSession.CapacityLease,
+                            CaptionProcess = sourceSession.CaptionProcess,
+                            CaptionErrorTask = sourceSession.CaptionErrorTask
+                        };
+                        sourceSession.CapacityLease = null;
+                        sourceSession.CaptionProcess = null;
+                        sourceSession.CaptionErrorTask = null;
+                        DeactivateCmafSession(sourceSession);
+                        RegisterCmafSession(session);
+                        sourceSession.Process.Dispose();
+                        _ = PumpEffectiveSourceAsync(sourceUri!, rawSource, sourceSettings, process, HttpContext.RequestAborted);
+                        _activeStreamRegistry.Register(ActiveStreamPlanFactory.CreateCmaf(
+                            sessionId,
+                            channel,
+                            startedAt,
+                            source,
+                            selection,
+                            retryRequest,
+                            _settingsService.Settings) with
+                        {
+                            ClientAddress = FormatClientAddress(HttpContext.Connection.RemoteIpAddress, HttpContext.Connection.RemotePort),
+                            ClientId = retryRequest.ClientId
+                        });
+                        errors.Clear();
+                        errorMonitorTask = StartCmafErrorMonitor(process, session, errors, parseSourceMetadata: false, outputVideoBitRate);
+                        continue;
                     }
 
-                    StopHlsSession(sessionId);
-                    _logger.LogError("FFmpeg exited with code {ExitCode}. Errors: {Errors}", exitCode, string.Join("\n", ffmpegErrors.TakeLast(10)));
-                    return StatusCode(500, new { error = $"FFmpeg exited with code {exitCode}", ffmpegOutput = ffmpegErrors.TakeLast(10).ToList() });
-                }
-
-                // Check for playlist and count segments
-                if (_transientData.FileExists(playlistPath))
-                {
-                    // Count .ts segment files
-                    var tsFiles = _transientData.EnumerateFiles(hlsDir, "*.ts");
-                    segmentCount = tsFiles.Count;
-
-
-                    // Wait for at least 2 segments before returning
-                    if (segmentCount >= 2)
+                    var tunerError = usingSlate ? null : await GetTunerErrorAsync(sourceUri!, HttpContext.RequestAborted);
+                    var protection = usingSlate
+                        ? new ProtectedContentDetection(IsProtected: false, IsInferred: false, Message: null)
+                        : await DetectContentProtectionAsync(channel, tunerError);
+                    if (protection.IsProtected && _settingsService.Settings.ProtectedContentMode == ProtectedContentMode.StreamSlate)
                     {
-                        _logger.LogInformation("HLS playlist ready with {SegmentCount} segments for session {SessionId}", segmentCount, sessionId);
-                        break;
+                        capacityLease = null;
+                        DeleteCmafFiles(directory);
+                        var tunerSession = session;
+                        StopCaptionProcess(tunerSession);
+                        var slateProcess = _protectedContentSlateService.StartCmaf(channel, manifestPath);
+                        session = new CmafSession
+                        {
+                            SessionId = sessionId,
+                            Channel = channel,
+                            Process = slateProcess,
+                            CmafDirectory = directory,
+                            PlaylistPath = manifestPath,
+                            StartTime = DateTime.UtcNow
+                        };
+                        process = slateProcess;
+                        DeactivateCmafSession(tunerSession);
+                        RegisterCmafSession(session);
+                        tunerSession.CapacityLease?.Dispose();
+                        tunerSession.Process.Dispose();
+                        _activeStreamRegistry.Register(ActiveStreamPlanFactory.CreateProtectedSlate(sessionId, channel, HostedStreamFormat.Cmaf, session.StartTime));
+                        errors.Clear();
+                        errorMonitorTask = StartCmafErrorMonitor(process, session, errors, parseSourceMetadata: false, outputVideoBitRate);
+                        usingSlate = true;
+                        continue;
                     }
+
+                    StopCmafSession(sessionId);
+                    if (protection.IsProtected)
+                    {
+                        return CreateProtectedContentResult(protection);
+                    }
+                    return StatusCode(StatusCodes.Status502BadGateway, new { error = errors.LastOrDefault() ?? "FFmpeg exited before the CMAF presentation was ready." });
                 }
-                await Task.Delay(100);
+
+                var hlsPath = _transientData.GetFilePath(directory, CmafStreamPlanner.HlsManifestName);
+                if (_transientData.FileExists(manifestPath) && _transientData.FileExists(hlsPath) && _transientData.EnumerateFiles(directory, "*.m4s").Count >= 2)
+                {
+                    Volatile.Write(ref session.IsStarting, 0);
+                    var baseUrl = $"/api/stream/cmaf/{sessionId}";
+                    var hlsUrl = $"{baseUrl}/{CmafStreamPlanner.HlsManifestName}";
+                    var packagedFallback = session.AudioRenditions.FirstOrDefault(rendition => !rendition.Plan.CopySource)?.Plan;
+                    return Ok(new CmafStreamResponse(sessionId, hlsUrl, $"{baseUrl}/{CmafStreamPlanner.DashManifestName}")
+                    {
+                        SourceAudioFallbackApplied = sourceAudioFallbackApplied,
+                        FallbackAudioTitle = packagedFallback?.Title,
+                        FallbackAudioCodec = packagedFallback?.Codec,
+                        HasSourceVideoRendition = CmafStreamPlanner.CreateVideoRenditions(
+                            source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video),
+                            request,
+                            selection.SubtitlePresentation == SubtitlePresentation.BurnIn,
+                            _settingsService.Settings.WebPlayerDeinterlaceMode).Any(plan => plan.CopySource),
+                        SourceVideoCodec = session.SourceVideoCodec,
+                        Subtitles = selectableSubtitles.Select(subtitle => new CmafSubtitleRendition(
+                            subtitle.Index,
+                            subtitle.Title ?? subtitle.Language ?? $"Subtitle {subtitle.Index}",
+                            subtitle.Language,
+                            $"{baseUrl}/captions-{subtitle.Index}.vtt",
+                            subtitle.IsEmbeddedClosedCaptions)).ToArray()
+                    });
+                }
+                await Task.Delay(100, HttpContext.RequestAborted);
             }
 
-            if (!_transientData.FileExists(playlistPath) || segmentCount < 2)
-            {
-                StopHlsSession(sessionId);
-                return StatusCode(500, new { error = $"FFmpeg failed to create enough HLS segments (got {segmentCount}, need 2)", ffmpegOutput = ffmpegErrors.TakeLast(10).ToList() });
-            }
-
-            Volatile.Write(ref session.IsStarting, 0);
-            if (process.HasExited)
-            {
-                TryCleanupCompletedHlsSession(process, session);
-                return StatusCode(500, new { error = "FFmpeg exited after creating the initial HLS segments." });
-            }
-
-            return Ok(new { sessionId, channel, playlistUrl = $"/api/stream/hls/{sessionId}/stream.m3u8", segmentCount, message = "HLS stream started" });
+            StopCmafSession(sessionId);
+            return StatusCode(StatusCodes.Status504GatewayTimeout, new { error = "FFmpeg did not create the shared CMAF manifests and fragments in time." });
         }
         catch (OperationCanceledException) when (HttpContext.RequestAborted.IsCancellationRequested)
         {
-            if (!StopHlsSession(sessionId))
+            if (!StopCmafSession(sessionId))
             {
                 _activeStreamRegistry.Unregister(sessionId);
                 capacityLease?.Dispose();
-                TryDeleteTransientDirectory(hlsDir);
+                TryDeleteTransientDirectory(directory);
             }
             return new EmptyResult();
         }
-        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 2)
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or IOException)
         {
-            if (!StopHlsSession(sessionId))
+            if (!StopCmafSession(sessionId))
             {
                 _activeStreamRegistry.Unregister(sessionId);
                 capacityLease?.Dispose();
-                TryDeleteTransientDirectory(hlsDir);
+                TryDeleteTransientDirectory(directory);
+                process?.Dispose();
+                StopCaptionProcess(captionProcess, captionErrorTask, sessionId);
             }
-            return StatusCode(500, new { error = "FFmpeg not found. Please install FFmpeg and add it to your PATH." });
-        }
-        catch (Exception ex)
-        {
-            if (!StopHlsSession(sessionId))
-            {
-                _activeStreamRegistry.Unregister(sessionId);
-                capacityLease?.Dispose();
-            }
-            _logger.LogError(ex, "Error starting HLS stream for channel {Channel}", channel);
-            try
-            {
-                TryDeleteTransientDirectory(hlsDir);
-            }
-            catch (IOException cleanupException)
-            {
-                _logger.LogWarning(cleanupException, "Failed to clean HLS directory {Directory}", hlsDir);
-            }
-            return StatusCode(500, new { error = ex.Message });
+            _logger.LogError(ex, "Error starting CMAF stream for channel {Channel}", channel);
+            return StatusCode(StatusCodes.Status500InternalServerError, new { error = ex.Message });
         }
     }
-
     /// <summary>
-    /// Serves HLS playlist (.m3u8) files
+    /// Serves contained shared CMAF manifests, fragments, and subtitle artifacts.
     /// </summary>
-    [HttpGet("hls/{sessionId}/{filename}")]
-    public IActionResult GetHlsFile(string sessionId, string filename)
+    [HttpGet("cmaf/{sessionId}/{filename}")]
+    public IActionResult GetCmafFile(string sessionId, string filename, [FromQuery] long offset = 0)
     {
-        if (!_hlsSessions.TryGetValue(sessionId, out var session))
+        if (!_cmafSessions.TryGetValue(sessionId, out var session))
         {
             return NotFound(new { error = "Session not found" });
         }
 
-        if (!TryResolveHlsFilePath(session.HlsDirectory, filename, out var filePath))
+        if (!TryResolveCmafFilePath(session.CmafDirectory, filename, out var filePath))
         {
-            return BadRequest(new { error = "Invalid HLS filename" });
+            return BadRequest(new { error = "Invalid CMAF filename" });
         }
 
-        if (!_transientData.FileExists(filePath))
+        var extension = Path.GetExtension(filename);
+        var isSubtitle = string.Equals(extension, ".vtt", StringComparison.OrdinalIgnoreCase);
+        if (isSubtitle && offset < 0)
         {
-            return NotFound(new { error = "File not found" });
+            return BadRequest(new { error = "Invalid subtitle offset." });
         }
 
         lock (session.LifecycleGate)
         {
             if (!session.IsActive ||
-                !_hlsSessions.TryGetValue(sessionId, out var current) ||
+                !_cmafSessions.TryGetValue(sessionId, out var current) ||
                 !ReferenceEquals(current, session))
             {
                 return NotFound(new { error = "Session not found" });
@@ -1225,24 +918,73 @@ public class StreamController : ControllerBase
             Interlocked.Exchange(ref session.LastAccessTimestamp, _timeProvider.GetTimestamp());
         }
 
-        // Determine content type
-        string contentType;
-        if (filename.EndsWith(".m3u8", StringComparison.Ordinal))
+        if (!_transientData.FileExists(filePath))
         {
-            contentType = "application/vnd.apple.mpegurl";
-        }
-        else if (filename.EndsWith(".ts", StringComparison.Ordinal))
-        {
-            contentType = "video/mp2t";
-        }
-        else
-        {
-            contentType = "application/octet-stream";
+            if (!isSubtitle)
+            {
+                return NotFound(new { error = "File not found" });
+            }
+
+            Response.Headers.CacheControl = "no-cache, no-store";
+            Response.Headers["X-Lineup-Subtitle-Offset"] = offset.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            return File(Array.Empty<byte>(), "text/vtt; charset=utf-8");
         }
 
-        // Add CORS and caching headers for HLS
+        if (isSubtitle)
+        {
+            using var stream = _transientData.OpenRead(filePath);
+            if (stream is null)
+            {
+                Response.Headers.CacheControl = "no-cache, no-store";
+                Response.Headers["X-Lineup-Subtitle-Offset"] = offset.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                return File(Array.Empty<byte>(), "text/vtt; charset=utf-8");
+            }
+            var effectiveOffset = Math.Min(offset, stream.Length);
+            stream.Position = effectiveOffset;
+            var data = new byte[(int)Math.Min(stream.Length - effectiveOffset, 64 * 1024)];
+            stream.ReadExactly(data);
+            Response.Headers.CacheControl = "no-cache, no-store";
+            Response.Headers["X-Lineup-Subtitle-Offset"] = (effectiveOffset + data.Length).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            return File(data, "text/vtt; charset=utf-8");
+        }
+
+        if ((session.SourceVideoCodec is not null || session.AudioRenditions.Count > 0) &&
+            (string.Equals(extension, ".mpd", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(filename, CmafStreamPlanner.HlsManifestName, StringComparison.Ordinal)))
+        {
+            using var stream = _transientData.OpenRead(filePath);
+            if (stream is null)
+            {
+                return NotFound(new { error = "File not found" });
+            }
+
+            using var reader = new StreamReader(stream);
+            var manifest = CmafStreamPlanner.RewriteManifestAudioLabels(reader.ReadToEnd(), session.AudioRenditions);
+            if (session.SourceVideoCodec is { } sourceVideoCodec)
+            {
+                manifest = CmafStreamPlanner.RewriteManifestCodecs(manifest, sourceVideoCodec);
+            }
+            Response.Headers.CacheControl = "no-cache, no-store";
+            return Content(
+                manifest,
+                string.Equals(extension, ".mpd", StringComparison.OrdinalIgnoreCase) ? "application/dash+xml" : "application/vnd.apple.mpegurl");
+        }
+
+        var contentType = extension switch
+        {
+            ".mpd" => "application/dash+xml",
+            ".m3u8" => "application/vnd.apple.mpegurl",
+            ".mp4" => "video/mp4",
+            ".m4s" => "video/iso.segment",
+            ".ts" => "video/mp2t",
+            ".vtt" => "text/vtt; charset=utf-8",
+            _ => "application/octet-stream"
+        };
+
         Response.Headers.AccessControlAllowOrigin = "*";
-        Response.Headers.CacheControl = "no-cache";
+        Response.Headers.CacheControl = extension is ".mp4" or ".m4s"
+            ? "public, max-age=31536000, immutable"
+            : "no-cache, no-store";
 
         return PhysicalFile(filePath, contentType);
     }
@@ -1260,14 +1002,14 @@ public class StreamController : ControllerBase
     }
 
     /// <summary>
-    /// Resolves a generated HLS playlist or segment basename beneath its session directory.
+    /// Resolves an approved generated CMAF or legacy HLS basename beneath its session directory.
     /// </summary>
-    /// <param name="hlsDirectory">The HLS session directory.</param>
+    /// <param name="cmafDirectory">The CMAF session directory.</param>
     /// <param name="filename">The requested generated basename.</param>
     /// <param name="filePath">The canonical contained path when validation succeeds.</param>
-    /// <returns><see langword="true"/> when the requested name is a valid generated HLS file.</returns>
+    /// <returns><see langword="true"/> when the requested name is a valid generated CMAF artifact.</returns>
     [NonAction]
-    public static bool TryResolveHlsFilePath(string hlsDirectory, string filename, out string filePath)
+    public static bool TryResolveCmafFilePath(string cmafDirectory, string filename, out string filePath)
     {
         filePath = string.Empty;
         if (string.IsNullOrWhiteSpace(filename) ||
@@ -1294,17 +1036,19 @@ public class StreamController : ControllerBase
             return false;
         }
 
-        var isPlaylist = string.Equals(filename, "stream.m3u8", StringComparison.Ordinal);
-        var isSegment = filename.StartsWith("stream", StringComparison.Ordinal) &&
-            filename.EndsWith(".ts", StringComparison.Ordinal) &&
-            filename.AsSpan(6, filename.Length - 9).Length > 0 &&
-            filename.AsSpan(6, filename.Length - 9).IndexOfAnyExceptInRange('0', '9') < 0;
-        if (!isPlaylist && !isSegment)
+        var isLegacyPlaylist = string.Equals(filename, "stream.m3u8", StringComparison.Ordinal);
+        var isLegacySegment = IsNumberedFile(filename, "stream", ".ts");
+        var isManifest = filename is CmafStreamPlanner.DashManifestName or CmafStreamPlanner.HlsManifestName;
+        var isMediaPlaylist = IsNumberedFile(filename, "media_", ".m3u8");
+        var isInitialization = IsNumberedFile(filename, "init-", ".mp4");
+        var isFragment = IsCmafFragment(filename);
+        var isSubtitle = IsNumberedFile(filename, "captions-", ".vtt");
+        if (!isLegacyPlaylist && !isLegacySegment && !isManifest && !isMediaPlaylist && !isInitialization && !isFragment && !isSubtitle)
         {
             return false;
         }
 
-        var directoryPath = Path.GetFullPath(hlsDirectory);
+        var directoryPath = Path.GetFullPath(cmafDirectory);
         var candidatePath = Path.GetFullPath(Path.Combine(directoryPath, filename));
         var directoryPrefix = Path.TrimEndingDirectorySeparator(directoryPath) + Path.DirectorySeparatorChar;
         var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
@@ -1317,13 +1061,35 @@ public class StreamController : ControllerBase
         return true;
     }
 
-    /// <summary>
-    /// Stops an HLS stream session
-    /// </summary>
-    [HttpPost("hls/stop/{sessionId}")]
-    public IActionResult StopHls(string sessionId)
+    private static bool IsNumberedFile(string fileName, string prefix, string suffix)
     {
-        if (StopHlsSession(sessionId))
+        if (!fileName.StartsWith(prefix, StringComparison.Ordinal) || !fileName.EndsWith(suffix, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var digits = fileName.AsSpan(prefix.Length, fileName.Length - prefix.Length - suffix.Length);
+        return !digits.IsEmpty && digits.IndexOfAnyExceptInRange('0', '9') < 0;
+    }
+
+    private static bool IsCmafFragment(string fileName)
+    {
+        if (!fileName.StartsWith("chunk-", StringComparison.Ordinal) || !fileName.EndsWith(".m4s", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var components = fileName.AsSpan(6, fileName.Length - 10).ToString().Split('-', StringSplitOptions.RemoveEmptyEntries);
+        return components.Length == 2 && components.All(component => component.All(char.IsAsciiDigit));
+    }
+
+    /// <summary>
+    /// Stops a shared CMAF stream session.
+    /// </summary>
+    [HttpPost("cmaf/stop/{sessionId}")]
+    public IActionResult StopCmaf(string sessionId)
+    {
+        if (StopCmafSession(sessionId))
         {
             return Ok(new { message = "Session stopped" });
         }
@@ -1331,12 +1097,12 @@ public class StreamController : ControllerBase
     }
 
     /// <summary>
-    /// Lists active HLS sessions
+    /// Lists active shared CMAF sessions.
     /// </summary>
-    [HttpGet("hls/sessions")]
-    public IActionResult GetHlsSessions()
+    [HttpGet("cmaf/sessions")]
+    public IActionResult GetCmafSessions()
     {
-        var sessions = _hlsSessions.Values.Select(s => new
+        var sessions = _cmafSessions.Values.Select(s => new
         {
             s.SessionId,
             s.Channel,
@@ -1348,32 +1114,32 @@ public class StreamController : ControllerBase
         return Ok(sessions);
     }
 
-    private bool StopHlsSession(string sessionId)
+    private bool StopCmafSession(string sessionId)
     {
-        if (!_hlsSessions.TryRemove(sessionId, out var session))
+        if (!_cmafSessions.TryRemove(sessionId, out var session))
         {
             return false;
         }
 
-        CleanupHlsSession(session, stopProcess: true);
+        CleanupCmafSession(session, stopProcess: true);
         return true;
     }
 
-    private bool StopHlsSession(HlsSession session)
+    private bool StopCmafSession(CmafSession session)
     {
-        if (!((ICollection<KeyValuePair<string, HlsSession>>)_hlsSessions).Remove(new KeyValuePair<string, HlsSession>(session.SessionId, session)))
+        if (!((ICollection<KeyValuePair<string, CmafSession>>)_cmafSessions).Remove(new KeyValuePair<string, CmafSession>(session.SessionId, session)))
         {
             return false;
         }
 
-        CleanupHlsSession(session, stopProcess: true);
+        CleanupCmafSession(session, stopProcess: true);
         return true;
     }
 
-    private void CleanupHlsSession(HlsSession session, bool stopProcess)
+    private void CleanupCmafSession(CmafSession session, bool stopProcess)
     {
-        _logger.LogInformation("Stopping HLS session {SessionId} for channel {Channel}", session.SessionId, session.Channel);
-        DeactivateHlsSession(session);
+        _logger.LogInformation("Stopping CMAF session {SessionId} for channel {Channel}", session.SessionId, session.Channel);
+        DeactivateCmafSession(session);
         try
         {
             if (stopProcess && session.Process is { HasExited: false })
@@ -1396,7 +1162,7 @@ public class StreamController : ControllerBase
                 }
                 catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException or System.ComponentModel.Win32Exception)
                 {
-                    _logger.LogDebug(ex, "Graceful FFmpeg shutdown failed for HLS session {SessionId}; forcing termination", session.SessionId);
+                    _logger.LogDebug(ex, "Graceful FFmpeg shutdown failed for CMAF session {SessionId}; forcing termination", session.SessionId);
 
                     // Force kill if graceful shutdown fails
                     try
@@ -1405,15 +1171,16 @@ public class StreamController : ControllerBase
                     }
                     catch (Exception forceKillException) when (forceKillException is InvalidOperationException or NotSupportedException or System.ComponentModel.Win32Exception)
                     {
-                        _logger.LogWarning(forceKillException, "Unable to force-stop FFmpeg process for HLS session {SessionId}", session.SessionId);
+                        _logger.LogWarning(forceKillException, "Unable to force-stop FFmpeg process for CMAF session {SessionId}", session.SessionId);
                     }
                 }
             }
             session.Process?.Dispose();
+            StopCaptionProcess(session);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
         {
-            _logger.LogDebug(ex, "Unable to dispose FFmpeg process for HLS session {SessionId}", session.SessionId);
+            _logger.LogDebug(ex, "Unable to dispose FFmpeg process for CMAF session {SessionId}", session.SessionId);
         }
         finally
         {
@@ -1423,18 +1190,18 @@ public class StreamController : ControllerBase
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Unable to release tuner capacity for HLS session {SessionId}", session.SessionId);
+                _logger.LogWarning(ex, "Unable to release tuner capacity for CMAF session {SessionId}", session.SessionId);
             }
         }
 
-        // Clean up HLS files
+        // Clean up CMAF files
         try
         {
-            _transientData.DeleteDirectory(session.HlsDirectory);
+            _transientData.DeleteDirectory(session.CmafDirectory);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            _logger.LogWarning(ex, "Unable to delete HLS directory {HlsDirectory} for session {SessionId}", session.HlsDirectory, session.SessionId);
+            _logger.LogWarning(ex, "Unable to delete CMAF directory {CmafDirectory} for session {SessionId}", session.CmafDirectory, session.SessionId);
         }
         finally
         {
@@ -1442,7 +1209,36 @@ public class StreamController : ControllerBase
         }
     }
 
-    private void TryCleanupCompletedHlsSession(Process process, HlsSession session)
+    private void StopCaptionProcess(CmafSession session) =>
+        StopCaptionProcess(session.CaptionProcess, session.CaptionErrorTask, session.SessionId);
+
+    private void StopCaptionProcess(Process? process, Task<string>? errorTask, string sessionId)
+    {
+        if (process is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+                process.WaitForExit(2000);
+            }
+            if (errorTask?.IsCompletedSuccessfully == true && !string.IsNullOrWhiteSpace(errorTask.Result))
+            {
+                _logger.LogDebug("Embedded-caption extractor for CMAF session {SessionId} reported: {CaptionError}", sessionId, errorTask.Result.Trim());
+            }
+            process.Dispose();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException or NotSupportedException or System.ComponentModel.Win32Exception)
+        {
+            _logger.LogDebug(ex, "Unable to stop embedded-caption extractor for CMAF session {SessionId}", sessionId);
+        }
+    }
+
+    private void TryCleanupCompletedCmafSession(Process process, CmafSession session)
     {
         bool hasExited;
         try
@@ -1456,30 +1252,30 @@ public class StreamController : ControllerBase
 
         if (hasExited &&
             Volatile.Read(ref session.IsStarting) == 0 &&
-            ((ICollection<KeyValuePair<string, HlsSession>>)_hlsSessions).Remove(new KeyValuePair<string, HlsSession>(session.SessionId, session)))
+            ((ICollection<KeyValuePair<string, CmafSession>>)_cmafSessions).Remove(new KeyValuePair<string, CmafSession>(session.SessionId, session)))
         {
-            CleanupHlsSession(session, stopProcess: false);
+            CleanupCmafSession(session, stopProcess: false);
         }
     }
 
-    private void InitializeHlsSessionLifetime(HlsSession session)
+    private void InitializeCmafSessionLifetime(CmafSession session)
     {
         Interlocked.Exchange(ref session.LastAccessTimestamp, _timeProvider.GetTimestamp());
         session.ExpirationCancellation = new CancellationTokenSource();
         session.ShutdownRegistration = _applicationLifetime?.ApplicationStopping.Register(
-            () => StopHlsSession(session));
-        session.ExpirationTask = ExpireInactiveHlsSessionAsync(session, session.ExpirationCancellation.Token);
+            () => StopCmafSession(session));
+        session.ExpirationTask = ExpireInactiveCmafSessionAsync(session, session.ExpirationCancellation.Token);
     }
 
-    private void RegisterHlsSession(HlsSession session)
+    private void RegisterCmafSession(CmafSession session)
     {
-        _hlsSessions[session.SessionId] = session;
-        InitializeHlsSessionLifetime(session);
+        _cmafSessions[session.SessionId] = session;
+        InitializeCmafSessionLifetime(session);
     }
 
-    private static TimeSpan NormalizeHlsInactivityTimeout(TimeSpan? timeout)
+    private static TimeSpan NormalizeCmafInactivityTimeout(TimeSpan? timeout)
     {
-        var value = timeout ?? DefaultHlsInactivityTimeout;
+        var value = timeout ?? DefaultCmafInactivityTimeout;
         return value < TimeSpan.FromMilliseconds(10)
             ? TimeSpan.FromMilliseconds(10)
             : value > TimeSpan.FromHours(1)
@@ -1487,7 +1283,7 @@ public class StreamController : ControllerBase
                 : value;
     }
 
-    private void DeactivateHlsSession(HlsSession session)
+    private void DeactivateCmafSession(CmafSession session)
     {
         lock (session.LifecycleGate)
         {
@@ -1497,14 +1293,14 @@ public class StreamController : ControllerBase
         }
     }
 
-    private async Task ExpireInactiveHlsSessionAsync(HlsSession session, CancellationToken cancellationToken)
+    private async Task ExpireInactiveCmafSessionAsync(CmafSession session, CancellationToken cancellationToken)
     {
         try
         {
             while (true)
             {
                 var lastAccess = Interlocked.Read(ref session.LastAccessTimestamp);
-                var remaining = _hlsInactivityTimeout - _timeProvider.GetElapsedTime(lastAccess);
+                var remaining = _cmafInactivityTimeout - _timeProvider.GetElapsedTime(lastAccess);
                 if (remaining > TimeSpan.Zero)
                 {
                     await Task.Delay(remaining, _timeProvider, cancellationToken);
@@ -1514,19 +1310,19 @@ public class StreamController : ControllerBase
                 lock (session.LifecycleGate)
                 {
                     lastAccess = Interlocked.Read(ref session.LastAccessTimestamp);
-                    if (!session.IsActive || _timeProvider.GetElapsedTime(lastAccess) < _hlsInactivityTimeout)
+                    if (!session.IsActive || _timeProvider.GetElapsedTime(lastAccess) < _cmafInactivityTimeout)
                     {
                         continue;
                     }
 
-                    if (!((ICollection<KeyValuePair<string, HlsSession>>)_hlsSessions).Remove(new KeyValuePair<string, HlsSession>(session.SessionId, session)))
+                    if (!((ICollection<KeyValuePair<string, CmafSession>>)_cmafSessions).Remove(new KeyValuePair<string, CmafSession>(session.SessionId, session)))
                     {
                         return;
                     }
                 }
 
-                _logger.LogInformation("Expiring inactive HLS session {SessionId}", session.SessionId);
-                CleanupHlsSession(session, stopProcess: true);
+                _logger.LogInformation("Expiring inactive CMAF session {SessionId}", session.SessionId);
+                CleanupCmafSession(session, stopProcess: true);
                 return;
             }
         }
@@ -1534,6 +1330,31 @@ public class StreamController : ControllerBase
         {
         }
     }
+
+    private MediaProbeResult GetEffectiveSource(MediaProbeResult source, AppSettings settings) =>
+        _tunerStreamMultiplexer is IEffectiveTunerStreamMultiplexer effective
+            ? effective.GetEffectiveSource(source, settings)
+            : source;
+
+    private ValueTask<Stream> SubscribeEffectiveSourceAsync(Uri sourceUri, MediaProbeResult source, AppSettings settings, CancellationToken cancellationToken) =>
+        _tunerStreamMultiplexer is IEffectiveTunerStreamMultiplexer effective
+            ? effective.SubscribeEffectiveAsync(sourceUri, source, settings, cancellationToken)
+            : _tunerStreamMultiplexer.SubscribeAsync(sourceUri, cancellationToken);
+
+    private async Task PumpEffectiveSourceAsync(Uri sourceUri, MediaProbeResult source, AppSettings settings, Process process, CancellationToken cancellationToken)
+    {
+        await using var input = await SubscribeEffectiveSourceAsync(sourceUri, source, settings, cancellationToken);
+        await TunerInputPump.PumpAsync(input, sourceUri, process, _logger, cancellationToken);
+    }
+
+    private static AppSettings CreateSourceDeinterlaceSettingsSnapshot(AppSettings settings) =>
+        new()
+        {
+            SourceDeinterlaceMode = settings.SourceDeinterlaceMode,
+            WebVideoPreset = settings.WebVideoPreset,
+            WebVideoQuality = settings.WebVideoQuality,
+            MaximumVideoBitRateMbps = settings.MaximumVideoBitRateMbps
+        };
 
     private async Task<MediaProbeResult> ProbeBestEffortAsync(Uri inputUri, CancellationToken cancellationToken)
     {
@@ -1582,54 +1403,26 @@ public class StreamController : ControllerBase
         return int.TryParse(codeText, out var code) ? code : null;
     }
 
-    private async Task WriteFmp4StartupErrorAsync(
-        string channel,
-        string streamUrl,
-        string sessionId,
-        DateTime startedAtUtc,
-        ITunerCapacityLease tunerCapacityLease,
-        CancellationToken cancellationToken,
-        IReadOnlyCollection<string>? ffmpegErrors = null,
-        Exception? tunerInputError = null)
-    {
-        var tunerError = tunerInputError?.Message ?? await GetTunerErrorAsync(new Uri(streamUrl), cancellationToken);
-        if (await IsContentProtectedAsync(channel, tunerError))
-        {
-            if (_settingsService.Settings.ProtectedContentMode == ProtectedContentMode.StreamSlate)
-            {
-                await tunerCapacityLease.DisposeAsync();
-                _activeStreamRegistry.Register(ActiveStreamPlanFactory.CreateProtectedSlate(sessionId, channel, HostedStreamFormat.FragmentedMp4, startedAtUtc));
-                await _protectedContentSlateService.StreamAsync(HostedStreamFormat.FragmentedMp4, channel, Response.Body, cancellationToken);
-                return;
-            }
-
-            Response.StatusCode = StatusCodes.Status403Forbidden;
-            await Response.WriteAsJsonAsync(new { code = 811, error = tunerError }, HttpContext.RequestAborted);
-            return;
-        }
-
-        var recentFfmpegErrors = ffmpegErrors?.TakeLast(10).ToArray() ?? [];
-        _logger.LogWarning(
-            "FFmpeg could not start fMP4 channel {Channel}; tuner reported {TunerError}. Recent FFmpeg output: {FfmpegErrors}",
-            channel,
-            tunerError ?? "no diagnostic error",
-            recentFfmpegErrors.Length == 0 ? "none" : string.Join(Environment.NewLine, recentFfmpegErrors));
-        var error = tunerError ?? recentFfmpegErrors.LastOrDefault() ?? "The tuner did not provide video data.";
-        Response.StatusCode = StatusCodes.Status502BadGateway;
-        await Response.WriteAsJsonAsync(new { code = TryGetTunerErrorCode(tunerError), error }, HttpContext.RequestAborted);
-    }
-
-    private async Task<bool> IsContentProtectedAsync(string channel, string? tunerError)
+    private async Task<ProtectedContentDetection> DetectContentProtectionAsync(string channel, string? tunerError)
     {
         if (!string.IsNullOrWhiteSpace(tunerError))
         {
-            return ProtectedContentDetector.IsProtected(tunerError, cachedDrm: false);
+            return ProtectedContentDetector.Detect(tunerError, cachedDrm: false);
         }
 
         var cachedChannel = (await _epgRepository.GetChannelsAsync())
             .FirstOrDefault(candidate => string.Equals(candidate.GuideNumber, channel, StringComparison.Ordinal));
-        return ProtectedContentDetector.IsProtected(tunerError, cachedChannel?.DRM == true);
+        return ProtectedContentDetector.Detect(tunerError, cachedChannel?.DRM == true);
     }
+
+    private ObjectResult CreateProtectedContentResult(ProtectedContentDetection protection) =>
+        StatusCode(StatusCodes.Status403Forbidden, new
+        {
+            code = 811,
+            error = protection.Message,
+            inferred = protection.IsInferred,
+            source = protection.IsInferred ? "channel-lineup" : "tuner"
+        });
 
     private static async Task StopProcessAsync(Process process)
     {
@@ -1655,9 +1448,9 @@ public class StreamController : ControllerBase
         }
     }
 
-    private void StartHlsErrorMonitor(Process process, HlsSession session, ConcurrentQueue<string> errors, bool parseSourceMetadata, long outputVideoBitRate)
+    private Task StartCmafErrorMonitor(Process process, CmafSession session, ConcurrentQueue<string> errors, bool parseSourceMetadata, long outputVideoBitRate)
     {
-        _ = Task.Run(async () =>
+        return Task.Run(async () =>
         {
             var sourceTracks = new Dictionary<int, MediaTrackMetadata>();
             var readingInputMetadata = parseSourceMetadata;
@@ -1681,10 +1474,10 @@ public class StreamController : ControllerBase
                         lock (session.LifecycleGate)
                         {
                             if (session.IsActive &&
-                                _hlsSessions.TryGetValue(session.SessionId, out var current) &&
+                                _cmafSessions.TryGetValue(session.SessionId, out var current) &&
                                 ReferenceEquals(current, session))
                             {
-                                _activeStreamRegistry.Register(ActiveStreamPlanFactory.CreateHls(session.SessionId, session.Channel, session.StartTime, source, outputVideoBitRate));
+                                _activeStreamRegistry.Register(ActiveStreamPlanFactory.CreateCmaf(session.SessionId, session.Channel, session.StartTime, source, outputVideoBitRate));
                             }
                         }
                     }
@@ -1694,7 +1487,7 @@ public class StreamController : ControllerBase
                     {
                         errors.TryDequeue(out _);
                     }
-                    _logger.LogDebug("FFmpeg HLS [{SessionId}]: {Line}", session.SessionId, line);
+                    _logger.LogDebug("FFmpeg CMAF [{SessionId}]: {Line}", session.SessionId, line);
                 }
             }
             catch (InvalidOperationException)
@@ -1703,12 +1496,12 @@ public class StreamController : ControllerBase
             }
             finally
             {
-                TryCleanupCompletedHlsSession(process, session);
+                TryCleanupCompletedCmafSession(process, session);
             }
         });
     }
 
-    private void DeleteHlsFiles(string directory)
+    private void DeleteCmafFiles(string directory)
     {
         _transientData.DeleteFiles(directory);
     }
@@ -1724,7 +1517,7 @@ public class StreamController : ControllerBase
         }
     }
 
-    private class HlsSession
+    private class CmafSession
     {
         /// <summary>
         /// Gets or sets session id.
@@ -1739,9 +1532,9 @@ public class StreamController : ControllerBase
         /// </summary>
         public required Process Process { get; init; }
         /// <summary>
-        /// Gets or sets hls directory.
+        /// Gets or sets the CMAF artifact directory.
         /// </summary>
-        public required string HlsDirectory { get; init; }
+        public required string CmafDirectory { get; init; }
         /// <summary>
         /// Gets or sets playlist path.
         /// </summary>
@@ -1750,10 +1543,18 @@ public class StreamController : ControllerBase
         /// Gets or sets start time.
         /// </summary>
         public DateTime StartTime { get; init; }
+        /// <summary>Gets the browser codec string inserted into manifests for copied HEVC video.</summary>
+        public string? SourceVideoCodec { get; init; }
+        /// <summary>Gets the audio renditions whose labels are inserted into CMAF manifests.</summary>
+        public IReadOnlyList<CmafAudioRendition> AudioRenditions { get; init; } = [];
         /// <summary>
         /// Gets or sets the physical tuner capacity lease owned by this session.
         /// </summary>
-        public ITunerCapacityLease? CapacityLease { get; init; }
+        public ITunerCapacityLease? CapacityLease { get; set; }
+        /// <summary>Gets the optional embedded-caption extractor process.</summary>
+        public Process? CaptionProcess { get; set; }
+        /// <summary>Gets the task draining embedded-caption extractor diagnostics.</summary>
+        public Task<string>? CaptionErrorTask { get; set; }
         /// <summary>
         /// Tracks whether the starting request still owns process-exit cleanup.
         /// </summary>
@@ -1778,29 +1579,4 @@ public class StreamController : ControllerBase
         public IDisposable? ShutdownRegistration;
     }
 
-    private class FMp4Session
-    {
-        /// <summary>
-        /// Gets or sets session id.
-        /// </summary>
-        public required string SessionId { get; init; }
-        /// <summary>
-        /// Gets or sets channel.
-        /// </summary>
-        public required string Channel { get; init; }
-        /// <summary>
-        /// Gets or sets process.
-        /// </summary>
-        public required Process Process { get; init; }
-        /// <summary>
-        /// Gets or sets start time.
-        /// </summary>
-        public DateTime StartTime { get; init; }
-
-        /// <summary>Synchronizes session lifecycle changes.</summary>
-        public readonly object LifecycleGate = new();
-
-        /// <summary>Tracks whether the session remains active.</summary>
-        public bool IsActive = true;
-    }
 }

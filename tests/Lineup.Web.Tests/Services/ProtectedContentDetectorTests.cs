@@ -18,10 +18,12 @@ public class ProtectedContentDetectorTests
         string? tunerError = null;
 
         // Act
-        var result = ProtectedContentDetector.IsProtected(tunerError, cachedDrm: true);
+        var result = ProtectedContentDetector.Detect(tunerError, cachedDrm: true);
 
         // Assert
-        Assert.True(result);
+        Assert.True(result.IsProtected);
+        Assert.True(result.IsInferred);
+        Assert.Equal("811 DRM content inferred from channel lineup metadata after playback startup failed.", result.Message);
     }
 
     /// <summary>
@@ -34,10 +36,12 @@ public class ProtectedContentDetectorTests
         const string tunerError = "807 No Video Data";
 
         // Act
-        var result = ProtectedContentDetector.IsProtected(tunerError, cachedDrm: true);
+        var result = ProtectedContentDetector.Detect(tunerError, cachedDrm: true);
 
         // Assert
-        Assert.False(result);
+        Assert.False(result.IsProtected);
+        Assert.False(result.IsInferred);
+        Assert.Null(result.Message);
     }
 
     /// <summary>
@@ -50,9 +54,11 @@ public class ProtectedContentDetectorTests
         const string tunerError = "811 Content Protection Required";
 
         // Act
-        var result = ProtectedContentDetector.IsProtected(tunerError, cachedDrm: false);
+        var result = ProtectedContentDetector.Detect(tunerError, cachedDrm: false);
 
         // Assert
-        Assert.True(result);
+        Assert.True(result.IsProtected);
+        Assert.False(result.IsInferred);
+        Assert.Equal(tunerError, result.Message);
     }
 }

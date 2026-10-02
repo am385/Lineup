@@ -14,17 +14,12 @@ public enum HostedStreamFormat
     /// <summary>
     /// MPEG transport stream output.
     /// </summary>
-    MpegTs,
+    MpegTs = 0,
 
     /// <summary>
-    /// Fragmented MP4 output.
+    /// Shared Common Media Application Format output.
     /// </summary>
-    FragmentedMp4,
-
-    /// <summary>
-    /// HTTP Live Streaming output.
-    /// </summary>
-    Hls
+    Cmaf = 2
 }
 
 /// <summary>
@@ -46,6 +41,21 @@ public enum MediaTrackType
     /// Subtitle or caption track.
     /// </summary>
     Subtitle
+}
+
+/// <summary>
+/// Identifies the scan type reported for a video track.
+/// </summary>
+public enum VideoScanType
+{
+    /// <summary>The source did not report a usable scan type.</summary>
+    Unknown,
+
+    /// <summary>The source contains complete progressive frames.</summary>
+    Progressive,
+
+    /// <summary>The source contains temporally distinct interlaced fields.</summary>
+    Interlaced
 }
 
 /// <summary>
@@ -75,6 +85,10 @@ public enum SubtitlePresentation
 public sealed partial record MediaTrackMetadata(int Index, MediaTrackType Type, string Codec, long? BitRate, int? Width, int? Height, int? Channels, int? SampleRate);
 public sealed partial record MediaTrackMetadata
 {
+    /// <summary>Gets the codec profile reported by FFprobe.</summary>
+    public string? Profile { get; init; }
+    /// <summary>Gets the codec level reported by FFprobe.</summary>
+    public int? Level { get; init; }
     /// <summary>Gets the ISO language tag reported by the source.</summary>
     public string? Language { get; init; }
     /// <summary>Gets the source track title.</summary>
@@ -87,6 +101,8 @@ public sealed partial record MediaTrackMetadata
     public bool IsHearingImpaired { get; init; }
     /// <summary>Gets whether a video track reports embedded closed captions.</summary>
     public bool HasClosedCaptions { get; init; }
+    /// <summary>Gets the scan type reported for a video track.</summary>
+    public VideoScanType ScanType { get; init; }
     /// <summary>Gets whether this synthetic subtitle track represents captions embedded in a video stream.</summary>
     public bool IsEmbeddedClosedCaptions { get; init; }
     /// <summary>Gets the supported Watch subtitle presentation.</summary>
@@ -162,6 +178,8 @@ public sealed partial record ActiveStreamTrack
     public string? Language { get; init; }
     /// <summary>Gets the source title.</summary>
     public string? Title { get; init; }
+    /// <summary>Gets the output rendition title when one source track produces multiple outputs.</summary>
+    public string? OutputTitle { get; init; }
     /// <summary>Gets whether the source marks this track as default.</summary>
     public bool IsDefault { get; init; }
     /// <summary>Gets whether the source marks this track as forced.</summary>
@@ -605,8 +623,8 @@ public sealed class MediaProbeService : IMediaProbeService
 /// </summary>
 public static class MediaProbeParser
 {
-    private const string ShowEntries = "stream=index,codec_type,codec_name,bit_rate,width,height,channels,sample_rate,closed_captions:stream_tags=language,title:" +
-        "stream_disposition=default,forced,hearing_impaired:frame=media_type:frame_side_data=side_data_type:format=bit_rate";
+    private const string ShowEntries = "stream=index,codec_type,codec_name,profile,level,bit_rate,width,height,field_order,channels,sample_rate,closed_captions:stream_tags=language,title:" +
+        "stream_disposition=default,forced,hearing_impaired:frame=media_type,stream_index,interlaced_frame:frame_side_data=side_data_type:format=bit_rate";
     private static readonly string[] CommonArguments =
     [
         "-v", "error",
@@ -662,8 +680,15 @@ public static class MediaProbeParser
             var hasEmbeddedClosedCaptions = result.Frames.Any(frame =>
                 string.Equals(frame.MediaType, "video", StringComparison.OrdinalIgnoreCase) &&
                 frame.SideDataList.Any(sideData => string.Equals(sideData.SideDataType, "ATSC A53 Part 4 Closed Captions", StringComparison.OrdinalIgnoreCase)));
+            var interlacedVideoStreams = result.Frames
+                .Where(frame =>
+                    string.Equals(frame.MediaType, "video", StringComparison.OrdinalIgnoreCase) &&
+                    frame.StreamIndex.HasValue &&
+                    frame.InterlacedFrame == 1)
+                .Select(frame => frame.StreamIndex!.Value)
+                .ToHashSet();
             var tracks = result.Streams
-                .Select(stream => ParseTrack(stream, hasEmbeddedClosedCaptions))
+                .Select(stream => ParseTrack(stream, hasEmbeddedClosedCaptions, interlacedVideoStreams.Contains(stream.Index)))
                 .Where(track => track is not null)
                 .Cast<MediaTrackMetadata>()
                 .ToList();
@@ -686,7 +711,7 @@ public static class MediaProbeParser
         }
     }
 
-    private static MediaTrackMetadata? ParseTrack(FfprobeStream stream, bool hasEmbeddedClosedCaptions)
+    private static MediaTrackMetadata? ParseTrack(FfprobeStream stream, bool hasEmbeddedClosedCaptions, bool hasInterlacedVideoFrames)
     {
         var type = stream.CodecType switch
         {
@@ -700,12 +725,17 @@ public static class MediaProbeParser
             ? null
             : new MediaTrackMetadata(stream.Index, type.Value, stream.CodecName ?? "unknown", ParseLong(stream.BitRate), stream.Width, stream.Height, NormalizeChannelCount(stream.Channels), ParseInt(stream.SampleRate))
             {
+                Profile = NormalizeMetadata(stream.Profile),
+                Level = stream.Level,
                 Language = NormalizeMetadata(stream.Tags?.Language),
                 Title = NormalizeMetadata(stream.Tags?.Title),
                 IsDefault = stream.Disposition?.Default == 1,
                 IsForced = stream.Disposition?.Forced == 1,
                 IsHearingImpaired = stream.Disposition?.HearingImpaired == 1,
                 HasClosedCaptions = type == MediaTrackType.Video && (stream.ClosedCaptions > 0 || hasEmbeddedClosedCaptions),
+                ScanType = type == MediaTrackType.Video
+                    ? hasInterlacedVideoFrames ? VideoScanType.Interlaced : ParseVideoScanType(stream.FieldOrder)
+                    : VideoScanType.Unknown,
                 SubtitlePresentation = type == MediaTrackType.Subtitle
                     ? SubtitleCapabilityPolicy.Classify(stream.CodecName)
                     : SubtitlePresentation.Unsupported
@@ -723,6 +753,14 @@ public static class MediaProbeParser
     }
 
     private static int? NormalizeChannelCount(int? value) => value is >= 1 and <= 64 ? value : null;
+
+    private static VideoScanType ParseVideoScanType(string? fieldOrder) =>
+        fieldOrder?.Trim().ToLowerInvariant() switch
+        {
+            "progressive" => VideoScanType.Progressive,
+            "tt" or "bb" or "tb" or "bt" => VideoScanType.Interlaced,
+            _ => VideoScanType.Unknown
+        };
 
     private static string? NormalizeMetadata(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
@@ -751,6 +789,14 @@ public static class MediaProbeParser
         /// <summary>Gets the frame media type.</summary>
         [JsonPropertyName("media_type")]
         public string? MediaType { get; init; }
+
+        /// <summary>Gets the source stream index that emitted this frame.</summary>
+        [JsonPropertyName("stream_index")]
+        public int? StreamIndex { get; init; }
+
+        /// <summary>Gets whether FFprobe marked this frame as interlaced.</summary>
+        [JsonPropertyName("interlaced_frame")]
+        public int? InterlacedFrame { get; init; }
 
         /// <summary>Gets the frame side-data entries.</summary>
         [JsonPropertyName("side_data_list")]
@@ -784,6 +830,14 @@ public static class MediaProbeParser
         [JsonPropertyName("codec_name")]
         public string? CodecName { get; init; }
 
+        /// <summary>Gets the codec profile.</summary>
+        [JsonPropertyName("profile")]
+        public string? Profile { get; init; }
+
+        /// <summary>Gets the codec level.</summary>
+        [JsonPropertyName("level")]
+        public int? Level { get; init; }
+
         /// <summary>
         /// Gets or sets bit rate.
         /// </summary>
@@ -801,6 +855,10 @@ public static class MediaProbeParser
         /// </summary>
         [JsonPropertyName("height")]
         public int? Height { get; init; }
+
+        /// <summary>Gets the video field order.</summary>
+        [JsonPropertyName("field_order")]
+        public string? FieldOrder { get; init; }
 
         /// <summary>
         /// Gets or sets channels.
@@ -1002,79 +1060,110 @@ public static class ActiveStreamPlanFactory
     }
 
     /// <summary>
-    /// Creates a fragmented MP4 active stream snapshot.
+    /// Creates a CMAF active stream snapshot.
     /// </summary>
-    public static ActiveStreamSnapshot CreateFragmentedMp4(
+    public static ActiveStreamSnapshot CreateCmaf(string sessionId, string channel, DateTime startedAtUtc, MediaProbeResult source, long outputVideoBitRate = 10_000_000)
+    {
+        return CreateFixedTranscode(sessionId, channel, HostedStreamFormat.Cmaf, startedAtUtc, source, outputVideoBitRate, copyVideo: false);
+    }
+
+    /// <summary>
+    /// Creates metadata for the selected video, audio, and subtitle renditions in a shared CMAF presentation.
+    /// </summary>
+    public static ActiveStreamSnapshot CreateCmaf(
         string sessionId,
         string channel,
         DateTime startedAtUtc,
         MediaProbeResult source,
-        long outputVideoBitRate = 10_000_000,
-        bool copyVideo = false,
-        WatchTrackSelection? selection = null,
-        WatchAudioOutput audioOutput = WatchAudioOutput.Stereo)
+        WebPlayerTrackSelection selection,
+        CmafStreamRequest request,
+        AppSettings settings)
     {
-        selection ??= WatchStreamPlanner.SelectTracks(source, null, null);
-
-        var tracks = source.Tracks.Select(track =>
+        var audioRenditions = CmafStreamPlanner.CreatePresentationAudioRenditions(
+            source,
+            selection.Audio,
+            request.PreferredAudio,
+            CmafStreamPlanner.ResolveFallbackAudio(request),
+            request.CompatibilityProfile,
+            request.Overrides.Enabled ? request.Overrides.FallbackAudio : null,
+            request.Overrides.Enabled && request.Overrides.Audio.HasValue);
+        var sourceVideo = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video);
+        var videoPlans = CmafStreamPlanner.CreateVideoRenditions(sourceVideo, request, selection.SubtitlePresentation == SubtitlePresentation.BurnIn, settings.WebPlayerDeinterlaceMode);
+        var primaryVideoPlan = videoPlans[0];
+        var outputVideoBitRate = WebVideoTranscodePlanner.GetMaximumBitRate(settings, request.Quality);
+        var tracks = source.Tracks
+            .Where(track => track.Type != MediaTrackType.Audio)
+            .Select(track =>
         {
             var selected = track.Type switch
             {
-                MediaTrackType.Video => true,
-                MediaTrackType.Audio when track.Index == selection.Audio?.Index => true,
-                MediaTrackType.Subtitle when track.Index == selection.Subtitle?.Index => true,
+                MediaTrackType.Video => track == sourceVideo,
+                MediaTrackType.Subtitle => track.Index == selection.Subtitle?.Index,
                 _ => false
             };
-
-            var copyAudio = track.Type == MediaTrackType.Audio && selected && audioOutput == WatchAudioOutput.Source;
             var outputCodec = track.Type switch
             {
-                MediaTrackType.Video => copyVideo ? "copy" : "h264",
-                MediaTrackType.Audio when copyAudio => "copy",
-                MediaTrackType.Audio when selected => "aac",
-                MediaTrackType.Subtitle when selected && selection.SubtitlePresentation == SubtitlePresentation.WebVtt => "webvtt",
+                MediaTrackType.Video when selected => primaryVideoPlan.CopySource ? "copy" : primaryVideoPlan.Codec,
+                MediaTrackType.Subtitle when track.SubtitlePresentation == SubtitlePresentation.WebVtt => "webvtt",
                 MediaTrackType.Subtitle when selected => "burn-in",
                 _ => "not-mapped"
             };
-
-            WatchAudioOutputProfile? audioProfile = track.Type switch
+            var outputBitRate = track.Type switch
             {
-                MediaTrackType.Audio when selected && !copyAudio => (WatchAudioOutputProfile?)WatchStreamPlanner.GetAudioOutputProfile(audioOutput, track.Channels),
-                _ => null,
+                MediaTrackType.Video when selected => primaryVideoPlan.CopySource ? track.BitRate : outputVideoBitRate,
+                _ => null
             };
-
-            long? outputBitRate = track.Type switch
-            {
-                MediaTrackType.Video => (copyVideo ? track.BitRate : outputVideoBitRate),
-                MediaTrackType.Audio when copyAudio => track.BitRate,
-                _ => (audioProfile?.BitRate),
-            };
-
             return CreateTrack(
                 track,
                 outputCodec,
                 outputBitRate,
-                copyAudio ? track.Channels : audioProfile?.Channels,
-                copyAudio ? track.SampleRate : audioProfile?.SampleRate) with
+                null,
+                null) with
             {
                 IsSelected = selected,
+                OutputTitle = track.Type switch
+                {
+                    MediaTrackType.Video when selected => primaryVideoPlan.Title,
+                    _ => null
+                },
                 SubtitlePresentation = track.Type == MediaTrackType.Subtitle ? track.SubtitlePresentation : null
             };
-        }).ToArray();
-        if (tracks.Length == 0)
+        }).ToList();
+
+        tracks.AddRange(audioRenditions.Select(rendition =>
+            CreateTrack(
+                rendition.Source,
+                rendition.Plan.CopySource ? "copy" : rendition.Plan.Codec,
+                rendition.Plan.BitRate,
+                rendition.Plan.Channels,
+                rendition.Plan.SampleRate) with
+            {
+                IsSelected = true,
+                OutputTitle = rendition.Plan.Title
+            }));
+
+        if (videoPlans.Count > 1 && sourceVideo is not null)
         {
-            return CreateFixedTranscode(sessionId, channel, HostedStreamFormat.FragmentedMp4, startedAtUtc, source, outputVideoBitRate, copyVideo, audioOutput);
+            var secondaryVideoPlan = videoPlans[1];
+            tracks.Add(CreateTrack(
+                sourceVideo,
+                secondaryVideoPlan.CopySource ? "copy" : secondaryVideoPlan.Codec,
+                secondaryVideoPlan.CopySource ? sourceVideo.BitRate : outputVideoBitRate,
+                null,
+                null) with
+            {
+                IsSelected = true,
+                OutputTitle = secondaryVideoPlan.Title
+            });
         }
 
-        return new ActiveStreamSnapshot(sessionId, channel, HostedStreamFormat.FragmentedMp4, startedAtUtc, source.BitRate, tracks);
-    }
-
-    /// <summary>
-    /// Creates an HLS active stream snapshot.
-    /// </summary>
-    public static ActiveStreamSnapshot CreateHls(string sessionId, string channel, DateTime startedAtUtc, MediaProbeResult source, long outputVideoBitRate = 10_000_000)
-    {
-        return CreateFixedTranscode(sessionId, channel, HostedStreamFormat.Hls, startedAtUtc, source, outputVideoBitRate, copyVideo: false);
+        return new ActiveStreamSnapshot(
+            sessionId,
+            channel,
+            HostedStreamFormat.Cmaf,
+            startedAtUtc,
+            source.BitRate,
+            tracks.OrderBy(track => track.SourceIndex).ToArray());
     }
 
     /// <summary>
@@ -1110,18 +1199,16 @@ public static class ActiveStreamPlanFactory
         DateTime startedAtUtc,
         MediaProbeResult source,
         long outputVideoBitRate,
-        bool copyVideo,
-        WatchAudioOutput audioOutput = WatchAudioOutput.Stereo)
+        bool copyVideo)
     {
         var video = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video)
             ?? new MediaTrackMetadata(0, MediaTrackType.Video, "unknown", null, null, null, null, null);
         var audio = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Audio)
             ?? new MediaTrackMetadata(1, MediaTrackType.Audio, "unknown", null, null, null, null, null);
-        var copyAudio = audioOutput == WatchAudioOutput.Source;
         ActiveStreamTrack[] tracks =
         [
             CreateTrack(video, copyVideo ? "copy" : "h264", copyVideo ? video.BitRate : outputVideoBitRate, null, null),
-            CreateTrack(audio, copyAudio ? "copy" : "aac", copyAudio ? audio.BitRate : 128_000, copyAudio ? audio.Channels : 2, copyAudio ? audio.SampleRate : 44_100)
+            CreateTrack(audio, "aac", 128_000, 2, 44_100)
         ];
         return new ActiveStreamSnapshot(sessionId, channel, format, startedAtUtc, source.BitRate, tracks);
     }

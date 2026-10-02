@@ -73,16 +73,16 @@ public class ApiRequestLoggingMiddlewareTests
     }
 
     /// <summary>
-    /// Verifies high-frequency HLS file requests and expected missing segments use trace logging.
+    /// Verifies high-frequency CMAF file requests and expected missing segments use trace logging.
     /// </summary>
     [Fact]
-    public async Task InvokeAsync_HlsFileNotFound_LogsAtTrace()
+    public async Task InvokeAsync_CmafFileNotFound_LogsAtTrace()
     {
         // Arrange
         var logger = new RecordingLogger<ApiRequestLoggingMiddleware>();
         var context = new DefaultHttpContext();
         context.Request.Method = HttpMethods.Get;
-        context.Request.Path = "/api/stream/hls/session/segment001.ts";
+        context.Request.Path = "/api/stream/cmaf/session/chunk-0-00001.m4s";
         var middleware = new ApiRequestLoggingMiddleware(
             nextContext =>
             {
@@ -134,7 +134,7 @@ public class ApiRequestLoggingMiddlewareTests
         var logger = new RecordingLogger<ApiRequestLoggingMiddleware>();
         var context = new DefaultHttpContext();
         context.Request.Method = HttpMethods.Post;
-        context.Request.Path = "/api/stream/hls/start/7.1";
+        context.Request.Path = "/api/stream/cmaf/start/7.1";
         var middleware = new ApiRequestLoggingMiddleware(_ => throw new InvalidOperationException("Failure"), logger);
 
         // Act

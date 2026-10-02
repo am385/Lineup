@@ -8,13 +8,19 @@
     <ResourcePreloader />
     <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+    <link rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/shaka-player@5.2.11/dist/controls.css"
+          integrity="sha384-U/1YJ0qAHHgnh2/Kn+KM9OTVDkUMy0VkOO1YWROI4ZsLuhhP7WZ48YYAYGeBVo+J"
+          crossorigin="anonymous" />
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["Lineup.Web.styles.css"]" />
     <ImportMap />
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <HeadOutlet @rendermode="InteractiveServer" />
-    <!-- hls.js for HLS playback in non-Safari browsers -->
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js"></script>
+    <!-- Shaka provides shared CMAF HLS/DASH playback. -->
+    <script src="https://cdn.jsdelivr.net/npm/shaka-player@5.2.11/dist/shaka-player.ui.js"
+            integrity="sha384-ghyp/QciHlmviIclg7x6TA6ickR8CIKZTrHD0TLFcsm+CNLHnmUOCCmvguhuQydN"
+            crossorigin="anonymous"></script>
     <script>
         // This must read localStorage before Blazor and BrowserDataStore are available to prevent a flash of the wrong theme.
         (function() {
@@ -53,14 +59,9 @@
     });
 </script>
 <script>
-    // HLS Player functions
-    window.hlsPlayer = null;
-        
-    function isSafari() {
-        // Detect Safari browser (the only browser with native HLS support)
-        var ua = navigator.userAgent.toLowerCase();
-        return ua.indexOf('safari') !== -1 && ua.indexOf('chrome') === -1 && ua.indexOf('android') === -1;
-    }
+    window.lineupCmafPlayers = new Map();
+    window.lineupCmafUis = new Map();
+    window.lineupCmafStarts = new Map();
 
     window.lineupFactoryResetWatchGeneration = 0;
     window.lineupFactoryResetInitialInstanceId = null;
@@ -120,94 +121,686 @@
 
         runLineupFactoryResetWatch();
     }
-        
-    function initHlsPlayer(videoElementId, playlistUrl) {
-        stopMediaPlayer(videoElementId);
-            
-        const video = document.getElementById(videoElementId);
-        if (!video) {
-            console.error('Video element not found:', videoElementId);
-            return false;
+
+    function dismissLineupShakaMenus(controls) {
+        controls.dispatchEvent(new Event('submenuclose'));
+        controls.hideSettingsMenus();
+        const controlsContainer = controls.getControlsContainer();
+        for (const menu of controlsContainer.querySelectorAll('.shaka-settings-menu, .shaka-overflow-menu, .shaka-sub-menu')) {
+            menu.classList.add('shaka-hidden');
         }
-        window.lineupMediaPlayers ??= new Map();
-        window.lineupMediaPlayers.set(videoElementId, video);
-            
-        console.log('Initializing HLS player with URL:', playlistUrl);
-            
-        // Only Safari has true native HLS support
-        // Chrome's canPlayType returns 'maybe' but doesn't actually work
-        if (isSafari() && video.canPlayType('application/vnd.apple.mpegurl')) {
-            console.log('Using native HLS support (Safari)');
-            video.src = playlistUrl;
-            video.play().catch(e => console.log('Autoplay prevented:', e));
-            return true;
+        const overflowButton = controlsContainer.querySelector('.shaka-overflow-menu-button');
+        overflowButton?.setAttribute('aria-expanded', 'false');
+    }
+
+    function registerLineupShakaUiElements() {
+        if (window.lineupShakaUiElementsRegistered) {
+            return;
         }
-            
-        // Use hls.js for Chrome, Firefox, Edge, etc.
-        if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-            console.log('Using hls.js library');
-            window.hlsPlayer = new Hls({
-                enableWorker: true,
-                lowLatencyMode: true,
-                backBufferLength: 30,
-                debug: true // Enable debug logging
-            });
-                
-            window.hlsPlayer.loadSource(playlistUrl);
-            window.hlsPlayer.attachMedia(video);
-                
-            window.hlsPlayer.on(Hls.Events.MANIFEST_PARSED, function() {
-                console.log('HLS manifest parsed, starting playback');
-                video.play().catch(e => console.log('Autoplay prevented:', e));
-            });
-                
-            window.hlsPlayer.on(Hls.Events.ERROR, function(event, data) {
-                console.error('HLS error:', data.type, data.details, data);
-                if (data.fatal) {
-                    switch (data.type) {
-                        case Hls.ErrorTypes.NETWORK_ERROR:
-                            console.log('Fatal network error, trying to recover...');
-                            window.hlsPlayer.startLoad();
-                            break;
-                        case Hls.ErrorTypes.MEDIA_ERROR:
-                                console.log('Fatal media error, trying to recover...');
-                                window.hlsPlayer.recoverMediaError();
-                                break;
-                            default:
-                                console.log('Fatal error, destroying player');
-                                destroyHlsPlayer();
-                                break;
-                        }
+
+        class LineupSubtitleSelection {
+            constructor(parent, controls) {
+                this.parent = parent;
+                this.controls = controls;
+                this.video = controls.getLocalVideo();
+                this.onTracksChanged = () => this.updateTracks();
+                this.onSubmenuClose = () => this.closeSubmenu();
+                this.siblingVisibility = null;
+
+                this.button = document.createElement('button');
+                this.button.classList.add('shaka-overflow-button', 'shaka-lineup-subtitles-button');
+                this.button.ariaLabel = 'Subtitles';
+                this.button.innerHTML =
+                    '<label class="shaka-overflow-button-label shaka-overflow-menu-only shaka-overflow-button-label-inline">' +
+                    '<span>Subtitles</span><span class="shaka-current-selection-span"></span></label>';
+                this.currentSelection = this.button.querySelector('.shaka-current-selection-span');
+                this.button.addEventListener('click', () => {
+                    this.openSubmenu();
+                });
+                this.parent.appendChild(this.button);
+
+                this.menu = document.createElement('div');
+                this.menu.classList.add('shaka-sub-menu', 'shaka-lineup-subtitles-menu', 'shaka-no-propagation', 'shaka-show-controls-on-mouse-over', 'shaka-hidden');
+                this.menu.setAttribute('role', 'menu');
+                this.parent.appendChild(this.menu);
+                this.menuObserver = new MutationObserver(() => {
+                    if (this.menu.classList.contains('shaka-hidden')) {
+                        this.restoreSiblings();
                     }
                 });
-                
-                return true;
+                this.menuObserver.observe(this.menu, { attributes: true, attributeFilter: ['class'] });
+                this.video.addEventListener('lineuptexttrackschanged', this.onTracksChanged);
+                this.controls.addEventListener('submenuclose', this.onSubmenuClose);
+                this.updateTracks();
             }
-            
-            console.error('HLS not supported in this browser');
-            return false;
+
+            openSubmenu() {
+                this.controls.dispatchEvent(new Event('submenuclose'));
+                this.siblingVisibility = new Map();
+                for (const sibling of this.parent.children) {
+                    if (sibling !== this.menu) {
+                        this.siblingVisibility.set(sibling, sibling.classList.contains('shaka-hidden'));
+                        sibling.classList.add('shaka-hidden');
+                    }
+                }
+                this.menu.classList.remove('shaka-hidden');
+            }
+
+            closeSubmenu() {
+                this.menu.classList.add('shaka-hidden');
+                this.restoreSiblings();
+            }
+
+            restoreSiblings() {
+                for (const [sibling, wasHidden] of this.siblingVisibility || []) {
+                    sibling.classList.toggle('shaka-hidden', wasHidden);
+                }
+                this.siblingVisibility = null;
+            }
+
+            updateTracks() {
+                const tracks = Array.from(this.video.textTracks || []);
+                this.button.classList.toggle('shaka-hidden', tracks.length === 0);
+                this.menu.replaceChildren();
+
+                const back = document.createElement('button');
+                back.classList.add('shaka-back-to-overflow-button');
+                back.textContent = 'Subtitles';
+                back.addEventListener('click', () => {
+                    this.closeSubmenu();
+                });
+                this.menu.appendChild(back);
+
+                const selected = tracks.find(track => track.mode === 'showing');
+                this.currentSelection.textContent = selected?.label || 'Off';
+                this.menu.appendChild(this.createChoice('Off', !selected, () => {
+                    for (const track of tracks) {
+                        track.mode = 'disabled';
+                    }
+                }));
+                for (const track of tracks) {
+                    this.menu.appendChild(this.createChoice(track.label || track.language || 'Subtitles', track === selected, () => {
+                        for (const candidate of tracks) {
+                            candidate.mode = candidate === track ? 'showing' : 'disabled';
+                        }
+                    }));
+                }
+            }
+
+            createChoice(label, selected, select) {
+                const button = document.createElement('button');
+                button.textContent = label;
+                button.classList.toggle('shaka-chosen-item', selected);
+                button.addEventListener('click', () => {
+                    select();
+                    this.updateTracks();
+                    dismissLineupShakaMenus(this.controls);
+                });
+                return button;
+            }
+
+            release() {
+                this.menuObserver.disconnect();
+                this.video.removeEventListener('lineuptexttrackschanged', this.onTracksChanged);
+                this.controls.removeEventListener('submenuclose', this.onSubmenuClose);
+                this.button.remove();
+                this.menu.remove();
+            }
         }
+
+        shaka.ui.OverflowMenu.registerElement('lineup_captions', {
+            create: (rootElement, controls) => new LineupSubtitleSelection(rootElement, controls)
+        });
+        window.lineupShakaUiElementsRegistered = true;
+    }
         
-        
+        async function initCmafPlayer(
+            videoElementId,
+            manifestUrl,
+            protocolFallbackUrl,
+            preferredAudio,
+            preferredVideo,
+            hasSourceVideoRendition,
+            sourceVideoCodec,
+            fallbackAudioCodec,
+            subtitles,
+            dotNetReference,
+            sessionId) {
+            await stopMediaPlayer(videoElementId);
+
+            const video = document.getElementById(videoElementId);
+            if (!video) {
+                return { success: false, error: 'Video player element was not found.' };
+            }
+            if (!window.shaka?.Player?.isBrowserSupported() || !window.shaka?.ui?.Overlay) {
+                return { success: false, error: 'This browser does not support Shaka Player playback.' };
+            }
+            const videoContainer = video.closest('[data-lineup-cmaf-container]');
+            if (!videoContainer) {
+                return { success: false, error: 'The CMAF player container was not found.' };
+            }
+
+            registerLineupShakaUiElements();
+            const player = new shaka.Player();
+            const playerToken = Symbol('lineupCmafPlayer');
+            video._lineupPlayerToken = playerToken;
+            const isCurrentPlayer = () => video._lineupPlayerToken === playerToken;
+            await player.attach(video);
+            if (!isCurrentPlayer()) {
+                await player.destroy();
+                return { success: false, error: 'Playback initialization was superseded.' };
+            }
+            player.configure({ abr: { enabled: false } });
+            const ui = new shaka.ui.Overlay(player, videoContainer, video);
+            ui.configure({
+                controlPanelElements: ['play_pause', 'mute_volume', 'time_and_duration', 'spacer', 'overflow_menu', 'fullscreen'],
+                overflowMenuButtons: ['lineup_captions', 'language', 'picture_in_picture'],
+                trackLabelFormat: shaka.ui.Overlay.TrackLabelFormat.LABEL_OR_LANGUAGE,
+                addSeekBar: true,
+                showAudioChannelCountVariants: true,
+                showAudioCodec: true
+            });
+            window.lineupCmafPlayers.set(videoElementId, player);
+            window.lineupCmafUis.set(videoElementId, ui);
+            window.lineupMediaPlayers ??= new Map();
+            window.lineupMediaPlayers.set(videoElementId, video);
+
+            let sourceFallbackApplied = false;
+            let videoFallbackApplied = false;
+            const codecMimeTypes = {
+                aac: 'audio/mp4; codecs="mp4a.40.2"',
+                ac3: 'audio/mp4; codecs="ac-3"',
+                eac3: 'audio/mp4; codecs="ec-3"'
+            };
+            const supportsMediaSourceType = type => {
+                const mediaSource = window.MediaSource || window.ManagedMediaSource;
+                if (!type || !mediaSource?.isTypeSupported) {
+                    return null;
+                }
+                try {
+                    return mediaSource.isTypeSupported(type);
+                } catch {
+                    return null;
+                }
+            };
+            const sourceVideoSupported = sourceVideoCodec
+                ? supportsMediaSourceType(`video/mp4; codecs="${sourceVideoCodec}"`)
+                : null;
+            const fallbackAudioSupported = supportsMediaSourceType(codecMimeTypes[fallbackAudioCodec] || null);
+            const report = (kind, message, details = null) => {
+                if (dotNetReference && isCurrentPlayer()) {
+                    void dotNetReference.invokeMethodAsync('OnCmafPlayerEvent', { kind, message, details, sessionId });
+                }
+            };
+            let sessionUnavailable = false;
+            const stopUnavailableSession = details => {
+                if (sessionUnavailable || !isCurrentPlayer()) {
+                    return;
+                }
+                sessionUnavailable = true;
+                report('error', 'The stream session is no longer available.', details);
+                void stopMediaPlayer(videoElementId);
+            };
+            const isSourceVideo = track =>
+                hasSourceVideoRendition &&
+                (!sourceVideoCodec ||
+                    (track.videoCodec || '').toLowerCase() === sourceVideoCodec.toLowerCase());
+            const isFallbackVideo = track =>
+                !isSourceVideo(track) &&
+                /(^|[.,])avc[13]/i.test(track.videoCodec || '');
+            const audioSourceKey = track => (track.label || '')
+                .replace(/\s+·\s+(Source|Fallback.*)$/i, '')
+                .toLowerCase();
+            const choosePreferredVariant = () => {
+                const variants = player.getVariantTracks().filter(track => track.audioCodec);
+                const wantsSource = preferredAudio !== 'Fallback';
+                const wantsSourceVideo = preferredVideo !== 'Fallback';
+                const videoCandidates = variants.filter(track => wantsSourceVideo ? !isFallbackVideo(track) : isFallbackVideo(track));
+                const candidates = videoCandidates.length > 0 ? videoCandidates : variants;
+                const preferred = candidates.find(track => {
+                    const label = (track.label || '').toLowerCase();
+                    return wantsSource ? label.includes('source') : label.includes('fallback');
+                }) || candidates[0];
+                if (preferred && !preferred.active) {
+                    player.selectVariantTrack(preferred, true, 0);
+                }
+                const active = player.getVariantTracks().find(track => track.active);
+                return active
+                    ? {
+                        audio: { id: String(active.audioId ?? active.id), label: active.label, language: active.language, codec: active.audioCodec, channels: active.channelsCount },
+                        video: { codec: active.videoCodec, width: active.width, height: active.height }
+                    }
+                    : { audio: null, video: null };
+            };
+            const tryAudioFallback = async error => {
+                if (sourceFallbackApplied || preferredAudio === 'Fallback') {
+                    return false;
+                }
+                if (error?.category !== shaka.util.Error.Category.MEDIA) {
+                    return false;
+                }
+                const activeAudio = player.getVariantTracks().find(track => track.active);
+                if (!activeAudio || (activeAudio.label || '').toLowerCase().includes('fallback')) {
+                    return false;
+                }
+                const sourceKey = audioSourceKey(activeAudio);
+                const fallback = player.getVariantTracks().find(track => {
+                    const label = (track.label || '').toLowerCase();
+                    return label.includes('fallback') &&
+                        track.videoId === activeAudio.videoId &&
+                        (audioSourceKey(track) === sourceKey ||
+                            (!sourceKey && track.language === activeAudio.language));
+                });
+                if (!fallback) {
+                    return false;
+                }
+                sourceFallbackApplied = true;
+                player.selectVariantTrack(fallback, true, 0);
+                report(
+                    'audio-fallback',
+                    'Source audio is unavailable in this browser. Using the configured fallback rendition for this stream.',
+                    {
+                        id: String(fallback.audioId ?? fallback.id),
+                        label: fallback.label,
+                        language: fallback.language,
+                        codec: fallback.audioCodec,
+                        channels: fallback.channelsCount
+                    });
+                return true;
+            };
+            let presentationLoaded = false;
+            const tryVideoFallback = async error => {
+                if (!presentationLoaded || videoFallbackApplied || preferredVideo === 'Fallback' || error?.category !== shaka.util.Error.Category.MEDIA) {
+                    return false;
+                }
+                const activeVideo = player.getVariantTracks().find(track => track.active);
+                if (!activeVideo || isFallbackVideo(activeVideo)) {
+                    return false;
+                }
+                const fallback = player.getVariantTracks().find(track =>
+                    isFallbackVideo(track) && track.audioId === activeVideo.audioId);
+                if (!fallback) {
+                    videoFallbackApplied = true;
+                    report(
+                        'video-fallback-required',
+                        'Source video failed in this browser. Restarting this stream with H.264.',
+                        { codec: activeVideo.videoCodec, width: activeVideo.width, height: activeVideo.height });
+                    return true;
+                }
+                videoFallbackApplied = true;
+                player.selectVariantTrack(fallback, true, 0);
+                report(
+                    'video-fallback',
+                    'Source video is unavailable in this browser. Using the H.264 fallback rendition for this stream.',
+                    { codec: fallback.videoCodec, width: fallback.width, height: fallback.height });
+                return true;
+            };
+
+            player.addEventListener('error', event => {
+                void (async () => {
+                    const error = event.detail || null;
+                    const statusCode = Number(error?.data?.[1]);
+                    if (error?.category === shaka.util.Error.Category.NETWORK &&
+                        error?.code === shaka.util.Error.Code.BAD_HTTP_STATUS &&
+                        (statusCode === 404 || statusCode === 410)) {
+                        stopUnavailableSession(error);
+                    } else if (!await tryVideoFallback(error) && !await tryAudioFallback(error)) {
+                        report('error', 'CMAF playback failed.', error);
+                    }
+                })();
+            });
+            player.addEventListener('audiotrackchanged', () => {
+                dismissLineupShakaMenus(ui.getControls());
+                const active = player.getVariantTracks().find(track => track.active);
+                if (active) {
+                    report('audio-track-changed', 'Audio track changed.', {
+                        id: String(active.audioId ?? active.id),
+                        label: active.label,
+                        language: active.language,
+                        codec: active.audioCodec,
+                        channels: active.channelsCount
+                    });
+                }
+            });
+
+            let effectiveManifestUrl = manifestUrl;
+            try {
+                await player.load(manifestUrl);
+            } catch (error) {
+                if (!isCurrentPlayer()) {
+                    await ui.destroy();
+                    return { success: false, error: 'Playback initialization was superseded.' };
+                }
+                if (!protocolFallbackUrl) {
+                    await ui.destroy();
+                    if (window.lineupCmafPlayers.get(videoElementId) === player) {
+                        window.lineupCmafPlayers.delete(videoElementId);
+                    }
+                    if (window.lineupCmafUis.get(videoElementId) === ui) {
+                        window.lineupCmafUis.delete(videoElementId);
+                    }
+                    return {
+                        success: false,
+                        error: error?.message || 'Unable to load the CMAF presentation.',
+                        errorCode: error?.code || null,
+                        sourceVideoSupported,
+                        fallbackAudioSupported
+                    };
+                }
+                report('protocol-fallback', 'The preferred protocol could not start. Retrying with the alternate CMAF manifest.');
+                effectiveManifestUrl = protocolFallbackUrl;
+                try {
+                    await player.load(protocolFallbackUrl);
+                } catch (fallbackError) {
+                    await ui.destroy();
+                    if (window.lineupCmafPlayers.get(videoElementId) === player) {
+                        window.lineupCmafPlayers.delete(videoElementId);
+                    }
+                    if (window.lineupCmafUis.get(videoElementId) === ui) {
+                        window.lineupCmafUis.delete(videoElementId);
+                    }
+                    return {
+                        success: false,
+                        error: fallbackError?.message || 'Unable to load either CMAF manifest.',
+                        errorCode: fallbackError?.code || null,
+                        sourceVideoSupported,
+                        fallbackAudioSupported
+                    };
+                }
+            }
+
+            presentationLoaded = true;
+            if (!isCurrentPlayer()) {
+                await ui.destroy();
+                return { success: false, error: 'Playback initialization was superseded.' };
+            }
+            const activeVariant = choosePreferredVariant();
+            for (const subtitle of subtitles || []) {
+                startLineupSubtitlePolling(
+                    video,
+                    subtitle.url,
+                    subtitle.label,
+                    subtitle.language || 'und',
+                    'hidden',
+                    false,
+                    () => {
+                        const seekRange = player.seekRange();
+                        return seekRange.end - video.currentTime;
+                    },
+                    () => stopUnavailableSession(null));
+            }
+            try {
+                await video.play();
+            } catch {
+                // Browser autoplay policy may require user interaction; loaded playback remains usable.
+            }
+            return {
+                success: true,
+                manifestUrl: effectiveManifestUrl,
+                audio: activeVariant.audio,
+                video: activeVariant.video,
+                sourceVideoSupported,
+                fallbackAudioSupported
+            };
+        }
+
+        function getCmafTestCapabilities() {
+            const mediaSource = window.MediaSource || window.ManagedMediaSource;
+            const supports = type => {
+                if (!mediaSource?.isTypeSupported) {
+                    return null;
+                }
+                try {
+                    return mediaSource.isTypeSupported(type);
+                } catch {
+                    return null;
+                }
+            };
+            return {
+                browserIdentity: `${navigator.userAgent}|${navigator.platform || ''}`,
+                shakaSupported: window.shaka?.Player?.isBrowserSupported() === true,
+                mediaSourceAvailable: !!mediaSource,
+                nativeHls: document.createElement('video').canPlayType('application/vnd.apple.mpegurl') || '',
+                h264: supports('video/mp4; codecs="avc1.64002a"'),
+                hevc: supports('video/mp4; codecs="hvc1.1.6.L120"'),
+                hevcMain10: supports('video/mp4; codecs="hvc1.2.4.L120"'),
+                aac: supports('audio/mp4; codecs="mp4a.40.2"'),
+                ac3: supports('audio/mp4; codecs="ac-3"'),
+                eac3: supports('audio/mp4; codecs="ec-3"'),
+                ac4: supports('audio/mp4; codecs="ac-4"')
+            };
+        }
+
+        function getCmafBrowserIdentity() {
+            return `${navigator.userAgent}|${navigator.platform || ''}`;
+        }
+
+        async function initCmafTestPlayer(videoElementId, manifestUrl, expectedVideoCodec, expectedAudioCodec, subtitleUrl, dotNetReference, sessionId) {
+            await stopMediaPlayer(videoElementId);
+            const video = document.getElementById(videoElementId);
+            if (!video) {
+                return { success: false, playbackStarted: false, error: 'Video player element was not found.' };
+            }
+            if (!window.shaka?.Player?.isBrowserSupported()) {
+                return { success: false, playbackStarted: false, error: 'This browser does not support Shaka Player playback.' };
+            }
+
+            const player = new shaka.Player();
+            await player.attach(video);
+            player.configure({ abr: { enabled: false } });
+            window.lineupCmafPlayers.set(videoElementId, player);
+            window.lineupMediaPlayers ??= new Map();
+            window.lineupMediaPlayers.set(videoElementId, video);
+            const mediaSource = window.MediaSource || window.ManagedMediaSource;
+            const supports = type => {
+                if (!type || !mediaSource?.isTypeSupported) {
+                    return null;
+                }
+                try {
+                    return mediaSource.isTypeSupported(type);
+                } catch {
+                    return null;
+                }
+            };
+            const videoSupported = supports(expectedVideoCodec ? `video/mp4; codecs="${expectedVideoCodec}"` : null);
+            const audioSupported = supports(expectedAudioCodec ? `audio/mp4; codecs="${expectedAudioCodec}"` : null);
+            let resolvePlaybackError;
+            const playbackError = new Promise(resolve => {
+                resolvePlaybackError = resolve;
+            });
+            player.addEventListener('error', event => {
+                const error = event.detail || null;
+                const runtimeError = {
+                    sessionId,
+                    message: error?.message || 'CMAF compatibility playback failed.',
+                    errorCode: error?.code || null,
+                    details: error ? {
+                        severity: error.severity ?? null,
+                        category: error.category ?? null,
+                        code: error.code ?? null,
+                        data: error.data ?? null
+                    } : null
+                };
+                resolvePlaybackError(runtimeError);
+                if (dotNetReference) {
+                    void dotNetReference.invokeMethodAsync('OnCmafTestPlayerError', runtimeError);
+                }
+            });
+
+            let playbackStarted = false;
+            let subtitleCueVisible = false;
+            const playing = new Promise(resolve => {
+                video.addEventListener('playing', () => {
+                    playbackStarted = true;
+                    resolve(true);
+                }, { once: true });
+            });
+            try {
+                await player.load(manifestUrl);
+                if (subtitleUrl) {
+                    const track = document.createElement('track');
+                    track.kind = 'subtitles';
+                    track.label = 'Lineup WebVTT compatibility test';
+                    track.srclang = 'en';
+                    track.src = subtitleUrl;
+                    track.default = true;
+                    video.appendChild(track);
+                    await new Promise(resolve => {
+                        const timeout = setTimeout(resolve, 3000);
+                        track.addEventListener('load', () => {
+                            clearTimeout(timeout);
+                            track.track.mode = 'showing';
+                            subtitleCueVisible = (track.track.cues?.length ?? 0) > 0;
+                            resolve();
+                        }, { once: true });
+                    });
+                }
+                const variants = player.getVariantTracks();
+                const selected = variants[0] || null;
+                if (selected && !selected.active) {
+                    player.selectVariantTrack(selected, true, 0);
+                }
+                try {
+                    await video.play();
+                } catch {
+                    // The result distinguishes autoplay policy from manifest and decoder support.
+                }
+                const startupError = await Promise.race([
+                    playing.then(() => null),
+                    playbackError,
+                    new Promise(resolve => setTimeout(() => resolve(null), 5000))
+                ]);
+                if (startupError) {
+                    return {
+                        success: false,
+                        playbackStarted,
+                        videoSupported,
+                        audioSupported,
+                        error: startupError.message,
+                        errorCode: startupError.errorCode,
+                        errorDetails: startupError.details
+                    };
+                }
+                if (playbackStarted) {
+                    const stabilityError = await Promise.race([
+                        playbackError,
+                        new Promise(resolve => setTimeout(() => resolve(null), 2000))
+                    ]);
+                    if (stabilityError) {
+                        return {
+                            success: false,
+                            playbackStarted: false,
+                            videoSupported,
+                            audioSupported,
+                            error: stabilityError.message,
+                            errorCode: stabilityError.errorCode,
+                            errorDetails: stabilityError.details
+                        };
+                    }
+                }
+                const active = player.getVariantTracks().find(track => track.active) || selected;
+                return {
+                    success: true,
+                    playbackStarted,
+                    manifestUrl,
+                    videoSupported,
+                    audioSupported,
+                    subtitleCueVisible,
+                    audio: active ? { label: active.label, codec: active.audioCodec, channels: active.channelsCount } : null,
+                    video: active ? { codec: active.videoCodec, width: active.width, height: active.height } : null
+                };
+            } catch (error) {
+                await player.destroy();
+                window.lineupCmafPlayers.delete(videoElementId);
+                return {
+                    success: false,
+                    playbackStarted: false,
+                    videoSupported,
+                    audioSupported,
+                    error: error?.message || 'Unable to load the selected compatibility presentation.',
+                    errorCode: error?.code || null,
+                    errorDetails: error ? {
+                        severity: error.severity ?? null,
+                        category: error.category ?? null,
+                        code: error.code ?? null,
+                        data: error.data ?? null
+                    } : null
+                };
+            }
+        }
+
+        async function startCmafSession(startUrl, requestBody, startupId) {
+            const controller = new AbortController();
+            if (startupId) {
+                window.lineupCmafStarts.set(startupId, controller);
+            }
+            const options = { method: 'POST', cache: 'no-store', signal: controller.signal };
+            if (requestBody !== undefined && requestBody !== null) {
+                options.headers = { 'Content-Type': 'application/json' };
+                options.body = JSON.stringify(requestBody);
+            }
+            try {
+                const response = await fetch(startUrl, options);
+                const body = await response.json().catch(() => null);
+                if (!response.ok) {
+                    const message = body?.error || `Unable to start CMAF playback (${response.status}).`;
+                    const codePrefix = body?.code && !message.startsWith(`${body.code} `)
+                        ? `${body.code} `
+                        : '';
+                    throw new Error(`${codePrefix}${message}`);
+                }
+                return body;
+            } finally {
+                if (startupId && window.lineupCmafStarts.get(startupId) === controller) {
+                    window.lineupCmafStarts.delete(startupId);
+                }
+            }
+        }
+
+        function cancelCmafStart(startupId) {
+            const controller = startupId ? window.lineupCmafStarts.get(startupId) : null;
+            if (!controller) {
+                return;
+            }
+            window.lineupCmafStarts.delete(startupId);
+            controller.abort();
+        }
+
+        async function stopCmafSession(sessionId) {
+            if (!sessionId) {
+                return;
+            }
+            await fetch(`/api/stream/cmaf/stop/${encodeURIComponent(sessionId)}`, {
+                method: 'POST',
+                cache: 'no-store',
+                keepalive: true
+            });
+        }
+
         function stopLineupSubtitlePolling(video) {
             if (!video) {
                 return;
             }
-            if (video._lineupSubtitleAbortController) {
-                video._lineupSubtitleAbortController.abort();
-                video._lineupSubtitleAbortController = null;
+            for (const poller of video._lineupSubtitlePollers || []) {
+                poller.abortController.abort();
+                clearInterval(poller.timer);
+                for (const cue of Array.from(poller.track.cues || [])) {
+                    poller.track.removeCue(cue);
+                }
+                poller.track.mode = 'disabled';
+                poller.trackElement.remove();
             }
-            if (video?._lineupSubtitleTimer) {
-                clearInterval(video._lineupSubtitleTimer);
-                video._lineupSubtitleTimer = null;
-            }
+            video._lineupSubtitlePollers = [];
+            video.dispatchEvent(new Event('lineuptexttrackschanged'));
         }
 
-        function stopMediaPlayer(videoElementId = 'videoPlayer') {
-            const video = document.getElementById(videoElementId) ||
-                window.lineupMediaPlayers?.get(videoElementId);
-            stopLineupSubtitlePolling(video);
-            if (video) {
+        async function stopMediaPlayer(videoElementId = 'videoPlayer') {
+            const currentVideo = document.getElementById(videoElementId);
+            const registeredVideo = window.lineupMediaPlayers?.get(videoElementId);
+            const videos = [...new Set([currentVideo, registeredVideo].filter(Boolean))];
+            for (const video of videos) {
+                video._lineupPlayerToken = null;
+                stopLineupSubtitlePolling(video);
                 video.onerror = null;
                 video.onloadedmetadata = null;
                 for (const track of video.textTracks) {
@@ -223,28 +816,54 @@
                 video.pause();
             }
 
-            if (window.hlsPlayer) {
-                window.hlsPlayer.destroy();
-                window.hlsPlayer = null;
+            const cmafUi = window.lineupCmafUis?.get(videoElementId);
+            const cmafPlayer = window.lineupCmafPlayers?.get(videoElementId);
+            if (cmafUi) {
+                await Promise.allSettled([cmafUi.destroy()]);
+                if (window.lineupCmafUis.get(videoElementId) === cmafUi) {
+                    window.lineupCmafUis.delete(videoElementId);
+                }
+                if (window.lineupCmafPlayers.get(videoElementId) === cmafPlayer) {
+                    window.lineupCmafPlayers.delete(videoElementId);
+                }
+            } else if (cmafPlayer) {
+                await Promise.allSettled([cmafPlayer.destroy()]);
+                if (window.lineupCmafPlayers.get(videoElementId) === cmafPlayer) {
+                    window.lineupCmafPlayers.delete(videoElementId);
+                }
             }
 
-            if (video) {
+            for (const video of videos) {
                 video.removeAttribute('src');
                 video.load();
             }
             window.lineupMediaPlayers?.delete(videoElementId);
         }
 
-        function destroyHlsPlayer() {
-            stopMediaPlayer();
-        }
-        
-        // fMP4 player - simpler, just sets the src directly
-        // The browser's native video player handles fragmented MP4
-        function startLineupSubtitlePolling(video, subtitleUrl) {
-            stopLineupSubtitlePolling(video);
-            const track = video.addTextTrack('subtitles', 'Selected subtitles', 'und');
-            track.mode = 'showing';
+        function startLineupSubtitlePolling(
+            video,
+            subtitleUrl,
+            label = 'Selected subtitles',
+            language = 'und',
+            initialMode = 'showing',
+            replaceExisting = true,
+            getPlaybackDelaySeconds = null,
+            onSessionUnavailable = null) {
+            if (replaceExisting) {
+                stopLineupSubtitlePolling(video);
+            }
+            const trackElement = document.createElement('track');
+            trackElement.kind = 'subtitles';
+            trackElement.label = label;
+            trackElement.srclang = language;
+            trackElement.src = 'data:text/vtt;charset=utf-8,WEBVTT%0A%0A';
+            trackElement.addEventListener(
+                'load',
+                () => video.dispatchEvent(new Event('lineuptexttrackschanged')),
+                { once: true });
+            video.appendChild(trackElement);
+            const track = trackElement.track;
+            track.mode = initialMode;
             const cuesByKey = new Map();
             const decoder = new TextDecoder('utf-8');
             const abortController = new AbortController();
@@ -252,7 +871,6 @@
             let offset = 0;
             let pendingText = '';
             let refreshPending = false;
-            video._lineupSubtitleAbortController = abortController;
             const parseTime = value => {
                 const parts = value.trim().replace(',', '.').split(':').map(Number);
                 return parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2] : parts[0] * 60 + parts[1];
@@ -271,6 +889,14 @@
                     const response = await fetch(
                         `${subtitleUrl}${separator}offset=${offset}`,
                         { cache: 'no-store', signal: abortController.signal });
+                    if (response.status === 404 || response.status === 410) {
+                        if (typeof onSessionUnavailable === 'function') {
+                            onSessionUnavailable();
+                        } else {
+                            stopLineupSubtitlePolling(video);
+                        }
+                        return;
+                    }
                     if (!response.ok) {
                         return;
                     }
@@ -302,8 +928,14 @@
                         }
                     }
                     const newestCue = parsedCues.at(-1);
+                    const playbackDelaySeconds = typeof getPlaybackDelaySeconds === 'function'
+                        ? Number(getPlaybackDelaySeconds())
+                        : 0;
+                    const effectivePlaybackDelaySeconds = Number.isFinite(playbackDelaySeconds)
+                        ? Math.max(0, playbackDelaySeconds)
+                        : 0;
                     const presentationOffset = newestCue
-                        ? Math.max(0, video.currentTime + presentationLeadSeconds - newestCue.startTime)
+                        ? Math.max(0, video.currentTime + effectivePlaybackDelaySeconds + presentationLeadSeconds - newestCue.startTime)
                         : 0;
                     for (const parsedCue of parsedCues) {
                         const cue = new VTTCue(
@@ -337,113 +969,13 @@
                     refreshPending = false;
                 }
             };
-            video._lineupSubtitleTimer = setInterval(refresh, 100);
+            const timer = setInterval(refresh, 100);
+            video._lineupSubtitlePollers ??= [];
+            video._lineupSubtitlePollers.push({ abortController, timer, track, trackElement });
+            video.dispatchEvent(new Event('lineuptexttrackschanged'));
             refresh();
         }
 
-        async function initFmp4Player(videoElementId, streamUrl, diagnosticUrl, subtitleUrl = null) {
-            stopMediaPlayer(videoElementId);
-            
-            const video = document.getElementById(videoElementId);
-            if (!video) {
-                return 'Video player element was not found.';
-            }
-            window.lineupMediaPlayers ??= new Map();
-            window.lineupMediaPlayers.set(videoElementId, video);
-            return await new Promise(resolve => {
-                let retryCount = 0;
-                let settled = false;
-                let diagnosing = false;
-                const finish = message => {
-                    if (settled) {
-                        return;
-                    }
-
-                    settled = true;
-                    clearTimeout(timeout);
-                    video.onerror = null;
-                    video.onloadedmetadata = null;
-                    video._lineupInitializationResolve = null;
-                    resolve(message);
-                };
-                const startPlayback = () => {
-                    if (settled || !video.isConnected) {
-                        return;
-                    }
-                    const separator = streamUrl.includes('?') ? '&' : '?';
-                    video.src = retryCount === 0 ? streamUrl : `${streamUrl}${separator}retry=${Date.now()}`;
-                    video.play().catch(() => {
-                        // Playback errors are handled by video.onerror with tuner diagnostics.
-                    });
-                };
-
-                video._lineupInitializationResolve = finish;
-                video.onloadedmetadata = () => {
-                    if (settled || !video.isConnected) {
-                        return;
-                    }
-                    if (subtitleUrl) {
-                        startLineupSubtitlePolling(video, subtitleUrl);
-                    }
-                    finish(null);
-                };
-                const handlePlaybackError = async errorOrMessage => {
-                    if (settled || diagnosing) {
-                        return;
-                    }
-
-                    const fallbackMessage = typeof errorOrMessage === 'string' ? errorOrMessage : null;
-                    diagnosing = true;
-                    video.onerror = null;
-                    let diagnostic;
-                    try {
-                        const response = await fetch(diagnosticUrl, { cache: 'no-store' });
-                        diagnostic = await response.json();
-                    } catch (error) {
-                        finish(fallbackMessage || `Unable to diagnose the stream failure: ${error.message}`);
-                        return;
-                    }
-
-                    if (settled) {
-                        return;
-                    }
-
-                    if (diagnostic.success && retryCount === 0) {
-                        retryCount++;
-                        await new Promise(retryResolve => setTimeout(retryResolve, 750));
-                        if (settled || !video.isConnected) {
-                            return;
-                        }
-                        diagnosing = false;
-                        video.onerror = handlePlaybackError;
-                        startPlayback();
-                        return;
-                    }
-
-                    if (diagnostic.success) {
-                        finish(fallbackMessage || video.error?.message || 'The transcoder could not produce a playable stream.');
-                        return;
-                    }
-
-                    finish(diagnostic.message || fallbackMessage || video.error?.message || 'The channel could not be opened.');
-                };
-                const timeout = setTimeout(
-                    () => handlePlaybackError('Timed out waiting for the channel to begin streaming.'),
-                    45000);
-                video.onerror = handlePlaybackError;
-
-                console.log('Initializing fMP4 player with URL:', streamUrl);
-                startPlayback();
-            });
-        }
-        
-        function isHlsSupported() {
-            // Check for native HLS or hls.js support
-            const video = document.createElement('video');
-            return video.canPlayType('application/vnd.apple.mpegurl') !== '' || 
-                   (typeof Hls !== 'undefined' && Hls.isSupported());
-        }
-        
         // TV Guide resize observer
         window.guideResizeObserver = null;
         window.guideDotNetRef = null;

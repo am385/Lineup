@@ -1,0 +1,56 @@
+.cmaf-channel-list {
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+.cmaf-channel-item {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--bs-border-color);
+    color: inherit;
+    display: flex;
+    padding: 0.75rem 1rem;
+    text-align: left;
+    width: 100%;
+}
+
+.cmaf-channel-number {
+    color: var(--bs-primary);
+    font-weight: bold;
+    min-width: 40px;
+}
+
+.cmaf-channel-name,
+.cmaf-now-playing {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cmaf-channel-name {
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.cmaf-now-playing {
+    color: var(--bs-secondary-color);
+    font-size: 0.75rem;
+}
+
+.cmaf-channel-item:hover,
+.cmaf-channel-item.active {
+    background: var(--bs-primary-bg-subtle);
+}
+
+.cmaf-loading-overlay {
+    align-items: center;
+    background: rgb(0 0 0 / 75%);
+    display: flex;
+    flex-direction: column;
+    inset: 0;
+    justify-content: center;
+    position: absolute;
+    z-index: 3;
+}

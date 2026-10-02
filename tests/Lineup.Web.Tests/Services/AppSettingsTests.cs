@@ -251,6 +251,8 @@ public class AppSettingsTests
         // Assert
         Assert.Equal(AudioTranscodeMode.Copy, settings.AudioTranscodeMode);
         Assert.Equal(Ac4TranscodeTarget.Ac3, settings.Ac4TranscodeTarget);
+        Assert.Equal(DeinterlaceMode.Preserve, settings.SourceDeinterlaceMode);
+        Assert.Equal(DeinterlaceMode.Preserve, settings.WebPlayerDeinterlaceMode);
         Assert.Equal(ProtectedContentMode.ReturnError, settings.ProtectedContentMode);
         Assert.Equal(WebVideoPreset.VeryFast, settings.WebVideoPreset);
         Assert.Equal(21, settings.WebVideoQuality);
@@ -273,6 +275,8 @@ public class AppSettingsTests
         // Assert
         Assert.Equal(AudioTranscodeMode.Copy, settings.AudioTranscodeMode);
         Assert.Equal(Ac4TranscodeTarget.Ac3, settings.Ac4TranscodeTarget);
+        Assert.Equal(DeinterlaceMode.Preserve, settings.SourceDeinterlaceMode);
+        Assert.Equal(DeinterlaceMode.Preserve, settings.WebPlayerDeinterlaceMode);
         Assert.Equal(ProtectedContentMode.ReturnError, settings.ProtectedContentMode);
         Assert.Equal(WebVideoPreset.VeryFast, settings.WebVideoPreset);
         Assert.Equal(21, settings.WebVideoQuality);
@@ -291,6 +295,8 @@ public class AppSettingsTests
         {
             AudioTranscodeMode = AudioTranscodeMode.Eac3,
             Ac4TranscodeTarget = Ac4TranscodeTarget.Eac3,
+            SourceDeinterlaceMode = DeinterlaceMode.SourceFrameRate,
+            WebPlayerDeinterlaceMode = DeinterlaceMode.SourceFieldRate,
             ProtectedContentMode = ProtectedContentMode.StreamSlate,
             WebVideoPreset = WebVideoPreset.Faster,
             WebVideoQuality = 19,
@@ -305,10 +311,14 @@ public class AppSettingsTests
         // Assert
         Assert.Contains("\"AudioTranscodeMode\":\"Eac3\"", json);
         Assert.Contains("\"Ac4TranscodeTarget\":\"Eac3\"", json);
+        Assert.Contains("\"SourceDeinterlaceMode\":\"SourceFrameRate\"", json);
+        Assert.Contains("\"WebPlayerDeinterlaceMode\":\"SourceFieldRate\"", json);
         Assert.Contains("\"ProtectedContentMode\":\"StreamSlate\"", json);
         Assert.Contains("\"WebVideoPreset\":\"Faster\"", json);
         Assert.Equal(original.AudioTranscodeMode, deserialized.AudioTranscodeMode);
         Assert.Equal(original.Ac4TranscodeTarget, deserialized.Ac4TranscodeTarget);
+        Assert.Equal(original.SourceDeinterlaceMode, deserialized.SourceDeinterlaceMode);
+        Assert.Equal(original.WebPlayerDeinterlaceMode, deserialized.WebPlayerDeinterlaceMode);
         Assert.Equal(original.ProtectedContentMode, deserialized.ProtectedContentMode);
         Assert.Equal(original.WebVideoPreset, deserialized.WebVideoPreset);
         Assert.Equal(original.WebVideoQuality, deserialized.WebVideoQuality);
