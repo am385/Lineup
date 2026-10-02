@@ -17,8 +17,7 @@
     <ImportMap />
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <HeadOutlet @rendermode="InteractiveServer" />
-    <!-- Legacy HLS player plus Shaka for shared CMAF HLS/DASH playback. -->
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js"></script>
+    <!-- Shaka provides shared CMAF HLS/DASH playback. -->
     <script src="https://cdn.jsdelivr.net/npm/shaka-player@5.2.11/dist/shaka-player.ui.js"
             integrity="sha384-ghyp/QciHlmviIclg7x6TA6ickR8CIKZTrHD0TLFcsm+CNLHnmUOCCmvguhuQydN"
             crossorigin="anonymous"></script>
@@ -60,17 +59,9 @@
     });
 </script>
 <script>
-    // HLS Player functions
-    window.hlsPlayer = null;
     window.lineupCmafPlayers = new Map();
     window.lineupCmafUis = new Map();
     window.lineupCmafStarts = new Map();
-        
-    function isSafari() {
-        // Detect Safari browser (the only browser with native HLS support)
-        var ua = navigator.userAgent.toLowerCase();
-        return ua.indexOf('safari') !== -1 && ua.indexOf('chrome') === -1 && ua.indexOf('android') === -1;
-    }
 
     window.lineupFactoryResetWatchGeneration = 0;
     window.lineupFactoryResetInitialInstanceId = null;
@@ -786,75 +777,6 @@
             });
         }
 
-        function initHlsPlayer(videoElementId, playlistUrl) {
-            stopMediaPlayer(videoElementId);
-
-            const video = document.getElementById(videoElementId);
-            if (!video) {
-                console.error('Video element not found:', videoElementId);
-                return false;
-            }
-
-        window.lineupMediaPlayers ??= new Map();
-        window.lineupMediaPlayers.set(videoElementId, video);
-            
-        console.log('Initializing HLS player with URL:', playlistUrl);
-            
-        // Only Safari has true native HLS support
-        // Chrome's canPlayType returns 'maybe' but doesn't actually work
-        if (isSafari() && video.canPlayType('application/vnd.apple.mpegurl')) {
-            console.log('Using native HLS support (Safari)');
-            video.src = playlistUrl;
-            video.play().catch(e => console.log('Autoplay prevented:', e));
-            return true;
-        }
-            
-        // Use hls.js for Chrome, Firefox, Edge, etc.
-        if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-            console.log('Using hls.js library');
-            window.hlsPlayer = new Hls({
-                enableWorker: true,
-                lowLatencyMode: true,
-                backBufferLength: 30,
-                debug: true // Enable debug logging
-            });
-                
-            window.hlsPlayer.loadSource(playlistUrl);
-            window.hlsPlayer.attachMedia(video);
-                
-            window.hlsPlayer.on(Hls.Events.MANIFEST_PARSED, function() {
-                console.log('HLS manifest parsed, starting playback');
-                video.play().catch(e => console.log('Autoplay prevented:', e));
-            });
-                
-            window.hlsPlayer.on(Hls.Events.ERROR, function(event, data) {
-                console.error('HLS error:', data.type, data.details, data);
-                if (data.fatal) {
-                    switch (data.type) {
-                        case Hls.ErrorTypes.NETWORK_ERROR:
-                            console.log('Fatal network error, trying to recover...');
-                            window.hlsPlayer.startLoad();
-                            break;
-                        case Hls.ErrorTypes.MEDIA_ERROR:
-                                console.log('Fatal media error, trying to recover...');
-                                window.hlsPlayer.recoverMediaError();
-                                break;
-                            default:
-                                console.log('Fatal error, destroying player');
-                                destroyHlsPlayer();
-                                break;
-                        }
-                    }
-                });
-                
-                return true;
-            }
-            
-            console.error('HLS not supported in this browser');
-            return false;
-        }
-        
-        
         function stopLineupSubtitlePolling(video) {
             if (!video) {
                 return;
@@ -894,10 +816,6 @@
                 video.pause();
             }
 
-            if (window.hlsPlayer) {
-                window.hlsPlayer.destroy();
-                window.hlsPlayer = null;
-            }
             const cmafUi = window.lineupCmafUis?.get(videoElementId);
             const cmafPlayer = window.lineupCmafPlayers?.get(videoElementId);
             if (cmafUi) {
@@ -922,10 +840,6 @@
             window.lineupMediaPlayers?.delete(videoElementId);
         }
 
-        function destroyHlsPlayer() {
-            void stopMediaPlayer();
-        }
-        
         function startLineupSubtitlePolling(
             video,
             subtitleUrl,
@@ -1062,13 +976,6 @@
             refresh();
         }
 
-        function isHlsSupported() {
-            // Check for native HLS or hls.js support
-            const video = document.createElement('video');
-            return video.canPlayType('application/vnd.apple.mpegurl') !== '' || 
-                   (typeof Hls !== 'undefined' && Hls.isSupported());
-        }
-        
         // TV Guide resize observer
         window.guideResizeObserver = null;
         window.guideDotNetRef = null;
