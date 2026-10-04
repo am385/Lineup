@@ -179,7 +179,7 @@ public class DashboardComponentTests
         notifications.ShowSuccess("Earlier notification");
 
         // Act
-        component.Find("#refreshChannels").Click();
+        await component.Find("#refreshChannels").ClickAsync(new());
 
         // Assert
         await provider.Received(1).FetchChannelLineupAsync(Arg.Any<CancellationToken>());
