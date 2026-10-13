@@ -10,24 +10,24 @@
             <div class="d-flex align-items-center gap-3">
                 <div class="dropdown">
                     <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button"
-                            data-bs-toggle="dropdown" aria-expanded="false" title="Toggle theme"
+                            data-bs-toggle="dropdown" aria-expanded="false" title="@Text["Nav_ToggleTheme"]"
                             id="theme-toggle-btn">
                         <span id="theme-icon" class="bi bi-sun-fill"></span>
                     </button>
                     <ul class="dropdown-menu dropdown-menu-end">
                         <li>
                             <button class="dropdown-item" id="theme-opt-light" onclick="setThemeFromUI('light')">
-                                <span class="bi bi-sun-fill me-2"></span>Light
+                                <span class="bi bi-sun-fill me-2"></span>@Text["Nav_ThemeLight"]
                             </button>
                         </li>
                         <li>
                             <button class="dropdown-item" id="theme-opt-dark" onclick="setThemeFromUI('dark')">
-                                <span class="bi bi-moon-stars-fill me-2"></span>Dark
+                                <span class="bi bi-moon-stars-fill me-2"></span>@Text["Nav_ThemeDark"]
                             </button>
                         </li>
                         <li>
                             <button class="dropdown-item" id="theme-opt-auto" onclick="setThemeFromUI('auto')">
-                                <span class="bi bi-circle-half me-2"></span>Auto
+                                <span class="bi bi-circle-half me-2"></span>@Text["Nav_ThemeAuto"]
                             </button>
                         </li>
                     </ul>
@@ -44,7 +44,7 @@
 <StatusNotification />
 
 <div id="blazor-error-ui" data-nosnippet>
-    An unhandled error has occurred.
-    <a href="." class="reload">Reload</a>
+    @Text["Common_UnhandledError"]
+    <a href="." class="reload">@Text["Common_Reload"]</a>
     <span class="dismiss">🗙</span>
 </div>

@@ -13,10 +13,10 @@
                  class="status-notification alert @(notification.IsError ? "alert-danger" : "alert-success") alert-dismissible fade show"
                  role="status">
                 @notification.Message
-                <span class="status-notification-timer" aria-hidden="true" title="Closes automatically">@GetSecondsRemaining(notification.Id)s</span>
+                <span class="status-notification-timer" aria-hidden="true" title="@Text["Common_ClosesAutomatically"]">@Text["Common_SecondsAbbreviation", GetSecondsRemaining(notification.Id)]</span>
                 <button type="button"
                         class="btn-close"
-                        aria-label="Dismiss status message"
+                        aria-label="@Text["Common_DismissStatusMessage"]"
                         @onclick="() => Notifications.Dismiss(notification.Id)"></button>
             </div>
         }

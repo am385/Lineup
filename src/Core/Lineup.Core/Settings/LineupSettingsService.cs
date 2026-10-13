@@ -354,7 +354,7 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
     {
         _logger = logger;
         _appDataStore = appDataStore;
-        _configuredXmltvOutputPath = ResolveConfiguredXmltvOutputPath(configuration[AppConstants.XmltvPathConfigKey]);
+        _configuredXmltvOutputPath = ResolveConfiguredXmltvOutputPath(configuration[AppConstants.GuideOutputDirConfigKey]);
         _startupState = startupState ?? StartupSchemaGate.Check(appDataStore);
         _streamingNormalizers = streamingNormalizers.ToArray();
         Settings = CreateDefaultSettings();
@@ -402,7 +402,7 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
     {
         var values = configuredXmltvPath == null
             ? null
-            : new Dictionary<string, string?> { [AppConstants.XmltvPathConfigKey] = configuredXmltvPath };
+            : new Dictionary<string, string?> { [AppConstants.GuideOutputDirConfigKey] = configuredXmltvPath };
         return new ConfigurationBuilder().AddInMemoryCollection(values).Build();
     }
 

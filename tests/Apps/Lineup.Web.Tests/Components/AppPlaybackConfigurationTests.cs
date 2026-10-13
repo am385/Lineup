@@ -27,6 +27,8 @@ public sealed class AppPlaybackConfigurationTests
         Assert.Contains("js/guide-viewport.js", source, StringComparison.Ordinal);
         Assert.Contains("js/theme.js", source, StringComparison.Ordinal);
         Assert.DoesNotContain("function initCmafPlayer", source, StringComparison.Ordinal);
+        Assert.Contains("CultureInfo.CurrentUICulture.TwoLetterISOLanguageName", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("<html lang=\"en\">", source, StringComparison.Ordinal);
     }
 
     /// <summary>

@@ -393,6 +393,7 @@ internal sealed class StatusApiService
             new WebSettingsStatusResponse(
                 webSettings.SchemaVersion,
                 webSettings.Theme,
+                webSettings.UiCulture,
                 webSettings.ActiveStreamRefreshIntervalSeconds,
                 webSettings.EnableNetworkDiscovery,
                 webSettings.EnableFileLogging,

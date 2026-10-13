@@ -3,7 +3,7 @@
 
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
-        <h5 class="mb-0">Physical Source Channels</h5>
+        <h5 class="mb-0">@Text["Channels_PhysicalSourceChannelsHeading"]</h5>
         <span class="badge text-bg-secondary">@Channels.Count</span>
     </div>
     <div class="card-body p-0">
@@ -11,25 +11,25 @@
             <table class="table table-hover align-middle mb-0">
                 <thead>
                     <tr>
-                        @Header(ChannelSortColumn.Enabled, "Enabled")
-                        @Header(ChannelSortColumn.Device, "Physical device")
-                        @Header(ChannelSortColumn.ProviderIdentity, "Provider identity")
-                        @Header(ChannelSortColumn.GlobalNumber, "Global number")
-                        @Header(ChannelSortColumn.GlobalName, "Global name")
-                        @Header(ChannelSortColumn.EquivalenceGroup, "Equivalence group")
-                        @Header(ChannelSortColumn.Guide, "Authoritative guide")
-                        @Header(ChannelSortColumn.Flags, "Flags")
-                        @Header(ChannelSortColumn.Video, "Video")
-                        @Header(ChannelSortColumn.Audio, "Audio")
-                        @Header(ChannelSortColumn.Signal, "Signal")
-                        @Header(ChannelSortColumn.Quality, "Quality")
+                        @Header(ChannelSortColumn.Enabled, Text["Common_Enabled"])
+                        @Header(ChannelSortColumn.Device, Text["Channels_PhysicalDeviceColumn"])
+                        @Header(ChannelSortColumn.ProviderIdentity, Text["Channels_ProviderIdentityColumn"])
+                        @Header(ChannelSortColumn.GlobalNumber, Text["Channels_GlobalNumberColumn"])
+                        @Header(ChannelSortColumn.GlobalName, Text["Channels_GlobalNameColumn"])
+                        @Header(ChannelSortColumn.EquivalenceGroup, Text["Channels_EquivalenceGroupColumn"])
+                        @Header(ChannelSortColumn.Guide, Text["Channels_AuthoritativeGuideColumn"])
+                        @Header(ChannelSortColumn.Flags, Text["Channels_FlagsLabel"])
+                        @Header(ChannelSortColumn.Video, Text["Channels_VideoColumn"])
+                        @Header(ChannelSortColumn.Audio, Text["Channels_AudioColumn"])
+                        @Header(ChannelSortColumn.Signal, Text["Channels_SignalColumn"])
+                        @Header(ChannelSortColumn.Quality, Text["Channels_QualityColumn"])
                         <th></th>
                     </tr>
                 </thead>
                 <tbody>
                     @if (Channels.Count == 0)
                     {
-                        <tr><td colspan="13" class="text-center text-body-secondary py-5">No channels match the current search and filters.</td></tr>
+                        <tr><td colspan="13" class="text-center text-body-secondary py-5">@Text["Channels_NoMatchingChannels"]</td></tr>
                     }
                     @foreach (var channel in Channels)
                     {
@@ -41,7 +41,7 @@
                                     <input class="form-check-input"
                                            type="checkbox"
                                            role="switch"
-                                           aria-label="@($"{(channel.IsEnabled ? "Disable" : "Enable")} channel {channel.EffectiveNumber} on {GetDeviceName(channel.Source.Id.PhysicalDeviceId)}")"
+                                           aria-label="@Text[channel.IsEnabled ? "Channels_DisableChannelAria" : "Channels_EnableChannelAria", channel.EffectiveNumber, GetDeviceName(channel.Source.Id.PhysicalDeviceId)]"
                                            checked="@channel.IsEnabled"
                                            disabled="@UpdatingChannels.Contains(channel.Source.Id)"
                                            @onchange="eventArgs => EnabledChanged.InvokeAsync(new ChannelEnabledChange(channel.Source.Id, eventArgs.Value is true))" />
@@ -51,11 +51,11 @@
                             <td>@channel.Source.ProviderNumber · @channel.Source.ProviderName</td>
                             <td><input class="form-control form-control-sm channel-number-override" placeholder="@channel.Source.ProviderNumber" @bind="edit.NumberOverride" /></td>
                             <td><input class="form-control form-control-sm channel-name-override" placeholder="@channel.Source.ProviderName" @bind="edit.NameOverride" /></td>
-                            <td><input class="form-control form-control-sm channel-equivalence-group" placeholder="Optional GUID" @bind="edit.EquivalenceGroup" /></td>
+                            <td><input class="form-control form-control-sm channel-equivalence-group" placeholder="@Text["Channels_OptionalGuid"]" @bind="edit.EquivalenceGroup" /></td>
                             <td>
                                 @if (binding is null)
                                 {
-                                    <span class="text-body-secondary">Guide state unavailable</span>
+                                    <span class="text-body-secondary">@Text["Channels_GuideStateUnavailable"]</span>
                                 }
                                 else
                                 {
@@ -66,7 +66,7 @@
                                         @if (binding.State == GuideBindingState.ManualUnavailable && binding.SelectedGuideChannel is not null)
                                         {
                                             <option value="@GetGuideIdentity(binding.SelectedGuideChannel.Id)" disabled>
-                                                Unavailable: @binding.SelectedGuideChannel.Number · @binding.SelectedGuideChannel.Name
+                                                @Text["Channels_UnavailableGuideChannel", binding.SelectedGuideChannel.Number, binding.SelectedGuideChannel.Name]
                                             </option>
                                         }
                                         @foreach (var candidate in binding.MatchingCandidates)
@@ -82,11 +82,11 @@
                             <td>
                                 @if (GetBooleanMetadata(channel, "favorite"))
                                 {
-                                    <span class="badge text-bg-warning me-1" aria-label="Favorite channel"><span class="bi bi-star-fill me-1"></span>Favorite</span>
+                                    <span class="badge text-bg-warning me-1" aria-label="@Text["Channels_FavoriteChannel"]"><span class="bi bi-star-fill me-1"></span>@Text["Channels_Favorite"]</span>
                                 }
                                 @if (GetBooleanMetadata(channel, "drm"))
                                 {
-                                    <span class="badge text-bg-danger me-1" aria-label="DRM-protected channel"><span class="bi bi-shield-lock-fill me-1"></span>DRM</span>
+                                    <span class="badge text-bg-danger me-1" aria-label="@Text["Channels_DrmProtectedChannel"]"><span class="bi bi-shield-lock-fill me-1"></span>DRM</span>
                                 }
                                 @if (GetBooleanMetadata(channel, "hd"))
                                 {
@@ -101,7 +101,7 @@
                             <td>@FormatValue(GetMetadata(channel, "audioCodec"))</td>
                             <td>@FormatPercentage(GetIntegerMetadata(channel, "signalStrength"))</td>
                             <td>@FormatPercentage(GetIntegerMetadata(channel, "signalQuality"))</td>
-                            <td><button type="button" class="btn btn-sm btn-outline-primary save-channel-identity" @onclick="() => SaveRequested.InvokeAsync(channel)">Save</button></td>
+                            <td><button type="button" class="btn btn-sm btn-outline-primary save-channel-identity" @onclick="() => SaveRequested.InvokeAsync(channel)">@Text["Common_Save"]</button></td>
                         </tr>
                     }
                 </tbody>
@@ -170,26 +170,26 @@
         SettingsService.Settings.Streaming.PhysicalDevices.SingleOrDefault(device => device.Id == deviceId)?.Name ?? deviceId.ToString();
 
     private string GetGuideSourceLabel(GuideChannelId channelId) =>
-        SettingsService.Settings.Streaming.GuideSources.SingleOrDefault(source => source.Id == channelId.GuideSourceId)?.Name ?? "Unavailable guide source";
+        SettingsService.Settings.Streaming.GuideSources.SingleOrDefault(source => source.Id == channelId.GuideSourceId)?.Name ?? Text["Channels_UnavailableGuideSource"];
 
     private static string GetGuideIdentity(GuideChannelId channelId) => $"{channelId.GuideSourceId.Value:D}|{channelId.ProviderKey}";
 
-    private static string GetGuidePlaceholder(SourceGuideBindingState binding) => binding.State switch
+    private string GetGuidePlaceholder(SourceGuideBindingState binding) => binding.State switch
     {
-        GuideBindingState.Automatic => "Use automatic matching",
-        GuideBindingState.Manual => "Use automatic matching",
-        GuideBindingState.ManualUnavailable => "Manual selection unavailable - use automatic matching",
-        GuideBindingState.Unmatched => "Select authoritative guide (no automatic match)",
-        _ => "Select authoritative guide (ambiguous)"
+        GuideBindingState.Automatic => Text["Channels_UseAutomaticMatching"],
+        GuideBindingState.Manual => Text["Channels_UseAutomaticMatching"],
+        GuideBindingState.ManualUnavailable => Text["Channels_ManualSelectionUnavailable"],
+        GuideBindingState.Unmatched => Text["Channels_SelectGuideNoMatch"],
+        _ => Text["Channels_SelectGuideAmbiguous"]
     };
 
-    private static string GetGuideHelp(SourceGuideBindingState binding) => binding.State switch
+    private string GetGuideHelp(SourceGuideBindingState binding) => binding.State switch
     {
-        GuideBindingState.Automatic => "Matched automatically from the physical channel identity.",
-        GuideBindingState.Manual => "Manual override.",
-        GuideBindingState.ManualUnavailable => "The saved manual guide channel is no longer active. Choose another channel or return to automatic matching.",
-        GuideBindingState.Unmatched => "No provider identity or number matched automatically. Select the authoritative channel manually.",
-        _ => "Multiple eligible guide channels match. Select the authoritative channel."
+        GuideBindingState.Automatic => Text["Channels_GuideMatchedAutomatically"],
+        GuideBindingState.Manual => Text["Channels_ManualOverride"],
+        GuideBindingState.ManualUnavailable => Text["Channels_SavedGuideUnavailableHelp"],
+        GuideBindingState.Unmatched => Text["Channels_NoAutomaticGuideMatchHelp"],
+        _ => Text["Channels_AmbiguousGuideMatchHelp"]
     };
 
     private string GetSortIcon(ChannelSortColumn column) =>

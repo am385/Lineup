@@ -2,54 +2,54 @@
 @page "/watch/{ChannelNumber}"
 @using Lineup.Web.Services
 
-<PageTitle>Watch TV</PageTitle>
+<PageTitle>@Text["Watch_Title"]</PageTitle>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
     <div>
-        <h1><span class="bi bi-play-circle me-2"></span>Watch TV</h1>
-        <p class="text-muted mb-0">Live TV with adaptive HLS and DASH playback</p>
+        <h1><span class="bi bi-play-circle me-2"></span>@Text["Watch_Title"]</h1>
+        <p class="text-muted mb-0">@Text["Watch_Subtitle"]</p>
     </div>
     <div class="d-flex flex-wrap justify-content-end align-items-center gap-2">
         @if (_preferencesRestored && _compatibilityProfile is null)
         {
             <a id="runCmafCompatibilityTests" class="btn btn-outline-primary btn-sm" href="/watch-test?runAll=true">
-                <span class="bi bi-speedometer2 me-1"></span>Run Compatibility Tests
+                <span class="bi bi-speedometer2 me-1"></span>@Text["Watch_RunCompatibilityTests"]
             </a>
         }
         <div class="form-check form-switch mb-0">
             <input id="cmafOverrideStreamSettings" class="form-check-input" type="checkbox" checked="@_streamOverrides.Enabled" @onchange="ChangeOverrideEnabled">
-            <label for="cmafOverrideStreamSettings" class="form-check-label">Override stream settings</label>
+            <label for="cmafOverrideStreamSettings" class="form-check-label">@Text["Watch_OverrideStreamSettings"]</label>
         </div>
         <div id="cmafOverrideSettings" class="d-flex flex-wrap align-items-center gap-2 @(_streamOverrides.Enabled ? null : "d-none")">
-            <label for="cmafProtocol" class="form-label mb-0">Protocol</label>
+            <label for="cmafProtocol" class="form-label mb-0">@Text["Watch_Protocol"]</label>
             <select id="cmafProtocol" class="form-select form-select-sm w-auto" value="@OverrideProtocolValue" @onchange="ChangeProtocol">
-                <option value="">Browser profile</option>
+                <option value="">@Text["Watch_BrowserProfile"]</option>
                 <option value="@CmafPlaybackProtocol.Hls">HLS</option>
                 <option value="@CmafPlaybackProtocol.Dash">DASH</option>
             </select>
-            <label for="cmafQuality" class="form-label mb-0">Quality</label>
+            <label for="cmafQuality" class="form-label mb-0">@Text["Watch_Quality"]</label>
             <select id="cmafQuality" class="form-select form-select-sm w-auto" value="@OverrideQualityValue" @onchange="ChangeQuality">
-                <option value="">Browser profile</option>
-                <option value="@WebPlayerQuality.AppDefault">App Default</option>
-                <option value="@WebPlayerQuality.High">High</option>
-                <option value="@WebPlayerQuality.Medium">Medium (720p)</option>
-                <option value="@WebPlayerQuality.Low">Low (480p)</option>
+                <option value="">@Text["Watch_BrowserProfile"]</option>
+                <option value="@WebPlayerQuality.AppDefault">@Text["Watch_QualityAppDefault"]</option>
+                <option value="@WebPlayerQuality.High">@Text["Watch_QualityHigh"]</option>
+                <option value="@WebPlayerQuality.Medium">@Text["Watch_QualityMedium"]</option>
+                <option value="@WebPlayerQuality.Low">@Text["Watch_QualityLow"]</option>
             </select>
-            <label for="cmafPreferredVideo" class="form-label mb-0">Preferred Video</label>
+            <label for="cmafPreferredVideo" class="form-label mb-0">@Text["Watch_PreferredVideo"]</label>
             <select id="cmafPreferredVideo" class="form-select form-select-sm w-auto" value="@OverrideVideoValue" @onchange="ChangePreferredVideo">
-                <option value="">Browser profile</option>
-                <option value="@CmafPreferredVideo.Source">Source</option>
-                <option value="@CmafPreferredVideo.Fallback">H.264 Fallback</option>
+                <option value="">@Text["Watch_BrowserProfile"]</option>
+                <option value="@CmafPreferredVideo.Source">@Text["Watch_Source"]</option>
+                <option value="@CmafPreferredVideo.Fallback">@Text["Watch_H264Fallback"]</option>
             </select>
-            <label for="cmafPreferredAudio" class="form-label mb-0">Preferred Audio</label>
+            <label for="cmafPreferredAudio" class="form-label mb-0">@Text["Watch_PreferredAudio"]</label>
             <select id="cmafPreferredAudio" class="form-select form-select-sm w-auto" value="@OverrideAudioValue" @onchange="ChangePreferredAudio">
-                <option value="">Browser profile</option>
-                <option value="@CmafPreferredAudio.Source">Source</option>
-                <option value="@CmafPreferredAudio.Fallback">Fallback</option>
+                <option value="">@Text["Watch_BrowserProfile"]</option>
+                <option value="@CmafPreferredAudio.Source">@Text["Watch_Source"]</option>
+                <option value="@CmafPreferredAudio.Fallback">@Text["Watch_Fallback"]</option>
             </select>
-            <label for="cmafFallbackAudio" class="form-label mb-0">Fallback Audio</label>
+            <label for="cmafFallbackAudio" class="form-label mb-0">@Text["Watch_FallbackAudio"]</label>
             <select id="cmafFallbackAudio" class="form-select form-select-sm w-auto" value="@OverrideFallbackAudioValue" @onchange="ChangeFallbackAudio">
-                <option value="">Browser profile</option>
+                <option value="">@Text["Watch_BrowserProfile"]</option>
                 <option value="@CmafFallbackAudio.Eac3">EAC3</option>
                 <option value="@CmafFallbackAudio.Ac3">AC3</option>
                 <option value="@CmafFallbackAudio.AacUpTo7Point1">AAC up to 7.1</option>
@@ -62,21 +62,21 @@
             .DistinctBy(track => track.SourceIndex)
             .ToArray() is { Length: > 0 } subtitleTracks)
         {
-            <label for="cmafSubtitleTrack" class="form-label mb-0">Bitmap subtitles</label>
+            <label for="cmafSubtitleTrack" class="form-label mb-0">@Text["Watch_BitmapSubtitles"]</label>
             <select id="cmafSubtitleTrack" class="form-select form-select-sm w-auto"
                     value="@(_subtitlePresentation == SubtitlePresentation.BurnIn ? _subtitleTrack?.ToString() : "-1")"
                     @onchange="ChangeSubtitleTrack">
-                <option value="-1">Off</option>
+                <option value="-1">@Text["Watch_Off"]</option>
                 @foreach (var track in subtitleTracks)
                 {
-                    <option value="@track.SourceIndex">@FormatTrackLabel(track) (burn-in; higher CPU)</option>
+                    <option value="@track.SourceIndex">@Text["Watch_BurnInTrack", FormatTrackLabel(track)]</option>
                 }
             </select>
         }
         @if (_isPlaying)
         {
             <button class="btn btn-danger" @onclick="StopStreamAsync">
-                <span class="bi bi-stop-fill me-1"></span>Stop
+                <span class="bi bi-stop-fill me-1"></span>@Text["Watch_Stop"]
             </button>
         }
     </div>
@@ -92,17 +92,19 @@
                                        ElementId="cmafVideoPlayer"
                                        UseShakaUi="true"
                                        IsLoading="_isPlayerLoading"
-                                       FallbackText="Your browser does not support adaptive playback." />
+                                       LoadingText="@Text["Watch_SettingUpStream"]"
+                                       FallbackText="@Text["Watch_AdaptivePlaybackUnsupported"]"
+                                       LocalizedText="@CmafPlayerText.Live(Text)" />
                     <div class="p-3 border-top d-flex justify-content-between align-items-center">
                         <div>
                             <h5 class="mb-1">
                                 <span class="badge bg-primary me-2">@_selectedChannelNumber</span>
-                                @(_selectedChannel?.GuideName ?? "Manual Tune")
+                                @(_selectedChannel?.GuideName ?? Text["Watch_ManualTune"])
                             </h5>
                             @if (_currentProgram is not null)
                             {
                                 <p class="text-muted mb-0">
-                                    <strong>Now Playing:</strong> @_currentProgram.Title
+                                    <strong>@Text["Watch_NowPlaying"]</strong> @_currentProgram.Title
                                     @if (!string.IsNullOrEmpty(_currentProgram.EpisodeTitle))
                                     {
                                         <span> - @_currentProgram.EpisodeTitle</span>
@@ -122,15 +124,15 @@
                         {
                             <div id="cmafStreamLoading" class="cmaf-loading-overlay text-white" role="status" aria-live="polite">
                                 <div class="spinner-border mb-3" aria-hidden="true"></div>
-                                <p class="mb-0">Setting up stream...</p>
+                                <p class="mb-0">@Text["Watch_SettingUpStream"]</p>
                             </div>
                         }
                         else
                         {
                             <div class="text-center text-white-50">
                                 <span class="bi bi-broadcast-pin display-1"></span>
-                                <p class="mt-3">Select a channel to start watching</p>
-                                <p class="small">One shared fragment set serves both HLS and DASH.</p>
+                                <p class="mt-3">@Text["Watch_SelectChannelPrompt"]</p>
+                                <p class="small">@Text["Watch_SharedFragmentsHelp"]</p>
                             </div>
                         }
                     </div>
@@ -141,23 +143,23 @@
         @if (!string.IsNullOrWhiteSpace(_errorMessage))
         {
             <div class="alert alert-danger mt-3" role="alert">
-                <h6 class="alert-heading"><span class="bi bi-exclamation-triangle me-2"></span>Stream Error</h6>
+                <h6 class="alert-heading"><span class="bi bi-exclamation-triangle me-2"></span>@Text["Watch_StreamError"]</h6>
                 <pre class="mb-0 small" style="white-space: pre-wrap;">@_errorMessage</pre>
             </div>
         }
 
         <div class="card mt-3">
-            <div class="card-header"><h6 class="mb-0"><span class="bi bi-info-circle me-1"></span>Stream Information</h6></div>
+            <div class="card-header"><h6 class="mb-0"><span class="bi bi-info-circle me-1"></span>@Text["Watch_StreamInformation"]</h6></div>
             <div class="card-body">
                 <p class="@(_selectedChannelNumber is null ? "mb-0" : "mb-3")">
-                    <strong>Player:</strong>
+                    <strong>@Text["Watch_Player"]</strong>
                     <span class="badge bg-success">CMAF/fMP4</span>
-                    <span class="badge bg-info ms-1">FFmpeg (Shared Segments)</span>
+                    <span class="badge bg-info ms-1">@Text["Watch_FFmpegSharedSegments"]</span>
                     <span class="text-muted small ms-2">(HLS + DASH)</span>
                 </p>
                 @if (_session is not null)
                 {
-                    <p class="small mb-1"><strong>Session:</strong> <code>@_session.SessionId</code></p>
+                    <p class="small mb-1"><strong>@Text["Watch_Session"]</strong> <code>@_session.SessionId</code></p>
                     <p class="small mb-1"><strong>DASH:</strong> <code>@_session.DashManifestUrl</code></p>
                     <p class="small mb-3"><strong>HLS:</strong> <code>@_session.HlsManifestUrl</code></p>
                 }
@@ -165,37 +167,37 @@
                 {
                     <div class="row g-3">
                         <div class="col-md-6">
-                            <h6><span class="bi bi-reception-4 me-1"></span>Tuner</h6>
+                            <h6><span class="bi bi-reception-4 me-1"></span>@Text["Watch_Tuner"]</h6>
                             @if (SelectedReceiver is { } tuner)
                             {
                                 <table class="table table-sm table-borderless mb-0">
                                     <tbody>
-                                        <tr><th scope="row">Receiver</th><td>@tuner.Index</td></tr>
+                                        <tr><th scope="row">@Text["Watch_Receiver"]</th><td>@tuner.Index</td></tr>
                                         <tr>
-                                            <th scope="row">Status</th>
+                                            <th scope="row">@Text["Watch_Status"]</th>
                                             <td>
                                                 <span class="badge @(tuner.IsStreaming ? "bg-success" : "bg-info")">
-                                                    @(tuner.IsStreaming ? "Streaming" : "Tuned")
+                                                    @(tuner.IsStreaming ? Text["Watch_Streaming"] : Text["Watch_Tuned"])
                                                 </span>
                                             </td>
                                         </tr>
-                                        <tr><th scope="row">Lock</th><td>@(tuner.LockType ?? "none")</td></tr>
-                                        <tr><th scope="row">Signal</th><td>@tuner.SignalStrength% · SNQ @tuner.SignalQuality% · SEQ @tuner.SymbolQuality%</td></tr>
-                                        <tr><th scope="row">Rate</th><td>@FormatBitRate(tuner.BitsPerSecond) · @tuner.PacketsPerSecond pps</td></tr>
+                                        <tr><th scope="row">@Text["Watch_Lock"]</th><td>@(tuner.LockType ?? Text["Watch_None"])</td></tr>
+                                        <tr><th scope="row">@Text["Watch_Signal"]</th><td>@tuner.SignalStrength% · SNQ @tuner.SignalQuality% · SEQ @tuner.SymbolQuality%</td></tr>
+                                        <tr><th scope="row">@Text["Watch_Rate"]</th><td>@FormatBitRate(tuner.BitsPerSecond) · @tuner.PacketsPerSecond pps</td></tr>
                                     </tbody>
                                 </table>
                             }
                             else
                             {
-                                <p class="small text-muted mb-0">No active tuner is currently reporting this channel.</p>
+                                <p class="small text-muted mb-0">@Text["Watch_NoActiveTuner"]</p>
                             }
                         </div>
                         <div class="col-md-6">
-                            <h6><span class="bi bi-broadcast-pin me-1"></span>Hosted Stream</h6>
+                            <h6><span class="bi bi-broadcast-pin me-1"></span>@Text["Watch_HostedStream"]</h6>
                             @if (_playerVideo is not null)
                             {
                                 <p class="small mb-1">
-                                    <strong>Playing video:</strong>
+                                    <strong>@Text["Watch_PlayingVideo"]</strong>
                                     @string.Join(" · ", new[] { _playerVideo.Codec, _playerVideo.Width.HasValue && _playerVideo.Height.HasValue ? $"{_playerVideo.Width}x{_playerVideo.Height}" : null }
                                         .Where(value => !string.IsNullOrWhiteSpace(value)))
                                 </p>
@@ -203,7 +205,7 @@
                             @if (_playerAudio is not null)
                             {
                                 <p class="small mb-1">
-                                    <strong>Playing audio:</strong>
+                                    <strong>@Text["Watch_PlayingAudio"]</strong>
                                     @string.Join(" · ", new[] { _playerAudio.Label, _playerAudio.Codec, _playerAudio.Channels.HasValue ? $"{_playerAudio.Channels} ch" : null }
                                         .Where(value => !string.IsNullOrWhiteSpace(value)))
                                 </p>
@@ -211,11 +213,11 @@
                             @if (_activeStream is not null)
                             {
                                 <p class="small mb-1">
-                                    <strong>Session:</strong> <code>@_activeStream.SessionId</code>
+                                    <strong>@Text["Watch_Session"]</strong> <code>@_activeStream.SessionId</code>
                                     <span class="badge bg-info ms-1">CMAF</span>
                                 </p>
                                 <p class="small mb-1">
-                                    <strong>Playback protocol:</strong> @_effectiveProtocol
+                                    <strong>@Text["Watch_PlaybackProtocol"]</strong> @_effectiveProtocol
                                 </p>
                                 @foreach (var track in _activeStream.Tracks)
                                 {
@@ -226,30 +228,30 @@
                                         @FormatOutputTrack(track)
                                         @if (IsPlayingTrack(track))
                                         {
-                                            <span class="badge bg-success ms-1">playing</span>
+                                            <span class="badge bg-success ms-1">@Text["Watch_TrackPlaying"]</span>
                                         }
                                         else if (IsWebVttSidecar(track))
                                         {
-                                            <span class="badge bg-info ms-1">sidecar</span>
+                                            <span class="badge bg-info ms-1">@Text["Watch_TrackSidecar"]</span>
                                         }
                                         else if (track.IsSelected)
                                         {
-                                            <span class="badge bg-secondary ms-1">included</span>
+                                            <span class="badge bg-secondary ms-1">@Text["Watch_TrackIncluded"]</span>
                                         }
                                         else
                                         {
-                                            <span class="badge bg-dark ms-1">not included</span>
+                                            <span class="badge bg-dark ms-1">@Text["Watch_TrackNotIncluded"]</span>
                                         }
                                     </div>
                                 }
                                 @if (_activeStream.SourceBitRate.HasValue)
                                 {
-                                    <p class="small text-muted mb-0">Source total: @FormatBitRate(_activeStream.SourceBitRate)</p>
+                                    <p class="small text-muted mb-0">@Text["Watch_SourceTotal", FormatBitRate(_activeStream.SourceBitRate)]</p>
                                 }
                             }
                             else
                             {
-                                <p class="small text-muted mb-0">Waiting for hosted stream metadata.</p>
+                                <p class="small text-muted mb-0">@Text["Watch_WaitingForHostedMetadata"]</p>
                             }
                         </div>
                     </div>
@@ -260,14 +262,14 @@
 
     <div class="col-lg-3">
         <div class="card">
-            <div class="card-header"><h6 class="mb-0"><span class="bi bi-list-ul me-1"></span>Channels</h6></div>
+            <div class="card-header"><h6 class="mb-0"><span class="bi bi-list-ul me-1"></span>@Text["Watch_Channels"]</h6></div>
             <div class="card-body p-0">
                 <form class="p-3 border-bottom" @onsubmit="ManualTuneAsync" @onsubmit:preventDefault="true">
-                    <label for="cmafManualChannel" class="form-label">Manual Tune</label>
+                    <label for="cmafManualChannel" class="form-label">@Text["Watch_ManualTune"]</label>
                     <div class="input-group input-group-sm">
                         <input id="cmafManualChannel" class="form-control" type="text" inputmode="decimal" autocomplete="off"
-                               placeholder="Channel number" value="@_manualChannelNumber" @oninput="UpdateManualChannelNumber" />
-                        <button class="btn btn-primary" type="submit"><span class="bi bi-play-fill me-1"></span>Tune</button>
+                               placeholder="@Text["Watch_ChannelNumberPlaceholder"]" value="@_manualChannelNumber" @oninput="UpdateManualChannelNumber" />
+                        <button class="btn btn-primary" type="submit"><span class="bi bi-play-fill me-1"></span>@Text["Watch_Tune"]</button>
                     </div>
                     @if (_manualTuneValidationMessage is not null)
                     {
@@ -280,7 +282,7 @@
                 }
                 else if (_channels.Count == 0)
                 {
-                    <p class="text-muted small text-center p-3 mb-0">No enabled channels available.</p>
+                    <p class="text-muted small text-center p-3 mb-0">@Text["Watch_NoEnabledChannels"]</p>
                 }
                 else
                 {
@@ -296,11 +298,11 @@
                                         @channel.GuideName
                                         @if (channel.Favorite)
                                         {
-                                            <span class="bi bi-star-fill text-warning ms-1" title="Favorite channel" aria-label="Favorite channel"></span>
+                                            <span class="bi bi-star-fill text-warning ms-1" title="@Text["Watch_FavoriteChannel"]" aria-label="@Text["Watch_FavoriteChannel"]"></span>
                                         }
                                         @if (channel.DRM)
                                         {
-                                            <span class="bi bi-shield-lock-fill text-warning ms-1" title="DRM-protected channel" aria-label="DRM-protected channel"></span>
+                                            <span class="bi bi-shield-lock-fill text-warning ms-1" title="@Text["Watch_DrmProtectedChannel"]" aria-label="@Text["Watch_DrmProtectedChannel"]"></span>
                                         }
                                     </span>
                                     @if (nowPlaying is not null)

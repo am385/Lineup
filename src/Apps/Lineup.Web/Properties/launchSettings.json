@@ -9,7 +9,7 @@
         "environmentVariables": {
           "ASPNETCORE_ENVIRONMENT": "Development",
           "Lineup__AppDataPath": "../../../.lineup/appdata",
-          "Lineup__XmltvPath": "../../../.lineup/xmltv",
+          "Lineup__GuideOutputDir": "../../../.lineup/guide",
           "Lineup__TransientPath": "../../../.lineup/transient"
         }
       },
@@ -21,7 +21,7 @@
         "environmentVariables": {
           "ASPNETCORE_ENVIRONMENT": "Development",
           "Lineup__AppDataPath": "../../../.lineup/appdata",
-          "Lineup__XmltvPath": "../../../.lineup/xmltv",
+          "Lineup__GuideOutputDir": "../../../.lineup/guide",
           "Lineup__TransientPath": "../../../.lineup/transient"
         }
       }

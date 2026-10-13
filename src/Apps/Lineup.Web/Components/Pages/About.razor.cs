@@ -16,7 +16,7 @@ public partial class About
     [Inject]
     private IJSRuntime JS { get; set; } = default!;
 
-    private string _version = "Unknown";
+    private string _version = "";
     private string _xmltvUrl = "";
     private bool _copied;
 
@@ -27,7 +27,7 @@ public partial class About
     {
         _version = Assembly.GetExecutingAssembly()
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
-            ?.InformationalVersion ?? "Unknown";
+            ?.InformationalVersion ?? Text["Common_Unknown"];
 
         _xmltvUrl = Navigation.BaseUri.TrimEnd('/') + "/api/xmltv";
     }

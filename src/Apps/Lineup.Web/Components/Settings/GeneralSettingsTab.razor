@@ -1,8 +1,10 @@
 <div id="generalSettingsTab" class="@CssClass" role="tabpanel" aria-labelledby="tab-general">
-    <GeneralSettingsPanel Theme="Theme"
+    <GeneralSettingsPanel Theme="@Theme"
                           ThemeChanged="ThemeChanged"
-                          TimeZoneId="TimeZoneId"
+                          TimeZoneId="@TimeZoneId"
                           TimeZoneIdChanged="TimeZoneIdChanged"
+                          UiCulture="@UiCulture"
+                          UiCultureChanged="UiCultureChanged"
                           CurrentTimeZoneDisplayName="@CurrentTimeZoneDisplayName" />
 </div>
 
@@ -26,6 +28,14 @@
     /// <summary>Gets or sets the timezone change callback.</summary>
     [Parameter]
     public EventCallback<string> TimeZoneIdChanged { get; set; }
+
+    /// <summary>Gets or sets the selected Web UI culture.</summary>
+    [Parameter, EditorRequired]
+    public string UiCulture { get; set; } = UiLocalization.DefaultCulture;
+
+    /// <summary>Gets or sets the Web UI culture change callback.</summary>
+    [Parameter]
+    public EventCallback<string> UiCultureChanged { get; set; }
 
     /// <summary>Gets or sets the current timezone display name.</summary>
     [Parameter, EditorRequired]

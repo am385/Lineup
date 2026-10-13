@@ -3,7 +3,7 @@
 <div class="streaming-flow-paths">
     @if (Snapshot.ActivePaths.Count == 0)
     {
-        <div class="text-body-secondary">No consumers are currently attached.</div>
+        <div class="text-body-secondary">@Text["Streaming_NoConsumersAttached"]</div>
     }
     else
     {
@@ -15,29 +15,29 @@
                         <div class="d-flex flex-wrap align-items-center gap-2">
                             <strong>@path.Endpoint</strong>
                             <span class="badge text-bg-info">@FormatHostedStreamFormat(path.Format)</span>
-                            <span class="badge text-bg-dark">Channel @path.Channel</span>
+                            <span class="badge text-bg-dark">@Text["Streaming_Channel", path.Channel]</span>
                             @if (path.IsShared)
                             {
-                                <span class="badge text-bg-success">Shared · @path.SharedReceiverCount sessions</span>
+                                <span class="badge text-bg-success">@Text["Streaming_SharedSessions", path.SharedReceiverCount]</span>
                             }
                         </div>
                         <dl class="streaming-flow-path-meta mb-0">
-                            <dt>Session</dt>
+                            <dt>@Text["Streaming_Session"]</dt>
                             <dd><code>@path.SessionId</code></dd>
-                            <dt>Active</dt>
+                            <dt>@Text["Streaming_Active"]</dt>
                             <dd>@FormatStreamDuration(path.StartedAtUtc)</dd>
                         </dl>
                     </div>
                     <button type="button"
                             class="btn btn-sm btn-outline-danger"
                             disabled="@StoppingSessionIds.Contains(path.SessionId)"
-                            aria-label="Stop stream @path.SessionId"
+                            aria-label="@Text["Streaming_StopStreamAriaLabel", path.SessionId]"
                             @onclick="() => StopRequested.InvokeAsync(path.SessionId)">
-                        <span class="bi bi-stop-fill me-1"></span>Stop
+                        <span class="bi bi-stop-fill me-1"></span>@Text["Streaming_Stop"]
                     </button>
                 </header>
 
-                <div class="streaming-flow-path-stages" role="group" aria-label="Streaming stages for session @path.SessionId">
+                <div class="streaming-flow-path-stages" role="group" aria-label="@Text["Streaming_StagesAriaLabel", path.SessionId]">
                     @for (var stageIndex = 0; stageIndex < path.Stages.Count; stageIndex++)
                     {
                         var stage = path.Stages[stageIndex];
@@ -153,32 +153,32 @@
         _ => format.ToString()
     };
 
-    private static string FormatStageKind(StreamingFlowStageKind kind) => kind switch
+    private string FormatStageKind(StreamingFlowStageKind kind) => kind switch
     {
-        StreamingFlowStageKind.PhysicalSource => "Physical source",
-        StreamingFlowStageKind.SourceProcessing => "Source processing",
-        StreamingFlowStageKind.Multiplexer => "Multiplexer",
-        StreamingFlowStageKind.VirtualOutput => "Virtual output",
-        StreamingFlowStageKind.OutputProcessing => "Output processing",
-        StreamingFlowStageKind.Consumer => "Consumer",
+        StreamingFlowStageKind.PhysicalSource => Text["Streaming_StagePhysicalSource"],
+        StreamingFlowStageKind.SourceProcessing => Text["Streaming_StageSourceProcessing"],
+        StreamingFlowStageKind.Multiplexer => Text["Streaming_StageMultiplexer"],
+        StreamingFlowStageKind.VirtualOutput => Text["Streaming_StageVirtualOutput"],
+        StreamingFlowStageKind.OutputProcessing => Text["Streaming_StageOutputProcessing"],
+        StreamingFlowStageKind.Consumer => Text["Streaming_StageConsumer"],
         _ => kind.ToString()
     };
 
     private static bool ShowInputMedia(StreamingFlowStageKind kind) =>
         kind is StreamingFlowStageKind.SourceProcessing or StreamingFlowStageKind.OutputProcessing;
 
-    private static string GetInputMediaTitle(StreamingFlowStageKind kind) =>
-        kind == StreamingFlowStageKind.SourceProcessing ? "Raw physical input" : "Source stream components";
+    private string GetInputMediaTitle(StreamingFlowStageKind kind) =>
+        kind == StreamingFlowStageKind.SourceProcessing ? Text["Streaming_RawPhysicalInput"] : Text["Streaming_SourceStreamComponents"];
 
-    private static string GetOutputMediaTitle(StreamingFlowStageKind kind) => kind switch
+    private string GetOutputMediaTitle(StreamingFlowStageKind kind) => kind switch
     {
-        StreamingFlowStageKind.PhysicalSource => "Raw physical stream components",
-        StreamingFlowStageKind.SourceProcessing => "Effective source components",
-        StreamingFlowStageKind.Multiplexer => "Multiplexed stream components",
-        StreamingFlowStageKind.VirtualOutput => "Subscribed stream components",
-        StreamingFlowStageKind.OutputProcessing => "Output stream components",
-        StreamingFlowStageKind.Consumer => "Delivered stream components",
-        _ => "Stream components"
+        StreamingFlowStageKind.PhysicalSource => Text["Streaming_RawPhysicalStreamComponents"],
+        StreamingFlowStageKind.SourceProcessing => Text["Streaming_EffectiveSourceComponents"],
+        StreamingFlowStageKind.Multiplexer => Text["Streaming_MultiplexedStreamComponents"],
+        StreamingFlowStageKind.VirtualOutput => Text["Streaming_SubscribedStreamComponents"],
+        StreamingFlowStageKind.OutputProcessing => Text["Streaming_OutputStreamComponents"],
+        StreamingFlowStageKind.Consumer => Text["Streaming_DeliveredStreamComponents"],
+        _ => Text["Streaming_StreamComponents"]
     };
 
     private static string FormatStreamDuration(DateTime startedAtUtc)

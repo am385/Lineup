@@ -10,12 +10,13 @@ The built-in physical adapter currently supports [HDHomeRun](https://www.silicon
 
 - **Automatic EPG fetching** — downloads SiliconDust's complete gzip-compressed XMLTV guide on the required randomized 20-28 hour schedule
 - **Plugin-based guide outputs** — publishes normalized guide data atomically as global or scoped XMLTV and JSON files
-- **Typed JSON guide contract** — exposes versioned `JsonGuideDocument` models and shared serialization helpers for downstream consumers
+- **Typed JSON guide contract** — exposes versioned `JsonGuideDocument` models, compact key-based supplemental metadata without embedded XML strings, and shared serialization helpers for downstream consumers
 - **Per-channel availability** — keeps disabled channels visible in Lineup while excluding them from published guides, virtual lineups, and physical tuner streams
 - **Live TV streaming** — multi-track MPEG-TS proxy and shared-CMAF HLS/DASH Watch playback with selectable audio and subtitles
 - **Device diagnostics** — connectivity checks across DNS, ping, HTTP API, TCP, and UDP discovery
 - **Streaming flow monitoring** — the Dashboard shows configured physical devices, processing stages, shared multiplexed producers, virtual outputs, and consumer sessions with active and warm paths highlighted
 - **Application diagnostics** — live in-app structured logs, optional rolling files, and opt-in external observability targets
+- **Localized Web interface** — serves first-party UI text in English or Spanish from standard .NET `.resx` resources with a persisted language preference under Regional Settings
 - **Native HDHomeRun protocol** — binary protocol implementation for UDP discovery, TCP control, and channel scanning
 - **Aggregated virtual HDHomeRun devices** — each virtual device can subscribe to all or selected physical tuners and publishes their combined capacity and lineup
 - **Selectable output hosting** — Web Player, virtual HDHomeRun, and Lineup Link outputs can reuse the management host or run in isolated dedicated listeners
@@ -23,7 +24,7 @@ The built-in physical adapter currently supports [HDHomeRun](https://www.silicon
 - **Shared stream graph** — identical physical acquisitions and transforms are reference-counted and multiplexed across virtual devices and viewers
 - **First-class guide sources** — named guide sources subscribe to all or selected compatible physical devices and provide authoritative channel bindings
 - **Inherited transcoding profiles** — global physical and virtual defaults with sparse per-device overrides
-- **Guide-output endpoints** — stable `/api/xmltv` and `/api/guide-outputs/{identifier}` routes serve global or scoped XMLTV/JSON documents
+- **Guide-output endpoints** — stable `/api/xmltv` and `/api/guide-outputs/{identifier}` routes serve global or scoped XMLTV/JSON documents; append `?download=false` to view a document inline instead of downloading it
 - **Versioned status API** — `/api/v1/status` provides one stable guide, device, tuner, and stream snapshot for Home Assistant and other dashboards
 - **Authoritative SQLite storage** — physical channels, enabled preferences, normalized EPG data, and configurable guide history are stored locally
 
@@ -165,7 +166,7 @@ The graphical workflow avoids Compose commands, but every mapping must be entere
    | Windows host folder | Container path |
    |---|---|
    | `C:\Users\YourName\Lineup\data` | `/appdata` |
-   | `C:\Users\YourName\Lineup\xmltv` | `/xmltv` |
+   | `C:\Users\YourName\Lineup\guide` | `/guide` |
    | `C:\Users\YourName\Lineup\transient` | `/transient` |
 
    Replace `YourName` with the Windows user-folder name shown in File Explorer.
@@ -310,7 +311,7 @@ cd src/Apps/Lineup.Web
 dotnet run
 ```
 
-The app starts on `http://localhost:8080` by default. Persistent application data defaults to `/appdata`, XMLTV output defaults to `/xmltv/epg.xml`, and transient stream artifacts default to `/transient`. The development launch profiles keep local runtime state in the ignored repository-root `.lineup` directory, separated into `appdata`, `xmltv`, and `transient` subdirectories. Configure the HDHomeRun device address through the Settings UI.
+The app starts on `http://localhost:8080` by default. Persistent application data defaults to `/appdata`, XMLTV output defaults to `/guide/epg.xml`, and transient stream artifacts default to `/transient`. The development launch profiles keep local runtime state in the ignored repository-root `.lineup` directory, separated into `appdata`, `guide`, and `transient` subdirectories. Configure the HDHomeRun device address through the Settings UI.
 
 ### Running the TUI
 
@@ -469,7 +470,7 @@ All settings are configurable through the web UI's settings page and persisted t
 | Guide Outputs | Built-in global XMLTV plus additional scoped XMLTV or JSON publications selected from enabled guide sources and virtual devices |
 | Virtual Devices | Built-in Web Player plus virtual HDHomeRun and Lineup Link outputs, each subscribed to all or selected compatible physical devices |
 | Virtual Transcoding Defaults | Global output-stage settings inherited by every virtual device unless overridden |
-| XMLTV Output Path | Under Guide Outputs, controls where the built-in global XMLTV document is published. The default is `/xmltv/epg.xml`. Enter a directory directly or use the server directory browser. `Lineup:XmltvPath` optionally changes the initial default and remains available as the reset value; the saved output path is authoritative afterward. |
+| XMLTV Output Path | Under Guide Outputs, controls where the built-in global XMLTV document is published. The default is `/guide/epg.xml`. Enter a directory directly or use the server directory browser. `Lineup:GuideOutputDir` optionally changes the initial default directory and remains available as the reset value; the saved output path is authoritative afterward. |
 | Automatic Guide Refresh | Enables randomized refreshes every 20-28 hours; availability is 2 days or 14 days with a DVR subscription |
 | Virtual Tuner Audio | Preserve non-AC-4 audio codecs, or transcode those tracks to AC-3/E-AC-3 |
 | AC-4 Audio | Preserve AC-4, or transcode it to AC-3 (default) or E-AC-3 |
@@ -538,7 +539,7 @@ Lineup 3.0 introduces application-settings schema `1`, streaming-topology schema
 
 Lineup-owned persistent data defaults to `/appdata`. The optional `Lineup:AppDataPath` setting overrides that root for custom deployments. This data includes settings and backups, the authoritative SQLite channel and guide database, rolling logs, ASP.NET Core Data Protection keys, and the restart-safe Factory Reset marker.
 
-Transient CMAF fragments and subtitle sidecars default to `/transient`. When `Lineup:AppDataPath` is configured but `Lineup:TransientPath` is not, Lineup uses a `lineup` directory beneath the operating system's temporary path to keep disposable stream artifacts outside persistent application data. The optional `Lineup:TransientPath` setting (environment variable `Lineup__TransientPath`) overrides either default. The Compose files mount a `transient` named volume at `/transient`, matching the `appdata` and `xmltv` volume conventions. Custom deployments can replace that named-volume mount with a memory-backed bind mount or Compose `tmpfs`, or with disk-backed storage when transient data must not consume system memory.
+Transient CMAF fragments and subtitle sidecars default to `/transient`. When `Lineup:AppDataPath` is configured but `Lineup:TransientPath` is not, Lineup uses a `lineup` directory beneath the operating system's temporary path to keep disposable stream artifacts outside persistent application data. The optional `Lineup:TransientPath` setting (environment variable `Lineup__TransientPath`) overrides either default. The Compose files mount a `transient` named volume at `/transient`, matching the `appdata` and `guideOutput` volume conventions. Custom deployments can replace that named-volume mount with a memory-backed bind mount or Compose `tmpfs`, or with disk-backed storage when transient data must not consume system memory.
 
 Lineup routes application-owned files through explicit storage boundaries. `AppDataStore` owns persistent settings, database, reset, and log artifacts; `TransientDataStore` owns disposable CMAF and subtitle workspaces; and `XmltvPublicationStore` owns the configured public XMLTV destination, including destinations outside app-data. Browser preferences remain client-local through `BrowserDataStore`. Framework and process infrastructure such as SQLite, Serilog sinks, Data Protection, and FFmpeg continue to receive managed paths and perform their own I/O.
 

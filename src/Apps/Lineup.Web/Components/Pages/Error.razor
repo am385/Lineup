@@ -1,25 +1,24 @@
 @page "/Error"
 
-<PageTitle>Error</PageTitle>
+<PageTitle>@Text["Common_ErrorPageTitle"]</PageTitle>
 
-<h1 class="text-danger">Error.</h1>
-<h2 class="text-danger">An error occurred while processing your request.</h2>
+<h1 class="text-danger">@Text["Common_ErrorHeading"]</h1>
+<h2 class="text-danger">@Text["Common_ErrorProcessingRequest"]</h2>
 
 @if (ShowRequestId)
 {
     <p>
-        <strong>Request ID:</strong> <code>@RequestId</code>
+        <strong>@Text["Common_RequestIdLabel"]:</strong> <code>@RequestId</code>
     </p>
 }
 
-<h3>Development Mode</h3>
+<h3>@Text["Common_DevelopmentModeHeading"]</h3>
 <p>
-    Swapping to <strong>Development</strong> environment will display more detailed information about the error that occurred.
+    @Text["Common_DevelopmentModeDetailsPrefix"] <strong>Development</strong> @Text["Common_DevelopmentModeDetailsSuffix"]
 </p>
 <p>
-    <strong>The Development environment shouldn't be enabled for deployed applications.</strong>
-    It can result in displaying sensitive information from exceptions to end users.
-    For local debugging, enable the <strong>Development</strong> environment by setting the <strong>ASPNETCORE_ENVIRONMENT</strong> environment variable to <strong>Development</strong>
-    and restarting the app.
+    <strong>@Text["Common_DevelopmentModeWarning"]</strong>
+    @Text["Common_DevelopmentModeSensitiveInformation"]
+    @Text["Common_DevelopmentModeLocalDebugPrefix"] <strong>Development</strong> @Text["Common_DevelopmentModeLocalDebugMiddle"] <strong>ASPNETCORE_ENVIRONMENT</strong>
+    @Text["Common_DevelopmentModeLocalDebugSuffix"] <strong>Development</strong> @Text["Common_AndRestartingApp"]
 </p>
-

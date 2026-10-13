@@ -7,6 +7,7 @@ using Lineup.GuideOutputs.Xmltv.Plugin;
 using Lineup.SiliconDust.HDHomeRun.DiscoveryRuntime;
 using Lineup.VirtualOutputs.Protocol;
 using Lineup.VirtualOutputs.Runtime;
+using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 var statusRuntime = new StatusApiRuntime(Guid.NewGuid().ToString("N"));
@@ -21,6 +22,7 @@ builder.Services.AddSingleton<IXmltvPublicationStore>(xmltvPublicationStore);
 builder.Services.AddScoped<IBrowserDataStore, BrowserDataStore>();
 builder.Services.AddScoped<IStatusNotificationService, StatusNotificationService>();
 builder.Services.AddSingleton<IFileSystemBrowser, FileSystemBrowser>();
+builder.Services.AddLocalization(options => options.ResourcesPath = "Resources");
 
 // Prefer the verified repo-local Jellyfin FFmpeg installed by scripts/Install-JellyfinFfmpeg.ps1.
 var sourceProjectPath = Path.Combine(builder.Environment.ContentRootPath, "Lineup.Web.csproj");
@@ -46,8 +48,8 @@ if (webEndpointConfiguration != null)
     builder.WebHost.ConfigureKestrel(serverOptions => WebEndpointConfigurator.Configure(serverOptions, webEndpointConfiguration));
 }
 
-var configuredXmltvPath = builder.Configuration[AppConstants.XmltvPathConfigKey];
-FactoryResetCoordinator.ApplyPendingReset(appDataStore, configuredXmltvPath, transientDataStore, xmltvPublicationStore);
+var configuredGuideOutputDirectory = builder.Configuration[AppConstants.GuideOutputDirConfigKey];
+FactoryResetCoordinator.ApplyPendingReset(appDataStore, configuredGuideOutputDirectory, transientDataStore, xmltvPublicationStore);
 var startupState = StartupSchemaGate.Check(appDataStore);
 builder.Services.AddSingleton(startupState);
 if (!startupState.IsFactoryResetRequired)
@@ -139,6 +141,23 @@ if (!startupState.IsFactoryResetRequired)
 
 // Add controllers for API endpoints (stream proxy)
 builder.Services.AddControllers();
+builder.Services.AddOpenApi(options =>
+{
+    options.AddDocumentTransformer((document, _, _) =>
+    {
+        document.Info.Title = "Lineup API";
+        document.Info.Description = "HTTP APIs exposed by the Lineup management host and its configured virtual outputs.";
+        return Task.CompletedTask;
+    });
+    options.AddOperationTransformer((operation, _, _) =>
+    {
+        if (string.IsNullOrWhiteSpace(operation.Description))
+        {
+            operation.Description = operation.Summary;
+        }
+        return Task.CompletedTask;
+    });
+});
 
 // Add Razor Components with Interactive Server rendering
 builder.Services.AddRazorComponents()
@@ -176,6 +195,7 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseRouting();
+app.Use(UiLocalization.InvokeAsync);
 if (startupState.IsFactoryResetRequired)
 {
     app.Use(async (context, next) =>
@@ -202,6 +222,17 @@ app.UseAntiforgery();
 
 // Map API controllers (stream proxy)
 app.MapControllers();
+app.MapOpenApi()
+    .DisableAntiforgery();
+app.MapScalarApiReference("/api-docs", options =>
+{
+    options
+        .WithTitle("Lineup API")
+        .WithOpenApiRoutePattern("/openapi/{documentName}.json")
+        .SortTagsAlphabetically()
+        .SortOperationsByMethod()
+        .DisableAgent();
+});
 
 // Minimal API for theme persistence from the header toggle (pure JS, no Blazor circuit)
 app.MapPut("/api/theme/{theme}", async (string theme, IWebSettingsService settings) =>
@@ -213,21 +244,41 @@ app.MapPut("/api/theme/{theme}", async (string theme, IWebSettingsService settin
 
     await settings.UpdateAsync(s => s.Theme = theme);
     return Results.NoContent();
-}).DisableAntiforgery();
+})
+    .DisableAntiforgery()
+    .WithName("SetUiTheme")
+    .WithTags("Appearance")
+    .WithSummary("Set the Web UI theme")
+    .WithDescription("Persists the light, dark, or automatic theme used by the Lineup Web UI.");
 
-app.MapGet("/api/runtime", () => Results.Ok(new { instanceId = statusRuntime.InstanceId })).DisableAntiforgery();
+app.MapGet("/api/runtime", () => Results.Ok(new { instanceId = statusRuntime.InstanceId }))
+    .DisableAntiforgery()
+    .WithName("GetRuntime")
+    .WithTags("System")
+    .WithSummary("Get the runtime instance identifier")
+    .WithDescription("Returns an identifier that changes whenever the Lineup Web host restarts.");
 
 app.MapGet("/api/v1/status", async (HttpContext context, StatusApiService status, CancellationToken cancellationToken) =>
 {
     context.Response.Headers.CacheControl = "no-store";
     return Results.Ok(await status.GetStatusAsync(cancellationToken));
-}).DisableAntiforgery();
+})
+    .DisableAntiforgery()
+    .WithName("GetStatus")
+    .WithTags("System")
+    .WithSummary("Get the current Lineup status")
+    .WithDescription("Returns the current system, device, guide, channel, and active-stream status using the configured privacy redaction settings.");
 
 app.MapGet("/api/logs/files/{fileName}", (string fileName, LogFileService files) =>
 {
     var stream = files.OpenRead(fileName);
     return stream == null ? Results.NotFound() : Results.File(stream, "text/plain", fileName);
-}).DisableAntiforgery();
+})
+    .DisableAntiforgery()
+    .WithName("DownloadLogFile")
+    .WithTags("Logs")
+    .WithSummary("Download a rolling log file")
+    .WithDescription("Returns one available rolling log file as plain text.");
 
 // Stable endpoint for the built-in global XMLTV output.
 app.MapGet("/api/xmltv", async Task<IResult> (
@@ -235,13 +286,19 @@ app.MapGet("/api/xmltv", async Task<IResult> (
     ILineupSettingsService settings,
     IStreamingAdapterRegistry adapters,
     IXmltvPublicationStore publications,
+    bool? download,
     CancellationToken cancellationToken) =>
 {
     var output = settings.Settings.Streaming.GuideOutputs.SingleOrDefault(candidate => candidate.IsBuiltIn && candidate.Enabled);
     return output is null
         ? Results.NotFound("The built-in XMLTV guide output is not enabled.")
-        : await ServeGuideOutputAsync(output, guides, adapters, publications, cancellationToken);
-}).DisableAntiforgery();
+        : await ServeGuideOutputAsync(output, guides, adapters, publications, download ?? true, cancellationToken);
+})
+    .DisableAntiforgery()
+    .WithName("GetGlobalXmltvGuideOutput")
+    .WithTags("Guide Outputs")
+    .WithSummary("Get the global XMLTV guide output")
+    .WithDescription("Returns the built-in XMLTV output inline or as a file attachment. The download parameter defaults to true.");
 
 app.MapGet("/api/guide-outputs/{guideOutputIdentifier}", async Task<IResult> (
     string guideOutputIdentifier,
@@ -249,6 +306,7 @@ app.MapGet("/api/guide-outputs/{guideOutputIdentifier}", async Task<IResult> (
     ILineupSettingsService settings,
     IStreamingAdapterRegistry adapters,
     IXmltvPublicationStore publications,
+    bool? download,
     CancellationToken cancellationToken) =>
 {
     var output = GuideOutputIdentifierResolver.Resolve(
@@ -256,14 +314,20 @@ app.MapGet("/api/guide-outputs/{guideOutputIdentifier}", async Task<IResult> (
         guideOutputIdentifier);
     return output is null
         ? Results.NotFound()
-        : await ServeGuideOutputAsync(output, guides, adapters, publications, cancellationToken);
-}).DisableAntiforgery();
+        : await ServeGuideOutputAsync(output, guides, adapters, publications, download ?? true, cancellationToken);
+})
+    .DisableAntiforgery()
+    .WithName("GetGuideOutput")
+    .WithTags("Guide Outputs")
+    .WithSummary("Get a configured guide output")
+    .WithDescription("Returns a guide output selected by its editable key or stable identifier, inline or as a file attachment. The download parameter defaults to true.");
 
 static async Task<IResult> ServeGuideOutputAsync(
     GuideOutputDefinition output,
     ITopologyGuideService guides,
     IStreamingAdapterRegistry adapters,
     IXmltvPublicationStore publications,
+    bool download,
     CancellationToken cancellationToken)
 {
     GuideOutputDestination destination;
@@ -286,9 +350,13 @@ static async Task<IResult> ServeGuideOutputAsync(
     }
 
     var stream = publications.OpenRead(destination.Path);
-    return stream is null
-        ? Results.NotFound("The guide output publication is not available.")
-        : Results.File(stream, destination.ContentType, destination.FileName);
+    if (stream is null)
+    {
+        return Results.NotFound("The guide output publication is not available.");
+    }
+    return download
+        ? Results.File(stream, destination.ContentType, destination.FileName)
+        : Results.File(stream, destination.ContentType);
 }
 
 app.MapStaticAssets();

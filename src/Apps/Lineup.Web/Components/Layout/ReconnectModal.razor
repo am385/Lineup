@@ -7,25 +7,25 @@
             <div></div>
         </div>
         <p class="components-reconnect-first-attempt-visible">
-            Rejoining the server...
+            @Text["Common_RejoiningServer"]
         </p>
         <p class="components-reconnect-repeated-attempt-visible">
-            Rejoin failed... trying again in <span id="components-seconds-to-next-attempt"></span> seconds.
+            @Text["Common_RejoinFailedRetryPrefix"] <span id="components-seconds-to-next-attempt"></span> @Text["Common_SecondsSuffix"]
         </p>
         <p class="components-reconnect-failed-visible">
-            Failed to rejoin.<br />Please retry or reload the page.
+            @Text["Common_FailedToRejoin"]<br />@Text["Common_RetryOrReload"]
         </p>
         <button id="components-reconnect-button" class="components-reconnect-failed-visible">
-            Retry
+            @Text["Common_Retry"]
         </button>
         <p class="components-pause-visible">
-            The session has been paused by the server.
+            @Text["Common_SessionPaused"]
         </p>
         <p class="components-resume-failed-visible">
-            Failed to resume the session.<br />Please retry or reload the page.
+            @Text["Common_FailedToResume"]<br />@Text["Common_RetryOrReload"]
         </p>
         <button id="components-resume-button" class="components-pause-visible components-resume-failed-visible">
-            Resume
+            @Text["Common_Resume"]
         </button>
     </div>
 </dialog>

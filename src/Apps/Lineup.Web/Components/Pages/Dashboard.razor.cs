@@ -225,23 +225,27 @@ public partial class Dashboard : IDisposable
     {
         if (_topologyChannels.Count == 0)
         {
-            return "0 enabled · 0 disabled · never refreshed";
+            return Text["Dashboard_ChannelsSummaryNever", 0, 0];
         }
 
-        return $"{_topologyChannels.Count(channel => channel.IsEnabled)} enabled · {_topologyChannels.Count(channel => !channel.IsEnabled)} disabled · updated {Tz.ConvertFromUtc(_topologyChannels.Max(channel => channel.LastSeenUtc)):yyyy-MM-dd HH:mm:ss}";
+        return Text[
+            "Dashboard_ChannelsSummary",
+            _topologyChannels.Count(channel => channel.IsEnabled),
+            _topologyChannels.Count(channel => !channel.IsEnabled),
+            Tz.ConvertFromUtc(_topologyChannels.Max(channel => channel.LastSeenUtc)).ToString("yyyy-MM-dd HH:mm:ss")];
     }
 
     private string FormatGuideSummary()
     {
-        var remaining = _stats?.TotalTimeSpan?.ToString(@"d' days 'h' hrs'") ?? "N/A";
+        var remaining = _stats?.TotalTimeSpan?.ToString(Text["Dashboard_RemainingDurationFormat"].Value) ?? Text["Common_NotAvailable"].Value;
         var autoFetch = !AutoFetchState.IsEnabled
-            ? "auto-fetch disabled"
+            ? Text["Dashboard_AutoFetchDisabled"].Value
             : AutoFetchState.IsRunning
-                ? "auto-fetch running"
+                ? Text["Dashboard_AutoFetchRunning"].Value
                 : AutoFetchState.NextFetchTime.HasValue
-                    ? $"next fetch in {FormatCountdown(_countdown)}"
-                    : "auto-fetch pending";
-        return $"{_stats?.ChannelCount ?? 0} channels · {_stats?.ProgramCount ?? 0} programs · {remaining} remaining · {autoFetch}";
+                    ? Text["Dashboard_NextFetchIn", FormatCountdown(_countdown)].Value
+                    : Text["Dashboard_AutoFetchPending"].Value;
+        return Text["Dashboard_GuideSummary", _stats?.ChannelCount ?? 0, _stats?.ProgramCount ?? 0, remaining, autoFetch];
     }
 
     private string FormatDeviceSummary()
@@ -249,18 +253,18 @@ public partial class Dashboard : IDisposable
         var devices = DeviceStatuses.Devices;
         var receivers = devices.SelectMany(device => device.Status?.Receivers ?? []).ToArray();
         var failures = devices.Count(device => device.Error is not null);
-        return $"{devices.Count} devices · {receivers.Count(receiver => receiver.IsStreaming)} streaming · {failures} unavailable";
+        return Text["Dashboard_DeviceSummary", devices.Count, receivers.Count(receiver => receiver.IsStreaming), failures];
     }
 
     private string FormatActiveStreamsSummary()
     {
         var refreshed = _activeStreamsLastRefreshUtc.HasValue
-            ? $"refreshed {Tz.ConvertFromUtc(_activeStreamsLastRefreshUtc.Value):HH:mm:ss}"
-            : "not refreshed";
+            ? Text["Dashboard_RefreshedAt", Tz.ConvertFromUtc(_activeStreamsLastRefreshUtc.Value).ToString("HH:mm:ss")].Value
+            : Text["Dashboard_NotRefreshed"].Value;
         var schedule = WebSettingsService.Settings.IsActiveStreamRefreshEnabled
-            ? $"every {WebSettingsService.Settings.ActiveStreamRefreshIntervalSeconds} seconds"
-            : "auto-refresh disabled";
-        return $"{_activeStreams.Count} active · {refreshed} · {schedule}";
+            ? Text["Dashboard_EverySeconds", WebSettingsService.Settings.ActiveStreamRefreshIntervalSeconds].Value
+            : Text["Dashboard_AutoRefreshDisabled"].Value;
+        return Text["Dashboard_ActiveStreamsSummary", _activeStreams.Count, refreshed, schedule];
     }
 
     private void OnSettingsChanged()
@@ -340,11 +344,11 @@ public partial class Dashboard : IDisposable
         }
     }
 
-    private static string FormatCountdown(TimeSpan countdown)
+    private string FormatCountdown(TimeSpan countdown)
     {
         if (countdown <= TimeSpan.Zero)
         {
-            return "Starting soon...";
+            return Text["Dashboard_StartingSoon"];
         }
 
         if (countdown.TotalHours >= 1)
@@ -490,7 +494,7 @@ public partial class Dashboard : IDisposable
         }
         catch (Exception ex)
         {
-            SetStatus($"Error loading the saved channel lineup: {ex.Message}", isError: true);
+            SetStatus(Text["Dashboard_ErrorLoadingSavedLineup", ex.Message], isError: true);
         }
     }
 
@@ -507,13 +511,13 @@ public partial class Dashboard : IDisposable
             var channelCount = results.Where(result => result.Succeeded).Sum(result => result.ChannelCount);
             SetStatus(
                 failed == 0
-                    ? $"Refreshed {channelCount} physical source channels."
-                    : $"Refreshed {channelCount} physical source channels with {failed} device failure(s).",
+                    ? Text["Dashboard_RefreshedChannels", channelCount]
+                    : Text["Dashboard_RefreshedChannelsWithFailures", channelCount, failed],
                 isError: failed > 0);
         }
         catch (Exception ex)
         {
-            SetStatus($"Error refreshing channels: {ex.Message}", isError: true);
+            SetStatus(Text["Dashboard_ErrorRefreshingChannels", ex.Message], isError: true);
         }
         finally
         {
@@ -532,7 +536,7 @@ public partial class Dashboard : IDisposable
         _fetchProgress = new FetchProgressInfo
         {
             Status = FetchStatus.Fetching,
-            Message = "Refreshing enabled guide sources"
+            Message = Text["Dashboard_RefreshingEnabledGuideSources"]
         };
 
         try
@@ -549,24 +553,24 @@ public partial class Dashboard : IDisposable
             if (result.FailedSourceCount > 0 || failedOutputs > 0)
             {
                 SetStatus(
-                    $"Guide refresh completed with {result.FailedSourceCount} failed source(s) and {failedOutputs} failed output(s). Successful imports and publications were preserved.",
+                    Text["Dashboard_GuideRefreshWithFailures", result.FailedSourceCount, failedOutputs],
                     isError: true);
             }
             else if (result.Sources.Count == 0)
             {
-                SetStatus("No guide sources are enabled. XMLTV was regenerated from cached guide data.", isError: false);
+                SetStatus(Text["Dashboard_NoGuideSourcesEnabled"], isError: false);
             }
             else
             {
                 SetStatus(
-                    $"Guide data fetched successfully from {result.SuccessfulSourceCount} source(s): {result.ChannelCount:N0} channels and {result.ProgramCount:N0} programs.",
+                    Text["Dashboard_GuideFetchedSuccessfully", result.SuccessfulSourceCount, result.ChannelCount, result.ProgramCount],
                     isError: false);
             }
         }
 
         catch (Exception ex)
         {
-            SetStatus($"Error fetching data: {ex.Message}", isError: true);
+            SetStatus(Text["Dashboard_ErrorFetchingData", ex.Message], isError: true);
         }
         finally
         {
@@ -590,17 +594,17 @@ public partial class Dashboard : IDisposable
             if (failures.Length > 0)
             {
                 SetStatus(
-                    $"Published {results.Count - failures.Length} guide output(s); {failures.Length} failed: {string.Join(" ", failures.Select(result => $"{result.Name}: {result.Error}"))}",
+                    Text["Dashboard_PublishedOutputsWithFailures", results.Count - failures.Length, failures.Length, string.Join(" ", failures.Select(result => $"{result.Name}: {result.Error}"))],
                     isError: true);
             }
             else
             {
-                SetStatus($"Published {results.Count} guide output(s) successfully.", isError: false);
+                SetStatus(Text["Dashboard_PublishedOutputsSuccessfully", results.Count], isError: false);
             }
         }
         catch (Exception ex)
         {
-            SetStatus($"Error generating XMLTV: {ex.Message}", isError: true);
+            SetStatus(Text["Dashboard_ErrorGeneratingXmltv", ex.Message], isError: true);
         }
         finally
         {
@@ -632,11 +636,11 @@ public partial class Dashboard : IDisposable
         {
             await DeviceStatuses.StopReceiverAsync(deviceId, receiverIndex);
             await DeviceStatuses.RefreshAsync(SettingsService.Settings.Streaming);
-            SetStatus($"Receiver {receiverIndex} stopped successfully.", isError: false);
+            SetStatus(Text["Dashboard_ReceiverStopped", receiverIndex], isError: false);
         }
         catch (Exception ex)
         {
-            SetStatus($"Failed to stop receiver {receiverIndex}: {ex.Message}", isError: true);
+            SetStatus(Text["Dashboard_FailedToStopReceiver", receiverIndex, ex.Message], isError: true);
         }
         finally
         {
@@ -649,11 +653,11 @@ public partial class Dashboard : IDisposable
         try
         {
             await DeviceStatuses.RestartAsync(deviceId);
-            SetStatus("Device restart command sent. Device will be unavailable for ~30 seconds.", isError: false);
+            SetStatus(Text["Dashboard_DeviceRestartSent"], isError: false);
         }
         catch (Exception ex)
         {
-            SetStatus($"Failed to restart device: {ex.Message}", isError: true);
+            SetStatus(Text["Dashboard_FailedToRestartDevice", ex.Message], isError: true);
         }
     }
 

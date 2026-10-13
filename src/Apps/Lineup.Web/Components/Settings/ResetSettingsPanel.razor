@@ -1,40 +1,39 @@
 <div class="card mb-4">
     <div class="card-header">
-        <h5 class="mb-0"><span class="bi bi-sliders me-1"></span>Reset Settings to Defaults</h5>
+        <h5 class="mb-0"><span class="bi bi-sliders me-1"></span>@Text["Settings_ResetDefaultsHeading"]</h5>
     </div>
     <div class="card-body">
-        <p>Restores every configurable setting to its default value. You can review the defaults before saving them.</p>
+        <p>@Text["Settings_ResetDefaultsDescription"]</p>
         <button id="resetSettings" type="button" class="btn btn-outline-secondary" @onclick="() => ResetDefaultsRequested.InvokeAsync()">
-            <span class="bi bi-arrow-counterclockwise me-1"></span>Reset Settings to Defaults
+            <span class="bi bi-arrow-counterclockwise me-1"></span>@Text["Settings_ResetDefaultsButton"]
         </button>
     </div>
 </div>
 
 <div id="restartLineupCard" class="card mb-4">
     <div class="card-header">
-        <h5 class="mb-0"><span class="bi bi-arrow-repeat me-1"></span>Restart Lineup</h5>
+        <h5 class="mb-0"><span class="bi bi-arrow-repeat me-1"></span>@Text["Settings_RestartHeading"]</h5>
     </div>
     <div class="card-body">
-        <p>Gracefully restarts Lineup without changing settings or deleting application data.</p>
+        <p>@Text["Settings_RestartDescription"]</p>
         <button id="restartLineup" type="button" class="btn btn-outline-primary" @onclick="() => RestartRequested.InvokeAsync()" disabled="@IsRestarting">
-            <span class="bi bi-arrow-repeat me-1"></span>Restart Lineup
+            <span class="bi bi-arrow-repeat me-1"></span>@Text["Settings_RestartButton"]
         </button>
     </div>
 </div>
 
 <div id="factoryResetCard" class="card border-danger mb-4">
     <div class="card-header text-bg-danger">
-        <h5 class="mb-0"><span class="bi bi-exclamation-triangle me-1"></span>Factory Reset</h5>
+        <h5 class="mb-0"><span class="bi bi-exclamation-triangle me-1"></span>@Text["Settings_FactoryResetHeading"]</h5>
     </div>
     <div class="card-body">
         <p>
-            Permanently removes Lineup settings, guide data, cached XMLTV data, and transient stream files. Lineup will restart at the first-run Device setup.
-            XMLTV files outside Lineup-owned storage are preserved.
+            @Text["Settings_FactoryResetDescription"]
         </p>
         @if (!ShowFactoryResetConfirmation)
         {
             <button id="showFactoryResetConfirmation" type="button" class="btn btn-outline-danger" @onclick="() => ShowFactoryResetRequested.InvokeAsync()">
-                <span class="bi bi-trash3 me-1"></span>Factory Reset Lineup
+                <span class="bi bi-trash3 me-1"></span>@Text["Settings_FactoryResetButton"]
             </button>
         }
         else
@@ -44,7 +43,7 @@
                     <input id="factoryResetConfirmationCheck" type="checkbox" class="form-check-input"
                            checked="@FactoryResetConfirmed" @onchange="ChangeConfirmationAsync" disabled="@IsFactoryResetting" />
                     <label for="factoryResetConfirmationCheck" class="form-check-label">
-                        I understand that this will permanently erase all Lineup-owned data.
+                        @Text["Settings_FactoryResetConfirmationLabel"]
                     </label>
                 </div>
                 <div class="d-flex gap-2">
@@ -54,10 +53,10 @@
                         {
                             <span class="spinner-border spinner-border-sm me-1"></span>
                         }
-                        <span class="bi bi-trash3 me-1"></span>Erase Data and Restart
+                        <span class="bi bi-trash3 me-1"></span>@Text["Settings_FactoryResetConfirmButton"]
                     </button>
                     <button id="cancelFactoryReset" type="button" class="btn btn-outline-secondary" @onclick="() => CancelFactoryResetRequested.InvokeAsync()"
-                            disabled="@IsFactoryResetting">Cancel</button>
+                            disabled="@IsFactoryResetting">@Text["Settings_CancelButton"]</button>
                 </div>
             </div>
         }

@@ -3,18 +3,19 @@ using Lineup.Web.Services;
 using Lineup.GuideOutputs.Xmltv.Plugin;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Lineup.Web.Tests.Components.Pages;
+namespace Lineup.Web.Tests;
 
 /// <summary>
 /// Provides page component tests with services normally supplied by the application host.
 /// </summary>
-internal sealed class BunitContext : Bunit.BunitContext
+internal sealed class LineupWebBunitContext : Bunit.BunitContext
 {
     /// <summary>
     /// Initializes a new page component test context.
     /// </summary>
-    public BunitContext()
+    public LineupWebBunitContext()
     {
+        Services.AddLocalization(options => options.ResourcesPath = "Resources");
         Services.AddSingleton(new LineupStartupState(LineupStartupStatus.Ready));
         Services.AddSingleton<IStatusNotificationService, StatusNotificationService>();
         Services.AddSingleton<IPhysicalTunerDriver, Lineup.Web.Tests.TestPhysicalTunerDriver>();

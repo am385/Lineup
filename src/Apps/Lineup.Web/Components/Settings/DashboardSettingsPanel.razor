@@ -1,14 +1,14 @@
 <div class="card mb-4">
     <div class="card-header">
-        <h5 class="mb-0">Active Streams</h5>
+        <h5 class="mb-0">@Text["Settings_DashboardActiveStreamsHeading"]</h5>
     </div>
     <div class="card-body">
         <div class="row">
             <div class="col-md-6">
-                <label for="activeStreamRefreshInterval" class="form-label">Active Stream Refresh Interval (seconds)</label>
+                <label for="activeStreamRefreshInterval" class="form-label">@Text["Settings_DashboardRefreshIntervalLabel"]</label>
                 <input type="number" class="form-control" id="activeStreamRefreshInterval"
                        value="@ActiveStreamRefreshIntervalSeconds" @onchange="ChangeRefreshIntervalAsync" min="0" max="300" />
-                <div class="form-text">How often to refresh active hosted streams on the dashboard. Set to 0 to disable auto-refresh.</div>
+                <div class="form-text">@Text["Settings_DashboardRefreshIntervalHelp"]</div>
             </div>
         </div>
     </div>

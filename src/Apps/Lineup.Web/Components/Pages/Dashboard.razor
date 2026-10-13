@@ -3,14 +3,14 @@
 @using Lineup.Web.Components.Streaming
 @using Lineup.Web.Services
 
-<PageTitle>Dashboard</PageTitle>
+<PageTitle>@Text["Dashboard_PageTitle"]</PageTitle>
 
-<h1><span class="bi bi-tv me-2"></span>Dashboard</h1>
+<h1><span class="bi bi-tv me-2"></span>@Text["Dashboard_Heading"]</h1>
 
 
 @if (_stats == null)
 {
-    <p><em>Loading...</em></p>
+    <p><em>@Text["Common_Loading"]</em></p>
 }
 else
 {
@@ -20,7 +20,7 @@ else
                             IsRefreshing="@(_isBusy && _currentAction == "channels")"
                             EnabledCount="_topologyChannels.Count(channel => channel.IsEnabled)"
                             DisabledCount="_topologyChannels.Count(channel => !channel.IsEnabled)"
-                            LastUpdated="@(_topologyChannels.Count == 0 ? "Never" : Tz.ConvertFromUtc(_topologyChannels.Max(channel => channel.LastSeenUtc)).ToString("yyyy-MM-dd HH:mm:ss"))"
+                            LastUpdated="@(_topologyChannels.Count == 0 ? Text["Common_Never"].Value : Tz.ConvertFromUtc(_topologyChannels.Max(channel => channel.LastSeenUtc)).ToString("yyyy-MM-dd HH:mm:ss"))"
                             RefreshRequested="RefreshChannels"
                             ToggleRequested="() => ToggleSection(DashboardSection.Channels)" />
 

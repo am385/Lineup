@@ -3,7 +3,7 @@
 
 <div class="guide-container">
     <div class="guide-header">
-        <div class="guide-channel-header">Channel</div>
+        <div class="guide-channel-header">@Text["Common_Channel"]</div>
         <div class="guide-time-slots" style="width: @(ProgramsWidth)px;">
             @foreach (var slot in TimeSlots)
             {
@@ -22,15 +22,15 @@
                     @channel.GuideNumber
                     @if (!IsChannelEnabled(channel.GuideNumber))
                     {
-                        <span class="bi bi-slash-circle text-secondary ms-1" title="Disabled channel" aria-label="Disabled channel"></span>
+                        <span class="bi bi-slash-circle text-secondary ms-1" title="@Text["Guide_DisabledChannel"]" aria-label="@Text["Guide_DisabledChannel"]"></span>
                     }
                     @if (channel.Favorite)
                     {
-                        <span class="bi bi-star-fill text-warning ms-1" title="Favorite channel" aria-label="Favorite channel"></span>
+                        <span class="bi bi-star-fill text-warning ms-1" title="@Text["Guide_FavoriteChannel"]" aria-label="@Text["Guide_FavoriteChannel"]"></span>
                     }
                     @if (channel.DRM)
                     {
-                        <span class="bi bi-shield-lock-fill text-warning ms-1" title="DRM-protected channel" aria-label="DRM-protected channel"></span>
+                        <span class="bi bi-shield-lock-fill text-warning ms-1" title="@Text["Guide_DrmProtectedChannel"]" aria-label="@Text["Guide_DrmProtectedChannel"]"></span>
                     }
                 </div>
                 <div class="channel-name" title="@channel.GuideName">@TruncateText(channel.GuideName, 12)</div>
@@ -128,7 +128,7 @@
     {
         var start = Tz.ConvertFromUtc(DateTimeOffset.FromUnixTimeSeconds(program.StartTime).UtcDateTime);
         var end = Tz.ConvertFromUtc(DateTimeOffset.FromUnixTimeSeconds(program.EndTime).UtcDateTime);
-        var tooltip = $"{program.Title}\n{start:h:mm tt} - {end:h:mm tt} ({(end - start).TotalMinutes:0} min)";
+        var tooltip = Text["Guide_ProgramTooltip", program.Title ?? string.Empty, start.ToString("h:mm tt"), end.ToString("h:mm tt"), (end - start).TotalMinutes];
 
         return string.IsNullOrEmpty(program.EpisodeTitle) ? tooltip : $"{tooltip}\n{program.EpisodeTitle}";
     }

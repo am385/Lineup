@@ -14,6 +14,29 @@ namespace Lineup.Web.Tests.Components.Pages;
 public class LogsTests
 {
     /// <summary>
+    /// Verifies the category and search filters initially display their placeholders without literal backing-field names.
+    /// </summary>
+    [Fact]
+    public void Render_InitialFilters_AreEmpty()
+    {
+        // Arrange
+        using var context = new BunitContext();
+        var root = Path.Combine(Path.GetTempPath(), $"lineup-logs-page-{Guid.NewGuid():N}");
+        var store = new InMemoryLogEventStore();
+        var runtime = new LoggingRuntimeState(root, new FileLoggingSettings(false, LogEventLevel.Information, 7, 50), []);
+        context.Services.AddSingleton<ILogEventStore>(store);
+        context.Services.AddSingleton(runtime);
+        context.Services.AddSingleton(new LogFileService(runtime));
+
+        // Act
+        var component = context.Render<Logs>();
+
+        // Assert
+        Assert.Equal(string.Empty, component.Find("#logCategory").GetAttribute("value"));
+        Assert.Equal(string.Empty, component.Find("#logSearch").GetAttribute("value"));
+    }
+
+    /// <summary>
     /// Verifies the live viewer can display Trace events enabled by application filters.
     /// </summary>
     [Fact]

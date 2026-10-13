@@ -1,7 +1,7 @@
 <div class="card mb-4">
     <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
         <div>
-            <h5 class="mb-0"><span class="bi bi-router me-1"></span>Physical Devices</h5>
+            <h5 class="mb-0"><span class="bi bi-router me-1"></span>@Text["Dashboard_PhysicalDevicesHeading"]</h5>
             <small class="text-muted">@Summary</small>
         </div>
         <div class="d-flex align-items-center ms-auto">
@@ -10,7 +10,7 @@
                 {
                     <span class="spinner-border spinner-border-sm me-1"></span>
                 }
-                <span class="bi bi-arrow-clockwise me-1"></span>Refresh
+                <span class="bi bi-arrow-clockwise me-1"></span>@Text["Common_Refresh"]
             </button>
             <button id="toggleDeviceSection" type="button" class="btn btn-sm btn-outline-secondary ms-2"
                     aria-expanded="@(Expanded ? "true" : "false")" aria-controls="deviceSection"
@@ -22,7 +22,7 @@
     <div id="deviceSection" class="card-body" hidden="@(!Expanded)">
         @if (Devices.Count == 0)
         {
-            <p class="text-muted mb-0">No enabled physical devices are active.</p>
+            <p class="text-muted mb-0">@Text["Dashboard_NoActivePhysicalDevices"]</p>
         }
         @foreach (var device in Devices)
         {
@@ -47,14 +47,14 @@
                     {
                         <div class="table-responsive">
                             <table class="table table-sm mb-0">
-                                <thead><tr><th>Receiver</th><th>Status</th><th>Channel</th><th>Signal</th><th>Target</th><th></th></tr></thead>
+                                <thead><tr><th>@Text["Dashboard_ReceiverColumn"]</th><th>@Text["Common_Status"]</th><th>@Text["Common_Channel"]</th><th>@Text["Dashboard_SignalColumn"]</th><th>@Text["Dashboard_TargetColumn"]</th><th></th></tr></thead>
                                 <tbody>
                                     @foreach (var receiver in status.Receivers)
                                     {
                                         var receiverKey = (device.Device.Id, receiver.Index);
                                         <tr>
                                             <td>@receiver.Index</td>
-                                            <td>@(receiver.IsStreaming ? "Streaming" : receiver.IsActive ? "Tuned" : "Idle")</td>
+                                            <td>@Text[receiver.IsStreaming ? "Dashboard_ReceiverStreaming" : receiver.IsActive ? "Dashboard_ReceiverTuned" : "Dashboard_ReceiverIdle"]</td>
                                             <td>@(receiver.VirtualChannel ?? receiver.Channel ?? "-")</td>
                                             <td>@(receiver.HasLock ? $"{receiver.SignalStrength ?? 0}%" : "-")</td>
                                             <td><code>@(receiver.Target ?? "-")</code></td>
@@ -63,7 +63,7 @@
                                                 {
                                                     <button class="btn btn-sm btn-outline-danger"
                                                             disabled="@StoppingReceivers.Contains(receiverKey)"
-                                                            @onclick="() => StopReceiverRequested.InvokeAsync(receiverKey)">Stop</button>
+                                                            @onclick="() => StopReceiverRequested.InvokeAsync(receiverKey)">@Text["Common_Stop"]</button>
                                                 }
                                             </td>
                                         </tr>
@@ -75,7 +75,7 @@
                     @if (device.SupportsRestart)
                     {
                         <div class="d-flex justify-content-end mt-3">
-                            <button class="btn btn-sm btn-outline-danger" @onclick="() => RestartDeviceRequested.InvokeAsync(device.Device.Id)">Restart Device</button>
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => RestartDeviceRequested.InvokeAsync(device.Device.Id)">@Text["Dashboard_RestartDevice"]</button>
                         </div>
                     }
                 </div>

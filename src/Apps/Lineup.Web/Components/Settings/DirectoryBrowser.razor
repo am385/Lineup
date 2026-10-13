@@ -1,6 +1,6 @@
 <div id="xmltvDirectoryBrowser" class="card mb-3">
     <div class="card-header d-flex justify-content-between align-items-center py-2">
-        <span><span class="bi bi-folder me-1"></span>Server Directory Browser</span>
+        <span><span class="bi bi-folder me-1"></span>@Text["Settings_DirectoryBrowserHeading"]</span>
         <button id="closeXmltvDirectoryBrowser" type="button" class="btn-close" @onclick="() => CloseRequested.InvokeAsync()"></button>
     </div>
     <div class="card-body py-2">
@@ -8,7 +8,7 @@
             <span class="input-group-text"><span class="bi bi-folder-fill"></span></span>
             <input id="currentXmltvDirectory" type="text" class="form-control" value="@CurrentDirectory" readonly />
             <button id="navigateUpXmltvDirectory" class="btn btn-outline-secondary" type="button"
-                    @onclick="() => NavigateUpRequested.InvokeAsync()" disabled="@(!CanNavigateUp)" title="Parent directory">
+                    @onclick="() => NavigateUpRequested.InvokeAsync()" disabled="@(!CanNavigateUp)" title="@Text["Settings_DirectoryBrowserParentDirectoryTitle"]">
                 <span class="bi bi-arrow-up"></span>
             </button>
         </div>
@@ -32,7 +32,7 @@
         </div>
         <div class="d-flex justify-content-end mt-2">
             <button id="selectXmltvPath" class="btn btn-primary btn-sm" type="button" @onclick="() => SelectRequested.InvokeAsync()">
-                <span class="bi bi-check me-1"></span>Select this directory
+                <span class="bi bi-check me-1"></span>@Text["Settings_DirectoryBrowserSelectButton"]
             </button>
         </div>
     </div>

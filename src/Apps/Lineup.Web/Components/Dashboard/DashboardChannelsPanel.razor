@@ -1,7 +1,7 @@
 <div class="card mb-4">
     <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
         <div>
-            <h5 class="mb-0"><span class="bi bi-list-check me-1"></span>Channels</h5>
+            <h5 class="mb-0"><span class="bi bi-list-check me-1"></span>@Text["Dashboard_ChannelsHeading"]</h5>
             @if (!Expanded)
             {
                 <small class="text-muted">@Summary</small>
@@ -14,28 +14,28 @@
                 {
                     <span class="spinner-border spinner-border-sm me-1"></span>
                 }
-                <span class="bi bi-arrow-clockwise me-1"></span>Refresh Channels
+                <span class="bi bi-arrow-clockwise me-1"></span>@Text["Dashboard_RefreshChannels"]
             </button>
             <button id="toggleChannelsSection" type="button" class="btn btn-sm btn-outline-secondary ms-2"
                     aria-expanded="@(Expanded ? "true" : "false")" aria-controls="channelsSection"
                     @onclick="() => ToggleRequested.InvokeAsync()">
                 <span class="@(Expanded ? "bi bi-chevron-up" : "bi bi-chevron-down")"></span>
-                <span class="visually-hidden">@(Expanded ? "Collapse" : "Expand") Channels section</span>
+                <span class="visually-hidden">@Text[Expanded ? "Dashboard_CollapseChannelsSection" : "Dashboard_ExpandChannelsSection"]</span>
             </button>
         </div>
     </div>
     <div id="channelsSection" class="card-body" hidden="@(!Expanded)">
         <div class="row text-center">
             <div class="col-md-4 mb-3 mb-md-0">
-                <div class="text-muted small">Enabled</div>
+                <div class="text-muted small">@Text["Common_Enabled"]</div>
                 <div class="display-6 text-success">@EnabledCount</div>
             </div>
             <div class="col-md-4 mb-3 mb-md-0">
-                <div class="text-muted small">Disabled</div>
+                <div class="text-muted small">@Text["Common_Disabled"]</div>
                 <div class="display-6 text-secondary">@DisabledCount</div>
             </div>
             <div class="col-md-4">
-                <div class="text-muted small">Last Updated</div>
+                <div class="text-muted small">@Text["Common_LastUpdated"]</div>
                 <div class="h5 mt-2 mb-0">@LastUpdated</div>
             </div>
         </div>

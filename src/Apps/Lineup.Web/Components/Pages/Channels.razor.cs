@@ -75,7 +75,7 @@ public partial class Channels
 
         catch (Exception ex)
         {
-            Notifications.ShowError($"Error loading the saved channel lineup: {ex.Message}");
+            Notifications.ShowError(Text["Channels_ErrorLoadingSavedLineup", ex.Message]);
         }
         finally
         {
@@ -107,7 +107,7 @@ public partial class Channels
         {
             if (!Guid.TryParse(edit.EquivalenceGroup, out var parsedGroup))
             {
-                Notifications.ShowError("Equivalence group must be empty or a valid GUID.");
+                Notifications.ShowError(Text["Channels_InvalidEquivalenceGroup"]);
                 return;
             }
             equivalenceGroup = parsedGroup;
@@ -117,11 +117,11 @@ public partial class Channels
         {
             await TopologyStore.SetIdentityAsync(channel.Source.Id, edit.NumberOverride, edit.NameOverride, equivalenceGroup);
             await LoadTopologyAsync();
-            Notifications.ShowSuccess($"Saved global identity for channel {channel.Source.ProviderNumber}.");
+            Notifications.ShowSuccess(Text["Channels_SavedGlobalIdentity", channel.Source.ProviderNumber]);
         }
         catch (Exception ex)
         {
-            Notifications.ShowError($"Error updating channel identity: {ex.Message}");
+            Notifications.ShowError(Text["Channels_ErrorUpdatingIdentity", ex.Message]);
         }
     }
 
@@ -143,7 +143,7 @@ public partial class Channels
         }
         catch (Exception ex)
         {
-            Notifications.ShowError($"Error updating authoritative guide binding: {ex.Message}");
+            Notifications.ShowError(Text["Channels_ErrorUpdatingGuideBinding", ex.Message]);
         }
     }
 
@@ -159,16 +159,16 @@ public partial class Channels
             var channels = results.Where(result => result.Succeeded).Sum(result => result.ChannelCount);
             if (failed == 0)
             {
-                Notifications.ShowSuccess($"Refreshed {channels} physical source channels.");
+                Notifications.ShowSuccess(Text["Channels_RefreshedChannels", channels]);
             }
             else
             {
-                Notifications.ShowError($"Refreshed {channels} physical source channels with {failed} device failure(s); prior state was preserved.");
+                Notifications.ShowError(Text["Channels_RefreshedChannelsWithFailures", channels, failed]);
             }
         }
         catch (Exception ex)
         {
-            Notifications.ShowError($"Error refreshing channels: {ex.Message}");
+            Notifications.ShowError(Text["Channels_ErrorRefreshingChannels", ex.Message]);
         }
         finally
         {
@@ -195,13 +195,13 @@ public partial class Channels
                 }
                 catch (Exception ex)
                 {
-                    Notifications.ShowError($"The channel setting was saved, but the published XMLTV guide could not be updated: {ex.Message}");
+                    Notifications.ShowError(Text["Channels_SavedButXmltvUpdateFailed", ex.Message]);
                 }
             }
         }
         catch (Exception ex)
         {
-            Notifications.ShowError($"Error updating channel {channelId.ProviderKey}: {ex.Message}");
+            Notifications.ShowError(Text["Channels_ErrorUpdatingChannel", channelId.ProviderKey, ex.Message]);
         }
         finally
         {

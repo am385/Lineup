@@ -1,27 +1,27 @@
 <div class="card mb-4">
     <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-        <h5 class="mb-0">Find Channels</h5>
+        <h5 class="mb-0">@Text["Channels_FindHeading"]</h5>
         @if (HasActiveFilters)
         {
             <button id="clearChannelFilters" type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => ClearRequested.InvokeAsync()">
-                <span class="bi bi-x-circle me-1"></span>Clear Filters
+                <span class="bi bi-x-circle me-1"></span>@Text["Channels_ClearFilters"]
             </button>
         }
     </div>
     <div class="card-body">
         <div class="row g-3">
             <div class="col-lg-4">
-                <label for="channelSearch" class="form-label">Search</label>
+                <label for="channelSearch" class="form-label">@Text["Common_Search"]</label>
                 <div class="input-group">
                     <span class="input-group-text"><span class="bi bi-search"></span></span>
-                    <input id="channelSearch" class="form-control" type="search" placeholder="Number, name, device, codec, or provider key"
+                    <input id="channelSearch" class="form-control" type="search" placeholder="@Text["Channels_SearchPlaceholder"]"
                            value="@Search" @oninput="ChangeSearchAsync" />
                 </div>
             </div>
             <div class="col-sm-6 col-lg-2">
-                <label for="channelDeviceFilter" class="form-label">Physical Device</label>
+                <label for="channelDeviceFilter" class="form-label">@Text["Channels_PhysicalDeviceLabel"]</label>
                 <select id="channelDeviceFilter" class="form-select" value="@DeviceFilter" @onchange="ChangeDeviceAsync">
-                    <option value="">All devices</option>
+                    <option value="">@Text["Channels_AllDevices"]</option>
                     @foreach (var option in Devices)
                     {
                         <option value="@option.Value">@option.Label</option>
@@ -29,34 +29,34 @@
                 </select>
             </div>
             <div class="col-sm-6 col-lg-2">
-                <label for="channelStateFilter" class="form-label">State</label>
+                <label for="channelStateFilter" class="form-label">@Text["Channels_StateLabel"]</label>
                 <select id="channelStateFilter" class="form-select" value="@StateFilter" @onchange="ChangeStateAsync">
-                    <option value="@ChannelStateFilter.All">All states</option>
-                    <option value="@ChannelStateFilter.Enabled">Enabled</option>
-                    <option value="@ChannelStateFilter.Disabled">Disabled</option>
+                    <option value="@ChannelStateFilter.All">@Text["Channels_AllStates"]</option>
+                    <option value="@ChannelStateFilter.Enabled">@Text["Common_Enabled"]</option>
+                    <option value="@ChannelStateFilter.Disabled">@Text["Common_Disabled"]</option>
                 </select>
             </div>
             <div class="col-sm-6 col-lg-2">
-                <label for="channelFlagFilter" class="form-label">Flags</label>
+                <label for="channelFlagFilter" class="form-label">@Text["Channels_FlagsLabel"]</label>
                 <select id="channelFlagFilter" class="form-select" value="@FlagFilter" @onchange="ChangeFlagAsync">
-                    <option value="@ChannelFlagFilter.All">All flags</option>
-                    <option value="@ChannelFlagFilter.Favorite">Favorites</option>
-                    <option value="@ChannelFlagFilter.Drm">DRM protected</option>
+                    <option value="@ChannelFlagFilter.All">@Text["Channels_AllFlags"]</option>
+                    <option value="@ChannelFlagFilter.Favorite">@Text["Channels_Favorites"]</option>
+                    <option value="@ChannelFlagFilter.Drm">@Text["Channels_DrmProtected"]</option>
                     <option value="@ChannelFlagFilter.Hd">HD</option>
                 </select>
             </div>
             <div class="col-sm-6 col-lg-2">
-                <label for="channelGuideFilter" class="form-label">Guide Binding</label>
+                <label for="channelGuideFilter" class="form-label">@Text["Channels_GuideBindingLabel"]</label>
                 <select id="channelGuideFilter" class="form-select" value="@GuideFilter" @onchange="ChangeGuideAsync">
-                    <option value="@GuideBindingFilter.All">All bindings</option>
-                    <option value="@GuideBindingFilter.Bound">Bound</option>
-                    <option value="@GuideBindingFilter.Unbound">Unbound</option>
-                    <option value="@GuideBindingFilter.Ambiguous">Ambiguous</option>
-                    <option value="@GuideBindingFilter.NoMatch">No match</option>
+                    <option value="@GuideBindingFilter.All">@Text["Channels_AllBindings"]</option>
+                    <option value="@GuideBindingFilter.Bound">@Text["Channels_Bound"]</option>
+                    <option value="@GuideBindingFilter.Unbound">@Text["Channels_Unbound"]</option>
+                    <option value="@GuideBindingFilter.Ambiguous">@Text["Channels_Ambiguous"]</option>
+                    <option value="@GuideBindingFilter.NoMatch">@Text["Channels_NoMatch"]</option>
                 </select>
             </div>
         </div>
-        <div class="form-text mt-3">Showing @VisibleCount of @TotalCount physical source channels.</div>
+        <div class="form-text mt-3">@Text["Channels_ShowingCount", VisibleCount, TotalCount]</div>
     </div>
 </div>
 

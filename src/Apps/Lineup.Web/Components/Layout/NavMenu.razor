@@ -10,7 +10,7 @@
     </div>
 </div>
 
-<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
+<input type="checkbox" title="@Text["Nav_NavigationMenu"]" class="navbar-toggler" />
 
 <div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
     <nav class="nav flex-column">
@@ -18,46 +18,46 @@
         {
             <div class="nav-item px-3">
                 <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                    <span class="bi bi-tv-fill" aria-hidden="true"></span> Dashboard
+                    <span class="bi bi-tv-fill" aria-hidden="true"></span> @Text["Nav_Dashboard"]
                 </NavLink>
             </div>
             <div class="nav-item px-3">
                 <NavLink class="nav-link" href="channels">
-                    <span class="bi bi-list-check" aria-hidden="true"></span> Channels
+                    <span class="bi bi-list-check" aria-hidden="true"></span> @Text["Nav_Channels"]
                 </NavLink>
             </div>
             <div class="nav-item px-3">
                 <NavLink class="nav-link" href="guide">
-                    <span class="bi bi-grid-3x3" aria-hidden="true"></span> Guide
+                    <span class="bi bi-grid-3x3" aria-hidden="true"></span> @Text["Nav_Guide"]
                 </NavLink>
             </div>
             @if (IsWebPlayerEnabled)
             {
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="watch">
-                        <span class="bi bi-play-circle" aria-hidden="true"></span> Watch
+                        <span class="bi bi-play-circle" aria-hidden="true"></span> @Text["Nav_Watch"]
                     </NavLink>
                 </div>
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="watch-test">
-                        <span class="bi bi-clipboard-pulse" aria-hidden="true"></span> Watch Test
+                        <span class="bi bi-clipboard-pulse" aria-hidden="true"></span> @Text["Nav_WatchTest"]
                     </NavLink>
                 </div>
             }
             <div class="nav-item px-3">
                 <NavLink class="nav-link" href="logs">
-                    <span class="bi bi-journal-text" aria-hidden="true"></span> Logs
+                    <span class="bi bi-journal-text" aria-hidden="true"></span> @Text["Nav_Logs"]
                 </NavLink>
             </div>
         }
         <div class="nav-item px-3">
             <NavLink class="nav-link" href="settings">
-                <span class="bi bi-gear-fill" aria-hidden="true"></span> Settings
+                <span class="bi bi-gear-fill" aria-hidden="true"></span> @Text["Nav_Settings"]
             </NavLink>
         </div>
         <div class="nav-item px-3">
             <NavLink class="nav-link" href="about">
-                <span class="bi bi-info-circle" aria-hidden="true"></span> About
+                <span class="bi bi-info-circle" aria-hidden="true"></span> @Text["Nav_About"]
             </NavLink>
         </div>
     </nav>

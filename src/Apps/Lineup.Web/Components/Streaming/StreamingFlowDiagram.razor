@@ -1,13 +1,13 @@
 @using Lineup.Web.Services
 
 <div id="streamingFlowDiagram" class="streaming-flow">
-    <div class="streaming-flow-summary d-flex flex-wrap gap-2 mb-3" aria-label="Streaming flow summary">
-        <span class="badge text-bg-primary">@Snapshot.ActiveConsumerCount consumer@(Snapshot.ActiveConsumerCount == 1 ? "" : "s")</span>
-        <span class="badge text-bg-success">@Snapshot.ActiveProducerCount active producer@(Snapshot.ActiveProducerCount == 1 ? "" : "s")</span>
-        <span class="badge text-bg-warning">@Snapshot.WarmProducerCount warm producer@(Snapshot.WarmProducerCount == 1 ? "" : "s")</span>
+    <div class="streaming-flow-summary d-flex flex-wrap gap-2 mb-3" aria-label="@Text["Streaming_FlowSummaryAriaLabel"]">
+        <span class="badge text-bg-primary">@Text[Snapshot.ActiveConsumerCount == 1 ? "Streaming_ConsumerCountOne" : "Streaming_ConsumerCountMany", Snapshot.ActiveConsumerCount]</span>
+        <span class="badge text-bg-success">@Text[Snapshot.ActiveProducerCount == 1 ? "Streaming_ActiveProducerCountOne" : "Streaming_ActiveProducerCountMany", Snapshot.ActiveProducerCount]</span>
+        <span class="badge text-bg-warning">@Text[Snapshot.WarmProducerCount == 1 ? "Streaming_WarmProducerCountOne" : "Streaming_WarmProducerCountMany", Snapshot.WarmProducerCount]</span>
     </div>
 
-    <div class="streaming-flow-legend d-flex flex-wrap gap-3 mb-3 small" aria-label="Streaming state legend">
+    <div class="streaming-flow-legend d-flex flex-wrap gap-3 mb-3 small" aria-label="@Text["Streaming_StateLegendAriaLabel"]">
         @foreach (var state in Enum.GetValues<StreamingFlowState>())
         {
             <span><span class="streaming-flow-state-dot @GetStateClass(state)"></span>@FormatState(state)</span>
@@ -18,13 +18,13 @@
     {
         <div class="text-center text-body-secondary py-4">
             <span class="bi bi-diagram-3 display-6" aria-hidden="true"></span>
-            <p class="mb-0 mt-2">Configure physical and virtual devices to build the streaming flow.</p>
+            <p class="mb-0 mt-2">@Text["Streaming_ConfigureDevicesPrompt"]</p>
         </div>
     }
     else
     {
         <div class="streaming-flow-scroll">
-            <div class="streaming-flow-lanes" role="group" aria-label="Configured streaming topology">
+            <div class="streaming-flow-lanes" role="group" aria-label="@Text["Streaming_ConfiguredTopologyAriaLabel"]">
                 @foreach (var lane in LaneOrder)
                 {
                     <section class="streaming-flow-lane" aria-label="@GetLaneTitle(lane)">
@@ -38,7 +38,7 @@
                                         aria-pressed="@(_selectedNodeId == node.Id ? "true" : "false")"
                                         aria-expanded="@(_selectedNodeId == node.Id ? "true" : "false")"
                                         aria-controls="streamingFlowDetails"
-                                        aria-label="@($"{node.Label}, {FormatState(node.State)}, {node.ActiveSessionCount} active sessions")"
+                                        aria-label="@Text["Streaming_NodeAriaLabel", node.Label, FormatState(node.State), node.ActiveSessionCount]"
                                         @onclick="() => SelectNode(node.Id)">
                                     <span class="streaming-flow-node-title">@node.Label</span>
                                     <span class="streaming-flow-node-subtitle">@node.Subtitle</span>
@@ -60,7 +60,7 @@
                             }
                             @if (Snapshot.GetLane(lane).Count == 0)
                             {
-                                <div class="streaming-flow-lane-empty">None</div>
+                                <div class="streaming-flow-lane-empty">@Text["Streaming_None"]</div>
                             }
                         </div>
                     </section>
@@ -90,10 +90,10 @@
                     }
                     @if (selected.ActiveChannels.Count > 0)
                     {
-                        <dt class="col-sm-4">Active channels</dt>
+                        <dt class="col-sm-4">@Text["Streaming_ActiveChannels"]</dt>
                         <dd class="col-sm-8">@string.Join(", ", selected.ActiveChannels)</dd>
                     }
-                    <dt class="col-sm-4">Active sessions</dt>
+                    <dt class="col-sm-4">@Text["Streaming_ActiveSessions"]</dt>
                     <dd class="col-sm-8">@selected.ActiveSessionCount</dd>
                 </dl>
             </div>
@@ -133,26 +133,26 @@
         _selectedNodeId = string.Equals(_selectedNodeId, nodeId, StringComparison.Ordinal) ? null : nodeId;
     }
 
-    private static string GetLaneTitle(StreamingFlowLane lane) => lane switch
+    private string GetLaneTitle(StreamingFlowLane lane) => lane switch
     {
-        StreamingFlowLane.PhysicalSource => "Physical Sources",
-        StreamingFlowLane.PhysicalProcessing => "Source Processing",
-        StreamingFlowLane.Multiplexer => "Multiplexer",
-        StreamingFlowLane.VirtualOutput => "Virtual Outputs",
-        StreamingFlowLane.VirtualProcessing => "Output Processing",
-        StreamingFlowLane.Consumer => "Consumers",
+        StreamingFlowLane.PhysicalSource => Text["Streaming_LanePhysicalSources"],
+        StreamingFlowLane.PhysicalProcessing => Text["Streaming_LaneSourceProcessing"],
+        StreamingFlowLane.Multiplexer => Text["Streaming_LaneMultiplexer"],
+        StreamingFlowLane.VirtualOutput => Text["Streaming_LaneVirtualOutputs"],
+        StreamingFlowLane.VirtualProcessing => Text["Streaming_LaneOutputProcessing"],
+        StreamingFlowLane.Consumer => Text["Streaming_LaneConsumers"],
         _ => lane.ToString()
     };
 
-    private static string FormatState(StreamingFlowState state) => state switch
+    private string FormatState(StreamingFlowState state) => state switch
     {
-        StreamingFlowState.Disabled => "Disabled",
-        StreamingFlowState.Idle => "Idle",
-        StreamingFlowState.Active => "Active",
-        StreamingFlowState.Transcoding => "Transcoding",
-        StreamingFlowState.Shared => "Shared",
-        StreamingFlowState.Warm => "Warm",
-        StreamingFlowState.Unavailable => "Unavailable",
+        StreamingFlowState.Disabled => Text["Streaming_StateDisabled"],
+        StreamingFlowState.Idle => Text["Streaming_StateIdle"],
+        StreamingFlowState.Active => Text["Streaming_StateActive"],
+        StreamingFlowState.Transcoding => Text["Streaming_StateTranscoding"],
+        StreamingFlowState.Shared => Text["Streaming_StateShared"],
+        StreamingFlowState.Warm => Text["Streaming_StateWarm"],
+        StreamingFlowState.Unavailable => Text["Streaming_Unavailable"],
         _ => state.ToString()
     };
 

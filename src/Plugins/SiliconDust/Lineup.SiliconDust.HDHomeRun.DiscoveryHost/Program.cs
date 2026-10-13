@@ -76,13 +76,17 @@ static async Task RunHdHomeRunDiscoveryAsync(
         {
             continue;
         }
+        var respondedDeviceIds = new List<string>();
         foreach (var advertisement in advertisements)
         {
             if (HdHomeRunDiscoveryProtocol.TryCreateReply(request.Buffer, advertisement, out var reply))
             {
                 await client.SendAsync(reply!, request.RemoteEndPoint, cancellationToken);
+                respondedDeviceIds.Add(advertisement.DeviceId.ToString("X8", CultureInfo.InvariantCulture));
             }
         }
+        Console.WriteLine(
+            $"HDHomeRun discovery request received from {request.RemoteEndPoint}; sent {respondedDeviceIds.Count} response(s) for device(s): {FormatDeviceIds(respondedDeviceIds)}.");
     }
 }
 
@@ -130,13 +134,27 @@ static async Task ReceiveSsdpAsync(
             continue;
         }
         var text = Encoding.ASCII.GetString(request.Buffer);
+        if (!SsdpDiscoveryProtocol.TryParseSearch(text, out var requestedTarget))
+        {
+            continue;
+        }
+        var responseCount = 0;
+        var respondedDeviceIds = new List<string>();
         foreach (var advertisement in advertisements)
         {
-            foreach (var response in SsdpDiscoveryProtocol.CreateSearchResponses(text, advertisement))
+            var responses = SsdpDiscoveryProtocol.CreateSearchResponses(text, advertisement);
+            foreach (var response in responses)
             {
                 await client.SendAsync(Encoding.ASCII.GetBytes(response), request.RemoteEndPoint, cancellationToken);
+                responseCount++;
+            }
+            if (responses.Count > 0)
+            {
+                respondedDeviceIds.Add(advertisement.DeviceId.ToString("X8", CultureInfo.InvariantCulture));
             }
         }
+        Console.WriteLine(
+            $"SSDP discovery request received from {request.RemoteEndPoint} for '{requestedTarget}'; sent {responseCount} response(s) for device(s): {FormatDeviceIds(respondedDeviceIds)}.");
     }
 }
 
@@ -187,5 +205,8 @@ static bool TryAcquireResponsePermit(
             : current with { Count = current.Count + 1 });
     return updated.Count <= requestsPerSourcePerSecond;
 }
+
+static string FormatDeviceIds(IReadOnlyCollection<string> deviceIds) =>
+    deviceIds.Count == 0 ? "none" : string.Join(", ", deviceIds);
 
 internal sealed record ResponseWindow(DateTimeOffset Start, int Count);

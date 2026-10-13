@@ -67,7 +67,7 @@ public partial class Watch : IAsyncDisposable
     private string _manualChannelNumber = string.Empty;
     private string? _manualTuneValidationMessage;
     private string? _pendingStartId;
-    private string _effectiveProtocol = "Waiting";
+    private string _effectiveProtocol = string.Empty;
     private CmafPlaybackProtocol _protocol = CmafPlaybackProtocol.Auto;
     private WebPlayerQuality _quality = WebPlayerQuality.AppDefault;
     private CmafPreferredVideo _preferredVideo = CmafPreferredVideo.Source;
@@ -110,6 +110,7 @@ public partial class Watch : IAsyncDisposable
     /// <summary>Loads channel and program data and registers stream lifecycle handlers.</summary>
     protected override async Task OnInitializedAsync()
     {
+        _effectiveProtocol = Text["Watch_Waiting"];
         _locationChangingRegistration = NavigationManager.RegisterLocationChangingHandler(OnLocationChangingAsync);
         ActiveStreamRegistry.StopRequested += OnActiveStreamStopRequested;
         await LoadChannelsAsync();
@@ -200,22 +201,22 @@ public partial class Watch : IAsyncDisposable
                     var audioPreference = retryAudio ? CmafPreferredAudio.Fallback : _streamPreferredAudio;
                     var fallbackAudio = retryAudio ? CmafFallbackAudio.AacStereo : _streamFallbackAudio;
                     var unavailable = retryVideo && retryAudio
-                        ? $"Source video and {FormatFallbackAudio(_streamFallbackAudio)} are unavailable"
+                        ? Text["Watch_SourceVideoAndAudioUnavailable", FormatFallbackAudio(_streamFallbackAudio)]
                         : retryVideo
-                            ? "Source video is unavailable"
-                            : $"{FormatFallbackAudio(_streamFallbackAudio)} is unavailable";
+                            ? Text["Watch_SourceVideoUnavailable"]
+                            : Text["Watch_AudioUnavailable", FormatFallbackAudio(_streamFallbackAudio)];
                     var replacement = retryVideo && retryAudio
-                        ? "H.264 and AAC Stereo"
+                        ? Text["Watch_H264AndAacStereo"].Value
                         : retryVideo
                             ? "H.264"
                             : "AAC Stereo";
-                    Notifications.ShowError($"{unavailable} in this browser. Retrying this stream with {replacement}.");
+                    Notifications.ShowError(Text["Watch_RetryingWithReplacement", unavailable, replacement]);
                     await TuneChannelAsync(retryChannelNumber, _selectedChannel, fallbackAudio, videoPreference, audioPreference);
                     StateHasChanged();
                     return;
                 }
 
-                _errorMessage = result.Error ?? "Unable to initialize CMAF playback.";
+                _errorMessage = result.Error ?? Text["Watch_UnableToInitializePlayback"];
                 await StopStreamAsync();
             }
             else
@@ -230,7 +231,7 @@ public partial class Watch : IAsyncDisposable
         }
         catch (JSException ex)
         {
-            _errorMessage = $"Unable to initialize CMAF playback: {ex.Message}";
+            _errorMessage = Text["Watch_UnableToInitializePlaybackWithError", ex.Message];
             await StopStreamAsync();
             StateHasChanged();
         }
@@ -311,7 +312,7 @@ public partial class Watch : IAsyncDisposable
         var channelNumber = _manualChannelNumber.Trim();
         if (!IsValidChannelNumber(channelNumber))
         {
-            _manualTuneValidationMessage = "Enter a channel number using digits, optionally with one decimal point.";
+            _manualTuneValidationMessage = Text["Watch_InvalidChannelNumber"];
             return;
         }
 
@@ -335,7 +336,7 @@ public partial class Watch : IAsyncDisposable
         _manualChannelNumber = normalized ?? string.Empty;
         if (string.IsNullOrWhiteSpace(normalized) || (channel is null && !IsValidChannelNumber(normalized)))
         {
-            _manualTuneValidationMessage = "Enter a channel number using digits, optionally with one decimal point.";
+            _manualTuneValidationMessage = Text["Watch_InvalidChannelNumber"];
             return;
         }
 
@@ -386,7 +387,7 @@ public partial class Watch : IAsyncDisposable
             if (player is null)
             {
                 _isPlayerLoading = false;
-                _errorMessage = "The Web Player virtual output is not enabled.";
+                _errorMessage = Text["Watch_WebPlayerNotEnabled"];
                 Notifications.ShowError(_errorMessage);
                 return;
             }
@@ -399,7 +400,7 @@ public partial class Watch : IAsyncDisposable
             if (startUrl is null)
             {
                 _isPlayerLoading = false;
-                _errorMessage = "The Web Player dedicated listener is not configured.";
+                _errorMessage = Text["Watch_DedicatedListenerNotConfigured"];
                 Notifications.ShowError(_errorMessage);
                 return;
             }
@@ -410,7 +411,7 @@ public partial class Watch : IAsyncDisposable
             if (startedSession is null)
             {
                 _isPlayerLoading = false;
-                _errorMessage = "The Web Player did not return a playback session.";
+                _errorMessage = Text["Watch_NoPlaybackSession"];
                 Notifications.ShowError(_errorMessage);
                 return;
             }
@@ -431,12 +432,12 @@ public partial class Watch : IAsyncDisposable
             _session = startedSession;
             if (startedSession.SourceAudioFallbackApplied)
             {
-                Notifications.ShowError($"Source audio cannot be packaged by this FFmpeg build. Using {startedSession.FallbackAudioTitle ?? "fallback audio"} for this stream.");
+                Notifications.ShowError(Text["Watch_SourceAudioPackagingFallback", startedSession.FallbackAudioTitle ?? Text["Watch_FallbackAudioLower"]]);
             }
             _isPlaying = true;
             _sessionUsesBurnIn = _subtitlePresentation == SubtitlePresentation.BurnIn;
             _needsPlayerInit = true;
-            _effectiveProtocol = EffectiveProtocol == CmafPlaybackProtocol.Auto ? "DASH (Auto)" : EffectiveProtocol.ToString().ToUpperInvariant();
+            _effectiveProtocol = EffectiveProtocol == CmafPlaybackProtocol.Auto ? Text["Watch_AutoProtocol", "DASH"] : EffectiveProtocol.ToString().ToUpperInvariant();
             StartStreamInfoRefresh();
         }
         catch (JSException ex)
@@ -448,7 +449,7 @@ public partial class Watch : IAsyncDisposable
 
             _isPlayerLoading = false;
             _errorMessage = ex.Message;
-            Notifications.ShowError($"Unable to start CMAF playback: {ex.Message}");
+            Notifications.ShowError(Text["Watch_UnableToStartPlayback", ex.Message]);
         }
         finally
         {
@@ -832,7 +833,7 @@ public partial class Watch : IAsyncDisposable
         try
         {
             await BrowserData.RemoveAsync(CmafCompatibilityProfile.StorageKey);
-            Notifications.ShowError("The saved browser compatibility profile contradicted runtime playback and was cleared. Run Watch Test again to refresh it.");
+            Notifications.ShowError(Text["Watch_CompatibilityProfileCleared"]);
         }
         catch (Exception ex) when (ex is JSException or InvalidOperationException or OperationCanceledException)
         {
@@ -851,11 +852,11 @@ public partial class Watch : IAsyncDisposable
         return _programs.FirstOrDefault(program => program.GuideNumber == guideNumber && program.StartTime <= now && program.EndTime > now);
     }
 
-    private static string FormatBitRate(long? bitRate)
+    private string FormatBitRate(long? bitRate)
     {
         if (!bitRate.HasValue)
         {
-            return "unknown";
+            return Text["Watch_Unknown"];
         }
 
         return bitRate.Value >= 1_000_000
@@ -863,7 +864,7 @@ public partial class Watch : IAsyncDisposable
             : $"{bitRate.Value / 1_000d:0} kbps";
     }
 
-    private static string FormatSourceTrack(ActiveStreamTrack track)
+    private string FormatSourceTrack(ActiveStreamTrack track)
     {
         var details = track.Type == MediaTrackType.Video && track.SourceWidth.HasValue && track.SourceHeight.HasValue
             ? $"{track.SourceWidth}x{track.SourceHeight}"
@@ -876,15 +877,15 @@ public partial class Watch : IAsyncDisposable
                 .Where(value => !string.IsNullOrEmpty(value)));
     }
 
-    private static string FormatOutputTrack(ActiveStreamTrack track)
+    private string FormatOutputTrack(ActiveStreamTrack track)
     {
         if (string.Equals(track.OutputCodec, "not-mapped", StringComparison.OrdinalIgnoreCase))
         {
-            return "not included";
+            return Text["Watch_TrackNotIncluded"];
         }
         if (IsWebVttSidecar(track))
         {
-            return "WebVTT sidecar";
+            return Text["Watch_WebVttSidecar"];
         }
 
         var codec = track.OutputCodec == "copy" ? $"{track.SourceCodec} (copy)" : track.OutputCodec;

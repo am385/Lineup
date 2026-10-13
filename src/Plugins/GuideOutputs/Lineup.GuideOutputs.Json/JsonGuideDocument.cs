@@ -1,4 +1,7 @@
 using Lineup.Common.Guides;
+using System.Text.Json.Nodes;
+using System.Xml;
+using System.Xml.Linq;
 
 namespace Lineup.GuideOutputs.Json;
 
@@ -6,7 +9,7 @@ namespace Lineup.GuideOutputs.Json;
 public sealed record JsonGuideDocument
 {
     /// <summary>Current serialized document schema version.</summary>
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 
     /// <summary>Gets the serialized document schema version.</summary>
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
@@ -14,8 +17,8 @@ public sealed record JsonGuideDocument
     /// <summary>Gets the virtual device whose guide was projected.</summary>
     public required Guid VirtualDeviceId { get; init; }
 
-    /// <summary>Gets supplemental XMLTV root metadata from contributing guide sources.</summary>
-    public IReadOnlyList<string> SupplementalXml { get; init; } = [];
+    /// <summary>Gets compact supplemental XMLTV root metadata from contributing guide sources.</summary>
+    public JsonObject Supplemental { get; init; } = [];
 
     /// <summary>Gets the projected guide channels.</summary>
     public IReadOnlyList<JsonGuideChannel> Channels { get; init; } = [];
@@ -27,7 +30,7 @@ public sealed record JsonGuideDocument
         return new JsonGuideDocument
         {
             VirtualDeviceId = snapshot.VirtualDeviceId.Value,
-            SupplementalXml = snapshot.SupplementalXml,
+            Supplemental = JsonGuideSupplementalMetadata.Merge(snapshot.SupplementalXml),
             Channels = snapshot.Channels.Select(JsonGuideChannel.FromChannel).ToArray()
         };
     }
@@ -57,8 +60,8 @@ public sealed record JsonGuideChannel
     /// <summary>Gets whether the channel is a favorite.</summary>
     public bool IsFavorite { get; init; }
 
-    /// <summary>Gets supplemental XMLTV channel metadata.</summary>
-    public string? SupplementalXml { get; init; }
+    /// <summary>Gets compact supplemental XMLTV channel metadata.</summary>
+    public JsonObject? Supplemental { get; init; }
 
     /// <summary>Gets the channel's programs.</summary>
     public IReadOnlyList<JsonGuideProgram> Programs { get; init; } = [];
@@ -74,7 +77,7 @@ public sealed record JsonGuideChannel
             ImageUrl = channel.ImageUrl,
             IsProtected = channel.IsProtected,
             IsFavorite = channel.IsFavorite,
-            SupplementalXml = channel.SupplementalXml,
+            Supplemental = JsonGuideSupplementalMetadata.FromXml(channel.SupplementalXml),
             Programs = channel.Programs.Select(JsonGuideProgram.FromProgram).ToArray()
         };
 }
@@ -124,8 +127,8 @@ public sealed record JsonGuideProgram
     /// <summary>Gets structured official XMLTV metadata.</summary>
     public XmltvProgramMetadata? Metadata { get; init; }
 
-    /// <summary>Gets supplemental XMLTV metadata not represented by typed properties.</summary>
-    public string? SupplementalXml { get; init; }
+    /// <summary>Gets compact supplemental XMLTV metadata not represented by typed properties.</summary>
+    public JsonObject? Supplemental { get; init; }
 
     /// <summary>Creates a serialized program from one normalized guide program.</summary>
     internal static JsonGuideProgram FromProgram(GuideProgram program) =>
@@ -149,8 +152,138 @@ public sealed record JsonGuideProgram
             SeriesId = program.SeriesId,
             Categories = program.Categories,
             Metadata = program.Metadata,
-            SupplementalXml = program.SupplementalXml
+            Supplemental = JsonGuideSupplementalMetadata.FromXml(program.SupplementalXml)
         };
+}
+
+/// <summary>Converts supplemental XMLTV metadata into compact JSON properties.</summary>
+internal static class JsonGuideSupplementalMetadata
+{
+    private static readonly XNamespace EnvelopeNamespace = "urn:lineup:xmltv-supplemental:v1";
+
+    /// <summary>Merges multiple supplemental XML fragments into one compact object.</summary>
+    public static JsonObject Merge(IEnumerable<string> contents)
+    {
+        var result = new JsonObject();
+        foreach (var content in contents)
+        {
+            var supplemental = FromXml(content);
+            if (supplemental is null)
+            {
+                continue;
+            }
+
+            foreach (var property in supplemental)
+            {
+                AddValue(result, property.Key, property.Value?.DeepClone());
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>Creates compact metadata from Lineup's supplemental XML envelope.</summary>
+    public static JsonObject? FromXml(string? content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return null;
+        }
+
+        XElement root;
+        try
+        {
+            using var textReader = new StringReader(content);
+            using var reader = XmlReader.Create(textReader, new XmlReaderSettings
+            {
+                DtdProcessing = DtdProcessing.Prohibit,
+                XmlResolver = null
+            });
+            root = XElement.Load(reader, LoadOptions.None);
+        }
+        catch (XmlException exception)
+        {
+            throw new InvalidDataException("Supplemental XMLTV metadata is invalid.", exception);
+        }
+
+        if (root.Name != EnvelopeNamespace + "supplemental")
+        {
+            return new JsonObject
+            {
+                [root.Name.LocalName] = ConvertElement(root)
+            };
+        }
+
+        var result = new JsonObject();
+        foreach (var attribute in root.Element(EnvelopeNamespace + "attributes")?.Elements(EnvelopeNamespace + "attribute") ?? [])
+        {
+            var name = (string?)attribute.Attribute("name") ??
+                throw new InvalidDataException("Supplemental XMLTV attribute name is missing.");
+            AddValue(result, name, JsonValue.Create((string?)attribute.Attribute("value") ?? string.Empty));
+        }
+
+        foreach (var element in root.Element(EnvelopeNamespace + "elements")?.Elements() ?? [])
+        {
+            AddValue(result, element.Name.LocalName, ConvertElement(element));
+        }
+
+        foreach (var owned in root.Elements(EnvelopeNamespace + "owned"))
+        {
+            var key = (string?)owned.Attribute("key") ??
+                throw new InvalidDataException("Supplemental XMLTV owned-element key is missing.");
+            var element = owned.Elements().SingleOrDefault() ??
+                throw new InvalidDataException("Supplemental XMLTV owned element is missing.");
+            AddValue(result, key, ConvertElement(element));
+        }
+
+        return result;
+    }
+
+    private static JsonNode? ConvertElement(XElement element)
+    {
+        var attributes = element.Attributes().Where(attribute => !attribute.IsNamespaceDeclaration).ToArray();
+        var children = element.Elements().ToArray();
+        var text = string.Concat(element.Nodes().OfType<XText>().Select(node => node.Value));
+        if (attributes.Length == 0 && children.Length == 0)
+        {
+            return JsonValue.Create(text);
+        }
+
+        var result = new JsonObject();
+        foreach (var attribute in attributes)
+        {
+            AddValue(result, attribute.Name.LocalName, JsonValue.Create(attribute.Value));
+        }
+
+        if (!string.IsNullOrWhiteSpace(text))
+        {
+            result["$value"] = text;
+        }
+
+        foreach (var child in children)
+        {
+            AddValue(result, child.Name.LocalName, ConvertElement(child));
+        }
+
+        return result;
+    }
+
+    private static void AddValue(JsonObject target, string key, JsonNode? value)
+    {
+        if (!target.TryGetPropertyValue(key, out var existing))
+        {
+            target[key] = value;
+            return;
+        }
+
+        if (existing is JsonArray array)
+        {
+            array.Add(value);
+            return;
+        }
+
+        target[key] = new JsonArray(existing?.DeepClone(), value);
+    }
 }
 
 /// <summary>Serialized source-scoped guide channel identity.</summary>

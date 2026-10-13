@@ -88,24 +88,32 @@ public class LineupSettingsServiceTests
     }
 
     /// <summary>
-    /// Verifies that a configured directory contains the canonical XMLTV output file.
+    /// Verifies that the configured guide-output directory contains the canonical XMLTV output file.
     /// </summary>
     [Fact]
-    public async Task Constructor_ConfiguredXmltvDirectory_UsesCanonicalFileName()
+    public async Task Constructor_ConfiguredGuideOutputDirectory_UsesCanonicalFileName()
     {
         // Arrange
         var testDirectory = CreateTestDirectory();
         var xmltvDirectory = Path.Combine(testDirectory, "xmltv");
         Directory.CreateDirectory(xmltvDirectory);
-        var settingsPath = Path.Combine(testDirectory, AppConstants.SettingsFileName);
+        var store = new AppDataStore(testDirectory);
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                [AppConstants.GuideOutputDirConfigKey] = xmltvDirectory
+            })
+            .Build();
 
         // Act
-        var service = new LineupSettingsService(NullLogger<LineupSettingsService>.Instance, settingsPath, xmltvDirectory);
+        var service = new LineupSettingsService(NullLogger<LineupSettingsService>.Instance, store, configuration, []);
         await service.SaveAsync();
+        var settingsPath = Path.Combine(testDirectory, AppConstants.SettingsFileName);
         var json = await File.ReadAllTextAsync(settingsPath, TestContext.Current.CancellationToken);
         var persistedSettings = JsonSerializer.Deserialize<LineupSettings>(json)!;
 
         // Assert
+        Assert.Equal("Lineup:GuideOutputDir", AppConstants.GuideOutputDirConfigKey);
         Assert.Equal(Path.GetFullPath(Path.Combine(xmltvDirectory, AppConstants.DefaultXmltvFileName)), service.Settings.XmltvOutputPath);
         Assert.Equal(service.Settings.XmltvOutputPath, persistedSettings.XmltvOutputPath);
         Assert.Equal(service.Settings.XmltvOutputPath, service.ConfiguredXmltvOutputPath);
@@ -134,10 +142,10 @@ public class LineupSettingsServiceTests
     }
 
     /// <summary>
-    /// Verifies that omitting the XMLTV override uses the root XMLTV directory.
+    /// Verifies that omitting the guide-output override uses the root guide directory.
     /// </summary>
     [Fact]
-    public void Constructor_XmltvPathNotConfigured_UsesRootXmltvDirectory()
+    public void Constructor_GuideOutputPathNotConfigured_UsesRootGuideDirectory()
     {
         // Arrange
         var testDirectory = CreateTestDirectory();
@@ -148,6 +156,7 @@ public class LineupSettingsServiceTests
         var service = new LineupSettingsService(NullLogger<LineupSettingsService>.Instance, settingsPath);
 
         // Assert
+        Assert.Equal("/guide", AppConstants.DefaultGuideOutputDirectoryPath);
         Assert.Equal(expectedPath, service.ConfiguredXmltvOutputPath);
         Assert.Equal(expectedPath, service.Settings.XmltvOutputPath);
         Directory.Delete(testDirectory, recursive: true);

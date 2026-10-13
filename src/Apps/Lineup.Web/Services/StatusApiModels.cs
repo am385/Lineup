@@ -30,6 +30,7 @@ internal sealed record CoreSettingsStatusResponse(
 internal sealed record WebSettingsStatusResponse(
     int SchemaVersion,
     string Theme,
+    string UiCulture,
     int ActiveStreamRefreshIntervalSeconds,
     bool EnableNetworkDiscovery,
     bool EnableFileLogging,

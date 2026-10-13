@@ -3,40 +3,40 @@
 
 <div class="card mb-4">
     <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
-        <h5 class="mb-0">Current Process</h5>
+        <h5 class="mb-0">@Text["Logs_CurrentProcessHeading"]</h5>
         <div class="d-flex flex-wrap align-items-center gap-2">
             <button id="toggleLogRefresh" type="button" class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center" @onclick="() => ToggleRefreshRequested.InvokeAsync()">
-                <span class="bi @(AutoRefresh ? "bi-pause-fill" : "bi-play-fill") me-1"></span>@(AutoRefresh ? "Pause" : "Resume")
+                <span class="bi @(AutoRefresh ? "bi-pause-fill" : "bi-play-fill") me-1"></span>@Text[AutoRefresh ? "Common_Pause" : "Common_Resume"]
             </button>
             <button id="refreshLogs" type="button" class="btn btn-sm btn-outline-primary d-inline-flex align-items-center" @onclick="() => RefreshRequested.InvokeAsync()">
-                <span class="bi bi-arrow-clockwise me-1"></span>Refresh
+                <span class="bi bi-arrow-clockwise me-1"></span>@Text["Common_Refresh"]
             </button>
             <button id="clearLogs" type="button" class="btn btn-sm btn-outline-danger d-inline-flex align-items-center" @onclick="() => ClearRequested.InvokeAsync()">
-                <span class="bi bi-trash me-1"></span>Clear
+                <span class="bi bi-trash me-1"></span>@Text["Common_Clear"]
             </button>
         </div>
     </div>
     <div class="card-body">
         <div class="row g-3 mb-3">
             <div class="col-md-3">
-                <label for="minimumLogLevel" class="form-label">Minimum Level</label>
+                <label for="minimumLogLevel" class="form-label">@Text["Logs_MinimumLevelLabel"]</label>
                 <select id="minimumLogLevel" class="form-select" value="@MinimumLevel" @onchange="ChangeMinimumLevelAsync">
                     @foreach (var level in DisplayLevels)
                     {
-                        <option value="@level">@(level == LogEventLevel.Verbose ? "Trace" : level)</option>
+                        <option value="@level">@GetLevelLabel(level)</option>
                     }
                 </select>
             </div>
             <div class="col-md-3">
-                <label for="logCategory" class="form-label">Category</label>
-                <input id="logCategory" class="form-control" value="@Category" @oninput="ChangeCategoryAsync" placeholder="All categories" />
+                <label for="logCategory" class="form-label">@Text["Logs_CategoryLabel"]</label>
+                <input id="logCategory" class="form-control" value="@Category" @oninput="ChangeCategoryAsync" placeholder="@Text["Logs_AllCategories"]" />
             </div>
             <div class="col-md-4">
-                <label for="logSearch" class="form-label">Search</label>
-                <input id="logSearch" class="form-control" value="@Search" @oninput="ChangeSearchAsync" placeholder="Message, exception, or property" />
+                <label for="logSearch" class="form-label">@Text["Common_Search"]</label>
+                <input id="logSearch" class="form-control" value="@Search" @oninput="ChangeSearchAsync" placeholder="@Text["Logs_SearchPlaceholder"]" />
             </div>
             <div class="col-md-2">
-                <label for="logPageSize" class="form-label">Events</label>
+                <label for="logPageSize" class="form-label">@Text["Logs_EventsLabel"]</label>
                 <select id="logPageSize" class="form-select" value="@PageSize" @onchange="ChangePageSizeAsync">
                     <option value="50">50</option>
                     <option value="100">100</option>
@@ -48,7 +48,7 @@
 
         @if (Events.Count == 0)
         {
-            <p id="emptyLogs" class="text-body-secondary mb-0">No log events match the current filters.</p>
+            <p id="emptyLogs" class="text-body-secondary mb-0">@Text["Logs_NoMatchingEvents"]</p>
         }
         else
         {
@@ -56,10 +56,10 @@
                 <table class="table table-sm table-hover align-middle mb-0">
                     <thead>
                         <tr>
-                            <th>Time</th>
-                            <th>Level</th>
-                            <th>Category</th>
-                            <th>Message</th>
+                            <th>@Text["Logs_TimeColumn"]</th>
+                            <th>@Text["Logs_LevelColumn"]</th>
+                            <th>@Text["Logs_CategoryLabel"]</th>
+                            <th>@Text["Logs_MessageColumn"]</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -74,7 +74,7 @@
                                     @if (logEvent.Exception != null || logEvent.Properties.Count > 0)
                                     {
                                         <details class="mt-1">
-                                            <summary class="small text-body-secondary">Details</summary>
+                                            <summary class="small text-body-secondary">@Text["Logs_Details"]</summary>
                                             @if (logEvent.Exception != null)
                                             {
                                                 <pre class="small text-danger text-wrap mt-2 mb-2">@logEvent.Exception</pre>
@@ -183,4 +183,6 @@
         LogEventLevel.Information => "text-bg-info",
         _ => "text-bg-secondary"
     };
+
+    private string GetLevelLabel(LogEventLevel level) => Text[$"Logs_Level{(level == LogEventLevel.Verbose ? "Trace" : level)}"];
 }

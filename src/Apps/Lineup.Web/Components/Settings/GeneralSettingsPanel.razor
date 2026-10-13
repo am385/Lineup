@@ -1,10 +1,10 @@
 <div id="appearanceSettings" class="card mb-4">
     <div class="card-header">
-        <h5 class="mb-0">Appearance</h5>
+        <h5 class="mb-0">@Text["General_AppearanceHeading"]</h5>
     </div>
     <div class="card-body">
         <div class="mb-3">
-            <label class="form-label">Theme</label>
+            <label class="form-label">@Text["General_ThemeLabel"]</label>
             <div class="btn-group d-flex" role="group">
                 @foreach (var option in ThemeOptions)
                 {
@@ -20,39 +20,47 @@
                     </label>
                 }
             </div>
-            <div class="form-text">Choose Light, Dark, or Auto to follow your system preference.</div>
+            <div class="form-text">@Text["General_ThemeHelp"]</div>
         </div>
     </div>
 </div>
 
 <div id="regionalSettings" class="card mb-4">
     <div class="card-header">
-        <h5 class="mb-0">Regional Settings</h5>
+        <h5 class="mb-0">@Text["General_RegionalHeading"]</h5>
     </div>
     <div class="card-body">
         <div class="mb-3">
-            <label for="timeZone" class="form-label">Time Zone</label>
+            <label for="timeZone" class="form-label">@Text["General_TimeZoneLabel"]</label>
             <select class="form-select" id="timeZone" value="@TimeZoneId" @onchange="ChangeTimeZoneAsync">
-                <option value="">System default</option>
+                <option value="">@Text["General_SystemDefault"]</option>
                 @foreach (var timeZone in TimeZoneInfo.GetSystemTimeZones())
                 {
                     <option value="@timeZone.Id">@timeZone.DisplayName</option>
                 }
             </select>
             <div class="form-text">
-                Override the display timezone. "System default" uses the <code>TZ</code> environment variable or the server's local time.
-                Currently: <strong>@CurrentTimeZoneDisplayName</strong>
+                @Text["General_TimeZoneHelpPrefix"] <code>TZ</code> @Text["General_TimeZoneHelpSuffix"]
+                @Text["General_CurrentTimeZone"] <strong>@CurrentTimeZoneDisplayName</strong>
             </div>
+        </div>
+        <div class="mb-3">
+            <label for="uiLanguage" class="form-label">@Text["General_LanguageLabel"]</label>
+            <select class="form-select" id="uiLanguage" value="@UiCulture" @onchange="ChangeUiCultureAsync">
+                <option value="@UiLocalization.DefaultCulture">@Text["General_LanguageEnglish"]</option>
+                <option value="@UiLocalization.SpanishCulture">@Text["General_LanguageSpanish"]</option>
+            </select>
+            <div class="form-text">@Text["General_LanguageHelp"]</div>
         </div>
     </div>
 </div>
 
 @code {
-    private static readonly (string Id, string Value, string Icon, string Label)[] ThemeOptions =
+    private (string Id, string Value, string Icon, string Label)[] ThemeOptions =>
     [
-        ("themeLight", "light", "bi-sun-fill", "Light"),
-        ("themeDark", "dark", "bi-moon-stars-fill", "Dark"),
-        ("themeAuto", "auto", "bi-circle-half", "Auto")
+        ("themeLight", "light", "bi-sun-fill", Text["General_ThemeLight"]),
+        ("themeDark", "dark", "bi-moon-stars-fill", Text["General_ThemeDark"]),
+        ("themeAuto", "auto", "bi-circle-half", Text["General_ThemeAuto"])
     ];
 
     /// <summary>Gets or sets the selected theme.</summary>
@@ -71,6 +79,14 @@
     [Parameter]
     public EventCallback<string?> TimeZoneIdChanged { get; set; }
 
+    /// <summary>Gets or sets the selected Web UI culture.</summary>
+    [Parameter, EditorRequired]
+    public string UiCulture { get; set; } = UiLocalization.DefaultCulture;
+
+    /// <summary>Gets or sets the callback raised when the Web UI culture changes.</summary>
+    [Parameter]
+    public EventCallback<string> UiCultureChanged { get; set; }
+
     /// <summary>Gets or sets the current effective timezone display name.</summary>
     [Parameter, EditorRequired]
     public string CurrentTimeZoneDisplayName { get; set; } = string.Empty;
@@ -78,4 +94,6 @@
     private Task SetThemeAsync(string theme) => ThemeChanged.InvokeAsync(theme);
 
     private Task ChangeTimeZoneAsync(ChangeEventArgs args) => TimeZoneIdChanged.InvokeAsync(args.Value?.ToString());
+
+    private Task ChangeUiCultureAsync(ChangeEventArgs args) => UiCultureChanged.InvokeAsync(UiLocalization.Normalize(args.Value?.ToString()));
 }

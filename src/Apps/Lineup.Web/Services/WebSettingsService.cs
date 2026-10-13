@@ -36,12 +36,20 @@ public sealed class WebSettings
     private string _fileLogLevel = "Information";
     private string _applicationLogLevel = "Information";
     private List<WebLogCategoryLevelSetting> _logCategoryOverrides = [];
+    private string _uiCulture = UiLocalization.DefaultCulture;
 
     /// <summary>Gets the Web-settings schema version.</summary>
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
 
     /// <summary>Gets or sets the browser theme.</summary>
     public string Theme { get; set; } = "auto";
+
+    /// <summary>Gets or sets the Web UI culture.</summary>
+    public string UiCulture
+    {
+        get => _uiCulture;
+        set => _uiCulture = UiLocalization.Normalize(value);
+    }
 
     /// <summary>Gets or sets the Dashboard refresh interval.</summary>
     public int ActiveStreamRefreshIntervalSeconds
@@ -261,6 +269,7 @@ internal static class WebSettingsServiceFallback
         private static WebSettings FromLineup(LineupSettings settings) => new()
         {
             Theme = settings.Theme,
+            UiCulture = UiLocalization.DefaultCulture,
             ActiveStreamRefreshIntervalSeconds = settings.ActiveStreamRefreshIntervalSeconds,
             RedactApiClientAddresses = settings.RedactApiClientAddresses,
             RedactApiDeviceAddresses = settings.RedactApiDeviceAddresses,

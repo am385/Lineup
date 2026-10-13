@@ -15,7 +15,7 @@ services:
       # Persist all Lineup-owned application data across container restarts
       - appdata:/appdata
       # Persist XMLTV output across container restarts (optional, only if you use the XMLTV output feature)
-      - xmltv:/xmltv
+      - guide:/guide
       - transient:/transient
       # Place the HTTPS certificate at ./certs/lineup.pfx.
       - ./certs:/app/certs:ro
@@ -24,7 +24,7 @@ services:
       # Clear the base image default; Lineup configures explicit Kestrel listeners.
       - ASPNETCORE_HTTP_PORTS=
       - Lineup__AppDataPath=/appdata
-      - Lineup__XmltvPath=/xmltv
+      - Lineup__GuideOutputDir=/guide
       - Lineup__TransientPath=/transient
       - Lineup__Https__CertificatePath=/app/certs/lineup.pfx
       - Lineup__Https__CertificatePassword=${CERT_PASSWORD:-}
@@ -38,5 +38,5 @@ services:
 
 volumes:
   appdata:
-  xmltv:
+  guide:
   transient:

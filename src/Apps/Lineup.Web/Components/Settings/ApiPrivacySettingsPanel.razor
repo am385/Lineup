@@ -1,30 +1,30 @@
 <div class="card mb-4">
     <div class="card-header">
-        <h5 class="mb-0"><span class="bi bi-shield-check me-1"></span>Status API Privacy</h5>
+        <h5 class="mb-0"><span class="bi bi-shield-check me-1"></span>@Text["Settings_ApiPrivacyHeading"]</h5>
     </div>
     <div class="card-body">
         <p>
-            External dashboards can read the current Lineup state from
+            @Text["Settings_ApiPrivacyDescriptionPrefix"]
             <a href="/api/v1/status" target="_blank" rel="noopener"><code>/api/v1/status</code></a>.
-            This read-only endpoint is unauthenticated and should be exposed only to trusted networks.
+            @Text["Settings_ApiPrivacyDescriptionSuffix"]
         </p>
         <div class="form-check form-switch mb-3">
             <input id="redactApiClientAddresses" class="form-check-input" type="checkbox" role="switch"
                    checked="@RedactClientAddresses" @onchange="ChangeClientAddressesAsync" />
-            <label class="form-check-label" for="redactApiClientAddresses">Redact active-stream client addresses</label>
-            <div class="form-text">Returns each stream's client address as <code>null</code>.</div>
+            <label class="form-check-label" for="redactApiClientAddresses">@Text["Settings_ApiRedactClientAddressesLabel"]</label>
+            <div class="form-text">@Text["Settings_ApiRedactClientAddressesHelpPrefix"] <code>null</code>.</div>
         </div>
         <div class="form-check form-switch mb-3">
             <input id="redactApiDeviceAddresses" class="form-check-input" type="checkbox" role="switch"
                    checked="@RedactDeviceAddresses" @onchange="ChangeDeviceAddressesAsync" />
-            <label class="form-check-label" for="redactApiDeviceAddresses">Redact device addresses</label>
-            <div class="form-text">Returns configured physical tuner hostnames and addresses as <code>null</code>.</div>
+            <label class="form-check-label" for="redactApiDeviceAddresses">@Text["Settings_ApiRedactDeviceAddressesLabel"]</label>
+            <div class="form-text">@Text["Settings_ApiRedactDeviceAddressesHelpPrefix"] <code>null</code>.</div>
         </div>
         <div class="form-check form-switch">
             <input id="redactApiUrls" class="form-check-input" type="checkbox" role="switch"
                    checked="@RedactUrls" @onchange="ChangeUrlsAsync" />
-            <label class="form-check-label" for="redactApiUrls">Redact URLs</label>
-            <div class="form-text">Returns device, lineup, tuner target, advertised, and XMLTV URLs as <code>null</code>.</div>
+            <label class="form-check-label" for="redactApiUrls">@Text["Settings_ApiRedactUrlsLabel"]</label>
+            <div class="form-text">@Text["Settings_ApiRedactUrlsHelpPrefix"] <code>null</code>.</div>
         </div>
     </div>
 </div>

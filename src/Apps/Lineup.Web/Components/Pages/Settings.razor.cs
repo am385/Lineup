@@ -65,6 +65,7 @@ public partial class Settings : IDisposable
     private string _xmltvOutputPath = "";
     private string _theme = "auto";
     private string _timeZoneId = "";
+    private string _uiCulture = UiLocalization.DefaultCulture;
     private ProtectedContentMode _protectedContentMode;
     private DisabledChannelMode _disabledChannelMode;
     private int _maximumConcurrentStreams;
@@ -291,6 +292,7 @@ public partial class Settings : IDisposable
         _xmltvOutputPath = SettingsService.Settings.XmltvOutputPath;
         _theme = WebSettingsService.Settings.Theme;
         _timeZoneId = SettingsService.Settings.TimeZoneId;
+        _uiCulture = WebSettingsService.Settings.UiCulture;
         _protectedContentMode = SettingsService.Settings.ProtectedContentMode;
         _disabledChannelMode = SettingsService.Settings.DisabledChannelMode;
         _maximumConcurrentStreams = SettingsService.Settings.MaximumConcurrentStreams;
@@ -432,31 +434,31 @@ public partial class Settings : IDisposable
 
             if (_deviceRefreshIntervalMinutes < 0 || _deviceRefreshIntervalMinutes > 60)
             {
-                Notifications.ShowError("Device Refresh Interval must be between 0 and 60 minutes.");
+                Notifications.ShowError(Text["Settings_DeviceRefreshValidation"]);
                 return;
             }
 
             if (_tunerRefreshIntervalSeconds < 0 || _tunerRefreshIntervalSeconds > 300)
             {
-                Notifications.ShowError("Tuner Refresh Interval must be between 0 and 300 seconds.");
+                Notifications.ShowError(Text["Settings_TunerRefreshValidation"]);
                 return;
             }
 
             if (_activeStreamRefreshIntervalSeconds < 0 || _activeStreamRefreshIntervalSeconds > 300)
             {
-                Notifications.ShowError("Active Stream Refresh Interval must be between 0 and 300 seconds.");
+                Notifications.ShowError(Text["Settings_StreamRefreshValidation"]);
                 return;
             }
 
             if (_epgHistoryRetentionHours is < 0 or > 720)
             {
-                Notifications.ShowError("EPG history retention must be between 0 and 720 hours.");
+                Notifications.ShowError(Text["Settings_EpgRetentionValidation"]);
                 return;
             }
 
             if (_enableFileLogging && (_fileLogRetentionDays is < 1 or > 90 || _fileLogSizeLimitMb is < 1 or > 500))
             {
-                Notifications.ShowError("Log retention must be 1-90 days and file size must be 1-500 MB.");
+                Notifications.ShowError(Text["Settings_LogRetentionValidation"]);
                 return;
             }
 
@@ -466,6 +468,7 @@ public partial class Settings : IDisposable
             }
 
             var wasAutoFetchEnabled = SettingsService.Settings.IsAutoFetchEnabled;
+            var uiCultureChanged = !string.Equals(WebSettingsService.Settings.UiCulture, _uiCulture, StringComparison.OrdinalIgnoreCase);
             var fileLoggingChanged = FileLoggingSettingsChanged();
             var applicationLoggingChanged = ApplicationLoggingSettingsChanged();
             var completingInitialSetup = _isInitialSetup;
@@ -493,6 +496,7 @@ public partial class Settings : IDisposable
                 settings.EnableNetworkDiscovery = _enableNetworkDiscovery;
                 settings.ActiveStreamRefreshIntervalSeconds = _activeStreamRefreshIntervalSeconds;
                 settings.Theme = _theme;
+                settings.UiCulture = _uiCulture;
                 settings.RedactApiClientAddresses = _redactApiClientAddresses;
                 settings.RedactApiDeviceAddresses = _redactApiDeviceAddresses;
                 settings.RedactApiUrls = _redactApiUrls;
@@ -515,7 +519,7 @@ public partial class Settings : IDisposable
                 }
                 catch (Exception ex)
                 {
-                    applyErrors.Add($"application logging filters could not be applied: {ex.Message}");
+                    applyErrors.Add(Text["Settings_ApplicationLogApplyFailure", ex.Message]);
                 }
             }
 
@@ -527,7 +531,7 @@ public partial class Settings : IDisposable
                 }
                 catch (Exception ex)
                 {
-                    applyErrors.Add($"file logging could not be applied: {ex.Message}");
+                    applyErrors.Add(Text["Settings_FileLogApplyFailure", ex.Message]);
                 }
             }
 
@@ -536,16 +540,16 @@ public partial class Settings : IDisposable
 
             if (applyErrors.Count > 0)
             {
-                Notifications.ShowError($"Settings were saved, but {string.Join("; ", applyErrors)}");
+                Notifications.ShowError(Text["Settings_PartialSaveFailure", string.Join("; ", applyErrors)]);
                 return;
             }
 
-            Notifications.ShowSuccess("Settings saved successfully!");
+            Notifications.ShowSuccess(Text["Settings_SaveSuccess"]);
             foreach (var output in _topology.GuideOutputs)
             {
                 foreach (var secret in output.GeneratedSecrets)
                 {
-                    Notifications.ShowSuccess($"{output.Name} {secret.Key} (shown once): {secret.Value}");
+                    Notifications.ShowSuccess(Text["Settings_SecretShownOnce", output.Name, secret.Key, secret.Value]);
                 }
                 output.GeneratedSecrets = new Dictionary<string, string>(StringComparer.Ordinal);
                 foreach (var setting in output.AdapterSettings)
@@ -575,12 +579,18 @@ public partial class Settings : IDisposable
                 await Services.GetRequiredService<IPhysicalLineupService>().RefreshAsync(SettingsService.Settings.Streaming);
                 await WebSettingsService.UpdateAsync(settings => settings.IsSetupComplete = true);
                 _isInitialSetup = false;
-                Navigation.NavigateTo("/dashboard");
+                Navigation.NavigateTo("/dashboard", forceLoad: uiCultureChanged);
+                return;
+            }
+
+            if (uiCultureChanged)
+            {
+                Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
             }
         }
         catch (Exception ex)
         {
-            Notifications.ShowError($"Error saving settings: {ex.Message}");
+            Notifications.ShowError(Text["Settings_SaveFailure", ex.Message]);
         }
         finally
         {
@@ -623,6 +633,7 @@ public partial class Settings : IDisposable
         _xmltvOutputPath = SettingsService.ConfiguredXmltvOutputPath;
         _theme = webDefaults.Theme;
         _timeZoneId = defaults.TimeZoneId;
+        _uiCulture = UiLocalization.DefaultCulture;
         _protectedContentMode = defaults.ProtectedContentMode;
         _disabledChannelMode = defaults.DisabledChannelMode;
         _maximumConcurrentStreams = defaults.MaximumConcurrentStreams;
@@ -639,7 +650,7 @@ public partial class Settings : IDisposable
         _fileLogSizeLimitMb = webDefaults.FileLogSizeLimitMb;
         _enableNetworkDiscovery = webDefaults.EnableNetworkDiscovery;
         _topology = _topologyEditor.Edit(defaults.Streaming, guideOutputDrivers: GuideOutputDrivers);
-        Notifications.ShowSuccess("Settings reset to defaults. Click Save to apply.");
+        Notifications.ShowSuccess(Text["Settings_ResetDefaultsSuccess"]);
         SelectTab(SettingsTab.General);
     }
 
@@ -666,13 +677,13 @@ public partial class Settings : IDisposable
             level.Category.Length > 200 ||
             string.Equals(level.Category, "Default", StringComparison.OrdinalIgnoreCase)))
         {
-            Notifications.ShowError("Logging category prefixes must contain 1-200 characters and cannot be named Default.");
+            Notifications.ShowError(Text["Settings_LogCategoryValidation"]);
             return false;
         }
 
         if (_logCategoryOverrides.GroupBy(level => level.Category, StringComparer.OrdinalIgnoreCase).Any(group => group.Count() > 1))
         {
-            Notifications.ShowError("Logging category prefixes must be unique.");
+            Notifications.ShowError(Text["Settings_LogCategoryUniqueValidation"]);
             return false;
         }
 
@@ -727,7 +738,7 @@ public partial class Settings : IDisposable
     {
         LoadCurrentSettings();
         _showDirectoryBrowser = false;
-        Notifications.ShowSuccess("Unsaved settings changes reverted.");
+        Notifications.ShowSuccess(Text["Settings_UndoSuccess"]);
     }
 
     private void ShowFactoryResetConfirmation()
@@ -759,7 +770,7 @@ public partial class Settings : IDisposable
         }
         catch (Exception ex)
         {
-            Notifications.ShowError($"Lineup could not be restarted: {ex.Message}");
+            Notifications.ShowError(Text["Settings_RestartFailure", ex.Message]);
             _isRestarting = false;
         }
     }
@@ -779,7 +790,7 @@ public partial class Settings : IDisposable
         }
         catch (Exception ex)
         {
-            Notifications.ShowError($"Factory reset could not be started: {ex.Message}");
+            Notifications.ShowError(Text["Settings_FactoryResetFailure", ex.Message]);
             _isFactoryResetting = false;
         }
     }
@@ -806,11 +817,14 @@ public partial class Settings : IDisposable
         {
             var deleted = Services.GetRequiredService<LogFileService>().DeleteFiles();
             RefreshRetainedLogFiles();
-            Notifications.ShowSuccess(deleted == 0 ? "No file logs were found." : $"Deleted {deleted} file log{(deleted == 1 ? "" : "s")}.");
+            Notifications.ShowSuccess(
+                deleted == 0
+                    ? Text["Settings_NoFileLogs"]
+                    : Text[deleted == 1 ? "Settings_DeleteFileLogSingular" : "Settings_DeleteFileLogPlural", deleted]);
         }
         catch (Exception ex)
         {
-            Notifications.ShowError($"File logs could not be deleted: {ex.Message}");
+            Notifications.ShowError(Text["Settings_DeleteFileLogsFailure", ex.Message]);
         }
         finally
         {
@@ -847,7 +861,7 @@ public partial class Settings : IDisposable
         {
             if (string.IsNullOrWhiteSpace(output.OutputPath))
             {
-                Notifications.ShowError($"Guide output {output.Name} requires an output destination.");
+                Notifications.ShowError(Text["Settings_GuideOutputDestinationRequired", output.Name]);
                 return false;
             }
 
@@ -857,7 +871,7 @@ public partial class Settings : IDisposable
             }
             catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
             {
-                Notifications.ShowError($"Guide output {output.Name} has an invalid output destination.");
+                Notifications.ShowError(Text["Settings_GuideOutputDestinationInvalid", output.Name]);
                 return false;
             }
         }
@@ -881,7 +895,7 @@ public partial class Settings : IDisposable
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
-            _directoryError = "The current guide-output path is invalid. Select a server directory.";
+            _directoryError = Text["Settings_CurrentGuidePathInvalid"];
         }
 
         _currentDirectory = FileSystem.GetCurrentDirectory();
@@ -902,12 +916,12 @@ public partial class Settings : IDisposable
         }
         catch (UnauthorizedAccessException)
         {
-            _directoryError = "Access denied to this directory.";
+            _directoryError = Text["Settings_DirectoryAccessDenied"];
             _directories = [];
         }
         catch (Exception ex) when (ex is IOException or ArgumentException or NotSupportedException)
         {
-            _directoryError = $"Unable to browse this directory: {ex.Message}";
+            _directoryError = Text["Settings_DirectoryBrowseFailure", ex.Message];
             _directories = [];
         }
     }
@@ -961,7 +975,7 @@ public partial class Settings : IDisposable
     {
         if (_availablePhysicalTunerDrivers.Count == 0)
         {
-            Notifications.ShowError("No user-creatable physical device drivers are registered.");
+            Notifications.ShowError(Text["Settings_NoPhysicalDrivers"]);
             return;
         }
 
@@ -999,7 +1013,7 @@ public partial class Settings : IDisposable
         var driver = FindPhysicalTunerDriver(device);
         if (driver is not IPhysicalDeviceProbe probe)
         {
-            Notifications.ShowError($"{GetPhysicalDeviceTypeName(device)} does not support connection testing.");
+            Notifications.ShowError(Text["Settings_ConnectionTestUnsupported", GetPhysicalDeviceTypeName(device)]);
             return;
         }
 
@@ -1021,7 +1035,7 @@ public partial class Settings : IDisposable
             if (!cancellation.IsCancellationRequested)
             {
                 _physicalDeviceProbeStates[device.Id] = new PhysicalDeviceProbeState { Result = result };
-                Notifications.ShowSuccess($"Connected to {GetPhysicalDeviceTypeName(device)} successfully.");
+                Notifications.ShowSuccess(Text["Settings_ConnectionTestSuccess", GetPhysicalDeviceTypeName(device)]);
             }
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
@@ -1033,7 +1047,7 @@ public partial class Settings : IDisposable
         catch (Exception exception)
         {
             _physicalDeviceProbeStates[device.Id] = new PhysicalDeviceProbeState { Error = exception.Message };
-            Notifications.ShowError($"Connection test failed: {exception.Message}");
+            Notifications.ShowError(Text["Settings_ConnectionTestFailure", exception.Message]);
         }
         finally
         {
@@ -1083,7 +1097,7 @@ public partial class Settings : IDisposable
     {
         if (_availableVirtualTunerDrivers.Count == 0)
         {
-            Notifications.ShowError("No user-creatable virtual device drivers are registered.");
+            Notifications.ShowError(Text["Settings_NoVirtualDrivers"]);
             return;
         }
 
@@ -1104,7 +1118,7 @@ public partial class Settings : IDisposable
     {
         if (!_availableGuideSourceDrivers.Any(CanAddGuideSource))
         {
-            Notifications.ShowError("No user-creatable guide source drivers are registered.");
+            Notifications.ShowError(Text["Settings_NoGuideSourceDrivers"]);
             return;
         }
 
@@ -1141,7 +1155,7 @@ public partial class Settings : IDisposable
     {
         if (_availableGuideOutputDrivers.Count == 0)
         {
-            Notifications.ShowError("No user-creatable guide output drivers are registered.");
+            Notifications.ShowError(Text["Settings_NoGuideOutputDrivers"]);
             return;
         }
 
@@ -1319,7 +1333,7 @@ public partial class Settings : IDisposable
             device.LinkTransportSecurity = bundle.TransportSecurity;
             device.LinkCertificateSha256 = bundle.CertificateSha256 ?? string.Empty;
             ClearPhysicalDeviceProbeState(device);
-            Notifications.ShowSuccess("Lineup Link connection bundle imported. Click Save to connect.");
+            Notifications.ShowSuccess(Text["Settings_LineupLinkBundleImported"]);
         }
         catch (ArgumentException exception)
         {
@@ -1349,7 +1363,7 @@ public partial class Settings : IDisposable
         device.LinkNewAccessGrantName = string.Empty;
         device.LinkNewAccessGrantExpiresAtLocal = null;
         SetLineupLinkBundle(device, model, redactUnavailableToken: false);
-        Notifications.ShowSuccess("A Lineup Link access grant was created. Save settings, then copy or export its bundle now; the raw token is not stored.");
+        Notifications.ShowSuccess(Text["Settings_LineupLinkGrantCreated"]);
     }
 
     internal void RotateLineupLinkAccessGrant(
@@ -1369,7 +1383,7 @@ public partial class Settings : IDisposable
         ReplaceLineupLinkAccessGrant(device, mutation.Configuration.AccessGrants.Single(candidate => candidate.Id == grant.Id), mutation.GeneratedToken);
         var updated = device.LinkAccessGrants.Single(candidate => candidate.Id == grant.Id);
         SetLineupLinkBundle(device, updated, redactUnavailableToken: false);
-        Notifications.ShowSuccess("The Lineup Link access grant was rotated. Save settings, then update the remote client with the replacement bundle.");
+        Notifications.ShowSuccess(Text["Settings_LineupLinkGrantRotated"]);
     }
 
     internal void RevokeLineupLinkAccessGrant(
@@ -1387,7 +1401,7 @@ public partial class Settings : IDisposable
         }
 
         ReplaceLineupLinkAccessGrant(device, mutation.Configuration.AccessGrants.Single(candidate => candidate.Id == grant.Id), null);
-        Notifications.ShowSuccess("The Lineup Link access grant was revoked. Save settings to reject that credential.");
+        Notifications.ShowSuccess(Text["Settings_LineupLinkGrantRevoked"]);
     }
 
     internal void PurgeLineupLinkAccessGrant(
@@ -1404,7 +1418,7 @@ public partial class Settings : IDisposable
         }
 
         device.LinkAccessGrants.RemoveAll(candidate => candidate.Id == grant.Id);
-        Notifications.ShowSuccess("The revoked Lineup Link access grant was permanently purged. Save settings to persist the deletion.");
+        Notifications.ShowSuccess(Text["Settings_LineupLinkGrantPurged"]);
     }
 
     internal async Task ExportLineupLinkBundleAsync(
@@ -1424,15 +1438,15 @@ public partial class Settings : IDisposable
                 $"lineup-link-{device.Id.Value:D}-{grant.Id:D}.json",
                 "application/json",
                 bundle);
-            Notifications.ShowSuccess("The Lineup Link connection bundle was downloaded.");
+            Notifications.ShowSuccess(Text["Settings_LineupLinkBundleDownloaded"]);
         }
         catch (JSDisconnectedException)
         {
-            Notifications.ShowError("The connection bundle could not be downloaded because the browser disconnected.");
+            Notifications.ShowError(Text["Settings_LineupLinkDownloadDisconnected"]);
         }
         catch (JSException)
         {
-            Notifications.ShowError("The browser could not download the Lineup Link connection bundle.");
+            Notifications.ShowError(Text["Settings_LineupLinkDownloadFailure"]);
         }
     }
 
@@ -1449,15 +1463,15 @@ public partial class Settings : IDisposable
         {
             grant.ConnectionBundle = bundle;
             await JS.CopyTextAsync(bundle);
-            Notifications.ShowSuccess("The Lineup Link connection bundle was copied to the clipboard.");
+            Notifications.ShowSuccess(Text["Settings_LineupLinkBundleCopied"]);
         }
         catch (JSDisconnectedException)
         {
-            Notifications.ShowError("The connection bundle could not be copied because the browser disconnected.");
+            Notifications.ShowError(Text["Settings_LineupLinkCopyDisconnected"]);
         }
         catch (JSException)
         {
-            Notifications.ShowError("The browser could not copy the Lineup Link connection bundle.");
+            Notifications.ShowError(Text["Settings_LineupLinkCopyFailure"]);
         }
     }
 
@@ -1511,7 +1525,7 @@ public partial class Settings : IDisposable
         bundle = string.Empty;
         if (string.IsNullOrWhiteSpace(grant.RawToken) && !redactUnavailableToken)
         {
-            Notifications.ShowError("The current raw token is not available. Rotate this grant to create a new connection bundle.");
+            Notifications.ShowError(Text["Settings_LineupLinkRawTokenUnavailable"]);
             return false;
         }
 

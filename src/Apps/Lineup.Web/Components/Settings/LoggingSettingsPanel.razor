@@ -2,36 +2,36 @@
 
 <div class="card mb-4">
     <div class="card-header">
-        <h5 class="mb-0"><span class="bi bi-funnel me-1"></span>Application Log Filters</h5>
+        <h5 class="mb-0"><span class="bi bi-funnel me-1"></span>@Text["Settings_ApplicationLogFiltersHeading"]</h5>
     </div>
     <div class="card-body">
         <div class="form-check form-switch mb-3">
             <input id="overrideLoggingDefaults" class="form-check-input" type="checkbox" role="switch"
                    checked="@OverrideLoggingDefaults" @onchange="ChangeOverrideLoggingDefaultsAsync" />
-            <label class="form-check-label" for="overrideLoggingDefaults">Override logging defaults</label>
+            <label class="form-check-label" for="overrideLoggingDefaults">@Text["Settings_OverrideLoggingDefaultsLabel"]</label>
         </div>
         @if (OverrideLoggingDefaults)
         {
             <div id="applicationLogFilterOverrides">
                 <div class="mb-3">
-                    <label for="applicationLogLevel" class="form-label">Default Level</label>
+                    <label for="applicationLogLevel" class="form-label">@Text["Settings_DefaultLogLevelLabel"]</label>
                     <select id="applicationLogLevel" class="form-select" value="@ApplicationLogLevel" @onchange="ChangeApplicationLogLevelAsync">
                         @foreach (var level in ApplicationLogLevels)
                         {
-                            <option value="@level">@level</option>
+                            <option value="@level">@GetLogLevelLabel(level)</option>
                         }
                     </select>
-                    <div class="form-text">Applies to categories without a more specific rule.</div>
+                    <div class="form-text">@Text["Settings_DefaultLogLevelHelp"]</div>
                 </div>
                 <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
-                    <h6 class="mb-0">Category Overrides</h6>
+                    <h6 class="mb-0">@Text["Settings_LogCategoryOverridesHeading"]</h6>
                     <button id="addLogCategoryOverride" type="button" class="btn btn-sm btn-outline-primary" @onclick="() => AddCategoryRequested.InvokeAsync()">
-                        <span class="bi bi-plus-lg me-1"></span>Add Category
+                        <span class="bi bi-plus-lg me-1"></span>@Text["Settings_AddLogCategoryButton"]
                     </button>
                 </div>
                 @if (CategoryOverrides.Count == 0)
                 {
-                    <p id="emptyLogCategoryOverrides" class="text-body-secondary mb-0">No category-specific filters are configured.</p>
+                    <p id="emptyLogCategoryOverrides" class="text-body-secondary mb-0">@Text["Settings_NoLogCategoryOverrides"]</p>
                 }
                 else
                 {
@@ -44,29 +44,29 @@
                             <div class="row g-2 align-items-center log-category-override">
                                 <div class="col-md-7">
                                     <input class="form-control log-category-prefix"
-                                           aria-label="Category prefix"
-                                           placeholder="Example.Namespace"
+                                           aria-label="@Text["Settings_LogCategoryPrefixLabel"]"
+                                           placeholder="@Text["Settings_LogCategoryPlaceholder"]"
                                            @bind="category.Category"
                                            disabled="@isStartupCategory" />
                                 </div>
                                 <div class="col-md-4">
-                                    <select class="form-select log-category-level" aria-label="Category minimum level" @bind="category.Level">
+                                    <select class="form-select log-category-level" aria-label="@Text["Settings_LogCategoryMinimumLevelLabel"]" @bind="category.Level">
                                         @foreach (var level in ApplicationLogLevels)
                                         {
-                                            <option value="@level">@level</option>
+                                            <option value="@level">@GetLogLevelLabel(level)</option>
                                         }
                                     </select>
                                 </div>
                                 <div class="col-md-1 d-flex justify-content-end">
                                     @if (isStartupCategory)
                                     {
-                                        <span class="badge text-bg-secondary">Startup</span>
+                                        <span class="badge text-bg-secondary">@Text["Settings_StartupBadge"]</span>
                                     }
                                     else
                                     {
                                         <button type="button"
                                                 class="btn btn-sm btn-outline-danger remove-log-category"
-                                                aria-label="Remove category"
+                                                aria-label="@Text["Settings_RemoveLogCategoryLabel"]"
                                                 @onclick="() => RemoveCategoryRequested.InvokeAsync(rowIndex)">
                                             <span class="bi bi-trash"></span>
                                         </button>
@@ -77,8 +77,7 @@
                     </div>
                 }
                 <div class="form-text mt-3">
-                    Startup categories are discovered from <code>Logging:LogLevel</code>. Exact categories and dotted descendants match, with the longest prefix taking precedence.
-                    Changes apply immediately when settings are saved. Turning this override off restores the complete startup filter set.
+                    @Text["Settings_LogCategoryOverridesHelpPrefix"] <code>Logging:LogLevel</code>. @Text["Settings_LogCategoryOverridesHelpSuffix"]
                 </div>
             </div>
         }
@@ -87,41 +86,41 @@
 
 <div class="card mb-4">
     <div class="card-header">
-        <h5 class="mb-0"><span class="bi bi-file-earmark-text me-1"></span>Rolling File Logs</h5>
+        <h5 class="mb-0"><span class="bi bi-file-earmark-text me-1"></span>@Text["Settings_RollingFileLogsHeading"]</h5>
     </div>
     <div class="card-body">
         <div class="form-check form-switch mb-3">
             <input id="enableFileLogging" class="form-check-input" type="checkbox" role="switch"
                    checked="@EnableFileLogging" @onchange="ChangeEnableFileLoggingAsync" />
-            <label class="form-check-label" for="enableFileLogging">Write logs to rolling files</label>
+            <label class="form-check-label" for="enableFileLogging">@Text["Settings_EnableFileLoggingLabel"]</label>
         </div>
         @if (EnableFileLogging)
         {
             <div id="rollingFileLogOptions">
                 <div class="row g-3">
                     <div class="col-md-4">
-                        <label for="fileLogLevel" class="form-label">Minimum Level</label>
+                        <label for="fileLogLevel" class="form-label">@Text["Settings_FileLogMinimumLevelLabel"]</label>
                         <select id="fileLogLevel" class="form-select" value="@FileLogLevel" @onchange="ChangeFileLogLevelAsync">
-                            <option value="Debug">Debug</option>
-                            <option value="Information">Information</option>
-                            <option value="Warning">Warning</option>
-                            <option value="Error">Error</option>
+                            <option value="Debug">@Text["Settings_LogLevelDebug"]</option>
+                            <option value="Information">@Text["Settings_LogLevelInformation"]</option>
+                            <option value="Warning">@Text["Settings_LogLevelWarning"]</option>
+                            <option value="Error">@Text["Settings_LogLevelError"]</option>
                         </select>
                     </div>
                     <div class="col-md-4">
-                        <label for="fileLogRetentionDays" class="form-label">Retention (days)</label>
+                        <label for="fileLogRetentionDays" class="form-label">@Text["Settings_FileLogRetentionLabel"]</label>
                         <input id="fileLogRetentionDays" class="form-control" type="number" min="1" max="90"
                                value="@FileLogRetentionDays" @onchange="ChangeFileLogRetentionDaysAsync" />
                     </div>
                     <div class="col-md-4">
-                        <label for="fileLogSizeLimitMb" class="form-label">File Size (MB)</label>
+                        <label for="fileLogSizeLimitMb" class="form-label">@Text["Settings_FileLogSizeLimitLabel"]</label>
                         <input id="fileLogSizeLimitMb" class="form-control" type="number" min="1" max="500"
                                value="@FileLogSizeLimitMb" @onchange="ChangeFileLogSizeLimitMbAsync" />
                     </div>
                 </div>
                 <div class="form-text mt-3">
-                    Files are stored in <code>@(Runtime?.LogDirectory ?? "the Lineup configuration directory/logs")</code>.
-                    Changes take effect immediately when settings are saved.
+                    @Text["Settings_FileLogLocationPrefix"] <code>@(Runtime?.LogDirectory ?? Text["Settings_DefaultLogDirectory"].Value)</code>.
+                    @Text["Settings_FileLogLocationSuffix"]
                 </div>
             </div>
         }
@@ -132,10 +131,10 @@
                 {
                     <hr />
                 }
-                <h6>Retained Log Files</h6>
+                <h6>@Text["Settings_RetainedLogFilesHeading"]</h6>
                 @if (RetainedFiles.Count == 0)
                 {
-                    <p id="emptyRetainedLogFiles" class="text-body-secondary">No rolling log files are available yet.</p>
+                    <p id="emptyRetainedLogFiles" class="text-body-secondary">@Text["Settings_NoRetainedLogFiles"]</p>
                 }
                 else
                 {
@@ -151,12 +150,12 @@
                     </div>
                 }
                 <button id="deleteFileLogs" type="button" class="btn btn-outline-danger" @onclick="() => DeleteLogsRequested.InvokeAsync()" disabled="@IsDeletingLogs">
-                    <span class="bi bi-trash3 me-1"></span>Delete Logs
+                    <span class="bi bi-trash3 me-1"></span>@Text["Settings_DeleteLogsButton"]
                 </button>
                 <div class="form-text">
                     @(EnableFileLogging
-                        ? "Deletes all rolling file logs and immediately starts a new empty log file."
-                        : "Deletes all retained rolling log files.")
+                        ? Text["Settings_DeleteLogsEnabledHelp"]
+                        : Text["Settings_DeleteLogsDisabledHelp"])
                 </div>
             </div>
         }
@@ -165,13 +164,13 @@
 
 <div class="card mb-4">
     <div class="card-header">
-        <h5 class="mb-0"><span class="bi bi-cloud-arrow-up me-1"></span>External Targets</h5>
+        <h5 class="mb-0"><span class="bi bi-cloud-arrow-up me-1"></span>@Text["Settings_ExternalLogTargetsHeading"]</h5>
     </div>
     <div class="card-body">
-        <p>External targets are configured at startup through environment variables or <code>appsettings.json</code>. Secrets are never stored in Lineup settings or displayed here.</p>
+        <p>@Text["Settings_ExternalLogTargetsDescriptionPrefix"] <code>appsettings.json</code>. @Text["Settings_ExternalLogTargetsDescriptionSuffix"]</p>
         @if (Runtime == null)
         {
-            <p class="text-body-secondary mb-0">Target status is unavailable.</p>
+            <p class="text-body-secondary mb-0">@Text["Settings_ExternalLogTargetStatusUnavailable"]</p>
         }
         else
         {
@@ -290,8 +289,24 @@
     private Task ChangeFileLogSizeLimitMbAsync(ChangeEventArgs args) =>
         FileLogSizeLimitMbChanged.InvokeAsync(int.TryParse(args.Value?.ToString(), out var value) ? value : FileLogSizeLimitMb);
 
-    private static string FormatFileSize(long bytes) =>
-        bytes >= 1024 * 1024 ? $"{bytes / (1024d * 1024d):0.0} MB" : bytes >= 1024 ? $"{bytes / 1024d:0.0} KB" : $"{bytes} B";
+    private string FormatFileSize(long bytes) =>
+        bytes >= 1024 * 1024
+            ? Text["Settings_FileSizeMegabytes", bytes / (1024d * 1024d)]
+            : bytes >= 1024
+                ? Text["Settings_FileSizeKilobytes", bytes / 1024d]
+                : Text["Settings_FileSizeBytes", bytes];
+
+    private string GetLogLevelLabel(string level) => level switch
+    {
+        "Trace" => Text["Settings_LogLevelTrace"],
+        "Debug" => Text["Settings_LogLevelDebug"],
+        "Information" => Text["Settings_LogLevelInformation"],
+        "Warning" => Text["Settings_LogLevelWarning"],
+        "Error" => Text["Settings_LogLevelError"],
+        "Critical" => Text["Settings_LogLevelCritical"],
+        "None" => Text["Settings_LogLevelNone"],
+        _ => level
+    };
 
     private static string GetLoggingStatusBadge(string status) => status switch
     {

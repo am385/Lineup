@@ -1,8 +1,8 @@
 @page "/about"
 
-<PageTitle>About</PageTitle>
+<PageTitle>@Text["About_PageTitle"]</PageTitle>
 
-<h1><span class="bi bi-info-circle me-2"></span>About</h1>
+<h1><span class="bi bi-info-circle me-2"></span>@Text["About_Heading"]</h1>
 
 <div class="row">
     <div class="col-md-8">
@@ -12,7 +12,7 @@
             </div>
             <div class="card-body">
                 <dl class="row mb-0">
-                    <dt class="col-sm-3">Version</dt>
+                    <dt class="col-sm-3">@Text["About_VersionLabel"]</dt>
                     <dd class="col-sm-9">@_version</dd>
 
                     <dt class="col-sm-3">GitHub</dt>
@@ -27,37 +27,36 @@
 
         <div class="card mb-4">
             <div class="card-header">
-                <h5>XMLTV Guide URL</h5>
+                <h5>@Text["About_XmltvGuideUrlHeading"]</h5>
             </div>
             <div class="card-body">
-                <p class="text-muted small mb-2">Use this URL if your media server can handle a URL for the XMLTV guide source.</p>
+                <p class="text-muted small mb-2">@Text["About_XmltvGuideUrlHelp"]</p>
                 <div class="input-group">
                     <input type="text" class="form-control" value="@_xmltvUrl" readonly />
-                    <button class="btn btn-outline-secondary" type="button" @onclick="CopyXmltvUrl" title="Copy to clipboard">
+                    <button class="btn btn-outline-secondary" type="button" @onclick="CopyXmltvUrl" title="@Text["Common_CopyToClipboard"]">
                         <span class="bi @(_copied ? "bi-check-lg text-success" : "bi-clipboard")"></span>
                     </button>
                 </div>
                 @if (_copied)
                 {
-                    <small class="text-success mt-1 d-block">Copied to clipboard!</small>
+                    <small class="text-success mt-1 d-block">@Text["Common_CopiedToClipboard"]</small>
                 }
             </div>
         </div>
 
         <div class="card mb-4">
             <div class="card-header">
-                <h5>XMLTV File Access</h5>
+                <h5>@Text["About_XmltvFileAccessHeading"]</h5>
             </div>
             <div class="card-body">
                 <p class="text-muted small mb-2">
-                    If your media server can read files directly (e.g., running on the same host), you can point it to the
-                    XMLTV file on the mounted Docker volume instead of using the URL.
+                    @Text["About_XmltvFileAccessHelp"]
                 </p>
-                <p class="mb-2">Mount the <code>/xmltv</code> volume to a host directory in your <code>docker-compose.yml</code>:</p>
+                <p class="mb-2">@Text["About_MountDirectoryPrefix"] <code>/guide</code> @Text["About_MountDirectorySuffix"] <code>docker-compose.yml</code>:</p>
                 <pre class="bg-body-secondary rounded p-3 mb-2"><code>volumes:
-  - ./xmltv:/xmltv</code></pre>
-                <p class="mb-0">Then use the file path on your host:</p>
-                <pre class="bg-body-secondary rounded p-3 mb-0"><code>./xmltv/epg.xml</code></pre>
+  - ./guide:/guide</code></pre>
+                <p class="mb-0">@Text["About_UseHostFilePath"]</p>
+                <pre class="bg-body-secondary rounded p-3 mb-0"><code>./guide/epg.xml</code></pre>
             </div>
         </div>
     </div>

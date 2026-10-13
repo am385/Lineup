@@ -39,6 +39,7 @@ public class StatusApiServiceTests
         Assert.Equal("available", result.Guide.Status);
         Assert.Equal(7, result.Guide.ChannelCount);
         Assert.Equal(2, result.Configuration.Core.TargetDays);
+        Assert.Equal("en", result.Configuration.Web.UiCulture);
         Assert.Equal("hdhomerun", Assert.Single(result.Configuration.Streaming.PhysicalDevices).Adapter.Kind);
         Assert.Equal("http://tuner.local", result.Configuration.Streaming.PhysicalDevices[0].Adapter.Settings.Single(setting => setting.Key == "baseUrl").Value?.GetString());
         Assert.Null(result.Configuration.Streaming.PhysicalDevices[0].Adapter.Settings.Single(setting => setting.Key == "deviceAuth").Value);

@@ -23,23 +23,23 @@
                             }
                             else
                             {
-                                <p class="text-muted">No description available.</p>
+                                <p class="text-muted">@Text["Guide_NoDescription"]</p>
                             }
                         </div>
                         <div class="col-md-4">
                             <table class="table table-sm">
                                 <tbody>
-                                    <tr><td class="fw-bold">Channel:</td><td>@Program.GuideNumber</td></tr>
-                                    <tr><td class="fw-bold">Start:</td><td>@FormatProgramTime(Program.StartTime)</td></tr>
-                                    <tr><td class="fw-bold">End:</td><td>@FormatProgramTime(Program.EndTime)</td></tr>
-                                    <tr><td class="fw-bold">Duration:</td><td>@GetDuration(Program) min</td></tr>
+                                    <tr><td class="fw-bold">@Text["Common_Channel"]:</td><td>@Program.GuideNumber</td></tr>
+                                    <tr><td class="fw-bold">@Text["Guide_StartLabel"]:</td><td>@FormatProgramTime(Program.StartTime)</td></tr>
+                                    <tr><td class="fw-bold">@Text["Guide_EndLabel"]:</td><td>@FormatProgramTime(Program.EndTime)</td></tr>
+                                    <tr><td class="fw-bold">@Text["Guide_DurationLabel"]:</td><td>@Text["Guide_DurationMinutes", GetDuration(Program)]</td></tr>
                                     @if (!string.IsNullOrEmpty(Program.EpisodeNumber))
                                     {
-                                        <tr><td class="fw-bold">Episode:</td><td>@Program.EpisodeNumber</td></tr>
+                                        <tr><td class="fw-bold">@Text["Guide_EpisodeLabel"]:</td><td>@Program.EpisodeNumber</td></tr>
                                     }
                                     @if (Program.OriginalAirdate.HasValue)
                                     {
-                                        <tr><td class="fw-bold">Original Air:</td><td>@FormatOriginalAirdate(Program.OriginalAirdate.Value)</td></tr>
+                                        <tr><td class="fw-bold">@Text["Guide_OriginalAirLabel"]:</td><td>@FormatOriginalAirdate(Program.OriginalAirdate.Value)</td></tr>
                                     }
                                 </tbody>
                             </table>
@@ -57,7 +57,7 @@
                     <ProgramMetadataDetails Metadata="Program.Metadata" />
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" @onclick="() => CloseRequested.InvokeAsync()">Close</button>
+                    <button type="button" class="btn btn-secondary" @onclick="() => CloseRequested.InvokeAsync()">@Text["Common_Close"]</button>
                 </div>
             </div>
         </div>

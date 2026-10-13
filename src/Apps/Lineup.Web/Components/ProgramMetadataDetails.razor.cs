@@ -58,32 +58,32 @@ public partial class ProgramMetadataDetails
     private static IReadOnlyList<XmltvLocalizedValue> LocalizedCategories(XmltvProgramMetadata metadata) =>
         metadata.Categories.Where(category => !string.IsNullOrWhiteSpace(category.Language)).ToArray();
 
-    private static string CreditLabel(string type) => type switch
+    private string CreditLabel(string type) => type switch
     {
-        "director" => "Director",
-        "actor" => "Cast",
-        "writer" => "Writer",
-        "adapter" => "Adapter",
-        "producer" => "Producer",
-        "composer" => "Composer",
-        "editor" => "Editor",
-        "presenter" => "Presenter",
-        "commentator" => "Commentator",
-        "guest" => "Guest",
+        "director" => Text["ProgramMetadata_CreditDirector"],
+        "actor" => Text["ProgramMetadata_CreditCast"],
+        "writer" => Text["ProgramMetadata_CreditWriter"],
+        "adapter" => Text["ProgramMetadata_CreditAdapter"],
+        "producer" => Text["ProgramMetadata_CreditProducer"],
+        "composer" => Text["ProgramMetadata_CreditComposer"],
+        "editor" => Text["ProgramMetadata_CreditEditor"],
+        "presenter" => Text["ProgramMetadata_CreditPresenter"],
+        "commentator" => Text["ProgramMetadata_CreditCommentator"],
+        "guest" => Text["ProgramMetadata_CreditGuest"],
         _ => type
     };
 
-    private static string FormatCredit(XmltvCredit credit)
+    private string FormatCredit(XmltvCredit credit)
     {
-        var role = string.IsNullOrWhiteSpace(credit.Role) ? string.Empty : $" as {credit.Role}";
-        var guest = string.Equals(credit.Guest, "yes", StringComparison.OrdinalIgnoreCase) ? " (guest)" : string.Empty;
+        var role = string.IsNullOrWhiteSpace(credit.Role) ? string.Empty : Text["ProgramMetadata_CreditRole", credit.Role].Value;
+        var guest = string.Equals(credit.Guest, "yes", StringComparison.OrdinalIgnoreCase) ? Text["ProgramMetadata_CreditGuestSuffix"].Value : string.Empty;
         return $"{credit.Name}{role}{guest}";
     }
 
     private static string FormatRating(XmltvRating rating) =>
         string.IsNullOrWhiteSpace(rating.System) ? rating.Value : $"{rating.System}: {rating.Value}";
 
-    private static string JoinLocalized(IEnumerable<XmltvLocalizedValue> values) =>
+    private string JoinLocalized(IEnumerable<XmltvLocalizedValue> values) =>
         string.Join(", ", values.Select(FormatLocalized));
 
     private static string FormatLocalized(XmltvLocalizedValue value) =>
@@ -92,29 +92,29 @@ public partial class ProgramMetadataDetails
     private static string FormatFlag(string label, XmltvLocalizedValue value) =>
         string.IsNullOrWhiteSpace(value.Value) ? label : $"{label}: {FormatLocalized(value)}";
 
-    private static string FormatPreviousShowing(XmltvPreviousShowing showing)
+    private string FormatPreviousShowing(XmltvPreviousShowing showing)
     {
         var details = new[] { showing.Start, showing.Channel }.Where(value => !string.IsNullOrWhiteSpace(value));
         var suffix = string.Join(", ", details);
-        return suffix.Length == 0 ? "Previously shown" : $"Previously shown: {suffix}";
+        return suffix.Length == 0 ? Text["ProgramMetadata_PreviouslyShown"] : Text["ProgramMetadata_PreviouslyShownDetails", suffix];
     }
 
     private static string FormatLength(XmltvLength length) =>
         string.IsNullOrWhiteSpace(length.Units) ? length.Value : $"{length.Value} {length.Units}";
 
-    private static string FormatVideo(XmltvVideoMetadata video) =>
+    private string FormatVideo(XmltvVideoMetadata video) =>
         JoinPresentValues(
-            ("Present", video.Present),
-            ("Color", video.Color),
-            ("Aspect", video.Aspect),
-            ("Quality", video.Quality));
+            (Text["ProgramMetadata_Present"], video.Present),
+            (Text["ProgramMetadata_Color"], video.Color),
+            (Text["ProgramMetadata_Aspect"], video.Aspect),
+            (Text["ProgramMetadata_Quality"], video.Quality));
 
-    private static string FormatAudio(XmltvAudioMetadata audio) =>
-        JoinPresentValues(("Present", audio.Present), ("Stereo", audio.Stereo));
+    private string FormatAudio(XmltvAudioMetadata audio) =>
+        JoinPresentValues((Text["ProgramMetadata_Present"], audio.Present), (Text["ProgramMetadata_Stereo"], audio.Stereo));
 
-    private static string FormatSubtitles(XmltvSubtitleMetadata subtitles)
+    private string FormatSubtitles(XmltvSubtitleMetadata subtitles)
     {
-        var type = string.IsNullOrWhiteSpace(subtitles.Type) ? "Subtitles" : subtitles.Type;
+        var type = string.IsNullOrWhiteSpace(subtitles.Type) ? Text["ProgramMetadata_Subtitles"].Value : subtitles.Type;
         return subtitles.Language == null ? type : $"{type}: {FormatLocalized(subtitles.Language)}";
     }
 
@@ -134,11 +134,11 @@ public partial class ProgramMetadataDetails
     private static bool HasLanguageMetadata(XmltvProgramMetadata metadata) =>
         metadata.PrimaryTitleLanguage != null || metadata.PrimarySubTitleLanguage != null || metadata.PrimaryDescriptionLanguage != null;
 
-    private static string FormatPrimaryLanguages(XmltvProgramMetadata metadata) =>
+    private string FormatPrimaryLanguages(XmltvProgramMetadata metadata) =>
         JoinPresentValues(
-            ("Title", metadata.PrimaryTitleLanguage),
-            ("Episode title", metadata.PrimarySubTitleLanguage),
-            ("Description", metadata.PrimaryDescriptionLanguage));
+            (Text["ProgramMetadata_Title"], metadata.PrimaryTitleLanguage),
+            (Text["ProgramMetadata_EpisodeTitle"], metadata.PrimarySubTitleLanguage),
+            (Text["ProgramMetadata_Description"], metadata.PrimaryDescriptionLanguage));
 
     private static bool HasSchedulingMetadata(XmltvProgramMetadata metadata) =>
         metadata.PdcStart != null || metadata.VpsStart != null || metadata.ShowView != null || metadata.VideoPlus != null || metadata.ClumpIndex != null;

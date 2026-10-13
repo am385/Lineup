@@ -80,7 +80,7 @@ public partial class WatchTest : IAsyncDisposable
             }
             catch (Exception ex) when (ex is JSException or JsonException or InvalidOperationException)
             {
-                _errorMessage = $"Unable to read browser codec capabilities: {ex.Message}";
+                _errorMessage = Text["WatchTest_UnableToReadCapabilities", ex.Message];
                 Logger.LogWarning(ex, "Unable to read Watch Test browser codec capabilities");
             }
             StateHasChanged();
@@ -215,7 +215,7 @@ public partial class WatchTest : IAsyncDisposable
         catch (OperationCanceledException)
         {
             RestoreStoredResults();
-            Notifications.ShowSuccess("Compatibility run canceled. The previous completed profile was kept.");
+            Notifications.ShowSuccess(Text["WatchTest_RunCanceled"]);
         }
         catch (Exception ex) when (ex is JSException or InvalidOperationException or JsonException)
         {
@@ -263,7 +263,7 @@ public partial class WatchTest : IAsyncDisposable
             }
             else
             {
-                Notifications.ShowSuccess($"{test.Label} completed. The profile will be saved after every test has a result.");
+                Notifications.ShowSuccess(Text["WatchTest_CaseCompleted", FormatTestLabel(test)]);
             }
         }
         catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
@@ -306,7 +306,7 @@ public partial class WatchTest : IAsyncDisposable
                 Kind = test.Kind,
                 Request = test.Request,
                 Status = CmafCapabilityStatus.Unavailable,
-                Error = "No deterministic encoder is available."
+                Error = Text["WatchTest_NoDeterministicEncoder"]
             };
         }
 
@@ -350,7 +350,7 @@ public partial class WatchTest : IAsyncDisposable
     {
         if (_capabilities is null || !HasCompleteResultSet())
         {
-            throw new InvalidOperationException("A browser compatibility profile cannot be saved until every catalog test has a result.");
+            throw new InvalidOperationException(Text["WatchTest_IncompleteProfile"]);
         }
 
         var profile = new CmafCompatibilityProfile
@@ -358,16 +358,18 @@ public partial class WatchTest : IAsyncDisposable
             BrowserIdentity = _capabilities.BrowserIdentity,
             CompletedAtUtc = DateTimeOffset.UtcNow,
             Claims = _capabilities.ToClaims(),
-            Results = CmafCompatibilityTestCatalog.All.Select(test => GetResult(test.Id)!).ToArray()
+            Results = CmafCompatibilityTestCatalog.All
+                .Select(test => GetResult(test.Id)! with { Error = null })
+                .ToArray()
         };
         if (!CmafCompatibilityProfilePolicy.IsValid(profile))
         {
-            throw new InvalidOperationException("The completed browser compatibility profile is invalid.");
+            throw new InvalidOperationException(Text["WatchTest_InvalidProfile"]);
         }
 
         await BrowserData.WriteAsync(CmafCompatibilityProfile.StorageKey, profile, cancellationToken);
         _storedProfile = profile;
-        Notifications.ShowSuccess("Browser compatibility profile saved. Watch can now optimize streams automatically.");
+        Notifications.ShowSuccess(Text["WatchTest_ProfileSaved"]);
     }
 
     private void RestoreStoredResults()
@@ -597,13 +599,13 @@ public partial class WatchTest : IAsyncDisposable
         }
     }
 
-    private static string FormatLayout(CmafTestChannelLayout layout) =>
+    private string FormatLayout(CmafTestChannelLayout layout) =>
         layout switch
         {
-            CmafTestChannelLayout.Mono => "Mono (1.0)",
-            CmafTestChannelLayout.Stereo => "Stereo (2.0)",
+            CmafTestChannelLayout.Mono => Text["WatchTest_LayoutMono"],
+            CmafTestChannelLayout.Stereo => Text["WatchTest_LayoutStereo"],
             CmafTestChannelLayout.Surround3Point0 => "3.0",
-            CmafTestChannelLayout.Quad => "Quad (4.0)",
+            CmafTestChannelLayout.Quad => Text["WatchTest_LayoutQuad"],
             CmafTestChannelLayout.Surround5Point0 => "5.0",
             CmafTestChannelLayout.Surround5Point1 => "5.1",
             CmafTestChannelLayout.Surround7Point1 => "7.1",
@@ -612,29 +614,47 @@ public partial class WatchTest : IAsyncDisposable
 
     private string SelectedChannelSequence => string.Join(" → ", CmafCompatibilityTestPlanner.GetChannelLabels(_channelLayout));
 
-    private static string FormatClaim(bool? claim) =>
+    private string FormatClaim(bool? claim) =>
         claim switch
         {
-            true => "Supported",
-            false => "Not supported",
-            null => "No claim"
+            true => Text["WatchTest_Supported"],
+            false => Text["WatchTest_NotSupported"],
+            null => Text["WatchTest_NoClaim"]
         };
 
-    private static string FormatAudio(CmafPlayerAudio? audio) =>
+    private string FormatAudio(CmafPlayerAudio? audio) =>
         audio is null
-            ? "Not reported"
+            ? Text["WatchTest_NotReported"]
             : string.Join(" · ", new[] { audio.Label, audio.Codec, audio.Channels.HasValue ? $"{audio.Channels} ch" : null }.Where(value => !string.IsNullOrWhiteSpace(value)));
 
-    private static string FormatVideo(CmafPlayerVideo? video) =>
+    private string FormatVideo(CmafPlayerVideo? video) =>
         video is null
-            ? "Not reported"
+            ? Text["WatchTest_NotReported"]
             : string.Join(" · ", new[] { video.Codec, video.Width.HasValue && video.Height.HasValue ? $"{video.Width}x{video.Height}" : null }.Where(value => !string.IsNullOrWhiteSpace(value)));
 
-    private static string FormatPlayerError(CmafTestPlayerResult result)
+    private string FormatPlayerError(CmafTestPlayerResult result)
     {
         var details = result.ErrorDetails.HasValue ? Environment.NewLine + result.ErrorDetails.Value.GetRawText() : string.Empty;
-        return $"{result.Error ?? "Playback failed."}{(result.ErrorCode.HasValue ? $" (Shaka {result.ErrorCode})" : string.Empty)}{details}";
+        return $"{result.Error ?? Text["WatchTest_PlaybackFailed"]}{(result.ErrorCode.HasValue ? $" (Shaka {result.ErrorCode})" : string.Empty)}{details}";
     }
+
+    private string FormatTestLabel(CmafCapabilityTestCase test) =>
+        test.Id switch
+        {
+            "audio-ac4-unavailable" => Text["WatchTest_Ac4ClaimOnly"],
+            "subtitle-webvtt" => Text["WatchTest_WebVttSidecar"],
+            "subtitle-burn-in" => Text["WatchTest_SubtitleBurnIn"],
+            _ => test.Label
+        };
+
+    private string FormatStatus(CmafCapabilityStatus status) =>
+        status switch
+        {
+            CmafCapabilityStatus.Passed => Text["WatchTest_StatusPassed"],
+            CmafCapabilityStatus.Failed => Text["WatchTest_StatusFailed"],
+            CmafCapabilityStatus.Unavailable => Text["WatchTest_StatusUnavailable"],
+            _ => status.ToString()
+        };
 
     private static string FormatRuntimeError(CmafTestRuntimeError error)
     {

@@ -6,10 +6,10 @@
     </div>
     <div class="card-body">
         <div class="row mb-2">
-            <div class="col-md-3"><strong>Status:</strong> <span class="badge @GetStatusBadgeClass(Progress.Status)">@Progress.Status</span></div>
-            <div class="col-md-3"><strong>Fetch #:</strong> @Progress.FetchCount</div>
-            <div class="col-md-3"><strong>Programs:</strong> @Progress.TotalProgramsFetched.ToString("N0")</div>
-            <div class="col-md-3"><strong>Channels:</strong> @Progress.TotalChannelsFetched</div>
+            <div class="col-md-3"><strong>@Text["Common_Status"]:</strong> <span class="badge @GetStatusBadgeClass(Progress.Status)">@GetStatusLabel(Progress.Status)</span></div>
+            <div class="col-md-3"><strong>@Text["Dashboard_FetchNumber"]:</strong> @Progress.FetchCount</div>
+            <div class="col-md-3"><strong>@Text["Dashboard_ProgramsLabel"]:</strong> @Progress.TotalProgramsFetched.ToString("N0")</div>
+            <div class="col-md-3"><strong>@Text["Dashboard_ChannelsLabel"]:</strong> @Progress.TotalChannelsFetched</div>
         </div>
         <div class="progress mb-2" style="height: 25px;">
             <div class="progress-bar progress-bar-striped progress-bar-animated @(IsAutoFetch ? "bg-info" : null)"
@@ -51,4 +51,6 @@
         FetchStatus.Failed => "bg-danger",
         _ => "bg-secondary"
     };
+
+    private string GetStatusLabel(FetchStatus status) => Text[$"Dashboard_FetchStatus{status}"];
 }

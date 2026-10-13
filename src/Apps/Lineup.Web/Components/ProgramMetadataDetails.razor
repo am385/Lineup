@@ -2,12 +2,12 @@
 
 @if (Metadata is { } metadata && HasVisibleMetadata(metadata))
 {
-    <section class="program-metadata mt-3 border-top pt-3" aria-label="Program metadata">
+    <section class="program-metadata mt-3 border-top pt-3" aria-label="@Text["ProgramMetadata_AriaLabel"]">
         <div class="row g-3">
             @if (metadata.Ratings.Count > 0 || metadata.StarRatings.Count > 0)
             {
                 <div class="col-md-6 program-ratings">
-                    <h6>Ratings</h6>
+                    <h6>@Text["ProgramMetadata_Ratings"]</h6>
                     @foreach (var rating in metadata.Ratings)
                     {
                         <span class="badge text-bg-secondary me-1">@FormatRating(rating)</span>
@@ -21,7 +21,7 @@
             @if (CommonCredits(metadata).Count > 0)
             {
                 <div class="col-md-6 program-credits">
-                    <h6>Credits</h6>
+                    <h6>@Text["ProgramMetadata_Credits"]</h6>
                     <dl class="row mb-0">
                         @foreach (var group in CommonCredits(metadata).GroupBy(credit => credit.Type))
                         {
@@ -34,16 +34,16 @@
             @if (metadata.Languages.Count > 0 || metadata.Countries.Count > 0)
             {
                 <div class="col-md-6 program-origin">
-                    <h6>Origin</h6>
+                    <h6>@Text["ProgramMetadata_Origin"]</h6>
                     <dl class="row mb-0">
                         @if (metadata.Languages.Count > 0)
                         {
-                            <dt class="col-sm-4">Language</dt>
+                            <dt class="col-sm-4">@Text["ProgramMetadata_Language"]</dt>
                             <dd class="col-sm-8">@JoinLocalized(metadata.Languages)</dd>
                         }
                         @if (metadata.Countries.Count > 0)
                         {
-                            <dt class="col-sm-4">Country</dt>
+                            <dt class="col-sm-4">@Text["ProgramMetadata_Country"]</dt>
                             <dd class="col-sm-8">@JoinLocalized(metadata.Countries)</dd>
                         }
                     </dl>
@@ -52,11 +52,11 @@
             @if (AlternateEpisodeNumbers(metadata).Count > 0)
             {
                 <div class="col-md-6 program-identifiers">
-                    <h6>Episode identifiers</h6>
+                    <h6>@Text["ProgramMetadata_EpisodeIdentifiers"]</h6>
                     <dl class="row mb-0">
                         @foreach (var episodeNumber in AlternateEpisodeNumbers(metadata))
                         {
-                            <dt class="col-sm-4">@(episodeNumber.System ?? "Other")</dt>
+                            <dt class="col-sm-4">@(episodeNumber.System ?? Text["ProgramMetadata_Other"])</dt>
                             <dd class="col-sm-8">@episodeNumber.Value</dd>
                         }
                     </dl>
@@ -65,18 +65,18 @@
             @if (HasProgramState(metadata))
             {
                 <div class="col-12 program-state">
-                    <h6>Program status</h6>
+                    <h6>@Text["ProgramMetadata_ProgramStatus"]</h6>
                     @if (metadata.IsNew)
                     {
-                        <span class="badge text-bg-success me-1">New</span>
+                        <span class="badge text-bg-success me-1">@Text["ProgramMetadata_New"]</span>
                     }
                     @if (metadata.IsLive)
                     {
-                        <span class="badge text-bg-danger me-1">Live</span>
+                        <span class="badge text-bg-danger me-1">@Text["ProgramMetadata_Live"]</span>
                     }
                     @if (metadata.Premiere != null)
                     {
-                        <span class="badge text-bg-primary me-1">@FormatFlag("Premiere", metadata.Premiere)</span>
+                        <span class="badge text-bg-primary me-1">@FormatFlag(Text["ProgramMetadata_Premiere"], metadata.Premiere)</span>
                     }
                     @if (metadata.PreviouslyShown != null)
                     {
@@ -89,71 +89,71 @@
         @if (HasAdvancedMetadata(metadata))
         {
             <details class="program-metadata-advanced mt-3">
-                <summary class="fw-semibold">More details</summary>
+                <summary class="fw-semibold">@Text["ProgramMetadata_MoreDetails"]</summary>
                 <dl class="row mt-3 mb-0">
                     @if (AdditionalCredits(metadata).Count > 0)
                     {
-                        <dt class="col-sm-3">Additional credits</dt>
+                        <dt class="col-sm-3">@Text["ProgramMetadata_AdditionalCredits"]</dt>
                         <dd class="col-sm-9">@string.Join(", ", AdditionalCredits(metadata).Select(credit => $"{CreditLabel(credit.Type)}: {FormatCredit(credit)}"))</dd>
                     }
                     @if (metadata.OriginalLanguages.Count > 0)
                     {
-                        <dt class="col-sm-3">Original language</dt>
+                        <dt class="col-sm-3">@Text["ProgramMetadata_OriginalLanguage"]</dt>
                         <dd class="col-sm-9">@JoinLocalized(metadata.OriginalLanguages)</dd>
                     }
                     @if (metadata.Keywords.Count > 0)
                     {
-                        <dt class="col-sm-3">Keywords</dt>
+                        <dt class="col-sm-3">@Text["ProgramMetadata_Keywords"]</dt>
                         <dd class="col-sm-9">@JoinLocalized(metadata.Keywords)</dd>
                     }
                     @if (metadata.AlternateTitles.Count > 0)
                     {
-                        <dt class="col-sm-3">Alternate titles</dt>
+                        <dt class="col-sm-3">@Text["ProgramMetadata_AlternateTitles"]</dt>
                         <dd class="col-sm-9">@JoinLocalized(metadata.AlternateTitles)</dd>
                     }
                     @if (metadata.AlternateSubTitles.Count > 0)
                     {
-                        <dt class="col-sm-3">Alternate episode titles</dt>
+                        <dt class="col-sm-3">@Text["ProgramMetadata_AlternateEpisodeTitles"]</dt>
                         <dd class="col-sm-9">@JoinLocalized(metadata.AlternateSubTitles)</dd>
                     }
                     @if (metadata.AlternateDescriptions.Count > 0)
                     {
-                        <dt class="col-sm-3">Alternate descriptions</dt>
+                        <dt class="col-sm-3">@Text["ProgramMetadata_AlternateDescriptions"]</dt>
                         <dd class="col-sm-9">@JoinLocalized(metadata.AlternateDescriptions)</dd>
                     }
                     @if (LocalizedCategories(metadata).Count > 0)
                     {
-                        <dt class="col-sm-3">Localized categories</dt>
+                        <dt class="col-sm-3">@Text["ProgramMetadata_LocalizedCategories"]</dt>
                         <dd class="col-sm-9">@JoinLocalized(LocalizedCategories(metadata))</dd>
                     }
                     @if (metadata.Length != null)
                     {
-                        <dt class="col-sm-3">Source runtime</dt>
+                        <dt class="col-sm-3">@Text["ProgramMetadata_SourceRuntime"]</dt>
                         <dd class="col-sm-9">@FormatLength(metadata.Length)</dd>
                     }
                     @if (metadata.Video != null)
                     {
-                        <dt class="col-sm-3">Video</dt>
+                        <dt class="col-sm-3">@Text["ProgramMetadata_Video"]</dt>
                         <dd class="col-sm-9">@FormatVideo(metadata.Video)</dd>
                     }
                     @if (metadata.Audio != null)
                     {
-                        <dt class="col-sm-3">Audio</dt>
+                        <dt class="col-sm-3">@Text["ProgramMetadata_Audio"]</dt>
                         <dd class="col-sm-9">@FormatAudio(metadata.Audio)</dd>
                     }
                     @if (metadata.Subtitles.Count > 0)
                     {
-                        <dt class="col-sm-3">Subtitles</dt>
+                        <dt class="col-sm-3">@Text["ProgramMetadata_Subtitles"]</dt>
                         <dd class="col-sm-9">@string.Join(", ", metadata.Subtitles.Select(FormatSubtitles))</dd>
                     }
                     @if (metadata.LastChance != null)
                     {
-                        <dt class="col-sm-3">Last chance</dt>
+                        <dt class="col-sm-3">@Text["ProgramMetadata_LastChance"]</dt>
                         <dd class="col-sm-9">@FormatLocalized(metadata.LastChance)</dd>
                     }
                     @if (metadata.Reviews.Count > 0)
                     {
-                        <dt class="col-sm-3">Reviews</dt>
+                        <dt class="col-sm-3">@Text["ProgramMetadata_Reviews"]</dt>
                         <dd class="col-sm-9">
                             <ul class="mb-0 ps-3">
                                 @foreach (var review in metadata.Reviews)
@@ -165,7 +165,7 @@
                     }
                     @if (metadata.Urls.Count > 0)
                     {
-                        <dt class="col-sm-3">Related URLs</dt>
+                        <dt class="col-sm-3">@Text["ProgramMetadata_RelatedUrls"]</dt>
                         <dd class="col-sm-9">
                             <ul class="mb-0 ps-3">
                                 @foreach (var url in metadata.Urls)
@@ -177,7 +177,7 @@
                     }
                     @if (metadata.Images.Count > 0 || metadata.AdditionalIcons.Count > 0)
                     {
-                        <dt class="col-sm-3">Additional images</dt>
+                        <dt class="col-sm-3">@Text["ProgramMetadata_AdditionalImages"]</dt>
                         <dd class="col-sm-9">
                             <ul class="mb-0 ps-3">
                                 @foreach (var image in metadata.Images)
@@ -193,12 +193,12 @@
                     }
                     @if (HasLanguageMetadata(metadata))
                     {
-                        <dt class="col-sm-3">Primary text languages</dt>
+                        <dt class="col-sm-3">@Text["ProgramMetadata_PrimaryTextLanguages"]</dt>
                         <dd class="col-sm-9">@FormatPrimaryLanguages(metadata)</dd>
                     }
                     @if (HasSchedulingMetadata(metadata))
                     {
-                        <dt class="col-sm-3">Scheduling identifiers</dt>
+                        <dt class="col-sm-3">@Text["ProgramMetadata_SchedulingIdentifiers"]</dt>
                         <dd class="col-sm-9">@FormatSchedulingMetadata(metadata)</dd>
                     }
                 </dl>

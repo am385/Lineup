@@ -7,7 +7,7 @@
                                 <button id="physicalSubtabGlobal" type="button"
                                         class="nav-link @(Host.SelectedPhysicalDeviceId is null ? "active" : null)"
                                         @onclick="() => Host.SelectedPhysicalDeviceId = null">
-                                    Global Settings
+                                    @Text["Settings_GlobalSettingsTab"]
                                 </button>
                             </li>
                             @foreach (var device in Host.Topology.PhysicalDevices)
@@ -20,7 +20,7 @@
                                         @(string.IsNullOrWhiteSpace(device.Name) ? Host.GetPhysicalDeviceTypeName(device) : device.Name)
                                         @if (!device.Enabled)
                                         {
-                                            <span class="badge text-bg-secondary ms-1">Disabled</span>
+                                            <span class="badge text-bg-secondary ms-1">@Text["Settings_DisabledBadge"]</span>
                                         }
                                     </button>
                                 </li>
@@ -28,13 +28,13 @@
                         </ul>
                     </div>
                     <button id="addPhysicalDevice" type="button" class="btn btn-sm btn-outline-primary flex-shrink-0" @onclick="Host.ShowPhysicalDeviceTypePicker">
-                        <span class="bi bi-plus-lg me-1"></span>Add Physical Device
+                        <span class="bi bi-plus-lg me-1"></span>@Text["Settings_AddPhysicalDeviceButton"]
                     </button>
                 </div>
                 @if (Host.Topology.PhysicalDevices.Count == 0)
                 {
                     <div id="physicalDevicesEmptyState" class="alert alert-info py-2" role="status">
-                        <span class="bi bi-info-circle me-1"></span>No physical devices are configured. Select <strong>Add Physical Device</strong> to make channels available to Lineup.
+                        <span class="bi bi-info-circle me-1"></span>@Text["Settings_NoPhysicalDevicesPrefix"] <strong>@Text["Settings_AddPhysicalDeviceButton"]</strong> @Text["Settings_NoPhysicalDevicesSuffix"]
                     </div>
                 }
 
@@ -43,22 +43,22 @@
                     <div id="physicalGlobalSettings" class="d-grid gap-4">
                         <section id="physicalDeviceRefreshSettings" class="card">
                             <div class="card-header">
-                                <h5 class="mb-0">Refresh Settings</h5>
+                                <h5 class="mb-0">@Text["Settings_RefreshSettingsHeading"]</h5>
                             </div>
                             <div class="card-body">
-                                <p class="small text-body-secondary">These monitoring intervals apply to every physical device.</p>
+                                <p class="small text-body-secondary">@Text["Settings_PhysicalRefreshDescription"]</p>
                                 <div class="row g-3">
                                     <div class="col-md-6">
-                                        <label for="deviceRefreshInterval" class="form-label">Device Info Refresh Interval (minutes)</label>
+                                        <label for="deviceRefreshInterval" class="form-label">@Text["Settings_DeviceInfoRefreshIntervalLabel"]</label>
                                         <input type="number" class="form-control" id="deviceRefreshInterval"
                                                @bind="Host.DeviceRefreshIntervalMinutes" min="0" max="60" />
-                                        <div class="form-text">How often to refresh device information. Set to 0 to disable auto-refresh.</div>
+                                        <div class="form-text">@Text["Settings_DeviceInfoRefreshIntervalHelp"]</div>
                                     </div>
                                     <div class="col-md-6">
-                                        <label for="tunerRefreshInterval" class="form-label">Tuner Status Refresh Interval (seconds)</label>
+                                        <label for="tunerRefreshInterval" class="form-label">@Text["Settings_TunerStatusRefreshIntervalLabel"]</label>
                                         <input type="number" class="form-control" id="tunerRefreshInterval"
                                                @bind="Host.TunerRefreshIntervalSeconds" min="0" max="300" />
-                                        <div class="form-text">How often to refresh tuner status on the dashboard. Set to 0 to disable auto-refresh.</div>
+                                        <div class="form-text">@Text["Settings_TunerStatusRefreshIntervalHelp"]</div>
                                     </div>
                                 </div>
                             </div>
@@ -66,17 +66,17 @@
 
                         <section id="physicalTranscoderSettings" class="card">
                             <div class="card-header">
-                                <h5 class="mb-0">Transcoder Settings</h5>
+                                <h5 class="mb-0">@Text["Settings_TranscoderSettingsHeading"]</h5>
                             </div>
                             <div class="card-body">
-                                <p class="small text-body-secondary">Each physical device inherits these source-stage settings unless its tab enables an override.</p>
+                                <p class="small text-body-secondary">@Text["Settings_PhysicalTranscoderDefaultsDescription"]</p>
                                 <GlobalTranscoderSettings Settings="Host.Topology.PhysicalDefaults"
                                                           IdPrefix="physicalDefault"
                                                           CssPrefix="physical"
-                                                          StageName="source-stage"
-                                                          HevcHelpText="Normalize HEVC sources once before they enter the multiplexer."
-                                                          DeinterlaceHelpText="Default source normalization for physical devices without an override."
-                                                          BitrateHelpText="Default physical-stage bitrate for devices without an override."
+                                                          StageName="@Text["Settings_SourceStageName"]"
+                                                          HevcHelpText="@Text["Settings_PhysicalHevcHelp"]"
+                                                          DeinterlaceHelpText="@Text["Settings_PhysicalDeinterlaceHelp"]"
+                                                          BitrateHelpText="@Text["Settings_PhysicalBitrateHelp"]"
                                                           SettingsChanged="Host.OnTranscoderSettingsChanged" />
                             </div>
                         </section>
@@ -92,16 +92,16 @@
                             <section class="card physical-device-settings">
                                 <div class="card-header d-flex justify-content-between align-items-center">
                                     <div>
-                                        <h5 class="mb-0">Device Settings</h5>
+                                        <h5 class="mb-0">@Text["Settings_DeviceSettingsHeading"]</h5>
                                         <div class="small text-body-secondary">@(string.IsNullOrWhiteSpace(device.Name) ? $"{Host.GetPhysicalDeviceTypeName(device)} {index + 1}" : device.Name) - @Host.GetPhysicalDeviceTypeName(device)</div>
                                     </div>
                                     <div class="d-flex align-items-center gap-3">
                                         <div class="form-check form-switch mb-0">
                                             <input id="@($"physicalEnabled-{index}")" class="form-check-input physical-enabled" type="checkbox" @bind="device.Enabled" />
-                                            <label class="form-check-label" for="@($"physicalEnabled-{index}")">Enabled</label>
+                                            <label class="form-check-label" for="@($"physicalEnabled-{index}")">@Text["Settings_EnabledLabel"]</label>
                                         </div>
                                         <button type="button" class="btn btn-sm btn-outline-danger remove-physical-device"
-                                                aria-label="Remove physical device" @onclick="() => Host.RemovePhysicalDevice(device.Id)">
+                                                aria-label="@Text["Settings_RemovePhysicalDeviceLabel"]" @onclick="() => Host.RemovePhysicalDevice(device.Id)">
                                             <span class="bi bi-trash"></span>
                                         </button>
                                     </div>
@@ -111,63 +111,63 @@
                                     <div class="card-body physical-device-details">
                                         <div class="row g-3">
                                             <div class="col-md-6">
-                                                <label class="form-label" for="@($"physicalName-{index}")">Name</label>
+                                                <label class="form-label" for="@($"physicalName-{index}")">@Text["Settings_NameLabel"]</label>
                                                 <input id="@($"physicalName-{index}")" class="form-control physical-name"
                                                        @bind="device.Name" @bind:after="Host.NotifySettingsUiChanged" />
-                                                <div class="form-text">A local label used for channel ownership, subscriptions, routing, and status displays.</div>
+                                                <div class="form-text">@Text["Settings_PhysicalDeviceNameHelp"]</div>
                                             </div>
                                             @if (device.IsHdHomeRun)
                                             {
                                                 <div class="col-md-6">
-                                                    <label class="form-label" for="@($"physicalAddress-{index}")">Address</label>
+                                                    <label class="form-label" for="@($"physicalAddress-{index}")">@Text["Settings_AddressLabel"]</label>
                                                     <input id="@($"physicalAddress-{index}")" class="form-control physical-address" @bind="device.Address" @bind:after="() => Host.ClearPhysicalDeviceProbeState(device)" />
-                                                    <div class="form-text">Hostname or IP address of the physical HDHomeRun. It must be reachable from the Lineup host or container.</div>
+                                                    <div class="form-text">@Text["Settings_PhysicalAddressHelp"]</div>
                                                 </div>
                                             }
                                             else if (device.IsLineupLink)
                                             {
                                                 <div class="col-md-6">
-                                                    <label class="form-label" for="@($"linkBaseUrl-{index}")">Remote Lineup URL</label>
+                                                    <label class="form-label" for="@($"linkBaseUrl-{index}")">@Text["Settings_RemoteLineupUrlLabel"]</label>
                                                     <input id="@($"linkBaseUrl-{index}")" class="form-control" placeholder="https://lineup.example:8443" @bind="device.LinkBaseUrl" @bind:after="() => Host.ClearPhysicalDeviceProbeState(device)" />
-                                                    <div class="form-text">Base URL used to request device metadata, channels, tuner status, and streams from the remote Lineup host.</div>
+                                                    <div class="form-text">@Text["Settings_RemoteLineupUrlHelp"]</div>
                                                 </div>
                                                 <div class="col-md-6">
-                                                    <label class="form-label" for="@($"linkVirtualDevice-{index}")">Remote virtual device ID</label>
+                                                    <label class="form-label" for="@($"linkVirtualDevice-{index}")">@Text["Settings_RemoteVirtualDeviceIdLabel"]</label>
                                                     <input id="@($"linkVirtualDevice-{index}")" class="form-control" @bind="device.LinkVirtualDeviceId" @bind:after="() => Host.ClearPhysicalDeviceProbeState(device)" />
-                                                    <div class="form-text">Stable ID of the virtual Lineup Link output exported by the remote host.</div>
+                                                    <div class="form-text">@Text["Settings_RemoteVirtualDeviceIdHelp"]</div>
                                                 </div>
                                                 <div class="col-md-6">
-                                                    <label class="form-label" for="@($"linkTransport-{index}")">Transport security</label>
+                                                    <label class="form-label" for="@($"linkTransport-{index}")">@Text["Settings_TransportSecurityLabel"]</label>
                                                     <select id="@($"linkTransport-{index}")" class="form-select" @bind="device.LinkTransportSecurity" @bind:after="() => Host.ClearPhysicalDeviceProbeState(device)">
-                                                        <option value="@LineupLinkTransportSecurity.Https">HTTPS</option>
-                                                        <option value="@LineupLinkTransportSecurity.Http">HTTP</option>
+                                                        <option value="@LineupLinkTransportSecurity.Https">@Text["Settings_Https"]</option>
+                                                        <option value="@LineupLinkTransportSecurity.Http">@Text["Settings_Http"]</option>
                                                     </select>
-                                                    <div class="form-text">HTTPS encrypts credentials and stream traffic. HTTP should only be used on a trusted private network.</div>
+                                                    <div class="form-text">@Text["Settings_TransportSecurityHelp"]</div>
                                                 </div>
                                                 <div class="col-md-6">
-                                                    <label class="form-label" for="@($"linkAccessToken-{index}")">Access token</label>
+                                                    <label class="form-label" for="@($"linkAccessToken-{index}")">@Text["Settings_AccessTokenLabel"]</label>
                                                     <input id="@($"linkAccessToken-{index}")" class="form-control" type="password" autocomplete="off" @bind="device.LinkAccessToken" @bind:after="() => Host.ClearPhysicalDeviceProbeState(device)" />
-                                                    <div class="form-text">Bearer token issued by the remote virtual device. Treat it as a password.</div>
+                                                    <div class="form-text">@Text["Settings_AccessTokenHelp"]</div>
                                                 </div>
                                                 @if (device.LinkTransportSecurity == LineupLinkTransportSecurity.Https)
                                                 {
                                                     <div class="col-12">
-                                                        <label class="form-label" for="@($"linkCertificate-{index}")">Certificate SHA-256 fingerprint (optional)</label>
+                                                        <label class="form-label" for="@($"linkCertificate-{index}")">@Text["Settings_CertificateFingerprintLabel"]</label>
                                                         <input id="@($"linkCertificate-{index}")" class="form-control" @bind="device.LinkCertificateSha256" @bind:after="() => Host.ClearPhysicalDeviceProbeState(device)" />
-                                                        <div class="form-text">Normal operating-system certificate trust is always required; pinning adds an exact fingerprint check.</div>
+                                                        <div class="form-text">@Text["Settings_CertificateFingerprintHelp"]</div>
                                                     </div>
                                                 }
                                                 else
                                                 {
                                                     <div class="col-12">
-                                                        <div class="alert alert-warning mb-0">HTTP authenticates requests but does not encrypt the token or stream. Use it only on a trusted network.</div>
+                                                        <div class="alert alert-warning mb-0">@Text["Settings_LineupLinkHttpWarning"]</div>
                                                     </div>
                                                 }
                                                 <div class="col-12">
-                                                    <label class="form-label" for="@($"linkImportBundle-{index}")">Connection bundle</label>
+                                                    <label class="form-label" for="@($"linkImportBundle-{index}")">@Text["Settings_ConnectionBundleLabel"]</label>
                                                     <textarea id="@($"linkImportBundle-{index}")" class="form-control font-monospace" rows="7" @bind="device.LinkConnectionBundle"></textarea>
-                                                    <button type="button" class="btn btn-outline-secondary mt-2" @onclick="() => Host.ImportLineupLinkBundle(device)">Import bundle</button>
-                                                    <div class="form-text">Paste a bundle exported by the remote virtual device to populate its URL, ID, token, transport, and certificate settings. Bundles contain a usable access token; store and share them as secrets.</div>
+                                                    <button type="button" class="btn btn-outline-secondary mt-2" @onclick="() => Host.ImportLineupLinkBundle(device)">@Text["Settings_ImportBundleButton"]</button>
+                                                    <div class="form-text">@Text["Settings_ImportBundleHelp"]</div>
                                                 </div>
                                             }
                                             <div class="col-12">
@@ -181,25 +181,25 @@
                                                         @if (probeState?.IsTesting == true)
                                                         {
                                                             <span class="spinner-border spinner-border-sm me-1"></span>
-                                                            <span>Testing...</span>
+                                                            <span>@Text["Settings_TestingStatus"]</span>
                                                         }
                                                         else
                                                         {
                                                             <span class="bi bi-plug me-1"></span>
-                                                            <span>Test &amp; Identify</span>
+                                                            <span>@Text["Settings_TestAndIdentifyButton"]</span>
                                                         }
                                                     </button>
-                                                    <div class="form-text">Tests the current unsaved connection values and reads device identity. It does not save settings, refresh channels, or activate the device.</div>
+                                                    <div class="form-text">@Text["Settings_TestAndIdentifyHelp"]</div>
                                                 }
                                                 else
                                                 {
-                                                    <div class="form-text">This physical-device plugin does not provide a connection test.</div>
+                                                    <div class="form-text">@Text["Settings_ConnectionTestUnavailable"]</div>
                                                 }
 
                                                 @if (probeState?.Result is { } probeResult)
                                                 {
                                                     <div class="alert alert-success mt-3 mb-0 physical-device-probe-success" role="status">
-                                                        <div class="fw-semibold mb-2"><span class="bi bi-check-circle me-1"></span>Connection successful</div>
+                                                        <div class="fw-semibold mb-2"><span class="bi bi-check-circle me-1"></span>@Text["Settings_ConnectionSuccessful"]</div>
                                                         <dl class="row mb-2">
                                                             @foreach (var detail in probeResult.Details)
                                                             {
@@ -212,7 +212,7 @@
                                                         {
                                                             <button type="button" class="btn btn-sm btn-outline-success use-discovered-name"
                                                                     @onclick="() => Host.UseDiscoveredPhysicalDeviceName(device)">
-                                                                Use discovered name
+                                                                @Text["Settings_UseDiscoveredNameButton"]
                                                             </button>
                                                         }
                                                     </div>
@@ -220,7 +220,7 @@
                                                 else if (!string.IsNullOrWhiteSpace(probeState?.Error))
                                                 {
                                                     <div class="alert alert-danger mt-3 mb-0 physical-device-probe-error" role="alert">
-                                                        <div class="fw-semibold"><span class="bi bi-x-circle me-1"></span>Connection failed</div>
+                                                        <div class="fw-semibold"><span class="bi bi-x-circle me-1"></span>@Text["Settings_ConnectionFailed"]</div>
                                                         <div>@probeState.Error</div>
                                                     </div>
                                                 }
@@ -233,7 +233,7 @@
                             {
                                 <section class="card physical-device-transcoder-settings">
                                     <div class="card-header">
-                                        <h5 class="mb-0">Transcoder Settings</h5>
+                                        <h5 class="mb-0">@Text["Settings_TranscoderSettingsHeading"]</h5>
                                     </div>
                                     <div class="card-body">
                                         <DeviceTranscoderSettings Settings="device"
@@ -241,7 +241,7 @@
                                                                   IdPrefix="physical"
                                                                   CssPrefix="physical"
                                                                   Index="index"
-                                                                  StageName="source-stage" />
+                                                                  StageName="@Text["Settings_SourceStageName"]" />
                                     </div>
                                 </section>
                             }
@@ -254,8 +254,8 @@
         @if (Host.ShowPhysicalDeviceTypePickerValue)
         {
             <TypePickerModal Id="physicalDeviceTypePicker"
-                             Title="Add Physical Device"
-                             Description="Select the type of physical device to add."
+                             Title="@Text["Settings_AddPhysicalDeviceButton"]"
+                             Description="@Text["Settings_AddPhysicalDeviceDescription"]"
                              CloseRequested="() => Host.ShowPhysicalDeviceTypePickerValue = false">
                 @foreach (var driver in Host.AvailablePhysicalTunerDrivers)
                 {

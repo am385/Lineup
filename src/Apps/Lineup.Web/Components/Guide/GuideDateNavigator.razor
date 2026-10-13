@@ -5,8 +5,8 @@
             var date = Today.AddDays(dayOffset);
             var label = dayOffset switch
             {
-                0 => "Today",
-                1 => "Tomorrow",
+                0 => Text["Guide_Today"].Value,
+                1 => Text["Guide_Tomorrow"].Value,
                 _ => date.ToString("ddd")
             };
             <button class="btn btn-outline-primary @(SelectedDate == date ? "active" : null)"
@@ -18,7 +18,7 @@
 
     <div class="d-flex gap-2">
         <button class="btn btn-outline-primary" @onclick="() => JumpToNow.InvokeAsync()" disabled="@IsShowingCurrentTime">
-            <span class="bi bi-clock me-1"></span>Now
+            <span class="bi bi-clock me-1"></span>@Text["Guide_Now"]
         </button>
         <div class="btn-group" role="group">
             <button class="btn btn-outline-secondary" @onclick="() => PreviousRequested.InvokeAsync()" disabled="@(StartHour <= 0)">

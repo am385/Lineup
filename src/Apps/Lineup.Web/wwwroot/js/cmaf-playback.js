@@ -13,7 +13,7 @@ function dismissLineupShakaMenus(controls) {
     overflowButton?.setAttribute('aria-expanded', 'false');
 }
 
-function registerLineupShakaUiElements() {
+function registerLineupShakaUiElements(localizedText) {
     if (window.lineupShakaUiElementsRegistered) {
         return;
     }
@@ -29,10 +29,10 @@ function registerLineupShakaUiElements() {
 
             this.button = document.createElement('button');
             this.button.classList.add('shaka-overflow-button', 'shaka-lineup-subtitles-button');
-            this.button.ariaLabel = 'Subtitles';
+            this.button.ariaLabel = localizedText.subtitles;
             this.button.innerHTML =
                 '<label class="shaka-overflow-button-label shaka-overflow-menu-only shaka-overflow-button-label-inline">' +
-                '<span>Subtitles</span><span class="shaka-current-selection-span"></span></label>';
+                `<span>${localizedText.subtitles}</span><span class="shaka-current-selection-span"></span></label>`;
             this.currentSelection = this.button.querySelector('.shaka-current-selection-span');
             this.button.addEventListener('click', () => {
                 this.openSubmenu();
@@ -85,21 +85,21 @@ function registerLineupShakaUiElements() {
 
             const back = document.createElement('button');
             back.classList.add('shaka-back-to-overflow-button');
-            back.textContent = 'Subtitles';
+            back.textContent = localizedText.subtitles;
             back.addEventListener('click', () => {
                 this.closeSubmenu();
             });
             this.menu.appendChild(back);
 
             const selected = tracks.find(track => track.mode === 'showing');
-            this.currentSelection.textContent = selected?.label || 'Off';
-            this.menu.appendChild(this.createChoice('Off', !selected, () => {
+            this.currentSelection.textContent = selected?.label || localizedText.off;
+            this.menu.appendChild(this.createChoice(localizedText.off, !selected, () => {
                 for (const track of tracks) {
                     track.mode = 'disabled';
                 }
             }));
             for (const track of tracks) {
-                this.menu.appendChild(this.createChoice(track.label || track.language || 'Subtitles', track === selected, () => {
+                this.menu.appendChild(this.createChoice(track.label || track.language || localizedText.subtitles, track === selected, () => {
                     for (const candidate of tracks) {
                         candidate.mode = candidate === track ? 'showing' : 'disabled';
                     }
@@ -145,22 +145,23 @@ function registerLineupShakaUiElements() {
         fallbackAudioCodec,
         subtitles,
         dotNetReference,
-        sessionId) {
+        sessionId,
+        localizedText) {
         await stopMediaPlayer(videoElementId);
 
         const video = document.getElementById(videoElementId);
         if (!video) {
-            return { success: false, error: 'Video player element was not found.' };
+            return { success: false, error: localizedText.videoElementNotFound };
         }
         if (!window.shaka?.Player?.isBrowserSupported() || !window.shaka?.ui?.Overlay) {
-            return { success: false, error: 'This browser does not support Shaka Player playback.' };
+            return { success: false, error: localizedText.shakaUnsupported };
         }
         const videoContainer = video.closest('[data-lineup-cmaf-container]');
         if (!videoContainer) {
-            return { success: false, error: 'The CMAF player container was not found.' };
+            return { success: false, error: localizedText.playerContainerNotFound };
         }
 
-        registerLineupShakaUiElements();
+        registerLineupShakaUiElements(localizedText);
         const player = new shaka.Player();
         const playerToken = Symbol('lineupCmafPlayer');
         video._lineupPlayerToken = playerToken;
@@ -168,7 +169,7 @@ function registerLineupShakaUiElements() {
         await player.attach(video);
         if (!isCurrentPlayer()) {
             await player.destroy();
-            return { success: false, error: 'Playback initialization was superseded.' };
+            return { success: false, error: localizedText.initializationSuperseded };
         }
         player.configure({
             abr: { enabled: false },
@@ -226,7 +227,7 @@ function registerLineupShakaUiElements() {
                 return;
             }
             sessionUnavailable = true;
-            report('error', 'The stream session is no longer available.', details);
+            report('error', localizedText.sessionUnavailable, details);
             void stopMediaPlayer(videoElementId);
         };
         const isSourceVideo = track =>
@@ -286,7 +287,7 @@ function registerLineupShakaUiElements() {
             player.selectVariantTrack(fallback, true, 0);
             report(
                 'audio-fallback',
-                'Source audio is unavailable in this browser. Using the configured fallback rendition for this stream.',
+                localizedText.audioFallback,
                 {
                     id: String(fallback.audioId ?? fallback.id),
                     label: fallback.label,
@@ -311,7 +312,7 @@ function registerLineupShakaUiElements() {
                 videoFallbackApplied = true;
                 report(
                     'video-fallback-required',
-                    'Source video failed in this browser. Restarting this stream with H.264.',
+                    localizedText.videoFallbackRequired,
                     { codec: activeVideo.videoCodec, width: activeVideo.width, height: activeVideo.height });
                 return true;
             }
@@ -319,7 +320,7 @@ function registerLineupShakaUiElements() {
             player.selectVariantTrack(fallback, true, 0);
             report(
                 'video-fallback',
-                'Source video is unavailable in this browser. Using the H.264 fallback rendition for this stream.',
+                localizedText.videoFallback,
                 { codec: fallback.videoCodec, width: fallback.width, height: fallback.height });
             return true;
         };
@@ -333,7 +334,7 @@ function registerLineupShakaUiElements() {
                     (statusCode === 404 || statusCode === 410)) {
                     stopUnavailableSession(error);
                 } else if (!await tryVideoFallback(error) && !await tryAudioFallback(error)) {
-                    report('error', 'CMAF playback failed.', error);
+                    report('error', localizedText.playbackFailed, error);
                 }
             })();
         });
@@ -341,7 +342,7 @@ function registerLineupShakaUiElements() {
             dismissLineupShakaMenus(ui.getControls());
             const active = player.getVariantTracks().find(track => track.active);
             if (active) {
-                report('audio-track-changed', 'Audio track changed.', {
+                report('audio-track-changed', localizedText.audioTrackChanged, {
                     id: String(active.audioId ?? active.id),
                     label: active.label,
                     language: active.language,
@@ -357,7 +358,7 @@ function registerLineupShakaUiElements() {
         } catch (error) {
             if (!isCurrentPlayer()) {
                 await ui.destroy();
-                return { success: false, error: 'Playback initialization was superseded.' };
+                return { success: false, error: localizedText.initializationSuperseded };
             }
             if (!protocolFallbackUrl) {
                 await ui.destroy();
@@ -369,13 +370,13 @@ function registerLineupShakaUiElements() {
                 }
                 return {
                     success: false,
-                    error: error?.message || 'Unable to load the CMAF presentation.',
+                    error: error?.message || localizedText.presentationLoadFailed,
                     errorCode: error?.code || null,
                     sourceVideoSupported,
                     fallbackAudioSupported
                 };
             }
-            report('protocol-fallback', 'The preferred protocol could not start. Retrying with the alternate CMAF manifest.');
+            report('protocol-fallback', localizedText.protocolFallback);
             effectiveManifestUrl = protocolFallbackUrl;
             try {
                 await player.load(protocolFallbackUrl);
@@ -389,7 +390,7 @@ function registerLineupShakaUiElements() {
                 }
                 return {
                     success: false,
-                    error: fallbackError?.message || 'Unable to load either CMAF manifest.',
+                    error: fallbackError?.message || localizedText.bothManifestsLoadFailed,
                     errorCode: fallbackError?.code || null,
                     sourceVideoSupported,
                     fallbackAudioSupported
@@ -400,14 +401,14 @@ function registerLineupShakaUiElements() {
         presentationLoaded = true;
         if (!isCurrentPlayer()) {
             await ui.destroy();
-            return { success: false, error: 'Playback initialization was superseded.' };
+            return { success: false, error: localizedText.initializationSuperseded };
         }
         const activeVariant = choosePreferredVariant();
         for (const subtitle of subtitles || []) {
             startLineupSubtitlePolling(
                 video,
                 subtitle.url,
-                subtitle.label,
+                subtitle.label || localizedText.selectedSubtitles,
                 subtitle.language || 'und',
                 'hidden',
                 false,
@@ -463,14 +464,14 @@ function registerLineupShakaUiElements() {
         return `${navigator.userAgent}|${navigator.platform || ''}`;
     }
 
-    async function initCmafTestPlayer(videoElementId, manifestUrl, expectedVideoCodec, expectedAudioCodec, subtitleUrl, dotNetReference, sessionId) {
+    async function initCmafTestPlayer(videoElementId, manifestUrl, expectedVideoCodec, expectedAudioCodec, subtitleUrl, dotNetReference, sessionId, localizedText) {
         await stopMediaPlayer(videoElementId);
         const video = document.getElementById(videoElementId);
         if (!video) {
-            return { success: false, playbackStarted: false, error: 'Video player element was not found.' };
+            return { success: false, playbackStarted: false, error: localizedText.videoElementNotFound };
         }
         if (!window.shaka?.Player?.isBrowserSupported()) {
-            return { success: false, playbackStarted: false, error: 'This browser does not support Shaka Player playback.' };
+            return { success: false, playbackStarted: false, error: localizedText.shakaUnsupported };
         }
 
         const player = new shaka.Player();
@@ -508,7 +509,7 @@ function registerLineupShakaUiElements() {
             const error = event.detail || null;
             const runtimeError = {
                 sessionId,
-                message: error?.message || 'CMAF compatibility playback failed.',
+                message: error?.message || localizedText.compatibilityPlaybackFailed,
                 errorCode: error?.code || null,
                 details: error ? {
                     severity: error.severity ?? null,
@@ -536,7 +537,7 @@ function registerLineupShakaUiElements() {
             if (subtitleUrl) {
                 const track = document.createElement('track');
                 track.kind = 'subtitles';
-                track.label = 'Lineup WebVTT compatibility test';
+                track.label = localizedText.compatibilityTrackLabel;
                 track.srclang = 'en';
                 track.src = subtitleUrl;
                 track.default = true;
@@ -613,7 +614,7 @@ function registerLineupShakaUiElements() {
                 playbackStarted: false,
                 videoSupported,
                 audioSupported,
-                error: error?.message || 'Unable to load the selected compatibility presentation.',
+                error: error?.message || localizedText.compatibilityPresentationLoadFailed,
                 errorCode: error?.code || null,
                 errorDetails: error ? {
                     severity: error.severity ?? null,
@@ -742,7 +743,7 @@ function registerLineupShakaUiElements() {
     function startLineupSubtitlePolling(
         video,
         subtitleUrl,
-        label = 'Selected subtitles',
+        label = '',
         language = 'und',
         initialMode = 'showing',
         replaceExisting = true,

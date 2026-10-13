@@ -627,7 +627,7 @@ public sealed class TopologySettingsTests
         component.Find("#tab-guide").Click();
 
         Assert.Contains("EPG Fetch Settings", component.Find("#aboutSettingsBody").TextContent);
-        Assert.Contains("XMLTV Output Settings", component.Find("#aboutSettingsBody").TextContent);
+        Assert.DoesNotContain("XMLTV Output Settings", component.Find("#aboutSettingsBody").TextContent);
 
         component.Find("#addGuideSource").Click();
         component.Find("[data-guide-source-kind='xmltv']").Click();
@@ -635,8 +635,13 @@ public sealed class TopologySettingsTests
 
         Assert.Contains("Regional XMLTV", component.Find("#aboutSettingsBody").TextContent);
         Assert.Contains("XMLTV Provider", component.Find("#aboutSettingsBody").TextContent);
-        Assert.Contains("Physical Device Subscription", component.Find("#aboutSettingsBody").TextContent);
+        Assert.DoesNotContain("Physical Device Subscription", component.Find("#aboutSettingsBody").TextContent);
         Assert.DoesNotContain("All compatible enabled devices", component.Find("#aboutSettingsBody").TextContent);
+
+        component.Find("#tab-guide-outputs").Click();
+
+        Assert.Contains("Guide Outputs", component.Find("#aboutSettingsBody").TextContent);
+        Assert.DoesNotContain("Reset Settings", component.Find("#aboutSettingsBody").TextContent);
 
         component.Find("#tab-virtual-devices").Click();
 
@@ -652,6 +657,7 @@ public sealed class TopologySettingsTests
         Assert.Contains("Living Room Playlist", component.Find("#aboutSettingsBody").TextContent);
         Assert.Contains("M3U Provider", component.Find("#aboutSettingsBody").TextContent);
         Assert.Contains("physical-device subscription", component.Find("#aboutSettingsBody").TextContent);
+        Assert.Contains("Output Hosting", component.Find("#aboutSettingsBody").TextContent);
         Assert.Contains("Transcoder Settings", component.Find("#aboutSettingsBody").TextContent);
     }
 

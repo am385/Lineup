@@ -2,16 +2,16 @@
 
 <div class="card">
     <div class="card-header">
-        <h5 class="mb-0">Rolling Log Files</h5>
+        <h5 class="mb-0">@Text["Logs_RollingFilesHeading"]</h5>
     </div>
     <div class="card-body">
         @if (!Enabled)
         {
-            <p class="mb-0">File logging is disabled. Enable it under <a href="/settings#logging">Settings &gt; Logging</a> and restart Lineup to retain logs across restarts.</p>
+            <p class="mb-0">@Text["Logs_FileLoggingDisabledPrefix"] <a href="/settings#logging">@Text["Logs_SettingsLoggingLink"]</a> @Text["Logs_FileLoggingDisabledSuffix"]</p>
         }
         else if (Files.Count == 0)
         {
-            <p class="text-body-secondary mb-0">No rolling log files are available yet.</p>
+            <p class="text-body-secondary mb-0">@Text["Logs_NoRollingFiles"]</p>
         }
         else
         {

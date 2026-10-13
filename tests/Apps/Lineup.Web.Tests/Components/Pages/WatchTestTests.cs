@@ -315,6 +315,12 @@ public class WatchTestTests
     {
         // Arrange
         var storedProfile = CreateCompatibilityProfile("video-h264-1080p");
+        storedProfile = storedProfile with
+        {
+            Results = storedProfile.Results
+                .Select(result => result.CaseId == "protocol-dash" ? result with { Error = "Localized diagnostic" } : result)
+                .ToArray()
+        };
         using var context = CreateContext(storedProfile);
         context.JSInterop
             .Setup<CmafCompatibilityTestResponse>("startCmafSession", _ => true)
@@ -344,9 +350,11 @@ public class WatchTestTests
             var saved = JsonSerializer.Deserialize<CmafCompatibilityProfile>(Assert.IsType<string>(write.Arguments[1]));
             Assert.True(CmafCompatibilityProfilePolicy.IsValid(saved));
             Assert.Equal(CmafCapabilityStatus.Passed, saved!.Results.Single(result => result.CaseId == "video-h264-1080p").Status);
+            var savedProtocolResult = saved.Results.Single(result => result.CaseId == "protocol-dash");
             Assert.Equal(
-                storedProfile.Results.Single(result => result.CaseId == "protocol-dash"),
-                saved.Results.Single(result => result.CaseId == "protocol-dash"));
+                storedProfile.Results.Single(result => result.CaseId == "protocol-dash").Status,
+                savedProtocolResult.Status);
+            Assert.Null(savedProtocolResult.Error);
             Assert.NotNull(component.Find("#observedPlayback"));
             Assert.False(component.Find("#runCompatibilityTest-protocol-dash").HasAttribute("disabled"));
         });

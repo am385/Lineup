@@ -23,7 +23,7 @@ public static class AppConstants
     /// <summary>
     /// Default directory path for generated guide outputs.
     /// </summary>
-    public const string DefaultGuideOutputDirectoryPath = "/xmltv";
+    public const string DefaultGuideOutputDirectoryPath = "/guide";
 
     /// <summary>
     /// Default directory path for transient stream artifacts.
@@ -61,9 +61,9 @@ public static class AppConstants
     public const string TuiAppDataPathConfigKey = "Lineup:TuiAppDataPath";
 
     /// <summary>
-    /// Configuration key for the XMLTV output path.
+    /// Configuration key for the default guide-output directory.
     /// </summary>
-    public const string XmltvPathConfigKey = "Lineup:XmltvPath";
+    public const string GuideOutputDirConfigKey = "Lineup:GuideOutputDir";
 
     /// <summary>
     /// Optional configuration key overriding the transient stream-artifact path.

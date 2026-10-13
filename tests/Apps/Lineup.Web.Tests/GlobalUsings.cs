@@ -13,3 +13,4 @@ global using Lineup.SiliconDust.HDHomeRun.VirtualTuner;
 global using Lineup.Streaming.FFmpeg;
 global using Lineup.WebPlayer;
 global using Lineup.WebPlayer.FFmpeg;
+global using BunitContext = Lineup.Web.Tests.LineupWebBunitContext;

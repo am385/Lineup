@@ -1,4 +1,19 @@
 <div id="apiSettingsTab" class="@CssClass" role="tabpanel" aria-labelledby="tab-api">
+    <div class="card mb-4 api-documentation-card">
+        <div class="card-header">
+            <h5 class="mb-0"><span class="bi bi-braces-asterisk me-1"></span>@Text["Settings_ApiDocumentationHeading"]</h5>
+        </div>
+        <div class="card-body">
+            <p>@Text["Settings_ApiDocumentationDescription"]</p>
+            <a class="btn btn-outline-primary api-documentation-link"
+               href="/api-docs"
+               target="_blank"
+               rel="noopener noreferrer">
+                <span class="bi bi-box-arrow-up-right me-1" aria-hidden="true"></span>@Text["Settings_OpenApiDocumentationButton"]
+            </a>
+        </div>
+    </div>
+
     <ApiPrivacySettingsPanel RedactClientAddresses="RedactClientAddresses"
                              RedactClientAddressesChanged="RedactClientAddressesChanged"
                              RedactDeviceAddresses="RedactDeviceAddresses"

@@ -1,9 +1,9 @@
 @page "/guide"
 @using Lineup.Core.Guides
 
-<PageTitle>Guide</PageTitle>
+<PageTitle>@Text["Guide_PageTitle"]</PageTitle>
 
-<h1><span class="bi bi-grid-3x3 me-2"></span>Guide</h1>
+<h1><span class="bi bi-grid-3x3 me-2"></span>@Text["Guide_Heading"]</h1>
 
 <GuideDateNavigator Today="Tz.Today"
                     SelectedDate="_selectedDate"
@@ -20,16 +20,16 @@
 {
     <div class="text-center py-5">
         <div class="spinner-border text-primary" role="status">
-            <span class="visually-hidden">Loading...</span>
+            <span class="visually-hidden">@Text["Common_Loading"]</span>
         </div>
-        <p class="text-muted mt-2">Loading guide data...</p>
+        <p class="text-muted mt-2">@Text["Guide_LoadingData"]</p>
     </div>
 }
 else if (_channels.Count == 0)
 {
     <div class="alert alert-info">
         <span class="bi bi-info-circle me-2"></span>
-        No EPG data available. Please fetch EPG data from the Dashboard first.
+        @Text["Guide_NoEpgData"]
     </div>
 }
 else
