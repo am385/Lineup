@@ -56,7 +56,7 @@ New-Item -ItemType Directory -Force -Path $packageDirectory | Out-Null
 
 $publishArguments = @(
     'publish',
-    (Join-Path $repositoryRoot 'src\Lineup.Web\Lineup.Web.csproj'),
+    (Join-Path $repositoryRoot 'src\Apps\Lineup.Web\Lineup.Web.csproj'),
     '--configuration',
     'Release',
     '--runtime',
@@ -76,6 +76,13 @@ if ($hasVersionOverride) {
 if ($LASTEXITCODE -ne 0) {
     throw "dotnet publish failed for $RuntimeIdentifier."
 }
+
+& (Join-Path $repositoryRoot 'scripts\Publish-VirtualOutputWorkers.ps1') `
+    -OutputDirectory (Join-Path $applicationDirectory 'virtual-output-workers') `
+    -RuntimeIdentifier $RuntimeIdentifier `
+    -SelfContained `
+    -Version $Version `
+    -SourceRevisionId $SourceRevisionId
 
 & (Join-Path $repositoryRoot 'scripts\Install-JellyfinFfmpeg.ps1') `
     -InstallDirectory (Join-Path $applicationDirectory '.ffmpeg') `

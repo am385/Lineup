@@ -1,0 +1,528 @@
+using System.Net;
+using System.Diagnostics;
+using System.Reflection;
+using Lineup.Web.Controllers;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
+using Xunit;
+
+namespace Lineup.Web.Tests.Controllers;
+
+/// <summary>Verifies stream transport validation, routing, and lifecycle boundaries.</summary>
+public sealed class StreamControllerTests
+{
+    /// <summary>Verifies unavailable synthetic encoders are rejected before a compatibility session starts.</summary>
+    [Fact]
+    public async Task StartCmafCompatibilityTest_Ac4ReturnsUnprocessableEntity()
+    {
+        // Arrange
+        var controller = CreateController();
+        var request = new CmafCompatibilityTestRequest
+        {
+            AudioCodec = CmafTestAudioCodec.Ac4,
+            ChannelLayout = CmafTestChannelLayout.Stereo
+        };
+
+        // Act
+        var result = await controller.StartCmafCompatibilityTest(request);
+
+        // Assert
+        Assert.Contains("AC-4 encoder", Assert.IsType<UnprocessableEntityObjectResult>(result).Value?.ToString(), StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies traversal and unexpected artifact names are rejected.</summary>
+    [Theory]
+    [InlineData("../stream.m3u8")]
+    [InlineData("nested/stream.m3u8")]
+    [InlineData("unexpected.txt")]
+    public void TryResolveCmafFilePath_TraversalOrInvalidName_ReturnsFalse(string filename)
+    {
+        // Arrange
+        var directory = Path.Combine(AppContext.BaseDirectory, "cmaf-path-tests");
+
+        // Act
+        var result = StreamController.TryResolveCmafFilePath(directory, filename, out _);
+
+        // Assert
+        Assert.False(result);
+    }
+
+    /// <summary>Verifies generated CMAF artifact basenames resolve inside the session directory.</summary>
+    [Theory]
+    [InlineData("manifest.mpd")]
+    [InlineData("master.m3u8")]
+    [InlineData("init-0.mp4")]
+    [InlineData("chunk-0-00001.m4s")]
+    [InlineData("captions-0.vtt")]
+    public void TryResolveCmafFilePath_GeneratedBasename_ReturnsContainedCanonicalPath(string filename)
+    {
+        // Arrange
+        var directory = Path.Combine(AppContext.BaseDirectory, "cmaf-path-tests");
+
+        // Act
+        var result = StreamController.TryResolveCmafFilePath(directory, filename, out var resolved);
+
+        // Assert
+        Assert.True(result);
+        Assert.StartsWith(Path.GetFullPath(directory) + Path.DirectorySeparatorChar, resolved, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Verifies stopping an unknown CMAF viewer remains an idempotent not-found response.</summary>
+    [Fact]
+    public void StopCmaf_UnknownViewer_ReturnsNotFound()
+    {
+        // Arrange
+        var controller = CreateController();
+
+        // Act
+        var result = controller.StopCmaf(Guid.NewGuid().ToString("N"));
+
+        // Assert
+        Assert.IsType<NotFoundObjectResult>(result);
+    }
+
+    /// <summary>Verifies stopping a registered viewer releases its process owner and artifact directory.</summary>
+    [Fact]
+    public async Task StopCmaf_RegisteredViewer_CleansResources()
+    {
+        // Arrange
+        var controller = CreateController();
+        var registration = await RegisterCmafSessionAsync(controller);
+
+        // Act
+        var result = controller.StopCmaf(registration.SessionId);
+
+        // Assert
+        Assert.IsType<OkObjectResult>(result);
+        Assert.False(Directory.Exists(registration.Directory));
+    }
+
+    /// <summary>Verifies same-channel viewer registrations retain independent lifecycle aliases.</summary>
+    [Fact]
+    public async Task StopCmaf_SameChannelViewers_StopIndependently()
+    {
+        // Arrange
+        var controller = CreateController();
+        var first = await RegisterCmafSessionAsync(controller);
+        var second = await RegisterCmafSessionAsync(controller);
+
+        // Act
+        var firstResult = controller.StopCmaf(first.SessionId);
+
+        // Assert
+        Assert.IsType<OkObjectResult>(firstResult);
+        Assert.False(Directory.Exists(first.Directory));
+        Assert.True(Directory.Exists(second.Directory));
+        Assert.IsType<OkObjectResult>(controller.StopCmaf(second.SessionId));
+    }
+
+    /// <summary>Verifies a shared CMAF output lifetime is independent from the initiating HTTP request.</summary>
+    [Fact]
+    public async Task PendingCmafOutput_RequestAborted_DoesNotCancelOutputLifetime()
+    {
+        // Arrange
+        var controller = CreateController();
+        using var requestCancellation = new CancellationTokenSource();
+        controller.HttpContext.RequestAborted = requestCancellation.Token;
+        var pendingType = typeof(StreamController).GetNestedType("PendingCmafOutput", BindingFlags.NonPublic);
+        Assert.NotNull(pendingType);
+        var constructor = Assert.Single(pendingType.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic));
+        var pending = constructor.Invoke([controller]);
+        Assert.NotNull(pending);
+        var lifetimeProperty = pendingType.GetProperty("LifetimeToken", BindingFlags.Instance | BindingFlags.Public);
+        Assert.NotNull(lifetimeProperty);
+        var lifetimeToken = Assert.IsType<CancellationToken>(lifetimeProperty.GetValue(pending));
+
+        // Act
+        requestCancellation.Cancel();
+
+        // Assert
+        Assert.False(lifetimeToken.IsCancellationRequested);
+        await Assert.IsAssignableFrom<IAsyncDisposable>(pending).DisposeAsync();
+        Assert.True(lifetimeToken.IsCancellationRequested);
+    }
+
+    /// <summary>Verifies contained playlist access returns the generated physical artifact.</summary>
+    [Fact]
+    public async Task GetCmafFile_RegisteredViewer_ReturnsPlaylist()
+    {
+        // Arrange
+        var controller = CreateController();
+        var registration = await RegisterCmafSessionAsync(controller);
+
+        // Act
+        var result = controller.GetCmafFile(registration.SessionId, "master.m3u8");
+
+        // Assert
+        var file = Assert.IsType<PhysicalFileResult>(result);
+        Assert.Equal("application/vnd.apple.mpegurl", file.ContentType);
+        Assert.Equal(registration.PlaylistPath, file.FileName);
+        Assert.IsType<OkObjectResult>(controller.StopCmaf(registration.SessionId));
+    }
+
+    /// <summary>Verifies invalid viewer identifiers cannot escape into CMAF artifact handling.</summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("not-a-session")]
+    [InlineData("../viewer")]
+    public void GetCmafFile_UnknownViewer_ReturnsNotFound(string sessionId)
+    {
+        // Arrange
+        var controller = CreateController();
+
+        // Act
+        var result = controller.GetCmafFile(sessionId, "master.m3u8");
+
+        // Assert
+        Assert.IsType<NotFoundObjectResult>(result);
+    }
+
+    /// <summary>Verifies missing subtitle sidecars return an empty incremental response.</summary>
+    [Fact]
+    public async Task GetCmafFile_SubtitleNotCreatedYet_ReturnsEmptyChunk()
+    {
+        // Arrange
+        var controller = CreateController();
+        var registration = await RegisterCmafSessionAsync(controller);
+
+        // Act
+        var result = controller.GetCmafFile(registration.SessionId, "captions-0.vtt");
+
+        // Assert
+        Assert.Empty(Assert.IsType<FileContentResult>(result).FileContents);
+        Assert.IsType<OkObjectResult>(controller.StopCmaf(registration.SessionId));
+    }
+
+    /// <summary>Verifies subtitle reads return only bytes after the requested offset.</summary>
+    [Fact]
+    public async Task GetCmafFile_SubtitleOffset_ReturnsIncrementalChunk()
+    {
+        // Arrange
+        var controller = CreateController();
+        var registration = await RegisterCmafSessionAsync(controller);
+        await File.WriteAllTextAsync(
+            Path.Combine(registration.Directory, "captions-0.vtt"),
+            "WEBVTT\n\ncue",
+            TestContext.Current.CancellationToken);
+
+        // Act
+        var result = controller.GetCmafFile(registration.SessionId, "captions-0.vtt", offset: 7);
+
+        // Assert
+        Assert.Equal("\ncue", System.Text.Encoding.UTF8.GetString(Assert.IsType<FileContentResult>(result).FileContents));
+        Assert.IsType<OkObjectResult>(controller.StopCmaf(registration.SessionId));
+    }
+
+    /// <summary>Verifies negative subtitle offsets are rejected.</summary>
+    [Fact]
+    public async Task GetCmafFile_NegativeSubtitleOffset_ReturnsBadRequest()
+    {
+        // Arrange
+        var controller = CreateController();
+        var registration = await RegisterCmafSessionAsync(controller);
+
+        // Act
+        var result = controller.GetCmafFile(registration.SessionId, "captions-0.vtt", offset: -1);
+
+        // Assert
+        Assert.IsType<BadRequestObjectResult>(result);
+        Assert.IsType<OkObjectResult>(controller.StopCmaf(registration.SessionId));
+    }
+
+    /// <summary>Verifies an active viewer cannot request a traversal path.</summary>
+    [Fact]
+    public async Task GetCmafFile_TraversalForActiveViewer_ReturnsBadRequest()
+    {
+        // Arrange
+        var controller = CreateController();
+        var registration = await RegisterCmafSessionAsync(controller);
+
+        // Act
+        var result = controller.GetCmafFile(registration.SessionId, "../stream.m3u8");
+
+        // Assert
+        Assert.IsType<BadRequestObjectResult>(result);
+        Assert.IsType<OkObjectResult>(controller.StopCmaf(registration.SessionId));
+    }
+
+    /// <summary>Verifies missing generated media returns not found.</summary>
+    [Fact]
+    public async Task GetCmafFile_MissingMedia_ReturnsNotFound()
+    {
+        // Arrange
+        var controller = CreateController();
+        var registration = await RegisterCmafSessionAsync(controller);
+
+        // Act
+        var result = controller.GetCmafFile(registration.SessionId, "init-0.mp4");
+
+        // Assert
+        Assert.IsType<NotFoundObjectResult>(result);
+        Assert.IsType<OkObjectResult>(controller.StopCmaf(registration.SessionId));
+    }
+
+    /// <summary>Verifies copied HEVC manifests receive the required browser codec string.</summary>
+    [Fact]
+    public async Task GetCmafFile_HevcManifest_RewritesMissingCodec()
+    {
+        // Arrange
+        var controller = CreateController();
+        var registration = await RegisterCmafSessionAsync(controller, sourceVideoCodec: "hvc1.1.6.L93.B0");
+        await File.WriteAllTextAsync(
+            Path.Combine(registration.Directory, CmafStreamPlanner.HlsManifestName),
+            "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000000,CODECS=\",mp4a.40.2\"\nmedia_0.m3u8",
+            TestContext.Current.CancellationToken);
+
+        // Act
+        var result = controller.GetCmafFile(registration.SessionId, CmafStreamPlanner.HlsManifestName);
+
+        // Assert
+        Assert.Contains("CODECS=\"hvc1.1.6.L93.B0,mp4a.40.2\"", Assert.IsType<ContentResult>(result).Content);
+        Assert.IsType<OkObjectResult>(controller.StopCmaf(registration.SessionId));
+    }
+
+    /// <summary>Verifies HLS media playlists use DASH media timestamps for synchronized program dates.</summary>
+    [Fact]
+    public async Task GetCmafFile_HlsMediaPlaylist_RewritesProgramDates()
+    {
+        // Arrange
+        var controller = CreateController();
+        var registration = await RegisterCmafSessionAsync(controller);
+        await File.WriteAllTextAsync(
+            Path.Combine(registration.Directory, CmafStreamPlanner.DashManifestName),
+            """
+            <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" availabilityStartTime="2026-10-06T05:42:38.169Z">
+              <Period><AdaptationSet><Representation id="0">
+                <SegmentTemplate timescale="60000" startNumber="2">
+                  <SegmentTimeline><S t="174174" d="120120" /></SegmentTimeline>
+                </SegmentTemplate>
+              </Representation></AdaptationSet></Period>
+            </MPD>
+            """,
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(registration.Directory, "media_0.m3u8"),
+            """
+            #EXTM3U
+            #EXTINF:2.002000,
+            #EXT-X-PROGRAM-DATE-TIME:2026-10-06T05:42:38.000Z
+            chunk-0-00001.m4s
+            #EXTINF:2.002000,
+            #EXT-X-PROGRAM-DATE-TIME:2026-10-06T05:42:40.002Z
+            chunk-0-00002.m4s
+            """,
+            TestContext.Current.CancellationToken);
+
+        // Act
+        var result = controller.GetCmafFile(registration.SessionId, "media_0.m3u8");
+
+        // Assert
+        var content = Assert.IsType<ContentResult>(result);
+        Assert.Contains("#EXT-X-PROGRAM-DATE-TIME:2026-10-06T05:42:39.070Z", content.Content);
+        Assert.IsType<OkObjectResult>(controller.StopCmaf(registration.SessionId));
+    }
+
+    /// <summary>Verifies DASH playback preserves FFmpeg's native audio and video presentation timeline.</summary>
+    [Fact]
+    public async Task GetCmafFile_DashManifest_PreservesNativePresentationTimeline()
+    {
+        // Arrange
+        var controller = CreateController();
+        var registration = await RegisterCmafSessionAsync(controller);
+        await File.WriteAllTextAsync(
+            Path.Combine(registration.Directory, CmafStreamPlanner.DashManifestName),
+            """
+            <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" availabilityStartTime="2026-10-06T06:17:53.955Z">
+              <Period>
+                <AdaptationSet contentType="video"><Representation id="0">
+                  <SegmentTemplate timescale="60000"><SegmentTimeline><S t="135135" d="120120" /></SegmentTimeline></SegmentTemplate>
+                </Representation></AdaptationSet>
+                <AdaptationSet contentType="audio"><Representation id="1">
+                  <SegmentTemplate timescale="48000"><SegmentTimeline><S t="0" d="95232" /></SegmentTimeline></SegmentTemplate>
+                </Representation></AdaptationSet>
+              </Period>
+            </MPD>
+            """,
+            TestContext.Current.CancellationToken);
+
+        // Act
+        var result = controller.GetCmafFile(registration.SessionId, CmafStreamPlanner.DashManifestName);
+
+        // Assert
+        var content = Assert.IsType<ContentResult>(result);
+        Assert.Contains("availabilityStartTime=\"2026-10-06T06:17:53.955Z\"", content.Content);
+        Assert.DoesNotContain("presentationTimeOffset", content.Content);
+        Assert.IsType<OkObjectResult>(controller.StopCmaf(registration.SessionId));
+    }
+
+    private static StreamController CreateController(
+        StreamingTopologyStore? store = null,
+        IStreamingRouteResolver? routes = null,
+        IProtectedContentSlateService? slate = null,
+        DisabledChannelMode disabledMode = DisabledChannelMode.ReturnError,
+        IActiveStreamRegistry? activeStreams = null,
+        int maximumConcurrentStreams = 0,
+        ITunerStreamMultiplexer? multiplexer = null,
+        IMediaProbeService? mediaProbe = null,
+        ITransientDataStore? transientData = null,
+        ICmafOutputCoordinator? cmafOutputs = null)
+    {
+        var settings = Substitute.For<ILineupSettingsService>();
+        settings.Settings.Returns(new LineupSettings
+        {
+            DisabledChannelMode = disabledMode,
+            MaximumConcurrentStreams = maximumConcurrentStreams,
+            Streaming = new StreamingConfiguration
+            {
+                VirtualDevices =
+                [
+                    new VirtualDeviceDefinition
+                    {
+                        Id = VirtualDeviceId.New(),
+                        Name = "HDHomeRun",
+                        Adapter = new AdapterConfiguration(
+                            HdHomeRunVirtualTunerDriver.AdapterKind,
+                            System.Text.Json.JsonSerializer.SerializeToElement(new HdHomeRunVirtualTunerConfiguration()))
+                    },
+                    WebPlayerVirtualTunerDriver.CreateBuiltIn()
+                ]
+            }
+        });
+        var controller = new StreamController(
+            Substitute.For<IHttpClientFactory>(),
+            Substitute.For<ILineupGuideReader>(),
+            settings,
+            store ?? CreateTopologyStore(),
+            mediaProbe ?? Substitute.For<IMediaProbeService>(),
+            activeStreams ?? new ActiveStreamRegistry(),
+            slate ?? Substitute.For<IProtectedContentSlateService>(),
+            multiplexer ?? Substitute.For<ITunerStreamMultiplexer>(),
+            NullLogger<StreamController>.Instance,
+            transientData: transientData ?? new TransientDataStore(Path.Combine(AppContext.BaseDirectory, "stream-controller-artifacts")),
+            streamRoutes: routes,
+            cmafOutputs: cmafOutputs)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext { Response = { Body = new MemoryStream() } }
+            }
+        };
+        return controller;
+    }
+
+    private static StreamingTopologyStore CreateTopologyStore()
+    {
+        var options = new DbContextOptionsBuilder<EpgDbContext>()
+            .UseSqlite($"Data Source={Path.Combine(AppContext.BaseDirectory, $"stream-controller-{Guid.NewGuid():N}.db")}")
+            .Options;
+        return new StreamingTopologyStore(new PooledDbContextFactory<EpgDbContext>(options));
+    }
+
+    private static ResolvedStreamingRoute CreateResolvedRoute()
+    {
+        var physicalId = PhysicalDeviceId.New();
+        var physical = Substitute.For<IPhysicalTunerDevice>();
+        physical.Snapshot.Returns(new PhysicalDeviceSnapshot
+        {
+            Id = physicalId,
+            Kind = "test",
+            Name = "Test",
+            Capacity = new PhysicalTunerCapacity(1)
+        });
+        var source = new SourceChannelId(physicalId, "9.1");
+        var acquisition = new StreamAcquisitionDescriptor(
+            physicalId,
+            new PhysicalAcquisitionKey(source, "none"),
+            new PhysicalTunerCapacity(1));
+        var physicalProfile = new PhysicalTranscodeProfile();
+        var diagnosticUri = new Uri("http://device/auto/v9.1");
+        return new ResolvedStreamingRoute
+        {
+            VirtualDevice = new VirtualDeviceDefinition
+            {
+                Id = VirtualDeviceId.New(),
+                Name = "Virtual",
+                Adapter = new AdapterConfiguration("test", System.Text.Json.JsonSerializer.SerializeToElement(new { }))
+            },
+            PhysicalDevice = physical,
+            SourceChannelId = source,
+            SourceCandidates = [source],
+            DiagnosticUri = diagnosticUri,
+            Acquisition = acquisition,
+            Candidates =
+            [
+                new ResolvedStreamingCandidate
+                {
+                    PhysicalDevice = physical,
+                    SourceChannelId = source,
+                    Acquisition = acquisition,
+                    PhysicalProfile = physicalProfile,
+                    DiagnosticUri = diagnosticUri
+                }
+            ],
+            PhysicalProfile = physicalProfile,
+            VirtualProfile = new VirtualTranscodeProfile()
+        };
+    }
+
+    private static async Task<StreamingTopologyStore> CreateDisabledChannelStoreAsync(string guideNumber)
+    {
+        var store = CreateTopologyStore();
+        var deviceId = PhysicalDeviceId.New();
+        var channelId = new SourceChannelId(deviceId, guideNumber);
+        await store.ReconcileAsync(
+            deviceId,
+            [new PhysicalSourceChannel { Id = channelId, ProviderNumber = guideNumber, ProviderName = "Disabled" }],
+            TestContext.Current.CancellationToken);
+        await store.SetEnabledAsync(channelId, enabled: false, TestContext.Current.CancellationToken);
+        return store;
+    }
+
+    private static async Task<CmafRegistration> RegisterCmafSessionAsync(StreamController controller, string? sourceVideoCodec = null)
+    {
+        var sessionId = Guid.NewGuid().ToString("N");
+        var transientData = new TransientDataStore(Path.Combine(AppContext.BaseDirectory, "stream-controller-artifacts"));
+        var directory = transientData.CreateSessionDirectory(WebPlayerTransientWorkspaces.Cmaf, sessionId);
+        var playlistPath = transientData.GetFilePath(directory, "master.m3u8");
+        await File.WriteAllTextAsync(playlistPath, "#EXTM3U", TestContext.Current.CancellationToken);
+        using var process = Process.Start(new ProcessStartInfo
+        {
+            FileName = "dotnet",
+            Arguments = "--version",
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        });
+        Assert.NotNull(process);
+        await process.WaitForExitAsync(TestContext.Current.CancellationToken);
+        var sessionType = typeof(StreamController).GetNestedType("CmafSession", BindingFlags.NonPublic);
+        Assert.NotNull(sessionType);
+        var session = Activator.CreateInstance(sessionType);
+        Assert.NotNull(session);
+        SetProperty(sessionType, session, "SessionId", sessionId);
+        SetProperty(sessionType, session, "Channel", "20.1");
+        SetProperty(sessionType, session, "Process", process);
+        SetProperty(sessionType, session, "CmafDirectory", directory);
+        SetProperty(sessionType, session, "PlaylistPath", playlistPath);
+        SetProperty(sessionType, session, "StartTime", DateTime.UtcNow);
+        SetProperty(sessionType, session, "SourceVideoCodec", sourceVideoCodec);
+        var register = typeof(StreamController).GetMethod("RegisterCmafSessionAsync", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(register);
+        var task = Assert.IsAssignableFrom<Task>(register.Invoke(controller, [session, TestContext.Current.CancellationToken]));
+        await task;
+        return new CmafRegistration(sessionId, directory, playlistPath);
+    }
+
+    private static void SetProperty(Type type, object instance, string name, object? value)
+    {
+        var property = type.GetProperty(name, BindingFlags.Instance | BindingFlags.Public);
+        Assert.NotNull(property);
+        property.SetValue(instance, value);
+    }
+
+    private sealed record CmafRegistration(string SessionId, string Directory, string PlaylistPath);
+}

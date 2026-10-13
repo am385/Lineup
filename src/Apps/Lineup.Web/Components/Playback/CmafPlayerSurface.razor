@@ -1,0 +1,117 @@
+@using Lineup.Web.Services
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div class="ratio ratio-16x9 bg-dark @(UseShakaUi ? "shaka-video-container" : null)" data-lineup-cmaf-container="@UseShakaUi">
+    <video id="@ElementId"
+           autoplay="@AutoPlay"
+           controls="@ShowControls"
+           muted="@Muted"
+           class="w-100 @(UseShakaUi ? "shaka-video" : null)">
+        @FallbackText
+    </video>
+    @if (IsLoading)
+    {
+        <div id="@LoadingElementId" class="cmaf-loading-overlay text-white" role="status" aria-live="polite">
+            <div class="spinner-border mb-3" aria-hidden="true"></div>
+            <p class="mb-0">@LoadingText</p>
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>Gets or sets the stable video element identifier.</summary>
+    [Parameter, EditorRequired]
+    public string ElementId { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets whether the Shaka controls container is rendered.</summary>
+    [Parameter]
+    public bool UseShakaUi { get; set; }
+
+    /// <summary>Gets or sets whether native video controls are shown.</summary>
+    [Parameter]
+    public bool ShowControls { get; set; }
+
+    /// <summary>Gets or sets whether playback starts automatically.</summary>
+    [Parameter]
+    public bool AutoPlay { get; set; } = true;
+
+    /// <summary>Gets or sets whether playback starts muted.</summary>
+    [Parameter]
+    public bool Muted { get; set; } = true;
+
+    /// <summary>Gets or sets whether the loading overlay is visible.</summary>
+    [Parameter]
+    public bool IsLoading { get; set; }
+
+    /// <summary>Gets or sets the loading overlay element identifier.</summary>
+    [Parameter]
+    public string LoadingElementId { get; set; } = "cmafStreamLoading";
+
+    /// <summary>Gets or sets the loading message.</summary>
+    [Parameter]
+    public string LoadingText { get; set; } = "Setting up stream...";
+
+    /// <summary>Gets or sets the browser fallback text.</summary>
+    [Parameter]
+    public string FallbackText { get; set; } = "Your browser does not support CMAF playback.";
+
+    /// <summary>Initializes live CMAF playback in this surface.</summary>
+    public ValueTask<TResult> InitializeLiveAsync<TResult, TCallback>(
+        string manifestUrl,
+        string? protocolFallbackUrl,
+        string preferredAudio,
+        string preferredVideo,
+        bool hasSourceVideoRendition,
+        string? sourceVideoCodec,
+        string? fallbackAudioCodec,
+        object subtitles,
+        DotNetObjectReference<TCallback> callbackReference,
+        string sessionId)
+        where TCallback : class =>
+        JS.InitializeCmafPlayerAsync<TResult, TCallback>(
+            ElementId,
+            manifestUrl,
+            protocolFallbackUrl,
+            preferredAudio,
+            preferredVideo,
+            hasSourceVideoRendition,
+            sourceVideoCodec,
+            fallbackAudioCodec,
+            subtitles,
+            callbackReference,
+            sessionId);
+
+    /// <summary>Initializes exact-presentation compatibility playback in this surface.</summary>
+    public ValueTask<TResult> InitializeTestAsync<TResult, TCallback>(
+        string manifestUrl,
+        string? expectedVideoCodec,
+        string? expectedAudioCodec,
+        string? subtitleUrl,
+        DotNetObjectReference<TCallback> callbackReference,
+        string sessionId)
+        where TCallback : class =>
+        JS.InitializeCmafTestPlayerAsync<TResult, TCallback>(
+            ElementId,
+            manifestUrl,
+            expectedVideoCodec,
+            expectedAudioCodec,
+            subtitleUrl,
+            callbackReference,
+            sessionId);
+
+    /// <summary>Stops and releases browser playback resources owned by this surface.</summary>
+    public ValueTask StopAsync() => JS.StopMediaPlayerAsync(ElementId);
+
+    /// <inheritdoc />
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await StopAsync();
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or InvalidOperationException or ObjectDisposedException)
+        {
+        }
+    }
+}

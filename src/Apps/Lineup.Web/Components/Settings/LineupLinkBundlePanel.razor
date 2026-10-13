@@ -1,0 +1,219 @@
+@using System.Text.RegularExpressions
+@using System.Globalization
+@using Lineup.LineupLink.Virtual
+@using Lineup.Web.Services
+
+<div class="col-12">
+    <h6 class="mb-2">Access grants</h6>
+    <div class="row g-2 align-items-end mb-3">
+        <div class="col-md-5">
+            <label class="form-label" for="@($"newLineupLinkGrantName-{Index}")">Consumer name</label>
+            <input id="@($"newLineupLinkGrantName-{Index}")" class="form-control" maxlength="@LineupLinkAccessGrantManager.MaximumNameLength"
+                   placeholder="Friend or household name" @bind="Device.LinkNewAccessGrantName" />
+        </div>
+        <div class="col-md-4">
+            <label class="form-label" for="@($"newLineupLinkGrantExpiration-{Index}")">Expiration (optional)</label>
+            <input id="@($"newLineupLinkGrantExpiration-{Index}")" class="form-control" type="datetime-local"
+                   value="@Device.LinkNewAccessGrantExpiresAtLocal?.ToString("yyyy-MM-ddTHH:mm", CultureInfo.InvariantCulture)"
+                   @oninput="UpdateExpiration" />
+        </div>
+        <div class="col-md-3">
+            <button id="@($"createLineupLinkGrant-{Index}")" type="button" class="btn btn-outline-primary w-100"
+                    @onclick="() => CreateRequested.InvokeAsync(Device)">Create access grant</button>
+        </div>
+    </div>
+    <div class="form-text mb-3">
+        Grants share this instance's channels, transcoding, listener, and security policy. Create a separate Lineup Link instance when those settings must differ.
+    </div>
+    @if (Device.LinkAccessGrants.Count == 0)
+    {
+        <div class="alert alert-info">
+            <strong>No access grants.</strong> Remote access is disabled until you explicitly create a grant.
+        </div>
+    }
+
+    @foreach (var grant in Device.LinkAccessGrants)
+    {
+        <div class="card mb-3 lineup-link-access-grant" data-grant-id="@grant.Id">
+            <div class="card-body">
+                <div class="d-flex flex-wrap justify-content-between gap-2 mb-2">
+                    <div>
+                        <strong>@grant.Name</strong>
+                        <span class="badge @GetStatusClass(grant) ms-2">@GetStatus(grant)</span>
+                        <div class="small text-body-secondary">
+                            Created @grant.CreatedAtUtc.ToLocalTime().ToString("g")
+                            @if (grant.ExpiresAtUtc.HasValue)
+                            {
+                                <span> · Expires @grant.ExpiresAtUtc.Value.ToLocalTime().ToString("g")</span>
+                            }
+                        </div>
+                    </div>
+                    <div class="d-flex flex-wrap gap-2">
+                        <button id="@($"rotateLineupLinkGrant-{grant.Id:N}")" type="button" class="btn btn-sm btn-outline-warning"
+                                disabled="@grant.RevokedAtUtc.HasValue"
+                                @onclick="() => RotateRequested.InvokeAsync(grant)">Rotate</button>
+                        <button id="@($"revokeLineupLinkGrant-{grant.Id:N}")" type="button" class="btn btn-sm btn-outline-danger"
+                                disabled="@grant.RevokedAtUtc.HasValue"
+                                @onclick="() => RevokeRequested.InvokeAsync(grant)">Revoke</button>
+                        @if (grant.RevokedAtUtc.HasValue)
+                        {
+                            <button id="@($"purgeLineupLinkGrant-{grant.Id:N}")" type="button" class="btn btn-sm btn-outline-danger"
+                                    @onclick="() => grant.PurgeConfirmationVisible = true">Purge</button>
+                        }
+                        <button id="@($"exportLineupLinkBundle-{grant.Id:N}")" type="button" class="btn btn-sm btn-outline-secondary"
+                                disabled="@string.IsNullOrWhiteSpace(grant.RawToken)"
+                                @onclick="() => ExportRequested.InvokeAsync(grant)">
+                            <span class="bi bi-download me-1"></span>Export
+                        </button>
+                        <button id="@($"copyLineupLinkBundle-{grant.Id:N}")" type="button" class="btn btn-sm btn-outline-secondary"
+                                disabled="@string.IsNullOrWhiteSpace(grant.RawToken)"
+                                @onclick="() => CopyRequested.InvokeAsync(grant)">
+                            <span class="bi bi-clipboard me-1"></span>Copy
+                        </button>
+                        <button id="@($"showLineupLinkBundle-{grant.Id:N}")" type="button" class="btn btn-sm btn-outline-secondary"
+                                aria-expanded="@(grant.ConnectionBundleExpanded ? "true" : "false")"
+                                @onclick="() => ToggleRequested.InvokeAsync(grant)">
+                            <span class="bi @(grant.ConnectionBundleExpanded ? "bi-eye-slash" : "bi-eye") me-1"></span>
+                            @(grant.ConnectionBundleExpanded ? "Hide bundle" : "Show bundle")
+                        </button>
+                    </div>
+                </div>
+                @if (grant.PurgeConfirmationVisible)
+                {
+                    <div class="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-2 py-2">
+                        <span>Permanently delete this revoked grant and its audit history? This cannot be undone.</span>
+                        <div class="d-flex gap-2">
+                            <button id="@($"confirmPurgeLineupLinkGrant-{grant.Id:N}")" type="button" class="btn btn-sm btn-danger"
+                                    @onclick="() => PurgeRequested.InvokeAsync(grant)">Confirm purge</button>
+                            <button id="@($"cancelPurgeLineupLinkGrant-{grant.Id:N}")" type="button" class="btn btn-sm btn-outline-secondary"
+                                    @onclick="() => grant.PurgeConfirmationVisible = false">Cancel</button>
+                        </div>
+                    </div>
+                }
+                @if (!string.IsNullOrWhiteSpace(grant.ConnectionBundle) && grant.ConnectionBundleExpanded)
+                {
+                    <div id="@($"lineupLinkBundle-{grant.Id:N}")">
+                        <pre class="connection-bundle-json mb-2" aria-label="Connection bundle JSON" tabindex="0"><code class="language-json">@foreach (var token in TokenizeJson(grant.ConnectionBundle))
+                            {
+                                @if (token.CssClass is null)
+                                {
+                                    @token.Text
+                                }
+                                else
+                                {
+                                    <span class="@token.CssClass">@token.Text</span>
+                                }
+                            }</code></pre>
+                        <div class="form-text">
+                            @if (string.IsNullOrWhiteSpace(grant.RawToken))
+                            {
+                                <span>The token is redacted. Rotate this grant to create an exportable replacement bundle.</span>
+                            }
+                            else
+                            {
+                                <span>Copy or export this bundle now. Its raw token is not persisted.</span>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private sealed record JsonSyntaxToken(string Text, string? CssClass);
+
+    private void UpdateExpiration(ChangeEventArgs args)
+    {
+        var value = args.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            Device.LinkNewAccessGrantExpiresAtLocal = null;
+            return;
+        }
+
+        if (DateTime.TryParseExact(value, "yyyy-MM-ddTHH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out var expiration))
+        {
+            Device.LinkNewAccessGrantExpiresAtLocal = expiration;
+        }
+    }
+
+    /// <summary>Gets or sets the virtual Lineup Link device being edited.</summary>
+    [Parameter, EditorRequired]
+    public VirtualDeviceSettingsModel Device { get; set; } = default!;
+
+    /// <summary>Gets or sets the device index used for stable element identifiers.</summary>
+    [Parameter]
+    public int Index { get; set; }
+
+    /// <summary>Gets or sets the callback raised when a grant should be created.</summary>
+    [Parameter]
+    public EventCallback<VirtualDeviceSettingsModel> CreateRequested { get; set; }
+
+    /// <summary>Gets or sets the callback raised when a grant should rotate.</summary>
+    [Parameter]
+    public EventCallback<LineupLinkAccessGrantSettingsModel> RotateRequested { get; set; }
+
+    /// <summary>Gets or sets the callback raised when a grant should be revoked.</summary>
+    [Parameter]
+    public EventCallback<LineupLinkAccessGrantSettingsModel> RevokeRequested { get; set; }
+
+    /// <summary>Gets or sets the callback raised when a revoked grant should be permanently purged.</summary>
+    [Parameter]
+    public EventCallback<LineupLinkAccessGrantSettingsModel> PurgeRequested { get; set; }
+
+    /// <summary>Gets or sets the callback raised when a bundle should export.</summary>
+    [Parameter]
+    public EventCallback<LineupLinkAccessGrantSettingsModel> ExportRequested { get; set; }
+
+    /// <summary>Gets or sets the callback raised when a bundle should be copied.</summary>
+    [Parameter]
+    public EventCallback<LineupLinkAccessGrantSettingsModel> CopyRequested { get; set; }
+
+    /// <summary>Gets or sets the callback raised when bundle visibility changes.</summary>
+    [Parameter]
+    public EventCallback<LineupLinkAccessGrantSettingsModel> ToggleRequested { get; set; }
+
+    private static string GetStatus(LineupLinkAccessGrantSettingsModel grant) =>
+        grant.RevokedAtUtc.HasValue
+            ? "Revoked"
+            : grant.ExpiresAtUtc <= DateTime.UtcNow
+                ? "Expired"
+                : "Active";
+
+    private static string GetStatusClass(LineupLinkAccessGrantSettingsModel grant) =>
+        grant.RevokedAtUtc.HasValue || grant.ExpiresAtUtc <= DateTime.UtcNow
+            ? "text-bg-secondary"
+            : "text-bg-success";
+
+    private static IEnumerable<JsonSyntaxToken> TokenizeJson(string json)
+    {
+        var offset = 0;
+        foreach (Match match in JsonTokenRegex().Matches(json))
+        {
+            if (match.Index > offset)
+            {
+                yield return new JsonSyntaxToken(json[offset..match.Index], null);
+            }
+
+            var cssClass = match.Groups["property"].Success
+                ? "json-property"
+                : match.Groups["string"].Success
+                    ? "json-string"
+                    : match.Groups["number"].Success
+                        ? "json-number"
+                        : match.Groups["boolean"].Success
+                            ? "json-boolean"
+                            : "json-null";
+            yield return new JsonSyntaxToken(match.Value, cssClass);
+            offset = match.Index + match.Length;
+        }
+
+        if (offset < json.Length)
+        {
+            yield return new JsonSyntaxToken(json[offset..], null);
+        }
+    }
+
+}

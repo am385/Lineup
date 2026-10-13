@@ -1,0 +1,81 @@
+<div id="appearanceSettings" class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0">Appearance</h5>
+    </div>
+    <div class="card-body">
+        <div class="mb-3">
+            <label class="form-label">Theme</label>
+            <div class="btn-group d-flex" role="group">
+                @foreach (var option in ThemeOptions)
+                {
+                    <input type="radio"
+                           class="btn-check"
+                           name="theme"
+                           id="@option.Id"
+                           value="@option.Value"
+                           checked="@(Theme == option.Value)"
+                           @onchange="() => SetThemeAsync(option.Value)" />
+                    <label class="btn btn-outline-secondary" for="@option.Id">
+                        <span class="bi @option.Icon me-1"></span>@option.Label
+                    </label>
+                }
+            </div>
+            <div class="form-text">Choose Light, Dark, or Auto to follow your system preference.</div>
+        </div>
+    </div>
+</div>
+
+<div id="regionalSettings" class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0">Regional Settings</h5>
+    </div>
+    <div class="card-body">
+        <div class="mb-3">
+            <label for="timeZone" class="form-label">Time Zone</label>
+            <select class="form-select" id="timeZone" value="@TimeZoneId" @onchange="ChangeTimeZoneAsync">
+                <option value="">System default</option>
+                @foreach (var timeZone in TimeZoneInfo.GetSystemTimeZones())
+                {
+                    <option value="@timeZone.Id">@timeZone.DisplayName</option>
+                }
+            </select>
+            <div class="form-text">
+                Override the display timezone. "System default" uses the <code>TZ</code> environment variable or the server's local time.
+                Currently: <strong>@CurrentTimeZoneDisplayName</strong>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private static readonly (string Id, string Value, string Icon, string Label)[] ThemeOptions =
+    [
+        ("themeLight", "light", "bi-sun-fill", "Light"),
+        ("themeDark", "dark", "bi-moon-stars-fill", "Dark"),
+        ("themeAuto", "auto", "bi-circle-half", "Auto")
+    ];
+
+    /// <summary>Gets or sets the selected theme.</summary>
+    [Parameter, EditorRequired]
+    public string Theme { get; set; } = "auto";
+
+    /// <summary>Gets or sets the callback raised when the selected theme changes.</summary>
+    [Parameter]
+    public EventCallback<string> ThemeChanged { get; set; }
+
+    /// <summary>Gets or sets the selected timezone identifier.</summary>
+    [Parameter]
+    public string? TimeZoneId { get; set; }
+
+    /// <summary>Gets or sets the callback raised when the timezone changes.</summary>
+    [Parameter]
+    public EventCallback<string?> TimeZoneIdChanged { get; set; }
+
+    /// <summary>Gets or sets the current effective timezone display name.</summary>
+    [Parameter, EditorRequired]
+    public string CurrentTimeZoneDisplayName { get; set; } = string.Empty;
+
+    private Task SetThemeAsync(string theme) => ThemeChanged.InvokeAsync(theme);
+
+    private Task ChangeTimeZoneAsync(ChangeEventArgs args) => TimeZoneIdChanged.InvokeAsync(args.Value?.ToString());
+}

@@ -1,0 +1,87 @@
+@using Lineup.Core.Streaming
+
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0">Streaming Policies</h5>
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-6">
+                <label for="maximumConcurrentStreams" class="form-label">Maximum Concurrent Streams</label>
+                <input type="number" class="form-control" id="maximumConcurrentStreams"
+                       value="@MaximumConcurrentStreams" @onchange="ChangeMaximumConcurrentStreamsAsync" min="0" max="100" />
+                <div class="form-text">Maximum logical consumer sessions across all formats. Shared producers still count once per connected consumer. Set to 0 for unlimited.</div>
+            </div>
+            <div class="col-md-6">
+                <label for="keepWarmPeriodSeconds" class="form-label">Keep Warm Period (seconds)</label>
+                <input type="number" class="form-control" id="keepWarmPeriodSeconds"
+                       value="@KeepWarmPeriodSeconds" @onchange="ChangeKeepWarmPeriodAsync" min="0" max="300" />
+                <div class="form-text">Keep an unused shared pipeline ready for rapid reconnects. Set to 0 to release it immediately. Nonzero values retain tuner capacity until the period expires.</div>
+            </div>
+            <div class="col-md-6">
+                <label for="protectedContentMode" class="form-label">DRM-Protected Content</label>
+                <select class="form-select" id="protectedContentMode" value="@ProtectedContentMode" @onchange="ChangeProtectedContentModeAsync">
+                    <option value="@ProtectedContentMode.ReturnError">Return a protected-content error</option>
+                    <option value="@ProtectedContentMode.StreamSlate">Stream a Content Protected slate</option>
+                </select>
+                <div class="form-text">Return an error or a synthetic compatibility slate. Protected programming is never decrypted.</div>
+            </div>
+            <div class="col-md-6">
+                <label for="disabledChannelMode" class="form-label">Disabled Channels</label>
+                <select class="form-select" id="disabledChannelMode" value="@DisabledChannelMode" @onchange="ChangeDisabledChannelModeAsync">
+                    <option value="@DisabledChannelMode.ReturnError">Return a disabled-channel error</option>
+                    <option value="@DisabledChannelMode.StreamSlate">Stream a Disabled Channel slate</option>
+                </select>
+                <div class="form-text">Controls direct requests for channels disabled on the Channels page. Disabled streams never open a physical tuner.</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>Gets or sets the maximum logical stream count.</summary>
+    [Parameter]
+    public int MaximumConcurrentStreams { get; set; }
+
+    /// <summary>Gets or sets the callback raised when the maximum stream count changes.</summary>
+    [Parameter]
+    public EventCallback<int> MaximumConcurrentStreamsChanged { get; set; }
+
+    /// <summary>Gets or sets the shared producer keep-warm duration.</summary>
+    [Parameter]
+    public int KeepWarmPeriodSeconds { get; set; }
+
+    /// <summary>Gets or sets the callback raised when the keep-warm duration changes.</summary>
+    [Parameter]
+    public EventCallback<int> KeepWarmPeriodSecondsChanged { get; set; }
+
+    /// <summary>Gets or sets the protected-content response mode.</summary>
+    [Parameter]
+    public ProtectedContentMode ProtectedContentMode { get; set; }
+
+    /// <summary>Gets or sets the callback raised when the protected-content mode changes.</summary>
+    [Parameter]
+    public EventCallback<ProtectedContentMode> ProtectedContentModeChanged { get; set; }
+
+    /// <summary>Gets or sets the disabled-channel response mode.</summary>
+    [Parameter]
+    public DisabledChannelMode DisabledChannelMode { get; set; }
+
+    /// <summary>Gets or sets the callback raised when the disabled-channel mode changes.</summary>
+    [Parameter]
+    public EventCallback<DisabledChannelMode> DisabledChannelModeChanged { get; set; }
+
+    private Task ChangeMaximumConcurrentStreamsAsync(ChangeEventArgs args) =>
+        MaximumConcurrentStreamsChanged.InvokeAsync(ParseInteger(args.Value, MaximumConcurrentStreams));
+
+    private Task ChangeKeepWarmPeriodAsync(ChangeEventArgs args) =>
+        KeepWarmPeriodSecondsChanged.InvokeAsync(ParseInteger(args.Value, KeepWarmPeriodSeconds));
+
+    private Task ChangeProtectedContentModeAsync(ChangeEventArgs args) =>
+        ProtectedContentModeChanged.InvokeAsync(Enum.Parse<ProtectedContentMode>(args.Value?.ToString() ?? string.Empty));
+
+    private Task ChangeDisabledChannelModeAsync(ChangeEventArgs args) =>
+        DisabledChannelModeChanged.InvokeAsync(Enum.Parse<DisabledChannelMode>(args.Value?.ToString() ?? string.Empty));
+
+    private static int ParseInteger(object? value, int fallback) => int.TryParse(value?.ToString(), out var parsed) ? parsed : fallback;
+}

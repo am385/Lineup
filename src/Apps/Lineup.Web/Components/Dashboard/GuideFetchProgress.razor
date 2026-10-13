@@ -1,0 +1,54 @@
+<div id="@Id" class="card mb-4 @(IsAutoFetch ? "border-info" : null)">
+    <div class="card-header @(IsAutoFetch ? "bg-info text-white" : null)">
+        <h5 class="mb-0">
+            <span class="bi @(IsAutoFetch ? "bi-arrow-repeat" : "bi-graph-up") me-1"></span>@Title
+        </h5>
+    </div>
+    <div class="card-body">
+        <div class="row mb-2">
+            <div class="col-md-3"><strong>Status:</strong> <span class="badge @GetStatusBadgeClass(Progress.Status)">@Progress.Status</span></div>
+            <div class="col-md-3"><strong>Fetch #:</strong> @Progress.FetchCount</div>
+            <div class="col-md-3"><strong>Programs:</strong> @Progress.TotalProgramsFetched.ToString("N0")</div>
+            <div class="col-md-3"><strong>Channels:</strong> @Progress.TotalChannelsFetched</div>
+        </div>
+        <div class="progress mb-2" style="height: 25px;">
+            <div class="progress-bar progress-bar-striped progress-bar-animated @(IsAutoFetch ? "bg-info" : null)"
+                 role="progressbar"
+                 style="width: @(Progress.PercentComplete)%"
+                 aria-valuenow="@Progress.PercentComplete"
+                 aria-valuemin="0"
+                 aria-valuemax="100">
+                @Progress.PercentComplete%
+            </div>
+        </div>
+        <p class="text-muted mb-0">@Progress.Message</p>
+    </div>
+</div>
+
+@code {
+    /// <summary>Gets or sets the optional card identifier.</summary>
+    [Parameter]
+    public string? Id { get; set; }
+
+    /// <summary>Gets or sets the card title.</summary>
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets fetch progress.</summary>
+    [Parameter, EditorRequired]
+    public FetchProgressInfo Progress { get; set; } = default!;
+
+    /// <summary>Gets or sets whether this is automatic fetch progress.</summary>
+    [Parameter]
+    public bool IsAutoFetch { get; set; }
+
+    private static string GetStatusBadgeClass(FetchStatus status) => status switch
+    {
+        FetchStatus.Initializing => "bg-secondary",
+        FetchStatus.Fetching => "bg-primary",
+        FetchStatus.Storing => "bg-info",
+        FetchStatus.Completed => "bg-success",
+        FetchStatus.Failed => "bg-danger",
+        _ => "bg-secondary"
+    };
+}

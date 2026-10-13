@@ -1,0 +1,51 @@
+@using Lineup.Web.Services
+
+@if (Media is null || Media.Tracks.Count == 0)
+{
+    <span class="text-body-secondary">Unavailable</span>
+}
+else
+{
+    @foreach (var track in Media.Tracks)
+    {
+        <div>
+            <span class="badge @GetTrackBadgeClass(track.Type) me-1">@track.Type</span>
+            @FormatMediaTrack(track)
+        </div>
+    }
+    @if (Media.BitRate.HasValue)
+    {
+        <div class="text-body-secondary mt-1">Total: @FormatBitRate(Media.BitRate)</div>
+    }
+}
+
+@code {
+    /// <summary>Gets or sets the media snapshot to render.</summary>
+    [Parameter]
+    public ActiveStreamMediaSnapshot? Media { get; set; }
+
+    private static string FormatBitRate(long? bitRate)
+    {
+        if (!bitRate.HasValue)
+        {
+            return "unknown";
+        }
+
+        return bitRate.Value >= 1_000_000
+            ? $"{bitRate.Value / 1_000_000d:0.##} Mbps"
+            : $"{bitRate.Value / 1_000d:0} kbps";
+    }
+
+    private static string FormatMediaTrack(ActiveStreamMediaTrack track)
+    {
+        var details = track.Type == MediaTrackType.Video && track.Width > 0 && track.Height > 0
+            ? $"{track.Width}x{track.Height}"
+            : track.Type == MediaTrackType.Audio && track.Channels.HasValue
+                ? $"{track.Channels} ch"
+                : null;
+        return string.Join(" · ", new[] { track.Codec, track.RenditionTitle, details, FormatBitRate(track.BitRate) }.Where(value => !string.IsNullOrEmpty(value)));
+    }
+
+    private static string GetTrackBadgeClass(MediaTrackType type) =>
+        type == MediaTrackType.Video ? "text-bg-primary" : "text-bg-secondary";
+}

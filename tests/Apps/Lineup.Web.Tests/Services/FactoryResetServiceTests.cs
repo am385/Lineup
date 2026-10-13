@@ -1,0 +1,223 @@
+using Lineup.Web.Services;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
+using Xunit;
+
+namespace Lineup.Web.Tests.Services;
+
+/// <summary>
+/// Verifies restart-safe factory-reset behavior.
+/// </summary>
+public class FactoryResetServiceTests
+{
+    /// <summary>
+    /// Verifies that reset empties application and transient storage while preserving an external XMLTV destination.
+    /// </summary>
+    [Fact]
+    public async Task ApplyPendingReset_OwnedStateAndExternalOutput_RemovesOnlyOwnedState()
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-factory-reset-");
+        var configDirectory = root.CreateSubdirectory("config");
+        var xmltvDirectory = root.CreateSubdirectory("xmltv");
+        var transientStore = new TransientDataStore(root.CreateSubdirectory("transient").FullName);
+        var externalDirectory = root.CreateSubdirectory("external");
+        var settingsPath = Path.Combine(configDirectory.FullName, AppConstants.SettingsFileName);
+        var databasePath = Path.Combine(configDirectory.FullName, AppConstants.DefaultDatabaseFileName);
+        var configuredOutputPath = Path.Combine(xmltvDirectory.FullName, AppConstants.DefaultXmltvFileName);
+        var externalOutputPath = Path.Combine(externalDirectory.FullName, "keep.xml");
+        var logDirectory = configDirectory.CreateSubdirectory(AppConstants.LogDirectoryName);
+        var dataProtectionDirectory = configDirectory.CreateSubdirectory(AppConstants.DataProtectionKeysDirectoryName);
+        var unknownDirectory = configDirectory.CreateSubdirectory("unknown").CreateSubdirectory("nested");
+        var transientDirectory = Directory.CreateDirectory(transientStore.GetWorkspaceRoot("test-workspace")).CreateSubdirectory("unknown-owner");
+        await File.WriteAllTextAsync(Path.Combine(logDirectory.FullName, "lineup-test.log"), "log", TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(Path.Combine(dataProtectionDirectory.FullName, "key-test.xml"), "key", TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(Path.Combine(unknownDirectory.FullName, "unknown.bin"), "unknown", TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(Path.Combine(transientDirectory.FullName, "segment.ts"), "transient", TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(Path.Combine(transientStore.RootPath, "unknown.tmp"), "transient", TestContext.Current.CancellationToken);
+        var ownedFiles = new[]
+        {
+            settingsPath,
+            $"{settingsPath}.bak",
+            $"{settingsPath}.pending.tmp",
+            databasePath,
+            $"{databasePath}-wal",
+            $"{databasePath}-shm",
+            configuredOutputPath
+        };
+        foreach (var path in ownedFiles)
+        {
+            await File.WriteAllTextAsync(path, "test", TestContext.Current.CancellationToken);
+        }
+        await File.WriteAllTextAsync(externalOutputPath, "external", TestContext.Current.CancellationToken);
+        await FactoryResetCoordinator.WriteRequestAsync(configDirectory.FullName, new FactoryResetRequest { PersistedXmltvOutputPath = externalOutputPath }, TestContext.Current.CancellationToken);
+
+        // Act
+        var resetApplied = FactoryResetCoordinator.ApplyPendingReset(configDirectory.FullName, xmltvDirectory.FullName, transientStore);
+        var resetSettings = new LineupSettingsService(NullLogger<LineupSettingsService>.Instance, settingsPath, xmltvDirectory.FullName);
+
+        // Assert
+        Assert.True(resetApplied);
+        Assert.All(ownedFiles, path => Assert.False(File.Exists(path), path));
+        Assert.True(File.Exists(externalOutputPath));
+        Assert.False(logDirectory.Exists);
+        Assert.False(dataProtectionDirectory.Exists);
+        Assert.Empty(Directory.EnumerateFileSystemEntries(configDirectory.FullName));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(transientStore.RootPath));
+        Assert.False(resetSettings.Settings.IsSetupComplete);
+        Assert.Equal(configuredOutputPath, resetSettings.Settings.XmltvOutputPath);
+        Assert.False(File.Exists(Path.Combine(configDirectory.FullName, FactoryResetCoordinator.RequestFileName)));
+        Assert.False(FactoryResetCoordinator.ApplyPendingReset(configDirectory.FullName, xmltvDirectory.FullName, transientStore));
+        root.Delete(recursive: true);
+    }
+
+    /// <summary>
+    /// Verifies that reset removes a custom XMLTV output located in the configured Lineup-owned directory.
+    /// </summary>
+    [Fact]
+    public async Task ApplyPendingReset_CustomOutputInConfiguredDirectory_RemovesOutput()
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-factory-reset-");
+        var configDirectory = root.CreateSubdirectory("config");
+        var xmltvDirectory = root.CreateSubdirectory("xmltv");
+        var transientStore = new TransientDataStore(root.CreateSubdirectory("transient").FullName);
+        var persistedOutputPath = Path.Combine(xmltvDirectory.FullName, "custom.xml");
+        await File.WriteAllTextAsync(persistedOutputPath, "guide", TestContext.Current.CancellationToken);
+        await FactoryResetCoordinator.WriteRequestAsync(configDirectory.FullName, new FactoryResetRequest { PersistedXmltvOutputPath = persistedOutputPath }, TestContext.Current.CancellationToken);
+
+        // Act
+        var resetApplied = FactoryResetCoordinator.ApplyPendingReset(configDirectory.FullName, xmltvDirectory.FullName, transientStore);
+
+        // Assert
+        Assert.True(resetApplied);
+        Assert.False(File.Exists(persistedOutputPath));
+        root.Delete(recursive: true);
+    }
+
+    /// <summary>
+    /// Verifies restart cleanup succeeds when the configured XMLTV directory is already absent.
+    /// </summary>
+    [Fact]
+    public async Task ApplyPendingReset_MissingConfiguredXmltvDirectory_CompletesReset()
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-factory-reset-");
+        var configDirectory = root.CreateSubdirectory("config");
+        var missingXmltvDirectory = Path.Combine(root.FullName, "missing-xmltv");
+        var transientStore = new TransientDataStore(root.CreateSubdirectory("transient").FullName);
+        await FactoryResetCoordinator.WriteRequestAsync(configDirectory.FullName, new FactoryResetRequest(), TestContext.Current.CancellationToken);
+
+        // Act
+        var resetApplied = FactoryResetCoordinator.ApplyPendingReset(configDirectory.FullName, missingXmltvDirectory, transientStore);
+
+        // Assert
+        Assert.True(resetApplied);
+        Assert.False(File.Exists(Path.Combine(configDirectory.FullName, FactoryResetCoordinator.RequestFileName)));
+        Assert.False(Directory.Exists(missingXmltvDirectory));
+        root.Delete(recursive: true);
+    }
+
+    /// <summary>
+    /// Verifies that a reset request is durable before graceful shutdown starts.
+    /// </summary>
+    [Fact]
+    public async Task RequestResetAsync_CurrentSettings_WritesMarkerThenStopsApplication()
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-factory-reset-");
+        var settingsService = Substitute.For<ILineupSettingsService>();
+        settingsService.Settings.Returns(new LineupSettings { XmltvOutputPath = Path.Combine(root.FullName, "guide.xml") });
+        var applicationLifetime = Substitute.For<IHostApplicationLifetime>();
+        var service = new FactoryResetService(root.FullName, settingsService, applicationLifetime, NullLogger<FactoryResetService>.Instance);
+
+        // Act
+        await service.RequestResetAsync(TestContext.Current.CancellationToken);
+
+        // Assert
+        var requestPath = Path.Combine(root.FullName, FactoryResetCoordinator.RequestFileName);
+        Assert.True(File.Exists(requestPath));
+        Assert.Contains("guide.xml", await File.ReadAllTextAsync(requestPath, TestContext.Current.CancellationToken));
+        applicationLifetime.Received(1).StopApplication();
+        root.Delete(recursive: true);
+    }
+
+    /// <summary>
+    /// Verifies transient cleanup removes only directories whose process owner is proven inactive.
+    /// </summary>
+    [Fact]
+    public void DeleteInactiveOwnerDirectories_MixedOwnerStates_DeletesOnlyInactiveOwner()
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-transient-cleanup-");
+        var store = new TransientDataStore(root.FullName);
+        var workspaceRoot = Directory.CreateDirectory(store.GetWorkspaceRoot("test-workspace"));
+        var inactive = workspaceRoot.CreateSubdirectory("inactive");
+        var active = workspaceRoot.CreateSubdirectory("active");
+        var unknown = workspaceRoot.CreateSubdirectory("unknown");
+
+        // Act
+        store.DeleteInactiveOwnerDirectories(
+            name => name switch
+            {
+                "inactive" => TransientDirectoryOwnerStatus.Inactive,
+                "active" => TransientDirectoryOwnerStatus.Active,
+                _ => TransientDirectoryOwnerStatus.Unknown
+            });
+
+        // Assert
+        Assert.False(inactive.Exists);
+        Assert.True(active.Exists);
+        Assert.True(unknown.Exists);
+        root.Delete(recursive: true);
+    }
+
+    /// <summary>
+    /// Verifies transient cleanup applies the same owner policy to every named workspace.
+    /// </summary>
+    [Fact]
+    public void DeleteInactiveOwnerDirectories_InactiveOwners_RemovesAllWorkspaceDirectories()
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-transient-state-");
+        var store = new TransientDataStore(root.FullName);
+        var firstDirectory = Directory.CreateDirectory(store.GetWorkspaceRoot("first")).CreateSubdirectory("inactive");
+        var secondDirectory = Directory.CreateDirectory(store.GetWorkspaceRoot("second")).CreateSubdirectory("inactive");
+
+        // Act
+        store.DeleteInactiveOwnerDirectories(_ => TransientDirectoryOwnerStatus.Inactive);
+
+        // Assert
+        Assert.False(firstDirectory.Exists);
+        Assert.False(secondDirectory.Exists);
+        root.Delete(recursive: true);
+    }
+
+    /// <summary>
+    /// Verifies owner matching distinguishes active processes, exited processes, PID reuse, legacy names, and unknown names.
+    /// </summary>
+    [Fact]
+    public void TransientDirectoryOwnership_ProcessStates_ReturnsSafeStatus()
+    {
+        // Arrange
+        var instanceId = Guid.NewGuid().ToString("N");
+        var legacyInstanceId = Guid.NewGuid().ToString("N");
+
+        // Act
+        var active = TransientDirectoryOwnership.GetOwnerStatus($"42-100-{instanceId}", _ => 100);
+        var reused = TransientDirectoryOwnership.GetOwnerStatus($"42-100-{instanceId}", _ => 200);
+        var inactive = TransientDirectoryOwnership.GetOwnerStatus($"42-100-{instanceId}", _ => null);
+        var legacyActive = TransientDirectoryOwnership.GetOwnerStatus($"42-{legacyInstanceId}", _ => 200);
+        var unknown = TransientDirectoryOwnership.GetOwnerStatus("legacy-session", _ => null);
+        var inaccessible = TransientDirectoryOwnership.GetOwnerStatus($"42-100-{instanceId}", _ => throw new InvalidOperationException());
+
+        // Assert
+        Assert.Equal(TransientDirectoryOwnerStatus.Active, active);
+        Assert.Equal(TransientDirectoryOwnerStatus.Inactive, reused);
+        Assert.Equal(TransientDirectoryOwnerStatus.Inactive, inactive);
+        Assert.Equal(TransientDirectoryOwnerStatus.Active, legacyActive);
+        Assert.Equal(TransientDirectoryOwnerStatus.Unknown, unknown);
+        Assert.Equal(TransientDirectoryOwnerStatus.Unknown, inaccessible);
+    }
+}

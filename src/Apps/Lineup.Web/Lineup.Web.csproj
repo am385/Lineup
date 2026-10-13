@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Core\Lineup.Extensibility\Lineup.Extensibility.csproj" />
+    <ProjectReference Include="..\..\Core\Lineup.Core\Lineup.Core.csproj" />
+    <ProjectReference Include="..\..\Core\Lineup.Core.Hosting\Lineup.Core.Hosting.csproj" />
+    <ProjectReference Include="..\..\Core\Lineup.Streaming.FFmpeg\Lineup.Streaming.FFmpeg.csproj" />
+    <ProjectReference Include="..\..\Core\Lineup.VirtualOutputs.Runtime\Lineup.VirtualOutputs.Runtime.csproj" />
+    <ProjectReference Include="..\..\Plugins\GuideOutputs\Lineup.GuideOutputs.Json.Plugin\Lineup.GuideOutputs.Json.Plugin.csproj" />
+    <ProjectReference Include="..\..\Plugins\GuideOutputs\Lineup.GuideOutputs.Xmltv.Plugin\Lineup.GuideOutputs.Xmltv.Plugin.csproj" />
+    <ProjectReference Include="..\..\Plugins\SiliconDust\Lineup.SiliconDust.GuideSource\Lineup.SiliconDust.GuideSource.csproj" />
+    <ProjectReference Include="..\..\Plugins\LineupLink\Lineup.LineupLink\Lineup.LineupLink.csproj" />
+    <ProjectReference Include="..\..\Plugins\SiliconDust\Lineup.SiliconDust.HDHomeRun.PhysicalTuner\Lineup.SiliconDust.HDHomeRun.PhysicalTuner.csproj" />
+    <ProjectReference Include="..\..\Plugins\SiliconDust\Lineup.SiliconDust.HDHomeRun.VirtualTuner\Lineup.SiliconDust.HDHomeRun.VirtualTuner.csproj" />
+    <ProjectReference Include="..\..\Plugins\WebPlayer\Lineup.WebPlayer\Lineup.WebPlayer.csproj" />
+    <ProjectReference Include="..\..\Plugins\WebPlayer\Lineup.WebPlayer.FFmpeg\Lineup.WebPlayer.FFmpeg.csproj" />
+    <ProjectReference Include="..\..\Plugins\SiliconDust\Lineup.SiliconDust.HDHomeRun.DiscoveryRuntime\Lineup.SiliconDust.HDHomeRun.DiscoveryRuntime.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Lineup.Web.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
+    <PackageReference Include="Serilog.Sinks.Async" Version="2.1.0" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
+    <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
+    <PackageReference Include="Serilog.Sinks.OpenTelemetry" Version="4.2.0" />
+  </ItemGroup>
+
+</Project>

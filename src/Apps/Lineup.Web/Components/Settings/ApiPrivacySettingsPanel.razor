@@ -1,0 +1,62 @@
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0"><span class="bi bi-shield-check me-1"></span>Status API Privacy</h5>
+    </div>
+    <div class="card-body">
+        <p>
+            External dashboards can read the current Lineup state from
+            <a href="/api/v1/status" target="_blank" rel="noopener"><code>/api/v1/status</code></a>.
+            This read-only endpoint is unauthenticated and should be exposed only to trusted networks.
+        </p>
+        <div class="form-check form-switch mb-3">
+            <input id="redactApiClientAddresses" class="form-check-input" type="checkbox" role="switch"
+                   checked="@RedactClientAddresses" @onchange="ChangeClientAddressesAsync" />
+            <label class="form-check-label" for="redactApiClientAddresses">Redact active-stream client addresses</label>
+            <div class="form-text">Returns each stream's client address as <code>null</code>.</div>
+        </div>
+        <div class="form-check form-switch mb-3">
+            <input id="redactApiDeviceAddresses" class="form-check-input" type="checkbox" role="switch"
+                   checked="@RedactDeviceAddresses" @onchange="ChangeDeviceAddressesAsync" />
+            <label class="form-check-label" for="redactApiDeviceAddresses">Redact device addresses</label>
+            <div class="form-text">Returns configured physical tuner hostnames and addresses as <code>null</code>.</div>
+        </div>
+        <div class="form-check form-switch">
+            <input id="redactApiUrls" class="form-check-input" type="checkbox" role="switch"
+                   checked="@RedactUrls" @onchange="ChangeUrlsAsync" />
+            <label class="form-check-label" for="redactApiUrls">Redact URLs</label>
+            <div class="form-text">Returns device, lineup, tuner target, advertised, and XMLTV URLs as <code>null</code>.</div>
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>Gets or sets whether client addresses are redacted.</summary>
+    [Parameter]
+    public bool RedactClientAddresses { get; set; }
+
+    /// <summary>Gets or sets the callback raised when client-address redaction changes.</summary>
+    [Parameter]
+    public EventCallback<bool> RedactClientAddressesChanged { get; set; }
+
+    /// <summary>Gets or sets whether device addresses are redacted.</summary>
+    [Parameter]
+    public bool RedactDeviceAddresses { get; set; }
+
+    /// <summary>Gets or sets the callback raised when device-address redaction changes.</summary>
+    [Parameter]
+    public EventCallback<bool> RedactDeviceAddressesChanged { get; set; }
+
+    /// <summary>Gets or sets whether URLs are redacted.</summary>
+    [Parameter]
+    public bool RedactUrls { get; set; }
+
+    /// <summary>Gets or sets the callback raised when URL redaction changes.</summary>
+    [Parameter]
+    public EventCallback<bool> RedactUrlsChanged { get; set; }
+
+    private Task ChangeClientAddressesAsync(ChangeEventArgs args) => RedactClientAddressesChanged.InvokeAsync(args.Value is true);
+
+    private Task ChangeDeviceAddressesAsync(ChangeEventArgs args) => RedactDeviceAddressesChanged.InvokeAsync(args.Value is true);
+
+    private Task ChangeUrlsAsync(ChangeEventArgs args) => RedactUrlsChanged.InvokeAsync(args.Value is true);
+}

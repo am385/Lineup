@@ -1,0 +1,115 @@
+@using Lineup.Web.Services
+
+<div id="loggingSettingsTab" class="@CssClass" role="tabpanel" aria-labelledby="tab-logging">
+    <LoggingSettingsPanel OverrideLoggingDefaults="OverrideLoggingDefaults"
+                          OverrideLoggingDefaultsChanged="OverrideLoggingDefaultsChanged"
+                          ApplicationLogLevel="ApplicationLogLevel"
+                          ApplicationLogLevelChanged="ApplicationLogLevelChanged"
+                          ApplicationLogLevels="ApplicationLogLevels"
+                          CategoryOverrides="CategoryOverrides"
+                          StartupCategories="StartupCategories"
+                          EnableFileLogging="EnableFileLogging"
+                          EnableFileLoggingChanged="EnableFileLoggingChanged"
+                          FileLogLevel="FileLogLevel"
+                          FileLogLevelChanged="FileLogLevelChanged"
+                          FileLogRetentionDays="FileLogRetentionDays"
+                          FileLogRetentionDaysChanged="FileLogRetentionDaysChanged"
+                          FileLogSizeLimitMb="FileLogSizeLimitMb"
+                          FileLogSizeLimitMbChanged="FileLogSizeLimitMbChanged"
+                          Runtime="Runtime"
+                          RetainedFiles="RetainedFiles"
+                          IsDeletingLogs="IsDeletingLogs"
+                          AddCategoryRequested="AddCategoryRequested"
+                          RemoveCategoryRequested="RemoveCategoryRequested"
+                          DeleteLogsRequested="DeleteLogsRequested" />
+</div>
+
+@code {
+    /// <summary>Gets or sets the tab visibility class.</summary>
+    [Parameter]
+    public string CssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets whether startup logging defaults are overridden.</summary>
+    [Parameter]
+    public bool OverrideLoggingDefaults { get; set; }
+
+    /// <summary>Gets or sets the logging-default override callback.</summary>
+    [Parameter]
+    public EventCallback<bool> OverrideLoggingDefaultsChanged { get; set; }
+
+    /// <summary>Gets or sets the default application log level.</summary>
+    [Parameter]
+    public string ApplicationLogLevel { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the application log level callback.</summary>
+    [Parameter]
+    public EventCallback<string> ApplicationLogLevelChanged { get; set; }
+
+    /// <summary>Gets or sets supported log levels.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<string> ApplicationLogLevels { get; set; } = [];
+
+    /// <summary>Gets or sets category-specific log levels.</summary>
+    [Parameter, EditorRequired]
+    public IList<WebLogCategoryLevelSetting> CategoryOverrides { get; set; } = [];
+
+    /// <summary>Gets or sets startup-owned categories.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlySet<string> StartupCategories { get; set; } = new HashSet<string>();
+
+    /// <summary>Gets or sets whether rolling file logging is enabled.</summary>
+    [Parameter]
+    public bool EnableFileLogging { get; set; }
+
+    /// <summary>Gets or sets the rolling file enabled callback.</summary>
+    [Parameter]
+    public EventCallback<bool> EnableFileLoggingChanged { get; set; }
+
+    /// <summary>Gets or sets the rolling file minimum level.</summary>
+    [Parameter]
+    public string FileLogLevel { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the rolling file level callback.</summary>
+    [Parameter]
+    public EventCallback<string> FileLogLevelChanged { get; set; }
+
+    /// <summary>Gets or sets rolling file retention days.</summary>
+    [Parameter]
+    public int FileLogRetentionDays { get; set; }
+
+    /// <summary>Gets or sets the retention callback.</summary>
+    [Parameter]
+    public EventCallback<int> FileLogRetentionDaysChanged { get; set; }
+
+    /// <summary>Gets or sets the rolling file size limit.</summary>
+    [Parameter]
+    public int FileLogSizeLimitMb { get; set; }
+
+    /// <summary>Gets or sets the size-limit callback.</summary>
+    [Parameter]
+    public EventCallback<int> FileLogSizeLimitMbChanged { get; set; }
+
+    /// <summary>Gets or sets runtime logging state.</summary>
+    [Parameter]
+    public LoggingRuntimeState? Runtime { get; set; }
+
+    /// <summary>Gets or sets retained log files.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<LogFileInfo> RetainedFiles { get; set; } = [];
+
+    /// <summary>Gets or sets whether log deletion is active.</summary>
+    [Parameter]
+    public bool IsDeletingLogs { get; set; }
+
+    /// <summary>Gets or sets the add-category callback.</summary>
+    [Parameter]
+    public EventCallback AddCategoryRequested { get; set; }
+
+    /// <summary>Gets or sets the remove-category callback.</summary>
+    [Parameter]
+    public EventCallback<int> RemoveCategoryRequested { get; set; }
+
+    /// <summary>Gets or sets the delete-logs callback.</summary>
+    [Parameter]
+    public EventCallback DeleteLogsRequested { get; set; }
+}

@@ -1,0 +1,145 @@
+@using Lineup.Core.Guides
+@inject ITimeZoneService Tz
+
+<div class="guide-container">
+    <div class="guide-header">
+        <div class="guide-channel-header">Channel</div>
+        <div class="guide-time-slots" style="width: @(ProgramsWidth)px;">
+            @foreach (var slot in TimeSlots)
+            {
+                <div class="guide-time-slot" style="width: @(SlotWidthPx)px;">
+                    @slot.ToString("h:mm tt")
+                </div>
+            }
+        </div>
+    </div>
+
+    @foreach (var channel in Channels)
+    {
+        <div class="guide-row">
+            <div class="guide-channel">
+                <div class="channel-number">
+                    @channel.GuideNumber
+                    @if (!IsChannelEnabled(channel.GuideNumber))
+                    {
+                        <span class="bi bi-slash-circle text-secondary ms-1" title="Disabled channel" aria-label="Disabled channel"></span>
+                    }
+                    @if (channel.Favorite)
+                    {
+                        <span class="bi bi-star-fill text-warning ms-1" title="Favorite channel" aria-label="Favorite channel"></span>
+                    }
+                    @if (channel.DRM)
+                    {
+                        <span class="bi bi-shield-lock-fill text-warning ms-1" title="DRM-protected channel" aria-label="DRM-protected channel"></span>
+                    }
+                </div>
+                <div class="channel-name" title="@channel.GuideName">@TruncateText(channel.GuideName, 12)</div>
+            </div>
+            <div class="guide-programs" style="width: @(ProgramsWidth)px;">
+                @foreach (var program in GetProgramsForChannel(channel.GuideNumber))
+                {
+                    var (style, widthPx) = GetProgramLayout(program);
+                    <div class="guide-program @(IsCurrentlyAiring(program) ? "currently-airing" : "")"
+                         style="@style"
+                         title="@GetProgramTooltip(program)"
+                         @onclick="() => ProgramSelected.InvokeAsync(program)">
+                        <div class="program-title">@TruncateText(program.Title, EstimateMaxChars(widthPx, 7))</div>
+                        @if (!string.IsNullOrEmpty(program.EpisodeTitle))
+                        {
+                            <div class="program-episode">@TruncateText(program.EpisodeTitle, EstimateMaxChars(widthPx, 6))</div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private const int SlotWidthPx = 120;
+    private const double PixelsPerMinute = SlotWidthPx / 30.0;
+
+    /// <summary>Gets or sets the guide channels.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<GuideChannelSegment> Channels { get; set; } = [];
+
+    /// <summary>Gets or sets the guide programs.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<GuideCacheProgram> Programs { get; set; } = [];
+
+    /// <summary>Gets or sets the displayed time slots.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<DateTime> TimeSlots { get; set; } = [];
+
+    /// <summary>Gets or sets the selected date.</summary>
+    [Parameter]
+    public DateTime SelectedDate { get; set; }
+
+    /// <summary>Gets or sets the first displayed hour.</summary>
+    [Parameter]
+    public int StartHour { get; set; }
+
+    /// <summary>Gets or sets the number of displayed half-hour slots.</summary>
+    [Parameter]
+    public int SlotsToShow { get; set; }
+
+    /// <summary>Gets or sets the callback raised when a program is selected.</summary>
+    [Parameter]
+    public EventCallback<GuideCacheProgram> ProgramSelected { get; set; }
+
+    private int ProgramsWidth => TimeSlots.Count * SlotWidthPx;
+
+    private static bool IsChannelEnabled(string? guideNumber) => !string.IsNullOrWhiteSpace(guideNumber);
+
+    private IEnumerable<GuideCacheProgram> GetProgramsForChannel(string? guideNumber) =>
+        string.IsNullOrEmpty(guideNumber)
+            ? []
+            : Programs.Where(program => program.GuideNumber == guideNumber).OrderBy(program => program.StartTime);
+
+    private (string Style, double WidthPx) GetProgramLayout(GuideCacheProgram program)
+    {
+        var windowStart = SelectedDate.Date.AddHours(StartHour);
+        var windowEnd = windowStart.AddMinutes(SlotsToShow * 30);
+        var programStart = Tz.ConvertFromUtc(DateTimeOffset.FromUnixTimeSeconds(program.StartTime).UtcDateTime);
+        var programEnd = Tz.ConvertFromUtc(DateTimeOffset.FromUnixTimeSeconds(program.EndTime).UtcDateTime);
+        var displayStart = programStart < windowStart ? windowStart : programStart;
+        var displayEnd = programEnd > windowEnd ? windowEnd : programEnd;
+        var offsetMinutes = (displayStart - windowStart).TotalMinutes;
+        var durationMinutes = (displayEnd - displayStart).TotalMinutes;
+        var left = offsetMinutes * PixelsPerMinute;
+        var width = Math.Max(durationMinutes * PixelsPerMinute - 4, 20);
+
+        return ($"left: {left:F0}px; width: {width:F0}px;", width);
+    }
+
+    private static int EstimateMaxChars(double widthPx, double charWidthPx)
+    {
+        const double padding = 13;
+        return Math.Max(3, (int)((widthPx - padding) / charWidthPx));
+    }
+
+    private static bool IsCurrentlyAiring(GuideCacheProgram program)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        return program.StartTime <= now && program.EndTime > now;
+    }
+
+    private string GetProgramTooltip(GuideCacheProgram program)
+    {
+        var start = Tz.ConvertFromUtc(DateTimeOffset.FromUnixTimeSeconds(program.StartTime).UtcDateTime);
+        var end = Tz.ConvertFromUtc(DateTimeOffset.FromUnixTimeSeconds(program.EndTime).UtcDateTime);
+        var tooltip = $"{program.Title}\n{start:h:mm tt} - {end:h:mm tt} ({(end - start).TotalMinutes:0} min)";
+
+        return string.IsNullOrEmpty(program.EpisodeTitle) ? tooltip : $"{tooltip}\n{program.EpisodeTitle}";
+    }
+
+    private static string TruncateText(string? text, int maxLength)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return string.Empty;
+        }
+
+        return text.Length <= maxLength ? text : text[..(maxLength - 1)] + "\u2026";
+    }
+}

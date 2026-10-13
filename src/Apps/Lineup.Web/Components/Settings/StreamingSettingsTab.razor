@@ -1,0 +1,48 @@
+<div id="streamingSettingsTab" class="@CssClass" role="tabpanel" aria-labelledby="tab-streaming">
+    <StreamingPolicySettingsPanel MaximumConcurrentStreams="MaximumConcurrentStreams"
+                                  MaximumConcurrentStreamsChanged="MaximumConcurrentStreamsChanged"
+                                  KeepWarmPeriodSeconds="KeepWarmPeriodSeconds"
+                                  KeepWarmPeriodSecondsChanged="KeepWarmPeriodSecondsChanged"
+                                  ProtectedContentMode="ProtectedContentMode"
+                                  ProtectedContentModeChanged="ProtectedContentModeChanged"
+                                  DisabledChannelMode="DisabledChannelMode"
+                                  DisabledChannelModeChanged="DisabledChannelModeChanged" />
+</div>
+
+@code {
+    /// <summary>Gets or sets the tab visibility class.</summary>
+    [Parameter]
+    public string CssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the maximum concurrent stream count.</summary>
+    [Parameter]
+    public int MaximumConcurrentStreams { get; set; }
+
+    /// <summary>Gets or sets the maximum concurrent stream change callback.</summary>
+    [Parameter]
+    public EventCallback<int> MaximumConcurrentStreamsChanged { get; set; }
+
+    /// <summary>Gets or sets the warm pipeline retention period.</summary>
+    [Parameter]
+    public int KeepWarmPeriodSeconds { get; set; }
+
+    /// <summary>Gets or sets the retention period change callback.</summary>
+    [Parameter]
+    public EventCallback<int> KeepWarmPeriodSecondsChanged { get; set; }
+
+    /// <summary>Gets or sets protected-content handling.</summary>
+    [Parameter]
+    public ProtectedContentMode ProtectedContentMode { get; set; }
+
+    /// <summary>Gets or sets the protected-content change callback.</summary>
+    [Parameter]
+    public EventCallback<ProtectedContentMode> ProtectedContentModeChanged { get; set; }
+
+    /// <summary>Gets or sets disabled-channel handling.</summary>
+    [Parameter]
+    public DisabledChannelMode DisabledChannelMode { get; set; }
+
+    /// <summary>Gets or sets the disabled-channel change callback.</summary>
+    [Parameter]
+    public EventCallback<DisabledChannelMode> DisabledChannelModeChanged { get; set; }
+}

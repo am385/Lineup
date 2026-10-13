@@ -1,0 +1,64 @@
+<div class="row row-cols-1 row-cols-md-5 g-3 mb-4">
+    <div class="col">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <div class="text-muted small">Channels</div>
+                <div class="display-6">@TotalCount</div>
+            </div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <div class="text-muted small">Enabled</div>
+                <div class="display-6 text-success">@EnabledCount</div>
+            </div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <div class="text-muted small">Disabled</div>
+                <div class="display-6 text-secondary">@DisabledCount</div>
+            </div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <div class="text-muted small">Favorites</div>
+                <div class="display-6">@FavoriteCount</div>
+            </div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <div class="text-muted small">Last Updated</div>
+                <div class="h5 mt-3 mb-0">@LastUpdated</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>Gets or sets the total channel count.</summary>
+    [Parameter]
+    public int TotalCount { get; set; }
+
+    /// <summary>Gets or sets the enabled channel count.</summary>
+    [Parameter]
+    public int EnabledCount { get; set; }
+
+    /// <summary>Gets or sets the disabled channel count.</summary>
+    [Parameter]
+    public int DisabledCount { get; set; }
+
+    /// <summary>Gets or sets the favorite channel count.</summary>
+    [Parameter]
+    public int FavoriteCount { get; set; }
+
+    /// <summary>Gets or sets the formatted last update time.</summary>
+    [Parameter, EditorRequired]
+    public string LastUpdated { get; set; } = string.Empty;
+}

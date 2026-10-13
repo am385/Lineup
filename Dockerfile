@@ -8,19 +8,38 @@ ARG BUILD_VERSION=""
 
 # Copy project files first for better layer caching
 COPY Directory.Build.props ./
-COPY src/Lineup.HDHomeRun.Api/Lineup.HDHomeRun.Api.csproj src/Lineup.HDHomeRun.Api/
-COPY src/Lineup.HDHomeRun.Device/Lineup.HDHomeRun.Device.csproj src/Lineup.HDHomeRun.Device/
-COPY src/Lineup.Core/Lineup.Core.csproj src/Lineup.Core/
-COPY src/Lineup.Web/Lineup.Web.csproj src/Lineup.Web/
+COPY src/Core/Lineup.Common/Lineup.Common.csproj src/Core/Lineup.Common/
+COPY src/Apps/Lineup.Web/Lineup.Web.csproj src/Apps/Lineup.Web/
+COPY src/Core/Lineup.Extensibility/Lineup.Extensibility.csproj src/Core/Lineup.Extensibility/
+COPY src/Core/Lineup.Core/Lineup.Core.csproj src/Core/Lineup.Core/
+COPY src/Core/Lineup.Core.Hosting/Lineup.Core.Hosting.csproj src/Core/Lineup.Core.Hosting/
+COPY src/Core/Lineup.Streaming.FFmpeg/Lineup.Streaming.FFmpeg.csproj src/Core/Lineup.Streaming.FFmpeg/
+COPY src/Core/Lineup.VirtualOutputs.Protocol/Lineup.VirtualOutputs.Protocol.csproj src/Core/Lineup.VirtualOutputs.Protocol/
+COPY src/Core/Lineup.VirtualOutputs.Hosting/Lineup.VirtualOutputs.Hosting.csproj src/Core/Lineup.VirtualOutputs.Hosting/
+COPY src/Core/Lineup.VirtualOutputs.Runtime/Lineup.VirtualOutputs.Runtime.csproj src/Core/Lineup.VirtualOutputs.Runtime/
+COPY src/Plugins/GuideOutputs/Lineup.GuideOutputs.Json/Lineup.GuideOutputs.Json.csproj src/Plugins/GuideOutputs/Lineup.GuideOutputs.Json/
+COPY src/Plugins/GuideOutputs/Lineup.GuideOutputs.Json.Plugin/Lineup.GuideOutputs.Json.Plugin.csproj src/Plugins/GuideOutputs/Lineup.GuideOutputs.Json.Plugin/
+COPY src/Plugins/GuideOutputs/Lineup.GuideOutputs.Xmltv/Lineup.GuideOutputs.Xmltv.csproj src/Plugins/GuideOutputs/Lineup.GuideOutputs.Xmltv/
+COPY src/Plugins/GuideOutputs/Lineup.GuideOutputs.Xmltv.Plugin/Lineup.GuideOutputs.Xmltv.Plugin.csproj src/Plugins/GuideOutputs/Lineup.GuideOutputs.Xmltv.Plugin/
+COPY src/Plugins/SiliconDust/Lineup.SiliconDust.HDHomeRun.Api/Lineup.SiliconDust.HDHomeRun.Api.csproj src/Plugins/SiliconDust/Lineup.SiliconDust.HDHomeRun.Api/
+COPY src/Plugins/SiliconDust/Lineup.SiliconDust.HDHomeRun.Device/Lineup.SiliconDust.HDHomeRun.Device.csproj src/Plugins/SiliconDust/Lineup.SiliconDust.HDHomeRun.Device/
+COPY src/Plugins/SiliconDust/Lineup.SiliconDust.GuideSource/Lineup.SiliconDust.GuideSource.csproj src/Plugins/SiliconDust/Lineup.SiliconDust.GuideSource/
+COPY src/Plugins/LineupLink/Lineup.LineupLink/Lineup.LineupLink.csproj src/Plugins/LineupLink/Lineup.LineupLink/
+COPY src/Plugins/SiliconDust/Lineup.SiliconDust.HDHomeRun.PhysicalTuner/Lineup.SiliconDust.HDHomeRun.PhysicalTuner.csproj src/Plugins/SiliconDust/Lineup.SiliconDust.HDHomeRun.PhysicalTuner/
+COPY src/Plugins/SiliconDust/Lineup.SiliconDust.HDHomeRun.VirtualTuner/Lineup.SiliconDust.HDHomeRun.VirtualTuner.csproj src/Plugins/SiliconDust/Lineup.SiliconDust.HDHomeRun.VirtualTuner/
+COPY src/Plugins/SiliconDust/Lineup.SiliconDust.HDHomeRun.DiscoveryRuntime/Lineup.SiliconDust.HDHomeRun.DiscoveryRuntime.csproj src/Plugins/SiliconDust/Lineup.SiliconDust.HDHomeRun.DiscoveryRuntime/
+COPY src/Plugins/SiliconDust/Lineup.SiliconDust.HDHomeRun.DiscoveryHost/Lineup.SiliconDust.HDHomeRun.DiscoveryHost.csproj src/Plugins/SiliconDust/Lineup.SiliconDust.HDHomeRun.DiscoveryHost/
+COPY src/Plugins/SiliconDust/Lineup.SiliconDust.HDHomeRun.VirtualOutputHost/Lineup.SiliconDust.HDHomeRun.VirtualOutputHost.csproj src/Plugins/SiliconDust/Lineup.SiliconDust.HDHomeRun.VirtualOutputHost/
+COPY src/Plugins/LineupLink/Lineup.LineupLink.VirtualOutputHost/Lineup.LineupLink.VirtualOutputHost.csproj src/Plugins/LineupLink/Lineup.LineupLink.VirtualOutputHost/
+COPY src/Plugins/WebPlayer/Lineup.WebPlayer/Lineup.WebPlayer.csproj src/Plugins/WebPlayer/Lineup.WebPlayer/
+COPY src/Plugins/WebPlayer/Lineup.WebPlayer.FFmpeg/Lineup.WebPlayer.FFmpeg.csproj src/Plugins/WebPlayer/Lineup.WebPlayer.FFmpeg/
+COPY src/Plugins/WebPlayer/Lineup.WebPlayer.VirtualOutputHost/Lineup.WebPlayer.VirtualOutputHost.csproj src/Plugins/WebPlayer/Lineup.WebPlayer.VirtualOutputHost/
 
 # Restore dependencies
-RUN dotnet restore src/Lineup.Web/Lineup.Web.csproj
+RUN dotnet restore src/Apps/Lineup.Web/Lineup.Web.csproj
 
 # Copy remaining source code
-COPY src/Lineup.HDHomeRun.Api/ src/Lineup.HDHomeRun.Api/
-COPY src/Lineup.HDHomeRun.Device/ src/Lineup.HDHomeRun.Device/
-COPY src/Lineup.Core/ src/Lineup.Core/
-COPY src/Lineup.Web/ src/Lineup.Web/
+COPY src/ ./src/
 
 # Publish the application
 # Note: Cannot use --no-restore here because the publish step needs to resolve
@@ -31,11 +50,31 @@ RUN set -eux; \
     if [ -n "${BUILD_VERSION}" ]; then \
         set -- "-p:Version=${BUILD_VERSION}" "-p:IncludeSourceRevisionInInformationalVersion=false"; \
     fi; \
-    dotnet publish src/Lineup.Web/Lineup.Web.csproj \
+    dotnet publish src/Apps/Lineup.Web/Lineup.Web.csproj \
         -c Release \
         -p:SourceRevisionId="${GIT_HASH}" \
         "$@" \
-        -o /app/publish
+        -o /app/publish; \
+    dotnet publish src/Plugins/LineupLink/Lineup.LineupLink.VirtualOutputHost/Lineup.LineupLink.VirtualOutputHost.csproj \
+        -c Release -p:SourceRevisionId="${GIT_HASH}" "$@" -o /app/workers/lineup-link; \
+    dotnet publish src/Plugins/SiliconDust/Lineup.SiliconDust.HDHomeRun.VirtualOutputHost/Lineup.SiliconDust.HDHomeRun.VirtualOutputHost.csproj \
+        -c Release -p:SourceRevisionId="${GIT_HASH}" "$@" -o /app/workers/hdhomerun; \
+    dotnet publish src/Plugins/SiliconDust/Lineup.SiliconDust.HDHomeRun.DiscoveryHost/Lineup.SiliconDust.HDHomeRun.DiscoveryHost.csproj \
+        -c Release -p:SourceRevisionId="${GIT_HASH}" "$@" -o /app/workers/hdhomerun-discovery; \
+    dotnet publish src/Plugins/WebPlayer/Lineup.WebPlayer.VirtualOutputHost/Lineup.WebPlayer.VirtualOutputHost.csproj \
+        -c Release -p:SourceRevisionId="${GIT_HASH}" "$@" -o /app/workers/web-player; \
+    lineup_link_hash="$(sha256sum /app/workers/lineup-link/Lineup.LineupLink.VirtualOutputHost.dll | cut -d ' ' -f 1)"; \
+    hdhomerun_hash="$(sha256sum /app/workers/hdhomerun/Lineup.SiliconDust.HDHomeRun.VirtualOutputHost.dll | cut -d ' ' -f 1)"; \
+    hdhomerun_discovery_hash="$(sha256sum /app/workers/hdhomerun-discovery/Lineup.SiliconDust.HDHomeRun.DiscoveryHost.dll | cut -d ' ' -f 1)"; \
+    web_player_hash="$(sha256sum /app/workers/web-player/Lineup.WebPlayer.VirtualOutputHost.dll | cut -d ' ' -f 1)"; \
+    printf '%s' "{\"schemaVersion\":1,\"workerId\":\"lineup-link\",\"version\":\"${BUILD_VERSION:-3.0.0-beta}\",\"publisher\":\"Lineup\",\"executablePath\":\"Lineup.LineupLink.VirtualOutputHost.dll\",\"executableSha256\":\"${lineup_link_hash}\",\"adapterKinds\":[\"lineup-link\"],\"platforms\":[],\"minimumProtocolVersion\":1,\"maximumProtocolVersion\":1,\"minimumLineupVersion\":\"${BUILD_VERSION:-3.0.0-beta}\",\"settingsDescriptor\":{\"adapterKind\":\"lineup-link\",\"fields\":[]}}" \
+        > /app/workers/lineup-link/lineup-link.virtual-output.json; \
+    printf '%s' "{\"schemaVersion\":1,\"workerId\":\"hdhomerun\",\"version\":\"${BUILD_VERSION:-3.0.0-beta}\",\"publisher\":\"Lineup\",\"executablePath\":\"Lineup.SiliconDust.HDHomeRun.VirtualOutputHost.dll\",\"executableSha256\":\"${hdhomerun_hash}\",\"adapterKinds\":[\"hdhomerun\"],\"platforms\":[],\"minimumProtocolVersion\":1,\"maximumProtocolVersion\":1,\"minimumLineupVersion\":\"${BUILD_VERSION:-3.0.0-beta}\",\"settingsDescriptor\":{\"adapterKind\":\"hdhomerun\",\"fields\":[]}}" \
+        > /app/workers/hdhomerun/hdhomerun.virtual-output.json; \
+    printf '%s' "{\"schemaVersion\":1,\"workerId\":\"hdhomerun-discovery\",\"version\":\"${BUILD_VERSION:-3.0.0-beta}\",\"publisher\":\"Lineup\",\"executablePath\":\"Lineup.SiliconDust.HDHomeRun.DiscoveryHost.dll\",\"executableSha256\":\"${hdhomerun_discovery_hash}\",\"adapterKinds\":[\"hdhomerun-discovery\"],\"platforms\":[],\"minimumProtocolVersion\":1,\"maximumProtocolVersion\":1,\"minimumLineupVersion\":\"${BUILD_VERSION:-3.0.0-beta}\",\"settingsDescriptor\":{\"adapterKind\":\"hdhomerun-discovery\",\"fields\":[]}}" \
+        > /app/workers/hdhomerun-discovery/hdhomerun-discovery.virtual-output.json; \
+    printf '%s' "{\"schemaVersion\":1,\"workerId\":\"web-player\",\"version\":\"${BUILD_VERSION:-3.0.0-beta}\",\"publisher\":\"Lineup\",\"executablePath\":\"Lineup.WebPlayer.VirtualOutputHost.dll\",\"executableSha256\":\"${web_player_hash}\",\"adapterKinds\":[\"web-player\"],\"platforms\":[],\"minimumProtocolVersion\":1,\"maximumProtocolVersion\":1,\"minimumLineupVersion\":\"${BUILD_VERSION:-3.0.0-beta}\",\"settingsDescriptor\":{\"adapterKind\":\"web-player\",\"fields\":[]}}" \
+        > /app/workers/web-player/web-player.virtual-output.json
 
 # Runtime stage
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble AS runtime
@@ -75,6 +114,7 @@ RUN test "$(readlink -f "$(command -v ffmpeg)")" = "/usr/lib/jellyfin-ffmpeg/ffm
 RUN mkdir -p /appdata /xmltv /transient
 
 COPY --from=build /app/publish .
+COPY --from=build /app/workers ./virtual-output-workers
 
 # Fixed container ports. Map any desired host ports to these at deployment time.
 EXPOSE 8080

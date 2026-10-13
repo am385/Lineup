@@ -1,0 +1,208 @@
+@using Lineup.Core.Guides
+
+@if (Metadata is { } metadata && HasVisibleMetadata(metadata))
+{
+    <section class="program-metadata mt-3 border-top pt-3" aria-label="Program metadata">
+        <div class="row g-3">
+            @if (metadata.Ratings.Count > 0 || metadata.StarRatings.Count > 0)
+            {
+                <div class="col-md-6 program-ratings">
+                    <h6>Ratings</h6>
+                    @foreach (var rating in metadata.Ratings)
+                    {
+                        <span class="badge text-bg-secondary me-1">@FormatRating(rating)</span>
+                    }
+                    @foreach (var rating in metadata.StarRatings)
+                    {
+                        <span class="badge text-bg-warning me-1">@FormatRating(rating)</span>
+                    }
+                </div>
+            }
+            @if (CommonCredits(metadata).Count > 0)
+            {
+                <div class="col-md-6 program-credits">
+                    <h6>Credits</h6>
+                    <dl class="row mb-0">
+                        @foreach (var group in CommonCredits(metadata).GroupBy(credit => credit.Type))
+                        {
+                            <dt class="col-sm-4">@CreditLabel(group.Key)</dt>
+                            <dd class="col-sm-8">@string.Join(", ", group.Select(FormatCredit))</dd>
+                        }
+                    </dl>
+                </div>
+            }
+            @if (metadata.Languages.Count > 0 || metadata.Countries.Count > 0)
+            {
+                <div class="col-md-6 program-origin">
+                    <h6>Origin</h6>
+                    <dl class="row mb-0">
+                        @if (metadata.Languages.Count > 0)
+                        {
+                            <dt class="col-sm-4">Language</dt>
+                            <dd class="col-sm-8">@JoinLocalized(metadata.Languages)</dd>
+                        }
+                        @if (metadata.Countries.Count > 0)
+                        {
+                            <dt class="col-sm-4">Country</dt>
+                            <dd class="col-sm-8">@JoinLocalized(metadata.Countries)</dd>
+                        }
+                    </dl>
+                </div>
+            }
+            @if (AlternateEpisodeNumbers(metadata).Count > 0)
+            {
+                <div class="col-md-6 program-identifiers">
+                    <h6>Episode identifiers</h6>
+                    <dl class="row mb-0">
+                        @foreach (var episodeNumber in AlternateEpisodeNumbers(metadata))
+                        {
+                            <dt class="col-sm-4">@(episodeNumber.System ?? "Other")</dt>
+                            <dd class="col-sm-8">@episodeNumber.Value</dd>
+                        }
+                    </dl>
+                </div>
+            }
+            @if (HasProgramState(metadata))
+            {
+                <div class="col-12 program-state">
+                    <h6>Program status</h6>
+                    @if (metadata.IsNew)
+                    {
+                        <span class="badge text-bg-success me-1">New</span>
+                    }
+                    @if (metadata.IsLive)
+                    {
+                        <span class="badge text-bg-danger me-1">Live</span>
+                    }
+                    @if (metadata.Premiere != null)
+                    {
+                        <span class="badge text-bg-primary me-1">@FormatFlag("Premiere", metadata.Premiere)</span>
+                    }
+                    @if (metadata.PreviouslyShown != null)
+                    {
+                        <span class="badge text-bg-secondary me-1">@FormatPreviousShowing(metadata.PreviouslyShown)</span>
+                    }
+                </div>
+            }
+        </div>
+
+        @if (HasAdvancedMetadata(metadata))
+        {
+            <details class="program-metadata-advanced mt-3">
+                <summary class="fw-semibold">More details</summary>
+                <dl class="row mt-3 mb-0">
+                    @if (AdditionalCredits(metadata).Count > 0)
+                    {
+                        <dt class="col-sm-3">Additional credits</dt>
+                        <dd class="col-sm-9">@string.Join(", ", AdditionalCredits(metadata).Select(credit => $"{CreditLabel(credit.Type)}: {FormatCredit(credit)}"))</dd>
+                    }
+                    @if (metadata.OriginalLanguages.Count > 0)
+                    {
+                        <dt class="col-sm-3">Original language</dt>
+                        <dd class="col-sm-9">@JoinLocalized(metadata.OriginalLanguages)</dd>
+                    }
+                    @if (metadata.Keywords.Count > 0)
+                    {
+                        <dt class="col-sm-3">Keywords</dt>
+                        <dd class="col-sm-9">@JoinLocalized(metadata.Keywords)</dd>
+                    }
+                    @if (metadata.AlternateTitles.Count > 0)
+                    {
+                        <dt class="col-sm-3">Alternate titles</dt>
+                        <dd class="col-sm-9">@JoinLocalized(metadata.AlternateTitles)</dd>
+                    }
+                    @if (metadata.AlternateSubTitles.Count > 0)
+                    {
+                        <dt class="col-sm-3">Alternate episode titles</dt>
+                        <dd class="col-sm-9">@JoinLocalized(metadata.AlternateSubTitles)</dd>
+                    }
+                    @if (metadata.AlternateDescriptions.Count > 0)
+                    {
+                        <dt class="col-sm-3">Alternate descriptions</dt>
+                        <dd class="col-sm-9">@JoinLocalized(metadata.AlternateDescriptions)</dd>
+                    }
+                    @if (LocalizedCategories(metadata).Count > 0)
+                    {
+                        <dt class="col-sm-3">Localized categories</dt>
+                        <dd class="col-sm-9">@JoinLocalized(LocalizedCategories(metadata))</dd>
+                    }
+                    @if (metadata.Length != null)
+                    {
+                        <dt class="col-sm-3">Source runtime</dt>
+                        <dd class="col-sm-9">@FormatLength(metadata.Length)</dd>
+                    }
+                    @if (metadata.Video != null)
+                    {
+                        <dt class="col-sm-3">Video</dt>
+                        <dd class="col-sm-9">@FormatVideo(metadata.Video)</dd>
+                    }
+                    @if (metadata.Audio != null)
+                    {
+                        <dt class="col-sm-3">Audio</dt>
+                        <dd class="col-sm-9">@FormatAudio(metadata.Audio)</dd>
+                    }
+                    @if (metadata.Subtitles.Count > 0)
+                    {
+                        <dt class="col-sm-3">Subtitles</dt>
+                        <dd class="col-sm-9">@string.Join(", ", metadata.Subtitles.Select(FormatSubtitles))</dd>
+                    }
+                    @if (metadata.LastChance != null)
+                    {
+                        <dt class="col-sm-3">Last chance</dt>
+                        <dd class="col-sm-9">@FormatLocalized(metadata.LastChance)</dd>
+                    }
+                    @if (metadata.Reviews.Count > 0)
+                    {
+                        <dt class="col-sm-3">Reviews</dt>
+                        <dd class="col-sm-9">
+                            <ul class="mb-0 ps-3">
+                                @foreach (var review in metadata.Reviews)
+                                {
+                                    <li>@FormatReview(review)</li>
+                                }
+                            </ul>
+                        </dd>
+                    }
+                    @if (metadata.Urls.Count > 0)
+                    {
+                        <dt class="col-sm-3">Related URLs</dt>
+                        <dd class="col-sm-9">
+                            <ul class="mb-0 ps-3">
+                                @foreach (var url in metadata.Urls)
+                                {
+                                    <li>@FormatUrl(url)</li>
+                                }
+                            </ul>
+                        </dd>
+                    }
+                    @if (metadata.Images.Count > 0 || metadata.AdditionalIcons.Count > 0)
+                    {
+                        <dt class="col-sm-3">Additional images</dt>
+                        <dd class="col-sm-9">
+                            <ul class="mb-0 ps-3">
+                                @foreach (var image in metadata.Images)
+                                {
+                                    <li>@FormatImage(image)</li>
+                                }
+                                @foreach (var icon in metadata.AdditionalIcons)
+                                {
+                                    <li>@icon.Source</li>
+                                }
+                            </ul>
+                        </dd>
+                    }
+                    @if (HasLanguageMetadata(metadata))
+                    {
+                        <dt class="col-sm-3">Primary text languages</dt>
+                        <dd class="col-sm-9">@FormatPrimaryLanguages(metadata)</dd>
+                    }
+                    @if (HasSchedulingMetadata(metadata))
+                    {
+                        <dt class="col-sm-3">Scheduling identifiers</dt>
+                        <dd class="col-sm-9">@FormatSchedulingMetadata(metadata)</dd>
+                    }
+                </dl>
+            </details>
+        }
+    </section>
+}

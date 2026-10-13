@@ -1,0 +1,17 @@
+::deep .device-settings-workspace {
+    min-width: 0;
+}
+
+::deep .device-tab-strip {
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: thin;
+}
+
+::deep .device-tab-strip .nav-tabs {
+    min-width: max-content;
+}
+
+::deep .device-tab-strip .nav-link {
+    white-space: nowrap;
+}

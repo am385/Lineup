@@ -1,0 +1,73 @@
+<div id="xmltvDirectoryBrowser" class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center py-2">
+        <span><span class="bi bi-folder me-1"></span>Server Directory Browser</span>
+        <button id="closeXmltvDirectoryBrowser" type="button" class="btn-close" @onclick="() => CloseRequested.InvokeAsync()"></button>
+    </div>
+    <div class="card-body py-2">
+        <div class="input-group input-group-sm mb-2">
+            <span class="input-group-text"><span class="bi bi-folder-fill"></span></span>
+            <input id="currentXmltvDirectory" type="text" class="form-control" value="@CurrentDirectory" readonly />
+            <button id="navigateUpXmltvDirectory" class="btn btn-outline-secondary" type="button"
+                    @onclick="() => NavigateUpRequested.InvokeAsync()" disabled="@(!CanNavigateUp)" title="Parent directory">
+                <span class="bi bi-arrow-up"></span>
+            </button>
+        </div>
+        <div class="directory-list">
+            @if (Error is not null)
+            {
+                <div id="xmltvDirectoryError" class="alert alert-danger py-1 mb-0 small">@Error</div>
+            }
+            else
+            {
+                <ul class="list-group list-group-flush">
+                    @foreach (var directory in Directories)
+                    {
+                        <li class="list-group-item list-group-item-action py-1 small xmltv-directory"
+                            @onclick="() => DirectorySelected.InvokeAsync(directory)">
+                            <span class="bi bi-folder me-1 text-warning"></span>@Path.GetFileName(directory)
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
+        <div class="d-flex justify-content-end mt-2">
+            <button id="selectXmltvPath" class="btn btn-primary btn-sm" type="button" @onclick="() => SelectRequested.InvokeAsync()">
+                <span class="bi bi-check me-1"></span>Select this directory
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>Gets or sets the current directory.</summary>
+    [Parameter, EditorRequired]
+    public string CurrentDirectory { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the child directories.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<string> Directories { get; set; } = [];
+
+    /// <summary>Gets or sets the directory enumeration error.</summary>
+    [Parameter]
+    public string? Error { get; set; }
+
+    /// <summary>Gets or sets whether parent navigation is available.</summary>
+    [Parameter]
+    public bool CanNavigateUp { get; set; }
+
+    /// <summary>Gets or sets the callback raised when the browser should close.</summary>
+    [Parameter]
+    public EventCallback CloseRequested { get; set; }
+
+    /// <summary>Gets or sets the callback raised when parent navigation is requested.</summary>
+    [Parameter]
+    public EventCallback NavigateUpRequested { get; set; }
+
+    /// <summary>Gets or sets the callback raised when a directory is selected.</summary>
+    [Parameter]
+    public EventCallback<string> DirectorySelected { get; set; }
+
+    /// <summary>Gets or sets the callback raised when the path is selected.</summary>
+    [Parameter]
+    public EventCallback SelectRequested { get; set; }
+}

@@ -1,0 +1,437 @@
+        <div id="virtualDevicesSettingsTab" class="@CssClass" role="tabpanel" aria-labelledby="tab-virtual-devices" @onchange="Host.NotifySettingsUiChanged">
+            <div id="virtualTopologySettings" class="device-settings-workspace mb-4">
+                <div class="d-flex align-items-end gap-2 mb-3">
+                    <div class="device-tab-strip flex-grow-1">
+                        <ul class="nav nav-tabs flex-nowrap">
+                            <li class="nav-item">
+                                <button id="virtualSubtabGlobal" type="button"
+                                        class="nav-link @(Host.SelectedVirtualDeviceId is null ? "active" : null)"
+                                        @onclick="() => Host.SelectedVirtualDeviceId = null">
+                                    Global Settings
+                                </button>
+                            </li>
+                            @foreach (var device in Host.Topology.VirtualDevices.OrderBy(device => device.IsWebPlayer ? 0 : 1))
+                            {
+                                <li class="nav-item">
+                                    <button type="button"
+                                            class="nav-link virtual-device-tab @(Host.SelectedVirtualDeviceId == device.Id ? "active" : null)"
+                                            data-device-id="@device.Id"
+                                            @onclick="() => Host.SelectedVirtualDeviceId = device.Id">
+                                        @device.Name
+                                        @if (!device.Enabled)
+                                        {
+                                            <span class="badge text-bg-secondary ms-1">Disabled</span>
+                                        }
+                                    </button>
+                                </li>
+                            }
+                        </ul>
+                    </div>
+                    <button id="addVirtualDevice" type="button" class="btn btn-sm btn-outline-primary flex-shrink-0" @onclick="Host.ShowVirtualDeviceTypePicker">
+                        <span class="bi bi-plus-lg me-1"></span>Add Virtual Device
+                    </button>
+                </div>
+                @if (!Host.Topology.VirtualDevices.Any(device => !device.IsWebPlayer))
+                {
+                    var webPlayer = Host.Topology.VirtualDevices.SingleOrDefault(device => device.IsWebPlayer);
+                    <div id="virtualDevicesEmptyState" class="alert alert-info py-2" role="status">
+                        <span class="bi bi-info-circle me-1"></span>No additional virtual devices are configured.
+                        @if (webPlayer?.Enabled == true)
+                        {
+                            <span>Select <strong>Add Virtual Device</strong> to expose channels to other consumers. The built-in Web Player remains available.</span>
+                        }
+                        else if (webPlayer is not null)
+                        {
+                            <span>Enable the built-in Web Player from its tab or select <strong>Add Virtual Device</strong> to expose channels to consumers.</span>
+                        }
+                        else
+                        {
+                            <span>The current topology does not contain the required built-in Web Player.</span>
+                        }
+                    </div>
+                }
+
+                @if (Host.SelectedVirtualDeviceId is null)
+                {
+                    <div id="virtualGlobalSettings" class="d-grid gap-4">
+                        <section id="virtualTranscoderSettings" class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">Transcoder Settings</h5>
+                            </div>
+                            <div class="card-body">
+                                <p class="small text-body-secondary">Each virtual device inherits these output-stage settings unless its tab enables an override.</p>
+                                <GlobalTranscoderSettings Settings="Host.Topology.VirtualDefaults"
+                                                          IdPrefix="virtualDefault"
+                                                          CssPrefix="virtual"
+                                                          StageName="output-stage"
+                                                          HevcHelpText="Default output conversion for consumers that cannot process HEVC."
+                                                          SettingsChanged="Host.OnTranscoderSettingsChanged" />
+                            </div>
+                        </section>
+
+                        <section id="networkDiscoverySettings" class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">Virtual Tuner Discovery</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="form-check form-switch">
+                                    <input id="enableNetworkDiscovery" class="form-check-input" type="checkbox" @bind="Host.EnableNetworkDiscovery" />
+                                    <label class="form-check-label" for="enableNetworkDiscovery">Enable UDP and SSDP network discovery</label>
+                                </div>
+                                <div class="form-text">Enabled virtual HDHomeRun devices with an advertised URL are published on the local network.</div>
+                            </div>
+                        </section>
+                    </div>
+                }
+                else
+                {
+                    var index = Host.Topology.VirtualDevices.FindIndex(device => device.Id == Host.SelectedVirtualDeviceId);
+                    if (index >= 0)
+                    {
+                        var device = Host.Topology.VirtualDevices[index];
+                        <div class="virtual-device d-grid gap-4" data-device-id="@device.Id" data-device-kind="@device.Kind">
+                            <section class="card virtual-device-settings">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h5 class="mb-0">Device Settings</h5>
+                                        <div class="small text-body-secondary">@device.Name - @(device.IsWebPlayer ? "Built-in Web Player" : Host.GetVirtualDeviceTypeName(device))</div>
+                                    </div>
+                                    <div class="d-flex align-items-center gap-3">
+                                        <div class="form-check form-switch mb-0">
+                                            <input id="@($"virtualEnabled-{index}")" class="form-check-input virtual-enabled" type="checkbox" @bind="device.Enabled" />
+                                            <label class="form-check-label" for="@($"virtualEnabled-{index}")">Enabled</label>
+                                        </div>
+                                        @if (!device.IsWebPlayer)
+                                        {
+                                            <button type="button" class="btn btn-sm btn-outline-danger remove-virtual-device"
+                                                    aria-label="Remove virtual device" @onclick="() => Host.RemoveVirtualDevice(device.Id)">
+                                                <span class="bi bi-trash"></span>
+                                            </button>
+                                        }
+                                    </div>
+                                </div>
+                                @if (device.Enabled)
+                                {
+                                    <div class="card-body virtual-device-details">
+                                        <div class="row g-3">
+                                            @if (!device.IsWebPlayer)
+                                            {
+                                                <div class="col-md-6">
+                                                    <label class="form-label" for="@($"virtualName-{index}")">Name</label>
+                                                    <input id="@($"virtualName-{index}")" class="form-control virtual-name"
+                                                           @bind="device.Name" @bind:after="Host.NotifySettingsUiChanged" />
+                                                    <div class="form-text">A local label shown in Lineup and, when supported by the adapter, to downstream consumers.</div>
+                                                </div>
+                                            }
+                                            @if (device.IsHdHomeRun)
+                                            {
+                                                <div class="col-md-6">
+                                                    <label class="form-label" for="@($"virtualTunerCap-{index}")">Tuner-count cap</label>
+                                                    <input id="@($"virtualTunerCap-{index}")" class="form-control virtual-tuner-cap" type="number" min="1" max="255" @bind="device.TunerCountCap" />
+                                                    <div class="form-text">Maximum tuners advertised to consumers. Leave empty to derive capacity from the subscribed physical devices.</div>
+                                                </div>
+                                                <div class="col-md-6 d-flex align-items-end">
+                                                    <div class="form-check form-switch mb-2">
+                                                        <input id="@($"virtualNetworkAdvertisement-{index}")" class="form-check-input virtual-network-advertisement"
+                                                               type="checkbox" @bind="device.EnableNetworkAdvertisement" />
+                                                        <label class="form-check-label" for="@($"virtualNetworkAdvertisement-{index}")">Advertise on the local network</label>
+                                                        <div class="form-text">Publishes this device through SiliconDust UDP discovery and SSDP when Virtual Tuner Discovery is enabled.</div>
+                                                    </div>
+                                                </div>
+                                                @if (!device.UseDedicatedListener)
+                                                {
+                                                    <div class="col-md-6">
+                                                        <label class="form-label" for="@($"virtualAdvertisedUrl-{index}")">Advertised base URL</label>
+                                                        <input id="@($"virtualAdvertisedUrl-{index}")" class="form-control" placeholder="https://lineup.example:8443/" @bind="device.AdvertisedBaseUrl" />
+                                                        <div class="form-text">Externally reachable management-host URL used in discovery and lineup responses.</div>
+                                                    </div>
+                                                }
+                                            }
+                                            else if (device.IsLineupLink)
+                                            {
+                                                @if (!device.UseDedicatedListener)
+                                                {
+                                                    <div class="col-md-6">
+                                                        <label class="form-label" for="@($"linkPublicUrl-{index}")">Public Lineup URL (optional)</label>
+                                                        <input id="@($"linkPublicUrl-{index}")" class="form-control" placeholder="https://lineup.example:8443" @bind="device.LinkPublicBaseUrl" />
+                                                        <div class="form-text">Externally reachable management-host URL written into exported connection bundles. Bundles use a null address when this is left blank.</div>
+                                                    </div>
+                                                }
+                                                @if (!device.UseDedicatedListener)
+                                                {
+                                                    <div class="col-md-6 d-flex align-items-end">
+                                                        <div class="form-check form-switch mb-2">
+                                                            <input id="@($"linkEncryption-{index}")" class="form-check-input" type="checkbox" @bind="device.LinkRequireEncryption" />
+                                                            <label class="form-check-label" for="@($"linkEncryption-{index}")">Require HTTPS</label>
+                                                            <div class="form-text">Rejects unencrypted Lineup Link requests and advertises an HTTPS endpoint in exported bundles.</div>
+                                                        </div>
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    <div class="col-12">
+                                                        <div class="alert alert-info mb-0 lineup-link-listener-transport" role="status">
+                                                            Lineup Link uses the dedicated listener's <strong>@(device.EffectiveLineupLinkEncryptionRequired ? "HTTPS" : "HTTP")</strong> transport and public base URI.
+                                                        </div>
+                                                    </div>
+                                                }
+                                                @if (device.EffectiveLineupLinkEncryptionRequired)
+                                                {
+                                                    <div class="col-12">
+                                                        <label class="form-label" for="@($"linkServerCertificate-{index}")">Connection bundle certificate pin (optional)</label>
+                                                        <input id="@($"linkServerCertificate-{index}")" class="form-control" @bind="device.LinkCertificateSha256" />
+                                                        <div class="form-text">Exact SHA-256 certificate fingerprint included in exported bundles. This is separate from the certificate reference used by an HTTPS dedicated listener.</div>
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    <div class="col-12">
+                                                        <div class="alert alert-warning mb-0">HTTP exposes the bearer token and stream contents to the network. Use it only on a trusted network.</div>
+                                                    </div>
+                                                }
+                                                <LineupLinkBundlePanel Device="device"
+                                                                       Index="index"
+                                                                       CreateRequested="Host.CreateLineupLinkAccessGrant"
+                                                                       RotateRequested="grant => Host.RotateLineupLinkAccessGrant(device, grant)"
+                                                                       RevokeRequested="grant => Host.RevokeLineupLinkAccessGrant(device, grant)"
+                                                                       PurgeRequested="grant => Host.PurgeLineupLinkAccessGrant(device, grant)"
+                                                                       ExportRequested="grant => Host.ExportLineupLinkBundleAsync(device, grant)"
+                                                                       CopyRequested="grant => Host.CopyLineupLinkBundleAsync(device, grant)"
+                                                                       ToggleRequested="grant => Host.ToggleLineupLinkBundle(device, grant)" />
+                                            }
+                                            <div class="col-12">
+                                                <label class="form-label" for="@($"virtualSubscription-{index}")">Physical subscription</label>
+                                                <select id="@($"virtualSubscription-{index}")" class="form-select virtual-subscription" @bind="device.SubscriptionMode">
+                                                    <option value="@PhysicalDeviceSubscriptionMode.All">All enabled physical devices</option>
+                                                    <option value="@PhysicalDeviceSubscriptionMode.Selected">Selected physical devices</option>
+                                                </select>
+                                                <div class="form-text">Controls which compatible physical devices can supply channels and tuner capacity to this virtual output. All automatically includes compatible devices added later.</div>
+                                            </div>
+                                            @if (device.SubscriptionMode == PhysicalDeviceSubscriptionMode.Selected)
+                                            {
+                                                <div class="col-12 selected-physical-devices">
+                                                    <div class="form-text mb-2">Select the physical devices this output may route to. Disabled devices remain selected but cannot provide channels or capacity until re-enabled.</div>
+                                                    @foreach (var physical in Host.Topology.PhysicalDevices.Where(physical => Host.IsVirtualCompatible(device, physical)))
+                                                    {
+                                                        <div class="form-check">
+                                                            <input id="@($"subscription-{index}-{physical.Id}")" class="form-check-input physical-subscription-selection" type="checkbox"
+                                                                   checked="@device.SelectedDeviceIds.Contains(physical.Id)"
+                                                                   @onchange="args => Host.SetPhysicalSubscription(device, physical.Id, args.Value is true)" />
+                                                            <label class="form-check-label" for="@($"subscription-{index}-{physical.Id}")">@physical.Name</label>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            </section>
+                            @if (device.Enabled && device.SupportsDedicatedHosting)
+                            {
+                                <section class="card virtual-output-hosting-settings">
+                                    <div class="card-header">
+                                        <h5 class="mb-0">Output Hosting</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="form-check form-switch mb-3">
+                                            <input id="@($"dedicatedListener-{index}")" class="form-check-input" type="checkbox" @bind="device.UseDedicatedListener" />
+                                            <label class="form-check-label" for="@($"dedicatedListener-{index}")">Use a dedicated listener</label>
+                                            <div class="form-text">Turn this off to serve the output through the management UI host and its existing HTTP/HTTPS ports.</div>
+                                        </div>
+                                        @if (!device.UseDedicatedListener)
+                                        {
+                                            <div class="alert alert-info mb-0" role="status">
+                                                This output is served by the management UI host, so no additional listener port is required.
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <div class="alert alert-info mb-3" role="status">
+                                                Dedicated listeners run in an isolated output worker. Changing these settings restarts only this virtual output.
+                                            </div>
+                                            <div class="row g-3">
+                                                <div class="col-md-3">
+                                                    <label class="form-label" for="@($"listenerMode-{index}")">Execution mode</label>
+                                                    <select id="@($"listenerMode-{index}")" class="form-select" @bind="device.ExecutionMode">
+                                                        <option value="@VirtualOutputExecutionMode.ManagedProcess">Managed process</option>
+                                                        <option value="@VirtualOutputExecutionMode.ExternalProcess">External process</option>
+                                                    </select>
+                                                    <div class="form-text">Managed processes are launched and supervised by Lineup. External processes use a one-time enrollment descriptor and are started separately.</div>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label" for="@($"listenerTransport-{index}")">Transport</label>
+                                                    <select id="@($"listenerTransport-{index}")" class="form-select" @bind="device.ListenerTransport">
+                                                        <option value="@VirtualOutputTransport.Http">HTTP</option>
+                                                        <option value="@VirtualOutputTransport.Https">HTTPS</option>
+                                                    </select>
+                                                    <div class="form-text">HTTPS encrypts output traffic and requires a server certificate. HTTP should be limited to trusted networks.</div>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label" for="@($"listenerPort-{index}")">Internal listener port</label>
+                                                    <input id="@($"listenerPort-{index}")" class="form-control" type="number" min="1" max="65535" @bind="device.ListenerPort" />
+                                                    <div class="form-text">Port opened by the worker inside the host or container.</div>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label" for="@($"publishedPort-{index}")">Published port override</label>
+                                                    <input id="@($"publishedPort-{index}")" class="form-control" type="number" min="1" max="65535" placeholder="@device.ListenerPort" @bind="device.PublishedPort" />
+                                                    <div class="form-text">Leave blank when the public port matches the internal listener.</div>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <label class="form-label" for="@($"listenerAddresses-{index}")">Bind addresses</label>
+                                                    <input id="@($"listenerAddresses-{index}")" class="form-control" placeholder="localhost, 192.0.2.10" @bind="device.ListenerAddresses" />
+                                                    <div class="form-text">Comma-separated IP addresses, localhost, or * for all interfaces.</div>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <label class="form-label" for="@($"listenerClientUrl-{index}")">Client-facing base URL</label>
+                                                    <input id="@($"listenerClientUrl-{index}")" class="form-control" value="@device.EffectivePublicBaseUri" readonly />
+                                                    <div class="form-text">Automatically derived from the listener transport, first bind address, and published port. This URL is used in protocol responses and connection bundles.</div>
+                                                </div>
+                                                <div class="col-12">
+                                                    <details class="border rounded p-3 virtual-output-advanced-networking">
+                                                        <summary class="fw-semibold">Advanced networking</summary>
+                                                        <div class="row g-3 mt-1">
+                                                            <div class="col-12">
+                                                                <div class="form-check form-switch">
+                                                                    <input id="@($"listenerPublicUriOverride-{index}")" class="form-check-input" type="checkbox" @bind="device.OverridePublicBaseUri" />
+                                                                    <label class="form-check-label" for="@($"listenerPublicUriOverride-{index}")">Override the client-facing base URL</label>
+                                                                </div>
+                                                                <div class="form-text">Use an override only when a reverse proxy, NAT rule, port forward, or external hostname gives clients a different URL.</div>
+                                                            </div>
+                                                            @if (device.OverridePublicBaseUri)
+                                                            {
+                                                                <div class="col-12">
+                                                                    <label class="form-label" for="@($"listenerPublicUri-{index}")">Client-facing base URL override</label>
+                                                                    <input id="@($"listenerPublicUri-{index}")" class="form-control" placeholder="@device.AutomaticPublicBaseUri" @bind="device.PublicBaseUri" />
+                                                                    <div class="form-text">Enter the externally reachable HTTP or HTTPS root URL. A published-port override still replaces its port when saved.</div>
+                                                                </div>
+                                                            }
+                                                @if (device.ListenerTransport == VirtualOutputTransport.Https)
+                                                {
+                                                    <div class="col-md-8">
+                                                        <label class="form-label" for="@($"listenerCertificate-{index}")">Certificate reference</label>
+                                                        <input id="@($"listenerCertificate-{index}")" class="form-control" @bind="device.CertificateReference" />
+                                                        <div class="form-text">Trusted-host reference to the server certificate. Current file-based hosts accept a passwordless PFX path.</div>
+                                                    </div>
+                                                    <div class="col-md-4">
+                                                        <label class="form-label" for="@($"listenerClientCertificate-{index}")">Client certificates</label>
+                                                        <select id="@($"listenerClientCertificate-{index}")" class="form-select" @bind="device.ClientCertificateMode">
+                                                            <option value="@VirtualOutputClientCertificateMode.None">Not requested</option>
+                                                            <option value="@VirtualOutputClientCertificateMode.Allow">Optional</option>
+                                                            <option value="@VirtualOutputClientCertificateMode.Require">Required</option>
+                                                        </select>
+                                                        <div class="form-text">Controls whether TLS clients may or must present their own certificate.</div>
+                                                    </div>
+                                                }
+                                                <div class="col-md-6">
+                                                    <label class="form-label" for="@($"listenerNetworks-{index}")">Allowed client networks</label>
+                                                    <input id="@($"listenerNetworks-{index}")" class="form-control" placeholder="192.0.2.0/24, 2001:db8::/32" @bind="device.AllowedNetworks" />
+                                                    <div class="form-text">Optional comma-separated CIDRs. Empty allows clients from any network permitted by the firewall.</div>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label" for="@($"listenerConnections-{index}")">Maximum connections</label>
+                                                    <input id="@($"listenerConnections-{index}")" class="form-control" type="number" min="0" @bind="device.MaximumConnections" />
+                                                    <div class="form-text">Concurrent client limit. Use 0 for the host default.</div>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label" for="@($"listenerRate-{index}")">Requests/minute/client</label>
+                                                    <input id="@($"listenerRate-{index}")" class="form-control" type="number" min="0" @bind="device.RequestsPerMinutePerClient" />
+                                                    <div class="form-text">Per-client request-rate limit. Use 0 to disable rate limiting.</div>
+                                                </div>
+                                                <div class="col-12">
+                                                    <div class="form-check form-switch">
+                                                        <input id="@($"listenerForwarded-{index}")" class="form-check-input" type="checkbox" @bind="device.AllowForwardedHeaders" />
+                                                        <label class="form-check-label" for="@($"listenerForwarded-{index}")">Honor forwarded headers from trusted proxies</label>
+                                                    </div>
+                                                    <div class="form-text">Use forwarded client addresses and schemes only when the immediate proxy matches the trusted proxy list.</div>
+                                                </div>
+                                                @if (device.AllowForwardedHeaders)
+                                                {
+                                                    <div class="col-12">
+                                                        <label class="form-label" for="@($"listenerProxies-{index}")">Trusted proxies</label>
+                                                        <input id="@($"listenerProxies-{index}")" class="form-control" placeholder="192.0.2.15, 2001:db8::/32" @bind="device.TrustedProxies" />
+                                                        <div class="form-text">Comma-separated proxy IP addresses or CIDRs permitted to supply forwarded headers.</div>
+                                                    </div>
+                                                }
+                                                <div class="col-md-3">
+                                                    <label class="form-label" for="@($"workerRestarts-{index}")">Maximum restarts</label>
+                                                    <input id="@($"workerRestarts-{index}")" class="form-control" type="number" min="0" @bind="device.MaximumRestarts" />
+                                                    <div class="form-text">Failed worker restarts allowed within the restart window.</div>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label" for="@($"workerRestartWindow-{index}")">Restart window (seconds)</label>
+                                                    <input id="@($"workerRestartWindow-{index}")" class="form-control" type="number" min="1" @bind="device.RestartWindowSeconds" />
+                                                    <div class="form-text">Time period used to count repeated worker failures.</div>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label" for="@($"workerDrain-{index}")">Drain timeout (seconds)</label>
+                                                    <input id="@($"workerDrain-{index}")" class="form-control" type="number" min="1" @bind="device.DrainTimeoutSeconds" />
+                                                    <div class="form-text">Maximum time allowed for active requests to finish during restart or shutdown.</div>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label" for="@($"workerLease-{index}")">Lease grace (seconds)</label>
+                                                    <input id="@($"workerLease-{index}")" class="form-control" type="number" min="1" @bind="device.LeaseGracePeriodSeconds" />
+                                                    <div class="form-text">How long a worker may lose its authenticated host lease before termination.</div>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label class="form-label" for="@($"workerBrokerCalls-{index}")">Maximum broker calls</label>
+                                                    <input id="@($"workerBrokerCalls-{index}")" class="form-control" type="number" min="1" @bind="device.MaximumOutstandingBrokerCalls" />
+                                                    <div class="form-text">Maximum simultaneous capability requests from this worker to the trusted host.</div>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label class="form-label" for="@($"workerMemory-{index}")">Memory limit (MiB)</label>
+                                                    <input id="@($"workerMemory-{index}")" class="form-control" type="number" min="0" @bind="device.MaximumMemoryMib" />
+                                                    <div class="form-text">Worker memory ceiling. Use 0 for no configured limit.</div>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label class="form-label" for="@($"workerCpu-{index}")">CPU limit (%)</label>
+                                                    <input id="@($"workerCpu-{index}")" class="form-control" type="number" min="0" max="100" @bind="device.MaximumCpuPercent" />
+                                                    <div class="form-text">Worker CPU ceiling. Use 0 for no configured limit.</div>
+                                                </div>
+                                                        </div>
+                                                    </details>
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                </section>
+                            }
+                            @if (device.Enabled)
+                            {
+                                <section class="card virtual-device-transcoder-settings">
+                                    <div class="card-header">
+                                        <h5 class="mb-0">Transcoder Settings</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <DeviceTranscoderSettings Settings="device"
+                                                                  Defaults="Host.Topology.VirtualDefaults"
+                                                                  IdPrefix="virtual"
+                                                                  CssPrefix="virtual"
+                                                                  Index="index"
+                                                                  StageName="output-stage" />
+                                    </div>
+                                </section>
+                            }
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+
+        @if (Host.ShowVirtualDeviceTypePickerValue)
+        {
+            <TypePickerModal Id="virtualDeviceTypePicker"
+                             Title="Add Virtual Device"
+                             Description="Select the type of virtual device to add."
+                             CloseRequested="() => Host.ShowVirtualDeviceTypePickerValue = false">
+                @foreach (var driver in Host.AvailableVirtualTunerDrivers)
+                {
+                    <button type="button" class="list-group-item list-group-item-action virtual-device-type"
+                            data-virtual-device-kind="@driver.Kind" @onclick="() => Host.AddVirtualDevice(driver)">
+                        @driver.DisplayName
+                    </button>
+                }
+            </TypePickerModal>
+        }
+
+@using Lineup.Core.Streaming
+@using Lineup.Web.Components.Transcoding

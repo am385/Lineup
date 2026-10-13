@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "Lineup.SiliconDust.HDHomeRun.VirtualOutputHost": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:51539;http://localhost:51541"
+    }
+  }
+}

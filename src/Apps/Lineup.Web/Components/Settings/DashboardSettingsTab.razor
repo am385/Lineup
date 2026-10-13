@@ -1,0 +1,18 @@
+<div id="dashboardSettingsTab" class="@CssClass" role="tabpanel" aria-labelledby="tab-dashboard">
+    <DashboardSettingsPanel ActiveStreamRefreshIntervalSeconds="ActiveStreamRefreshIntervalSeconds"
+                            ActiveStreamRefreshIntervalSecondsChanged="ActiveStreamRefreshIntervalSecondsChanged" />
+</div>
+
+@code {
+    /// <summary>Gets or sets the tab visibility class.</summary>
+    [Parameter]
+    public string CssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the active-stream refresh interval.</summary>
+    [Parameter]
+    public int ActiveStreamRefreshIntervalSeconds { get; set; }
+
+    /// <summary>Gets or sets the refresh interval change callback.</summary>
+    [Parameter]
+    public EventCallback<int> ActiveStreamRefreshIntervalSecondsChanged { get; set; }
+}

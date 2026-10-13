@@ -1,0 +1,46 @@
+@page "/guide"
+@using Lineup.Core.Guides
+
+<PageTitle>Guide</PageTitle>
+
+<h1><span class="bi bi-grid-3x3 me-2"></span>Guide</h1>
+
+<GuideDateNavigator Today="Tz.Today"
+                    SelectedDate="_selectedDate"
+                    StartHour="_startHour"
+                    HoursToShow="_hoursToShow"
+                    TimeRange="@FormatTimeRange()"
+                    IsShowingCurrentTime="@(_selectedDate == Tz.Today && IsShowingCurrentTime())"
+                    DateSelected="SelectDate"
+                    JumpToNow="JumpToNow"
+                    PreviousRequested="PreviousTimeBlock"
+                    NextRequested="NextTimeBlock" />
+
+@if (_isLoading)
+{
+    <div class="text-center py-5">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <p class="text-muted mt-2">Loading guide data...</p>
+    </div>
+}
+else if (_channels.Count == 0)
+{
+    <div class="alert alert-info">
+        <span class="bi bi-info-circle me-2"></span>
+        No EPG data available. Please fetch EPG data from the Dashboard first.
+    </div>
+}
+else
+{
+    <GuideScheduleGrid Channels="_channels"
+                       Programs="_programs"
+                       TimeSlots="_timeSlots"
+                       SelectedDate="_selectedDate"
+                       StartHour="_startHour"
+                       SlotsToShow="_slotsToShow"
+                       ProgramSelected="ShowProgramDetails" />
+}
+
+<GuideProgramDetailsModal Program="_selectedProgram" CloseRequested="CloseModal" />

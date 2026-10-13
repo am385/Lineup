@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Core\Lineup.Extensibility\Lineup.Extensibility.csproj" />
+    <ProjectReference Include="..\..\..\Core\Lineup.Streaming.FFmpeg\Lineup.Streaming.FFmpeg.csproj" />
+    <ProjectReference Include="..\Lineup.WebPlayer\Lineup.WebPlayer.csproj" />
+  </ItemGroup>
+</Project>

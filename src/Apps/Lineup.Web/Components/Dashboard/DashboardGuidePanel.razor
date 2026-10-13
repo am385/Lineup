@@ -1,0 +1,223 @@
+@using Lineup.Web.Services
+
+<div class="card mb-4">
+    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div>
+            <h5 class="mb-0"><span class="bi bi-calendar3 me-1"></span>Guide &amp; XMLTV</h5>
+            @if (!Expanded)
+            {
+                <small class="text-muted">@Summary</small>
+            }
+        </div>
+        <button id="toggleGuideSection" type="button" class="btn btn-sm btn-outline-secondary ms-auto"
+                aria-expanded="@(Expanded ? "true" : "false")" aria-controls="guideSection"
+                @onclick="() => ToggleRequested.InvokeAsync()">
+            <span class="@(Expanded ? "bi bi-chevron-up" : "bi bi-chevron-down")"></span>
+            <span class="visually-hidden">@(Expanded ? "Collapse" : "Expand") Guide section</span>
+        </button>
+    </div>
+    <div id="guideSection" class="card-body" hidden="@(!Expanded)">
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">Channels</h5>
+                        <p class="display-4">@Statistics.ChannelCount</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">Programs</h5>
+                        <p class="display-4">@Statistics.ProgramCount</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">Remaining</h5>
+                        <p class="h4">@(Statistics.TotalTimeSpan?.ToString(@"d' days 'h' hrs'") ?? "N/A")</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card h-100 @(AutoFetchState.IsRunning ? "border-info" : "") @(!AutoFetchState.IsEnabled ? "border-secondary" : "")">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">Auto-Fetch</h5>
+                        @if (!AutoFetchState.IsEnabled)
+                        {
+                            <p class="h6 text-muted"><span class="bi bi-pause-circle me-1"></span>Disabled</p>
+                            <small class="text-muted">Enable in <a href="/settings#guide">Settings</a></small>
+                        }
+                        else if (AutoFetchState.IsRunning)
+                        {
+                            <p class="h6 text-info"><span class="spinner-border spinner-border-sm me-1"></span>Running...</p>
+                            <small class="text-muted"><span class="bi bi-arrow-repeat me-1"></span>Every @AutoFetchIntervalDisplay</small>
+                        }
+                        else if (AutoFetchState.NextFetchTime.HasValue)
+                        {
+                            <p class="h6">@TimeZone.ConvertFromUtc(AutoFetchState.NextFetchTime.Value).ToString("HH:mm:ss")</p>
+                            <p class="h5 text-primary mb-0">@FormatCountdown(Countdown)</p>
+                            <small class="text-muted"><span class="bi bi-arrow-repeat me-1"></span>Every @AutoFetchIntervalDisplay</small>
+                        }
+                        else
+                        {
+                            <p class="h6">Pending...</p>
+                            <small class="text-muted"><span class="bi bi-arrow-repeat me-1"></span>Every @AutoFetchIntervalDisplay</small>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @if (AutoFetchState.IsRunning && AutoFetchState.CurrentProgress != null)
+        {
+            <GuideFetchProgress Title="Auto-Fetch in Progress" Progress="AutoFetchState.CurrentProgress" IsAutoFetch="true" />
+        }
+
+        @if (ManualFetchProgress != null && IsBusy && CurrentAction == "fetch")
+        {
+            <GuideFetchProgress Id="manualFetchProgress" Title="Manual Fetch Progress" Progress="ManualFetchProgress" />
+        }
+
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header"><h5 class="mb-0">Time Range</h5></div>
+                    <div class="card-body">
+                        <p><strong>Earliest:</strong> @(Statistics.EarliestProgramStartUtc?.ToString("yyyy-MM-dd HH:mm") ?? "N/A") UTC</p>
+                        <p><strong>Latest:</strong> @(Statistics.LatestProgramEndUtc?.ToString("yyyy-MM-dd HH:mm") ?? "N/A") UTC</p>
+                        @if (ChannelGap.HasValue)
+                        {
+                            <p class="text-warning"><strong>Channel Gap:</strong> @ChannelGap.Value.ToString(@"h' hrs 'm' min'")</p>
+                        }
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header"><h5 class="mb-0">Actions</h5></div>
+                    <div class="card-body">
+                        <div class="alert alert-info py-2 mb-3">
+                            @if (TopologyChannels.Count == 0)
+                            {
+                                <span>Refresh HDHomeRun Channels above before fetching the SiliconDust guide.</span>
+                            }
+                            else
+                            {
+                                <span>
+                                    Guide and streaming projections use @TopologyChannels.Count physical source channels
+                                    refreshed @TimeZone.ConvertFromUtc(TopologyChannels.Max(channel => channel.LastSeenUtc)).ToString("yyyy-MM-dd HH:mm:ss").
+                                </span>
+                            }
+                        </div>
+                        <button id="fetchGuide" class="btn btn-primary me-2" @onclick="() => FetchRequested.InvokeAsync()" disabled="@IsBusy">
+                            @if (IsBusy && CurrentAction == "fetch")
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                            }
+                            <span class="bi bi-cloud-download me-1"></span>Fetch Guide
+                        </button>
+                        <button id="generateXmltv" class="btn btn-success me-2" @onclick="() => GenerateRequested.InvokeAsync()" disabled="@IsBusy">
+                            @if (IsBusy && CurrentAction == "generate")
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                            }
+                            <span class="bi bi-file-earmark-code me-1"></span>Generate XMLTV
+                        </button>
+                        @if (XmltvFileExists)
+                        {
+                            <a class="btn btn-outline-secondary" href="/api/xmltv" download="epg.xml">
+                                <span class="bi bi-download me-1"></span>Export XMLTV
+                            </a>
+                        }
+                        else
+                        {
+                            <button class="btn btn-outline-secondary" disabled>
+                                <span class="bi bi-download me-1"></span>Export XMLTV
+                            </button>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private const string AutoFetchIntervalDisplay = "20-28h (randomized)";
+
+    /// <summary>Gets or sets whether the panel is expanded.</summary>
+    [Parameter]
+    public bool Expanded { get; set; }
+
+    /// <summary>Gets or sets the collapsed summary.</summary>
+    [Parameter, EditorRequired]
+    public string Summary { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets guide statistics.</summary>
+    [Parameter, EditorRequired]
+    public GuideStatistics Statistics { get; set; } = default!;
+
+    /// <summary>Gets or sets automatic fetch state.</summary>
+    [Parameter, EditorRequired]
+    public IAutoFetchStateService AutoFetchState { get; set; } = default!;
+
+    /// <summary>Gets or sets the configured timezone service.</summary>
+    [Parameter, EditorRequired]
+    public ITimeZoneService TimeZone { get; set; } = default!;
+
+    /// <summary>Gets or sets the next-fetch countdown.</summary>
+    [Parameter]
+    public TimeSpan Countdown { get; set; }
+
+    /// <summary>Gets or sets manual fetch progress.</summary>
+    [Parameter]
+    public FetchProgressInfo? ManualFetchProgress { get; set; }
+
+    /// <summary>Gets or sets whether a guide operation is active.</summary>
+    [Parameter]
+    public bool IsBusy { get; set; }
+
+    /// <summary>Gets or sets the current guide action.</summary>
+    [Parameter]
+    public string CurrentAction { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the detected channel coverage gap.</summary>
+    [Parameter]
+    public TimeSpan? ChannelGap { get; set; }
+
+    /// <summary>Gets or sets physical source channels.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<PhysicalChannelIdentity> TopologyChannels { get; set; } = [];
+
+    /// <summary>Gets or sets whether the XMLTV output exists.</summary>
+    [Parameter]
+    public bool XmltvFileExists { get; set; }
+
+    /// <summary>Gets or sets the panel toggle callback.</summary>
+    [Parameter]
+    public EventCallback ToggleRequested { get; set; }
+
+    /// <summary>Gets or sets the guide fetch callback.</summary>
+    [Parameter]
+    public EventCallback FetchRequested { get; set; }
+
+    /// <summary>Gets or sets the XMLTV generation callback.</summary>
+    [Parameter]
+    public EventCallback GenerateRequested { get; set; }
+
+    private static string FormatCountdown(TimeSpan countdown)
+    {
+        if (countdown <= TimeSpan.Zero)
+        {
+            return "Due now";
+        }
+
+        return countdown.TotalHours >= 1
+            ? $"{(int)countdown.TotalHours}h {countdown.Minutes}m {countdown.Seconds}s"
+            : $"{countdown.Minutes}m {countdown.Seconds}s";
+    }
+}

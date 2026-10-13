@@ -1,0 +1,38 @@
+<div id="apiSettingsTab" class="@CssClass" role="tabpanel" aria-labelledby="tab-api">
+    <ApiPrivacySettingsPanel RedactClientAddresses="RedactClientAddresses"
+                             RedactClientAddressesChanged="RedactClientAddressesChanged"
+                             RedactDeviceAddresses="RedactDeviceAddresses"
+                             RedactDeviceAddressesChanged="RedactDeviceAddressesChanged"
+                             RedactUrls="RedactUrls"
+                             RedactUrlsChanged="RedactUrlsChanged" />
+</div>
+
+@code {
+    /// <summary>Gets or sets the tab visibility class.</summary>
+    [Parameter]
+    public string CssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets whether client addresses are redacted.</summary>
+    [Parameter]
+    public bool RedactClientAddresses { get; set; }
+
+    /// <summary>Gets or sets the client-address redaction callback.</summary>
+    [Parameter]
+    public EventCallback<bool> RedactClientAddressesChanged { get; set; }
+
+    /// <summary>Gets or sets whether device addresses are redacted.</summary>
+    [Parameter]
+    public bool RedactDeviceAddresses { get; set; }
+
+    /// <summary>Gets or sets the device-address redaction callback.</summary>
+    [Parameter]
+    public EventCallback<bool> RedactDeviceAddressesChanged { get; set; }
+
+    /// <summary>Gets or sets whether URLs are redacted.</summary>
+    [Parameter]
+    public bool RedactUrls { get; set; }
+
+    /// <summary>Gets or sets the URL redaction callback.</summary>
+    [Parameter]
+    public EventCallback<bool> RedactUrlsChanged { get; set; }
+}

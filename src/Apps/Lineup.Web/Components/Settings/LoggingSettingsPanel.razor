@@ -1,0 +1,302 @@
+@using Lineup.Web.Services
+
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0"><span class="bi bi-funnel me-1"></span>Application Log Filters</h5>
+    </div>
+    <div class="card-body">
+        <div class="form-check form-switch mb-3">
+            <input id="overrideLoggingDefaults" class="form-check-input" type="checkbox" role="switch"
+                   checked="@OverrideLoggingDefaults" @onchange="ChangeOverrideLoggingDefaultsAsync" />
+            <label class="form-check-label" for="overrideLoggingDefaults">Override logging defaults</label>
+        </div>
+        @if (OverrideLoggingDefaults)
+        {
+            <div id="applicationLogFilterOverrides">
+                <div class="mb-3">
+                    <label for="applicationLogLevel" class="form-label">Default Level</label>
+                    <select id="applicationLogLevel" class="form-select" value="@ApplicationLogLevel" @onchange="ChangeApplicationLogLevelAsync">
+                        @foreach (var level in ApplicationLogLevels)
+                        {
+                            <option value="@level">@level</option>
+                        }
+                    </select>
+                    <div class="form-text">Applies to categories without a more specific rule.</div>
+                </div>
+                <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+                    <h6 class="mb-0">Category Overrides</h6>
+                    <button id="addLogCategoryOverride" type="button" class="btn btn-sm btn-outline-primary" @onclick="() => AddCategoryRequested.InvokeAsync()">
+                        <span class="bi bi-plus-lg me-1"></span>Add Category
+                    </button>
+                </div>
+                @if (CategoryOverrides.Count == 0)
+                {
+                    <p id="emptyLogCategoryOverrides" class="text-body-secondary mb-0">No category-specific filters are configured.</p>
+                }
+                else
+                {
+                    <div class="vstack gap-2">
+                        @for (var index = 0; index < CategoryOverrides.Count; index++)
+                        {
+                            var rowIndex = index;
+                            var category = CategoryOverrides[rowIndex];
+                            var isStartupCategory = StartupCategories.Contains(category.Category);
+                            <div class="row g-2 align-items-center log-category-override">
+                                <div class="col-md-7">
+                                    <input class="form-control log-category-prefix"
+                                           aria-label="Category prefix"
+                                           placeholder="Example.Namespace"
+                                           @bind="category.Category"
+                                           disabled="@isStartupCategory" />
+                                </div>
+                                <div class="col-md-4">
+                                    <select class="form-select log-category-level" aria-label="Category minimum level" @bind="category.Level">
+                                        @foreach (var level in ApplicationLogLevels)
+                                        {
+                                            <option value="@level">@level</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="col-md-1 d-flex justify-content-end">
+                                    @if (isStartupCategory)
+                                    {
+                                        <span class="badge text-bg-secondary">Startup</span>
+                                    }
+                                    else
+                                    {
+                                        <button type="button"
+                                                class="btn btn-sm btn-outline-danger remove-log-category"
+                                                aria-label="Remove category"
+                                                @onclick="() => RemoveCategoryRequested.InvokeAsync(rowIndex)">
+                                            <span class="bi bi-trash"></span>
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+                <div class="form-text mt-3">
+                    Startup categories are discovered from <code>Logging:LogLevel</code>. Exact categories and dotted descendants match, with the longest prefix taking precedence.
+                    Changes apply immediately when settings are saved. Turning this override off restores the complete startup filter set.
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0"><span class="bi bi-file-earmark-text me-1"></span>Rolling File Logs</h5>
+    </div>
+    <div class="card-body">
+        <div class="form-check form-switch mb-3">
+            <input id="enableFileLogging" class="form-check-input" type="checkbox" role="switch"
+                   checked="@EnableFileLogging" @onchange="ChangeEnableFileLoggingAsync" />
+            <label class="form-check-label" for="enableFileLogging">Write logs to rolling files</label>
+        </div>
+        @if (EnableFileLogging)
+        {
+            <div id="rollingFileLogOptions">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label for="fileLogLevel" class="form-label">Minimum Level</label>
+                        <select id="fileLogLevel" class="form-select" value="@FileLogLevel" @onchange="ChangeFileLogLevelAsync">
+                            <option value="Debug">Debug</option>
+                            <option value="Information">Information</option>
+                            <option value="Warning">Warning</option>
+                            <option value="Error">Error</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label for="fileLogRetentionDays" class="form-label">Retention (days)</label>
+                        <input id="fileLogRetentionDays" class="form-control" type="number" min="1" max="90"
+                               value="@FileLogRetentionDays" @onchange="ChangeFileLogRetentionDaysAsync" />
+                    </div>
+                    <div class="col-md-4">
+                        <label for="fileLogSizeLimitMb" class="form-label">File Size (MB)</label>
+                        <input id="fileLogSizeLimitMb" class="form-control" type="number" min="1" max="500"
+                               value="@FileLogSizeLimitMb" @onchange="ChangeFileLogSizeLimitMbAsync" />
+                    </div>
+                </div>
+                <div class="form-text mt-3">
+                    Files are stored in <code>@(Runtime?.LogDirectory ?? "the Lineup configuration directory/logs")</code>.
+                    Changes take effect immediately when settings are saved.
+                </div>
+            </div>
+        }
+        @if (EnableFileLogging || RetainedFiles.Count > 0)
+        {
+            <div id="retainedLogFileManagement">
+                @if (EnableFileLogging)
+                {
+                    <hr />
+                }
+                <h6>Retained Log Files</h6>
+                @if (RetainedFiles.Count == 0)
+                {
+                    <p id="emptyRetainedLogFiles" class="text-body-secondary">No rolling log files are available yet.</p>
+                }
+                else
+                {
+                    <div id="retainedLogFiles" class="list-group mb-3">
+                        @foreach (var file in RetainedFiles)
+                        {
+                            <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center gap-3"
+                               href="@($"/api/logs/files/{Uri.EscapeDataString(file.Name)}")" download="@file.Name">
+                                <span><span class="bi bi-download me-2"></span>@file.Name</span>
+                                <small class="text-body-secondary text-end">@FormatFileSize(file.Size) · @file.LastModifiedUtc.ToLocalTime().ToString("g")</small>
+                            </a>
+                        }
+                    </div>
+                }
+                <button id="deleteFileLogs" type="button" class="btn btn-outline-danger" @onclick="() => DeleteLogsRequested.InvokeAsync()" disabled="@IsDeletingLogs">
+                    <span class="bi bi-trash3 me-1"></span>Delete Logs
+                </button>
+                <div class="form-text">
+                    @(EnableFileLogging
+                        ? "Deletes all rolling file logs and immediately starts a new empty log file."
+                        : "Deletes all retained rolling log files.")
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0"><span class="bi bi-cloud-arrow-up me-1"></span>External Targets</h5>
+    </div>
+    <div class="card-body">
+        <p>External targets are configured at startup through environment variables or <code>appsettings.json</code>. Secrets are never stored in Lineup settings or displayed here.</p>
+        @if (Runtime == null)
+        {
+            <p class="text-body-secondary mb-0">Target status is unavailable.</p>
+        }
+        else
+        {
+            <div class="list-group">
+                @foreach (var target in Runtime.ExternalTargets)
+                {
+                    <div class="list-group-item d-flex justify-content-between align-items-start gap-3">
+                        <div>
+                            <strong>@target.Name</strong>
+                            <div class="small text-body-secondary">@target.Message</div>
+                        </div>
+                        <span class="badge @GetLoggingStatusBadge(target.Status)">@target.Status</span>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>Gets or sets whether startup log filters are overridden.</summary>
+    [Parameter]
+    public bool OverrideLoggingDefaults { get; set; }
+
+    /// <summary>Gets or sets the override state callback.</summary>
+    [Parameter]
+    public EventCallback<bool> OverrideLoggingDefaultsChanged { get; set; }
+
+    /// <summary>Gets or sets the default application log level.</summary>
+    [Parameter]
+    public string ApplicationLogLevel { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the application log level callback.</summary>
+    [Parameter]
+    public EventCallback<string> ApplicationLogLevelChanged { get; set; }
+
+    /// <summary>Gets or sets the supported application log levels.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<string> ApplicationLogLevels { get; set; } = [];
+
+    /// <summary>Gets or sets category-specific log levels.</summary>
+    [Parameter, EditorRequired]
+    public IList<WebLogCategoryLevelSetting> CategoryOverrides { get; set; } = [];
+
+    /// <summary>Gets or sets startup-owned category names.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlySet<string> StartupCategories { get; set; } = new HashSet<string>();
+
+    /// <summary>Gets or sets whether rolling file logging is enabled.</summary>
+    [Parameter]
+    public bool EnableFileLogging { get; set; }
+
+    /// <summary>Gets or sets the rolling file enabled callback.</summary>
+    [Parameter]
+    public EventCallback<bool> EnableFileLoggingChanged { get; set; }
+
+    /// <summary>Gets or sets the rolling file minimum level.</summary>
+    [Parameter]
+    public string FileLogLevel { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the rolling file level callback.</summary>
+    [Parameter]
+    public EventCallback<string> FileLogLevelChanged { get; set; }
+
+    /// <summary>Gets or sets rolling file retention days.</summary>
+    [Parameter]
+    public int FileLogRetentionDays { get; set; }
+
+    /// <summary>Gets or sets the retention callback.</summary>
+    [Parameter]
+    public EventCallback<int> FileLogRetentionDaysChanged { get; set; }
+
+    /// <summary>Gets or sets the rolling file size limit.</summary>
+    [Parameter]
+    public int FileLogSizeLimitMb { get; set; }
+
+    /// <summary>Gets or sets the size-limit callback.</summary>
+    [Parameter]
+    public EventCallback<int> FileLogSizeLimitMbChanged { get; set; }
+
+    /// <summary>Gets or sets runtime logging status.</summary>
+    [Parameter]
+    public LoggingRuntimeState? Runtime { get; set; }
+
+    /// <summary>Gets or sets retained rolling files.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<LogFileInfo> RetainedFiles { get; set; } = [];
+
+    /// <summary>Gets or sets whether retained logs are being deleted.</summary>
+    [Parameter]
+    public bool IsDeletingLogs { get; set; }
+
+    /// <summary>Gets or sets the add-category callback.</summary>
+    [Parameter]
+    public EventCallback AddCategoryRequested { get; set; }
+
+    /// <summary>Gets or sets the remove-category callback.</summary>
+    [Parameter]
+    public EventCallback<int> RemoveCategoryRequested { get; set; }
+
+    /// <summary>Gets or sets the delete-logs callback.</summary>
+    [Parameter]
+    public EventCallback DeleteLogsRequested { get; set; }
+
+    private Task ChangeOverrideLoggingDefaultsAsync(ChangeEventArgs args) => OverrideLoggingDefaultsChanged.InvokeAsync(args.Value is true);
+
+    private Task ChangeApplicationLogLevelAsync(ChangeEventArgs args) => ApplicationLogLevelChanged.InvokeAsync(args.Value?.ToString() ?? string.Empty);
+
+    private Task ChangeEnableFileLoggingAsync(ChangeEventArgs args) => EnableFileLoggingChanged.InvokeAsync(args.Value is true);
+
+    private Task ChangeFileLogLevelAsync(ChangeEventArgs args) => FileLogLevelChanged.InvokeAsync(args.Value?.ToString() ?? string.Empty);
+
+    private Task ChangeFileLogRetentionDaysAsync(ChangeEventArgs args) =>
+        FileLogRetentionDaysChanged.InvokeAsync(int.TryParse(args.Value?.ToString(), out var value) ? value : FileLogRetentionDays);
+
+    private Task ChangeFileLogSizeLimitMbAsync(ChangeEventArgs args) =>
+        FileLogSizeLimitMbChanged.InvokeAsync(int.TryParse(args.Value?.ToString(), out var value) ? value : FileLogSizeLimitMb);
+
+    private static string FormatFileSize(long bytes) =>
+        bytes >= 1024 * 1024 ? $"{bytes / (1024d * 1024d):0.0} MB" : bytes >= 1024 ? $"{bytes / 1024d:0.0} KB" : $"{bytes} B";
+
+    private static string GetLoggingStatusBadge(string status) => status switch
+    {
+        "Enabled" => "text-bg-success",
+        "Invalid" => "text-bg-danger",
+        _ => "text-bg-secondary"
+    };
+}

@@ -1,0 +1,171 @@
+@using Lineup.Web.Services
+
+<div id="streamingFlowDiagram" class="streaming-flow">
+    <div class="streaming-flow-summary d-flex flex-wrap gap-2 mb-3" aria-label="Streaming flow summary">
+        <span class="badge text-bg-primary">@Snapshot.ActiveConsumerCount consumer@(Snapshot.ActiveConsumerCount == 1 ? "" : "s")</span>
+        <span class="badge text-bg-success">@Snapshot.ActiveProducerCount active producer@(Snapshot.ActiveProducerCount == 1 ? "" : "s")</span>
+        <span class="badge text-bg-warning">@Snapshot.WarmProducerCount warm producer@(Snapshot.WarmProducerCount == 1 ? "" : "s")</span>
+    </div>
+
+    <div class="streaming-flow-legend d-flex flex-wrap gap-3 mb-3 small" aria-label="Streaming state legend">
+        @foreach (var state in Enum.GetValues<StreamingFlowState>())
+        {
+            <span><span class="streaming-flow-state-dot @GetStateClass(state)"></span>@FormatState(state)</span>
+        }
+    </div>
+
+    @if (Snapshot.Nodes.Count == 0)
+    {
+        <div class="text-center text-body-secondary py-4">
+            <span class="bi bi-diagram-3 display-6" aria-hidden="true"></span>
+            <p class="mb-0 mt-2">Configure physical and virtual devices to build the streaming flow.</p>
+        </div>
+    }
+    else
+    {
+        <div class="streaming-flow-scroll">
+            <div class="streaming-flow-lanes" role="group" aria-label="Configured streaming topology">
+                @foreach (var lane in LaneOrder)
+                {
+                    <section class="streaming-flow-lane" aria-label="@GetLaneTitle(lane)">
+                        <h6>@GetLaneTitle(lane)</h6>
+                        <div class="streaming-flow-node-list">
+                            @foreach (var node in Snapshot.GetLane(lane))
+                            {
+                                <button type="button"
+                                        class="streaming-flow-node @GetStateClass(node.State) @(_selectedNodeId == node.Id ? "selected" : null)"
+                                        data-flow-node-id="@node.Id"
+                                        aria-pressed="@(_selectedNodeId == node.Id ? "true" : "false")"
+                                        aria-expanded="@(_selectedNodeId == node.Id ? "true" : "false")"
+                                        aria-controls="streamingFlowDetails"
+                                        aria-label="@($"{node.Label}, {FormatState(node.State)}, {node.ActiveSessionCount} active sessions")"
+                                        @onclick="() => SelectNode(node.Id)">
+                                    <span class="streaming-flow-node-title">@node.Label</span>
+                                    <span class="streaming-flow-node-subtitle">@node.Subtitle</span>
+                                    <span class="badge @GetBadgeClass(node.State)">@FormatState(node.State)</span>
+                                    @if (node.ActiveChannels.Count > 0)
+                                    {
+                                        <span class="streaming-flow-channel-list">
+                                            @foreach (var channel in node.ActiveChannels.Take(4))
+                                            {
+                                                <span class="badge text-bg-dark">@channel</span>
+                                            }
+                                            @if (node.ActiveChannels.Count > 4)
+                                            {
+                                                <span class="badge text-bg-secondary">+@(node.ActiveChannels.Count - 4)</span>
+                                            }
+                                        </span>
+                                    }
+                                </button>
+                            }
+                            @if (Snapshot.GetLane(lane).Count == 0)
+                            {
+                                <div class="streaming-flow-lane-empty">None</div>
+                            }
+                        </div>
+                    </section>
+                    @if (lane != StreamingFlowLane.Consumer)
+                    {
+                        <div class="streaming-flow-arrow" aria-hidden="true"><span class="bi bi-arrow-right"></span></div>
+                    }
+                }
+            </div>
+        </div>
+
+        @if (SelectedNode is { } selected)
+        {
+            <div id="streamingFlowDetails" class="streaming-flow-details mt-4" aria-live="polite">
+                <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+                    <div>
+                        <h6 class="mb-1">@selected.Label</h6>
+                        <div class="text-body-secondary">@selected.Subtitle</div>
+                    </div>
+                    <span class="badge @GetBadgeClass(selected.State)">@FormatState(selected.State)</span>
+                </div>
+                <dl class="row mb-0">
+                    @foreach (var detail in selected.Details)
+                    {
+                        <dt class="col-sm-4">@detail.Label</dt>
+                        <dd class="col-sm-8">@detail.Value</dd>
+                    }
+                    @if (selected.ActiveChannels.Count > 0)
+                    {
+                        <dt class="col-sm-4">Active channels</dt>
+                        <dd class="col-sm-8">@string.Join(", ", selected.ActiveChannels)</dd>
+                    }
+                    <dt class="col-sm-4">Active sessions</dt>
+                    <dd class="col-sm-8">@selected.ActiveSessionCount</dd>
+                </dl>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private static readonly StreamingFlowLane[] LaneOrder =
+    [
+        StreamingFlowLane.PhysicalSource,
+        StreamingFlowLane.PhysicalProcessing,
+        StreamingFlowLane.Multiplexer,
+        StreamingFlowLane.VirtualOutput,
+        StreamingFlowLane.VirtualProcessing,
+        StreamingFlowLane.Consumer
+    ];
+
+    private string? _selectedNodeId;
+    /// <summary>Gets the configured and runtime streaming flow to render.</summary>
+    [Parameter, EditorRequired]
+    public StreamingFlowSnapshot Snapshot { get; set; } = new([], [], 0, 0, 0);
+
+    private StreamingFlowNode? SelectedNode => Snapshot.Nodes.SingleOrDefault(node => node.Id == _selectedNodeId);
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        if (_selectedNodeId is not null && Snapshot.Nodes.All(node => node.Id != _selectedNodeId))
+        {
+            _selectedNodeId = null;
+        }
+    }
+
+    private void SelectNode(string nodeId)
+    {
+        _selectedNodeId = string.Equals(_selectedNodeId, nodeId, StringComparison.Ordinal) ? null : nodeId;
+    }
+
+    private static string GetLaneTitle(StreamingFlowLane lane) => lane switch
+    {
+        StreamingFlowLane.PhysicalSource => "Physical Sources",
+        StreamingFlowLane.PhysicalProcessing => "Source Processing",
+        StreamingFlowLane.Multiplexer => "Multiplexer",
+        StreamingFlowLane.VirtualOutput => "Virtual Outputs",
+        StreamingFlowLane.VirtualProcessing => "Output Processing",
+        StreamingFlowLane.Consumer => "Consumers",
+        _ => lane.ToString()
+    };
+
+    private static string FormatState(StreamingFlowState state) => state switch
+    {
+        StreamingFlowState.Disabled => "Disabled",
+        StreamingFlowState.Idle => "Idle",
+        StreamingFlowState.Active => "Active",
+        StreamingFlowState.Transcoding => "Transcoding",
+        StreamingFlowState.Shared => "Shared",
+        StreamingFlowState.Warm => "Warm",
+        StreamingFlowState.Unavailable => "Unavailable",
+        _ => state.ToString()
+    };
+
+    private static string GetStateClass(StreamingFlowState state) => $"state-{state.ToString().ToLowerInvariant()}";
+
+    private static string GetBadgeClass(StreamingFlowState state) => state switch
+    {
+        StreamingFlowState.Active => "text-bg-primary",
+        StreamingFlowState.Transcoding => "text-bg-info",
+        StreamingFlowState.Shared => "text-bg-success",
+        StreamingFlowState.Warm => "text-bg-warning",
+        StreamingFlowState.Unavailable => "text-bg-danger",
+        StreamingFlowState.Disabled => "text-bg-secondary",
+        _ => "text-bg-light"
+    };
+}

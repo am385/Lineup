@@ -1,0 +1,14 @@
+global using Lineup.Core;
+global using Lineup.Common.Guides;
+global using Lineup.Extensibility.Guides;
+global using Lineup.Core.Hosting;
+global using Lineup.Core.Settings;
+global using Lineup.Core.Storage;
+global using Lineup.Common.Streaming;
+global using Lineup.Extensibility.Streaming;
+global using Lineup.SiliconDust.GuideSource;
+global using Lineup.SiliconDust.HDHomeRun.PhysicalTuner;
+global using Lineup.SiliconDust.HDHomeRun.VirtualTuner;
+global using Lineup.Streaming.FFmpeg;
+global using Lineup.WebPlayer;
+global using Lineup.WebPlayer.FFmpeg;

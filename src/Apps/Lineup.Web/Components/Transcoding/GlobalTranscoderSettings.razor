@@ -1,0 +1,158 @@
+@using Lineup.Core.Streaming
+@using Lineup.Web.Services
+
+@if (RequestsTranscoding)
+{
+    <div class="alert alert-warning py-2 @WarningClass" role="alert">
+        <span class="bi bi-exclamation-triangle me-1"></span>
+        The current configuration will result in @StageName transcoding for matching streams.
+    </div>
+}
+
+<div class="border rounded p-3 mb-3 @VideoSettingsClass">
+    <div class="fw-semibold mb-2">Video</div>
+    <div class="row g-3">
+        <div class="col-md-6">
+            <div class="form-check form-switch mt-4">
+                <input id="@HevcId" class="form-check-input" type="checkbox" @bind="Settings.ConvertHevcToH264" @bind:after="NotifySettingsChanged" />
+                <label class="form-check-label" for="@HevcId">Convert HEVC to H.264</label>
+            </div>
+            @if (!string.IsNullOrWhiteSpace(HevcHelpText))
+            {
+                <div class="form-text">@HevcHelpText</div>
+            }
+            <div class="form-text">When enabled, HEVC/H.265 video is encoded as H.264 for broader playback compatibility. Other video codecs are unchanged.</div>
+        </div>
+        <div class="col-md-6">
+            <label for="@DeinterlaceId" class="form-label">Deinterlacing</label>
+            <select id="@DeinterlaceId" class="form-select" @bind="Settings.Deinterlace" @bind:after="NotifySettingsChanged">
+                @foreach (var value in Enum.GetValues<SourceDeinterlacePolicy>())
+                {
+                    <option value="@value">@TranscoderSettingDisplay.Deinterlace(value)</option>
+                }
+            </select>
+            @if (!string.IsNullOrWhiteSpace(DeinterlaceHelpText))
+            {
+                <div class="form-text">@DeinterlaceHelpText</div>
+            }
+            <div class="form-text"><strong>Preserve</strong> leaves the source unchanged. <strong>Source frame rate</strong> creates one progressive frame per interlaced frame. <strong>Source field rate</strong> creates one progressive frame per field for smoother motion at greater CPU and bitrate cost.</div>
+        </div>
+        @if (RequestsVideoTranscoding)
+        {
+            <div class="col-12">
+                <div class="row g-3 @VideoEncoderSettingsClass">
+                    <div class="col-md-6">
+                        <label for="@PresetId" class="form-label">Video Encoder Preset</label>
+                        <select id="@PresetId" class="form-select" @bind="Settings.VideoPreset" @bind:after="NotifySettingsChanged">
+                            @foreach (var value in Enum.GetValues<VideoEncoderPreset>())
+                            {
+                                <option value="@value">@TranscoderSettingDisplay.Preset(value)</option>
+                            }
+                        </select>
+                        <div class="form-text">Controls H.264 encoding speed versus compression efficiency. Faster presets use less CPU; slower presets can achieve similar quality with less bitrate.</div>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="@QualityId" class="form-label">Video Quality (CRF)</label>
+                        <input id="@QualityId" class="form-control" type="number" min="16" max="30" @bind="Settings.VideoQuality" @bind:after="NotifySettingsChanged" />
+                        <div class="form-text">Sets constant-quality H.264 encoding from 16 to 30. Lower values preserve more detail but use more bitrate; higher values reduce bitrate and quality.</div>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="@BitrateId" class="form-label">Maximum Video Bitrate</label>
+                        <div class="input-group">
+                            <input id="@BitrateId" class="form-control" type="number" min="1" max="200" @bind="Settings.MaximumVideoBitRateMbps" @bind:after="NotifySettingsChanged" />
+                            <span class="input-group-text">Mbps</span>
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(BitrateHelpText))
+                        {
+                            <div class="form-text">@BitrateHelpText</div>
+                        }
+                        <div class="form-text">Caps the H.264 encoder's target output rate. A cap that is too low can reduce quality during complex scenes even when CRF requests higher quality.</div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+<div class="border rounded p-3 @AudioSettingsClass">
+    <div class="fw-semibold mb-2">Audio</div>
+    <div class="row g-3">
+        <div class="col-md-6">
+            <label for="@AudioId" class="form-label">Non-AC-4 Audio</label>
+            <select id="@AudioId" class="form-select" @bind="Settings.Audio" @bind:after="NotifySettingsChanged">
+                @foreach (var value in Enum.GetValues<OutputAudioPolicy>())
+                {
+                    <option value="@value">@TranscoderSettingDisplay.Audio(value)</option>
+                }
+            </select>
+            <div class="form-text"><strong>Copy</strong> preserves the original codec and quality. <strong>AC-3</strong> or <strong>E-AC-3</strong> re-encodes other audio for consumers that require that format.</div>
+        </div>
+        <div class="col-md-6">
+            <label for="@Ac4AudioId" class="form-label">AC-4 Audio</label>
+            <select id="@Ac4AudioId" class="form-select" @bind="Settings.Ac4Audio" @bind:after="NotifySettingsChanged">
+                @foreach (var value in Enum.GetValues<OutputAudioPolicy>())
+                {
+                    <option value="@value">@TranscoderSettingDisplay.Audio(value)</option>
+                }
+            </select>
+            <div class="form-text">Controls AC-4 sources separately because browser and media-server support varies. Copy requires downstream AC-4 support; AC-3 is the broadest compatibility option.</div>
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>Gets or sets the mutable global transcoder settings.</summary>
+    [Parameter, EditorRequired]
+    public ITranscodeSettingsModel Settings { get; set; } = default!;
+
+    /// <summary>Gets or sets the stable HTML identifier prefix.</summary>
+    [Parameter, EditorRequired]
+    public string IdPrefix { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the CSS class prefix used by the owning settings surface.</summary>
+    [Parameter, EditorRequired]
+    public string CssPrefix { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the stage name shown in the transcoding warning.</summary>
+    [Parameter, EditorRequired]
+    public string StageName { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets optional HEVC guidance.</summary>
+    [Parameter]
+    public string? HevcHelpText { get; set; }
+
+    /// <summary>Gets or sets optional deinterlacing guidance.</summary>
+    [Parameter]
+    public string? DeinterlaceHelpText { get; set; }
+
+    /// <summary>Gets or sets optional bitrate guidance.</summary>
+    [Parameter]
+    public string? BitrateHelpText { get; set; }
+
+    /// <summary>Gets or sets the notification raised after a setting changes.</summary>
+    [Parameter]
+    public EventCallback SettingsChanged { get; set; }
+
+    private bool RequestsVideoTranscoding =>
+        Settings.ConvertHevcToH264 ||
+        Settings.Deinterlace != SourceDeinterlacePolicy.Preserve;
+
+    private bool RequestsTranscoding =>
+        RequestsVideoTranscoding ||
+        Settings.Audio != OutputAudioPolicy.Copy ||
+        Settings.Ac4Audio != OutputAudioPolicy.Copy;
+
+    private string HevcId => $"{IdPrefix}Hevc";
+    private string DeinterlaceId => $"{IdPrefix}Deinterlace";
+    private string AudioId => $"{IdPrefix}Audio";
+    private string Ac4AudioId => $"{IdPrefix}Ac4Audio";
+    private string PresetId => $"{IdPrefix}Preset";
+    private string QualityId => $"{IdPrefix}Quality";
+    private string BitrateId => $"{IdPrefix}Bitrate";
+    private string WarningClass => $"{CssPrefix}-global-transcode-warning";
+    private string VideoSettingsClass => $"{CssPrefix}-global-video-settings";
+    private string VideoEncoderSettingsClass => $"{CssPrefix}-global-video-encoder-settings";
+    private string AudioSettingsClass => $"{CssPrefix}-global-audio-settings";
+
+    private Task NotifySettingsChanged() => SettingsChanged.InvokeAsync();
+}

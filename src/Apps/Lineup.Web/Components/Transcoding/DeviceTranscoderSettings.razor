@@ -1,0 +1,232 @@
+@using Lineup.Core.Streaming
+@using Lineup.Web.Services
+
+<div class="device-transcoder-settings">
+    <div class="small fw-semibold">Transcoding Settings</div>
+    <div class="small text-body-secondary mb-2">Uses Global Settings unless an override is enabled.</div>
+    @if (RequestsTranscoding)
+    {
+        <div class="alert alert-warning py-2 @WarningClass" role="alert">
+            <span class="bi bi-exclamation-triangle me-1"></span>
+            This device's current configuration will result in @StageName transcoding for matching streams.
+        </div>
+    }
+
+    <div class="border rounded p-3 mb-3 @VideoSettingsClass">
+        <div class="fw-semibold mb-2">Video</div>
+        <div class="row g-3">
+            <div class="col-md-6">
+                <div class="form-check mb-2">
+                    <input id="@HevcOverrideId" class="form-check-input" type="checkbox" @bind="Settings.OverrideConvertHevcToH264" />
+                    <label class="form-check-label" for="@HevcOverrideId">
+                        Override HEVC conversion
+                        @if (!Settings.OverrideConvertHevcToH264)
+                        {
+                            <span class="text-body-secondary">(inherits @Defaults.ConvertHevcToH264)</span>
+                        }
+                    </label>
+                </div>
+                <div class="form-text mb-2">Enable the override to choose whether this device converts HEVC/H.265 video to H.264 instead of using the global policy.</div>
+                @if (Settings.OverrideConvertHevcToH264)
+                {
+                    <div class="form-check form-switch">
+                        <input class="form-check-input @HevcValueClass" type="checkbox" @bind="Settings.ConvertHevcToH264" />
+                        <label class="form-check-label">Convert HEVC to H.264</label>
+                    </div>
+                    <div class="form-text">Conversion improves compatibility but starts an H.264 video encoder. Disabled preserves the source video codec.</div>
+                }
+            </div>
+            <div class="col-md-6">
+                <div class="form-check mb-2">
+                    <input id="@DeinterlaceOverrideId" class="form-check-input" type="checkbox" @bind="Settings.OverrideDeinterlace" />
+                    <label class="form-check-label" for="@DeinterlaceOverrideId">
+                        Override deinterlacing
+                        @if (!Settings.OverrideDeinterlace)
+                        {
+                            <span class="text-body-secondary">(inherits @Defaults.Deinterlace)</span>
+                        }
+                    </label>
+                </div>
+                <div class="form-text mb-2">Enable the override to preserve or deinterlace this device's video independently of the global policy.</div>
+                @if (Settings.OverrideDeinterlace)
+                {
+                    <select class="form-select @DeinterlaceValueClass" @bind="Settings.Deinterlace">
+                        @foreach (var value in Enum.GetValues<SourceDeinterlacePolicy>())
+                        {
+                            <option value="@value">@TranscoderSettingDisplay.Deinterlace(value)</option>
+                        }
+                    </select>
+                    <div class="form-text"><strong>Preserve</strong> leaves video unchanged. <strong>Source frame rate</strong> outputs one progressive frame per frame. <strong>Source field rate</strong> preserves smoother field-rate motion with greater CPU and bitrate cost.</div>
+                }
+            </div>
+            @if (RequestsVideoTranscoding)
+            {
+                <div class="col-md-6">
+                    <div class="form-check mb-2">
+                        <input id="@PresetOverrideId" class="form-check-input" type="checkbox" @bind="Settings.OverrideVideoPreset" />
+                        <label class="form-check-label" for="@PresetOverrideId">
+                            Override encoder preset
+                            @if (!Settings.OverrideVideoPreset)
+                            {
+                                <span class="text-body-secondary">(inherits @Defaults.VideoPreset)</span>
+                            }
+                        </label>
+                    </div>
+                    <div class="form-text mb-2">Enable the override to change this device's H.264 encoder speed and compression-efficiency tradeoff.</div>
+                    @if (Settings.OverrideVideoPreset)
+                    {
+                        <select class="form-select @PresetValueClass" @bind="Settings.VideoPreset">
+                            @foreach (var value in Enum.GetValues<VideoEncoderPreset>())
+                            {
+                                <option value="@value">@TranscoderSettingDisplay.Preset(value)</option>
+                            }
+                        </select>
+                        <div class="form-text">Faster presets reduce CPU usage. Slower presets can achieve similar quality with less bitrate.</div>
+                    }
+                </div>
+                <div class="col-md-6">
+                    <div class="form-check mb-2">
+                        <input id="@QualityOverrideId" class="form-check-input" type="checkbox" @bind="Settings.OverrideVideoQuality" />
+                        <label class="form-check-label" for="@QualityOverrideId">
+                            Override video quality
+                            @if (!Settings.OverrideVideoQuality)
+                            {
+                                <span class="text-body-secondary">(inherits CRF @Defaults.VideoQuality)</span>
+                            }
+                        </label>
+                    </div>
+                    <div class="form-text mb-2">Enable the override to set this device's constant-quality H.264 target instead of inheriting the global CRF.</div>
+                    @if (Settings.OverrideVideoQuality)
+                    {
+                        <input class="form-control @QualityValueClass" type="number" min="16" max="30" @bind="Settings.VideoQuality" />
+                        <div class="form-text">Allowed values are 16 to 30. Lower values preserve more detail and use more bitrate; higher values reduce bitrate and quality.</div>
+                    }
+                </div>
+                <div class="col-md-6">
+                    <div class="form-check mb-2">
+                        <input id="@BitrateOverrideId" class="form-check-input" type="checkbox" @bind="Settings.OverrideMaximumVideoBitRate" />
+                        <label class="form-check-label" for="@BitrateOverrideId">
+                            Override bitrate
+                            @if (!Settings.OverrideMaximumVideoBitRate)
+                            {
+                                <span class="text-body-secondary">(inherits @Defaults.MaximumVideoBitRateMbps Mbps)</span>
+                            }
+                        </label>
+                    </div>
+                    <div class="form-text mb-2">Enable the override to cap this device's encoded H.264 bitrate independently of the global limit.</div>
+                    @if (Settings.OverrideMaximumVideoBitRate)
+                    {
+                        <div class="input-group">
+                            <input class="form-control @BitrateValueClass" type="number" min="1" max="200" @bind="Settings.MaximumVideoBitRateMbps" />
+                            <span class="input-group-text">Mbps</span>
+                        </div>
+                        <div class="form-text">A limit that is too low can reduce quality during complex scenes even when CRF requests higher quality.</div>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="border rounded p-3 @AudioSettingsClass">
+        <div class="fw-semibold mb-2">Audio</div>
+        <div class="row g-3">
+            <div class="col-md-6">
+                <div class="form-check mb-2">
+                    <input id="@AudioOverrideId" class="form-check-input" type="checkbox" @bind="Settings.OverrideAudio" />
+                    <label class="form-check-label" for="@AudioOverrideId">
+                        Override non-AC-4 audio
+                        @if (!Settings.OverrideAudio)
+                        {
+                            <span class="text-body-secondary">(inherits @Defaults.Audio)</span>
+                        }
+                    </label>
+                </div>
+                <div class="form-text mb-2">Enable the override to copy or re-encode every non-AC-4 audio track for this device.</div>
+                @if (Settings.OverrideAudio)
+                {
+                    <select class="form-select @AudioValueClass" @bind="Settings.Audio">
+                        @foreach (var value in Enum.GetValues<OutputAudioPolicy>())
+                        {
+                            <option value="@value">@TranscoderSettingDisplay.Audio(value)</option>
+                        }
+                    </select>
+                    <div class="form-text"><strong>Copy</strong> preserves the source codec and quality. <strong>AC-3</strong> or <strong>E-AC-3</strong> re-encodes audio for consumers that require that format.</div>
+                }
+            </div>
+            <div class="col-md-6">
+                <div class="form-check mb-2">
+                    <input id="@Ac4AudioOverrideId" class="form-check-input" type="checkbox" @bind="Settings.OverrideAc4Audio" />
+                    <label class="form-check-label" for="@Ac4AudioOverrideId">
+                        Override AC-4 audio
+                        @if (!Settings.OverrideAc4Audio)
+                        {
+                            <span class="text-body-secondary">(inherits @Defaults.Ac4Audio)</span>
+                        }
+                    </label>
+                </div>
+                <div class="form-text mb-2">Enable the override to handle AC-4 sources independently from other audio codecs.</div>
+                @if (Settings.OverrideAc4Audio)
+                {
+                    <select class="form-select @Ac4AudioValueClass" @bind="Settings.Ac4Audio">
+                        @foreach (var value in Enum.GetValues<OutputAudioPolicy>())
+                        {
+                            <option value="@value">@TranscoderSettingDisplay.Audio(value)</option>
+                        }
+                    </select>
+                    <div class="form-text"><strong>Copy</strong> requires downstream AC-4 support. <strong>AC-3</strong> provides the broadest compatibility; <strong>E-AC-3</strong> may preserve more capability where supported.</div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>Gets or sets the mutable device transcoder settings.</summary>
+    [Parameter, EditorRequired]
+    public ITranscodeOverrideSettingsModel Settings { get; set; } = default!;
+
+    /// <summary>Gets or sets the inherited global transcoder settings.</summary>
+    [Parameter, EditorRequired]
+    public ITranscodeSettingsModel Defaults { get; set; } = default!;
+
+    /// <summary>Gets or sets the stable HTML identifier prefix.</summary>
+    [Parameter, EditorRequired]
+    public string IdPrefix { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the CSS class prefix used by the owning settings surface.</summary>
+    [Parameter, EditorRequired]
+    public string CssPrefix { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the device index used to make form identifiers unique.</summary>
+    [Parameter]
+    public int Index { get; set; }
+
+    /// <summary>Gets or sets the stage name shown in the transcoding warning.</summary>
+    [Parameter, EditorRequired]
+    public string StageName { get; set; } = string.Empty;
+
+    private bool EffectiveHevc => Settings.OverrideConvertHevcToH264 ? Settings.ConvertHevcToH264 : Defaults.ConvertHevcToH264;
+    private SourceDeinterlacePolicy EffectiveDeinterlace => Settings.OverrideDeinterlace ? Settings.Deinterlace : Defaults.Deinterlace;
+    private OutputAudioPolicy EffectiveAudio => Settings.OverrideAudio ? Settings.Audio : Defaults.Audio;
+    private OutputAudioPolicy EffectiveAc4Audio => Settings.OverrideAc4Audio ? Settings.Ac4Audio : Defaults.Ac4Audio;
+    private bool RequestsVideoTranscoding => EffectiveHevc || EffectiveDeinterlace != SourceDeinterlacePolicy.Preserve;
+    private bool RequestsTranscoding => RequestsVideoTranscoding || EffectiveAudio != OutputAudioPolicy.Copy || EffectiveAc4Audio != OutputAudioPolicy.Copy;
+    private string HevcOverrideId => $"{IdPrefix}OverrideHevc-{Index}";
+    private string DeinterlaceOverrideId => $"{IdPrefix}OverrideDeinterlace-{Index}";
+    private string AudioOverrideId => $"{IdPrefix}OverrideAudio-{Index}";
+    private string Ac4AudioOverrideId => $"{IdPrefix}OverrideAc4Audio-{Index}";
+    private string PresetOverrideId => $"{IdPrefix}OverridePreset-{Index}";
+    private string QualityOverrideId => $"{IdPrefix}OverrideQuality-{Index}";
+    private string BitrateOverrideId => $"{IdPrefix}OverrideBitrate-{Index}";
+    private string WarningClass => $"{CssPrefix}-device-transcode-warning";
+    private string VideoSettingsClass => $"{CssPrefix}-device-video-settings";
+    private string AudioSettingsClass => $"{CssPrefix}-device-audio-settings";
+    private string HevcValueClass => $"{CssPrefix}-hevc";
+    private string DeinterlaceValueClass => $"{CssPrefix}-deinterlace";
+    private string AudioValueClass => $"{CssPrefix}-audio";
+    private string Ac4AudioValueClass => $"{CssPrefix}-ac4-audio";
+    private string PresetValueClass => $"{CssPrefix}-video-preset";
+    private string QualityValueClass => $"{CssPrefix}-video-quality";
+    private string BitrateValueClass => $"{CssPrefix}-bitrate";
+
+}
