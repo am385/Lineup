@@ -55,6 +55,27 @@
     </div>
 </div>
 
+<div id="networkSettings" class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0">@Text["General_NetworkHeading"]</h5>
+    </div>
+    <div class="card-body">
+        <div class="mb-3">
+            <label for="knownProxies" class="form-label">@Text["General_KnownProxiesLabel"]</label>
+            <textarea id="knownProxies"
+                      class="form-control"
+                      rows="4"
+                      placeholder="127.0.0.1&#10;172.18.0.0/16"
+                      value="@KnownProxies"
+                      @onchange="ChangeKnownProxiesAsync"></textarea>
+            <div class="form-text">@Text["General_KnownProxiesHelp"]</div>
+        </div>
+        <div class="alert alert-info mb-0" role="note">
+            <span class="bi bi-info-circle me-1"></span>@Text["General_KnownProxiesRestartHelp"]
+        </div>
+    </div>
+</div>
+
 @code {
     private (string Id, string Value, string Icon, string Label)[] ThemeOptions =>
     [
@@ -87,6 +108,14 @@
     [Parameter]
     public EventCallback<string> UiCultureChanged { get; set; }
 
+    /// <summary>Gets or sets trusted management-listener proxy addresses and networks.</summary>
+    [Parameter]
+    public string KnownProxies { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the callback raised when trusted management proxies change.</summary>
+    [Parameter]
+    public EventCallback<string> KnownProxiesChanged { get; set; }
+
     /// <summary>Gets or sets the current effective timezone display name.</summary>
     [Parameter, EditorRequired]
     public string CurrentTimeZoneDisplayName { get; set; } = string.Empty;
@@ -96,4 +125,6 @@
     private Task ChangeTimeZoneAsync(ChangeEventArgs args) => TimeZoneIdChanged.InvokeAsync(args.Value?.ToString());
 
     private Task ChangeUiCultureAsync(ChangeEventArgs args) => UiCultureChanged.InvokeAsync(UiLocalization.Normalize(args.Value?.ToString()));
+
+    private Task ChangeKnownProxiesAsync(ChangeEventArgs args) => KnownProxiesChanged.InvokeAsync(args.Value?.ToString() ?? string.Empty);
 }

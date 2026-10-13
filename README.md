@@ -63,7 +63,7 @@ Press `Ctrl+C` in the Lineup console or close that window to stop the applicatio
 | Data | Windows location |
 |---|---|
 | Settings, guide database, logs, and other application state | `%LOCALAPPDATA%\Lineup\data` |
-| Generated XMLTV guide | `%LOCALAPPDATA%\Lineup\xmltv\epg.xml` |
+| Generated XMLTV guide | `%LOCALAPPDATA%\Lineup\guide\epg.xml` |
 | Disposable CMAF fragments and subtitle sidecars | `%LOCALAPPDATA%\Lineup\transient` |
 
 Enter `%LOCALAPPDATA%\Lineup` in File Explorer's address bar to open these folders. They remain in place when you replace the application during an update.
@@ -147,7 +147,7 @@ Do not add `--volumes` to `docker compose down` unless you intentionally want to
 
 The graphical workflow avoids Compose commands, but every mapping must be entered manually:
 
-1. Create `Lineup\data`, `Lineup\xmltv`, and `Lineup\transient` folders inside your Windows user folder. In File Explorer, enter `%USERPROFILE%\Lineup` in the address bar, create the three folders there, and note the full path shown by File Explorer.
+1. Create `Lineup\data`, `Lineup\guide`, and `Lineup\transient` folders inside your Windows user folder. In File Explorer, enter `%USERPROFILE%\Lineup` in the address bar, create the three folders there, and note the full path shown by File Explorer.
 2. In Docker Desktop, open **Images**, search Docker Hub for `am385/lineup`, and pull the `latest` tag. Sign in to Docker Hub if Docker Desktop requests it.
 3. Find `am385/lineup:latest` under **Images**, select **Run**, and expand **Optional settings**.
 4. Set the container name to `lineup`.
@@ -319,6 +319,8 @@ The app starts on `http://localhost:8080` by default. Persistent application dat
 cd src/Apps/Lineup.Tui
 dotnet run
 ```
+
+The Web and TUI project run targets publish the shipped isolated virtual-output workers into each host's `virtual-output-workers` directory before startup. A normal `dotnet publish` of either host includes the same worker packages in the published distribution. Set the MSBuild property `SkipVirtualOutputWorkerPublish=true` only when a specialized packaging flow, such as the Docker or Windows release build, supplies those packages separately.
 
 Configure the TUI via environment variables:
 
@@ -539,11 +541,32 @@ Lineup 3.0 introduces application-settings schema `1`, streaming-topology schema
 
 Lineup-owned persistent data defaults to `/appdata`. The optional `Lineup:AppDataPath` setting overrides that root for custom deployments. This data includes settings and backups, the authoritative SQLite channel and guide database, rolling logs, ASP.NET Core Data Protection keys, and the restart-safe Factory Reset marker.
 
-Transient CMAF fragments and subtitle sidecars default to `/transient`. When `Lineup:AppDataPath` is configured but `Lineup:TransientPath` is not, Lineup uses a `lineup` directory beneath the operating system's temporary path to keep disposable stream artifacts outside persistent application data. The optional `Lineup:TransientPath` setting (environment variable `Lineup__TransientPath`) overrides either default. The Compose files mount a `transient` named volume at `/transient`, matching the `appdata` and `guideOutput` volume conventions. Custom deployments can replace that named-volume mount with a memory-backed bind mount or Compose `tmpfs`, or with disk-backed storage when transient data must not consume system memory.
+Transient CMAF fragments and subtitle sidecars default to `/transient`. When `Lineup:AppDataPath` is configured but `Lineup:TransientPath` is not, Lineup uses a `lineup` directory beneath the operating system's temporary path to keep disposable stream artifacts outside persistent application data. The optional `Lineup:TransientPath` setting (environment variable `Lineup__TransientPath`) overrides either default. The Compose files mount a `transient` named volume at `/transient`, matching the `appdata` and `guide` volume conventions. Custom deployments can replace that named-volume mount with a memory-backed bind mount or Compose `tmpfs`, or with disk-backed storage when transient data must not consume system memory.
 
 Lineup routes application-owned files through explicit storage boundaries. `AppDataStore` owns persistent settings, database, reset, and log artifacts; `TransientDataStore` owns disposable CMAF and subtitle workspaces; and `XmltvPublicationStore` owns the configured public XMLTV destination, including destinations outside app-data. Browser preferences remain client-local through `BrowserDataStore`. Framework and process infrastructure such as SQLite, Serilog sinks, Data Protection, and FFmpeg continue to receive managed paths and perform their own I/O.
 
 ASP.NET Core Data Protection keys are stored in the `data-protection-keys` directory beneath the app-data root. Persisting this directory through the Docker `/appdata` volume keeps antiforgery tokens and other protected browser state readable after a container recreation. Factory Reset deletes the key ring so previously protected state is intentionally invalidated.
+
+### Reverse proxy TLS termination
+
+A reverse proxy can terminate public HTTPS and forward requests to Lineup over private HTTP. Lineup ignores forwarded request headers by default. Add the immediate proxy IP address or CIDR network under **Settings → General → Network Settings → Known Proxies** only when the shared management listener is behind that proxy. The persisted list applies to the Management UI, APIs, and management-hosted virtual outputs. An empty list disables forwarded request metadata.
+
+Changing Known Proxies gracefully restarts Lineup so the management request pipeline can apply the new trust boundary. Docker images and prebuilt packages use the same persisted setting in `/appdata/settings.json` or `%LOCALAPPDATA%\Lineup\data\settings.json`; no environment-specific proxy configuration is required.
+
+The proxy must preserve the original `Host` header and provide `X-Forwarded-For` and `X-Forwarded-Proto`. Lineup processes one trusted proxy hop and ignores `X-Forwarded-Host`. For Nginx:
+
+```nginx
+location / {
+    proxy_pass http://lineup:8080;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+```
+
+Caddy, Traefik, and other proxies normally preserve or forward the equivalent metadata automatically, but their immediate connection address must still match a configured Known Proxies entry. Do not trust an unrestricted network or expose the internal Lineup listener directly when forwarded headers are enabled. Trusted metadata lets Lineup enforce Lineup Link HTTPS requirements, advertise correct public HDHomeRun URLs, attribute streams to the original client, and preserve loopback-only worker enrollment.
+
+Dedicated-listener virtual outputs are separate HTTP servers and do not inherit the management listener's Known Proxies. Configure **Honor Forwarded Headers** and **Trusted Proxies** in that virtual output's advanced listener security settings only when the dedicated listener is itself behind a reverse proxy. Saving a dedicated policy recycles only the affected isolated worker; the main Lineup host and other outputs remain running. Direct HTTP or HTTPS listeners should leave forwarded headers disabled.
 
 ### HTTP and optional HTTPS
 

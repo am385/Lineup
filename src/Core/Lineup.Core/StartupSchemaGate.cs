@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Lineup.Common.Networking;
 using Lineup.Core.Storage;
 using Lineup.Common.Streaming;
 using Lineup.Extensibility.Streaming;
@@ -92,6 +93,25 @@ public static class StartupSchemaGate
                 parsedStreamingVersion != StreamingConfiguration.CurrentSchemaVersion)
             {
                 return FactoryResetRequired("The persisted settings do not use the schema required by this Lineup release.");
+            }
+
+            if (root.TryGetProperty("KnownProxies", out var knownProxies))
+            {
+                if (knownProxies.ValueKind != JsonValueKind.Array ||
+                    knownProxies.EnumerateArray().Any(value => value.ValueKind != JsonValueKind.String))
+                {
+                    return FactoryResetRequired("The persisted Known Proxies setting is invalid.");
+                }
+                try
+                {
+                    _ = TrustedProxySet.Parse(
+                        knownProxies.EnumerateArray().Select(value => value.GetString()!),
+                        "Known proxies");
+                }
+                catch (InvalidOperationException)
+                {
+                    return FactoryResetRequired("The persisted Known Proxies setting is invalid.");
+                }
             }
 
             return new LineupStartupState(LineupStartupStatus.Ready);

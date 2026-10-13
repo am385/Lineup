@@ -38,6 +38,24 @@ public sealed class HdHomeRunProxyControllerTests
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, Assert.IsType<ObjectResult>(result).StatusCode);
     }
 
+    /// <summary>Verifies normalized public request metadata is used in advertised HDHomeRun URLs.</summary>
+    [Fact]
+    public async Task Discover_PublicHttpsRequest_AdvertisesPublicRoot()
+    {
+        // Arrange
+        var controller = CreateController(hosting: null);
+        controller.Request.Scheme = Uri.UriSchemeHttps;
+        controller.Request.Host = new HostString("lineup.example.com");
+
+        // Act
+        var result = await controller.Discover();
+
+        // Assert
+        var response = Assert.IsType<HdHomeRunProxyDiscoverResponse>(Assert.IsType<OkObjectResult>(result).Value);
+        Assert.Equal("https://lineup.example.com", response.BaseUrl);
+        Assert.Equal("https://lineup.example.com/lineup.json", response.LineupUrl);
+    }
+
     private static HdHomeRunProxyController CreateController(VirtualOutputHostingDefinition? hosting)
     {
         var device = new VirtualDeviceDefinition

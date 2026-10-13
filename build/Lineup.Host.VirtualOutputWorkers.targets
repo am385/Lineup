@@ -1,0 +1,21 @@
+<Project>
+  <PropertyGroup>
+    <LineupRepositoryRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</LineupRepositoryRoot>
+    <LineupVirtualOutputWorkerPackager>$([System.IO.Path]::Combine('$(LineupRepositoryRoot)', 'scripts', 'Lineup.VirtualOutputWorkerPackager', 'Lineup.VirtualOutputWorkerPackager.csproj'))</LineupVirtualOutputWorkerPackager>
+    <LineupWorkerPackagerRuntimeArguments Condition="'$(RuntimeIdentifier)' != ''">--runtime &quot;$(RuntimeIdentifier)&quot;</LineupWorkerPackagerRuntimeArguments>
+    <LineupWorkerPackagerSelfContainedArgument Condition="'$(SelfContained)' == 'true'">--self-contained</LineupWorkerPackagerSelfContainedArgument>
+    <LineupWorkerPackagerSourceRevisionArgument Condition="'$(SourceRevisionId)' != ''">--source-revision &quot;$(SourceRevisionId)&quot;</LineupWorkerPackagerSourceRevisionArgument>
+  </PropertyGroup>
+
+  <Target Name="PrepareVirtualOutputWorkersForRun"
+          BeforeTargets="Run"
+          Condition="'$(DesignTimeBuild)' != 'true' and '$(SkipVirtualOutputWorkerPublish)' != 'true'">
+    <Exec Command="dotnet run --project &quot;$(LineupVirtualOutputWorkerPackager)&quot; --configuration Release --no-launch-profile -- --repository-root &quot;$(LineupRepositoryRoot)&quot; --output &quot;$(TargetDir)virtual-output-workers&quot; --configuration &quot;$(Configuration)&quot; --version &quot;$(Version)&quot; $(LineupWorkerPackagerSourceRevisionArgument)" />
+  </Target>
+
+  <Target Name="PublishVirtualOutputWorkersWithHost"
+          AfterTargets="Publish"
+          Condition="'$(DesignTimeBuild)' != 'true' and '$(SkipVirtualOutputWorkerPublish)' != 'true'">
+    <Exec Command="dotnet run --project &quot;$(LineupVirtualOutputWorkerPackager)&quot; --configuration Release --no-launch-profile -- --repository-root &quot;$(LineupRepositoryRoot)&quot; --output &quot;$(PublishDir)virtual-output-workers&quot; --configuration &quot;$(Configuration)&quot; $(LineupWorkerPackagerRuntimeArguments) $(LineupWorkerPackagerSelfContainedArgument) --version &quot;$(Version)&quot; $(LineupWorkerPackagerSourceRevisionArgument)" />
+  </Target>
+</Project>

@@ -26,6 +26,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\..\src\Apps\Lineup.Web\Lineup.Web.csproj" />
     <ProjectReference Include="..\..\..\src\Core\Lineup.Extensibility\Lineup.Extensibility.csproj" />
+    <ProjectReference Include="..\..\..\src\Core\Lineup.VirtualOutputs.Hosting\Lineup.VirtualOutputs.Hosting.csproj" />
     <ProjectReference Include="..\..\..\src\Plugins\GuideOutputs\Lineup.GuideOutputs.Json.Plugin\Lineup.GuideOutputs.Json.Plugin.csproj" />
   </ItemGroup>
 

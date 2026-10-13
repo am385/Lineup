@@ -22,7 +22,7 @@ Settings and guide data:
   %LOCALAPPDATA%\Lineup\data
 
 Generated XMLTV:
-  %LOCALAPPDATA%\Lineup\xmltv\epg.xml
+  %LOCALAPPDATA%\Lineup\guide\epg.xml
 
 These folders are outside the extracted application folder and remain in place
 when the application files are replaced during an update.

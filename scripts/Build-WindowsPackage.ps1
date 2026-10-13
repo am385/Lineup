@@ -65,6 +65,7 @@ $publishArguments = @(
     'true',
     '--output',
     $applicationDirectory,
+    '-p:SkipVirtualOutputWorkerPublish=true',
     "-p:Version=$Version",
     "-p:SourceRevisionId=$SourceRevisionId"
 )
@@ -88,7 +89,35 @@ if ($LASTEXITCODE -ne 0) {
     -InstallDirectory (Join-Path $applicationDirectory '.ffmpeg') `
     -Architecture $architecture
 
-Copy-Item -LiteralPath (Join-Path $repositoryRoot 'packaging\windows\Start-Lineup.cmd') -Destination $packageDirectory
+$launcherSourcePath = Join-Path $repositoryRoot 'packaging\windows\Start-Lineup.cmd'
+$launcher = Get-Content -LiteralPath $launcherSourcePath -Raw
+if ($launcher -notmatch 'Lineup__GuideOutputDir=%LINEUP_DATA_ROOT%\\guide' -or $launcher -match 'Lineup__XmltvPath') {
+    throw 'The Windows launcher must configure Lineup__GuideOutputDir beneath the user-local guide directory.'
+}
+$launcherValidationRoot = Join-Path $stagingDirectory 'launcher-validation'
+if (Test-Path -LiteralPath $launcherValidationRoot) {
+    Remove-Item -LiteralPath $launcherValidationRoot -Recurse -Force
+}
+$previousLocalAppData = $env:LOCALAPPDATA
+try {
+    $env:LOCALAPPDATA = $launcherValidationRoot
+    & $env:ComSpec /d /c "call `"$launcherSourcePath`" --validate-configuration"
+    if ($LASTEXITCODE -ne 0) {
+        throw 'The Windows launcher configuration smoke test failed.'
+    }
+    foreach ($directory in @('data', 'guide', 'transient')) {
+        $expectedDirectory = Join-Path $launcherValidationRoot "Lineup\$directory"
+        if (!(Test-Path -LiteralPath $expectedDirectory -PathType Container)) {
+            throw "The Windows launcher did not create '$expectedDirectory'."
+        }
+    }
+} finally {
+    $env:LOCALAPPDATA = $previousLocalAppData
+    if (Test-Path -LiteralPath $launcherValidationRoot) {
+        Remove-Item -LiteralPath $launcherValidationRoot -Recurse -Force
+    }
+}
+Copy-Item -LiteralPath $launcherSourcePath -Destination $packageDirectory
 Copy-Item -LiteralPath (Join-Path $repositoryRoot 'packaging\windows\THIRD-PARTY-NOTICES.txt') -Destination $packageDirectory
 Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE') -Destination (Join-Path $packageDirectory 'LICENSE.txt')
 

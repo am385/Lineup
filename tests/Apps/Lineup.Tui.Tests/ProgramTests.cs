@@ -11,6 +11,7 @@ using Lineup.Tui;
 using Lineup.GuideOutputs.Xmltv.Plugin;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
+using System.Text.Json;
 using Xunit;
 
 namespace Lineup.Tui.Tests;
@@ -80,5 +81,61 @@ public sealed class ProgramTests
 
         // Assert
         Assert.Equal(["physical", "guides"], calls);
+    }
+
+    /// <summary>Verifies TUI export resolves the configured built-in XMLTV destination through the registered plugin.</summary>
+    [Fact]
+    public void ResolveBuiltInXmltvOutputPath_ConfiguredDirectory_ReturnsPluginDestination()
+    {
+        // Arrange
+        var outputPath = Path.Combine(Path.GetTempPath(), "lineup-tests", "custom-guide", "epg.xml");
+        var configuration = new StreamingConfiguration
+        {
+            GuideOutputs =
+            [
+                new GuideOutputDefinition
+                {
+                    Id = XmltvGuideOutputDriver.BuiltInId,
+                    Name = XmltvGuideOutputDriver.BuiltInName,
+                    Key = "global",
+                    IsBuiltIn = true,
+                    Adapter = new AdapterConfiguration(
+                        XmltvGuideOutputDriver.AdapterKind,
+                        JsonSerializer.SerializeToElement(new XmltvGuideOutputConfiguration { OutputPath = outputPath }))
+                }
+            ]
+        };
+        var driver = new XmltvGuideOutputDriver();
+        var adapters = new StreamingAdapterRegistry([], [], [], [driver]);
+
+        // Act
+        var resolved = Program.ResolveBuiltInXmltvOutputPath(configuration, adapters);
+
+        // Assert
+        Assert.Equal(Path.GetFullPath(outputPath), resolved);
+    }
+
+    /// <summary>Verifies TUI export reports no destination when the built-in XMLTV output is disabled.</summary>
+    [Fact]
+    public void ResolveBuiltInXmltvOutputPath_DisabledBuiltInOutput_ReturnsNull()
+    {
+        // Arrange
+        var configuration = new StreamingConfiguration
+        {
+            GuideOutputs =
+            [
+                XmltvGuideOutputDriver.CreateBuiltIn(Path.Combine(Path.GetTempPath(), "lineup-tests", "epg.xml")) with
+                {
+                    Enabled = false
+                }
+            ]
+        };
+        var adapters = new StreamingAdapterRegistry([], [], [], [new XmltvGuideOutputDriver()]);
+
+        // Act
+        var resolved = Program.ResolveBuiltInXmltvOutputPath(configuration, adapters);
+
+        // Assert
+        Assert.Null(resolved);
     }
 }

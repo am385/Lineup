@@ -80,6 +80,7 @@ class Program
         var topologyGuides = host.Services.GetRequiredService<ITopologyGuideService>();
         var lineups = host.Services.GetRequiredService<IPhysicalLineupService>();
         var settings = host.Services.GetRequiredService<ILineupSettingsService>();
+        var adapters = host.Services.GetRequiredService<IStreamingAdapterRegistry>();
         await ApplyTopologyAsync(lineups, guides, settings.Settings.Streaming);
 
         while (true)
@@ -120,7 +121,7 @@ class Program
                     await GenerateGuideOutputsAsync(topologyGuides);
                     break;
                 case "Export XMLTV":
-                    await ExportXmltvAsync();
+                    await ExportXmltvAsync(settings.Settings.Streaming, adapters);
                     break;
                 case "View Channels":
                     await ViewChannelsAsync(guideQueries, configuration);
@@ -343,19 +344,36 @@ class Program
         WaitForKey();
     }
 
-    static async Task ExportXmltvAsync()
+    static async Task ExportXmltvAsync(StreamingConfiguration configuration, IStreamingAdapterRegistry adapters)
     {
-        var defaultSourceFile = Path.Combine(AppConstants.DefaultGuideOutputDirectoryPath, AppConstants.DefaultXmltvFileName);
+        string? sourceFile;
+        try
+        {
+            sourceFile = ResolveBuiltInXmltvOutputPath(configuration, adapters);
+        }
+        catch (InvalidOperationException exception)
+        {
+            AnsiConsole.MarkupLine($"[red]Unable to resolve the built-in XMLTV output:[/] {Markup.Escape(exception.Message)}");
+            WaitForKey();
+            return;
+        }
 
-        if (!File.Exists(defaultSourceFile))
+        if (sourceFile is null)
+        {
+            AnsiConsole.MarkupLine("[red]The built-in XMLTV guide output is not enabled.[/]");
+            WaitForKey();
+            return;
+        }
+
+        if (!File.Exists(sourceFile))
         {
             AnsiConsole.MarkupLine("[red]No XMLTV file found. Please generate one first.[/]");
             WaitForKey();
             return;
         }
 
-        var fileInfo = new FileInfo(defaultSourceFile);
-        AnsiConsole.MarkupLine($"[grey]Source file: {defaultSourceFile} ({fileInfo.Length / 1024:N0} KB, modified {fileInfo.LastWriteTime:yyyy-MM-dd HH:mm})[/]");
+        var fileInfo = new FileInfo(sourceFile);
+        AnsiConsole.MarkupLine($"[grey]Source file: {sourceFile} ({fileInfo.Length / 1024:N0} KB, modified {fileInfo.LastWriteTime:yyyy-MM-dd HH:mm})[/]");
 
         var destination = AnsiConsole.Ask("Export to path:", Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), AppConstants.DefaultXmltvFileName));
 
@@ -367,7 +385,7 @@ class Program
                 Directory.CreateDirectory(destinationDir);
             }
 
-            await Task.Run(() => File.Copy(defaultSourceFile, destination, overwrite: true));
+            await Task.Run(() => File.Copy(sourceFile, destination, overwrite: true));
 
             AnsiConsole.MarkupLine($"[green]Exported to {destination} successfully![/]");
         }
@@ -377,6 +395,22 @@ class Program
         }
 
         WaitForKey();
+    }
+
+    /// <summary>Resolves the enabled built-in XMLTV output through its plugin-owned destination contract.</summary>
+    /// <param name="configuration">Current streaming configuration.</param>
+    /// <param name="adapters">Registered streaming adapters.</param>
+    /// <returns>The resolved XMLTV publication path, or <see langword="null"/> when the built-in output is disabled.</returns>
+    internal static string? ResolveBuiltInXmltvOutputPath(StreamingConfiguration configuration, IStreamingAdapterRegistry adapters)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(adapters);
+        var output = configuration.GuideOutputs.SingleOrDefault(candidate =>
+            candidate.Enabled &&
+            candidate.Id == XmltvGuideOutputDriver.BuiltInId);
+        return output is null
+            ? null
+            : adapters.GetGuideOutput(output.Adapter.Kind).ResolveDestination(output.Adapter).Path;
     }
 
     static async Task ViewChannelsAsync(IGuideQueryService guides, StreamingConfiguration configuration)

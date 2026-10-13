@@ -4,6 +4,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
 using System.Threading.RateLimiting;
+using Lineup.Common.Networking;
 using Lineup.Common.Streaming;
 using Lineup.SiliconDust.HDHomeRun.VirtualTuner;
 using Lineup.VirtualOutputs.Hosting;
@@ -25,6 +26,10 @@ var deviceId = string.IsNullOrWhiteSpace(configuration.DeviceId)
     : configuration.DeviceId.ToUpperInvariant();
 var deviceAuth = HdHomeRunProxyIdentity.CreateDeviceAuth(bootstrap.VirtualDevice.Id.Value.ToString("N"));
 var securityPolicies = bootstrap.SecurityPolicies.ToDictionary(policy => policy.Key, StringComparer.OrdinalIgnoreCase);
+var allowedNetworks = securityPolicies.ToDictionary(
+    pair => pair.Key,
+    pair => IpNetworkSet.Parse(pair.Value.AllowedNetworks, $"Virtual output security policy '{pair.Value.Name}' allowed networks"),
+    StringComparer.OrdinalIgnoreCase);
 var certificates = bootstrap.CertificateMaterials.ToDictionary(material => material.Reference, StringComparer.Ordinal);
 var builder = WebApplication.CreateSlimBuilder(args);
 builder.Logging.ClearProviders();
@@ -57,13 +62,7 @@ builder.Services.AddRateLimiter(options =>
 builder.WebHost.ConfigureKestrel(options => ConfigureListeners(options, bootstrap, securityPolicies, certificates));
 
 var app = builder.Build();
-app.Use((context, next) =>
-{
-    ApplyForwardedHeaders(
-        context,
-        ResolveSecurityPolicy(context.Connection.LocalPort, bootstrap.VirtualDevice.Hosting!, securityPolicies));
-    return next(context);
-});
+app.UseVirtualOutputForwardedHeaders(bootstrap.VirtualDevice.Hosting!, securityPolicies);
 app.UseRateLimiter();
 var activeRequests = 0;
 app.Use(async (context, next) =>
@@ -72,7 +71,7 @@ app.Use(async (context, next) =>
     try
     {
         var policy = ResolveSecurityPolicy(context.Connection.LocalPort, bootstrap.VirtualDevice.Hosting!, securityPolicies);
-        if (!IsClientAllowed(context.Connection.RemoteIpAddress, policy.AllowedNetworks))
+        if (!allowedNetworks[policy.Key].Contains(context.Connection.RemoteIpAddress))
         {
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
             return;
@@ -276,50 +275,6 @@ static VirtualOutputSecurityPolicyDefinition ResolveSecurityPolicy(
     var binding = hosting.Bindings.SingleOrDefault(candidate => candidate.Port == localPort)
         ?? throw new InvalidOperationException($"No output binding owns local port {localPort}.");
     return policies[binding.SecurityPolicyKey];
-}
-
-static bool IsClientAllowed(IPAddress? address, IReadOnlyList<string> allowedNetworks)
-{
-    if (allowedNetworks.Count == 0)
-    {
-        return true;
-    }
-    return address is not null &&
-        allowedNetworks.Any(network => IPNetwork.TryParse(network, out var parsed) && parsed.Contains(address));
-}
-
-static void ApplyForwardedHeaders(HttpContext context, VirtualOutputSecurityPolicyDefinition policy)
-{
-    if (!policy.AllowForwardedHeaders ||
-        !IsAddressAllowed(context.Connection.RemoteIpAddress, policy.TrustedProxies))
-    {
-        return;
-    }
-    var forwardedFor = context.Request.Headers["X-Forwarded-For"].ToString()
-        .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-        .FirstOrDefault();
-    if (IPAddress.TryParse(forwardedFor, out var clientAddress))
-    {
-        context.Connection.RemoteIpAddress = clientAddress;
-    }
-    var forwardedProto = context.Request.Headers["X-Forwarded-Proto"].ToString()
-        .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-        .FirstOrDefault();
-    if (forwardedProto is "http" or "https")
-    {
-        context.Request.Scheme = forwardedProto;
-    }
-}
-
-static bool IsAddressAllowed(IPAddress? address, IReadOnlyList<string> addresses)
-{
-    if (address is null)
-    {
-        return false;
-    }
-    return addresses.Any(value =>
-        (IPAddress.TryParse(value, out var exact) && exact.Equals(address)) ||
-        (IPNetwork.TryParse(value, out var network) && network.Contains(address)));
 }
 
 static int GetFailureStatusCode(VirtualOutputFailureCode failureCode) =>

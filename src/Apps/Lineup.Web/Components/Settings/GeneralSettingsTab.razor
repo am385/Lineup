@@ -5,6 +5,8 @@
                           TimeZoneIdChanged="TimeZoneIdChanged"
                           UiCulture="@UiCulture"
                           UiCultureChanged="UiCultureChanged"
+                          KnownProxies="@KnownProxies"
+                          KnownProxiesChanged="KnownProxiesChanged"
                           CurrentTimeZoneDisplayName="@CurrentTimeZoneDisplayName" />
 </div>
 
@@ -36,6 +38,14 @@
     /// <summary>Gets or sets the Web UI culture change callback.</summary>
     [Parameter]
     public EventCallback<string> UiCultureChanged { get; set; }
+
+    /// <summary>Gets or sets trusted management-listener proxy addresses and networks.</summary>
+    [Parameter]
+    public string KnownProxies { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the trusted proxy change callback.</summary>
+    [Parameter]
+    public EventCallback<string> KnownProxiesChanged { get; set; }
 
     /// <summary>Gets or sets the current timezone display name.</summary>
     [Parameter, EditorRequired]

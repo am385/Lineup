@@ -55,6 +55,10 @@
   <data name="General_ThemeAuto" xml:space="preserve"><value>Auto</value></data>
   <data name="General_ThemeHelp" xml:space="preserve"><value>Choose Light, Dark, or Auto to follow your system preference.</value></data>
   <data name="General_RegionalHeading" xml:space="preserve"><value>Regional Settings</value></data>
+  <data name="General_NetworkHeading" xml:space="preserve"><value>Network Settings</value></data>
+  <data name="General_KnownProxiesLabel" xml:space="preserve"><value>Known Proxies</value></data>
+  <data name="General_KnownProxiesHelp" xml:space="preserve"><value>Enter one trusted reverse proxy IP address or CIDR network per line. Leave empty when the management listener is not behind a reverse proxy. The proxy must preserve Host and send X-Forwarded-For and X-Forwarded-Proto.</value></data>
+  <data name="General_KnownProxiesRestartHelp" xml:space="preserve"><value>Changing Known Proxies saves the setting and gracefully restarts Lineup so the management request pipeline can apply the new trust boundary. Dedicated virtual-output listeners use their own Trusted Proxies settings and recycle only the affected worker.</value></data>
   <data name="General_TimeZoneLabel" xml:space="preserve"><value>Time Zone</value></data>
   <data name="General_SystemDefault" xml:space="preserve"><value>System default</value></data>
   <data name="General_TimeZoneHelpPrefix" xml:space="preserve"><value>Override the display timezone. "System default" uses the</value></data>

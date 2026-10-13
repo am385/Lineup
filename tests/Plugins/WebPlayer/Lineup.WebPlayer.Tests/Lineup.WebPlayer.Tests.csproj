@@ -10,6 +10,7 @@
     <ProjectReference Include="..\..\..\..\src\Core\Lineup.Extensibility\Lineup.Extensibility.csproj" />
     <ProjectReference Include="..\..\..\..\src\Plugins\WebPlayer\Lineup.WebPlayer\Lineup.WebPlayer.csproj" />
     <ProjectReference Include="..\..\..\..\src\Plugins\WebPlayer\Lineup.WebPlayer.FFmpeg\Lineup.WebPlayer.FFmpeg.csproj" />
+    <ProjectReference Include="..\..\..\..\src\Plugins\WebPlayer\Lineup.WebPlayer.VirtualOutputHost\Lineup.WebPlayer.VirtualOutputHost.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.0" />
     <PackageReference Include="xunit.v3" Version="4.0.1" />
     <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0">

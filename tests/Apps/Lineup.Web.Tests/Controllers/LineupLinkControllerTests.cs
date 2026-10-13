@@ -41,7 +41,36 @@ public sealed class LineupLinkControllerTests
         Assert.IsType<NotFoundObjectResult>(result.Result);
     }
 
-    private static LineupLinkController CreateController(VirtualOutputHostingDefinition? hosting)
+    /// <summary>Verifies encryption-required management outputs reject direct HTTP requests.</summary>
+    [Fact]
+    public void GetManifest_EncryptionRequiredOverHttp_ReturnsUpgradeRequired()
+    {
+        // Arrange
+        var controller = CreateController(hosting: null, requireEncryption: true);
+
+        // Act
+        var result = controller.GetManifest(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
+
+        // Assert
+        Assert.Equal(StatusCodes.Status426UpgradeRequired, Assert.IsType<ObjectResult>(result.Result).StatusCode);
+    }
+
+    /// <summary>Verifies normalized HTTPS requests proceed to bearer authentication.</summary>
+    [Fact]
+    public void GetManifest_EncryptionRequiredOverHttps_RequiresBearerGrant()
+    {
+        // Arrange
+        var controller = CreateController(hosting: null, requireEncryption: true);
+        controller.Request.Scheme = Uri.UriSchemeHttps;
+
+        // Act
+        var result = controller.GetManifest(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
+
+        // Assert
+        Assert.IsType<UnauthorizedObjectResult>(result.Result);
+    }
+
+    private static LineupLinkController CreateController(VirtualOutputHostingDefinition? hosting, bool requireEncryption = false)
     {
         var id = new VirtualDeviceId(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
         var driver = new LineupLinkVirtualTunerDriver();
@@ -62,8 +91,8 @@ public sealed class LineupLinkControllerTests
                             JsonSerializer.SerializeToElement(new LineupLinkVirtualConfiguration
                             {
                                 InstanceId = Guid.NewGuid(),
-                                RequireEncryption = false,
-                                PublicBaseUrl = "http://localhost:8080/"
+                                RequireEncryption = requireEncryption,
+                                PublicBaseUrl = requireEncryption ? "https://localhost:8443/" : "http://localhost:8080/"
                             }))
                     }
                 ]

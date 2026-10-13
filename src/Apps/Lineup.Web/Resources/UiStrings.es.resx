@@ -55,6 +55,10 @@
   <data name="General_ThemeAuto" xml:space="preserve"><value>Automático</value></data>
   <data name="General_ThemeHelp" xml:space="preserve"><value>Elija Claro, Oscuro o Automático para seguir las preferencias de su sistema.</value></data>
   <data name="General_RegionalHeading" xml:space="preserve"><value>Configuración regional</value></data>
+  <data name="General_NetworkHeading" xml:space="preserve"><value>Configuración de red</value></data>
+  <data name="General_KnownProxiesLabel" xml:space="preserve"><value>Proxies conocidos</value></data>
+  <data name="General_KnownProxiesHelp" xml:space="preserve"><value>Introduzca una dirección IP de proxy inverso de confianza o una red CIDR por línea. Déjelo vacío cuando el listener de administración no esté detrás de un proxy inverso. El proxy debe conservar Host y enviar X-Forwarded-For y X-Forwarded-Proto.</value></data>
+  <data name="General_KnownProxiesRestartHelp" xml:space="preserve"><value>Al cambiar los proxies conocidos, se guarda la configuración y Lineup se reinicia correctamente para aplicar el nuevo límite de confianza. Los listeners dedicados de salida virtual usan su propia configuración de proxies de confianza y solo reciclan el proceso de trabajo afectado.</value></data>
   <data name="General_TimeZoneLabel" xml:space="preserve"><value>Zona horaria</value></data>
   <data name="General_SystemDefault" xml:space="preserve"><value>Valor predeterminado del sistema</value></data>
   <data name="General_TimeZoneHelpPrefix" xml:space="preserve"><value>Anule la zona horaria de visualización. "Valor predeterminado del sistema" usa la variable de entorno</value></data>

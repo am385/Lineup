@@ -1,13 +1,14 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading.RateLimiting;
+using Lineup.Common.Networking;
 using Lineup.Common.Streaming;
 using Lineup.VirtualOutputs.Hosting;
 using Lineup.VirtualOutputs.Protocol;
 using Lineup.WebPlayer;
 using Lineup.WebPlayer.FFmpeg;
+using Lineup.WebPlayer.VirtualOutputHost;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
 
@@ -19,9 +20,13 @@ if (!string.Equals(bootstrap.VirtualDevice.Adapter.Kind, WebPlayerVirtualTunerDr
 var hosting = bootstrap.VirtualDevice.Hosting
     ?? throw new InvalidDataException("Web Player worker requires dedicated hosting configuration.");
 var securityPolicies = bootstrap.SecurityPolicies.ToDictionary(policy => policy.Key, StringComparer.OrdinalIgnoreCase);
+var allowedNetworks = securityPolicies.ToDictionary(
+    pair => pair.Key,
+    pair => IpNetworkSet.Parse(pair.Value.AllowedNetworks, $"Virtual output security policy '{pair.Value.Name}' allowed networks"),
+    StringComparer.OrdinalIgnoreCase);
 var certificates = bootstrap.CertificateMaterials.ToDictionary(material => material.Reference, StringComparer.Ordinal);
 var publicBaseUri = new Uri(hosting.Bindings[0].PublicBaseUri.EndsWith('/') ? hosting.Bindings[0].PublicBaseUri : $"{hosting.Bindings[0].PublicBaseUri}/");
-var sessions = new ConcurrentDictionary<string, MediaSession>(StringComparer.Ordinal);
+var sessions = new DedicatedMediaSessionRegistry<MediaSession>(TimeProvider.System, TimeSpan.FromMinutes(2));
 var builder = WebApplication.CreateSlimBuilder(args);
 builder.Logging.ClearProviders();
 builder.Logging.AddSimpleConsole(options =>
@@ -55,11 +60,7 @@ var app = builder.Build();
 var workerSession = new VirtualOutputWorkerSession(bootstrap);
 await workerSession.RegisterAsync();
 var activeRequests = 0;
-app.Use((context, next) =>
-{
-    ApplyForwardedHeaders(context, ResolveSecurityPolicy(context.Connection.LocalPort, hosting, securityPolicies));
-    return next(context);
-});
+app.UseVirtualOutputForwardedHeaders(hosting, securityPolicies);
 app.UseRateLimiter();
 app.Use(async (context, next) =>
 {
@@ -67,7 +68,7 @@ app.Use(async (context, next) =>
     try
     {
         var policy = ResolveSecurityPolicy(context.Connection.LocalPort, hosting, securityPolicies);
-        if (!IsClientAllowed(context.Connection.RemoteIpAddress, policy.AllowedNetworks))
+        if (!allowedNetworks[policy.Key].Contains(context.Connection.RemoteIpAddress))
         {
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
             return;
@@ -122,9 +123,11 @@ app.MapPost("/media/start/{channel}", async (
         throw;
     }
 
+    await using var startupGuard = new MediaSessionStartupGuard(directory, source);
     var process = StartFfmpeg(directory, request);
-    var lifetime = new CancellationTokenSource();
-    var session = new MediaSession(id, directory, process, source, lifetime);
+    startupGuard.RegisterProcess(process);
+    var session = new MediaSession(id, directory, process, source, new CancellationTokenSource());
+    startupGuard.TransferOwnership();
     if (!sessions.TryAdd(id, session))
     {
         await session.DisposeAsync();
@@ -140,8 +143,7 @@ app.MapPost("/media/start/{channel}", async (
     }
     catch
     {
-        sessions.TryRemove(id, out _);
-        await session.DisposeAsync();
+        await sessions.RemoveAndDisposeAsync(id);
         throw;
     }
     var mediaRoot = new Uri(publicBaseUri, $"media/{id}/");
@@ -156,7 +158,7 @@ app.MapPost("/media/start/{channel}", async (
 
 app.MapGet("/media/{sessionId}/{filename}", (string sessionId, string filename) =>
 {
-    if (!sessions.TryGetValue(sessionId, out var session) || !TryResolveMediaFile(session.Directory, filename, out var path))
+    if (!sessions.TryGetAndTouch(sessionId, out var session) || !TryResolveMediaFile(session.Directory, filename, out var path))
     {
         return Results.NotFound();
     }
@@ -169,11 +171,10 @@ app.MapGet("/media/{sessionId}/{filename}", (string sessionId, string filename) 
 
 app.MapPost("/media/stop/{sessionId}", async (string sessionId) =>
 {
-    if (!sessions.TryRemove(sessionId, out var session))
+    if (!await sessions.RemoveAndDisposeAsync(sessionId))
     {
         return Results.NotFound();
     }
-    await session.DisposeAsync();
     return Results.NoContent();
 });
 app.MapGet("/health", () => Results.Ok(new { ready = true, activeSessions = sessions.Count }));
@@ -183,20 +184,24 @@ var leaseTask = workerSession.RunLeaseLoopAsync(
     () => (Ready: true, ActiveConnections: Volatile.Read(ref activeRequests) + sessions.Count),
     () => leaseCancellation.Cancel(),
     leaseCancellation.Token);
+var expirationTask = sessions.RunExpirationLoopAsync(leaseCancellation.Token);
 var runTask = app.RunAsync(leaseCancellation.Token);
 try
 {
-    await Task.WhenAny(runTask, leaseTask);
+    await Task.WhenAny(runTask, leaseTask, expirationTask);
 }
 finally
 {
     leaseCancellation.Cancel();
     await app.StopAsync();
-    foreach (var session in sessions.Values)
+    try
     {
-        await session.DisposeAsync();
+        await expirationTask;
     }
-    sessions.Clear();
+    finally
+    {
+        await sessions.DisposeAllAsync();
+    }
 }
 
 static Process StartFfmpeg(string directory, CmafStreamRequest request)
@@ -261,11 +266,10 @@ static async Task PumpInputAsync(MediaSession session)
     }
 }
 
-static async Task ObserveProcessAsync(MediaSession session, ConcurrentDictionary<string, MediaSession> sessions)
+static async Task ObserveProcessAsync(MediaSession session, DedicatedMediaSessionRegistry<MediaSession> sessions)
 {
     await session.Process.WaitForExitAsync();
-    sessions.TryRemove(session.Id, out _);
-    await session.DisposeAsync();
+    await sessions.RemoveAndDisposeAsync(session.Id);
 }
 
 static async Task WaitForOutputAsync(Process process, string dashPath, string hlsPath, CancellationToken cancellationToken)
@@ -378,44 +382,6 @@ static VirtualOutputSecurityPolicyDefinition ResolveSecurityPolicy(
     IReadOnlyDictionary<string, VirtualOutputSecurityPolicyDefinition> policies) =>
     policies[hosting.Bindings.Single(binding => binding.Port == localPort).SecurityPolicyKey];
 
-static bool IsClientAllowed(IPAddress? address, IReadOnlyList<string> allowedNetworks) =>
-    allowedNetworks.Count == 0 ||
-    address is not null && allowedNetworks.Any(network => IPNetwork.TryParse(network, out var parsed) && parsed.Contains(address));
-
-static void ApplyForwardedHeaders(HttpContext context, VirtualOutputSecurityPolicyDefinition policy)
-{
-    if (!policy.AllowForwardedHeaders ||
-        !IsAddressAllowed(context.Connection.RemoteIpAddress, policy.TrustedProxies))
-    {
-        return;
-    }
-    var forwardedFor = context.Request.Headers["X-Forwarded-For"].ToString()
-        .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-        .FirstOrDefault();
-    if (IPAddress.TryParse(forwardedFor, out var clientAddress))
-    {
-        context.Connection.RemoteIpAddress = clientAddress;
-    }
-    var forwardedProto = context.Request.Headers["X-Forwarded-Proto"].ToString()
-        .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-        .FirstOrDefault();
-    if (forwardedProto is "http" or "https")
-    {
-        context.Request.Scheme = forwardedProto;
-    }
-}
-
-static bool IsAddressAllowed(IPAddress? address, IReadOnlyList<string> addresses)
-{
-    if (address is null)
-    {
-        return false;
-    }
-    return addresses.Any(value =>
-        (IPAddress.TryParse(value, out var exact) && exact.Equals(address)) ||
-        (IPNetwork.TryParse(value, out var network) && network.Contains(address)));
-}
-
 internal sealed class MediaSession : IAsyncDisposable
 {
     private int _disposed;
@@ -458,44 +424,42 @@ internal sealed class MediaSession : IAsyncDisposable
             return;
         }
         Lifetime.Cancel();
-        if (!Process.HasExited)
-        {
-            Process.Kill(entireProcessTree: true);
-        }
         try
         {
-            await Process.WaitForExitAsync();
-        }
-        catch (InvalidOperationException)
-        {
-        }
-        if (PumpTask is not null)
-        {
+            if (!Process.HasExited)
+            {
+                Process.Kill(entireProcessTree: true);
+            }
             try
             {
-                await PumpTask;
+                await Process.WaitForExitAsync();
             }
-            catch (Exception exception) when (exception is IOException or ObjectDisposedException or OperationCanceledException)
+            catch (InvalidOperationException)
             {
             }
-        }
-        await ErrorTask;
-        await Source.DisposeAsync();
-        Process.Dispose();
-        Lifetime.Dispose();
-        for (var attempt = 0; attempt < 3; attempt++)
-        {
-            try
+            if (PumpTask is not null)
             {
-                if (System.IO.Directory.Exists(Directory))
+                try
                 {
-                    System.IO.Directory.Delete(Directory, recursive: true);
+                    await PumpTask;
                 }
-                break;
+                catch (Exception exception) when (exception is IOException or ObjectDisposedException or OperationCanceledException)
+                {
+                }
             }
-            catch (IOException) when (attempt < 2)
+            await ErrorTask;
+        }
+        finally
+        {
+            try
             {
-                await Task.Delay(100);
+                await Source.DisposeAsync();
+            }
+            finally
+            {
+                Process.Dispose();
+                Lifetime.Dispose();
+                await MediaSessionStartupGuard.DeleteDirectoryAsync(Directory);
             }
         }
     }

@@ -112,7 +112,7 @@ public sealed class ProjectLayoutTests
         Assert.True(File.Exists(resolved), resolved);
     }
 
-    /// <summary>Verifies the solution contains every source and test project exactly once.</summary>
+    /// <summary>Verifies the solution contains every source, test, and build-tool project exactly once.</summary>
     [Fact]
     public void SolutionProjects_MatchRepositoryProjects()
     {
@@ -121,6 +121,7 @@ public sealed class ProjectLayoutTests
         var solution = XDocument.Load(Path.Combine(repositoryRoot, "Lineup.slnx"));
         var expected = GetProjects(Path.Combine(repositoryRoot, "src"))
             .Concat(GetProjects(Path.Combine(repositoryRoot, "tests")))
+            .Concat(GetProjects(Path.Combine(repositoryRoot, "scripts")))
             .Select(path => Normalize(Path.GetRelativePath(repositoryRoot, path)))
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -188,6 +189,102 @@ public sealed class ProjectLayoutTests
 
         // Assert
         Assert.Empty(violations);
+    }
+
+    /// <summary>Verifies both application hosts package isolated workers for source runs and published distributions.</summary>
+    [Fact]
+    public void ApplicationHosts_ImportVirtualOutputWorkerPackagingTargets()
+    {
+        // Arrange
+        var repositoryRoot = GetRepositoryRoot();
+        var targetPath = Path.Combine(repositoryRoot, "build", "Lineup.Host.VirtualOutputWorkers.targets");
+        var packagerProject = Path.Combine(repositoryRoot, "scripts", "Lineup.VirtualOutputWorkerPackager", "Lineup.VirtualOutputWorkerPackager.csproj");
+        var expectedImport = @"..\..\..\build\Lineup.Host.VirtualOutputWorkers.targets";
+        var hostProjects = new[]
+        {
+            Path.Combine(repositoryRoot, "src", "Apps", "Lineup.Web", "Lineup.Web.csproj"),
+            Path.Combine(repositoryRoot, "src", "Apps", "Lineup.Tui", "Lineup.Tui.csproj")
+        };
+
+        // Act
+        var imports = hostProjects.Select(project =>
+            XDocument.Load(project)
+                .Descendants()
+                .Single(element => element.Name.LocalName == "Import")
+                .Attribute("Project")
+                ?.Value).ToArray();
+        var targets = XDocument.Load(targetPath)
+            .Descendants()
+            .Where(element => element.Name.LocalName == "Target")
+            .ToDictionary(
+                element => element.Attribute("Name")?.Value ?? string.Empty,
+                element => new
+                {
+                    BeforeTargets = element.Attribute("BeforeTargets")?.Value,
+                    AfterTargets = element.Attribute("AfterTargets")?.Value,
+                    Command = element.Descendants().Single(child => child.Name.LocalName == "Exec").Attribute("Command")?.Value
+                },
+                StringComparer.Ordinal);
+
+        // Assert
+        Assert.All(imports, import => Assert.Equal(expectedImport, import));
+        Assert.Equal("Run", targets["PrepareVirtualOutputWorkersForRun"].BeforeTargets);
+        Assert.Equal("Publish", targets["PublishVirtualOutputWorkersWithHost"].AfterTargets);
+        var publishCommand = Assert.IsType<string>(targets["PublishVirtualOutputWorkersWithHost"].Command);
+        Assert.Contains("$(LineupWorkerPackagerRuntimeArguments)", publishCommand, StringComparison.Ordinal);
+        Assert.Contains("$(LineupWorkerPackagerSelfContainedArgument)", publishCommand, StringComparison.Ordinal);
+        Assert.True(File.Exists(packagerProject));
+        Assert.True(File.Exists(Path.Combine(repositoryRoot, "scripts", "Publish-VirtualOutputWorkers.ps1")));
+    }
+
+    /// <summary>Verifies release packaging uses the canonical guide-output directory setting and location.</summary>
+    [Fact]
+    public void ReleasePackaging_UsesCanonicalGuideOutputDirectory()
+    {
+        // Arrange
+        var repositoryRoot = GetRepositoryRoot();
+        var launcher = File.ReadAllText(Path.Combine(repositoryRoot, "packaging", "windows", "Start-Lineup.cmd"));
+        var windowsPackageScript = File.ReadAllText(Path.Combine(repositoryRoot, "scripts", "Build-WindowsPackage.ps1"));
+        var windowsReadme = File.ReadAllText(Path.Combine(repositoryRoot, "packaging", "windows", "WINDOWS-README.txt"));
+        var dockerfile = File.ReadAllText(Path.Combine(repositoryRoot, "Dockerfile"));
+        var readme = File.ReadAllText(Path.Combine(repositoryRoot, "README.md"));
+
+        // Act
+        var releaseConfiguration = string.Join(Environment.NewLine, launcher, dockerfile);
+
+        // Assert
+        Assert.Contains(@"if not exist ""%LINEUP_DATA_ROOT%\guide"" mkdir ""%LINEUP_DATA_ROOT%\guide""", launcher, StringComparison.Ordinal);
+        Assert.Contains(@"set ""Lineup__GuideOutputDir=%LINEUP_DATA_ROOT%\guide""", launcher, StringComparison.Ordinal);
+        Assert.Contains(@"if /I ""%~1""==""--validate-configuration"" exit /b 0", launcher, StringComparison.Ordinal);
+        Assert.Contains("""call `"$launcherSourcePath`" --validate-configuration""", windowsPackageScript, StringComparison.Ordinal);
+        Assert.Contains("@('data', 'guide', 'transient')", windowsPackageScript, StringComparison.Ordinal);
+        Assert.Contains(@"%LOCALAPPDATA%\Lineup\guide\epg.xml", windowsReadme, StringComparison.Ordinal);
+        Assert.Contains("RUN mkdir -p /appdata /guide /transient", dockerfile, StringComparison.Ordinal);
+        Assert.Contains("ENV Lineup__GuideOutputDir=/guide", dockerfile, StringComparison.Ordinal);
+        Assert.DoesNotContain("Lineup__XmltvPath", releaseConfiguration, StringComparison.Ordinal);
+        Assert.DoesNotContain("/xmltv", dockerfile, StringComparison.Ordinal);
+        Assert.DoesNotContain("guideOutput", readme, StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies trusted proxy metadata is normalized before any request consumer runs.</summary>
+    [Fact]
+    public void WebRequestPipeline_AppliesForwardedHeadersBeforeRequestConsumers()
+    {
+        // Arrange
+        var repositoryRoot = GetRepositoryRoot();
+        var program = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Apps", "Lineup.Web", "Program.cs"));
+
+        // Act
+        var forwardedHeadersIndex = program.IndexOf("app.UseForwardedHeaders", StringComparison.Ordinal);
+        var hstsIndex = program.IndexOf("app.UseHsts", StringComparison.Ordinal);
+        var routingIndex = program.IndexOf("app.UseRouting", StringComparison.Ordinal);
+        var requestLoggingIndex = program.IndexOf("app.UseMiddleware<ApiRequestLoggingMiddleware>", StringComparison.Ordinal);
+
+        // Assert
+        Assert.True(forwardedHeadersIndex >= 0);
+        Assert.True(forwardedHeadersIndex < hstsIndex);
+        Assert.True(forwardedHeadersIndex < routingIndex);
+        Assert.True(forwardedHeadersIndex < requestLoggingIndex);
     }
 
     private static string[] GetProjects(string root) =>

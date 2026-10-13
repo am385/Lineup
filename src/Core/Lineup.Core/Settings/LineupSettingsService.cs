@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Lineup.Common.Networking;
 using Lineup.Core.Storage;
 using Lineup.Common.Streaming;
 using Lineup.Extensibility.Streaming;
@@ -174,6 +175,12 @@ public class LineupSettings
         get => _maximumConcurrentStreams;
         set => _maximumConcurrentStreams = Math.Clamp(value, 0, 100);
     }
+
+    /// <summary>
+    /// Trusted reverse proxy addresses and CIDR networks for the shared management listener.
+    /// An empty collection disables forwarded request metadata.
+    /// </summary>
+    public IReadOnlyList<string> KnownProxies { get; set; } = [];
 
     /// <summary>
     /// UTC timestamp of the last successful auto-fetch.
@@ -496,6 +503,7 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
     private void PrepareLoadedSettings(LineupSettings settings)
     {
         ValidateXmltvOutputPath(settings.XmltvOutputPath);
+        settings.KnownProxies = TrustedProxySet.Parse(settings.KnownProxies, "Known proxies").Values;
     }
 
     private StreamingConfiguration InitializeStreaming(StreamingConfiguration configuration, string defaultXmltvOutputPath)
@@ -606,6 +614,7 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
     private async Task PersistSettingsAsync(LineupSettings settings)
     {
         ValidateXmltvOutputPath(settings.XmltvOutputPath);
+        settings.KnownProxies = TrustedProxySet.Parse(settings.KnownProxies, "Known proxies").Values;
         await WriteSettingsAtomicallyAsync(settings);
         Settings = settings;
         _preserveBackupOnNextSave = false;

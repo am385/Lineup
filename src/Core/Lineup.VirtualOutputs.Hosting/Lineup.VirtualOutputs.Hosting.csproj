@@ -8,4 +8,7 @@
     <ProjectReference Include="..\Lineup.Common\Lineup.Common.csproj" />
     <ProjectReference Include="..\Lineup.VirtualOutputs.Protocol\Lineup.VirtualOutputs.Protocol.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
 </Project>

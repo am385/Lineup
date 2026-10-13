@@ -111,7 +111,7 @@ RUN test "$(readlink -f "$(command -v ffmpeg)")" = "/usr/lib/jellyfin-ffmpeg/ffm
     ffmpeg -hide_banner -h muxer=dash 2>&1 | grep -q 'hls_playlist'
 
 # Create directories for persistent data and transient stream artifacts
-RUN mkdir -p /appdata /xmltv /transient
+RUN mkdir -p /appdata /guide /transient
 
 COPY --from=build /app/publish .
 COPY --from=build /app/workers ./virtual-output-workers
@@ -128,7 +128,7 @@ ENV ASPNETCORE_ENVIRONMENT=Production
 # Do not use ASPNETCORE_HTTP_PORTS; configure Lineup__HttpPort instead.
 ENV ASPNETCORE_HTTP_PORTS=""
 ENV Lineup__AppDataPath=/appdata
-ENV Lineup__XmltvPath=/xmltv
+ENV Lineup__GuideOutputDir=/guide
 ENV Lineup__TransientPath=/transient
 ENV Lineup__HttpPort=8080
 ENV Lineup__HttpsPort=8443

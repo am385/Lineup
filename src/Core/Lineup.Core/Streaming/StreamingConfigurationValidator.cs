@@ -1,4 +1,5 @@
 using Lineup.Common.Guides;
+using Lineup.Common.Networking;
 using Lineup.Extensibility.Guides;
 using System.Net;
 
@@ -207,9 +208,29 @@ public static class StreamingConfigurationValidator
             {
                 errors.Add($"Virtual output security policy '{policy.Key}' requests per minute cannot be negative.");
             }
+            try
+            {
+                _ = IpNetworkSet.Parse(policy.AllowedNetworks, $"Virtual output security policy '{policy.Key}' allowed networks");
+            }
+            catch (InvalidOperationException ex)
+            {
+                errors.Add(ex.Message);
+            }
             if (!policy.AllowForwardedHeaders && policy.TrustedProxies.Count > 0)
             {
                 errors.Add($"Virtual output security policy '{policy.Key}' cannot configure trusted proxies when forwarded headers are disabled.");
+            }
+            if (policy.AllowForwardedHeaders && policy.TrustedProxies.Count == 0)
+            {
+                errors.Add($"Virtual output security policy '{policy.Key}' must configure at least one trusted proxy when forwarded headers are enabled.");
+            }
+            try
+            {
+                _ = TrustedProxySet.Parse(policy.TrustedProxies, $"Virtual output security policy '{policy.Key}' trusted proxies");
+            }
+            catch (InvalidOperationException ex)
+            {
+                errors.Add(ex.Message);
             }
         }
 

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Lineup.Common.Configuration;
+using Lineup.Common.Networking;
 using Lineup.Extensibility.Configuration;
 using Lineup.LineupLink.Protocol;
 using Lineup.LineupLink.Virtual;
@@ -66,6 +67,7 @@ public partial class Settings : IDisposable
     private string _theme = "auto";
     private string _timeZoneId = "";
     private string _uiCulture = UiLocalization.DefaultCulture;
+    private string _knownProxies = string.Empty;
     private ProtectedContentMode _protectedContentMode;
     private DisabledChannelMode _disabledChannelMode;
     private int _maximumConcurrentStreams;
@@ -293,6 +295,7 @@ public partial class Settings : IDisposable
         _theme = WebSettingsService.Settings.Theme;
         _timeZoneId = SettingsService.Settings.TimeZoneId;
         _uiCulture = WebSettingsService.Settings.UiCulture;
+        _knownProxies = string.Join(Environment.NewLine, SettingsService.Settings.KnownProxies);
         _protectedContentMode = SettingsService.Settings.ProtectedContentMode;
         _disabledChannelMode = SettingsService.Settings.DisabledChannelMode;
         _maximumConcurrentStreams = SettingsService.Settings.MaximumConcurrentStreams;
@@ -467,7 +470,19 @@ public partial class Settings : IDisposable
                 return;
             }
 
+            TrustedProxySet knownProxies;
+            try
+            {
+                knownProxies = TrustedProxySet.Parse([_knownProxies], Text["General_KnownProxiesLabel"]);
+            }
+            catch (InvalidOperationException ex)
+            {
+                Notifications.ShowError(ex.Message);
+                return;
+            }
+
             var wasAutoFetchEnabled = SettingsService.Settings.IsAutoFetchEnabled;
+            var knownProxiesChanged = !SettingsService.Settings.KnownProxies.SequenceEqual(knownProxies.Values, StringComparer.OrdinalIgnoreCase);
             var uiCultureChanged = !string.Equals(WebSettingsService.Settings.UiCulture, _uiCulture, StringComparison.OrdinalIgnoreCase);
             var fileLoggingChanged = FileLoggingSettingsChanged();
             var applicationLoggingChanged = ApplicationLoggingSettingsChanged();
@@ -490,6 +505,7 @@ public partial class Settings : IDisposable
                 settings.ProtectedContentMode = _protectedContentMode;
                 settings.DisabledChannelMode = _disabledChannelMode;
                 settings.MaximumConcurrentStreams = _maximumConcurrentStreams;
+                settings.KnownProxies = knownProxies.Values;
             });
             await WebSettingsService.UpdateAsync(settings =>
             {
@@ -579,7 +595,18 @@ public partial class Settings : IDisposable
                 await Services.GetRequiredService<IPhysicalLineupService>().RefreshAsync(SettingsService.Settings.Streaming);
                 await WebSettingsService.UpdateAsync(settings => settings.IsSetupComplete = true);
                 _isInitialSetup = false;
+                if (knownProxiesChanged)
+                {
+                    await RequestRestartAsync("/dashboard");
+                    return;
+                }
                 Navigation.NavigateTo("/dashboard", forceLoad: uiCultureChanged);
+                return;
+            }
+
+            if (knownProxiesChanged)
+            {
+                await RequestRestartAsync("/settings#general");
                 return;
             }
 
@@ -634,6 +661,7 @@ public partial class Settings : IDisposable
         _theme = webDefaults.Theme;
         _timeZoneId = defaults.TimeZoneId;
         _uiCulture = UiLocalization.DefaultCulture;
+        _knownProxies = string.Empty;
         _protectedContentMode = defaults.ProtectedContentMode;
         _disabledChannelMode = defaults.DisabledChannelMode;
         _maximumConcurrentStreams = defaults.MaximumConcurrentStreams;
@@ -757,6 +785,11 @@ public partial class Settings : IDisposable
 
     private async Task RestartLineup()
     {
+        await RequestRestartAsync("/settings#reset");
+    }
+
+    private async Task RequestRestartAsync(string destination)
+    {
         if (_isRestarting)
         {
             return;
@@ -765,7 +798,7 @@ public partial class Settings : IDisposable
         await InvokeAsync(StateHasChanged);
         try
         {
-            await JS.BeginLineupRestartWatchAsync("/settings#reset");
+            await JS.BeginLineupRestartWatchAsync(destination);
             await Services.GetRequiredService<IApplicationRestartService>().RestartAsync();
         }
         catch (Exception ex)

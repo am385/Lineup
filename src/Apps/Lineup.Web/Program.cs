@@ -164,6 +164,15 @@ builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
 var app = builder.Build();
+var reverseProxyConfiguration = ReverseProxyConfigurator.Load(app.Services.GetRequiredService<ILineupSettingsService>().Settings);
+if (reverseProxyConfiguration.Enabled)
+{
+    app.UseForwardedHeaders(reverseProxyConfiguration.Options);
+    app.Logger.LogInformation(
+        "Trusted reverse-proxy metadata is enabled for the management listener with forward limit {ForwardLimit} and {KnownProxyCount} configured proxies",
+        reverseProxyConfiguration.Options.ForwardLimit,
+        reverseProxyConfiguration.ConfiguredProxyCount);
+}
 if (webEndpointConfiguration is { HttpsStatus: HttpsEndpointStatus.Enabled })
 {
     app.Logger.LogInformation(

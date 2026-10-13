@@ -45,6 +45,9 @@
     <Project Path="src/Plugins/WebPlayer/Lineup.WebPlayer/Lineup.WebPlayer.csproj" />
     <Project Path="src/Plugins/WebPlayer/Lineup.WebPlayer.FFmpeg/Lineup.WebPlayer.FFmpeg.csproj" />
   </Folder>
+  <Folder Name="/scripts/">
+    <Project Path="scripts/Lineup.VirtualOutputWorkerPackager/Lineup.VirtualOutputWorkerPackager.csproj" />
+  </Folder>
   <Folder Name="/tests/" />
 
   <!-- Mirrored test hierarchy -->

@@ -240,6 +240,55 @@ public class LineupSettingsServiceTests
         Directory.Delete(testDirectory, recursive: true);
     }
 
+    /// <summary>Verifies malformed Known Proxies in both persisted documents require explicit recovery instead of replacing settings with defaults.</summary>
+    [Fact]
+    public async Task Constructor_InvalidKnownProxiesWithoutValidBackup_RequiresFactoryReset()
+    {
+        // Arrange
+        var testDirectory = CreateTestDirectory();
+        var settingsPath = Path.Combine(testDirectory, AppConstants.SettingsFileName);
+        var invalidJson = JsonSerializer.Serialize(new LineupSettings { KnownProxies = ["proxy.internal"] });
+        await File.WriteAllTextAsync(settingsPath, invalidJson, TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync($"{settingsPath}.bak", invalidJson, TestContext.Current.CancellationToken);
+
+        // Act
+        var service = new LineupSettingsService(NullLogger<LineupSettingsService>.Instance, settingsPath, testDirectory);
+        var exception = await Assert.ThrowsAsync<FactoryResetRequiredException>(() => service.SaveAsync());
+
+        // Assert
+        Assert.Contains("Known Proxies", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(invalidJson, await File.ReadAllTextAsync(settingsPath, TestContext.Current.CancellationToken));
+        Assert.Equal(invalidJson, await File.ReadAllTextAsync($"{settingsPath}.bak", TestContext.Current.CancellationToken));
+
+        Directory.Delete(testDirectory, recursive: true);
+    }
+
+    /// <summary>Verifies a valid backup remains authoritative when the primary Known Proxies setting is malformed.</summary>
+    [Fact]
+    public async Task Constructor_InvalidPrimaryKnownProxies_RecoversValidBackup()
+    {
+        // Arrange
+        var testDirectory = CreateTestDirectory();
+        var settingsPath = Path.Combine(testDirectory, AppConstants.SettingsFileName);
+        await File.WriteAllTextAsync(
+            settingsPath,
+            JsonSerializer.Serialize(new LineupSettings { KnownProxies = ["proxy.internal"] }),
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            $"{settingsPath}.bak",
+            JsonSerializer.Serialize(new LineupSettings { TargetDays = 7, KnownProxies = ["10.0.0.2"] }),
+            TestContext.Current.CancellationToken);
+
+        // Act
+        var service = new LineupSettingsService(NullLogger<LineupSettingsService>.Instance, settingsPath, testDirectory);
+
+        // Assert
+        Assert.Equal(7, service.Settings.TargetDays);
+        Assert.Equal(["10.0.0.2"], service.Settings.KnownProxies);
+
+        Directory.Delete(testDirectory, recursive: true);
+    }
+
     /// <summary>
     /// Verifies concurrent updates serialize their mutations and persist the combined state.
     /// </summary>

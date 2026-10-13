@@ -256,6 +256,63 @@ public sealed class StreamingConfigurationValidatorTests
         Assert.Empty(errors);
     }
 
+    /// <summary>Verifies dedicated listener proxy trust requires enabled forwarding and valid explicit addresses.</summary>
+    [Theory]
+    [InlineData(false, "10.0.0.2", "cannot configure trusted proxies")]
+    [InlineData(true, "", "at least one trusted proxy")]
+    [InlineData(true, "proxy.internal", "invalid trusted proxy")]
+    public void Validate_InvalidTrustedProxyPolicy_ReturnsError(bool allowForwardedHeaders, string trustedProxy, string expected)
+    {
+        // Arrange
+        var configuration = new StreamingConfiguration
+        {
+            VirtualOutputSecurityPolicies =
+            [
+                new VirtualOutputSecurityPolicyDefinition
+                {
+                    Key = "public",
+                    Name = "Public",
+                    AllowForwardedHeaders = allowForwardedHeaders,
+                    TrustedProxies = string.IsNullOrEmpty(trustedProxy) ? [] : [trustedProxy]
+                }
+            ]
+        };
+
+        // Act
+        var errors = StreamingConfigurationValidator.Validate(configuration);
+
+        // Assert
+        Assert.Contains(errors, error => error.Contains(expected, StringComparison.Ordinal));
+    }
+
+    /// <summary>Verifies every dedicated listener allowed-network value must use valid CIDR notation.</summary>
+    [Theory]
+    [InlineData("192.0.2.0/33")]
+    [InlineData("192.0.2.10")]
+    [InlineData("192.0.2.0/24, invalid")]
+    public void Validate_InvalidAllowedNetwork_ReturnsError(string allowedNetwork)
+    {
+        // Arrange
+        var configuration = new StreamingConfiguration
+        {
+            VirtualOutputSecurityPolicies =
+            [
+                new VirtualOutputSecurityPolicyDefinition
+                {
+                    Key = "public",
+                    Name = "Public",
+                    AllowedNetworks = [allowedNetwork]
+                }
+            ]
+        };
+
+        // Act
+        var errors = StreamingConfigurationValidator.Validate(configuration);
+
+        // Assert
+        Assert.Contains(errors, error => error.Contains("invalid network", StringComparison.Ordinal));
+    }
+
     private static AdapterConfiguration EmptyAdapter(string kind)
     {
         using var document = JsonDocument.Parse("{}");
