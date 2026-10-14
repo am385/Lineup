@@ -381,8 +381,8 @@
   <data name="Settings_LineupLinkCopyButton" xml:space="preserve"><value>Copiar</value></data>
   <data name="Settings_LineupLinkCreated" xml:space="preserve"><value>Creado</value></data>
   <data name="Settings_LineupLinkCreateGrantButton" xml:space="preserve"><value>Crear concesión de acceso</value></data>
-  <data name="Settings_LineupLinkDedicatedTransportPrefix" xml:space="preserve"><value>Lineup Link usa</value></data>
-  <data name="Settings_LineupLinkDedicatedTransportSuffix" xml:space="preserve"><value>como transporte del servicio de escucha dedicado y como URI base pública.</value></data>
+  <data name="Settings_LineupLinkDedicatedTransportPrefix" xml:space="preserve"><value>Lineup Link requiere</value></data>
+  <data name="Settings_LineupLinkDedicatedTransportSuffix" xml:space="preserve"><value>según el URI base público orientado al cliente.</value></data>
   <data name="Settings_LineupLinkExpirationLabel" xml:space="preserve"><value>Caducidad (opcional)</value></data>
   <data name="Settings_LineupLinkExpires" xml:space="preserve"><value>Vence</value></data>
   <data name="Settings_LineupLinkExportButton" xml:space="preserve"><value>Exportar</value></data>

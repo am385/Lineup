@@ -1572,7 +1572,8 @@ public sealed class VirtualDeviceSettingsModel : ITranscodeOverrideSettingsModel
     /// <summary>Gets whether the effective Lineup Link endpoint requires HTTPS.</summary>
     public bool EffectiveLineupLinkEncryptionRequired =>
         UseDedicatedListener
-            ? ListenerTransport == VirtualOutputTransport.Https
+            ? Uri.TryCreate(EffectivePublicBaseUri, UriKind.Absolute, out var publicUri) &&
+              string.Equals(publicUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
             : LinkRequireEncryption;
 
     /// <summary>Gets independently managed Lineup Link access grants.</summary>

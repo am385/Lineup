@@ -156,6 +156,40 @@ public sealed class TopologySettingsEditorTests
         Assert.Equal("https://192.0.2.10:8765/", persisted.Adapter.Configuration.GetProperty("PublicBaseUrl").GetString());
     }
 
+    /// <summary>Verifies reverse-proxy TLS termination keeps the listener on HTTP while requiring HTTPS from clients.</summary>
+    [Fact]
+    public void TryBuild_DedicatedHttpLineupLinkListenerWithHttpsPublicUri_RequiresEncryption()
+    {
+        // Arrange
+        var editor = new TopologySettingsEditor();
+        var model = editor.Edit(TopologySettingsEditor.CreateDefault());
+        var driver = new LineupLinkVirtualTunerDriver();
+        var device = editor.AddVirtualDevice(model, driver);
+        device.UseDedicatedListener = true;
+        device.ListenerTransport = VirtualOutputTransport.Http;
+        device.ListenerAddresses = "0.0.0.0";
+        device.ListenerPort = 8765;
+        device.OverridePublicBaseUri = true;
+        device.PublicBaseUri = "https://lineup.example/";
+        device.AllowForwardedHeaders = true;
+        device.TrustedProxies = "192.0.2.20";
+
+        // Act
+        var errors = editor.TryBuild(
+            model,
+            out var configuration,
+            virtualTunerDrivers: [new WebPlayerVirtualTunerDriver(), driver]);
+
+        // Assert
+        Assert.Empty(errors);
+        var persisted = configuration.VirtualDevices.Single(item => item.Id == device.Id);
+        var binding = Assert.Single(Assert.IsType<VirtualOutputHostingDefinition>(persisted.Hosting).Bindings);
+        Assert.Equal(VirtualOutputTransport.Http, binding.Transport);
+        Assert.Equal("https://lineup.example/", binding.PublicBaseUri);
+        Assert.True(persisted.Adapter.Configuration.GetProperty("RequireEncryption").GetBoolean());
+        Assert.Equal("https://lineup.example/", persisted.Adapter.Configuration.GetProperty("PublicBaseUrl").GetString());
+    }
+
     /// <summary>Verifies one virtual output can advertise a Docker-published port that differs from its internal listener.</summary>
     [Fact]
     public void TryBuild_DedicatedLineupLinkListener_PublishedPortOverridesPublicUriOnly()

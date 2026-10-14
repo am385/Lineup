@@ -205,7 +205,7 @@ internal static class TuiAdapterSettingsEditor
                 .Select(candidate => candidate.Id == device.Id
                     ? candidate with
                     {
-                        Adapter = ApplyDedicatedHosting(candidate.Adapter, transport, publicBaseUri),
+                        Adapter = ApplyDedicatedHosting(candidate.Adapter, publicBaseUri),
                         Hosting = hosting
                     }
                     : candidate)
@@ -225,8 +225,8 @@ internal static class TuiAdapterSettingsEditor
         });
     }
 
-    /// <summary>Aligns Lineup Link protocol transport settings with its dedicated listener.</summary>
-    internal static AdapterConfiguration ApplyDedicatedHosting(AdapterConfiguration adapter, VirtualOutputTransport transport, string publicBaseUri)
+    /// <summary>Aligns Lineup Link protocol security with its client-facing base URI.</summary>
+    internal static AdapterConfiguration ApplyDedicatedHosting(AdapterConfiguration adapter, string publicBaseUri)
     {
         if (!string.Equals(adapter.Kind, LineupLinkProtocol.AdapterKind, StringComparison.OrdinalIgnoreCase))
         {
@@ -235,7 +235,8 @@ internal static class TuiAdapterSettingsEditor
 
         var configuration = adapter.Configuration.Deserialize<LineupLinkVirtualConfiguration>()
             ?? throw new InvalidOperationException("Lineup Link virtual configuration is empty.");
-        var requireEncryption = transport == VirtualOutputTransport.Https;
+        var requireEncryption = Uri.TryCreate(publicBaseUri.Trim(), UriKind.Absolute, out var publicUri) &&
+            string.Equals(publicUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
         return new AdapterConfiguration(adapter.Kind, JsonSerializer.SerializeToElement(configuration with
         {
             PublicBaseUrl = publicBaseUri.Trim(),

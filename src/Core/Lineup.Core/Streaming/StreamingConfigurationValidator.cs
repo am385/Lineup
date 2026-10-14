@@ -334,11 +334,12 @@ public static class StreamingConfigurationValidator
             }
 
             if (!Uri.TryCreate(binding.PublicBaseUri, UriKind.Absolute, out var publicUri) ||
-                publicUri.Scheme != (binding.Transport == VirtualOutputTransport.Https ? Uri.UriSchemeHttps : Uri.UriSchemeHttp) ||
+                (!string.Equals(publicUri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) &&
+                 !string.Equals(publicUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)) ||
                 !string.IsNullOrEmpty(publicUri.Query) ||
                 !string.IsNullOrEmpty(publicUri.Fragment))
             {
-                errors.Add($"Virtual device {device.Id} output binding public base URI must be an absolute {binding.Transport.ToString().ToUpperInvariant()} URI without a query or fragment.");
+                errors.Add($"Virtual device {device.Id} output binding public base URI must be an absolute HTTP or HTTPS URI without a query or fragment.");
             }
         }
     }

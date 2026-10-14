@@ -196,6 +196,29 @@ public sealed class StreamingConfigurationValidatorTests
         Assert.Contains(errors, error => error.Contains("requires a certificate reference", StringComparison.Ordinal));
     }
 
+    /// <summary>Verifies an HTTP listener can advertise an HTTPS public URI when a reverse proxy terminates TLS.</summary>
+    [Fact]
+    public void Validate_HttpBindingWithHttpsPublicUri_ReturnsNoErrors()
+    {
+        // Arrange
+        var configuration = CreateHostedConfiguration(
+            new VirtualOutputBindingDefinition
+            {
+                Transport = VirtualOutputTransport.Http,
+                Addresses = ["192.0.2.10"],
+                Port = 9080,
+                PublicBaseUri = "https://lineup.example/",
+                SecurityPolicyKey = "private-network"
+            },
+            certificateReference: null);
+
+        // Act
+        var errors = StreamingConfigurationValidator.Validate(configuration);
+
+        // Assert
+        Assert.Empty(errors);
+    }
+
     /// <summary>Verifies wildcard and interface-specific bindings cannot claim the same port for separate outputs.</summary>
     [Fact]
     public void Validate_OverlappingOutputBindings_ReturnsConflict()

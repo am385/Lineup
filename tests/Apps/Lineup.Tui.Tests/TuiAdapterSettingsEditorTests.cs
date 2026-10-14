@@ -37,11 +37,11 @@ public sealed class TuiAdapterSettingsEditorTests
         Assert.Equal(expected, result);
     }
 
-    /// <summary>Verifies dedicated Lineup Link hosting derives protocol security from its listener transport.</summary>
+    /// <summary>Verifies dedicated Lineup Link hosting derives protocol security from its client-facing URI.</summary>
     [Theory]
-    [InlineData(VirtualOutputTransport.Http, "http://lineup.example:8600/", false)]
-    [InlineData(VirtualOutputTransport.Https, "https://lineup.example:8600/", true)]
-    public void ApplyDedicatedHosting_LineupLink_DerivesProtocolTransport(VirtualOutputTransport transport, string publicBaseUri, bool expectedEncryption)
+    [InlineData("http://lineup.example:8600/", false)]
+    [InlineData("https://lineup.example:8600/", true)]
+    public void ApplyDedicatedHosting_LineupLink_DerivesProtocolTransport(string publicBaseUri, bool expectedEncryption)
     {
         // Arrange
         var adapter = new AdapterConfiguration(LineupLinkProtocol.AdapterKind, JsonSerializer.SerializeToElement(new LineupLinkVirtualConfiguration
@@ -52,7 +52,7 @@ public sealed class TuiAdapterSettingsEditorTests
         }));
 
         // Act
-        var updated = TuiAdapterSettingsEditor.ApplyDedicatedHosting(adapter, transport, publicBaseUri);
+        var updated = TuiAdapterSettingsEditor.ApplyDedicatedHosting(adapter, publicBaseUri);
 
         // Assert
         var configuration = updated.Configuration.Deserialize<LineupLinkVirtualConfiguration>();

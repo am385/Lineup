@@ -381,8 +381,8 @@
   <data name="Settings_LineupLinkCopyButton" xml:space="preserve"><value>Copy</value></data>
   <data name="Settings_LineupLinkCreated" xml:space="preserve"><value>Created</value></data>
   <data name="Settings_LineupLinkCreateGrantButton" xml:space="preserve"><value>Create access grant</value></data>
-  <data name="Settings_LineupLinkDedicatedTransportPrefix" xml:space="preserve"><value>Lineup Link uses the dedicated listener&apos;s</value></data>
-  <data name="Settings_LineupLinkDedicatedTransportSuffix" xml:space="preserve"><value>transport and public base URI.</value></data>
+  <data name="Settings_LineupLinkDedicatedTransportPrefix" xml:space="preserve"><value>Lineup Link requires</value></data>
+  <data name="Settings_LineupLinkDedicatedTransportSuffix" xml:space="preserve"><value>based on the client-facing public base URI.</value></data>
   <data name="Settings_LineupLinkExpirationLabel" xml:space="preserve"><value>Expiration (optional)</value></data>
   <data name="Settings_LineupLinkExpires" xml:space="preserve"><value>Expires</value></data>
   <data name="Settings_LineupLinkExportButton" xml:space="preserve"><value>Export</value></data>
