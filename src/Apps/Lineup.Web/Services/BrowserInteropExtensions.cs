@@ -35,7 +35,7 @@ internal static class BrowserInteropExtensions
     /// Copies text to the browser clipboard.
     /// </summary>
     public static ValueTask CopyTextAsync(this IJSRuntime js, string content) =>
-        js.InvokeVoidAsync("navigator.clipboard.writeText", content);
+        js.InvokeVoidAsync("copyTextToClipboard", content);
 
     /// <summary>
     /// Gets the available guide viewport width.

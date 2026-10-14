@@ -385,7 +385,7 @@ public sealed class TopologySettingsTests
         // Arrange
         using var context = CreateContext(out _, out _);
         context.Services.AddSingleton<IVirtualTunerDriver, LineupLinkVirtualTunerDriver>();
-        context.JSInterop.SetupVoid("navigator.clipboard.writeText", _ => true).SetVoidResult();
+        context.JSInterop.SetupVoid("copyTextToClipboard", _ => true).SetVoidResult();
         var component = context.Render<Settings>();
         component.Find("#tab-virtual-devices").Click();
         component.Find("#addVirtualDevice").Click();
@@ -413,7 +413,7 @@ public sealed class TopologySettingsTests
         Assert.Equal(2, highlightedJson.RootElement.GetProperty("protocolVersion").GetInt32());
         component.WaitForAssertion(() =>
         {
-            var invocation = Assert.Single(context.JSInterop.Invocations, item => item.Identifier == "navigator.clipboard.writeText");
+            var invocation = Assert.Single(context.JSInterop.Invocations, item => item.Identifier == "copyTextToClipboard");
             using var json = JsonDocument.Parse(Assert.IsType<string>(invocation.Arguments[0]));
             Assert.Equal(1, json.RootElement.GetProperty("bundleVersion").GetInt32());
             Assert.Equal(2, json.RootElement.GetProperty("protocolVersion").GetInt32());
