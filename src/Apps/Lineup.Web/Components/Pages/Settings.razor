@@ -221,6 +221,9 @@
                         <AboutSettingsSection Title="@Text["General_RegionalHeading"]">
                             @Text["Settings_AboutRegional"]
                         </AboutSettingsSection>
+                        <AboutSettingsSection Title="@Text["General_NetworkHeading"]">
+                            @Text["General_KnownProxiesHelp"] @Text["General_KnownProxiesRestartHelp"]
+                        </AboutSettingsSection>
                     }
                     else if (_activeTab == SettingsTab.Guide)
                     {
@@ -346,6 +349,9 @@
                     }
                     else if (_activeTab == SettingsTab.Api)
                     {
+                        <AboutSettingsSection Title="@Text["Settings_ApiDocumentationHeading"]">
+                            @Text["Settings_ApiDocumentationDescription"]
+                        </AboutSettingsSection>
                         <AboutSettingsSection Title="@Text["Settings_AboutStatusApiTitle"]">
                             @Text["Settings_AboutStatusApiPrefix"] <code>GET /api/v1/status</code> @Text["Settings_AboutStatusApiSuffix"] <code>null</code>, @Text["Settings_AboutStatusApiEnd"]
                         </AboutSettingsSection>

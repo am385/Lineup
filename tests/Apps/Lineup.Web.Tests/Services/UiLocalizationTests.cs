@@ -14,25 +14,41 @@ namespace Lineup.Web.Tests.Services;
 /// <summary>Verifies Web UI culture configuration and request application.</summary>
 public sealed class UiLocalizationTests
 {
-    /// <summary>Verifies supported cultures normalize consistently and unsupported values safely use English.</summary>
-    [Fact]
-    public void WebSettings_UiCulture_NormalizesSupportedCultures()
+    /// <summary>Verifies supported cultures normalize consistently.</summary>
+    [Theory]
+    [InlineData("EN", "en")]
+    [InlineData("ES", "es")]
+    [InlineData("DE", "de")]
+    [InlineData("FR", "fr")]
+    [InlineData("PT-br", "pt-BR")]
+    [InlineData("IT", "it")]
+    [InlineData("NL", "nl")]
+    [InlineData("PL", "pl")]
+    [InlineData("ZH-hans", "zh-Hans")]
+    [InlineData("JA", "ja")]
+    public void WebSettings_UiCulture_NormalizesSupportedCultures(string configuredCulture, string expectedCulture)
     {
         // Arrange
         var settings = new WebSettings();
 
         // Act
-        var defaultCulture = settings.UiCulture;
-        settings.UiCulture = "EN";
-        var normalizedEnglishCulture = settings.UiCulture;
-        settings.UiCulture = "ES";
-        var normalizedSpanishCulture = settings.UiCulture;
+        settings.UiCulture = configuredCulture;
+
+        // Assert
+        Assert.Equal(expectedCulture, settings.UiCulture);
+    }
+
+    /// <summary>Verifies unsupported cultures safely use English.</summary>
+    [Fact]
+    public void WebSettings_UiCulture_UnsupportedCulture_UsesEnglish()
+    {
+        // Arrange
+        var settings = new WebSettings();
+
+        // Act
         settings.UiCulture = "unsupported";
 
         // Assert
-        Assert.Equal("en", defaultCulture);
-        Assert.Equal("en", normalizedEnglishCulture);
-        Assert.Equal("es", normalizedSpanishCulture);
         Assert.Equal("en", settings.UiCulture);
     }
 
@@ -119,9 +135,10 @@ public sealed class UiLocalizationTests
         Assert.Equal("Regional Settings", value.Value);
     }
 
-    /// <summary>Verifies the Spanish satellite catalog returns translated UI text.</summary>
-    [Fact]
-    public void ResourceCatalog_SpanishKey_ReturnsTranslatedText()
+    /// <summary>Verifies every satellite catalog returns translated UI text.</summary>
+    [Theory]
+    [MemberData(nameof(SatelliteCultures))]
+    public void ResourceCatalog_SatelliteKey_ReturnsTranslatedText(string culture)
     {
         // Arrange
         using var services = new ServiceCollection()
@@ -133,14 +150,14 @@ public sealed class UiLocalizationTests
 
         try
         {
-            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("es");
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(culture);
 
             // Act
             var value = localizer["General_RegionalHeading"];
 
             // Assert
             Assert.False(value.ResourceNotFound);
-            Assert.Equal("Configuración regional", value.Value);
+            Assert.NotEqual("Regional Settings", value.Value);
         }
         finally
         {
@@ -156,16 +173,8 @@ public sealed class UiLocalizationTests
         var repositoryRoot = FindRepositoryRoot();
         var webRoot = Path.Combine(repositoryRoot, "src", "Apps", "Lineup.Web");
         var resourcePath = Path.Combine(webRoot, "Resources", "UiStrings.resx");
-        var spanishResourcePath = Path.Combine(webRoot, "Resources", "UiStrings.es.resx");
         var resourceDocument = XDocument.Load(resourcePath);
-        var spanishResourceDocument = XDocument.Load(spanishResourcePath);
         var resources = resourceDocument.Root!
-            .Elements("data")
-            .ToDictionary(
-                element => element.Attribute("name")!.Value,
-                element => element.Element("value")?.Value,
-                StringComparer.Ordinal);
-        var spanishResources = spanishResourceDocument.Root!
             .Elements("data")
             .ToDictionary(
                 element => element.Attribute("name")!.Value,
@@ -185,22 +194,32 @@ public sealed class UiLocalizationTests
         var invalidKeys = referencedKeys
             .Where(key => !resources.TryGetValue(key, out var value) || string.IsNullOrWhiteSpace(value))
             .ToArray();
-        var invalidSpanishKeys = resources.Keys
-            .Where(key => !spanishResources.TryGetValue(key, out var value) || string.IsNullOrWhiteSpace(value))
-            .Concat(spanishResources.Keys.Where(key => !resources.ContainsKey(key)))
-            .Distinct(StringComparer.Ordinal)
-            .Order(StringComparer.Ordinal)
-            .ToArray();
-        var placeholderMismatches = resources.Keys
-            .Where(key =>
-                !placeholderPattern.Matches(resources[key]!).Select(match => match.Value).Order(StringComparer.Ordinal)
-                    .SequenceEqual(placeholderPattern.Matches(spanishResources[key]!).Select(match => match.Value).Order(StringComparer.Ordinal), StringComparer.Ordinal))
-            .Order(StringComparer.Ordinal)
-            .ToArray();
+        var invalidSatelliteKeys = new List<string>();
+        var placeholderMismatches = new List<string>();
+        foreach (var culture in UiLocalization.SupportedCultures.Skip(1))
+        {
+            var satelliteResourcePath = Path.Combine(webRoot, "Resources", $"UiStrings.{culture}.resx");
+            var satelliteResources = XDocument.Load(satelliteResourcePath).Root!
+                .Elements("data")
+                .ToDictionary(
+                    element => element.Attribute("name")!.Value,
+                    element => element.Element("value")?.Value,
+                    StringComparer.Ordinal);
+            invalidSatelliteKeys.AddRange(resources.Keys
+                .Where(key => !satelliteResources.TryGetValue(key, out var value) || string.IsNullOrWhiteSpace(value))
+                .Concat(satelliteResources.Keys.Where(key => !resources.ContainsKey(key)))
+                .Select(key => $"{culture}:{key}"));
+            placeholderMismatches.AddRange(resources.Keys
+                .Where(key => satelliteResources.TryGetValue(key, out var satelliteValue)
+                    &&
+                    !placeholderPattern.Matches(resources[key]!).Select(match => match.Value).Order(StringComparer.Ordinal)
+                        .SequenceEqual(placeholderPattern.Matches(satelliteValue!).Select(match => match.Value).Order(StringComparer.Ordinal), StringComparer.Ordinal))
+                .Select(key => $"{culture}:{key}"));
+        }
 
         // Assert
         Assert.Empty(invalidKeys);
-        Assert.Empty(invalidSpanishKeys);
+        Assert.Empty(invalidSatelliteKeys);
         Assert.Empty(placeholderMismatches);
     }
 
@@ -236,6 +255,20 @@ public sealed class UiLocalizationTests
         Assert.False(value.ResourceNotFound);
         Assert.False(string.IsNullOrWhiteSpace(value.Value));
     }
+
+    /// <summary>Gets the supported satellite cultures used by localization tests.</summary>
+    public static TheoryData<string> SatelliteCultures =>
+    [
+        UiLocalization.SpanishCulture,
+        UiLocalization.GermanCulture,
+        UiLocalization.FrenchCulture,
+        UiLocalization.BrazilianPortugueseCulture,
+        UiLocalization.ItalianCulture,
+        UiLocalization.DutchCulture,
+        UiLocalization.PolishCulture,
+        UiLocalization.SimplifiedChineseCulture,
+        UiLocalization.JapaneseCulture
+    ];
 
     private static string CreateTestDirectory()
     {

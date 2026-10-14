@@ -47,8 +47,10 @@
         <div class="mb-3">
             <label for="uiLanguage" class="form-label">@Text["General_LanguageLabel"]</label>
             <select class="form-select" id="uiLanguage" value="@UiCulture" @onchange="ChangeUiCultureAsync">
-                <option value="@UiLocalization.DefaultCulture">@Text["General_LanguageEnglish"]</option>
-                <option value="@UiLocalization.SpanishCulture">@Text["General_LanguageSpanish"]</option>
+                @foreach (var culture in UiLocalization.SupportedCultures)
+                {
+                    <option value="@culture">@UiLocalization.GetNativeName(culture)</option>
+                }
             </select>
             <div class="form-text">@Text["General_LanguageHelp"]</div>
         </div>
@@ -65,7 +67,7 @@
             <textarea id="knownProxies"
                       class="form-control"
                       rows="4"
-                      placeholder="127.0.0.1&#10;172.18.0.0/16"
+                      placeholder="@KnownProxiesPlaceholder"
                       value="@KnownProxies"
                       @onchange="ChangeKnownProxiesAsync"></textarea>
             <div class="form-text">@Text["General_KnownProxiesHelp"]</div>
@@ -77,6 +79,8 @@
 </div>
 
 @code {
+    private const string KnownProxiesPlaceholder = "127.0.0.1\n172.18.0.0/16";
+
     private (string Id, string Value, string Icon, string Label)[] ThemeOptions =>
     [
         ("themeLight", "light", "bi-sun-fill", Text["General_ThemeLight"]),
