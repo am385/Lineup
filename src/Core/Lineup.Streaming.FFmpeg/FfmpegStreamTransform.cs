@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.ExceptionServices;
 
 namespace Lineup.Streaming.FFmpeg;
 
@@ -66,19 +67,65 @@ public sealed class FfmpegStreamTransform : IStreamTransform
             {
                 return;
             }
-            await _lifetime.CancelAsync();
-            if (!process.HasExited)
+
+            List<Exception>? failures = null;
+            try
             {
-                process.Kill(entireProcessTree: true);
+                await _lifetime.CancelAsync();
+            }
+            catch (Exception exception)
+            {
+                (failures ??= []).Add(exception);
+            }
+            try
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+            }
+            catch (Exception exception)
+            {
+                (failures ??= []).Add(exception);
+            }
+            try
+            {
                 await process.WaitForExitAsync(CancellationToken.None);
             }
-            await ObserveAsync(_pumpTask);
-            await ObserveAsync(_errorTask);
-            process.Dispose();
-            _lifetime.Dispose();
+            catch (Exception exception)
+            {
+                (failures ??= []).Add(exception);
+            }
+            await ObserveCleanupAsync(_pumpTask, failures ??= []);
+            await ObserveCleanupAsync(_errorTask, failures);
+            try
+            {
+                process.Dispose();
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+            }
+            try
+            {
+                _lifetime.Dispose();
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+            }
+
+            if (failures.Count == 1)
+            {
+                ExceptionDispatchInfo.Capture(failures[0]).Throw();
+            }
+            if (failures.Count > 1)
+            {
+                throw new AggregateException(failures);
+            }
         }
 
-        private static async Task ObserveAsync(Task task)
+        private static async Task ObserveCleanupAsync(Task task, List<Exception> failures)
         {
             try
             {
@@ -92,6 +139,10 @@ public sealed class FfmpegStreamTransform : IStreamTransform
             }
             catch (ObjectDisposedException)
             {
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
             }
         }
 

@@ -25,9 +25,10 @@ public static class VirtualOutputForwardedHeadersExtensions
         ArgumentNullException.ThrowIfNull(hosting);
         ArgumentNullException.ThrowIfNull(policies);
 
-        var policyByPort = hosting.Bindings.ToDictionary(
-            binding => binding.Port,
-            binding => policies[binding.SecurityPolicyKey]);
+        var policyByPort = VirtualOutputBindingResolver.CreatePortMap(hosting)
+            .ToDictionary(
+                pair => pair.Key,
+                pair => policies[pair.Value.SecurityPolicyKey]);
         var loggerFactory = app.ApplicationServices.GetRequiredService<ILoggerFactory>();
         return app.Use(next =>
         {

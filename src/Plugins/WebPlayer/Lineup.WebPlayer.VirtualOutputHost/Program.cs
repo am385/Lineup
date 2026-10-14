@@ -25,7 +25,7 @@ var allowedNetworks = securityPolicies.ToDictionary(
     pair => IpNetworkSet.Parse(pair.Value.AllowedNetworks, $"Virtual output security policy '{pair.Value.Name}' allowed networks"),
     StringComparer.OrdinalIgnoreCase);
 var certificates = bootstrap.CertificateMaterials.ToDictionary(material => material.Reference, StringComparer.Ordinal);
-var publicBaseUri = new Uri(hosting.Bindings[0].PublicBaseUri.EndsWith('/') ? hosting.Bindings[0].PublicBaseUri : $"{hosting.Bindings[0].PublicBaseUri}/");
+var bindingsByPort = VirtualOutputBindingResolver.CreatePortMap(hosting);
 var sessions = new DedicatedMediaSessionRegistry<MediaSession>(TimeProvider.System, TimeSpan.FromMinutes(2));
 var builder = WebApplication.CreateSlimBuilder(args);
 builder.Logging.ClearProviders();
@@ -40,7 +40,7 @@ builder.Services.AddRateLimiter(options =>
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
     {
-        var policy = ResolveSecurityPolicy(context.Connection.LocalPort, hosting, securityPolicies);
+        var policy = ResolveSecurityPolicy(context.Connection.LocalPort, bindingsByPort, securityPolicies);
         var client = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         return policy.RequestsPerMinutePerClient > 0
             ? RateLimitPartition.GetFixedWindowLimiter(
@@ -67,7 +67,7 @@ app.Use(async (context, next) =>
     Interlocked.Increment(ref activeRequests);
     try
     {
-        var policy = ResolveSecurityPolicy(context.Connection.LocalPort, hosting, securityPolicies);
+        var policy = ResolveSecurityPolicy(context.Connection.LocalPort, bindingsByPort, securityPolicies);
         if (!allowedNetworks[policy.Key].Contains(context.Connection.RemoteIpAddress))
         {
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
@@ -146,6 +146,7 @@ app.MapPost("/media/start/{channel}", async (
         await sessions.RemoveAndDisposeAsync(id);
         throw;
     }
+    var publicBaseUri = VirtualOutputBindingResolver.ResolvePublicBaseUri(bindingsByPort, context.Connection.LocalPort);
     var mediaRoot = new Uri(publicBaseUri, $"media/{id}/");
     return Results.Ok(new
     {
@@ -378,9 +379,11 @@ static void ConfigureListeners(
 
 static VirtualOutputSecurityPolicyDefinition ResolveSecurityPolicy(
     int localPort,
-    VirtualOutputHostingDefinition hosting,
+    IReadOnlyDictionary<int, VirtualOutputBindingDefinition> bindingsByPort,
     IReadOnlyDictionary<string, VirtualOutputSecurityPolicyDefinition> policies) =>
-    policies[hosting.Bindings.Single(binding => binding.Port == localPort).SecurityPolicyKey];
+    policies[bindingsByPort.TryGetValue(localPort, out var binding)
+        ? binding.SecurityPolicyKey
+        : throw new InvalidOperationException($"No virtual-output binding owns local port {localPort}.")];
 
 internal sealed class MediaSession : IAsyncDisposable
 {

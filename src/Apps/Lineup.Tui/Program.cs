@@ -46,10 +46,12 @@ class Program
 
         if (startupState.IsFactoryResetRequired)
         {
-            if (!RequestFactoryReset(startupState, appDataStore, resolvedDatabasePath))
+            var resetState = RequestFactoryReset(startupState, appDataStore, resolvedDatabasePath);
+            if (resetState is null)
             {
                 return 2;
             }
+            startupState = resetState;
         }
 
         // Configure Serilog from appsettings.json
@@ -200,7 +202,7 @@ class Program
         return results;
     }
 
-    static bool RequestFactoryReset(LineupStartupState startupState, AppDataStore appDataStore, string databasePath)
+    static LineupStartupState? RequestFactoryReset(LineupStartupState startupState, AppDataStore appDataStore, string databasePath)
     {
         var fullDatabasePath = Path.GetFullPath(databasePath);
         AnsiConsole.MarkupLine("[red]Factory reset required.[/]");
@@ -212,32 +214,50 @@ class Program
         if (!AnsiConsole.Confirm("Factory reset the Lineup TUI configuration and database?", defaultValue: false))
         {
             AnsiConsole.MarkupLine("[grey]Factory reset canceled. No files were changed.[/]");
-            return false;
+            return null;
         }
 
         var confirmation = AnsiConsole.Ask<string>("Type [red]RESET[/] to confirm:");
         if (!string.Equals(confirmation, "RESET", StringComparison.Ordinal))
         {
             AnsiConsole.MarkupLine("[grey]Factory reset canceled. No files were changed.[/]");
-            return false;
+            return null;
         }
 
         try
         {
-            appDataStore.DeleteContents();
-            if (!string.Equals(fullDatabasePath, appDataStore.DatabasePath, StringComparison.OrdinalIgnoreCase))
+            var resetState = ResetPersistedState(appDataStore, fullDatabasePath);
+            if (resetState.IsFactoryResetRequired)
             {
-                DatabaseFactoryReset.Reset(fullDatabasePath);
+                AnsiConsole.MarkupLine($"[red]Factory reset failed:[/] {Markup.Escape(resetState.Reason ?? "Persisted state remains incompatible.")}");
+                return null;
             }
             AnsiConsole.MarkupLine("[green]Factory reset completed. Starting Lineup TUI with clean configuration and database state.[/]");
             AnsiConsole.WriteLine();
-            return true;
+            return resetState;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             AnsiConsole.MarkupLine($"[red]Factory reset failed:[/] {Markup.Escape(exception.Message)}");
-            return false;
+            return null;
         }
+    }
+
+    /// <summary>Deletes TUI-owned persisted state and returns a fresh startup schema result.</summary>
+    /// <param name="appDataStore">TUI application-data store.</param>
+    /// <param name="databasePath">Resolved database path, including an optional external override.</param>
+    /// <returns>The post-reset startup schema result.</returns>
+    internal static LineupStartupState ResetPersistedState(AppDataStore appDataStore, string databasePath)
+    {
+        ArgumentNullException.ThrowIfNull(appDataStore);
+        ArgumentException.ThrowIfNullOrWhiteSpace(databasePath);
+        var fullDatabasePath = Path.GetFullPath(databasePath);
+        appDataStore.DeleteContents();
+        if (!string.Equals(fullDatabasePath, appDataStore.DatabasePath, StringComparison.OrdinalIgnoreCase))
+        {
+            DatabaseFactoryReset.Reset(fullDatabasePath);
+        }
+        return StartupSchemaGate.Check(appDataStore.SettingsPath, appDataStore.SettingsBackupPath, fullDatabasePath);
     }
 
     static async Task DisplayStatsAsync(IGuideQueryService guides, StreamingConfiguration configuration)

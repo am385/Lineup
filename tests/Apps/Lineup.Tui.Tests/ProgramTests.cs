@@ -1,4 +1,7 @@
 using Lineup.Common.Guides;
+using Lineup.Core;
+using Lineup.Core.Settings;
+using Lineup.Core.Storage;
 using Lineup.Extensibility.Guides;
 using Lineup.Common.Streaming;
 using Lineup.Extensibility.Streaming;
@@ -10,6 +13,8 @@ using Lineup.SiliconDust.HDHomeRun.VirtualTuner;
 using Lineup.Tui;
 using Lineup.GuideOutputs.Xmltv.Plugin;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using System.Text.Json;
 using Xunit;
@@ -81,6 +86,36 @@ public sealed class ProgramTests
 
         // Assert
         Assert.Equal(["physical", "guides"], calls);
+    }
+
+    /// <summary>Verifies a completed factory reset permits settings persistence without restarting the TUI process.</summary>
+    [Fact]
+    public async Task ResetPersistedState_IncompatibleSettings_AllowsImmediateSave()
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-tui-reset-");
+        var appDataStore = new AppDataStore(root.FullName);
+        await File.WriteAllTextAsync(
+            appDataStore.SettingsPath,
+            """{"schemaVersion":2}""",
+            TestContext.Current.CancellationToken);
+        var initialState = StartupSchemaGate.Check(appDataStore);
+        Assert.True(initialState.IsFactoryResetRequired);
+
+        // Act
+        var resetState = Program.ResetPersistedState(appDataStore, appDataStore.DatabasePath);
+        var settings = new LineupSettingsService(
+            NullLogger<LineupSettingsService>.Instance,
+            appDataStore,
+            new ConfigurationBuilder().Build(),
+            resetState);
+        await settings.UpdateAsync(candidate => candidate.TargetDays = 5);
+
+        // Assert
+        Assert.False(resetState.IsFactoryResetRequired);
+        Assert.Equal(5, settings.Settings.TargetDays);
+        Assert.True(File.Exists(appDataStore.SettingsPath));
+        root.Delete(recursive: true);
     }
 
     /// <summary>Verifies TUI export resolves the configured built-in XMLTV destination through the registered plugin.</summary>

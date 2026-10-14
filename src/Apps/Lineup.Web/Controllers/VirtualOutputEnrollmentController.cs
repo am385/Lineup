@@ -22,7 +22,7 @@ public sealed class VirtualOutputEnrollmentController : ControllerBase
         _enrollments = enrollments;
     }
 
-    /// <summary>Retrieves and invalidates one pending external-worker bootstrap descriptor.</summary>
+    /// <summary>Retrieves one external-worker bootstrap descriptor, renewing an abandoned or expired activation when needed.</summary>
     [HttpPost("{virtualDeviceId:guid}/enrollment")]
     public ActionResult<VirtualOutputWorkerBootstrap> TakeEnrollment(Guid virtualDeviceId)
     {
@@ -44,7 +44,7 @@ public sealed class VirtualOutputEnrollmentController : ControllerBase
         return enrollment is null
             ? NotFound(new VirtualOutputEnrollmentError
             {
-                Error = "No pending enrollment is available. Save the output configuration to create a new activation."
+                Error = "No enrollment is available because the external worker is already active or the output is no longer awaiting enrollment."
             })
             : Ok(enrollment.Bootstrap);
     }

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Channels;
@@ -792,13 +793,42 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         {
             var source = Interlocked.Exchange(ref _sourceOwner, null);
             var parent = Interlocked.Exchange(ref _parentOwner, null);
+            Exception? sourceFailure = null;
             if (source is not null)
             {
-                await source.DisposeAsync();
+                try
+                {
+                    await source.DisposeAsync();
+                }
+                catch (Exception exception)
+                {
+                    sourceFailure = exception;
+                }
             }
+            Exception? parentFailure = null;
             if (parent is not null)
             {
-                await parent.DisposeAsync();
+                try
+                {
+                    await parent.DisposeAsync();
+                }
+                catch (Exception exception)
+                {
+                    parentFailure = exception;
+                }
+            }
+
+            if (sourceFailure is not null && parentFailure is not null)
+            {
+                throw new AggregateException(sourceFailure, parentFailure);
+            }
+            if (sourceFailure is not null)
+            {
+                ExceptionDispatchInfo.Capture(sourceFailure).Throw();
+            }
+            if (parentFailure is not null)
+            {
+                ExceptionDispatchInfo.Capture(parentFailure).Throw();
             }
         }
     }

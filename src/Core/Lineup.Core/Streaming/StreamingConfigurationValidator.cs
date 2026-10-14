@@ -296,6 +296,13 @@ public static class StreamingConfigurationValidator
         {
             errors.Add($"Virtual device {device.Id} requires at least one output binding.");
         }
+        foreach (var duplicatePort in hosting.Bindings
+                     .GroupBy(binding => binding.Port)
+                     .Where(group => group.Count() > 1)
+                     .Select(group => group.Key))
+        {
+            errors.Add($"Virtual device {device.Id} output bindings must use unique ports; port {duplicatePort} is configured more than once.");
+        }
 
         foreach (var binding in hosting.Bindings)
         {

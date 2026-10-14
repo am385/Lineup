@@ -23,7 +23,10 @@ if (!string.Equals(bootstrap.VirtualDevice.Adapter.Kind, LineupLinkProtocol.Adap
 var configuration = bootstrap.VirtualDevice.Adapter.Configuration.Deserialize<LineupLinkVirtualConfiguration>(
     new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
     ?? throw new InvalidDataException("Lineup Link virtual configuration is empty.");
+var hosting = bootstrap.VirtualDevice.Hosting
+    ?? throw new InvalidDataException("Lineup Link worker requires dedicated hosting configuration.");
 var securityPolicies = bootstrap.SecurityPolicies.ToDictionary(policy => policy.Key, StringComparer.OrdinalIgnoreCase);
+var bindingsByPort = VirtualOutputBindingResolver.CreatePortMap(hosting);
 var allowedNetworks = securityPolicies.ToDictionary(
     pair => pair.Key,
     pair => IpNetworkSet.Parse(pair.Value.AllowedNetworks, $"Virtual output security policy '{pair.Value.Name}' allowed networks"),
@@ -42,7 +45,7 @@ builder.Services.AddRateLimiter(options =>
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
     {
-        var policy = ResolveSecurityPolicy(context.Connection.LocalPort, bootstrap.VirtualDevice.Hosting!, securityPolicies);
+        var policy = ResolveSecurityPolicy(context.Connection.LocalPort, bindingsByPort, securityPolicies);
         var client = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         return policy.RequestsPerMinutePerClient > 0
             ? RateLimitPartition.GetFixedWindowLimiter(
@@ -60,7 +63,7 @@ builder.Services.AddRateLimiter(options =>
 builder.WebHost.ConfigureKestrel(options => ConfigureListeners(options, bootstrap, securityPolicies, certificates));
 
 var app = builder.Build();
-app.UseVirtualOutputForwardedHeaders(bootstrap.VirtualDevice.Hosting!, securityPolicies);
+app.UseVirtualOutputForwardedHeaders(hosting, securityPolicies);
 app.UseRateLimiter();
 var activeRequests = 0;
 app.Use(async (context, next) =>
@@ -68,7 +71,7 @@ app.Use(async (context, next) =>
     Interlocked.Increment(ref activeRequests);
     try
     {
-        var policy = ResolveSecurityPolicy(context.Connection.LocalPort, bootstrap.VirtualDevice.Hosting!, securityPolicies);
+        var policy = ResolveSecurityPolicy(context.Connection.LocalPort, bindingsByPort, securityPolicies);
         if (!allowedNetworks[policy.Key].Contains(context.Connection.RemoteIpAddress))
         {
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
@@ -314,11 +317,12 @@ static void ConfigureListeners(
 
 static VirtualOutputSecurityPolicyDefinition ResolveSecurityPolicy(
     int localPort,
-    VirtualOutputHostingDefinition hosting,
+    IReadOnlyDictionary<int, VirtualOutputBindingDefinition> bindingsByPort,
     IReadOnlyDictionary<string, VirtualOutputSecurityPolicyDefinition> policies)
 {
-    var binding = hosting.Bindings.SingleOrDefault(candidate => candidate.Port == localPort)
-        ?? throw new InvalidOperationException($"No output binding owns local port {localPort}.");
+    var binding = bindingsByPort.TryGetValue(localPort, out var configuredBinding)
+        ? configuredBinding
+        : throw new InvalidOperationException($"No virtual-output binding owns local port {localPort}.");
     return policies[binding.SecurityPolicyKey];
 }
 

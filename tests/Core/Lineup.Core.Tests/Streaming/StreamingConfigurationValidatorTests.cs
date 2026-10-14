@@ -249,6 +249,51 @@ public sealed class StreamingConfigurationValidatorTests
         Assert.Contains(errors, error => error.Contains("conflicting output bindings", StringComparison.Ordinal));
     }
 
+    /// <summary>Verifies one virtual device cannot define multiple listener records on the same port.</summary>
+    [Fact]
+    public void Validate_SameDeviceDuplicateBindingPorts_ReturnsError()
+    {
+        // Arrange
+        var device = CreateHostedDevice(
+            new VirtualOutputBindingDefinition
+            {
+                Addresses = ["192.0.2.10"],
+                Port = 9080,
+                PublicBaseUri = "http://lineup-one.example:9080",
+                SecurityPolicyKey = "private-network"
+            }) with
+        {
+            Hosting = new VirtualOutputHostingDefinition
+            {
+                WorkerPolicyKey = "default",
+                Bindings =
+                [
+                    new VirtualOutputBindingDefinition
+                    {
+                        Addresses = ["192.0.2.10"],
+                        Port = 9080,
+                        PublicBaseUri = "http://lineup-one.example:9080",
+                        SecurityPolicyKey = "private-network"
+                    },
+                    new VirtualOutputBindingDefinition
+                    {
+                        Addresses = ["192.0.2.20"],
+                        Port = 9080,
+                        PublicBaseUri = "http://lineup-two.example:9080",
+                        SecurityPolicyKey = "private-network"
+                    }
+                ]
+            }
+        };
+        var configuration = CreateHostedConfiguration(device);
+
+        // Act
+        var errors = StreamingConfigurationValidator.Validate(configuration);
+
+        // Assert
+        Assert.Contains(errors, error => error.Contains("must use unique ports", StringComparison.Ordinal));
+    }
+
     /// <summary>Verifies valid dedicated bindings and policies pass provider-neutral validation.</summary>
     [Fact]
     public void Validate_DedicatedOutputBindings_ReturnsNoErrors()

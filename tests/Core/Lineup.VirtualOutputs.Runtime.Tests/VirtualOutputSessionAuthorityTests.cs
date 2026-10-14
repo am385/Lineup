@@ -110,6 +110,37 @@ public sealed class VirtualOutputSessionAuthorityTests
         Assert.False(replay.Accepted);
     }
 
+    /// <summary>Verifies active-session detection follows the requested activation generation.</summary>
+    [Fact]
+    public void HasActiveSession_RegisteredGeneration_ReturnsTrueUntilReplaced()
+    {
+        // Arrange
+        using var authority = new VirtualOutputSessionAuthority();
+        var deviceId = VirtualDeviceId.New();
+        var firstTicket = authority.CreateActivation(
+            deviceId,
+            "lineup-link",
+            new HashSet<VirtualOutputCapability> { VirtualOutputCapability.ReadManifest },
+            TimeSpan.FromMinutes(1),
+            TimeSpan.FromMinutes(1));
+        _ = Register(authority, firstTicket);
+
+        // Act
+        var beforeReplacement = authority.HasActiveSession(deviceId, firstTicket.Generation);
+        var secondTicket = authority.CreateActivation(
+            deviceId,
+            "lineup-link",
+            new HashSet<VirtualOutputCapability> { VirtualOutputCapability.ReadManifest },
+            TimeSpan.FromMinutes(1),
+            TimeSpan.FromMinutes(1));
+        var afterReplacement = authority.HasActiveSession(deviceId, firstTicket.Generation);
+
+        // Assert
+        Assert.True(beforeReplacement);
+        Assert.False(afterReplacement);
+        Assert.False(authority.HasActiveSession(deviceId, secondTicket.Generation));
+    }
+
     private static VirtualOutputWorkerRegistrationResponse Register(VirtualOutputSessionAuthority authority, VirtualOutputActivationTicket ticket) =>
         authority.Register(new VirtualOutputWorkerRegistrationRequest
         {

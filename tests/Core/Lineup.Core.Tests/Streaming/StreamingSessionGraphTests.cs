@@ -327,6 +327,32 @@ public sealed class StreamingSessionGraphTests
         Assert.Empty(graph.GetDiagnostics().Capacity);
     }
 
+    /// <summary>Verifies a transform cleanup failure cannot retain its parent acquisition or tuner capacity.</summary>
+    [Fact]
+    public async Task DisposeAsync_TransformCleanupFailure_ReleasesParentOwnership()
+    {
+        // Arrange
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance);
+        var source = new ControlledSourceStream();
+        var descriptor = CreateDescriptor(PhysicalDeviceId.New(), "7.1", capacity: 1);
+        var lease = await graph.AcquireTransformAsync(
+            descriptor,
+            new StreamTransformKey("virtual", "throwing-cleanup"),
+            _ => ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(source)),
+            new ThrowingDisposeTransform(),
+            TestContext.Current.CancellationToken);
+        await source.WaitForReadAsync(TestContext.Current.CancellationToken);
+
+        // Act
+        await lease.DisposeAsync();
+        await source.WaitForDisposalAsync(TestContext.Current.CancellationToken);
+        await WaitUntilAsync(() => graph.GetDiagnostics().Nodes.Count == 0, TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Empty(graph.GetDiagnostics().Nodes);
+        Assert.Empty(graph.GetDiagnostics().Capacity);
+    }
+
     private static StreamAcquisitionDescriptor CreateDescriptor(PhysicalDeviceId deviceId, string channel, int capacity) =>
         new(
             deviceId,
@@ -361,6 +387,21 @@ public sealed class StreamingSessionGraphTests
             cleanup.Add("transform");
             throw new InvalidOperationException("Transform startup failed.");
         }
+    }
+
+    private sealed class ThrowingDisposeTransform : IStreamTransform
+    {
+        public ValueTask<IStreamSourceLease> StartAsync(Stream input, CancellationToken cancellationToken) =>
+            ValueTask.FromResult<IStreamSourceLease>(new ThrowingSourceLease(input));
+    }
+
+    private sealed class ThrowingSourceLease(Stream stream) : IStreamSourceLease
+    {
+        public Stream Stream { get; } = stream;
+
+        public string? ContentType => "video/mp2t";
+
+        public ValueTask DisposeAsync() => ValueTask.FromException(new InvalidOperationException("Transform cleanup failed."));
     }
 
     private sealed class TestSourceLease(Stream stream, Action? onDispose = null) : IStreamSourceLease

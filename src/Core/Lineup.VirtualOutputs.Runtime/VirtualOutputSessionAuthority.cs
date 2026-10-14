@@ -59,6 +59,9 @@ public interface IVirtualOutputSessionAuthority
     /// <summary>Authorizes one capability against the authenticated session identity.</summary>
     VirtualOutputAuthorizationResult Authorize(VirtualOutputSessionContext session, VirtualOutputCapability capability);
 
+    /// <summary>Determines whether one activation generation has a live registered worker session.</summary>
+    bool HasActiveSession(VirtualDeviceId virtualDeviceId, long generation);
+
     /// <summary>Revokes the active generation for one virtual device.</summary>
     bool Revoke(VirtualDeviceId virtualDeviceId, string reason);
 }
@@ -265,6 +268,30 @@ public sealed class VirtualOutputSessionAuthority : IVirtualOutputSessionAuthori
                 Authorized = true,
                 VirtualDeviceId = deviceId
             };
+        }
+    }
+
+    /// <inheritdoc />
+    public bool HasActiveSession(VirtualDeviceId virtualDeviceId, long generation)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        lock (_gate)
+        {
+            if (!_activations.TryGetValue(virtualDeviceId, out var activation) ||
+                activation.Generation != generation ||
+                activation.SessionId is not { } sessionId ||
+                activation.LeaseExpiresUtc is not { } leaseExpiresUtc)
+            {
+                return false;
+            }
+            if (_timeProvider.GetUtcNow() <= leaseExpiresUtc)
+            {
+                return true;
+            }
+
+            _sessions.Remove(sessionId);
+            _activations[virtualDeviceId] = activation with { SessionId = null, ProtocolVersion = null, LeaseExpiresUtc = null };
+            return false;
         }
     }
 

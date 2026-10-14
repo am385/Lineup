@@ -74,8 +74,14 @@ public sealed class HdHomeRunDiscoveryWorkerSupervisor : BackgroundService
     private readonly IVirtualOutputWorkerLauncher _launcher;
     private readonly IVirtualOutputSessionAuthority _authority;
     private readonly ILogger<HdHomeRunDiscoveryWorkerSupervisor> _logger;
+    private readonly TimeProvider _timeProvider;
     private readonly SemaphoreSlim _changed = new(0, 1);
+    private readonly SemaphoreSlim _stateGate = new(1, 1);
+    private readonly CancellationTokenSource _retryCancellation = new();
+    private readonly VirtualOutputWorkerRestartBudget _restartBudget;
     private ActiveDiscoveryWorker? _active;
+    private PendingRetry? _pendingRetry;
+    private string? _quarantinedFingerprint;
 
     /// <summary>Initializes the shared discovery worker reconciler.</summary>
     public HdHomeRunDiscoveryWorkerSupervisor(
@@ -87,7 +93,8 @@ public sealed class HdHomeRunDiscoveryWorkerSupervisor : BackgroundService
         IVirtualOutputWorkerCatalog catalog,
         IVirtualOutputWorkerLauncher launcher,
         IVirtualOutputSessionAuthority authority,
-        ILogger<HdHomeRunDiscoveryWorkerSupervisor> logger)
+        ILogger<HdHomeRunDiscoveryWorkerSupervisor> logger,
+        TimeProvider? timeProvider = null)
     {
         _settings = settings;
         _physicalDevices = physicalDevices;
@@ -98,6 +105,8 @@ public sealed class HdHomeRunDiscoveryWorkerSupervisor : BackgroundService
         _launcher = launcher;
         _authority = authority;
         _logger = logger;
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        _restartBudget = new VirtualOutputWorkerRestartBudget(_timeProvider);
     }
 
     /// <inheritdoc />
@@ -113,6 +122,7 @@ public sealed class HdHomeRunDiscoveryWorkerSupervisor : BackgroundService
     {
         _settings.OnSettingsChanged -= SettingsChanged;
         _policy.Changed -= SettingsChanged;
+        _retryCancellation.Cancel();
         await base.StopAsync(cancellationToken);
     }
 
@@ -125,7 +135,15 @@ public sealed class HdHomeRunDiscoveryWorkerSupervisor : BackgroundService
             {
                 try
                 {
-                    await ReconcileAsync(stoppingToken);
+                    await _stateGate.WaitAsync(stoppingToken);
+                    try
+                    {
+                        await ReconcileAsync(stoppingToken);
+                    }
+                    finally
+                    {
+                        _stateGate.Release();
+                    }
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -140,7 +158,15 @@ public sealed class HdHomeRunDiscoveryWorkerSupervisor : BackgroundService
         }
         finally
         {
-            await StopWorkerAsync(CancellationToken.None);
+            await _stateGate.WaitAsync(CancellationToken.None);
+            try
+            {
+                await StopWorkerAsync(CancellationToken.None);
+            }
+            finally
+            {
+                _stateGate.Release();
+            }
         }
     }
 
@@ -149,12 +175,14 @@ public sealed class HdHomeRunDiscoveryWorkerSupervisor : BackgroundService
         var configuration = _settings.Settings.Streaming;
         if (!_policy.Enabled)
         {
+            ResetFailureState();
             await StopWorkerAsync(cancellationToken);
             return;
         }
         var advertisements = CreateAdvertisements(configuration);
         if (advertisements.Count == 0)
         {
+            ResetFailureState();
             await StopWorkerAsync(cancellationToken);
             return;
         }
@@ -164,9 +192,36 @@ public sealed class HdHomeRunDiscoveryWorkerSupervisor : BackgroundService
             System.Security.Cryptography.SHA256.HashData(
                 JsonSerializer.SerializeToUtf8Bytes(new { Advertisements = advertisements, Policy = policy })))
             .ToLowerInvariant();
+        if (_pendingRetry is { } pendingRetry)
+        {
+            if (!string.Equals(pendingRetry.Fingerprint, fingerprint, StringComparison.Ordinal))
+            {
+                ResetFailureState();
+            }
+            else if (_timeProvider.GetUtcNow() < pendingRetry.RetryUtc)
+            {
+                return;
+            }
+            else
+            {
+                _pendingRetry = null;
+            }
+        }
+        if (_quarantinedFingerprint is not null)
+        {
+            if (string.Equals(_quarantinedFingerprint, fingerprint, StringComparison.Ordinal))
+            {
+                return;
+            }
+            ResetFailureState();
+        }
         if (_active is not null && string.Equals(_active.Fingerprint, fingerprint, StringComparison.Ordinal))
         {
             return;
+        }
+        if (_active is not null)
+        {
+            ResetFailureState();
         }
 
         await StopWorkerAsync(cancellationToken);
@@ -196,7 +251,10 @@ public sealed class HdHomeRunDiscoveryWorkerSupervisor : BackgroundService
                 BootstrapExpiresUtc = ticket.ExpiresUtc
             };
             var process = await _launcher.StartAsync(package, bootstrap, cancellationToken);
-            var active = new ActiveDiscoveryWorker(fingerprint, process);
+            var active = new ActiveDiscoveryWorker(
+                fingerprint,
+                policy,
+                process);
             _active = active;
             _ = ObserveExitAsync(active);
         }
@@ -206,7 +264,23 @@ public sealed class HdHomeRunDiscoveryWorkerSupervisor : BackgroundService
         }
         catch (Exception exception)
         {
-            _logger.LogError(exception, "Unable to activate the isolated HDHomeRun discovery worker");
+            _authority.Revoke(DiscoveryWorkerId, "The HDHomeRun discovery worker could not be activated.");
+            var decision = _restartBudget.RecordFailure(policy);
+            if (decision.Exhausted)
+            {
+                _quarantinedFingerprint = fingerprint;
+                _logger.LogError(
+                    exception,
+                    "Unable to activate the isolated HDHomeRun discovery worker; the restart budget was exceeded after {FailureCount} failures",
+                    decision.FailureCount);
+                return;
+            }
+
+            ScheduleRetry(fingerprint, decision.RetryDelay);
+            _logger.LogError(
+                exception,
+                "Unable to activate the isolated HDHomeRun discovery worker; retrying in {RetryDelaySeconds} seconds",
+                decision.RetryDelay.TotalSeconds);
         }
     }
 
@@ -291,14 +365,62 @@ public sealed class HdHomeRunDiscoveryWorkerSupervisor : BackgroundService
     private async Task ObserveExitAsync(ActiveDiscoveryWorker active)
     {
         var exitCode = await active.Process.Completion;
-        if (ReferenceEquals(_active, active))
+        await _stateGate.WaitAsync();
+        try
         {
-            _active = null;
-            _authority.Revoke(DiscoveryWorkerId, "The HDHomeRun discovery worker exited.");
-            _logger.LogWarning("HDHomeRun discovery worker exited with code {ExitCode}", exitCode);
-            SettingsChanged();
+            if (ReferenceEquals(_active, active))
+            {
+                _active = null;
+                _authority.Revoke(DiscoveryWorkerId, "The HDHomeRun discovery worker exited.");
+                var decision = _restartBudget.RecordFailure(active.Policy);
+                if (decision.Exhausted)
+                {
+                    _quarantinedFingerprint = active.Fingerprint;
+                    _logger.LogWarning(
+                        "HDHomeRun discovery worker exited with code {ExitCode} and exceeded its restart budget after {FailureCount} failures",
+                        exitCode,
+                        decision.FailureCount);
+                }
+                else
+                {
+                    ScheduleRetry(active.Fingerprint, decision.RetryDelay);
+                    _logger.LogWarning(
+                        "HDHomeRun discovery worker exited with code {ExitCode}; retrying in {RetryDelaySeconds} seconds",
+                        exitCode,
+                        decision.RetryDelay.TotalSeconds);
+                }
+            }
+        }
+        finally
+        {
+            _stateGate.Release();
         }
         await active.Process.DisposeAsync();
+    }
+
+    private void ScheduleRetry(string fingerprint, TimeSpan delay)
+    {
+        _pendingRetry = new PendingRetry(fingerprint, _timeProvider.GetUtcNow().Add(delay));
+        _ = SignalRetryAsync(delay);
+    }
+
+    private async Task SignalRetryAsync(TimeSpan delay)
+    {
+        try
+        {
+            await Task.Delay(delay, _timeProvider, _retryCancellation.Token);
+            SettingsChanged();
+        }
+        catch (OperationCanceledException) when (_retryCancellation.IsCancellationRequested)
+        {
+        }
+    }
+
+    private void ResetFailureState()
+    {
+        _restartBudget.Reset();
+        _pendingRetry = null;
+        _quarantinedFingerprint = null;
     }
 
     private void SettingsChanged()
@@ -312,5 +434,10 @@ public sealed class HdHomeRunDiscoveryWorkerSupervisor : BackgroundService
         }
     }
 
-    private sealed record ActiveDiscoveryWorker(string Fingerprint, IVirtualOutputWorkerProcess Process);
+    private sealed record ActiveDiscoveryWorker(
+        string Fingerprint,
+        VirtualOutputWorkerPolicyDefinition Policy,
+        IVirtualOutputWorkerProcess Process);
+
+    private sealed record PendingRetry(string Fingerprint, DateTimeOffset RetryUtc);
 }
