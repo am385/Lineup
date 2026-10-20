@@ -273,12 +273,55 @@ public sealed class HDHomeRunPhysicalTunerDriverTests
         var request = new PhysicalStreamRequest { ChannelId = new SourceChannelId(deviceId, "9.1") };
 
         // Act
-        await Assert.ThrowsAsync<HttpRequestException>(async () => await device.OpenStreamAsync(request, TestContext.Current.CancellationToken));
+        var exception = await Assert.ThrowsAsync<PhysicalStreamAcquisitionException>(
+            async () => await device.OpenStreamAsync(request, TestContext.Current.CancellationToken));
         await using var lease = await device.OpenStreamAsync(request, TestContext.Current.CancellationToken);
 
         // Assert
+        Assert.Equal(PhysicalStreamFailureCategory.Unavailable, exception.Category);
+        Assert.Equal("source_unavailable", exception.Code);
+        Assert.True(exception.Retryable);
         Assert.Equal(2, streamRequestCount);
         Assert.Equal(9, lease.Stream.ReadByte());
+    }
+
+    /// <summary>Verifies HDHomeRun tuner diagnostics become safe provider-neutral acquisition failures.</summary>
+    [Theory]
+    [InlineData("811 Content Protection Required", false, PhysicalStreamFailureCategory.ProtectedContent, "protected_content", false)]
+    [InlineData("807 No Video Data", false, PhysicalStreamFailureCategory.NoData, "source_no_video_data", true)]
+    [InlineData("806 No Signal", true, PhysicalStreamFailureCategory.NoSignal, "source_no_signal", true)]
+    [InlineData("805 All Tuners In Use", false, PhysicalStreamFailureCategory.Capacity, "source_capacity_exceeded", true)]
+    public async Task OpenStreamAsync_TunerDiagnostic_ThrowsStructuredFailure(
+        string diagnostic,
+        bool useResponseBody,
+        PhysicalStreamFailureCategory expectedCategory,
+        string expectedCode,
+        bool expectedRetryable)
+    {
+        // Arrange
+        var driver = CreateDriver(request => request.RequestUri!.AbsolutePath switch
+        {
+            "/discover.json" => JsonResponse(DiscoverJson(tunerCount: 1)),
+            "/lineup.json" => JsonResponse("""[{"GuideNumber":"9.1","GuideName":"PBS","URL":"http://device/auto/v9.1"}]"""),
+            _ => ErrorResponse(diagnostic, useResponseBody)
+        });
+        var deviceId = PhysicalDeviceId.New();
+        var device = await driver.CreateAsync(deviceId, "Bedroom", Configuration("device"), TestContext.Current.CancellationToken);
+        var request = new PhysicalStreamRequest { ChannelId = new SourceChannelId(deviceId, "9.1") };
+
+        // Act
+        var exception = await Assert.ThrowsAsync<PhysicalStreamAcquisitionException>(
+            async () => await device.OpenStreamAsync(request, TestContext.Current.CancellationToken));
+
+        // Assert
+        Assert.Equal(expectedCategory, exception.Category);
+        Assert.Equal(expectedCode, exception.Code);
+        Assert.Equal(expectedRetryable, exception.Retryable);
+        Assert.Equal(deviceId, exception.DeviceId);
+        Assert.Equal(request.ChannelId, exception.ChannelId);
+        var inner = Assert.IsType<HttpRequestException>(exception.InnerException);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, inner.StatusCode);
+        Assert.Contains(diagnostic, inner.Message, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -340,6 +383,19 @@ public sealed class HDHomeRunPhysicalTunerDriverTests
 
     private static HttpResponseMessage JsonResponse(string json)
         => new(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+
+    private static HttpResponseMessage ErrorResponse(string diagnostic, bool useResponseBody)
+    {
+        var response = new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+        {
+            Content = new StringContent(useResponseBody ? diagnostic : "Body must not replace the HDHomeRun error header.", Encoding.UTF8, "text/plain")
+        };
+        if (!useResponseBody)
+        {
+            response.Headers.TryAddWithoutValidation("X-HDHomeRun-Error", diagnostic);
+        }
+        return response;
+    }
 
     private static HttpResponseMessage CountedJsonResponse(ref int requestCount, string json)
     {

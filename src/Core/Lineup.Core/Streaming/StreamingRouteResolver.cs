@@ -69,6 +69,9 @@ public sealed record ResolvedStreamingCandidate
     /// <summary>Gets the physical source URI used for diagnostics.</summary>
     public required Uri DiagnosticUri { get; init; }
 
+    /// <summary>Gets normalized provider metadata for the selected physical source channel.</summary>
+    public IReadOnlyDictionary<string, string> SourceMetadata { get; init; } = new Dictionary<string, string>(StringComparer.Ordinal);
+
     /// <summary>Opens this exact physical source; Core owns its capacity lease.</summary>
     public async ValueTask<IStreamSourceLease> OpenAsync(CancellationToken cancellationToken)
     {
@@ -176,6 +179,7 @@ public sealed class StreamingRouteResolver : IStreamingRouteResolver
         var physicalDefinition = configuration.PhysicalDevices.Single(device => device.Id == sourceId.PhysicalDeviceId);
         var diagnosticUri = CreateDiagnosticUri(physicalDevice, sourceId.ProviderKey);
         var definitions = configuration.PhysicalDevices.ToDictionary(device => device.Id);
+        var sourceMetadata = identities.ToDictionary(identity => identity.Source.Id, identity => identity.Source.Metadata);
         var candidates = availableSources
             .Select(candidate =>
             {
@@ -187,6 +191,7 @@ public sealed class StreamingRouteResolver : IStreamingRouteResolver
                     PhysicalDevice = device,
                     SourceChannelId = candidate,
                     DiagnosticUri = CreateDiagnosticUri(device, candidate.ProviderKey),
+                    SourceMetadata = sourceMetadata[candidate],
                     Acquisition = new StreamAcquisitionDescriptor(
                         candidate.PhysicalDeviceId,
                         PhysicalAcquisitionKey.Create(candidateRequest),

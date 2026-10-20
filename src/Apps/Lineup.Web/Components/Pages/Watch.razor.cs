@@ -193,10 +193,6 @@ public partial class Watch : IAsyncDisposable
                 var retryAudio = retrySourceAudio || retryPackagedFallbackAudio;
                 if ((retryVideo || retryAudio) && _selectedChannelNumber is { } retryChannelNumber)
                 {
-                    if (_streamPreferredVideo == CmafPreferredVideo.Auto || _streamPreferredAudio == CmafPreferredAudio.Auto)
-                    {
-                        await InvalidateCompatibilityProfileAsync();
-                    }
                     var videoPreference = retryVideo ? CmafPreferredVideo.Fallback : _streamPreferredVideo;
                     var audioPreference = retryAudio ? CmafPreferredAudio.Fallback : _streamPreferredAudio;
                     var fallbackAudio = retryAudio ? CmafFallbackAudio.AacStereo : _streamFallbackAudio;
@@ -265,10 +261,6 @@ public partial class Watch : IAsyncDisposable
             _selectedChannelNumber is { } channelNumber)
         {
             Notifications.ShowError(playerEvent.Message);
-            if (_streamPreferredVideo == CmafPreferredVideo.Auto)
-            {
-                await InvalidateCompatibilityProfileAsync();
-            }
             await TuneChannelAsync(channelNumber, _selectedChannel, _streamFallbackAudio, CmafPreferredVideo.Fallback);
         }
         else if (string.Equals(playerEvent.Kind, "protocol-fallback", StringComparison.Ordinal))
@@ -824,20 +816,6 @@ public partial class Watch : IAsyncDisposable
         catch (Exception ex) when (ex is JSException or InvalidOperationException or OperationCanceledException)
         {
             Logger.LogWarning(ex, "Unable to save Watch preferences");
-        }
-    }
-
-    private async Task InvalidateCompatibilityProfileAsync()
-    {
-        _compatibilityProfile = null;
-        try
-        {
-            await BrowserData.RemoveAsync(CmafCompatibilityProfile.StorageKey);
-            Notifications.ShowError(Text["Watch_CompatibilityProfileCleared"]);
-        }
-        catch (Exception ex) when (ex is JSException or InvalidOperationException or OperationCanceledException)
-        {
-            Logger.LogWarning(ex, "Unable to clear a contradicted Watch compatibility profile");
         }
     }
 

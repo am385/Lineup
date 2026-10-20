@@ -553,7 +553,7 @@ public class WatchTestTests
         context.JSInterop
             .Setup<WatchTest.CmafTestCapabilities>("getCmafTestCapabilities")
             .SetResult(new(true, true, string.Empty, true, false, true, false, false, false));
-        context.JSInterop.SetupVoid("stopMediaPlayer", "cmafTestVideoPlayer").SetVoidResult();
+        context.JSInterop.SetupVoid("stopMediaPlayer", _ => true).SetVoidResult();
         context.JSInterop.SetupVoid("stopCmafSession", "test-1", "/api/stream/watch-test/stop/test-1").SetVoidResult();
         context.JSInterop.Setup<string?>("localStorage.getItem", CmafWatchPreferences.StorageKey).SetResult(null);
         context.JSInterop

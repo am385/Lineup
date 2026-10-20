@@ -247,6 +247,271 @@ public sealed class StreamingSessionGraphTests
         Assert.Equal(1, starts);
     }
 
+    /// <summary>Verifies provisional metadata is refreshed once, merged, and then reused after becoming complete.</summary>
+    [Fact]
+    public async Task GetOrRefreshAcquisitionMetadataAsync_ProvisionalResult_RefreshesAndCachesMergedResult()
+    {
+        // Arrange
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance);
+        var source = new ControlledSourceStream();
+        var descriptor = CreateDescriptor(PhysicalDeviceId.New(), "7.1", capacity: 1);
+        await using var continuity = await graph.AcquireAsync(
+            descriptor,
+            _ => ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(source)),
+            TestContext.Current.CancellationToken);
+        var starts = 0;
+        Task<IReadOnlyList<string>> CreateMetadata(Stream stream, CancellationToken cancellationToken)
+        {
+            _ = stream;
+            _ = cancellationToken;
+            var attempt = Interlocked.Increment(ref starts);
+            return Task.FromResult<IReadOnlyList<string>>(attempt == 1 ? ["video"] : ["video", "audio"]);
+        }
+        var policy = new AcquisitionMetadataRefreshPolicy<IReadOnlyList<string>>
+        {
+            IsReusable = metadata => metadata.Contains("audio", StringComparer.Ordinal),
+            Merge = (prior, refreshed) => prior.Concat(refreshed).Distinct(StringComparer.Ordinal).ToArray(),
+            RetryDelay = TimeSpan.Zero
+        };
+
+        // Act
+        var first = await graph.GetOrRefreshAcquisitionMetadataAsync(
+            descriptor,
+            _ => throw new InvalidOperationException(),
+            "probe",
+            CreateMetadata,
+            policy,
+            TestContext.Current.CancellationToken);
+        var second = await graph.GetOrRefreshAcquisitionMetadataAsync(
+            descriptor,
+            _ => throw new InvalidOperationException(),
+            "probe",
+            CreateMetadata,
+            policy,
+            TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(["video", "audio"], first);
+        Assert.Equal(first, second);
+        Assert.Equal(2, starts);
+    }
+
+    /// <summary>Verifies metadata that remains provisional is evicted so a later independent request probes again.</summary>
+    [Fact]
+    public async Task GetOrRefreshAcquisitionMetadataAsync_StillProvisional_EvictsForNextRequest()
+    {
+        // Arrange
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance);
+        var source = new ControlledSourceStream();
+        var descriptor = CreateDescriptor(PhysicalDeviceId.New(), "7.1", capacity: 1);
+        await using var continuity = await graph.AcquireAsync(
+            descriptor,
+            _ => ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(source)),
+            TestContext.Current.CancellationToken);
+        var starts = 0;
+        Task<int> CreateMetadata(Stream stream, CancellationToken cancellationToken)
+        {
+            _ = stream;
+            _ = cancellationToken;
+            Interlocked.Increment(ref starts);
+            return Task.FromResult(0);
+        }
+        var policy = new AcquisitionMetadataRefreshPolicy<int>
+        {
+            IsReusable = metadata => metadata > 0,
+            Merge = Math.Max,
+            RetryDelay = TimeSpan.Zero
+        };
+
+        // Act
+        var first = await graph.GetOrRefreshAcquisitionMetadataAsync(
+            descriptor,
+            _ => throw new InvalidOperationException(),
+            "probe",
+            CreateMetadata,
+            policy,
+            TestContext.Current.CancellationToken);
+        var second = await graph.GetOrRefreshAcquisitionMetadataAsync(
+            descriptor,
+            _ => throw new InvalidOperationException(),
+            "probe",
+            CreateMetadata,
+            policy,
+            TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(0, first);
+        Assert.Equal(0, second);
+        Assert.Equal(4, starts);
+    }
+
+    /// <summary>Verifies concurrent callers share one bounded refresh even when the refreshed metadata remains provisional.</summary>
+    [Fact]
+    public async Task GetOrRefreshAcquisitionMetadataAsync_ConcurrentProvisionalCallers_ShareSingleRefresh()
+    {
+        // Arrange
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance);
+        var source = new ControlledSourceStream();
+        var descriptor = CreateDescriptor(PhysicalDeviceId.New(), "7.1", capacity: 1);
+        await using var continuity = await graph.AcquireAsync(
+            descriptor,
+            _ => ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(source)),
+            TestContext.Current.CancellationToken);
+        var starts = 0;
+        var refreshStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseRefresh = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        async Task<int> CreateMetadata(Stream stream, CancellationToken cancellationToken)
+        {
+            _ = stream;
+            var attempt = Interlocked.Increment(ref starts);
+            if (attempt == 2)
+            {
+                refreshStarted.SetResult();
+                await releaseRefresh.Task.WaitAsync(cancellationToken);
+            }
+            return 0;
+        }
+        var policy = new AcquisitionMetadataRefreshPolicy<int>
+        {
+            IsReusable = metadata => metadata > 0,
+            Merge = Math.Max,
+            RetryDelay = TimeSpan.Zero
+        };
+
+        // Act
+        var first = graph.GetOrRefreshAcquisitionMetadataAsync(
+            descriptor,
+            _ => throw new InvalidOperationException(),
+            "probe",
+            CreateMetadata,
+            policy,
+            TestContext.Current.CancellationToken);
+        var second = graph.GetOrRefreshAcquisitionMetadataAsync(
+            descriptor,
+            _ => throw new InvalidOperationException(),
+            "probe",
+            CreateMetadata,
+            policy,
+            TestContext.Current.CancellationToken);
+        await refreshStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
+        releaseRefresh.SetResult();
+        var results = await Task.WhenAll(first, second);
+
+        // Assert
+        Assert.Equal([0, 0], results);
+        Assert.Equal(2, starts);
+    }
+
+    /// <summary>Verifies one caller can use provisional metadata while a shared refresh continues for a later caller.</summary>
+    [Fact]
+    public async Task GetOrRefreshAcquisitionMetadataAsync_RefreshWaitExpires_ReturnsProvisionalAndRetainsRefresh()
+    {
+        // Arrange
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance);
+        var source = new ControlledSourceStream();
+        var descriptor = CreateDescriptor(PhysicalDeviceId.New(), "7.1", capacity: 1);
+        await using var continuity = await graph.AcquireAsync(
+            descriptor,
+            _ => ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(source)),
+            TestContext.Current.CancellationToken);
+        var starts = 0;
+        var refreshStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseRefresh = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        async Task<int> CreateMetadata(Stream stream, CancellationToken cancellationToken)
+        {
+            _ = stream;
+            var attempt = Interlocked.Increment(ref starts);
+            if (attempt == 2)
+            {
+                refreshStarted.SetResult();
+                await releaseRefresh.Task.WaitAsync(cancellationToken);
+            }
+            return attempt == 1 ? 0 : 1;
+        }
+        var policy = new AcquisitionMetadataRefreshPolicy<int>
+        {
+            IsReusable = metadata => metadata > 0,
+            Merge = Math.Max,
+            RetryDelay = TimeSpan.Zero,
+            OperationTimeout = TimeSpan.FromSeconds(5),
+            RefreshWaitTimeout = TimeSpan.FromMilliseconds(50)
+        };
+
+        // Act
+        var firstTask = graph.GetOrRefreshAcquisitionMetadataAsync(
+            descriptor,
+            _ => throw new InvalidOperationException(),
+            "probe",
+            CreateMetadata,
+            policy,
+            TestContext.Current.CancellationToken);
+        await refreshStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
+        var first = await firstTask;
+        releaseRefresh.SetResult();
+        var second = await graph.GetOrRefreshAcquisitionMetadataAsync(
+            descriptor,
+            _ => throw new InvalidOperationException(),
+            "probe",
+            CreateMetadata,
+            policy,
+            TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(0, first);
+        Assert.Equal(1, second);
+        Assert.Equal(2, starts);
+    }
+
+    /// <summary>Verifies a shared metadata operation cannot outlive its independent operation budget.</summary>
+    [Fact]
+    public async Task GetOrRefreshAcquisitionMetadataAsync_OperationTimeout_CancelsAndEvictsMetadata()
+    {
+        // Arrange
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance);
+        var source = new ControlledSourceStream();
+        var descriptor = CreateDescriptor(PhysicalDeviceId.New(), "7.1", capacity: 1);
+        await using var continuity = await graph.AcquireAsync(
+            descriptor,
+            _ => ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(source)),
+            TestContext.Current.CancellationToken);
+        var starts = 0;
+        async Task<int> CreateMetadata(Stream stream, CancellationToken cancellationToken)
+        {
+            _ = stream;
+            Interlocked.Increment(ref starts);
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return 1;
+        }
+        var policy = new AcquisitionMetadataRefreshPolicy<int>
+        {
+            IsReusable = metadata => metadata > 0,
+            Merge = Math.Max,
+            RetryDelay = TimeSpan.Zero,
+            OperationTimeout = TimeSpan.FromMilliseconds(50)
+        };
+
+        // Act
+        var first = graph.GetOrRefreshAcquisitionMetadataAsync(
+            descriptor,
+            _ => throw new InvalidOperationException(),
+            "probe",
+            CreateMetadata,
+            policy,
+            TestContext.Current.CancellationToken);
+        var second = graph.GetOrRefreshAcquisitionMetadataAsync(
+            descriptor,
+            _ => throw new InvalidOperationException(),
+            "probe",
+            CreateMetadata,
+            policy,
+            TestContext.Current.CancellationToken);
+
+        // Assert
+        await Assert.ThrowsAsync<TimeoutException>(() => first);
+        await Assert.ThrowsAsync<TimeoutException>(() => second);
+        Assert.Equal(1, starts);
+    }
+
     /// <summary>
     /// Verifies a distinct acquisition is rejected when finite capacity is occupied.
     /// </summary>

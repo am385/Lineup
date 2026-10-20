@@ -27,6 +27,9 @@ public interface IActiveStreamRegistry
     /// <summary>Removes an active stream.</summary>
     bool Unregister(string sessionId);
 
+    /// <summary>Atomically updates an existing active stream while preserving its stop callback.</summary>
+    bool TryUpdate(string sessionId, Func<ActiveStreamSnapshot, ActiveStreamSnapshot> update);
+
     /// <summary>Returns immutable active stream snapshots ordered by start time.</summary>
     IReadOnlyList<ActiveStreamSnapshot> GetActiveStreams();
 }
@@ -157,6 +160,27 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
                 _allStreamsStopped.TrySetResult();
             }
             return removed;
+        }
+    }
+
+    /// <inheritdoc />
+    public bool TryUpdate(string sessionId, Func<ActiveStreamSnapshot, ActiveStreamSnapshot> update)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ArgumentNullException.ThrowIfNull(update);
+        lock (_registrationLock)
+        {
+            if (!_streams.TryGetValue(sessionId, out var current))
+            {
+                return false;
+            }
+            var updated = update(CloneSnapshot(current.Snapshot));
+            if (!string.Equals(updated.SessionId, sessionId, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("An active stream update cannot change its session identifier.");
+            }
+            _streams[sessionId] = current with { Snapshot = CloneSnapshot(updated) };
+            return true;
         }
     }
 

@@ -505,11 +505,14 @@ public class WatchTests
     public void SourceVideoInitializationDecodeFailure_RetriesWithH264WithoutChangingPreference()
     {
         // Arrange
+        var profile = CreateCompatibilityProfile();
         using var context = CreateContext();
+        context.JSInterop.Setup<string?>("localStorage.getItem", CmafCompatibilityProfile.StorageKey).SetResult(JsonSerializer.Serialize(profile));
+        context.JSInterop.Setup<string>("getCmafBrowserIdentity").SetResult("test-browser");
         context.JSInterop
             .Setup<Watch.CmafStartResponse>(
                 "startCmafSession",
-                invocation => GetStartRequest(invocation).PreferredVideo == CmafPreferredVideo.Source)
+                invocation => GetStartRequest(invocation).PreferredVideo == CmafPreferredVideo.Auto)
             .SetResult(
                 new(
                     "source-session",
@@ -542,11 +545,17 @@ public class WatchTests
         {
             var starts = context.JSInterop.Invocations.Where(invocation => invocation.Identifier == "startCmafSession").ToArray();
             Assert.Equal(2, starts.Length);
-            Assert.Equal(CmafPreferredVideo.Source, GetStartRequest(starts[0]).PreferredVideo);
-            Assert.Equal(CmafPreferredVideo.Fallback, GetStartRequest(starts[1]).PreferredVideo);
+            var initialRequest = GetStartRequest(starts[0]);
+            var fallbackRequest = GetStartRequest(starts[1]);
+            Assert.Equal(CmafPreferredVideo.Auto, initialRequest.PreferredVideo);
+            Assert.Equal(CmafPreferredVideo.Fallback, fallbackRequest.PreferredVideo);
+            Assert.Equal(CmafPreferredAudio.Auto, fallbackRequest.PreferredAudio);
+            Assert.NotNull(initialRequest.CompatibilityProfile);
+            Assert.NotNull(fallbackRequest.CompatibilityProfile);
             Assert.Equal(nameof(CmafPreferredVideo.Source), component.Find("#cmafPreferredVideo").GetAttribute("value"));
             Assert.Contains("avc1.64002a", component.Markup);
             Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "localStorage.setItem");
+            Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "localStorage.removeItem");
         });
     }
 
@@ -587,11 +596,14 @@ public class WatchTests
     public async Task SourceH264RuntimeFailure_RestartsWithH264()
     {
         // Arrange
+        var profile = CreateCompatibilityProfile();
         using var context = CreateContext();
+        context.JSInterop.Setup<string?>("localStorage.getItem", CmafCompatibilityProfile.StorageKey).SetResult(JsonSerializer.Serialize(profile));
+        context.JSInterop.Setup<string>("getCmafBrowserIdentity").SetResult("test-browser");
         context.JSInterop
             .Setup<Watch.CmafStartResponse>(
                 "startCmafSession",
-                invocation => GetStartRequest(invocation).PreferredVideo == CmafPreferredVideo.Source)
+                invocation => GetStartRequest(invocation).PreferredVideo == CmafPreferredVideo.Auto)
             .SetResult(
                 new(
                     "source-session",
@@ -627,8 +639,12 @@ public class WatchTests
         {
             var starts = context.JSInterop.Invocations.Where(invocation => invocation.Identifier == "startCmafSession").ToArray();
             Assert.Equal(2, starts.Length);
-            Assert.Equal(CmafPreferredVideo.Fallback, GetStartRequest(starts[1]).PreferredVideo);
+            var fallbackRequest = GetStartRequest(starts[1]);
+            Assert.Equal(CmafPreferredVideo.Fallback, fallbackRequest.PreferredVideo);
+            Assert.Equal(CmafPreferredAudio.Auto, fallbackRequest.PreferredAudio);
+            Assert.NotNull(fallbackRequest.CompatibilityProfile);
             Assert.Equal(nameof(CmafPreferredVideo.Source), component.Find("#cmafPreferredVideo").GetAttribute("value"));
+            Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "localStorage.removeItem");
         });
     }
 
@@ -962,7 +978,9 @@ public class WatchTests
         ConfigureSuccessfulSession(context);
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
         component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer"));
-        var stopPlayer = context.JSInterop.SetupVoid("stopMediaPlayer", "cmafVideoPlayer");
+        var stopPlayer = context.JSInterop.SetupVoid(
+            "stopMediaPlayer",
+            invocation => invocation.Arguments.Count == 2 && Equals(invocation.Arguments[0], "cmafVideoPlayer"));
         var stop = component.InvokeAsync(() => component.Instance.OnCmafPlayerEvent(new("error", "Playback failed.", null, "session-1")));
         component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopMediaPlayer"));
         var sessionField = typeof(Watch).GetField("_session", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -1321,7 +1339,7 @@ public class WatchTests
         context.JSInterop.Setup<string?>("localStorage.getItem", CmafCompatibilityProfile.StorageKey).SetResult(null);
         context.JSInterop.SetupVoid("localStorage.setItem", _ => true).SetVoidResult();
         context.JSInterop.SetupVoid("cancelCmafStart", _ => true).SetVoidResult();
-        context.JSInterop.SetupVoid("stopMediaPlayer", "cmafVideoPlayer").SetVoidResult();
+        context.JSInterop.SetupVoid("stopMediaPlayer", _ => true).SetVoidResult();
         context.JSInterop.SetupVoid("stopCmafSession", "session-1").SetVoidResult();
         return context;
     }

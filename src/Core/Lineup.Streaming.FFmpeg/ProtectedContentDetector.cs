@@ -13,7 +13,7 @@ public sealed record ProtectedContentDetection(bool IsProtected, bool IsInferred
 /// </summary>
 public static class ProtectedContentDetector
 {
-    private const string InferredMessage = "811 DRM content inferred from channel lineup metadata after playback startup failed.";
+    private const string InferredMessage = "The requested channel is protected and cannot be streamed.";
 
     /// <summary>
     /// Determines whether a failed stream is protected.
@@ -42,5 +42,41 @@ public static class ProtectedContentDetector
         return cachedDrm
             ? new ProtectedContentDetection(IsProtected: true, IsInferred: true, InferredMessage)
             : new ProtectedContentDetection(IsProtected: false, IsInferred: false, Message: null);
+    }
+
+    /// <summary>Determines whether normalized physical-source metadata marks a channel as protected.</summary>
+    public static bool IsProtected(IReadOnlyDictionary<string, string> sourceMetadata)
+    {
+        ArgumentNullException.ThrowIfNull(sourceMetadata);
+        return sourceMetadata.TryGetValue("drm", out var drm)
+            && (bool.TryParse(drm, out var protectedFlag) && protectedFlag
+                || int.TryParse(drm, out var protectedValue) && protectedValue != 0);
+    }
+
+    /// <summary>Classifies a resolved route as known protected only when every available equivalent source is marked protected.</summary>
+    public static ProtectedContentDetection Detect(ResolvedStreamingRoute route)
+    {
+        ArgumentNullException.ThrowIfNull(route);
+        return route.Candidates.Count > 0 && route.Candidates.All(candidate => IsProtected(candidate.SourceMetadata))
+            ? new ProtectedContentDetection(IsProtected: true, IsInferred: true, InferredMessage)
+            : new ProtectedContentDetection(IsProtected: false, IsInferred: false, Message: null);
+    }
+
+    /// <summary>Creates a provider-neutral protected-content failure without opening a physical stream.</summary>
+    public static StreamAcquisitionException CreateAcquisitionException(ResolvedStreamingRoute route)
+    {
+        ArgumentNullException.ThrowIfNull(route);
+        var candidateFailures = route.Candidates.Select(candidate => new StreamAcquisitionCandidateFailure
+        {
+            DeviceId = candidate.SourceChannelId.PhysicalDeviceId,
+            ChannelId = candidate.SourceChannelId,
+            Category = PhysicalStreamFailureCategory.ProtectedContent,
+            Code = "protected_content",
+            Message = "The physical source metadata marks this channel as protected.",
+            Retryable = false
+        }).ToArray();
+        return StreamAcquisitionException.Create(
+            candidateFailures,
+            candidateFailures.Select(failure => new InvalidOperationException(failure.Message)).ToArray());
     }
 }

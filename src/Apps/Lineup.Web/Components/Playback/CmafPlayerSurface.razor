@@ -21,6 +21,8 @@
 </div>
 
 @code {
+    private readonly string _playerOwnerId = Guid.NewGuid().ToString("N");
+
     /// <summary>Gets or sets the stable video element identifier.</summary>
     [Parameter, EditorRequired]
     public string ElementId { get; set; } = string.Empty;
@@ -87,7 +89,8 @@
             subtitles,
             callbackReference,
             sessionId,
-            LocalizedText);
+            LocalizedText,
+            _playerOwnerId);
 
     /// <summary>Initializes exact-presentation compatibility playback in this surface.</summary>
     public ValueTask<TResult> InitializeTestAsync<TResult, TCallback>(
@@ -107,10 +110,11 @@
             subtitleUrl,
             callbackReference,
             sessionId,
-            LocalizedText);
+            LocalizedText,
+            _playerOwnerId);
 
     /// <summary>Stops and releases browser playback resources owned by this surface.</summary>
-    public ValueTask StopAsync() => JS.StopMediaPlayerAsync(ElementId);
+    public ValueTask StopAsync() => JS.InvokeVoidAsync("stopMediaPlayer", ElementId, _playerOwnerId);
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()

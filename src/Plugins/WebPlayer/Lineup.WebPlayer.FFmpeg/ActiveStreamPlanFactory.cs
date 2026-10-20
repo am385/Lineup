@@ -137,7 +137,7 @@ public static class ActiveStreamPlanFactory
         CmafStreamRequest request,
         LineupSettings encoderSettings,
         VirtualTranscodeProfile profile)
-        => CreateCmaf(sessionId, channel, startedAtUtc, source, source, selection, request, encoderSettings, profile);
+        => CreateCmaf(sessionId, channel, startedAtUtc, source, source, selection, request, profile);
 
     /// <summary>Creates CMAF stream metadata from raw source media and the complete effective topology plan.</summary>
     public static ActiveStreamSnapshot CreateCmaf(
@@ -149,6 +149,18 @@ public static class ActiveStreamPlanFactory
         WebPlayerTrackSelection selection,
         CmafStreamRequest request,
         LineupSettings encoderSettings,
+        VirtualTranscodeProfile profile)
+        => CreateCmaf(sessionId, channel, startedAtUtc, rawSource, source, selection, request, profile);
+
+    /// <summary>Creates CMAF stream metadata from raw source media and a worker's complete effective topology plan.</summary>
+    public static ActiveStreamSnapshot CreateCmaf(
+        string sessionId,
+        string channel,
+        DateTime startedAtUtc,
+        MediaProbeResult rawSource,
+        MediaProbeResult source,
+        WebPlayerTrackSelection selection,
+        CmafStreamRequest request,
         VirtualTranscodeProfile profile)
     {
         var audioRenditions = CmafStreamPlanner.CreatePresentationAudioRenditions(
@@ -174,6 +186,7 @@ public static class ActiveStreamPlanFactory
             var selected = track.Type switch
             {
                 MediaTrackType.Video => track == sourceVideo,
+                MediaTrackType.Subtitle when track.SubtitlePresentation == SubtitlePresentation.WebVtt => true,
                 MediaTrackType.Subtitle => track.Index == selection.Subtitle?.Index,
                 _ => false
             };

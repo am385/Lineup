@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Lineup.Common.Configuration;
 using Lineup.Extensibility.Configuration;
+using Lineup.VirtualOutputs.Protocol;
 using Lineup.VirtualOutputs.Runtime;
 using Lineup.Web.Services;
 using Microsoft.Data.Sqlite;
@@ -49,6 +50,9 @@ public class StatusApiServiceTests
         Assert.Null(result.Streams.Items[0].ClientAddress);
         Assert.Equal("grant-1", result.Streams.Items[0].AuthenticatedClientId);
         Assert.Equal("Remote household", result.Streams.Items[0].AuthenticatedClientName);
+        Assert.Equal("broker-request-1", result.Streams.Items[0].BrokerRequestId);
+        Assert.Equal("worker-media-1", result.Streams.Items[0].WorkerMediaSessionId);
+        Assert.Equal("ready", result.Streams.Items[0].WorkerStartupStage);
         Assert.Equal("transform", Assert.Single(result.StreamingGraph.Nodes).Kind);
         Assert.Equal(2, result.StreamingGraph.Nodes[0].ReceiverCount);
         Assert.Equal(3, result.StreamingGraph.Nodes[0].TotalSubscriptions);
@@ -334,7 +338,10 @@ public class StatusApiServiceTests
                 ClientId = "watch-1",
                 AuthenticatedClientId = "grant-1",
                 AuthenticatedClientName = "Remote household",
-                ClientAddress = "192.0.2.20:54321"
+                ClientAddress = "192.0.2.20:54321",
+                BrokerRequestId = "broker-request-1",
+                WorkerMediaSessionId = "worker-media-1",
+                WorkerStartupStage = nameof(VirtualOutputStreamStartupStage.Ready)
             }
         ]);
         var profiles = Substitute.For<IHdHomeRunProxyProfileProvider>();

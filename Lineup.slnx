@@ -49,7 +49,6 @@
     <Project Path="scripts/Lineup.VirtualOutputWorkerPackager/Lineup.VirtualOutputWorkerPackager.csproj" />
   </Folder>
   <Folder Name="/tests/" />
-
   <!-- Mirrored test hierarchy -->
   <Folder Name="/tests/Apps/">
     <Project Path="tests/Apps/Lineup.Tui.Tests/Lineup.Tui.Tests.csproj" />
@@ -79,6 +78,9 @@
   </Folder>
   <Folder Name="/tests/Plugins/WebPlayer/">
     <Project Path="tests/Plugins/WebPlayer/Lineup.WebPlayer.Tests/Lineup.WebPlayer.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tests/TestSupport/">
+    <Project Path="tests/TestSupport/Lineup.FakeFFmpeg/Lineup.FakeFFmpeg.csproj" />
   </Folder>
   <Folder Name="/_Solution Items/">
     <File Path=".dockerignore" />

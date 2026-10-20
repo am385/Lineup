@@ -168,6 +168,45 @@ public class SourceDeinterlacePlannerTests
         Assert.DoesNotContain("-filter:v:0", cmafArguments);
     }
 
+    /// <summary>Verifies virtual MPEG-TS metadata reflects output transforms and remapped stream indexes.</summary>
+    [Fact]
+    public void CreateVirtualMpegTsSource_VirtualProfile_DescribesDeliveredWorkerStream()
+    {
+        // Arrange
+        var source = new MediaProbeResult(
+        [
+            new MediaTrackMetadata(0, MediaTrackType.Video, "hevc", 12_000_000, 1920, 1080, null, null) { ScanType = VideoScanType.Interlaced },
+            new MediaTrackMetadata(4, MediaTrackType.Audio, "ac4", 384_000, null, null, 8, 48_000),
+            new MediaTrackMetadata(7, MediaTrackType.Subtitle, "eia_608", null, null, null, null, null)
+            {
+                IsEmbeddedClosedCaptions = true,
+                SubtitlePresentation = SubtitlePresentation.WebVtt
+            }
+        ],
+        12_500_000);
+        var profile = new VirtualTranscodeProfile
+        {
+            ConvertHevcToH264 = true,
+            Deinterlace = SourceDeinterlacePolicy.SourceFieldRate,
+            Ac4Audio = OutputAudioPolicy.Ac3,
+            MaximumVideoBitRateMbps = 8
+        };
+
+        // Act
+        var effective = SourceDeinterlacePlanner.CreateVirtualMpegTsSource(source, profile);
+
+        // Assert
+        Assert.Equal([0, 1, 2], effective.Tracks.Select(track => track.Index));
+        var video = Assert.Single(effective.Tracks, track => track.Type == MediaTrackType.Video);
+        Assert.Equal("h264", video.Codec);
+        Assert.Equal(VideoScanType.Progressive, video.ScanType);
+        Assert.Equal(8_000_000, video.BitRate);
+        var audio = Assert.Single(effective.Tracks, track => track.Type == MediaTrackType.Audio);
+        Assert.Equal("ac3", audio.Codec);
+        Assert.Equal(6, audio.Channels);
+        Assert.True(Assert.Single(effective.Tracks, track => track.Type == MediaTrackType.Subtitle).IsEmbeddedClosedCaptions);
+    }
+
     private static void AssertOption(IReadOnlyList<string> arguments, string option, string value)
     {
         var index = Assert.Single(arguments.Select((argument, index) => (argument, index)), item => item.argument == option).index;

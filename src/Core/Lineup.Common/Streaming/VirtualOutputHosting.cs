@@ -193,6 +193,9 @@ public sealed record VirtualOutputRuntimeSnapshot
     /// <summary>Gets the number of active public connections.</summary>
     public int ActiveConnections { get; init; }
 
+    /// <summary>Gets the number of active Core broker streams owned by this worker.</summary>
+    public int ActiveBrokerStreams { get; init; }
+
     /// <summary>Gets the restart count within the active policy window.</summary>
     public int RestartCount { get; init; }
 

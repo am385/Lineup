@@ -4,13 +4,13 @@ namespace Lineup.WebPlayer.VirtualOutputHost;
 
 internal sealed class MediaSessionStartupGuard(string directory, IAsyncDisposable source) : IAsyncDisposable
 {
-    private Process? _process;
+    private readonly List<Process> _processes = [];
     private bool _ownershipTransferred;
 
     internal void RegisterProcess(Process process)
     {
         ArgumentNullException.ThrowIfNull(process);
-        _process = process;
+        _processes.Add(process);
     }
 
     internal void TransferOwnership() => _ownershipTransferred = true;
@@ -23,22 +23,22 @@ internal sealed class MediaSessionStartupGuard(string directory, IAsyncDisposabl
         }
         try
         {
-            if (_process is not null)
+            foreach (var process in _processes)
             {
                 try
                 {
-                    if (!_process.HasExited)
+                    if (!process.HasExited)
                     {
-                        _process.Kill(entireProcessTree: true);
+                        process.Kill(entireProcessTree: true);
                     }
-                    await _process.WaitForExitAsync();
+                    await process.WaitForExitAsync();
                 }
                 catch (InvalidOperationException)
                 {
                 }
                 finally
                 {
-                    _process.Dispose();
+                    process.Dispose();
                 }
             }
         }

@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using System.Text.Json;
 using Lineup.Common.Streaming;
 using Lineup.Core.Settings;
+using Lineup.Core.Streaming;
 using Lineup.VirtualOutputs.Protocol;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -17,8 +18,10 @@ public sealed class VirtualOutputIpcServer : BackgroundService
     private readonly IVirtualOutputBroker _broker;
     private readonly IVirtualOutputRuntimeStatus _status;
     private readonly ILineupSettingsService _settings;
+    private readonly IActiveStreamRegistry _activeStreams;
     private readonly ILogger<VirtualOutputIpcServer> _logger;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<VirtualDeviceId, int> _outstandingCalls = new();
+    private readonly VirtualOutputBrokerStreamRegistry _brokerStreams;
     private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Socket? _unixListener;
 
@@ -29,6 +32,7 @@ public sealed class VirtualOutputIpcServer : BackgroundService
         IVirtualOutputBroker broker,
         IVirtualOutputRuntimeStatus status,
         ILineupSettingsService settings,
+        IActiveStreamRegistry activeStreams,
         ILogger<VirtualOutputIpcServer> logger)
     {
         _endpoint = endpoint;
@@ -36,7 +40,9 @@ public sealed class VirtualOutputIpcServer : BackgroundService
         _broker = broker;
         _status = status;
         _settings = settings;
+        _activeStreams = activeStreams;
         _logger = logger;
+        _brokerStreams = new VirtualOutputBrokerStreamRegistry(authority, logger);
         ValidateEndpoint(endpoint);
     }
 
@@ -50,6 +56,8 @@ public sealed class VirtualOutputIpcServer : BackgroundService
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        using var brokerStreamCancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        var expirationTask = _brokerStreams.RunExpirationLoopAsync(brokerStreamCancellation.Token);
         try
         {
             if (_endpoint.Transport == VirtualOutputIpcTransport.NamedPipe)
@@ -65,6 +73,12 @@ public sealed class VirtualOutputIpcServer : BackgroundService
         {
             _ready.TrySetException(exception);
             throw;
+        }
+        finally
+        {
+            brokerStreamCancellation.Cancel();
+            await expirationTask;
+            await _brokerStreams.DisposeAllAsync();
         }
     }
 
@@ -184,6 +198,12 @@ public sealed class VirtualOutputIpcServer : BackgroundService
             case VirtualOutputIpcOperation.OpenStream:
                 await WriteStreamAsync(stream, request.ReadPayload<VirtualOutputOpenStreamRequest>(), cancellationToken);
                 break;
+            case VirtualOutputIpcOperation.CloseStream:
+                await CloseStreamAsync(stream, request.ReadPayload<VirtualOutputCloseStreamRequest>(), cancellationToken);
+                break;
+            case VirtualOutputIpcOperation.ReportStreamStatus:
+                await ReportStreamStatusAsync(stream, request.ReadPayload<VirtualOutputStreamStatusReport>(), cancellationToken);
+                break;
             case VirtualOutputIpcOperation.ReportHealth:
                 await ReportHealthAsync(stream, request.ReadPayload<VirtualOutputWorkerHealthReport>(), cancellationToken);
                 break;
@@ -268,6 +288,7 @@ public sealed class VirtualOutputIpcServer : BackgroundService
                     ProtocolVersion = current?.ProtocolVersion,
                     Bindings = current?.Bindings ?? [],
                     ActiveConnections = request.ActiveConnections,
+                    ActiveBrokerStreams = _brokerStreams.Count(virtualDeviceId),
                     RestartCount = current?.RestartCount ?? 0,
                     ReadySinceUtc = request.Ready
                         ? current?.ReadySinceUtc ?? DateTimeOffset.UtcNow
@@ -282,12 +303,85 @@ public sealed class VirtualOutputIpcServer : BackgroundService
     private async Task WriteStreamAsync(Stream stream, VirtualOutputOpenStreamRequest request, CancellationToken cancellationToken)
     {
         using var lease = AcquireBrokerCall(request.Session, VirtualOutputCapability.OpenStream);
-        await using var output = await _broker.OpenStreamAsync(request, cancellationToken);
-        await VirtualOutputWireProtocol.WriteAsync(stream, VirtualOutputIpcResponse.Success(output.Response), cancellationToken);
-        await output.Stream.CopyToAsync(stream, cancellationToken);
+        var output = await _broker.OpenStreamAsync(request, cancellationToken);
+        if (!_brokerStreams.TryAdd(lease.VirtualDeviceId, request, output))
+        {
+            await output.DisposeAsync();
+            throw new VirtualOutputBrokerException(VirtualOutputFailureCode.InvalidRequest, "The stream request ID is already active.");
+        }
+        try
+        {
+            await VirtualOutputWireProtocol.WriteAsync(stream, VirtualOutputIpcResponse.Success(output.Response), cancellationToken);
+            await output.Stream.CopyToAsync(stream, cancellationToken);
+        }
+        finally
+        {
+            await _brokerStreams.CompleteAsync(request.RequestId, output);
+        }
     }
 
-    private IDisposable AcquireBrokerCall(
+    private async Task CloseStreamAsync(Stream stream, VirtualOutputCloseStreamRequest request, CancellationToken cancellationToken)
+    {
+        var validation = VirtualOutputProtocolValidation.Validate(request);
+        if (validation.Count > 0)
+        {
+            throw new VirtualOutputBrokerException(VirtualOutputFailureCode.InvalidRequest, string.Join(" ", validation));
+        }
+        _ = AuthorizeBrokerCall(request.Session, VirtualOutputCapability.OpenStream);
+        var closed = await _brokerStreams.CloseAsync(request);
+        await WriteAsync(stream, new VirtualOutputCloseStreamResponse { Closed = closed }, cancellationToken);
+    }
+
+    private async Task ReportStreamStatusAsync(Stream stream, VirtualOutputStreamStatusReport report, CancellationToken cancellationToken)
+    {
+        var validation = VirtualOutputProtocolValidation.Validate(report);
+        if (validation.Count > 0)
+        {
+            throw new VirtualOutputBrokerException(VirtualOutputFailureCode.InvalidRequest, string.Join(" ", validation));
+        }
+        _ = AuthorizeBrokerCall(report.Session, VirtualOutputCapability.OpenStream);
+        if (!_brokerStreams.Matches(report.RequestId, report.Session, report.StreamSessionId))
+        {
+            throw new VirtualOutputBrokerException(
+                VirtualOutputFailureCode.InvalidRequest,
+                "The worker stream-status report does not match an active broker stream.");
+        }
+        var updated = _activeStreams.TryUpdate(report.StreamSessionId.ToString(), current => current with
+        {
+            Format = report.Format,
+            Tracks = report.Tracks,
+            PhysicalInput = report.PhysicalInput ?? current.PhysicalInput,
+            PhysicalOutput = report.PhysicalOutput ?? current.PhysicalOutput,
+            VirtualOutput = report.VirtualOutput ?? current.VirtualOutput,
+            BrokerRequestId = report.RequestId.ToString(),
+            WorkerMediaSessionId = report.WorkerMediaSessionId,
+            WorkerStartupStage = report.StartupStage.ToString(),
+            WorkerLastFailure = report.LastFailure
+        });
+        await WriteAsync(stream, new VirtualOutputStreamStatusResponse { Updated = updated }, cancellationToken);
+    }
+
+    private BrokerCallLease AcquireBrokerCall(
+        VirtualOutputSessionContext session,
+        VirtualOutputCapability capability)
+    {
+        var virtualDeviceId = AuthorizeBrokerCall(session, capability);
+        var device = _settings.Settings.Streaming.VirtualDevices.Single(candidate => candidate.Id == virtualDeviceId);
+        var workerPolicyKey = device.Hosting!.WorkerPolicyKey!;
+        var policy = _settings.Settings.Streaming.VirtualOutputWorkerPolicies.Single(candidate =>
+            string.Equals(candidate.Key, workerPolicyKey, StringComparison.OrdinalIgnoreCase));
+        var count = _outstandingCalls.AddOrUpdate(virtualDeviceId, 1, (_, current) => checked(current + 1));
+        if (count > policy.MaximumOutstandingBrokerCalls)
+        {
+            ReleaseBrokerCall(virtualDeviceId);
+            throw new VirtualOutputBrokerException(
+                VirtualOutputFailureCode.ResourceLimit,
+                "The virtual-output worker exceeded its concurrent broker-call limit.");
+        }
+        return new BrokerCallLease(this, virtualDeviceId);
+    }
+
+    private VirtualDeviceId AuthorizeBrokerCall(
         VirtualOutputSessionContext session,
         VirtualOutputCapability capability)
     {
@@ -303,17 +397,9 @@ public sealed class VirtualOutputIpcServer : BackgroundService
             ?? throw new VirtualOutputBrokerException(VirtualOutputFailureCode.Unavailable, "The assigned virtual output is unavailable.");
         var workerPolicyKey = device.Hosting?.WorkerPolicyKey
             ?? throw new VirtualOutputBrokerException(VirtualOutputFailureCode.Unavailable, "The assigned virtual output has no worker policy.");
-        var policy = _settings.Settings.Streaming.VirtualOutputWorkerPolicies.Single(candidate =>
+        _ = _settings.Settings.Streaming.VirtualOutputWorkerPolicies.Single(candidate =>
             string.Equals(candidate.Key, workerPolicyKey, StringComparison.OrdinalIgnoreCase));
-        var count = _outstandingCalls.AddOrUpdate(virtualDeviceId, 1, (_, current) => checked(current + 1));
-        if (count > policy.MaximumOutstandingBrokerCalls)
-        {
-            ReleaseBrokerCall(virtualDeviceId);
-            throw new VirtualOutputBrokerException(
-                VirtualOutputFailureCode.ResourceLimit,
-                "The virtual-output worker exceeded its concurrent broker-call limit.");
-        }
-        return new BrokerCallLease(this, virtualDeviceId);
+        return virtualDeviceId;
     }
 
     private void ReleaseBrokerCall(VirtualDeviceId virtualDeviceId)
@@ -341,6 +427,7 @@ public sealed class VirtualOutputIpcServer : BackgroundService
             Generation = report.Session.Generation,
             Bindings = report.Bindings,
             ActiveConnections = report.ActiveConnections,
+            ActiveBrokerStreams = _brokerStreams.Count(virtualDeviceId),
             ProcessId = current?.ProcessId,
             ProtocolVersion = current?.ProtocolVersion,
             RestartCount = current?.RestartCount ?? 0,
@@ -384,17 +471,24 @@ public sealed class VirtualOutputIpcServer : BackgroundService
         }
     }
 
-    private sealed class BrokerCallLease(
-        VirtualOutputIpcServer owner,
-        VirtualDeviceId virtualDeviceId) : IDisposable
+    private sealed class BrokerCallLease : IDisposable
     {
+        private readonly VirtualOutputIpcServer _owner;
         private int _disposed;
+
+        internal BrokerCallLease(VirtualOutputIpcServer owner, VirtualDeviceId virtualDeviceId)
+        {
+            _owner = owner;
+            VirtualDeviceId = virtualDeviceId;
+        }
+
+        internal VirtualDeviceId VirtualDeviceId { get; }
 
         public void Dispose()
         {
             if (Interlocked.Exchange(ref _disposed, 1) == 0)
             {
-                owner.ReleaseBrokerCall(virtualDeviceId);
+                _owner.ReleaseBrokerCall(VirtualDeviceId);
             }
         }
     }

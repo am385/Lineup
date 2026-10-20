@@ -17,6 +17,7 @@ public static class FfmpegStreamingServiceCollectionExtensions
         services.AddSingleton<IStreamingRouteResolver, StreamingRouteResolver>();
         services.AddSingleton<IVirtualMpegTsOutputService, VirtualMpegTsOutputService>();
         services.AddSingleton<IMediaProcessFactory, MediaProcessFactory>();
+        services.AddSingleton<IChannelSlateStreamFactory, ChannelSlateStreamFactory>();
         return services;
     }
 }

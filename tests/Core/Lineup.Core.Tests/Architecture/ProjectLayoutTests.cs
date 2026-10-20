@@ -112,7 +112,7 @@ public sealed class ProjectLayoutTests
         Assert.True(File.Exists(resolved), resolved);
     }
 
-    /// <summary>Verifies the solution contains every source, test, and build-tool project exactly once.</summary>
+    /// <summary>Verifies the CI solution contains every source, automated-test, and build-tool project exactly once.</summary>
     [Fact]
     public void SolutionProjects_MatchRepositoryProjects()
     {
@@ -120,7 +120,7 @@ public sealed class ProjectLayoutTests
         var repositoryRoot = GetRepositoryRoot();
         var solution = XDocument.Load(Path.Combine(repositoryRoot, "Lineup.slnx"));
         var expected = GetProjects(Path.Combine(repositoryRoot, "src"))
-            .Concat(GetProjects(Path.Combine(repositoryRoot, "tests")))
+            .Concat(GetProjects(Path.Combine(repositoryRoot, "tests")).Where(path => !IsOptInHardwareIntegrationProject(repositoryRoot, path)))
             .Concat(GetProjects(Path.Combine(repositoryRoot, "scripts")))
             .Select(path => Normalize(Path.GetRelativePath(repositoryRoot, path)))
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
@@ -139,6 +139,29 @@ public sealed class ProjectLayoutTests
         // Assert
         Assert.Equal(expected, actual, StringComparer.OrdinalIgnoreCase);
         Assert.Equal(actual.Length, actual.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+    }
+
+    /// <summary>Verifies hardware integration projects remain outside the CI solution.</summary>
+    [Fact]
+    public void HardwareIntegrationProjects_AreExcludedFromSolution()
+    {
+        // Arrange
+        var repositoryRoot = GetRepositoryRoot();
+        var solution = XDocument.Load(Path.Combine(repositoryRoot, "Lineup.slnx"));
+        var integrationProjects = GetProjects(Path.Combine(repositoryRoot, "tests", "Integration"))
+            .Select(path => Normalize(Path.GetRelativePath(repositoryRoot, path)))
+            .ToArray();
+
+        // Act
+        var solutionProjects = solution
+            .Descendants()
+            .Where(element => element.Name.LocalName == "Project")
+            .Select(element => Normalize(element.Attribute("Path")?.Value ?? string.Empty))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // Assert
+        Assert.NotEmpty(integrationProjects);
+        Assert.All(integrationProjects, project => Assert.DoesNotContain(project, solutionProjects));
     }
 
     /// <summary>Verifies network-facing worker executables do not directly reference trusted implementation layers or applications.</summary>
@@ -349,6 +372,9 @@ public sealed class ProjectLayoutTests
 
     private static string GetPluginFamily(string sourceRoot, string projectPath) =>
         Path.GetRelativePath(sourceRoot, projectPath).Split(Path.DirectorySeparatorChar)[1];
+
+    private static bool IsOptInHardwareIntegrationProject(string repositoryRoot, string projectPath) =>
+        Normalize(Path.GetRelativePath(repositoryRoot, projectPath)).StartsWith("tests/Integration/", StringComparison.OrdinalIgnoreCase);
 
     private static string Normalize(string path) => path.Replace('\\', '/');
 

@@ -421,6 +421,58 @@ public class ActiveStreamServiceTests
             });
     }
 
+    /// <summary>Verifies advertised audio makes a video-only probe provisional while a source without audio hints remains valid.</summary>
+    [Fact]
+    public void MediaProbeResultPolicy_SourceHints_DistinguishExpectedAudioFromVideoOnly()
+    {
+        // Arrange
+        var advertisedAudio = new Dictionary<string, string> { ["audioCodec"] = "AC4" };
+        IReadOnlyDictionary<string, string> videoOnly = new Dictionary<string, string>();
+        var result = new MediaProbeResult(
+            [new MediaTrackMetadata(0, MediaTrackType.Video, "hevc", null, 1280, 720, null, null)],
+            null);
+
+        // Act
+        var audioExpected = MediaProbeResultPolicy.ExpectsAudio(advertisedAudio);
+        var videoOnlyAudioExpected = MediaProbeResultPolicy.ExpectsAudio(videoOnly);
+        var hasAudio = MediaProbeResultPolicy.HasAudio(result);
+
+        // Assert
+        Assert.True(audioExpected);
+        Assert.False(videoOnlyAudioExpected);
+        Assert.False(hasAudio);
+    }
+
+    /// <summary>Verifies a richer retry adds delayed audio without discarding tracks found by the initial probe.</summary>
+    [Fact]
+    public void MediaProbeResultPolicy_Merge_RetainsPriorTracksAndAddsDelayedAudio()
+    {
+        // Arrange
+        var prior = new MediaProbeResult(
+            [
+                new MediaTrackMetadata(0, MediaTrackType.Video, "hevc", null, 1280, 720, null, null),
+                new MediaTrackMetadata(2, MediaTrackType.Subtitle, "eia_608", null, null, null, null, null)
+            ],
+            4_000_000);
+        var refreshed = new MediaProbeResult(
+            [
+                new MediaTrackMetadata(0, MediaTrackType.Video, "hevc", null, 1280, 720, null, null),
+                new MediaTrackMetadata(1, MediaTrackType.Audio, "ac4", null, null, null, 6, 48_000)
+            ],
+            4_500_000);
+
+        // Act
+        var merged = MediaProbeResultPolicy.Merge(prior, refreshed);
+
+        // Assert
+        Assert.Equal(4_500_000, merged.BitRate);
+        Assert.Collection(
+            merged.Tracks,
+            track => Assert.Equal(MediaTrackType.Video, track.Type),
+            track => Assert.Equal(MediaTrackType.Audio, track.Type),
+            track => Assert.Equal(MediaTrackType.Subtitle, track.Type));
+    }
+
     /// <summary>
     /// Verifies FFprobe progressive and unknown field orders remain distinct from confirmed interlaced video.
     /// </summary>

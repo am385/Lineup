@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Lineup.Extensibility.Streaming;
 
 namespace Lineup.Streaming.FFmpeg;
 
@@ -91,6 +92,7 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
     {
         ArgumentNullException.ThrowIfNull(route);
         var failures = new List<Exception>();
+        var candidateFailures = new List<StreamAcquisitionCandidateFailure>();
         foreach (var candidate in route.Candidates)
         {
             try
@@ -102,22 +104,27 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
             {
                 throw;
             }
-            catch (StreamCapacityExceededException)
+            catch (StreamCapacityExceededException exception)
             {
+                failures.Add(exception);
+                candidateFailures.Add(new StreamAcquisitionCandidateFailure
+                {
+                    DeviceId = candidate.SourceChannelId.PhysicalDeviceId,
+                    ChannelId = candidate.SourceChannelId,
+                    Category = PhysicalStreamFailureCategory.Capacity,
+                    Code = "source_capacity_exceeded",
+                    Message = "The physical source has no available tuner capacity.",
+                    Retryable = true
+                });
             }
             catch (Exception exception) when (exception is IOException or HttpRequestException or InvalidOperationException or KeyNotFoundException)
             {
                 failures.Add(exception);
+                candidateFailures.Add(CreateCandidateFailure(candidate, exception));
             }
         }
 
-        if (failures.Count > 0)
-        {
-            throw new IOException("Every equivalent physical source failed to open.", new AggregateException(failures));
-        }
-
-        var preferred = route.Candidates[0].Acquisition;
-        throw new StreamCapacityExceededException(preferred.DeviceId, preferred.Capacity);
+        throw StreamAcquisitionException.Create(candidateFailures, failures);
     }
 
     /// <inheritdoc />
@@ -126,6 +133,62 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
         var lease = await _graph.AcquireAsync(descriptor, acquisitionFactory, cancellationToken);
         return new SessionOwnedStream(lease);
     }
+
+    private static StreamAcquisitionCandidateFailure CreateCandidateFailure(ResolvedStreamingCandidate candidate, Exception exception)
+    {
+        if (exception is PhysicalStreamAcquisitionException physicalFailure)
+        {
+            return new StreamAcquisitionCandidateFailure
+            {
+                DeviceId = physicalFailure.DeviceId,
+                ChannelId = physicalFailure.ChannelId,
+                Category = physicalFailure.Category,
+                Code = physicalFailure.Code,
+                Message = physicalFailure.Message,
+                Retryable = physicalFailure.Retryable
+            };
+        }
+
+        return exception switch
+        {
+            KeyNotFoundException => CreateCandidateFailure(
+                candidate,
+                PhysicalStreamFailureCategory.NotFound,
+                "source_not_found",
+                "The physical source channel is no longer available.",
+                retryable: false),
+            HttpRequestException httpException => CreateCandidateFailure(
+                candidate,
+                PhysicalStreamFailureCategory.Unavailable,
+                "source_unavailable",
+                httpException.StatusCode is { } status
+                    ? $"The physical source returned HTTP {(int)status}."
+                    : "The physical source could not be reached.",
+                retryable: true),
+            _ => CreateCandidateFailure(
+                candidate,
+                PhysicalStreamFailureCategory.Unavailable,
+                "source_unavailable",
+                "The physical source could not be opened.",
+                retryable: true)
+        };
+    }
+
+    private static StreamAcquisitionCandidateFailure CreateCandidateFailure(
+        ResolvedStreamingCandidate candidate,
+        PhysicalStreamFailureCategory category,
+        string code,
+        string message,
+        bool retryable) =>
+        new()
+        {
+            DeviceId = candidate.SourceChannelId.PhysicalDeviceId,
+            ChannelId = candidate.SourceChannelId,
+            Category = category,
+            Code = code,
+            Message = message,
+            Retryable = retryable
+        };
 
     /// <inheritdoc />
     public async ValueTask<Stream> SubscribeEffectiveAsync(

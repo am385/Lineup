@@ -11,7 +11,7 @@ public static class VirtualOutputProtocol
     public const int MinimumVersion = 1;
 
     /// <summary>Gets the newest protocol version implemented by this release.</summary>
-    public const int MaximumVersion = 1;
+    public const int MaximumVersion = 2;
 
     /// <summary>Gets the maximum serialized control-message size.</summary>
     public const int MaximumControlMessageBytes = 1024 * 1024;
@@ -30,6 +30,21 @@ public static class VirtualOutputProtocol
 
     /// <summary>Gets the maximum accepted worker-identifier length.</summary>
     public const int MaximumWorkerIdLength = 128;
+
+    /// <summary>Gets the maximum accepted worker media-session identifier length.</summary>
+    public const int MaximumWorkerMediaSessionIdLength = 128;
+
+    /// <summary>Gets the maximum accepted sanitized stream-failure length.</summary>
+    public const int MaximumStreamFailureLength = 2048;
+
+    /// <summary>Gets the maximum accepted track count in one worker stream-status report.</summary>
+    public const int MaximumStreamStatusTrackCount = 128;
+
+    /// <summary>Gets the maximum accepted codec-name length in one worker stream-status report.</summary>
+    public const int MaximumStreamCodecLength = 128;
+
+    /// <summary>Gets the maximum accepted descriptive media-text length in one worker stream-status report.</summary>
+    public const int MaximumStreamMediaTextLength = 256;
 
     /// <summary>Selects the newest mutually supported protocol version.</summary>
     public static int? Negotiate(int peerMinimumVersion, int peerMaximumVersion)
@@ -342,6 +357,19 @@ public sealed record VirtualOutputOpenStreamRequest
 
     /// <summary>Gets safe external-client metadata.</summary>
     public VirtualOutputClientContext Client { get; init; } = new();
+
+    /// <summary>Gets the broker stage required by the output worker.</summary>
+    public VirtualOutputStreamStage Stage { get; init; }
+}
+
+/// <summary>Identifies the MPEG-TS stage exposed to an isolated output worker.</summary>
+public enum VirtualOutputStreamStage
+{
+    /// <summary>Applies both physical and virtual-device transforms before delivery.</summary>
+    VirtualOutput,
+
+    /// <summary>Applies physical transforms and lets the worker apply the virtual presentation profile.</summary>
+    PhysicalOutput
 }
 
 /// <summary>Describes an accepted brokered MPEG-TS stream.</summary>
@@ -356,11 +384,40 @@ public sealed record VirtualOutputOpenStreamResponse
     /// <summary>Gets the active Lineup stream session when accepted.</summary>
     public StreamSessionId? StreamSessionId { get; init; }
 
+    /// <summary>Gets normalized metadata for the requested brokered MPEG-TS stage.</summary>
+    public MediaProbeResult? Source { get; init; }
+
+    /// <summary>Gets normalized metadata for the native physical source before physical-device transforms.</summary>
+    public MediaProbeResult? RawSource { get; init; }
+
+    /// <summary>Gets the effective virtual-device profile used to produce the delivered MPEG-TS stream.</summary>
+    public VirtualTranscodeProfile? Profile { get; init; }
+
     /// <summary>Gets a structured rejection code.</summary>
     public VirtualOutputFailureCode? FailureCode { get; init; }
 
     /// <summary>Gets a safe operator-facing rejection description.</summary>
     public string? Failure { get; init; }
+}
+
+/// <summary>Requests deterministic closure of one brokered MPEG-TS stream.</summary>
+public sealed record VirtualOutputCloseStreamRequest
+{
+    /// <summary>Gets the authenticated session context that opened the stream.</summary>
+    public required VirtualOutputSessionContext Session { get; init; }
+
+    /// <summary>Gets the original broker request identifier.</summary>
+    public required VirtualOutputStreamRequestId RequestId { get; init; }
+
+    /// <summary>Gets the active Lineup stream session returned by the broker.</summary>
+    public required StreamSessionId StreamSessionId { get; init; }
+}
+
+/// <summary>Describes the result of a deterministic broker-stream close request.</summary>
+public sealed record VirtualOutputCloseStreamResponse
+{
+    /// <summary>Gets whether an active broker stream was found and closed.</summary>
+    public bool Closed { get; init; }
 }
 
 /// <summary>Identifies safe protocol failures returned to an isolated worker.</summary>
@@ -385,7 +442,85 @@ public enum VirtualOutputFailureCode
     Unavailable,
 
     /// <summary>The request did not satisfy protocol validation.</summary>
-    InvalidRequest
+    InvalidRequest,
+
+    /// <summary>Every equivalent physical source is currently unavailable.</summary>
+    SourceUnavailable,
+
+    /// <summary>Every equivalent physical source is unable to lock a usable signal.</summary>
+    SourceNoSignal,
+
+    /// <summary>Every equivalent physical source is returning no video data.</summary>
+    SourceNoData,
+
+    /// <summary>Every equivalent physical source is currently at tuner capacity.</summary>
+    SourceCapacityExceeded,
+
+    /// <summary>The requested physical source channel no longer exists.</summary>
+    SourceNotFound,
+
+    /// <summary>The physical source rejected the stream request.</summary>
+    SourceInvalid,
+
+    /// <summary>The physical source is protected and cannot be streamed.</summary>
+    ProtectedContent
+}
+
+/// <summary>Identifies the latest startup state of one worker-owned media presentation.</summary>
+public enum VirtualOutputStreamStartupStage
+{
+    /// <summary>The worker is planning or starting the final presentation.</summary>
+    Starting,
+
+    /// <summary>The final presentation passed readiness checks and is available to the consumer.</summary>
+    Ready,
+
+    /// <summary>The final presentation failed to start or became unavailable.</summary>
+    Failed
+}
+
+/// <summary>Reports the normalized final media presentation for one brokered stream.</summary>
+public sealed record VirtualOutputStreamStatusReport
+{
+    /// <summary>Gets the authenticated session context that opened the stream.</summary>
+    public required VirtualOutputSessionContext Session { get; init; }
+
+    /// <summary>Gets the original broker request identifier.</summary>
+    public required VirtualOutputStreamRequestId RequestId { get; init; }
+
+    /// <summary>Gets the active Lineup stream session returned by the broker.</summary>
+    public required StreamSessionId StreamSessionId { get; init; }
+
+    /// <summary>Gets the worker-owned media-session identifier.</summary>
+    public required string WorkerMediaSessionId { get; init; }
+
+    /// <summary>Gets the final hosted format exposed to the consumer.</summary>
+    public HostedStreamFormat Format { get; init; }
+
+    /// <summary>Gets source-to-output track mappings for the worker presentation.</summary>
+    public IReadOnlyList<ActiveStreamTrack> Tracks { get; init; } = [];
+
+    /// <summary>Gets the native physical media entering the complete route.</summary>
+    public ActiveStreamMediaSnapshot? PhysicalInput { get; init; }
+
+    /// <summary>Gets the media entering the dedicated virtual-output worker.</summary>
+    public ActiveStreamMediaSnapshot? PhysicalOutput { get; init; }
+
+    /// <summary>Gets the final media presentation exposed by the dedicated worker.</summary>
+    public ActiveStreamMediaSnapshot? VirtualOutput { get; init; }
+
+    /// <summary>Gets the latest worker startup stage.</summary>
+    public VirtualOutputStreamStartupStage StartupStage { get; init; }
+
+    /// <summary>Gets a sanitized latest failure description.</summary>
+    public string? LastFailure { get; init; }
+}
+
+/// <summary>Describes whether a worker stream-status report updated its correlated active stream.</summary>
+public sealed record VirtualOutputStreamStatusResponse
+{
+    /// <summary>Gets whether the correlated active stream was updated.</summary>
+    public bool Updated { get; init; }
 }
 
 /// <summary>Reports safe worker health and listener readiness.</summary>

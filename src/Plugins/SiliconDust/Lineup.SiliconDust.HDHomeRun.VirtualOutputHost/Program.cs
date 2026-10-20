@@ -290,6 +290,9 @@ static int GetFailureStatusCode(VirtualOutputFailureCode failureCode) =>
         VirtualOutputFailureCode.ResourceLimit => StatusCodes.Status429TooManyRequests,
         VirtualOutputFailureCode.CapabilityDenied => StatusCodes.Status403Forbidden,
         VirtualOutputFailureCode.InvalidRequest => StatusCodes.Status400BadRequest,
+        VirtualOutputFailureCode.SourceNotFound => StatusCodes.Status404NotFound,
+        VirtualOutputFailureCode.SourceInvalid => StatusCodes.Status400BadRequest,
+        VirtualOutputFailureCode.ProtectedContent => StatusCodes.Status422UnprocessableEntity,
         _ => StatusCodes.Status503ServiceUnavailable
     };
 

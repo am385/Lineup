@@ -18,7 +18,7 @@ public sealed class CmafPlayerSurfaceTests
     {
         // Arrange
         using var context = new BunitContext();
-        context.JSInterop.SetupVoid("stopMediaPlayer", "player").SetVoidResult();
+        context.JSInterop.SetupVoid("stopMediaPlayer", _ => true).SetVoidResult();
 
         // Act
         var component = context.Render<CmafPlayerSurface>(parameters => parameters
@@ -41,7 +41,7 @@ public sealed class CmafPlayerSurfaceTests
     {
         // Arrange
         using var context = new BunitContext();
-        context.JSInterop.SetupVoid("stopMediaPlayer", "player").SetVoidResult();
+        context.JSInterop.SetupVoid("stopMediaPlayer", _ => true).SetVoidResult();
         context.JSInterop.Setup<PlayerResult>("initCmafPlayer", _ => true).SetResult(new PlayerResult(true));
         var component = context.Render<CmafPlayerSurface>(parameters => parameters
             .Add(item => item.ElementId, "player")
@@ -60,11 +60,16 @@ public sealed class CmafPlayerSurfaceTests
             Array.Empty<object>(),
             callbackReference,
             "session");
+        await component.Instance.StopAsync();
 
         // Assert
         Assert.True(result.Success);
         var invocation = Assert.Single(context.JSInterop.Invocations, item => item.Identifier == "initCmafPlayer");
         Assert.Equal("player", invocation.Arguments[0]);
+        var ownerId = Assert.IsType<string>(invocation.Arguments[12]);
+        Assert.False(string.IsNullOrWhiteSpace(ownerId));
+        var stopInvocation = Assert.Single(context.JSInterop.Invocations, item => item.Identifier == "stopMediaPlayer");
+        Assert.Equal(ownerId, stopInvocation.Arguments[1]);
     }
 
     private sealed record PlayerResult(bool Success);

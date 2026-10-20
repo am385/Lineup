@@ -64,6 +64,9 @@ public sealed class VirtualOutputWorkerSession
     /// <summary>Gets the current lease expiration after registration.</summary>
     public DateTimeOffset? LeaseExpiresUtc { get; private set; }
 
+    /// <summary>Gets the negotiated protocol version after registration.</summary>
+    public int? ProtocolVersion { get; private set; }
+
     /// <summary>Registers the worker using the one-time bootstrap credential.</summary>
     public async Task RegisterAsync(CancellationToken cancellationToken = default)
     {
@@ -95,6 +98,7 @@ public sealed class VirtualOutputWorkerSession
             SessionId = sessionId,
             Generation = _bootstrap.Generation
         };
+        ProtocolVersion = registration.ProtocolVersion;
         LeaseExpiresUtc = leaseExpiresUtc;
     }
 

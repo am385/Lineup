@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using Lineup.LineupLink.Protocol;
 using Lineup.LineupLink.Virtual;
+using Lineup.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Lineup.Web.Controllers;
@@ -88,7 +89,7 @@ public sealed class LineupLinkController : ControllerBase
                         Key = channel.Number,
                         Number = channel.Number,
                         Name = channel.Name,
-                        Metadata = channel.Metadata
+                        Metadata = GetPublishedMetadata(channel.Metadata)
                     })
                     .ToArray()
             };
@@ -120,7 +121,7 @@ public sealed class LineupLinkController : ControllerBase
                     Name = channel.Name,
                     Affiliate = channel.Affiliate,
                     ImageUrl = channel.ImageUrl,
-                    IsProtected = channel.IsProtected,
+                    IsProtected = _settings.Settings.ProtectedContentMode != ProtectedContentMode.StreamSlate && channel.IsProtected,
                     IsFavorite = channel.IsFavorite,
                     SupplementalXml = channel.SupplementalXml
                 }).ToArray(),
@@ -147,10 +148,23 @@ public sealed class LineupLinkController : ControllerBase
                     : string.Join(Environment.NewLine, snapshot.SupplementalXml)
             };
         }
+
         catch (InvalidOperationException)
         {
             return NotFound(UnavailableDevice());
         }
+    }
+
+    private IReadOnlyDictionary<string, string> GetPublishedMetadata(IReadOnlyDictionary<string, string> metadata)
+    {
+        if (_settings.Settings.ProtectedContentMode != ProtectedContentMode.StreamSlate || !ProtectedContentDetector.IsProtected(metadata))
+        {
+            return metadata;
+        }
+        return new Dictionary<string, string>(metadata, StringComparer.Ordinal)
+        {
+            ["drm"] = bool.FalseString
+        };
     }
 
     /// <summary>Streams one exported channel as MPEG-TS.</summary>
@@ -211,6 +225,22 @@ public sealed class LineupLinkController : ControllerBase
             {
                 Code = "channel_not_found",
                 Message = "The requested channel is unavailable."
+            });
+        }
+        catch (StreamAcquisitionException exception)
+        {
+            var mapped = StreamAcquisitionHttpMapper.Map(exception);
+            _logger.LogWarning(
+                exception,
+                "Lineup Link source acquisition failed for channel {ChannelKey} with code {FailureCode}; retryable: {Retryable}; candidates: {Candidates}",
+                channelKey,
+                mapped.Code,
+                exception.Retryable,
+                StreamAcquisitionHttpMapper.FormatCandidates(exception));
+            return StatusCode(mapped.StatusCode, new LineupLinkError
+            {
+                Code = mapped.Code,
+                Message = mapped.Error
             });
         }
         catch (InvalidOperationException)

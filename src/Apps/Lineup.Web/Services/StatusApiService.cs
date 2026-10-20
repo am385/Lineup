@@ -119,6 +119,7 @@ internal sealed record VirtualOutputRuntimeStatusResponse(
     IReadOnlyList<string> Bindings,
     int RestartCount,
     int ActiveConnections,
+    int ActiveBrokerStreams,
     DateTimeOffset? ReadyAtUtc,
     string? LastFailure);
 
@@ -179,6 +180,10 @@ internal sealed record ActiveStreamStatusResponse(
     string? AuthenticatedClientId,
     string? AuthenticatedClientName,
     string? ClientAddress,
+    string? BrokerRequestId,
+    string? WorkerMediaSessionId,
+    string? WorkerStartupStage,
+    string? WorkerLastFailure,
     string Channel,
     string Format,
     DateTime StartedAtUtc,
@@ -744,6 +749,7 @@ internal sealed class StatusApiService
                 settings.RedactApiUrls ? [] : snapshot.Bindings,
                 snapshot.RestartCount,
                 snapshot.ActiveConnections,
+                snapshot.ActiveBrokerStreams,
                 snapshot.ReadySinceUtc,
                 snapshot.LastFailure))
             .ToArray()
@@ -1026,6 +1032,10 @@ internal sealed class StatusApiService
             stream.AuthenticatedClientId,
             stream.AuthenticatedClientName,
             settings.RedactApiClientAddresses ? null : stream.ClientAddress,
+            stream.BrokerRequestId,
+            stream.WorkerMediaSessionId,
+            stream.WorkerStartupStage is null ? null : char.ToLowerInvariant(stream.WorkerStartupStage[0]) + stream.WorkerStartupStage[1..],
+            stream.WorkerLastFailure,
             stream.Channel,
             FormatName(stream.Format),
             ToUtc(stream.StartedAtUtc) ?? stream.StartedAtUtc,

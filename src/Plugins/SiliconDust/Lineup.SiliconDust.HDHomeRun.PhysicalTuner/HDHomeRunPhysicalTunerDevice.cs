@@ -4,6 +4,8 @@ using Lineup.SiliconDust.HDHomeRun.Device;
 using Lineup.SiliconDust.HDHomeRun.Device.Models;
 using Lineup.SiliconDust.HDHomeRun.Device.Protocol;
 using Microsoft.Extensions.Logging;
+using System.Net;
+using System.Text;
 
 namespace Lineup.SiliconDust.HDHomeRun.PhysicalTuner;
 
@@ -19,6 +21,8 @@ public sealed class HDHomeRunPhysicalTunerDevice :
     IPhysicalDeviceRestartCapability,
     IPhysicalStreamDiagnosticCapability
 {
+    private const int MaximumDiagnosticBytes = 4096;
+    private const int MaximumDiagnosticCharacters = 256;
     private readonly HDHomeRunDeviceClient _deviceClient;
     private readonly HttpClient _httpClient;
     private readonly ILogger<HDHomeRunPhysicalTunerDevice> _logger;
@@ -222,12 +226,15 @@ public sealed class HDHomeRunPhysicalTunerDevice :
 
             using var message = new HttpRequestMessage(HttpMethod.Get, streamUri);
             response = await _httpClient.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-            response.EnsureSuccessStatusCode();
+            if (!response.IsSuccessStatusCode)
+            {
+                throw await CreateAcquisitionExceptionAsync(response, request.ChannelId, cancellationToken);
+            }
             stream = await response.Content.ReadAsStreamAsync(cancellationToken);
             _logger.LogDebug("Acquired HDHomeRun stream for channel {GuideNumber} on device {DeviceId}", channel.GuideNumber, DeviceInfo.DeviceID);
             return new HDHomeRunPhysicalStreamLease(stream, response, _capacity);
         }
-        catch
+        catch (Exception exception)
         {
             if (stream is not null)
             {
@@ -236,9 +243,166 @@ public sealed class HDHomeRunPhysicalTunerDevice :
 
             response?.Dispose();
             _capacity.Release();
+            if (exception is HttpRequestException httpException)
+            {
+                throw new PhysicalStreamAcquisitionException(
+                    PhysicalStreamFailureCategory.Unavailable,
+                    "source_unavailable",
+                    "The HDHomeRun source could not be reached.",
+                    retryable: true,
+                    Snapshot.Id,
+                    request.ChannelId,
+                    httpException);
+            }
             throw;
         }
     }
+
+    private async Task<PhysicalStreamAcquisitionException> CreateAcquisitionExceptionAsync(
+        HttpResponseMessage response,
+        SourceChannelId channelId,
+        CancellationToken cancellationToken)
+    {
+        var diagnostic = await ReadDiagnosticAsync(response, cancellationToken);
+        var failure = ClassifyFailure(response.StatusCode, diagnostic);
+        var safeDiagnostic = FormatDiagnosticForLog(diagnostic);
+        var diagnosticMessage = string.IsNullOrWhiteSpace(safeDiagnostic)
+            ? $"HDHomeRun stream request returned HTTP {(int)response.StatusCode}."
+            : $"HDHomeRun stream request returned HTTP {(int)response.StatusCode}: {safeDiagnostic}";
+        return new PhysicalStreamAcquisitionException(
+            failure.Category,
+            failure.Code,
+            failure.Message,
+            failure.Retryable,
+            Snapshot.Id,
+            channelId,
+            new HttpRequestException(diagnosticMessage, inner: null, response.StatusCode));
+    }
+
+    private static async Task<string?> ReadDiagnosticAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        if (response.Headers.TryGetValues("X-HDHomeRun-Error", out var values))
+        {
+            var header = SanitizeDiagnostic(values.FirstOrDefault());
+            if (!string.IsNullOrWhiteSpace(header))
+            {
+                return header;
+            }
+        }
+
+        await using var content = await response.Content.ReadAsStreamAsync(cancellationToken);
+        var buffer = new byte[MaximumDiagnosticBytes];
+        var length = await content.ReadAsync(buffer.AsMemory(), cancellationToken);
+        return SanitizeDiagnostic(Encoding.UTF8.GetString(buffer, 0, length));
+    }
+
+    private static string? SanitizeDiagnostic(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var sanitized = new string(value
+            .Where(character => !char.IsControl(character) || character == ' ')
+            .Take(MaximumDiagnosticCharacters)
+            .ToArray())
+            .Trim();
+        return sanitized.Length == 0 ? null : sanitized;
+    }
+
+    private static HDHomeRunStreamFailure ClassifyFailure(HttpStatusCode statusCode, string? diagnostic)
+    {
+        var code = TryGetDiagnosticCode(diagnostic);
+        if (code == 811 || ContainsAny(diagnostic, "content protection", "protected content", "copy protected"))
+        {
+            return new HDHomeRunStreamFailure(
+                PhysicalStreamFailureCategory.ProtectedContent,
+                "protected_content",
+                "The HDHomeRun source is protected and cannot be streamed.",
+                Retryable: false);
+        }
+        if (code == 807 || ContainsAny(diagnostic, "no video data", "no media data"))
+        {
+            return new HDHomeRunStreamFailure(
+                PhysicalStreamFailureCategory.NoData,
+                "source_no_video_data",
+                "The HDHomeRun source returned no video data.",
+                Retryable: true);
+        }
+        if (ContainsAny(diagnostic, "no signal", "weak signal", "unable to lock", "no lock"))
+        {
+            return new HDHomeRunStreamFailure(
+                PhysicalStreamFailureCategory.NoSignal,
+                "source_no_signal",
+                "The HDHomeRun source could not lock a usable signal.",
+                Retryable: true);
+        }
+        if (ContainsAny(diagnostic, "all tuners in use", "tuner busy", "tuner in use", "no tuner available", "no tuners available", "resource locked"))
+        {
+            return new HDHomeRunStreamFailure(
+                PhysicalStreamFailureCategory.Capacity,
+                "source_capacity_exceeded",
+                "The HDHomeRun device has no available tuner capacity.",
+                Retryable: true);
+        }
+        if (statusCode == HttpStatusCode.NotFound)
+        {
+            return new HDHomeRunStreamFailure(
+                PhysicalStreamFailureCategory.NotFound,
+                "source_not_found",
+                "The HDHomeRun source channel is no longer available.",
+                Retryable: false);
+        }
+        if (statusCode == HttpStatusCode.BadRequest)
+        {
+            return new HDHomeRunStreamFailure(
+                PhysicalStreamFailureCategory.InvalidInput,
+                "source_invalid",
+                "The HDHomeRun device rejected the stream request.",
+                Retryable: false);
+        }
+        return new HDHomeRunStreamFailure(
+            PhysicalStreamFailureCategory.Unavailable,
+            "source_unavailable",
+            "The HDHomeRun source is temporarily unavailable.",
+            Retryable: true);
+    }
+
+    private static int? TryGetDiagnosticCode(string? diagnostic)
+    {
+        if (string.IsNullOrWhiteSpace(diagnostic))
+        {
+            return null;
+        }
+
+        var separator = diagnostic.IndexOf(' ');
+        var code = separator < 0 ? diagnostic : diagnostic[..separator];
+        return int.TryParse(code, out var parsed) ? parsed : null;
+    }
+
+    private static bool ContainsAny(string? diagnostic, params string[] values) =>
+        diagnostic is not null && values.Any(value => diagnostic.Contains(value, StringComparison.OrdinalIgnoreCase));
+
+    private static string? FormatDiagnosticForLog(string? diagnostic)
+    {
+        if (string.IsNullOrWhiteSpace(diagnostic))
+        {
+            return null;
+        }
+        if (ContainsAny(diagnostic, "http://", "https://", "authorization", "password", "token=", "auth=", "api_key", "apikey"))
+        {
+            var code = TryGetDiagnosticCode(diagnostic);
+            return code.HasValue ? $"{code.Value} HDHomeRun diagnostic redacted." : "HDHomeRun diagnostic redacted.";
+        }
+        return diagnostic;
+    }
+
+    private sealed record HDHomeRunStreamFailure(
+        PhysicalStreamFailureCategory Category,
+        string Code,
+        string Message,
+        bool Retryable);
 
     private static IReadOnlyDictionary<string, string> CreateMetadata(HDHomeRunChannel channel)
     {

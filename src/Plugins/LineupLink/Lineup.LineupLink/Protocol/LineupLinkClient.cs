@@ -159,7 +159,15 @@ public sealed class LineupLinkClient : IDisposable
         {
             throw new UnauthorizedAccessException(message);
         }
-        throw new HttpRequestException(message, inner: null, status);
+        throw new LineupLinkRemoteException(
+            error?.Code ?? "remote_http_error",
+            message,
+            status,
+            status is HttpStatusCode.RequestTimeout
+                or HttpStatusCode.TooManyRequests
+                or HttpStatusCode.BadGateway
+                or HttpStatusCode.ServiceUnavailable
+                or HttpStatusCode.GatewayTimeout);
     }
 
     private static bool CertificateMatches(X509Certificate2? certificate, string expectedPin)
@@ -173,4 +181,27 @@ public sealed class LineupLinkClient : IDisposable
             System.Text.Encoding.ASCII.GetBytes(actual),
             System.Text.Encoding.ASCII.GetBytes(expectedPin));
     }
+}
+
+/// <summary>Represents one structured failure returned by a remote Lineup Link endpoint.</summary>
+public sealed class LineupLinkRemoteException : IOException
+{
+    /// <summary>Initializes one remote Lineup Link failure.</summary>
+    public LineupLinkRemoteException(string code, string message, HttpStatusCode statusCode, bool retryable)
+        : base(message)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(code);
+        Code = code;
+        StatusCode = statusCode;
+        Retryable = retryable;
+    }
+
+    /// <summary>Gets the stable remote failure code.</summary>
+    public string Code { get; }
+
+    /// <summary>Gets the remote HTTP status.</summary>
+    public HttpStatusCode StatusCode { get; }
+
+    /// <summary>Gets whether retrying the remote source later may succeed.</summary>
+    public bool Retryable { get; }
 }

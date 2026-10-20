@@ -7,25 +7,31 @@ namespace Lineup.VirtualOutputs.Protocol;
 public enum VirtualOutputIpcOperation
 {
     /// <summary>Register using a one-time bootstrap credential.</summary>
-    Register,
+    Register = 0,
 
     /// <summary>Renew the authenticated worker lease.</summary>
-    RenewLease,
+    RenewLease = 1,
 
     /// <summary>Read the assigned virtual-device manifest.</summary>
-    GetManifest,
+    GetManifest = 2,
 
     /// <summary>Read the assigned virtual-device lineup.</summary>
-    GetLineup,
+    GetLineup = 3,
 
     /// <summary>Read the assigned virtual-device guide.</summary>
-    GetGuide,
+    GetGuide = 4,
 
     /// <summary>Open one assigned channel stream.</summary>
-    OpenStream,
+    OpenStream = 5,
 
     /// <summary>Report worker readiness and listener health.</summary>
-    ReportHealth
+    ReportHealth = 6,
+
+    /// <summary>Close one previously opened channel stream.</summary>
+    CloseStream = 7,
+
+    /// <summary>Report the final media presentation produced for one opened stream.</summary>
+    ReportStreamStatus = 8
 }
 
 /// <summary>Contains one length-prefixed IPC operation and typed JSON payload.</summary>

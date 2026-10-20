@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Text.Json;
+using Lineup.Web.Services;
 
 namespace Lineup.Web.Controllers;
 
@@ -15,6 +16,7 @@ namespace Lineup.Web.Controllers;
 [Route("api/[controller]")]
 public class StreamController : ControllerBase
 {
+    private static readonly TimeSpan DefaultCmafStartupTimeout = TimeSpan.FromSeconds(24);
     private static readonly TimeSpan TunerDiagnosticTimeout = TimeSpan.FromSeconds(5);
     private const string StreamLimitError = "The maximum number of concurrent streams is already active.";
     private readonly IHttpClientFactory _httpClientFactory;
@@ -33,6 +35,7 @@ public class StreamController : ControllerBase
     private readonly IStreamingRouteResolver? _streamRoutes;
     private readonly ICmafOutputCoordinator _cmafOutputs;
     private readonly IVirtualMpegTsOutputService? _virtualMpegTsOutputs;
+    private readonly TimeSpan _cmafStartupTimeout;
 
     /// <summary>
     /// Initializes the streaming API controller.
@@ -55,6 +58,7 @@ public class StreamController : ControllerBase
     /// <param name="streamRoutes">Resolves configured topology routes.</param>
     /// <param name="cmafOutputs">Owns shared CMAF outputs and viewer aliases.</param>
     /// <param name="virtualMpegTsOutputs">Opens management-hosted virtual MPEG-TS streams.</param>
+    /// <param name="cmafStartupTimeout">Overrides the complete management-hosted CMAF startup deadline.</param>
     public StreamController(
         IHttpClientFactory httpClientFactory,
         ILineupGuideReader guideReader,
@@ -73,7 +77,8 @@ public class StreamController : ControllerBase
         IMediaProcessFactory? mediaProcessFactory = null,
         IStreamingRouteResolver? streamRoutes = null,
         ICmafOutputCoordinator? cmafOutputs = null,
-        IVirtualMpegTsOutputService? virtualMpegTsOutputs = null)
+        IVirtualMpegTsOutputService? virtualMpegTsOutputs = null,
+        TimeSpan? cmafStartupTimeout = null)
     {
         _httpClientFactory = httpClientFactory;
         _guideReader = guideReader;
@@ -91,6 +96,11 @@ public class StreamController : ControllerBase
         _streamRoutes = streamRoutes;
         _cmafOutputs = cmafOutputs ?? new CmafOutputCoordinator(timeProvider, cmafInactivityTimeout);
         _virtualMpegTsOutputs = virtualMpegTsOutputs;
+        _cmafStartupTimeout = cmafStartupTimeout ?? DefaultCmafStartupTimeout;
+        if (_cmafStartupTimeout <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(cmafStartupTimeout), _cmafStartupTimeout, "The CMAF startup timeout must be greater than zero.");
+        }
     }
 
     /// <summary>Streams one management-hosted virtual HDHomeRun channel as MPEG-TS.</summary>
@@ -149,6 +159,10 @@ public class StreamController : ControllerBase
         {
             return NotFound(new { error = exception.Message });
         }
+        catch (StreamAcquisitionException exception)
+        {
+            return CreateSourceAcquisitionResult(channel, exception);
+        }
         catch (InvalidOperationException exception)
         {
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = exception.Message });
@@ -157,11 +171,11 @@ public class StreamController : ControllerBase
 
     /// <summary>Starts a management-hosted Web Player CMAF presentation.</summary>
     [HttpPost("cmaf/start/{channel}")]
-    public Task<IActionResult> StartCmafStream(string channel, [FromBody] CmafStreamRequest request)
+    public async Task<IActionResult> StartCmafStream(string channel, [FromBody] CmafStreamRequest request)
     {
         if (request.CompatibilityProfile is not null && !CmafCompatibilityProfilePolicy.IsValid(request.CompatibilityProfile))
         {
-            return Task.FromResult<IActionResult>(BadRequest(new { error = "The browser compatibility profile is incomplete, stale, oversized, or invalid." }));
+            return BadRequest(new { error = "The browser compatibility profile is incomplete, stale, oversized, or invalid." });
         }
         try
         {
@@ -169,9 +183,18 @@ public class StreamController : ControllerBase
         }
         catch (ArgumentException exception)
         {
-            return Task.FromResult<IActionResult>(BadRequest(new { error = exception.Message }));
+            return BadRequest(new { error = exception.Message });
         }
-        return StartCmafStreamCore(channel, request);
+        using var startupCancellation = CancellationTokenSource.CreateLinkedTokenSource(HttpContext.RequestAborted);
+        startupCancellation.CancelAfter(_cmafStartupTimeout);
+        try
+        {
+            return await StartCmafStreamCore(channel, request, startupCancellation.Token);
+        }
+        catch (OperationCanceledException) when (startupCancellation.IsCancellationRequested && !HttpContext.RequestAborted.IsCancellationRequested)
+        {
+            return CreateCmafStartupTimeoutResult();
+        }
     }
 
     /// <summary>
@@ -296,12 +319,12 @@ public class StreamController : ControllerBase
         }
     }
 
-    private async Task<bool> IsChannelDisabledAsync(string channel)
+    private async Task<bool> IsChannelDisabledAsync(string channel, CancellationToken cancellationToken)
     {
-        return await _topologyStore.GetEnablementAsync(channel, HttpContext.RequestAborted) == PhysicalChannelEnablementState.Disabled;
+        return await _topologyStore.GetEnablementAsync(channel, cancellationToken) == PhysicalChannelEnablementState.Disabled;
     }
 
-    private async Task<IActionResult> StartCmafStreamCore(string channel, CmafStreamRequest request)
+    private async Task<IActionResult> StartCmafStreamCore(string channel, CmafStreamRequest request, CancellationToken startupToken)
     {
         CmafFallbackAudio fallbackAudio;
         try
@@ -313,7 +336,7 @@ public class StreamController : ControllerBase
             return BadRequest(new { error = ex.Message });
         }
 
-        var disabled = await IsChannelDisabledAsync(channel);
+        var disabled = await IsChannelDisabledAsync(channel, startupToken);
         if (disabled && _settingsService.Settings.DisabledChannelMode == DisabledChannelMode.ReturnError)
         {
             return StatusCode(StatusCodes.Status403Forbidden, new { error = $"Channel {channel} is disabled." });
@@ -324,6 +347,7 @@ public class StreamController : ControllerBase
         Uri? sourceUri = null;
         var sourceSettings = CreateSourceDeinterlaceSettingsSnapshot(_settingsService.Settings);
         var virtualProfile = _settingsService.Settings.Streaming.VirtualDefaults;
+        var protectedContent = false;
         MediaProbeResult rawSource = new([], null);
         MediaProbeResult source = rawSource;
         if (!disabled)
@@ -334,9 +358,20 @@ public class StreamController : ControllerBase
             }
             try
             {
-                topologyRoute = await _streamRoutes.ResolveVirtualAsync(ResolveWebPlayerVirtualDeviceId(), channel, HttpContext.RequestAborted)
+                topologyRoute = await _streamRoutes.ResolveVirtualAsync(ResolveWebPlayerVirtualDeviceId(), channel, startupToken)
                     ?? throw new InvalidOperationException("The streaming topology did not resolve a route.");
                 virtualProfile = topologyRoute.VirtualProfile;
+                var protection = ProtectedContentDetector.Detect(topologyRoute);
+                if (protection.IsProtected)
+                {
+                    if (_settingsService.Settings.ProtectedContentMode == ProtectedContentMode.ReturnError)
+                    {
+                        return CreateProtectedContentResult(protection);
+                    }
+                    protectedContent = true;
+                    rawSource = ChannelSlatePlanner.CreateMedia();
+                    source = rawSource;
+                }
             }
             catch (KeyNotFoundException ex)
             {
@@ -348,37 +383,47 @@ public class StreamController : ControllerBase
             }
             try
             {
-                await using var selected = await _tunerStreamMultiplexer.SubscribeFirstAvailableAsync(topologyRoute, HttpContext.RequestAborted);
-                selectedCandidate = selected.Candidate;
-                sourceUri = selectedCandidate.DiagnosticUri;
-                using var selectionCancellation = CancellationTokenSource.CreateLinkedTokenSource(HttpContext.RequestAborted);
-                var selectionPump = selected.Stream.CopyToAsync(System.IO.Stream.Null, selectionCancellation.Token);
-                try
+                if (!protectedContent)
                 {
-                    rawSource = await ProbeBestEffortAsync(selectedCandidate, HttpContext.RequestAborted);
-                }
-                finally
-                {
-                    selectionCancellation.Cancel();
-                    await ObserveInputPumpAsync(selectionPump);
+                    await using var selected = await _tunerStreamMultiplexer.SubscribeFirstAvailableAsync(topologyRoute, startupToken);
+                    selectedCandidate = selected.Candidate;
+                    sourceUri = selectedCandidate.DiagnosticUri;
+                    using var selectionCancellation = CancellationTokenSource.CreateLinkedTokenSource(startupToken);
+                    var selectionPump = selected.Stream.CopyToAsync(System.IO.Stream.Null, selectionCancellation.Token);
+                    try
+                    {
+                        rawSource = await ProbeBestEffortAsync(selectedCandidate, startupToken);
+                    }
+                    finally
+                    {
+                        selectionCancellation.Cancel();
+                        _ = ObserveInputPumpAsync(selectionPump);
+                    }
                 }
             }
             catch (StreamCapacityExceededException ex)
             {
                 return StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = ex.Message });
             }
-            source = GetEffectiveSource(rawSource, selectedCandidate!.PhysicalProfile);
+            catch (StreamAcquisitionException exception)
+            {
+                return CreateSourceAcquisitionResult(channel, exception);
+            }
+            if (!protectedContent)
+            {
+                source = GetEffectiveSource(rawSource, selectedCandidate!.PhysicalProfile);
+            }
         }
-
-        request = ApplyTopologyProfile(request, virtualProfile);
-        fallbackAudio = CmafStreamPlanner.ResolveFallbackAudio(request);
 
         WebPlayerTrackSelection selection;
         IReadOnlyList<CmafAudioRendition> audioRenditions;
         ProviderWebPlayer.WebPlayerPlaybackPlan? providerPlan = null;
         try
         {
-            if (topologyRoute is not null)
+            selection = CmafStreamPlanner.SelectTracks(source, request);
+            request = CmafStreamPlanner.ApplyTopologyProfile(request, virtualProfile, selection.Audio);
+            fallbackAudio = CmafStreamPlanner.ResolveFallbackAudio(request);
+            if (topologyRoute is not null && !protectedContent)
             {
                 providerPlan = ProviderWebPlayer.WebPlayerPlaybackPlanner.Create(
                     _settingsService.Settings.Streaming,
@@ -387,9 +432,8 @@ public class StreamController : ControllerBase
                     source.Tracks.Select(ToWebPlayerTrack).ToArray(),
                     ToWebPlayerRequest(request));
             }
-            selection = CmafStreamPlanner.SelectTracks(source, request);
             _ = CmafStreamPlanner.CreateAudioPlan(selection.Audio, request.PreferredAudio, fallbackAudio);
-            audioRenditions = disabled
+            audioRenditions = disabled || protectedContent
                 ? []
                 : CmafStreamPlanner.CreatePresentationAudioRenditions(
                     source,
@@ -412,7 +456,7 @@ public class StreamController : ControllerBase
         var sessionId = StreamSessionId.New().ToString();
         var directory = _transientData.CreateSessionDirectory(WebPlayerTransientWorkspaces.Cmaf, sessionId);
         var manifestPath = _transientData.GetFilePath(directory, CmafStreamPlanner.DashManifestName);
-        var selectableSubtitles = disabled ? [] : CmafStreamPlanner.GetSelectableSubtitles(source);
+        var selectableSubtitles = disabled || protectedContent ? [] : CmafStreamPlanner.GetSelectableSubtitles(source);
         var subtitlePaths = selectableSubtitles.ToDictionary(
             subtitle => subtitle.Index,
             subtitle => _transientData.GetFilePath(directory, $"captions-{subtitle.Index}.vtt"));
@@ -421,14 +465,18 @@ public class StreamController : ControllerBase
         var outputVideoBitRate = WebVideoTranscodePlanner.GetMaximumBitRate(virtualProfile, request.Quality);
         var activeStream = disabled
             ? ActiveStreamPlanFactory.CreateDisabledSlate(sessionId, channel, HostedStreamFormat.Cmaf, startedAt)
-            : ActiveStreamPlanFactory.CreateCmaf(sessionId, channel, startedAt, rawSource, source, selection, request, _settingsService.Settings, virtualProfile);
+            : protectedContent
+                ? ActiveStreamPlanFactory.CreateProtectedSlate(sessionId, channel, HostedStreamFormat.Cmaf, startedAt)
+                : ActiveStreamPlanFactory.CreateCmaf(sessionId, channel, startedAt, rawSource, source, selection, request, _settingsService.Settings, virtualProfile);
         activeStream = activeStream with
         {
             ClientAddress = FormatClientAddress(HttpContext.Connection.RemoteIpAddress, HttpContext.Connection.RemotePort),
             ClientId = request.ClientId,
             Flow = disabled
                 ? CreateSyntheticFlow(GetWebPlayerVirtualDeviceId(), "Disabled channel slate")
-                : CreatePhysicalFlow(selectedCandidate!, topologyRoute!.VirtualDevice.Id)
+                : protectedContent
+                    ? CreateSyntheticFlow(GetWebPlayerVirtualDeviceId(), "Protected content slate")
+                    : CreatePhysicalFlow(selectedCandidate!, topologyRoute!.VirtualDevice.Id)
         };
         if (!_activeStreamRegistry.TryRegister(activeStream, _settingsService.Settings.MaximumConcurrentStreams, () =>
             {
@@ -441,7 +489,7 @@ public class StreamController : ControllerBase
         }
 
         var transformKey = providerPlan is null
-            ? new StreamTransformKey("web-player-cmaf", $"disabled:{channel}")
+            ? new StreamTransformKey("web-player-cmaf", $"{(protectedContent ? "protected" : "disabled")}:{channel}")
             : new StreamTransformKey(
                 providerPlan.TransformKey.Stage,
                 $"{selectedCandidate!.SourceChannelId.PhysicalDeviceId}:{selectedCandidate.SourceChannelId.ProviderKey}|{CmafStreamPlanner.CreatePlanKey(virtualProfile, source, selection, request)}");
@@ -457,15 +505,17 @@ public class StreamController : ControllerBase
                     pendingOutput,
                     released => _activeStreamRegistry.Unregister(released.ToString()))),
                 TimeSpan.FromSeconds(_settingsService.Settings.Streaming.KeepWarmPeriodSeconds),
-                HttpContext.RequestAborted);
+                startupToken);
         }
-        catch (OperationCanceledException) when (HttpContext.RequestAborted.IsCancellationRequested)
+        catch (OperationCanceledException) when (startupToken.IsCancellationRequested)
         {
-            pendingOutput.Cancel(HttpContext.RequestAborted);
+            pendingOutput.Cancel(startupToken);
             await pendingOutput.DisposeAsync();
             _activeStreamRegistry.Unregister(sessionId);
             TryDeleteTransientDirectory(directory);
-            return new EmptyResult();
+            return HttpContext.RequestAborted.IsCancellationRequested
+                ? new EmptyResult()
+                : CreateCmafStartupTimeoutResult();
         }
         catch
         {
@@ -484,7 +534,7 @@ public class StreamController : ControllerBase
             TryDeleteTransientDirectory(directory);
             try
             {
-                var sharedResponse = await sharedOutput.Response.WaitAsync(HttpContext.RequestAborted);
+                var sharedResponse = await sharedOutput.Response.WaitAsync(startupToken);
                 return Ok(RebaseCmafResponse(sharedResponse, sessionId));
             }
             catch
@@ -510,9 +560,12 @@ public class StreamController : ControllerBase
                 return new EmptyResult();
             }
 
-            if (disabled)
+            if (disabled || protectedContent)
             {
-                process = _protectedContentSlateService.StartCmaf(channel, manifestPath, ChannelSlateReason.DisabledChannel);
+                process = _protectedContentSlateService.StartCmaf(
+                    channel,
+                    manifestPath,
+                    disabled ? ChannelSlateReason.DisabledChannel : ChannelSlateReason.ContentProtected);
             }
             else
             {
@@ -575,7 +628,7 @@ public class StreamController : ControllerBase
             };
             var errors = new ConcurrentQueue<string>();
             var errorMonitorTask = StartCmafErrorMonitor(process, session, errors, parseSourceMetadata: false, outputVideoBitRate);
-            var usingSlate = disabled;
+            var usingSlate = disabled || protectedContent;
             var sourceAudioFallbackApplied = false;
 
             for (var attempt = 0; attempt < 200; attempt++)
@@ -666,7 +719,7 @@ public class StreamController : ControllerBase
                         continue;
                     }
 
-                    var tunerError = usingSlate ? null : await GetTunerErrorAsync(sourceUri!, HttpContext.RequestAborted);
+                    var tunerError = usingSlate ? null : await GetTunerErrorAsync(sourceUri!, startupToken);
                     var protection = usingSlate
                         ? new ProtectedContentDetection(IsProtected: false, IsInferred: false, Message: null)
                         : await DetectContentProtectionAsync(channel, tunerError);
@@ -717,7 +770,13 @@ public class StreamController : ControllerBase
                 }
 
                 var hlsPath = _transientData.GetFilePath(directory, CmafStreamPlanner.HlsManifestName);
-                if (_transientData.FileExists(manifestPath) && _transientData.FileExists(hlsPath) && _transientData.EnumerateFiles(directory, "*.m4s").Count >= 2)
+                int[] representationFragmentCounts = usingSlate
+                    ? []
+                    : GetRepresentationFragmentCounts(directory, session.AudioRenditions.Count + 1);
+                var fragmentsReady = usingSlate
+                    ? _transientData.EnumerateFiles(directory, "*.m4s").Count >= 2
+                    : representationFragmentCounts.All(count => count >= 2);
+                if (_transientData.FileExists(manifestPath) && _transientData.FileExists(hlsPath) && fragmentsReady)
                 {
                     Volatile.Write(ref session.IsStarting, 0);
                     var baseUrl = $"/api/stream/cmaf/{sessionId}";
@@ -744,22 +803,34 @@ public class StreamController : ControllerBase
                     pendingOutput.Complete(session, response);
                     return Ok(response);
                 }
-                await Task.Delay(100, HttpContext.RequestAborted);
+                await Task.Delay(100, startupToken);
             }
 
+            int[] timedOutFragmentCounts = usingSlate
+                ? []
+                : GetRepresentationFragmentCounts(directory, session.AudioRenditions.Count + 1);
+            _logger.LogWarning(
+                "CMAF readiness timed out for channel {Channel}, session {SessionId}; expected {RepresentationCount} representations with fragment counts [{FragmentCounts}]. FFmpeg diagnostics: {FfmpegDiagnostics}",
+                channel,
+                sessionId,
+                session.AudioRenditions.Count + 1,
+                string.Join(", ", timedOutFragmentCounts),
+                string.Join(" | ", errors.TakeLast(10)));
             pendingOutput.Fail(new TimeoutException("FFmpeg did not create the shared CMAF manifests and fragments in time."));
             StopCmafSession(sessionId);
             return StatusCode(StatusCodes.Status504GatewayTimeout, new { error = "FFmpeg did not create the shared CMAF manifests and fragments in time." });
         }
-        catch (OperationCanceledException) when (HttpContext.RequestAborted.IsCancellationRequested)
+        catch (OperationCanceledException) when (startupToken.IsCancellationRequested)
         {
-            pendingOutput.Cancel(HttpContext.RequestAborted);
+            pendingOutput.Cancel(startupToken);
             if (!StopCmafSession(sessionId))
             {
                 _activeStreamRegistry.Unregister(sessionId);
                 TryDeleteTransientDirectory(directory);
             }
-            return new EmptyResult();
+            return HttpContext.RequestAborted.IsCancellationRequested
+                ? new EmptyResult()
+                : CreateCmafStartupTimeoutResult();
         }
         catch (Exception ex) when (ex is MediaProcessException or InvalidOperationException or IOException or StreamCapacityExceededException)
         {
@@ -772,11 +843,36 @@ public class StreamController : ControllerBase
                 StopCaptionProcess(captionProcess, captionErrorTask, sessionId);
             }
             _logger.LogError(ex, "Error starting CMAF stream for channel {Channel}", channel);
-            var statusCode = ex is StreamCapacityExceededException
-                ? StatusCodes.Status503ServiceUnavailable
-                : StatusCodes.Status500InternalServerError;
+            if (ex is StreamAcquisitionException acquisitionException)
+            {
+                return CreateSourceAcquisitionResult(channel, acquisitionException);
+            }
+            var statusCode = ex is StreamCapacityExceededException ? StatusCodes.Status503ServiceUnavailable : StatusCodes.Status500InternalServerError;
             return StatusCode(statusCode, new { error = ex.Message });
         }
+    }
+
+    private IActionResult CreateCmafStartupTimeoutResult() =>
+        StatusCode(
+            StatusCodes.Status504GatewayTimeout,
+            new
+            {
+                error = $"CMAF startup did not complete within {_cmafStartupTimeout.TotalSeconds:0} seconds.",
+                code = "cmaf_startup_timeout",
+                stage = "startup"
+            });
+
+    private IActionResult CreateSourceAcquisitionResult(string channel, StreamAcquisitionException exception)
+    {
+        var failure = StreamAcquisitionHttpMapper.Map(exception);
+        _logger.LogWarning(
+            exception,
+            "Source acquisition failed for channel {Channel} with code {FailureCode}; retryable: {Retryable}; candidates: {Candidates}",
+            channel,
+            failure.Code,
+            exception.Retryable,
+            StreamAcquisitionHttpMapper.FormatCandidates(exception));
+        return StatusCode(failure.StatusCode, new { code = failure.Code, error = failure.Error });
     }
     /// <summary>
     /// Serves contained shared CMAF manifests, fragments, and subtitle artifacts.
@@ -930,6 +1026,11 @@ public class StreamController : ControllerBase
         _settingsService.Settings.Streaming.VirtualDevices
             .SingleOrDefault(device => string.Equals(device.Adapter.Kind, WebPlayerVirtualTunerDriver.AdapterKind, StringComparison.OrdinalIgnoreCase))
             ?.Id;
+
+    private int[] GetRepresentationFragmentCounts(string directory, int representationCount) =>
+        Enumerable.Range(0, representationCount)
+            .Select(index => _transientData.EnumerateFiles(directory, $"chunk-{index}-*.m4s").Take(2).Count())
+            .ToArray();
 
     /// <summary>
     /// Formats a remote client endpoint for active-stream diagnostics.
@@ -1328,27 +1429,6 @@ public class StreamController : ControllerBase
                 cancellationToken)
             : _tunerStreamMultiplexer.SubscribeAsync(candidate.Acquisition, candidate.OpenAsync, cancellationToken);
 
-    private static CmafStreamRequest ApplyTopologyProfile(CmafStreamRequest request, VirtualTranscodeProfile profile)
-    {
-        if (!request.Overrides.Enabled || !request.Overrides.Video.HasValue)
-        {
-            if (profile.ConvertHevcToH264)
-            {
-                request = request with { PreferredVideo = CmafPreferredVideo.Fallback };
-            }
-        }
-        if (!request.Overrides.Enabled || !request.Overrides.Audio.HasValue)
-        {
-            request = profile.Audio switch
-            {
-                OutputAudioPolicy.Ac3 => request with { PreferredAudio = CmafPreferredAudio.Fallback, FallbackAudio = CmafFallbackAudio.Ac3 },
-                OutputAudioPolicy.Eac3 => request with { PreferredAudio = CmafPreferredAudio.Fallback, FallbackAudio = CmafFallbackAudio.Eac3 },
-                _ => request
-            };
-        }
-        return request;
-    }
-
     private async Task PumpEffectiveSourceAsync(
         ResolvedStreamingCandidate candidate,
         MediaProbeResult source,
@@ -1453,6 +1533,7 @@ public class StreamController : ControllerBase
                 candidate.Acquisition,
                 candidate.OpenAsync,
                 candidate.DiagnosticUri.AbsoluteUri,
+                candidate.SourceMetadata,
                 cancellationToken);
         }
         catch (MpegTsTranscodeException ex)
@@ -1512,10 +1593,11 @@ public class StreamController : ControllerBase
     }
 
     private ObjectResult CreateProtectedContentResult(ProtectedContentDetection protection) =>
-        StatusCode(StatusCodes.Status403Forbidden, new
+        StatusCode(StatusCodes.Status422UnprocessableEntity, new
         {
-            code = 811,
-            error = protection.Message,
+            code = "protected_content",
+            error = protection.Message ?? "The requested channel is protected and cannot be streamed.",
+            retryable = false,
             inferred = protection.IsInferred,
             source = protection.IsInferred ? "channel-lineup" : "tuner"
         });

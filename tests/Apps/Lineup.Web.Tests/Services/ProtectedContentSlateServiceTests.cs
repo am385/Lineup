@@ -19,9 +19,10 @@ public class ProtectedContentSlateServiceTests
         // Act
         var arguments = ProtectedContentSlatePlanner.CreateHlsArguments("117.1", playlistPath);
 
+        // Assert
+        Assert.Equal(2, arguments.Count(argument => argument == "-re"));
         AssertOption(arguments, "-f", "hls");
         AssertOption(arguments, "-hls_segment_type", "mpegts");
-        // Assert
         Assert.Equal(playlistPath, arguments[^1]);
     }
 

@@ -1,9 +1,9 @@
 using Lineup.Common.Guides;
 using Lineup.Common.Streaming;
+using Lineup.Extensibility.Streaming;
 using Lineup.Core.Guides;
 using Lineup.Core.Settings;
 using Lineup.Core.Streaming;
-using Lineup.Extensibility.Streaming;
 using Lineup.Streaming.FFmpeg;
 using Lineup.VirtualOutputs.Protocol;
 
@@ -119,9 +119,12 @@ public sealed class VirtualOutputBroker : IVirtualOutputBroker
     {
         ArgumentNullException.ThrowIfNull(request);
         var device = AuthorizeAndResolve(request.Session, VirtualOutputCapability.ReadLineup);
+        var channels = await _routes.GetVirtualLineupAsync(device.Id, cancellationToken);
         return new VirtualOutputLineupResponse
         {
-            Channels = await _routes.GetVirtualLineupAsync(device.Id, cancellationToken)
+            Channels = _settings.Settings.ProtectedContentMode == ProtectedContentMode.StreamSlate
+                ? channels.Select(channel => channel with { Metadata = GetPublishedMetadata(channel.Metadata) }).ToArray()
+                : channels
         };
     }
 
@@ -130,9 +133,15 @@ public sealed class VirtualOutputBroker : IVirtualOutputBroker
     {
         ArgumentNullException.ThrowIfNull(request);
         var device = AuthorizeAndResolve(request.Session, VirtualOutputCapability.ReadGuide);
+        var snapshot = await _guides.BuildSnapshotAsync(device.Id, cancellationToken);
         return new VirtualOutputGuideResponse
         {
-            Snapshot = await _guides.BuildSnapshotAsync(device.Id, cancellationToken)
+            Snapshot = _settings.Settings.ProtectedContentMode == ProtectedContentMode.StreamSlate
+                ? snapshot with
+                {
+                    Channels = snapshot.Channels.Select(channel => channel.IsProtected ? channel with { IsProtected = false } : channel).ToArray()
+                }
+                : snapshot
         };
     }
 
@@ -149,11 +158,17 @@ public sealed class VirtualOutputBroker : IVirtualOutputBroker
         VirtualMpegTsOutput output;
         try
         {
-            output = await _streams.OpenAsync(device.Id, request.ChannelKey, cancellationToken);
+            output = request.Stage == VirtualOutputStreamStage.PhysicalOutput
+                ? await _streams.OpenPhysicalOutputAsync(device.Id, request.ChannelKey, cancellationToken)
+                : await _streams.OpenAsync(device.Id, request.ChannelKey, cancellationToken);
         }
         catch (KeyNotFoundException exception)
         {
             throw new VirtualOutputBrokerException(VirtualOutputFailureCode.ChannelNotFound, exception.Message, exception);
+        }
+        catch (StreamAcquisitionException exception)
+        {
+            throw new VirtualOutputBrokerException(MapAcquisitionFailure(exception.Category), exception.Message, exception);
         }
         catch (InvalidOperationException exception)
         {
@@ -175,8 +190,35 @@ public sealed class VirtualOutputBroker : IVirtualOutputBroker
             {
                 Accepted = true,
                 ContentType = "video/mp2t",
-                StreamSessionId = streamSessionId
+                StreamSessionId = streamSessionId,
+                RawSource = output.RawSource,
+                Source = output.Source,
+                Profile = output.Profile
             });
+    }
+
+    private static VirtualOutputFailureCode MapAcquisitionFailure(PhysicalStreamFailureCategory category) =>
+        category switch
+        {
+            PhysicalStreamFailureCategory.Capacity => VirtualOutputFailureCode.SourceCapacityExceeded,
+            PhysicalStreamFailureCategory.NoSignal => VirtualOutputFailureCode.SourceNoSignal,
+            PhysicalStreamFailureCategory.NoData => VirtualOutputFailureCode.SourceNoData,
+            PhysicalStreamFailureCategory.NotFound => VirtualOutputFailureCode.SourceNotFound,
+            PhysicalStreamFailureCategory.InvalidInput => VirtualOutputFailureCode.SourceInvalid,
+            PhysicalStreamFailureCategory.ProtectedContent => VirtualOutputFailureCode.ProtectedContent,
+            _ => VirtualOutputFailureCode.SourceUnavailable
+        };
+
+    private static IReadOnlyDictionary<string, string> GetPublishedMetadata(IReadOnlyDictionary<string, string> metadata)
+    {
+        if (!ProtectedContentDetector.IsProtected(metadata))
+        {
+            return metadata;
+        }
+        return new Dictionary<string, string>(metadata, StringComparer.Ordinal)
+        {
+            ["drm"] = bool.FalseString
+        };
     }
 
     private VirtualDeviceDefinition AuthorizeAndResolve(VirtualOutputSessionContext session, VirtualOutputCapability capability)

@@ -6,22 +6,6 @@ using Lineup.Streaming.FFmpeg;
 namespace Lineup.WebPlayer.FFmpeg;
 
 /// <summary>
-/// Identifies the message rendered by a synthetic channel slate.
-/// </summary>
-public enum ChannelSlateReason
-{
-    /// <summary>
-    /// The tuner channel is DRM protected.
-    /// </summary>
-    ContentProtected,
-
-    /// <summary>
-    /// The channel was disabled in Lineup.
-    /// </summary>
-    DisabledChannel
-}
-
-/// <summary>
 /// Generates synthetic media for unavailable tuner channels.
 /// </summary>
 public interface IProtectedContentSlateService
@@ -144,17 +128,11 @@ public static class ProtectedContentSlatePlanner
     /// </summary>
     public static IReadOnlyList<string> CreatePipeArguments(HostedStreamFormat format, string channel, ChannelSlateReason reason = ChannelSlateReason.ContentProtected)
     {
-        var arguments = CreateCommonArguments(channel, reason);
         if (format == HostedStreamFormat.MpegTs)
         {
-            arguments.AddRange(["-mpegts_flags", "+resend_headers", "-f", "mpegts", "pipe:1"]);
+            return ChannelSlatePlanner.CreateMpegTsArguments(channel, reason);
         }
-        else
-        {
-            throw new ArgumentOutOfRangeException(nameof(format), format, "Only MPEG-TS supports pipe output.");
-        }
-
-        return arguments;
+        throw new ArgumentOutOfRangeException(nameof(format), format, "Only MPEG-TS supports pipe output.");
     }
 
     /// <summary>
@@ -162,7 +140,7 @@ public static class ProtectedContentSlatePlanner
     /// </summary>
     public static IReadOnlyList<string> CreateHlsArguments(string channel, string playlistPath, ChannelSlateReason reason = ChannelSlateReason.ContentProtected)
     {
-        var arguments = CreateCommonArguments(channel, reason);
+        var arguments = ChannelSlatePlanner.CreateBaseArguments(channel, reason).ToList();
         arguments.AddRange([
             "-f", "hls",
             "-hls_time", "4",
@@ -181,7 +159,7 @@ public static class ProtectedContentSlatePlanner
     /// </summary>
     public static IReadOnlyList<string> CreateCmafArguments(string channel, string manifestPath, ChannelSlateReason reason = ChannelSlateReason.ContentProtected)
     {
-        var arguments = CreateCommonArguments(channel, reason);
+        var arguments = ChannelSlatePlanner.CreateBaseArguments(channel, reason).ToList();
         arguments.AddRange([
             "-f", "dash",
             "-seg_duration", "2",
@@ -202,23 +180,4 @@ public static class ProtectedContentSlatePlanner
         return arguments;
     }
 
-    private static List<string> CreateCommonArguments(string channel, ChannelSlateReason reason)
-    {
-        var fontPath = OperatingSystem.IsWindows() ? "C\\:/Windows/Fonts/arial.ttf" : "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
-        var title = reason == ChannelSlateReason.DisabledChannel ? "Disabled Channel" : "Content Protected";
-        var filter = $"drawtext=fontfile='{fontPath}':text='{title} - Channel {EscapeFilterText(channel)}':fontcolor=white:fontsize=52:x=(w-text_w)/2:y=(h-text_h)/2";
-        return [
-            "-hide_banner", "-loglevel", "error",
-            "-f", "lavfi", "-i", "color=c=0x20252b:s=1280x720:r=30",
-            "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
-            "-vf", filter,
-            "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-pix_fmt", "yuv420p", "-g", "60",
-            "-c:a", "aac", "-b:a", "128k", "-ac", "2", "-ar", "44100", "-shortest"
-        ];
-    }
-
-    private static string EscapeFilterText(string value)
-    {
-        return value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace(":", "\\:", StringComparison.Ordinal).Replace("'", "\\'", StringComparison.Ordinal);
-    }
 }

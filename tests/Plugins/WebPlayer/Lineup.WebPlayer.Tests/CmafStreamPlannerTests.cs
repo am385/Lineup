@@ -97,15 +97,16 @@ public class CmafStreamPlannerTests
         var arguments = CmafStreamPlanner.CreateArguments(new VirtualTranscodeProfile(), source, selection, new CmafStreamRequest(), "manifest.mpd");
 
         // Assert
-        AssertOption(arguments, "-f", "dash");
+        AssertOptionValue(arguments, "-f", "mpegts");
+        AssertOptionValue(arguments, "-f", "dash");
         AssertOption(arguments, "-hls_playlist", "1");
         AssertOption(arguments, "-seg_duration", "2");
         AssertOption(arguments, "-frag_duration", "2");
         AssertOption(arguments, "-window_size", "10");
         AssertOption(arguments, "-init_seg_name", "init-$RepresentationID$.mp4");
         AssertOption(arguments, "-media_seg_name", "chunk-$RepresentationID$-$Number%05d$.m4s");
-        AssertOption(arguments, "-analyzeduration", "10000000");
-        AssertOption(arguments, "-probesize", "10000000");
+        AssertOption(arguments, "-analyzeduration", "5000000");
+        AssertOption(arguments, "-probesize", "2000000");
         AssertOption(arguments, "-tag:v:0", "avc1");
         Assert.DoesNotContain("-streaming", arguments);
         Assert.DoesNotContain("-ldash", arguments);
@@ -164,6 +165,107 @@ public class CmafStreamPlannerTests
         // Assert
         Assert.False(rendition.CopySource);
         Assert.Equal("eac3", rendition.Codec);
+    }
+
+    /// <summary>
+    /// Verifies the effective AC-4 topology policy selects the configured CMAF fallback codec.
+    /// </summary>
+    [Theory]
+    [InlineData(OutputAudioPolicy.Ac3, CmafFallbackAudio.Ac3)]
+    [InlineData(OutputAudioPolicy.Eac3, CmafFallbackAudio.Eac3)]
+    public void ApplyTopologyProfile_Ac4Source_UsesAc4Policy(OutputAudioPolicy policy, CmafFallbackAudio fallback)
+    {
+        // Arrange
+        var audio = Source("ac4").Tracks[1];
+        var profile = new VirtualTranscodeProfile
+        {
+            Audio = OutputAudioPolicy.Copy,
+            Ac4Audio = policy
+        };
+
+        // Act
+        var request = CmafStreamPlanner.ApplyTopologyProfile(new CmafStreamRequest(), profile, audio);
+
+        // Assert
+        Assert.Equal(CmafPreferredAudio.Fallback, request.PreferredAudio);
+        Assert.Equal(fallback, request.FallbackAudio);
+    }
+
+    /// <summary>
+    /// Verifies AC-4 copy remains available when the effective topology profile explicitly selects source audio.
+    /// </summary>
+    [Fact]
+    public void ApplyTopologyProfile_Ac4CopyPolicy_PreservesSourcePreference()
+    {
+        // Arrange
+        var request = new CmafStreamRequest { PreferredAudio = CmafPreferredAudio.Source };
+        var profile = new VirtualTranscodeProfile
+        {
+            Audio = OutputAudioPolicy.Ac3,
+            Ac4Audio = OutputAudioPolicy.Copy
+        };
+
+        // Act
+        var effective = CmafStreamPlanner.ApplyTopologyProfile(request, profile, Source("ac4").Tracks[1]);
+
+        // Assert
+        Assert.Equal(CmafPreferredAudio.Source, effective.PreferredAudio);
+        Assert.Null(effective.FallbackAudio);
+    }
+
+    /// <summary>
+    /// Verifies an explicit browser audio override retains precedence over the AC-4 topology policy.
+    /// </summary>
+    [Fact]
+    public void ApplyTopologyProfile_Ac4BrowserOverride_PreservesOverride()
+    {
+        // Arrange
+        var request = new CmafStreamRequest
+        {
+            PreferredAudio = CmafPreferredAudio.Source,
+            Overrides = new CmafStreamOverrides
+            {
+                Enabled = true,
+                Audio = CmafPreferredAudio.Source
+            }
+        };
+        var profile = new VirtualTranscodeProfile { Ac4Audio = OutputAudioPolicy.Ac3 };
+
+        // Act
+        var effective = CmafStreamPlanner.ApplyTopologyProfile(request, profile, Source("ac4").Tracks[1]);
+
+        // Assert
+        Assert.Equal(CmafPreferredAudio.Source, effective.PreferredAudio);
+        Assert.Null(effective.FallbackAudio);
+    }
+
+    /// <summary>
+    /// Verifies incomplete AC-4 probe metadata is normalized by the effective fallback policy before CMAF muxing.
+    /// </summary>
+    [Fact]
+    public void CreateArguments_IncompleteAc4Metadata_UsesConfiguredFallback()
+    {
+        // Arrange
+        var source = Source("ac4") with
+        {
+            Tracks =
+            [
+                Track(0, MediaTrackType.Video, "hevc"),
+                Track(1, MediaTrackType.Audio, "ac4")
+            ]
+        };
+        var selection = WebPlayerTrackPlanner.SelectTracks(source, 1, null);
+        var profile = new VirtualTranscodeProfile { Ac4Audio = OutputAudioPolicy.Ac3 };
+        var request = CmafStreamPlanner.ApplyTopologyProfile(new CmafStreamRequest(), profile, selection.Audio);
+
+        // Act
+        var arguments = CmafStreamPlanner.CreateArguments(profile, source, selection, request, "manifest.mpd");
+
+        // Assert
+        AssertOption(arguments, "-c:a:0", "ac3");
+        AssertOption(arguments, "-ac:a:0", "2");
+        AssertOption(arguments, "-ar:a:0", "48000");
+        Assert.DoesNotContain("copy", arguments.Where((_, index) => index > 0 && arguments[index - 1] == "-c:a:0"));
     }
 
     /// <summary>
@@ -388,6 +490,43 @@ public class CmafStreamPlannerTests
     }
 
     /// <summary>
+    /// Verifies a topology-forced AC-3 rendition retains the configured output while adding a browser-compatible AAC rendition.
+    /// </summary>
+    [Fact]
+    public void CreatePresentationAudioRenditions_UnsupportedTopologyAc3_AddsMeasuredBrowserFallback()
+    {
+        // Arrange
+        var source = Source("ac4") with
+        {
+            Tracks = [Track(0, MediaTrackType.Video, "hevc"), Track(1, MediaTrackType.Audio, "ac4") with { Channels = 12 }]
+        };
+        var compatibilityProfile = CreateAacOnlyCompatibilityProfile();
+
+        // Act
+        var renditions = CmafStreamPlanner.CreatePresentationAudioRenditions(
+            source,
+            source.Tracks[1],
+            CmafPreferredAudio.Fallback,
+            CmafFallbackAudio.Ac3,
+            compatibilityProfile);
+
+        // Assert
+        Assert.Collection(
+            renditions,
+            rendition =>
+            {
+                Assert.Equal("ac3", rendition.Plan.Codec);
+                Assert.Equal(6, rendition.Plan.Channels);
+            },
+            rendition =>
+            {
+                Assert.Equal("aac", rendition.Plan.Codec);
+                Assert.Equal(8, rendition.Plan.Channels);
+                Assert.Contains("Browser compatibility", rendition.Plan.Title, StringComparison.Ordinal);
+            });
+    }
+
+    /// <summary>
     /// Verifies an AC-4 MP4 tag failure requests one fallback-only startup retry.
     /// </summary>
     [Fact]
@@ -441,6 +580,24 @@ public class CmafStreamPlannerTests
         AssertOption(arguments, "-c:a:0", "copy");
         AssertOption(arguments, "-metadata:s:a:0", "title=Audio #1 · Source");
         Assert.DoesNotContain("-c:a:1", arguments);
+    }
+
+    /// <summary>Verifies copied Dolby audio replaces MPEG-TS stream tags with MP4 codec tags.</summary>
+    [Theory]
+    [InlineData("ac3", "ac-3")]
+    [InlineData("eac3", "ec-3")]
+    public void CreateArguments_DolbySourceCopy_UsesMp4CodecTag(string codec, string expectedTag)
+    {
+        // Arrange
+        var source = Source(codec);
+        var selection = WebPlayerTrackPlanner.SelectTracks(source, 1, null);
+
+        // Act
+        var arguments = CmafStreamPlanner.CreateArguments(new VirtualTranscodeProfile(), source, selection, new CmafStreamRequest(), "manifest.mpd");
+
+        // Assert
+        AssertOption(arguments, "-c:a:0", "copy");
+        AssertOption(arguments, "-tag:a:0", expectedTag);
     }
 
     /// <summary>
@@ -617,6 +774,31 @@ public class CmafStreamPlannerTests
 
     private static MediaProbeResult Source(string audioCodec) =>
         new([Track(0, MediaTrackType.Video, "h264"), Track(1, MediaTrackType.Audio, audioCodec) with { Channels = 2 }], null);
+
+    private static CmafCompatibilityProfile CreateAacOnlyCompatibilityProfile()
+    {
+        var results = CmafCompatibilityTestCatalog.All
+            .Select(test => new CmafCapabilityResult
+            {
+                CaseId = test.Id,
+                Kind = test.Kind,
+                Request = test.Request,
+                Status = test.IsUnavailable
+                    ? CmafCapabilityStatus.Unavailable
+                    : test.Kind == CmafCapabilityKind.Audio &&
+                        test.Request.AudioCodec != CmafTestAudioCodec.Aac
+                            ? CmafCapabilityStatus.Failed
+                            : CmafCapabilityStatus.Passed
+            })
+            .ToArray();
+        return new CmafCompatibilityProfile
+        {
+            BrowserIdentity = "aac-only-browser",
+            CompletedAtUtc = DateTimeOffset.UtcNow,
+            Claims = new CmafBrowserClaims { Aac = true },
+            Results = results
+        };
+    }
 
     private static MediaTrackMetadata Track(int index, MediaTrackType type, string codec) =>
         new(index, type, codec, null, null, null, null, null);

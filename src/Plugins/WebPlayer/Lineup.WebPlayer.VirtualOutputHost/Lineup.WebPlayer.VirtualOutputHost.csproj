@@ -13,7 +13,7 @@
     </GetFileHash>
     <PropertyGroup>
       <_WorkerHash>@(_WorkerHashItem->'%(FileHash)')</_WorkerHash>
-      <_WorkerManifest>{"schemaVersion":1,"workerId":"web-player","version":"$(Version)","publisher":"Lineup","executablePath":"$(TargetFileName)","executableSha256":"$(_WorkerHash)","adapterKinds":["web-player"],"platforms":[],"minimumProtocolVersion":1,"maximumProtocolVersion":1,"minimumLineupVersion":"$(Version)","settingsDescriptor":{"adapterKind":"web-player","fields":[]}}</_WorkerManifest>
+      <_WorkerManifest>{"schemaVersion":1,"workerId":"web-player","version":"$(Version)","publisher":"Lineup","executablePath":"$(TargetFileName)","executableSha256":"$(_WorkerHash)","adapterKinds":["web-player"],"platforms":[],"minimumProtocolVersion":1,"maximumProtocolVersion":2,"minimumLineupVersion":"$(Version)","settingsDescriptor":{"adapterKind":"web-player","fields":[]}}</_WorkerManifest>
     </PropertyGroup>
     <WriteLinesToFile File="$(TargetDir)web-player.virtual-output.json" Lines="$(_WorkerManifest)" Overwrite="true" />
   </Target>

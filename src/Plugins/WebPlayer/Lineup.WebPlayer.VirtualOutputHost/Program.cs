@@ -26,7 +26,7 @@ var allowedNetworks = securityPolicies.ToDictionary(
     StringComparer.OrdinalIgnoreCase);
 var certificates = bootstrap.CertificateMaterials.ToDictionary(material => material.Reference, StringComparer.Ordinal);
 var bindingsByPort = VirtualOutputBindingResolver.CreatePortMap(hosting);
-var sessions = new DedicatedMediaSessionRegistry<MediaSession>(TimeProvider.System, TimeSpan.FromMinutes(2));
+var sessions = new DedicatedMediaSessionRegistry<MediaSession>(TimeProvider.System, TimeSpan.FromSeconds(20));
 var builder = WebApplication.CreateSlimBuilder(args);
 builder.Logging.ClearProviders();
 builder.Logging.AddSimpleConsole(options =>
@@ -55,12 +55,17 @@ builder.Services.AddRateLimiter(options =>
             : RateLimitPartition.GetNoLimiter($"{context.Connection.LocalPort}:{client}");
     });
 });
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(DedicatedWorkerCorsPolicy.Create());
+});
 builder.WebHost.ConfigureKestrel(options => ConfigureListeners(options, bootstrap, securityPolicies, certificates));
 var app = builder.Build();
 var workerSession = new VirtualOutputWorkerSession(bootstrap);
 await workerSession.RegisterAsync();
 var activeRequests = 0;
 app.UseVirtualOutputForwardedHeaders(hosting, securityPolicies);
+app.UseCors();
 app.UseRateLimiter();
 app.Use(async (context, next) =>
 {
@@ -71,18 +76,6 @@ app.Use(async (context, next) =>
         if (!allowedNetworks[policy.Key].Contains(context.Connection.RemoteIpAddress))
         {
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            return;
-        }
-        if (context.Request.Headers.Origin is { Count: > 0 } origin)
-        {
-            context.Response.Headers.AccessControlAllowOrigin = origin.ToString();
-            context.Response.Headers.Vary = "Origin";
-            context.Response.Headers.AccessControlAllowMethods = "GET,POST,OPTIONS";
-            context.Response.Headers.AccessControlAllowHeaders = "Content-Type";
-        }
-        if (HttpMethods.IsOptions(context.Request.Method))
-        {
-            context.Response.StatusCode = StatusCodes.Status204NoContent;
             return;
         }
         await next(context);
@@ -99,73 +92,258 @@ app.MapPost("/media/start/{channel}", async (
     HttpContext context,
     CancellationToken cancellationToken) =>
 {
+    var stopwatch = Stopwatch.StartNew();
+    var stage = DedicatedWorkerStartupStage.Preparation;
     var id = Guid.NewGuid().ToString("N");
     var directory = Path.Combine(Path.GetTempPath(), "lineup-web-player", id);
-    Directory.CreateDirectory(directory);
-    VirtualOutputClientStream source;
     try
     {
-        source = await workerSession.Broker.OpenStreamAsync(new VirtualOutputOpenStreamRequest
+        Directory.CreateDirectory(directory);
+        stage = DedicatedWorkerStartupStage.Broker;
+        VirtualOutputClientStream source;
+        try
         {
-            Session = workerSession.Context!,
-            RequestId = VirtualOutputStreamRequestId.New(),
-            ChannelKey = channel,
-            Client = new VirtualOutputClientContext
+            source = await workerSession.Broker.OpenStreamAsync(new VirtualOutputOpenStreamRequest
             {
-                Address = context.Connection.RemoteIpAddress?.ToString(),
-                UserAgent = context.Request.Headers.UserAgent.ToString()
-            }
-        }, cancellationToken);
-    }
-    catch
-    {
-        Directory.Delete(directory, recursive: true);
-        throw;
-    }
+                Session = workerSession.Context!,
+                RequestId = VirtualOutputStreamRequestId.New(),
+                ChannelKey = channel,
+                Stage = VirtualOutputStreamStage.PhysicalOutput,
+                Client = new VirtualOutputClientContext
+                {
+                    Address = context.Connection.RemoteIpAddress?.ToString(),
+                    UserAgent = context.Request.Headers.UserAgent.ToString()
+                }
+            }, cancellationToken);
+        }
+        catch
+        {
+            await MediaSessionStartupGuard.DeleteDirectoryAsync(directory);
+            throw;
+        }
 
-    await using var startupGuard = new MediaSessionStartupGuard(directory, source);
-    var process = StartFfmpeg(directory, request);
-    startupGuard.RegisterProcess(process);
-    var session = new MediaSession(id, directory, process, source, new CancellationTokenSource());
-    startupGuard.TransferOwnership();
-    if (!sessions.TryAdd(id, session))
-    {
-        await session.DisposeAsync();
-        return Results.Conflict();
+        await using var startupGuard = new MediaSessionStartupGuard(directory, source);
+        stage = DedicatedWorkerStartupStage.Planning;
+        var plan = DedicatedCmafSessionPlan.Create(source.Response, request, directory);
+        var streamSessionId = source.Response.StreamSessionId
+            ?? throw new InvalidDataException("The capability broker did not provide a stream-session identifier.");
+        var streamStartedAtUtc = DateTime.UtcNow;
+        await ReportStreamStatusAsync(
+            workerSession,
+            source,
+            plan,
+            id,
+            channel,
+            streamSessionId,
+            streamStartedAtUtc,
+            VirtualOutputStreamStartupStage.Starting,
+            null,
+            cancellationToken);
+        stage = DedicatedWorkerStartupStage.Process;
+        var process = StartMediaProcess(directory, plan.Arguments);
+        startupGuard.RegisterProcess(process);
+        Process? captionProcess = null;
+        if (plan.EmbeddedCaptions is not null)
+        {
+            IReadOnlyList<string> captionArguments = WebPlayerTrackPlanner.CreateEmbeddedCaptionArguments(plan.SubtitlePaths[plan.EmbeddedCaptions.Index]);
+            captionProcess = StartMediaProcess(directory, captionArguments);
+            startupGuard.RegisterProcess(captionProcess);
+        }
+        var session = new MediaSession(id, directory, process, captionProcess, source, plan, new CancellationTokenSource(), app.Logger);
+        startupGuard.TransferOwnership();
+        if (!sessions.TryAdd(id, session))
+        {
+            await session.DisposeAsync();
+            return Results.Conflict();
+        }
+        session.PumpTask = PumpInputAsync(session);
+        var dashPath = Path.Combine(directory, CmafStreamPlanner.DashManifestName);
+        var hlsPath = Path.Combine(directory, CmafStreamPlanner.HlsManifestName);
+        stage = DedicatedWorkerStartupStage.Readiness;
+        try
+        {
+            await WaitForOutputAsync(process, session.ErrorTask, dashPath, hlsPath, plan.AudioRenditions.Count + 1, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            var failure = DedicatedWorkerStartupFailureMapper.Map(exception, stage);
+            await TryReportStreamFailureAsync(
+                workerSession,
+                source,
+                plan,
+                id,
+                channel,
+                streamSessionId,
+                streamStartedAtUtc,
+                $"{failure.Code}: {failure.Error}",
+                app.Logger);
+            await sessions.RemoveAndDisposeAsync(id);
+            throw;
+        }
+        await ReportStreamStatusAsync(
+            workerSession,
+            source,
+            plan,
+            id,
+            channel,
+            streamSessionId,
+            streamStartedAtUtc,
+            VirtualOutputStreamStartupStage.Ready,
+            null,
+            cancellationToken);
+        session.ObserveTask = ObserveProcessAsync(session, sessions);
+        var publicBaseUri = VirtualOutputBindingResolver.ResolvePublicBaseUri(bindingsByPort, context.Connection.LocalPort);
+        return Results.Ok(plan.CreateResponse(id, publicBaseUri));
     }
-    session.PumpTask = PumpInputAsync(session);
-    session.ObserveTask = ObserveProcessAsync(session, sessions);
-    var dashPath = Path.Combine(directory, CmafStreamPlanner.DashManifestName);
-    var hlsPath = Path.Combine(directory, CmafStreamPlanner.HlsManifestName);
-    try
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
     {
-        await WaitForOutputAsync(process, dashPath, hlsPath, cancellationToken);
-    }
-    catch
-    {
-        await sessions.RemoveAndDisposeAsync(id);
         throw;
     }
-    var publicBaseUri = VirtualOutputBindingResolver.ResolvePublicBaseUri(bindingsByPort, context.Connection.LocalPort);
-    var mediaRoot = new Uri(publicBaseUri, $"media/{id}/");
-    return Results.Ok(new
+    catch (Exception exception)
     {
-        SessionId = id,
-        HlsManifestUrl = new Uri(mediaRoot, CmafStreamPlanner.HlsManifestName).AbsoluteUri,
-        DashManifestUrl = new Uri(mediaRoot, CmafStreamPlanner.DashManifestName).AbsoluteUri,
-        StopUrl = new Uri(publicBaseUri, $"media/stop/{id}").AbsoluteUri
-    });
+        var failure = DedicatedWorkerStartupFailureMapper.Map(exception, stage);
+        app.Logger.LogWarning(
+            exception,
+            "Dedicated Web Player startup failed for channel {Channel} in worker generation {Generation} with code {FailureCode} during stage {StartupStage} after {ElapsedMilliseconds} ms.",
+            channel,
+            bootstrap.Generation,
+            failure.Code,
+            failure.Stage,
+            stopwatch.ElapsedMilliseconds);
+        return Results.Json(failure, statusCode: failure.StatusCode);
+    }
 });
 
-app.MapGet("/media/{sessionId}/{filename}", (string sessionId, string filename) =>
+static async Task ReportStreamStatusAsync(
+    VirtualOutputWorkerSession workerSession,
+    VirtualOutputClientStream source,
+    DedicatedCmafSessionPlan plan,
+    string workerMediaSessionId,
+    string channel,
+    StreamSessionId streamSessionId,
+    DateTime startedAtUtc,
+    VirtualOutputStreamStartupStage startupStage,
+    string? lastFailure,
+    CancellationToken cancellationToken)
+{
+    if (workerSession.ProtocolVersion < 2)
+    {
+        return;
+    }
+    var snapshot = plan.CreateActiveStreamSnapshot(streamSessionId.ToString(), channel, startedAtUtc);
+    var response = await workerSession.Broker.ReportStreamStatusAsync(new VirtualOutputStreamStatusReport
+    {
+        Session = workerSession.Context!,
+        RequestId = source.RequestId,
+        StreamSessionId = streamSessionId,
+        WorkerMediaSessionId = workerMediaSessionId,
+        Format = snapshot.Format,
+        Tracks = snapshot.Tracks,
+        PhysicalInput = snapshot.PhysicalInput,
+        PhysicalOutput = snapshot.PhysicalOutput,
+        VirtualOutput = snapshot.VirtualOutput,
+        StartupStage = startupStage,
+        LastFailure = lastFailure
+    }, cancellationToken);
+    if (!response.Updated)
+    {
+        throw new InvalidOperationException("The capability broker no longer recognizes the dedicated Web Player stream.");
+    }
+}
+
+static async Task TryReportStreamFailureAsync(
+    VirtualOutputWorkerSession workerSession,
+    VirtualOutputClientStream source,
+    DedicatedCmafSessionPlan plan,
+    string workerMediaSessionId,
+    string channel,
+    StreamSessionId streamSessionId,
+    DateTime startedAtUtc,
+    string failure,
+    ILogger logger)
+{
+    try
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await ReportStreamStatusAsync(
+            workerSession,
+            source,
+            plan,
+            workerMediaSessionId,
+            channel,
+            streamSessionId,
+            startedAtUtc,
+            VirtualOutputStreamStartupStage.Failed,
+            failure,
+            timeout.Token);
+    }
+    catch (Exception exception)
+    {
+        logger.LogWarning(
+            exception,
+            "Unable to report failed dedicated Web Player session {WorkerMediaSessionId} for broker stream {StreamSessionId}.",
+            workerMediaSessionId,
+            streamSessionId);
+    }
+}
+
+app.MapGet("/media/{sessionId}/{filename}", async (string sessionId, string filename, long? offset, HttpContext context) =>
 {
     if (!sessions.TryGetAndTouch(sessionId, out var session) || !TryResolveMediaFile(session.Directory, filename, out var path))
     {
         return Results.NotFound();
     }
+    context.Response.Headers.CacheControl = "no-cache, no-store";
+    if (string.Equals(Path.GetExtension(filename), ".vtt", StringComparison.OrdinalIgnoreCase))
+    {
+        if (!File.Exists(path))
+        {
+            byte[] emptySubtitleBytes = [];
+            context.Response.Headers["X-Lineup-Subtitle-Offset"] = "0";
+            return Results.File(emptySubtitleBytes, "text/vtt; charset=utf-8");
+        }
+        await using var stream = OpenGrowingFile(path);
+        var effectiveOffset = Math.Clamp(offset ?? 0, 0, stream.Length);
+        stream.Position = effectiveOffset;
+        var data = new byte[(int)Math.Min(stream.Length - effectiveOffset, 64 * 1024)];
+        await stream.ReadExactlyAsync(data, context.RequestAborted);
+        context.Response.Headers["X-Lineup-Subtitle-Offset"] = (effectiveOffset + data.Length).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        return Results.File(data, "text/vtt; charset=utf-8");
+    }
     if (!File.Exists(path))
     {
         return Results.StatusCode(425);
+    }
+    if (string.Equals(filename, CmafStreamPlanner.DashManifestName, StringComparison.Ordinal))
+    {
+        var manifest = await ReadGrowingTextAsync(path, context.RequestAborted);
+        manifest = CmafStreamPlanner.RewriteManifestAudioLabels(manifest, session.Plan.AudioRenditions);
+        if (session.Plan.SourceVideoCodec is { } sourceVideoCodec)
+        {
+            manifest = CmafStreamPlanner.RewriteManifestCodecs(manifest, sourceVideoCodec);
+        }
+        return Results.Content(manifest, "application/dash+xml");
+    }
+    if (string.Equals(filename, CmafStreamPlanner.HlsManifestName, StringComparison.Ordinal))
+    {
+        var manifest = await ReadGrowingTextAsync(path, context.RequestAborted);
+        manifest = CmafStreamPlanner.RewriteManifestAudioLabels(manifest, session.Plan.AudioRenditions);
+        if (session.Plan.SourceVideoCodec is { } sourceVideoCodec)
+        {
+            manifest = CmafStreamPlanner.RewriteManifestCodecs(manifest, sourceVideoCodec);
+        }
+        return Results.Content(manifest, "application/vnd.apple.mpegurl");
+    }
+    if (filename.StartsWith("media_", StringComparison.Ordinal) && filename.EndsWith(".m3u8", StringComparison.Ordinal))
+    {
+        var dashPath = Path.Combine(session.Directory, CmafStreamPlanner.DashManifestName);
+        if (!File.Exists(dashPath))
+        {
+            return Results.StatusCode(425);
+        }
+        var playlist = await ReadGrowingTextAsync(path, context.RequestAborted);
+        var dashManifest = await ReadGrowingTextAsync(dashPath, context.RequestAborted);
+        return Results.Content(CmafStreamPlanner.RewriteHlsProgramDateTimes(playlist, dashManifest), "application/vnd.apple.mpegurl");
     }
     return Results.File(path, GetContentType(filename), enableRangeProcessing: true);
 });
@@ -205,43 +383,23 @@ finally
     }
 }
 
-static Process StartFfmpeg(string directory, CmafStreamRequest request)
+static Process StartMediaProcess(string directory, IReadOnlyList<string> arguments)
 {
-    var height = request.Quality switch
-    {
-        WebPlayerQuality.Low => 480,
-        WebPlayerQuality.Medium => 720,
-        WebPlayerQuality.High => 1080,
-        _ => 0
-    };
-    var arguments = new List<string>
-    {
-        "-hide_banner", "-loglevel", "warning", "-fflags", "+genpts+discardcorrupt",
-        "-i", "pipe:0", "-map", "0:v:0?", "-map", "0:a:0?",
-        "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
-        "-g", "60", "-keyint_min", "60", "-sc_threshold", "0"
-    };
-    if (height > 0)
-    {
-        arguments.AddRange(["-vf", $"scale=-2:{height}:force_original_aspect_ratio=decrease"]);
-    }
-    arguments.AddRange(
-    [
-        "-c:a", "aac", "-b:a", "192k", "-ac", "2",
-        "-f", "dash", "-seg_duration", "2", "-window_size", "6", "-extra_window_size", "3",
-        "-remove_at_exit", "1", "-use_template", "1", "-use_timeline", "1",
-        "-hls_playlist", "1", "-hls_master_name", CmafStreamPlanner.HlsManifestName,
-        CmafStreamPlanner.DashManifestName
-    ]);
+    var configuredExecutable = Environment.GetEnvironmentVariable("LINEUP_FFMPEG_EXECUTABLE");
+    var executable = string.IsNullOrWhiteSpace(configuredExecutable) ? "ffmpeg" : configuredExecutable;
     var startInfo = new ProcessStartInfo
     {
-        FileName = "ffmpeg",
+        FileName = executable.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? "dotnet" : executable,
         WorkingDirectory = directory,
         UseShellExecute = false,
         CreateNoWindow = true,
         RedirectStandardInput = true,
         RedirectStandardError = true
     };
+    if (executable.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+    {
+        startInfo.ArgumentList.Add(executable);
+    }
     foreach (var argument in arguments)
     {
         startInfo.ArgumentList.Add(argument);
@@ -251,9 +409,31 @@ static Process StartFfmpeg(string directory, CmafStreamRequest request)
 
 static async Task PumpInputAsync(MediaSession session)
 {
+    var buffer = new byte[64 * 1024];
+    var captionInputAvailable = session.CaptionProcess is not null;
     try
     {
-        await session.Source.Stream.CopyToAsync(session.Process.StandardInput.BaseStream, session.Lifetime.Token);
+        while (true)
+        {
+            var bytesRead = await session.Source.Stream.ReadAsync(buffer, session.Lifetime.Token);
+            if (bytesRead == 0)
+            {
+                break;
+            }
+            await session.Process.StandardInput.BaseStream.WriteAsync(buffer.AsMemory(0, bytesRead), session.Lifetime.Token);
+            if (captionInputAvailable)
+            {
+                try
+                {
+                    await session.CaptionProcess!.StandardInput.BaseStream.WriteAsync(buffer.AsMemory(0, bytesRead), session.Lifetime.Token);
+                }
+                catch (Exception exception) when (exception is IOException or ObjectDisposedException)
+                {
+                    captionInputAvailable = false;
+                    session.CaptionProcess!.StandardInput.Close();
+                }
+            }
+        }
     }
     catch (OperationCanceledException) when (session.Lifetime.IsCancellationRequested)
     {
@@ -264,6 +444,7 @@ static async Task PumpInputAsync(MediaSession session)
     finally
     {
         session.Process.StandardInput.Close();
+        session.CaptionProcess?.StandardInput.Close();
     }
 }
 
@@ -273,19 +454,67 @@ static async Task ObserveProcessAsync(MediaSession session, DedicatedMediaSessio
     await sessions.RemoveAndDisposeAsync(session.Id);
 }
 
-static async Task WaitForOutputAsync(Process process, string dashPath, string hlsPath, CancellationToken cancellationToken)
+static async Task WaitForOutputAsync(
+    Process process,
+    Task<string> errorTask,
+    string dashPath,
+    string hlsPath,
+    int representationCount,
+    CancellationToken cancellationToken)
 {
-    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-    timeout.CancelAfter(TimeSpan.FromSeconds(20));
-    while (!File.Exists(dashPath) || !File.Exists(hlsPath))
+    using var readinessTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+    using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, readinessTimeout.Token);
+    int[] representationFragmentCounts = [];
+    try
     {
-        if (process.HasExited)
+        var directory = Path.GetDirectoryName(dashPath)!;
+        while (true)
         {
-            var error = await process.StandardError.ReadToEndAsync(timeout.Token);
-            throw new InvalidOperationException($"Web Player FFmpeg exited before producing media: {error}");
+            representationFragmentCounts = Enumerable.Range(0, representationCount)
+                .Select(index => Directory.EnumerateFiles(directory, $"chunk-{index}-*.m4s").Take(2).Count())
+                .ToArray();
+            if (File.Exists(dashPath) &&
+                File.Exists(hlsPath) &&
+                representationFragmentCounts.All(count => count >= 2))
+            {
+                return;
+            }
+            if (process.HasExited)
+            {
+                var error = await errorTask.WaitAsync(linkedCancellation.Token);
+                throw new InvalidOperationException($"Web Player FFmpeg exited before producing media: {error}");
+            }
+            await Task.Delay(100, linkedCancellation.Token);
         }
-        await Task.Delay(100, timeout.Token);
     }
+    catch (OperationCanceledException) when (readinessTimeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+    {
+        if (!process.HasExited)
+        {
+            process.Kill(entireProcessTree: true);
+        }
+        var error = await errorTask;
+        throw new TimeoutException(
+            "The Web Player media presentation did not become ready within 20 seconds. " +
+            $"Expected {representationCount} representations with fragment counts [{string.Join(", ", representationFragmentCounts)}]. " +
+            $"FFmpeg diagnostics: {GetDiagnosticTail(error)}");
+    }
+}
+
+static string GetDiagnosticTail(string value)
+{
+    var lines = value.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    return string.Join(" | ", lines.TakeLast(10));
+}
+
+static FileStream OpenGrowingFile(string path) =>
+    new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 64 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
+
+static async Task<string> ReadGrowingTextAsync(string path, CancellationToken cancellationToken)
+{
+    await using var stream = OpenGrowingFile(path);
+    using var reader = new StreamReader(stream);
+    return await reader.ReadToEndAsync(cancellationToken);
 }
 
 static bool TryResolveMediaFile(string directory, string filename, out string path)
@@ -393,15 +622,22 @@ internal sealed class MediaSession : IAsyncDisposable
         string id,
         string directory,
         Process process,
+        Process? captionProcess,
         VirtualOutputClientStream source,
-        CancellationTokenSource lifetime)
+        DedicatedCmafSessionPlan plan,
+        CancellationTokenSource lifetime,
+        ILogger logger)
     {
         Id = id;
         Directory = directory;
         Process = process;
+        CaptionProcess = captionProcess;
         Source = source;
+        Plan = plan;
         Lifetime = lifetime;
+        Logger = logger;
         ErrorTask = process.StandardError.ReadToEndAsync();
+        CaptionErrorTask = captionProcess?.StandardError.ReadToEndAsync();
     }
 
     public string Id { get; }
@@ -410,15 +646,23 @@ internal sealed class MediaSession : IAsyncDisposable
 
     public Process Process { get; }
 
+    public Process? CaptionProcess { get; }
+
     public VirtualOutputClientStream Source { get; }
 
+    public DedicatedCmafSessionPlan Plan { get; }
+
     public CancellationTokenSource Lifetime { get; }
+
+    public ILogger Logger { get; }
 
     public Task? PumpTask { get; set; }
 
     public Task? ObserveTask { get; set; }
 
     public Task<string> ErrorTask { get; }
+
+    public Task<string>? CaptionErrorTask { get; }
 
     public async ValueTask DisposeAsync()
     {
@@ -429,9 +673,14 @@ internal sealed class MediaSession : IAsyncDisposable
         Lifetime.Cancel();
         try
         {
+            await CloseBrokerStreamAsync();
             if (!Process.HasExited)
             {
                 Process.Kill(entireProcessTree: true);
+            }
+            if (CaptionProcess is not null && !CaptionProcess.HasExited)
+            {
+                CaptionProcess.Kill(entireProcessTree: true);
             }
             try
             {
@@ -439,6 +688,16 @@ internal sealed class MediaSession : IAsyncDisposable
             }
             catch (InvalidOperationException)
             {
+            }
+            if (CaptionProcess is not null)
+            {
+                try
+                {
+                    await CaptionProcess.WaitForExitAsync();
+                }
+                catch (InvalidOperationException)
+                {
+                }
             }
             if (PumpTask is not null)
             {
@@ -451,6 +710,10 @@ internal sealed class MediaSession : IAsyncDisposable
                 }
             }
             await ErrorTask;
+            if (CaptionErrorTask is not null)
+            {
+                await CaptionErrorTask;
+            }
         }
         finally
         {
@@ -461,9 +724,34 @@ internal sealed class MediaSession : IAsyncDisposable
             finally
             {
                 Process.Dispose();
+                CaptionProcess?.Dispose();
                 Lifetime.Dispose();
                 await MediaSessionStartupGuard.DeleteDirectoryAsync(Directory);
             }
+        }
+    }
+
+    private async Task CloseBrokerStreamAsync()
+    {
+        using var closeCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        try
+        {
+            var closed = await Source.CloseAsync(closeCancellation.Token);
+            Logger.LogDebug(
+                "Dedicated Web Player session {MediaSessionId} closed broker request {BrokerRequestId} and stream {StreamSessionId}: {Closed}.",
+                Id,
+                Source.RequestId,
+                Source.Response.StreamSessionId,
+                closed);
+        }
+        catch (Exception exception) when (exception is IOException or ObjectDisposedException or OperationCanceledException or VirtualOutputClientException)
+        {
+            Logger.LogWarning(
+                exception,
+                "Dedicated Web Player session {MediaSessionId} could not confirm closure of broker request {BrokerRequestId} and stream {StreamSessionId}; releasing the IPC connection as fallback.",
+                Id,
+                Source.RequestId,
+                Source.Response.StreamSessionId);
         }
     }
 }

@@ -70,6 +70,15 @@ public sealed class VirtualOutputBrokerClient
             cancellationToken);
     }
 
+    /// <summary>Reports the normalized final presentation for one brokered stream.</summary>
+    public Task<VirtualOutputStreamStatusResponse> ReportStreamStatusAsync(
+        VirtualOutputStreamStatusReport report,
+        CancellationToken cancellationToken = default) =>
+        SendAsync<VirtualOutputStreamStatusReport, VirtualOutputStreamStatusResponse>(
+            VirtualOutputIpcOperation.ReportStreamStatus,
+            report,
+            cancellationToken);
+
     /// <summary>Opens one assigned MPEG-TS stream and retains its IPC connection until disposal.</summary>
     public async Task<VirtualOutputClientStream> OpenStreamAsync(
         VirtualOutputOpenStreamRequest request,
@@ -84,7 +93,7 @@ public sealed class VirtualOutputBrokerClient
                 cancellationToken);
             var response = await VirtualOutputWireProtocol.ReadAsync<VirtualOutputIpcResponse>(connection, cancellationToken);
             ThrowIfFailed(response);
-            return new VirtualOutputClientStream(connection, response.ReadPayload<VirtualOutputOpenStreamResponse>());
+            return new VirtualOutputClientStream(this, connection, request, response.ReadPayload<VirtualOutputOpenStreamResponse>());
         }
         catch
         {
@@ -92,6 +101,14 @@ public sealed class VirtualOutputBrokerClient
             throw;
         }
     }
+
+    internal Task<VirtualOutputCloseStreamResponse> CloseStreamAsync(
+        VirtualOutputCloseStreamRequest request,
+        CancellationToken cancellationToken) =>
+        SendAsync<VirtualOutputCloseStreamRequest, VirtualOutputCloseStreamResponse>(
+            VirtualOutputIpcOperation.CloseStream,
+            request,
+            cancellationToken);
 
     private async Task<TResponse> SendAsync<TRequest, TResponse>(
         VirtualOutputIpcOperation operation,
@@ -154,11 +171,22 @@ public sealed class VirtualOutputBrokerClient
 /// <summary>Owns one brokered media stream and its local IPC connection.</summary>
 public sealed class VirtualOutputClientStream : IAsyncDisposable
 {
+    private static readonly TimeSpan CloseTimeout = TimeSpan.FromSeconds(5);
+    private readonly VirtualOutputBrokerClient _client;
     private readonly Stream _connection;
+    private readonly VirtualOutputOpenStreamRequest _request;
+    private int _closeStarted;
+    private int _disposed;
 
-    internal VirtualOutputClientStream(Stream connection, VirtualOutputOpenStreamResponse response)
+    internal VirtualOutputClientStream(
+        VirtualOutputBrokerClient client,
+        Stream connection,
+        VirtualOutputOpenStreamRequest request,
+        VirtualOutputOpenStreamResponse response)
     {
+        _client = client;
         _connection = connection;
+        _request = request;
         Response = response;
     }
 
@@ -168,8 +196,56 @@ public sealed class VirtualOutputClientStream : IAsyncDisposable
     /// <summary>Gets the readable MPEG-TS response body.</summary>
     public Stream Stream => _connection;
 
+    /// <summary>Gets the correlated broker request identifier.</summary>
+    public VirtualOutputStreamRequestId RequestId => _request.RequestId;
+
+    /// <summary>Requests deterministic upstream closure before the streaming IPC connection is released.</summary>
+    public async Task<bool> CloseAsync(CancellationToken cancellationToken = default)
+    {
+        if (Interlocked.CompareExchange(ref _closeStarted, 1, 0) != 0)
+        {
+            return false;
+        }
+        if (Response.StreamSessionId is not { } streamSessionId)
+        {
+            return false;
+        }
+        try
+        {
+            var response = await _client.CloseStreamAsync(
+                new VirtualOutputCloseStreamRequest
+                {
+                    Session = _request.Session,
+                    RequestId = _request.RequestId,
+                    StreamSessionId = streamSessionId
+                },
+                cancellationToken);
+            return response.Closed;
+        }
+        catch
+        {
+            Volatile.Write(ref _closeStarted, 0);
+            throw;
+        }
+    }
+
     /// <inheritdoc />
-    public ValueTask DisposeAsync() => _connection.DisposeAsync();
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+        using var closeCancellation = new CancellationTokenSource(CloseTimeout);
+        try
+        {
+            await CloseAsync(closeCancellation.Token);
+        }
+        finally
+        {
+            await _connection.DisposeAsync();
+        }
+    }
 }
 
 /// <summary>Represents a structured rejection returned by the trusted capability broker.</summary>

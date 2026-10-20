@@ -1,6 +1,7 @@
 using System.Net;
 using System.Diagnostics;
 using System.Reflection;
+using Lineup.Extensibility.Streaming;
 using Lineup.Web.Controllers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -359,22 +360,146 @@ public sealed class StreamControllerTests
         Assert.IsType<OkObjectResult>(controller.StopCmaf(registration.SessionId));
     }
 
+    /// <summary>Verifies known protected metadata returns promptly without reserving a physical source.</summary>
+    [Fact]
+    public async Task StartCmafStream_KnownProtectedReturnError_DoesNotAcquireSource()
+    {
+        // Arrange
+        var route = CreateResolvedRoute(protectedContent: true);
+        var routes = Substitute.For<IStreamingRouteResolver>();
+        routes.ResolveVirtualAsync(Arg.Any<VirtualDeviceId>(), "9.1", Arg.Any<CancellationToken>()).Returns(route);
+        var multiplexer = Substitute.For<ITunerStreamMultiplexer>();
+        var controller = CreateController(
+            routes: routes,
+            protectedContentMode: ProtectedContentMode.ReturnError,
+            multiplexer: multiplexer);
+
+        // Act
+        var result = await controller.StartCmafStream("9.1", new CmafStreamRequest());
+
+        // Assert
+        var error = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status422UnprocessableEntity, error.StatusCode);
+        Assert.Contains("\"code\":\"protected_content\"", System.Text.Json.JsonSerializer.Serialize(error.Value), StringComparison.Ordinal);
+        await multiplexer.DidNotReceive().SubscribeFirstAvailableAsync(Arg.Any<ResolvedStreamingRoute>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>Verifies source-acquisition failures are translated through the public management-hosted CMAF endpoint.</summary>
+    [Fact]
+    public async Task StartCmafStream_SourceAcquisitionFailure_ReturnsStructuredServiceUnavailable()
+    {
+        // Arrange
+        var route = CreateResolvedRoute();
+        var routes = Substitute.For<IStreamingRouteResolver>();
+        routes.ResolveVirtualAsync(Arg.Any<VirtualDeviceId>(), "9.1", Arg.Any<CancellationToken>()).Returns(route);
+        var multiplexer = Substitute.For<ITunerStreamMultiplexer>();
+        var candidate = new StreamAcquisitionCandidateFailure
+        {
+            DeviceId = route.Candidates[0].SourceChannelId.PhysicalDeviceId,
+            ChannelId = route.Candidates[0].SourceChannelId,
+            Category = PhysicalStreamFailureCategory.Unavailable,
+            Code = "source_unavailable",
+            Message = "The physical source could not be opened.",
+            Retryable = true
+        };
+        var failure = StreamAcquisitionException.Create([candidate], [new IOException("Sensitive source diagnostic.")]);
+        multiplexer.SubscribeFirstAvailableAsync(route, Arg.Any<CancellationToken>())
+            .Returns<ValueTask<ResolvedTunerStream>>(_ => throw failure);
+        var controller = CreateController(routes: routes, multiplexer: multiplexer);
+
+        // Act
+        var result = await controller.StartCmafStream("9.1", new CmafStreamRequest());
+
+        // Assert
+        var error = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, error.StatusCode);
+        var json = System.Text.Json.JsonSerializer.Serialize(error.Value);
+        Assert.Contains("\"code\":\"source_unavailable\"", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("Sensitive", json, StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies the server owns a complete CMAF startup deadline and returns a structured timeout before the browser disconnects.</summary>
+    [Fact]
+    public async Task StartCmafStream_StartupDeadlineExpires_ReturnsStructuredGatewayTimeout()
+    {
+        // Arrange
+        var routes = Substitute.For<IStreamingRouteResolver>();
+        routes.ResolveVirtualAsync(Arg.Any<VirtualDeviceId>(), "9.1", Arg.Any<CancellationToken>())
+            .Returns(async call =>
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, call.Arg<CancellationToken>());
+                return (ResolvedStreamingRoute?)CreateResolvedRoute();
+            });
+        var controller = CreateController(routes: routes, cmafStartupTimeout: TimeSpan.FromMilliseconds(50));
+
+        // Act
+        var result = await controller.StartCmafStream("9.1", new CmafStreamRequest());
+
+        // Assert
+        var error = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status504GatewayTimeout, error.StatusCode);
+        var json = System.Text.Json.JsonSerializer.Serialize(error.Value);
+        Assert.Contains("\"code\":\"cmaf_startup_timeout\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"stage\":\"startup\"", json, StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies a temporary source-drain pump cannot delay the structured startup timeout response.</summary>
+    [Fact]
+    public async Task StartCmafStream_StartupDeadlineExpires_DoesNotWaitForSourceDrainPump()
+    {
+        // Arrange
+        var route = CreateResolvedRoute();
+        var routes = Substitute.For<IStreamingRouteResolver>();
+        routes.ResolveVirtualAsync(Arg.Any<VirtualDeviceId>(), "9.1", Arg.Any<CancellationToken>()).Returns(route);
+        var multiplexer = Substitute.For<ITunerStreamMultiplexer>();
+        multiplexer.SubscribeFirstAvailableAsync(route, Arg.Any<CancellationToken>())
+            .Returns(new ResolvedTunerStream(route.Candidates[0], new DelayedReadStream(TimeSpan.FromSeconds(1))));
+        var mediaProbe = Substitute.For<IMediaProbeService>();
+        mediaProbe.ProbeAsync(
+                Arg.Any<StreamAcquisitionDescriptor>(),
+                Arg.Any<StreamAcquisitionFactory>(),
+                Arg.Any<string>(),
+                Arg.Any<IReadOnlyDictionary<string, string>>(),
+                Arg.Any<CancellationToken>())
+            .Returns(async call =>
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, call.Arg<CancellationToken>());
+                return new MediaProbeResult([], null);
+            });
+        var controller = CreateController(
+            routes: routes,
+            multiplexer: multiplexer,
+            mediaProbe: mediaProbe,
+            cmafStartupTimeout: TimeSpan.FromMilliseconds(50));
+        var stopwatch = Stopwatch.StartNew();
+
+        // Act
+        var result = await controller.StartCmafStream("9.1", new CmafStreamRequest());
+
+        // Assert
+        Assert.Equal(StatusCodes.Status504GatewayTimeout, Assert.IsType<ObjectResult>(result).StatusCode);
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromMilliseconds(500), $"Startup timeout took {stopwatch.Elapsed}.");
+    }
+
     private static StreamController CreateController(
         StreamingTopologyStore? store = null,
         IStreamingRouteResolver? routes = null,
         IProtectedContentSlateService? slate = null,
         DisabledChannelMode disabledMode = DisabledChannelMode.ReturnError,
+        ProtectedContentMode protectedContentMode = ProtectedContentMode.ReturnError,
         IActiveStreamRegistry? activeStreams = null,
         int maximumConcurrentStreams = 0,
         ITunerStreamMultiplexer? multiplexer = null,
         IMediaProbeService? mediaProbe = null,
         ITransientDataStore? transientData = null,
-        ICmafOutputCoordinator? cmafOutputs = null)
+        ICmafOutputCoordinator? cmafOutputs = null,
+        TimeSpan? cmafStartupTimeout = null)
     {
         var settings = Substitute.For<ILineupSettingsService>();
         settings.Settings.Returns(new LineupSettings
         {
             DisabledChannelMode = disabledMode,
+            ProtectedContentMode = protectedContentMode,
             MaximumConcurrentStreams = maximumConcurrentStreams,
             Streaming = new StreamingConfiguration
             {
@@ -404,7 +529,8 @@ public sealed class StreamControllerTests
             NullLogger<StreamController>.Instance,
             transientData: transientData ?? new TransientDataStore(Path.Combine(AppContext.BaseDirectory, "stream-controller-artifacts")),
             streamRoutes: routes,
-            cmafOutputs: cmafOutputs)
+            cmafOutputs: cmafOutputs,
+            cmafStartupTimeout: cmafStartupTimeout)
         {
             ControllerContext = new ControllerContext
             {
@@ -422,7 +548,7 @@ public sealed class StreamControllerTests
         return new StreamingTopologyStore(new PooledDbContextFactory<EpgDbContext>(options));
     }
 
-    private static ResolvedStreamingRoute CreateResolvedRoute()
+    private static ResolvedStreamingRoute CreateResolvedRoute(bool protectedContent = false)
     {
         var physicalId = PhysicalDeviceId.New();
         var physical = Substitute.For<IPhysicalTunerDevice>();
@@ -461,7 +587,8 @@ public sealed class StreamControllerTests
                     SourceChannelId = source,
                     Acquisition = acquisition,
                     PhysicalProfile = physicalProfile,
-                    DiagnosticUri = diagnosticUri
+                    DiagnosticUri = diagnosticUri,
+                    SourceMetadata = new Dictionary<string, string>(StringComparer.Ordinal) { ["drm"] = protectedContent.ToString() }
                 }
             ],
             PhysicalProfile = physicalProfile,
@@ -522,6 +649,28 @@ public sealed class StreamControllerTests
         var property = type.GetProperty(name, BindingFlags.Instance | BindingFlags.Public);
         Assert.NotNull(property);
         property.SetValue(instance, value);
+    }
+
+    private sealed class DelayedReadStream(TimeSpan delay) : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() => throw new NotSupportedException();
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            _ = buffer;
+            _ = cancellationToken;
+            await Task.Delay(delay);
+            return 0;
+        }
     }
 
     private sealed record CmafRegistration(string SessionId, string Directory, string PlaylistPath);

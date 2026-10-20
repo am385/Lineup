@@ -54,6 +54,33 @@ public static class CmafStreamPlanner
         };
     }
 
+    /// <summary>Applies the effective virtual-device profile unless an explicit browser override owns that setting.</summary>
+    public static CmafStreamRequest ApplyTopologyProfile(CmafStreamRequest request, VirtualTranscodeProfile profile, MediaTrackMetadata? selectedAudio)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(profile);
+        if (!request.Overrides.Enabled || !request.Overrides.Video.HasValue)
+        {
+            if (profile.ConvertHevcToH264)
+            {
+                request = request with { PreferredVideo = CmafPreferredVideo.Fallback };
+            }
+        }
+        if (!request.Overrides.Enabled || !request.Overrides.Audio.HasValue)
+        {
+            var audioPolicy = string.Equals(selectedAudio?.Codec, "ac4", StringComparison.OrdinalIgnoreCase)
+                ? profile.Ac4Audio
+                : profile.Audio;
+            request = audioPolicy switch
+            {
+                OutputAudioPolicy.Ac3 => request with { PreferredAudio = CmafPreferredAudio.Fallback, FallbackAudio = CmafFallbackAudio.Ac3 },
+                OutputAudioPolicy.Eac3 => request with { PreferredAudio = CmafPreferredAudio.Fallback, FallbackAudio = CmafFallbackAudio.Eac3 },
+                _ => request
+            };
+        }
+        return request;
+    }
+
     /// <summary>Validates manual override values without accepting Auto as an explicit override.</summary>
     public static void ValidateOverrides(CmafStreamOverrides overrides)
     {
@@ -342,6 +369,26 @@ public static class CmafStreamPlanner
             {
                 var title = manualPolicyOverride ? $"Override · {plan.Title}" : plan.Title;
                 renditions.Add(new CmafAudioRendition(audio, plan with { Title = CreateAudioTitle(audio, title) }));
+
+                if (!manualPolicyOverride &&
+                    CmafCompatibilityProfilePolicy.IsUsable(compatibilityProfile) &&
+                    !CmafCompatibilityProfilePolicy.SupportsAudio(
+                        compatibilityProfile!,
+                        audio with { Codec = plan.Codec, Channels = plan.Channels }))
+                {
+                    var measuredFallback = CmafCompatibilityProfilePolicy.SelectFallbackAudio(compatibilityProfile!, audio.Channels ?? 2);
+                    if (measuredFallback.HasValue)
+                    {
+                        var browserPlan = CreateAudioPlan(audio, CmafPreferredAudio.Fallback, measuredFallback.Value);
+                        if (!string.Equals(browserPlan.Codec, plan.Codec, StringComparison.OrdinalIgnoreCase) ||
+                            browserPlan.Channels != plan.Channels)
+                        {
+                            renditions.Add(new CmafAudioRendition(
+                                audio,
+                                browserPlan with { Title = CreateAudioTitle(audio, $"{browserPlan.Title} · Browser compatibility") }));
+                        }
+                    }
+                }
             }
         }
         return renditions;
@@ -444,7 +491,7 @@ public static class CmafStreamPlanner
         List<string> arguments =
         [
             "-hide_banner", "-loglevel", "info",
-            "-analyzeduration", "10000000", "-probesize", "10000000",
+            "-f", "mpegts", "-analyzeduration", "5000000", "-probesize", "2000000",
             "-fflags", "+genpts"
         ];
         if (deinterlace)
@@ -537,6 +584,21 @@ public static class CmafStreamPlanner
         if (plan.CopySource)
         {
             arguments.AddRange([$"-c{streamSpecifier}", "copy"]);
+            if (string.Equals(plan.Codec, "aac", StringComparison.OrdinalIgnoreCase))
+            {
+                arguments.AddRange([
+                    $"-bsf{streamSpecifier}", "aac_adtstoasc",
+                    $"-tag{streamSpecifier}", "mp4a"
+                ]);
+            }
+            else if (string.Equals(plan.Codec, "ac3", StringComparison.OrdinalIgnoreCase))
+            {
+                arguments.AddRange([$"-tag{streamSpecifier}", "ac-3"]);
+            }
+            else if (string.Equals(plan.Codec, "eac3", StringComparison.OrdinalIgnoreCase))
+            {
+                arguments.AddRange([$"-tag{streamSpecifier}", "ec-3"]);
+            }
         }
         else
         {

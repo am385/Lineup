@@ -150,11 +150,39 @@ public interface IStreamingSessionGraph
         Func<Stream, CancellationToken, Task<T>> metadataFactory,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Gets complete metadata or performs one shared delayed refresh when the cached result remains provisional.</summary>
+    Task<T> GetOrRefreshAcquisitionMetadataAsync<T>(
+        StreamAcquisitionDescriptor descriptor,
+        StreamAcquisitionFactory acquisitionFactory,
+        string metadataKey,
+        Func<Stream, CancellationToken, Task<T>> metadataFactory,
+        AcquisitionMetadataRefreshPolicy<T> refreshPolicy,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Gets immutable active graph and capacity diagnostics.</summary>
     StreamingSessionGraphDiagnostics GetDiagnostics();
 
     /// <summary>Rejects new sessions and stops transforms before acquisitions.</summary>
     Task StopAsync(CancellationToken cancellationToken = default);
+}
+
+/// <summary>Defines completeness, merge, and retry behavior for successful but provisional acquisition metadata.</summary>
+public sealed record AcquisitionMetadataRefreshPolicy<T>
+{
+    /// <summary>Gets the predicate that determines whether metadata is complete enough to reuse.</summary>
+    public required Func<T, bool> IsReusable { get; init; }
+
+    /// <summary>Gets the function that retains the richest fields from the prior and refreshed observations.</summary>
+    public required Func<T, T, T> Merge { get; init; }
+
+    /// <summary>Gets the delay before refreshing one provisional observation.</summary>
+    public TimeSpan RetryDelay { get; init; } = TimeSpan.FromSeconds(1);
+
+    /// <summary>Gets the maximum duration of each shared metadata operation, including source acquisition.</summary>
+    public TimeSpan OperationTimeout { get; init; } = Timeout.InfiniteTimeSpan;
+
+    /// <summary>Gets how long a caller waits for a shared refresh before using the provisional observation.</summary>
+    public TimeSpan RefreshWaitTimeout { get; init; } = Timeout.InfiniteTimeSpan;
 }
 
 /// <summary>
@@ -168,7 +196,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
     private readonly ILogger<StreamingSessionGraph> _logger;
     private readonly ConcurrentDictionary<AcquisitionNodeKey, SharedNode> _acquisitions = [];
     private readonly ConcurrentDictionary<TransformNodeKey, SharedNode> _transforms = [];
-    private readonly ConcurrentDictionary<AcquisitionMetadataKey, Lazy<Task<object>>> _metadata = [];
+    private readonly ConcurrentDictionary<AcquisitionMetadataKey, Lazy<Task<AcquisitionMetadataSnapshot>>> _metadata = [];
     private readonly Lock _lifecycleGate = new();
     private bool _isStopping;
 
@@ -281,10 +309,55 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         string metadataKey,
         Func<Stream, CancellationToken, Task<T>> metadataFactory,
         CancellationToken cancellationToken = default)
+        => await GetAcquisitionMetadataAsync(
+            descriptor,
+            acquisitionFactory,
+            metadataKey,
+            metadataFactory,
+            refreshPolicy: null,
+            cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<T> GetOrRefreshAcquisitionMetadataAsync<T>(
+        StreamAcquisitionDescriptor descriptor,
+        StreamAcquisitionFactory acquisitionFactory,
+        string metadataKey,
+        Func<Stream, CancellationToken, Task<T>> metadataFactory,
+        AcquisitionMetadataRefreshPolicy<T> refreshPolicy,
+        CancellationToken cancellationToken = default)
+        => await GetAcquisitionMetadataAsync(
+            descriptor,
+            acquisitionFactory,
+            metadataKey,
+            metadataFactory,
+            refreshPolicy,
+            cancellationToken);
+
+    private async Task<T> GetAcquisitionMetadataAsync<T>(
+        StreamAcquisitionDescriptor descriptor,
+        StreamAcquisitionFactory acquisitionFactory,
+        string metadataKey,
+        Func<Stream, CancellationToken, Task<T>> metadataFactory,
+        AcquisitionMetadataRefreshPolicy<T>? refreshPolicy,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(acquisitionFactory);
         ArgumentException.ThrowIfNullOrWhiteSpace(metadataKey);
         ArgumentNullException.ThrowIfNull(metadataFactory);
+        if (refreshPolicy is not null)
+        {
+            ArgumentNullException.ThrowIfNull(refreshPolicy.IsReusable);
+            ArgumentNullException.ThrowIfNull(refreshPolicy.Merge);
+            if (refreshPolicy.RetryDelay < TimeSpan.Zero || refreshPolicy.RetryDelay > TimeSpan.FromSeconds(30))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(refreshPolicy),
+                    refreshPolicy.RetryDelay,
+                    "The metadata refresh delay must be between zero and 30 seconds.");
+            }
+            ValidateMetadataTimeout(refreshPolicy.OperationTimeout, nameof(refreshPolicy.OperationTimeout));
+            ValidateMetadataTimeout(refreshPolicy.RefreshWaitTimeout, nameof(refreshPolicy.RefreshWaitTimeout));
+        }
         ValidateDescriptor(descriptor);
 
         SharedNode node;
@@ -299,25 +372,118 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         var key = new AcquisitionMetadataKey(acquisitionKey, metadataKey);
         var lazy = _metadata.GetOrAdd(
             key,
-            _ => new Lazy<Task<object>>(
-                async () =>
-                {
-                    await using var lease = await SubscribeNodeAsync(node, CancellationToken.None);
-                    return (object?)await metadataFactory(lease.Stream, CancellationToken.None) ?? throw new InvalidOperationException("Shared acquisition metadata cannot be null.");
-                },
-                LazyThreadSafetyMode.ExecutionAndPublication));
+            _ => CreateMetadataFactory(node, metadataFactory, refreshPolicy?.OperationTimeout ?? Timeout.InfiniteTimeSpan));
+        var snapshot = await AwaitMetadataAsync<T>(key, lazy, cancellationToken);
+        if (refreshPolicy is null || refreshPolicy.IsReusable(snapshot.Value))
+        {
+            return snapshot.Value;
+        }
+        if (snapshot.RefreshAttempted)
+        {
+            _metadata.TryRemove(new KeyValuePair<AcquisitionMetadataKey, Lazy<Task<AcquisitionMetadataSnapshot>>>(key, lazy));
+            return snapshot.Value;
+        }
+
+        var remainingDelay = refreshPolicy.RetryDelay - (DateTimeOffset.UtcNow - snapshot.ObservedAtUtc);
+        if (remainingDelay > TimeSpan.Zero)
+        {
+            await Task.Delay(remainingDelay, cancellationToken);
+        }
+
+        var replacement = CreateMetadataFactory(
+            node,
+            async (stream, token) => refreshPolicy.Merge(snapshot.Value, await metadataFactory(stream, token)),
+            refreshPolicy.OperationTimeout,
+            refreshAttempted: true);
+        if (!_metadata.TryUpdate(key, replacement, lazy))
+        {
+            if (!_metadata.TryGetValue(key, out replacement))
+            {
+                return snapshot.Value;
+            }
+        }
+
+        AcquisitionMetadataValue<T> refreshed;
         try
         {
-            return (T)await lazy.Value.WaitAsync(cancellationToken);
+            refreshed = await AwaitMetadataAsync<T>(
+                key,
+                replacement,
+                cancellationToken,
+                refreshPolicy.RefreshWaitTimeout,
+                evictOnTimeout: false);
+        }
+        catch (TimeoutException)
+        {
+            return snapshot.Value;
+        }
+        if (!refreshPolicy.IsReusable(refreshed.Value))
+        {
+            _metadata.TryRemove(new KeyValuePair<AcquisitionMetadataKey, Lazy<Task<AcquisitionMetadataSnapshot>>>(key, replacement));
+        }
+        return refreshed.Value;
+    }
+
+    private static Lazy<Task<AcquisitionMetadataSnapshot>> CreateMetadataFactory<T>(
+        SharedNode node,
+        Func<Stream, CancellationToken, Task<T>> metadataFactory,
+        TimeSpan operationTimeout,
+        bool refreshAttempted = false) =>
+        new(
+            async () =>
+            {
+                using var timeout = operationTimeout == Timeout.InfiniteTimeSpan
+                    ? null
+                    : new CancellationTokenSource(operationTimeout);
+                var operationToken = timeout?.Token ?? CancellationToken.None;
+                try
+                {
+                    await using var lease = await SubscribeNodeAsync(node, operationToken);
+                    var value = (object?)await metadataFactory(lease.Stream, operationToken)
+                        ?? throw new InvalidOperationException("Shared acquisition metadata cannot be null.");
+                    return new AcquisitionMetadataSnapshot(value, DateTimeOffset.UtcNow, refreshAttempted);
+                }
+                catch (OperationCanceledException exception) when (timeout?.IsCancellationRequested == true)
+                {
+                    throw new TimeoutException($"Shared acquisition metadata did not complete within {operationTimeout}.", exception);
+                }
+            },
+            LazyThreadSafetyMode.ExecutionAndPublication);
+
+    private async Task<AcquisitionMetadataValue<T>> AwaitMetadataAsync<T>(
+        AcquisitionMetadataKey key,
+        Lazy<Task<AcquisitionMetadataSnapshot>> lazy,
+        CancellationToken cancellationToken,
+        TimeSpan waitTimeout = default,
+        bool evictOnTimeout = true)
+    {
+        try
+        {
+            var snapshot = waitTimeout == default || waitTimeout == Timeout.InfiniteTimeSpan
+                ? await lazy.Value.WaitAsync(cancellationToken)
+                : await lazy.Value.WaitAsync(waitTimeout, cancellationToken);
+            return new AcquisitionMetadataValue<T>((T)snapshot.Value, snapshot.ObservedAtUtc, snapshot.RefreshAttempted);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
+        catch (TimeoutException) when (!evictOnTimeout)
+        {
+            throw;
+        }
         catch
         {
-            _metadata.TryRemove(new KeyValuePair<AcquisitionMetadataKey, Lazy<Task<object>>>(key, lazy));
+            _metadata.TryRemove(new KeyValuePair<AcquisitionMetadataKey, Lazy<Task<AcquisitionMetadataSnapshot>>>(key, lazy));
             throw;
+        }
+    }
+
+    private static void ValidateMetadataTimeout(TimeSpan timeout, string parameterName)
+    {
+        if (timeout != Timeout.InfiniteTimeSpan && (timeout <= TimeSpan.Zero || timeout > TimeSpan.FromMinutes(5)))
+        {
+            throw new ArgumentOutOfRangeException(parameterName, timeout, "The metadata timeout must be infinite or between zero and five minutes.");
         }
     }
 
@@ -497,6 +663,10 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
     }
 
     private sealed record AcquisitionMetadataKey(AcquisitionNodeKey Acquisition, string MetadataKey);
+
+    private sealed record AcquisitionMetadataSnapshot(object Value, DateTimeOffset ObservedAtUtc, bool RefreshAttempted);
+
+    private sealed record AcquisitionMetadataValue<T>(T Value, DateTimeOffset ObservedAtUtc, bool RefreshAttempted);
 
     private sealed class SharedNode
     {

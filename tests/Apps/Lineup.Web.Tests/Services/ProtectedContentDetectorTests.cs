@@ -22,7 +22,7 @@ public class ProtectedContentDetectorTests
         // Assert
         Assert.True(result.IsProtected);
         Assert.True(result.IsInferred);
-        Assert.Equal("811 DRM content inferred from channel lineup metadata after playback startup failed.", result.Message);
+        Assert.Equal("The requested channel is protected and cannot be streamed.", result.Message);
     }
 
     /// <summary>
@@ -59,5 +59,21 @@ public class ProtectedContentDetectorTests
         Assert.True(result.IsProtected);
         Assert.False(result.IsInferred);
         Assert.Equal(tunerError, result.Message);
+    }
+
+    /// <summary>Verifies normalized numeric and Boolean DRM values are recognized.</summary>
+    [Theory]
+    [InlineData("1")]
+    [InlineData("True")]
+    public void IsProtected_ProtectedSourceMetadata_ReturnsTrue(string value)
+    {
+        // Arrange
+        var metadata = new Dictionary<string, string>(StringComparer.Ordinal) { ["drm"] = value };
+
+        // Act
+        var protectedContent = ProtectedContentDetector.IsProtected(metadata);
+
+        // Assert
+        Assert.True(protectedContent);
     }
 }

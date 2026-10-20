@@ -110,6 +110,18 @@ public sealed record ActiveStreamMediaSnapshot(long? BitRate, IReadOnlyList<Acti
 /// <summary>Represents an active stream hosted by Lineup.</summary>
 public sealed record ActiveStreamSnapshot(string SessionId, string Channel, HostedStreamFormat Format, DateTime StartedAtUtc, long? SourceBitRate, IReadOnlyList<ActiveStreamTrack> Tracks)
 {
+    /// <summary>Gets the isolated worker's broker request identifier when applicable.</summary>
+    public string? BrokerRequestId { get; init; }
+
+    /// <summary>Gets the isolated worker's media-session identifier when applicable.</summary>
+    public string? WorkerMediaSessionId { get; init; }
+
+    /// <summary>Gets the isolated worker's latest startup stage when applicable.</summary>
+    public string? WorkerStartupStage { get; init; }
+
+    /// <summary>Gets the isolated worker's sanitized latest failure when applicable.</summary>
+    public string? WorkerLastFailure { get; init; }
+
     /// <summary>Gets the remote network endpoint connected to the hosted stream.</summary>
     public string? ClientAddress { get; init; }
 

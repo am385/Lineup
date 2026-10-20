@@ -349,12 +349,34 @@ static async Task WriteBrokerFailureAsync(
         VirtualOutputFailureCode.Unauthorized or VirtualOutputFailureCode.StaleGeneration => StatusCodes.Status503ServiceUnavailable,
         VirtualOutputFailureCode.CapabilityDenied => StatusCodes.Status403Forbidden,
         VirtualOutputFailureCode.InvalidRequest => StatusCodes.Status400BadRequest,
+        VirtualOutputFailureCode.SourceNotFound => StatusCodes.Status404NotFound,
+        VirtualOutputFailureCode.SourceInvalid => StatusCodes.Status400BadRequest,
+        VirtualOutputFailureCode.ProtectedContent => StatusCodes.Status422UnprocessableEntity,
         _ => StatusCodes.Status503ServiceUnavailable
     };
     context.Response.StatusCode = status;
     await context.Response.WriteAsJsonAsync(new LineupLinkError
     {
-        Code = exception.FailureCode.ToString().ToLowerInvariant(),
+        Code = GetFailureCode(exception.FailureCode),
         Message = exception.Message
     }, cancellationToken);
 }
+
+static string GetFailureCode(VirtualOutputFailureCode failureCode) =>
+    failureCode switch
+    {
+        VirtualOutputFailureCode.ChannelNotFound => "channel_not_found",
+        VirtualOutputFailureCode.ResourceLimit => "resource_limit",
+        VirtualOutputFailureCode.CapabilityDenied => "capability_denied",
+        VirtualOutputFailureCode.InvalidRequest => "invalid_request",
+        VirtualOutputFailureCode.Unauthorized => "broker_unauthorized",
+        VirtualOutputFailureCode.StaleGeneration => "stale_worker_generation",
+        VirtualOutputFailureCode.SourceUnavailable => "source_unavailable",
+        VirtualOutputFailureCode.SourceNoSignal => "source_no_signal",
+        VirtualOutputFailureCode.SourceNoData => "source_no_video_data",
+        VirtualOutputFailureCode.SourceCapacityExceeded => "source_capacity_exceeded",
+        VirtualOutputFailureCode.SourceNotFound => "source_not_found",
+        VirtualOutputFailureCode.SourceInvalid => "source_invalid",
+        VirtualOutputFailureCode.ProtectedContent => "protected_content",
+        _ => "broker_unavailable"
+    };

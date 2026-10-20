@@ -27,7 +27,13 @@ public sealed class StreamingRouteFailoverTests
         await store.SetIdentityAsync(new SourceChannelId(staleId, "7.1-stale"), null, null, group, TestContext.Current.CancellationToken);
         await store.ReconcileAsync(
             live.Snapshot.Id,
-            [new PhysicalSourceChannel { Id = new SourceChannelId(live.Snapshot.Id, "7.1-live"), ProviderNumber = "7.1", ProviderName = "News" }],
+            [new PhysicalSourceChannel
+            {
+                Id = new SourceChannelId(live.Snapshot.Id, "7.1-live"),
+                ProviderNumber = "7.1",
+                ProviderName = "News",
+                Metadata = new Dictionary<string, string>(StringComparer.Ordinal) { ["audioCodec"] = "AC4" }
+            }],
             TestContext.Current.CancellationToken);
         await store.SetIdentityAsync(new SourceChannelId(live.Snapshot.Id, "7.1-live"), null, null, group, TestContext.Current.CancellationToken);
         var virtualDevice = new VirtualDeviceDefinition
@@ -66,6 +72,7 @@ public sealed class StreamingRouteFailoverTests
             Assert.NotNull(route);
             Assert.Equal(live.Snapshot.Id, route.PhysicalDevice.Snapshot.Id);
             Assert.Equal(new SourceChannelId(live.Snapshot.Id, "7.1-live"), Assert.Single(route.SourceCandidates));
+            Assert.Equal("AC4", Assert.Single(route.Candidates).SourceMetadata["audioCodec"]);
         }
         finally
         {
@@ -148,6 +155,45 @@ public sealed class StreamingRouteFailoverTests
         Assert.Single(shared.Requests);
         Assert.Equal(2, Assert.Single(graph.GetDiagnostics().Nodes, node => node.Kind == "acquisition").ReceiverCount);
         Assert.Equal(1, Assert.Single(capacity.GetDiagnostics()).ActiveAcquisitions);
+    }
+
+    /// <summary>Verifies complete route failure produces a safe structured aggregate with candidate identities.</summary>
+    [Fact]
+    public async Task SubscribeFirstAvailableAsync_AllSourcesUnavailable_ThrowsStructuredFailure()
+    {
+        // Arrange
+        var first = new FakeDevice(PhysicalDeviceId.New(), fail: true);
+        var second = new FakeDevice(PhysicalDeviceId.New(), fail: true);
+        var firstCandidate = Candidate(first, new SourceChannelId(first.Snapshot.Id, "7.1-a"), "http://first/auto/v7.1");
+        var secondCandidate = Candidate(second, new SourceChannelId(second.Snapshot.Id, "7.1-b"), "http://second/auto/v7.1");
+        var multiplexer = new TunerStreamMultiplexer(
+            new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance),
+            Substitute.For<IMediaProcessFactory>(),
+            NullLogger<TunerStreamMultiplexer>.Instance);
+
+        // Act
+        var exception = await Assert.ThrowsAsync<StreamAcquisitionException>(
+            async () => await multiplexer.SubscribeFirstAvailableAsync(Route([firstCandidate, secondCandidate]), TestContext.Current.CancellationToken));
+
+        // Assert
+        Assert.Equal("source_unavailable", exception.Code);
+        Assert.True(exception.Retryable);
+        Assert.Equal("Every equivalent physical source is currently unavailable.", exception.Message);
+        Assert.Collection(
+            exception.CandidateFailures,
+            failure =>
+            {
+                Assert.Equal(first.Snapshot.Id, failure.DeviceId);
+                Assert.Equal(firstCandidate.SourceChannelId, failure.ChannelId);
+                Assert.Equal("source_unavailable", failure.Code);
+            },
+            failure =>
+            {
+                Assert.Equal(second.Snapshot.Id, failure.DeviceId);
+                Assert.Equal(secondCandidate.SourceChannelId, failure.ChannelId);
+                Assert.Equal("source_unavailable", failure.Code);
+            });
+        Assert.IsType<AggregateException>(exception.InnerException);
     }
 
     private static ResolvedStreamingRoute Route(IReadOnlyList<ResolvedStreamingCandidate> candidates)

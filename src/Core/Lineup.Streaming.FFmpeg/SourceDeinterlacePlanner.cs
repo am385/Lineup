@@ -90,6 +90,34 @@ public static class SourceDeinterlacePlanner
         return source with { Tracks = tracks };
     }
 
+    /// <summary>Returns metadata for the remuxed virtual MPEG-TS stream delivered to isolated output workers.</summary>
+    public static MediaProbeResult CreateVirtualMpegTsSource(MediaProbeResult source, VirtualTranscodeProfile profile)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(profile);
+        var effective = CreateEffectiveSource(source, new PhysicalTranscodeProfile
+        {
+            ConvertHevcToH264 = profile.ConvertHevcToH264,
+            Deinterlace = profile.Deinterlace,
+            Audio = profile.Audio,
+            Ac4Audio = profile.Ac4Audio,
+            VideoPreset = profile.VideoPreset,
+            VideoQuality = profile.VideoQuality,
+            MaximumVideoBitRateMbps = profile.MaximumVideoBitRateMbps
+        });
+        var outputIndex = 0;
+        var tracks = effective.Tracks
+            .Where(track =>
+                track.Type is MediaTrackType.Video or MediaTrackType.Audio ||
+                track.Type == MediaTrackType.Subtitle &&
+                (track.IsEmbeddedClosedCaptions || SubtitleCapabilityPolicy.CanCopyToMpegTs(track.Codec)))
+            .OrderBy(track => track.Type)
+            .ThenBy(track => track.Index)
+            .Select(track => track with { Index = outputIndex++ })
+            .ToArray();
+        return effective with { Tracks = tracks };
+    }
+
     /// <summary>
     /// Creates FFmpeg arguments for one shared progressive H.264 MPEG-TS source.
     /// </summary>

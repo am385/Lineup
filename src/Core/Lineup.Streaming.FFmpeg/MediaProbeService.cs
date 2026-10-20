@@ -14,6 +14,7 @@ public interface IMediaProbeService
         StreamAcquisitionDescriptor descriptor,
         StreamAcquisitionFactory acquisitionFactory,
         string sourceName,
+        IReadOnlyDictionary<string, string> sourceMetadata,
         CancellationToken cancellationToken);
 }
 
@@ -22,7 +23,11 @@ public interface IMediaProbeService
 /// </summary>
 public sealed class MediaProbeService : IMediaProbeService
 {
+    private const string MetadataKey = "ffprobe-v2";
     private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan SharedProbeOperationTimeout = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan SharedProbeRefreshWaitTimeout = TimeSpan.FromSeconds(8);
+    private static readonly TimeSpan ProvisionalRetryDelay = TimeSpan.FromSeconds(1);
     private readonly ILogger<MediaProbeService> _logger;
     private readonly ITunerStreamMultiplexer _tunerStreamMultiplexer;
     private readonly IMediaProcessFactory _processFactory;
@@ -58,21 +63,65 @@ public sealed class MediaProbeService : IMediaProbeService
         StreamAcquisitionDescriptor descriptor,
         StreamAcquisitionFactory acquisitionFactory,
         string sourceName,
+        IReadOnlyDictionary<string, string> sourceMetadata,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(sourceMetadata);
         if (_streamingGraph is not null)
         {
-            return await _streamingGraph.GetOrCreateAcquisitionMetadataAsync(
-                descriptor,
-                acquisitionFactory,
-                "ffprobe-v1",
-                (stream, token) => ProbeStreamCoreAsync(sourceName, stream, token),
-                cancellationToken);
+            if (MediaProbeResultPolicy.ExpectsAudio(sourceMetadata))
+            {
+                var result = await GetSharedProbeAsync(
+                    () => _streamingGraph.GetOrRefreshAcquisitionMetadataAsync(
+                        descriptor,
+                        acquisitionFactory,
+                        MetadataKey,
+                        (stream, token) => ProbeStreamCoreAsync(sourceName, stream, token),
+                        new AcquisitionMetadataRefreshPolicy<MediaProbeResult>
+                        {
+                            IsReusable = MediaProbeResultPolicy.HasAudio,
+                            Merge = MediaProbeResultPolicy.Merge,
+                            RetryDelay = ProvisionalRetryDelay,
+                            OperationTimeout = SharedProbeOperationTimeout,
+                            RefreshWaitTimeout = SharedProbeRefreshWaitTimeout
+                        },
+                        cancellationToken),
+                    sourceName);
+                if (!MediaProbeResultPolicy.HasAudio(result))
+                {
+                    _logger.LogWarning(
+                        "FFprobe did not discover advertised audio after a bounded refresh for {InputSource}; a later viewer will probe again",
+                        sourceName);
+                }
+                return result;
+            }
+            return await GetSharedProbeAsync(
+                () => _streamingGraph.GetOrCreateAcquisitionMetadataAsync(
+                    descriptor,
+                    acquisitionFactory,
+                    MetadataKey,
+                    (stream, token) => ProbeStreamCoreAsync(sourceName, stream, token),
+                    cancellationToken),
+                sourceName);
         }
         return await ProbeCoreAsync(
             sourceName,
             token => _tunerStreamMultiplexer.SubscribeAsync(descriptor, acquisitionFactory, token),
             cancellationToken);
+    }
+
+    private static async Task<MediaProbeResult> GetSharedProbeAsync(Func<Task<MediaProbeResult>> probeFactory, string sourceName)
+    {
+        try
+        {
+            return await probeFactory();
+        }
+        catch (TimeoutException exception)
+        {
+            throw new MpegTsTranscodeException(
+                $"FFprobe source acquisition and analysis timed out after {SharedProbeOperationTimeout.TotalSeconds:0} seconds for {sourceName}.",
+                exception);
+        }
     }
 
     private async Task<MediaProbeResult> ProbeCoreAsync(
@@ -189,6 +238,45 @@ public sealed class MediaProbeService : IMediaProbeService
         {
             throw new MpegTsTranscodeException(ex.Message, ex);
         }
+    }
+}
+
+/// <summary>Evaluates probe completeness from normalized source hints and merges richer observations.</summary>
+public static class MediaProbeResultPolicy
+{
+    /// <summary>Gets whether normalized source metadata advertises an audio stream.</summary>
+    public static bool ExpectsAudio(IReadOnlyDictionary<string, string> sourceMetadata)
+    {
+        ArgumentNullException.ThrowIfNull(sourceMetadata);
+        if (!sourceMetadata.TryGetValue("audioCodec", out var audioCodec) || string.IsNullOrWhiteSpace(audioCodec))
+        {
+            return false;
+        }
+        var normalized = audioCodec.Trim();
+        return !normalized.Equals("none", StringComparison.OrdinalIgnoreCase)
+            && !normalized.Equals("unknown", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Gets whether a probe result contains at least one audio track.</summary>
+    public static bool HasAudio(MediaProbeResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        return result.Tracks.Any(track => track.Type == MediaTrackType.Audio);
+    }
+
+    /// <summary>Merges two observations while retaining tracks omitted from the later probe.</summary>
+    public static MediaProbeResult Merge(MediaProbeResult prior, MediaProbeResult refreshed)
+    {
+        ArgumentNullException.ThrowIfNull(prior);
+        ArgumentNullException.ThrowIfNull(refreshed);
+        var tracks = prior.Tracks.ToDictionary(track => (track.Index, track.Type));
+        foreach (var track in refreshed.Tracks)
+        {
+            tracks[(track.Index, track.Type)] = track;
+        }
+        return new MediaProbeResult(
+            tracks.Values.OrderBy(track => track.Index).ThenBy(track => track.Type).ToArray(),
+            refreshed.BitRate ?? prior.BitRate);
     }
 }
 
@@ -587,4 +675,3 @@ public static partial class FfmpegInputMetadataParser
     [GeneratedRegex(@"(?<!\d)(?<count>\d{1,2}) channels?(?!\d)")]
     private static partial Regex ChannelCountPattern();
 }
-

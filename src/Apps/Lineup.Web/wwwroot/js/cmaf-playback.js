@@ -1,6 +1,7 @@
 window.lineupCmafPlayers = new Map();
 window.lineupCmafUis = new Map();
 window.lineupCmafStarts = new Map();
+window.lineupMediaPlayerOwners = new Map();
 
 function dismissLineupShakaMenus(controls) {
     controls.dispatchEvent(new Event('submenuclose'));
@@ -146,7 +147,8 @@ function registerLineupShakaUiElements(localizedText) {
         subtitles,
         dotNetReference,
         sessionId,
-        localizedText) {
+        localizedText,
+        playerOwnerId) {
         await stopMediaPlayer(videoElementId);
 
         const video = document.getElementById(videoElementId);
@@ -164,6 +166,7 @@ function registerLineupShakaUiElements(localizedText) {
         registerLineupShakaUiElements(localizedText);
         const player = new shaka.Player();
         const playerToken = Symbol('lineupCmafPlayer');
+        window.lineupMediaPlayerOwners.set(videoElementId, playerOwnerId);
         video._lineupPlayerToken = playerToken;
         const isCurrentPlayer = () => video._lineupPlayerToken === playerToken;
         await player.attach(video);
@@ -464,7 +467,7 @@ function registerLineupShakaUiElements(localizedText) {
         return `${navigator.userAgent}|${navigator.platform || ''}`;
     }
 
-    async function initCmafTestPlayer(videoElementId, manifestUrl, expectedVideoCodec, expectedAudioCodec, subtitleUrl, dotNetReference, sessionId, localizedText) {
+    async function initCmafTestPlayer(videoElementId, manifestUrl, expectedVideoCodec, expectedAudioCodec, subtitleUrl, dotNetReference, sessionId, localizedText, playerOwnerId) {
         await stopMediaPlayer(videoElementId);
         const video = document.getElementById(videoElementId);
         if (!video) {
@@ -475,6 +478,7 @@ function registerLineupShakaUiElements(localizedText) {
         }
 
         const player = new shaka.Player();
+        window.lineupMediaPlayerOwners.set(videoElementId, playerOwnerId);
         await player.attach(video);
         player.configure({
             abr: { enabled: false },
@@ -694,7 +698,10 @@ function registerLineupShakaUiElements(localizedText) {
         video.dispatchEvent(new Event('lineuptexttrackschanged'));
     }
 
-    async function stopMediaPlayer(videoElementId = 'videoPlayer') {
+    async function stopMediaPlayer(videoElementId = 'videoPlayer', playerOwnerId = null) {
+        if (playerOwnerId && window.lineupMediaPlayerOwners?.get(videoElementId) !== playerOwnerId) {
+            return;
+        }
         const currentVideo = document.getElementById(videoElementId);
         const registeredVideo = window.lineupMediaPlayers?.get(videoElementId);
         const videos = [...new Set([currentVideo, registeredVideo].filter(Boolean))];
@@ -738,6 +745,9 @@ function registerLineupShakaUiElements(localizedText) {
             video.load();
         }
         window.lineupMediaPlayers?.delete(videoElementId);
+        if (!playerOwnerId || window.lineupMediaPlayerOwners?.get(videoElementId) === playerOwnerId) {
+            window.lineupMediaPlayerOwners?.delete(videoElementId);
+        }
     }
 
     function startLineupSubtitlePolling(

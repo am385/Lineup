@@ -121,7 +121,22 @@ public sealed class LineupLinkPhysicalTunerDevice :
             throw new KeyNotFoundException($"Lineup Link channel '{request.ChannelId.ProviderKey}' is not active.");
         }
 
-        var response = await _client.OpenStreamAsync(channel.RemoteKey, cancellationToken);
+        HttpResponseMessage response;
+        try
+        {
+            response = await _client.OpenStreamAsync(channel.RemoteKey, cancellationToken);
+        }
+        catch (LineupLinkRemoteException exception)
+        {
+            throw new PhysicalStreamAcquisitionException(
+                MapFailureCategory(exception.Code),
+                exception.Code,
+                exception.Message,
+                exception.Retryable,
+                _deviceId,
+                request.ChannelId,
+                exception);
+        }
         try
         {
             var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -149,6 +164,18 @@ public sealed class LineupLinkPhysicalTunerDevice :
 
     /// <inheritdoc />
     public void Dispose() => _client.Dispose();
+
+    private static PhysicalStreamFailureCategory MapFailureCategory(string code) =>
+        code switch
+        {
+            "source_capacity_exceeded" or "stream_limit" => PhysicalStreamFailureCategory.Capacity,
+            "source_no_signal" => PhysicalStreamFailureCategory.NoSignal,
+            "source_no_video_data" => PhysicalStreamFailureCategory.NoData,
+            "source_not_found" or "channel_not_found" => PhysicalStreamFailureCategory.NotFound,
+            "source_invalid" or "invalid_request" => PhysicalStreamFailureCategory.InvalidInput,
+            "protected_content" => PhysicalStreamFailureCategory.ProtectedContent,
+            _ => PhysicalStreamFailureCategory.Unavailable
+        };
 
     private PhysicalDeviceStatusSnapshot CreateStatusSnapshot(LineupLinkManifest manifest)
     {

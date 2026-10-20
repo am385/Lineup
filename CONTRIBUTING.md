@@ -30,6 +30,14 @@ All project build outputs and intermediate files are centralized beneath the rep
 dotnet test
 ```
 
+The streaming-sweep harness is checked in as an opt-in hardware certification test:
+
+```bash
+dotnet run --project tests/Integration/Lineup.Streaming.Sweep/Lineup.Streaming.Sweep.csproj -c Release -- verify-outcome-reporting
+```
+
+It is intentionally excluded from the solution and CI/CD because the full sweep requires exclusive access to physical tuner hardware. See [`tests/Integration/Lineup.Streaming.Sweep/README.md`](tests/Integration/Lineup.Streaming.Sweep/README.md).
+
 ### Running the Web App
 
 ```bash
@@ -172,6 +180,7 @@ Provider family folders are organizational only; every adapter and support libra
 | `Lineup.LineupLink.VirtualOutputHost` | Isolated Lineup Link listener executable |
 | `Lineup.Web` | Blazor Server web app — dashboard, EPG viewer, settings, live TV |
 | `Lineup.Tui` | Terminal UI — interactive menu using Spectre.Console |
+| `Lineup.Streaming.Sweep` | Deterministic CI checks and opt-in six-matrix Docker/HDHomeRun streaming certification harness |
 
 ## License
 

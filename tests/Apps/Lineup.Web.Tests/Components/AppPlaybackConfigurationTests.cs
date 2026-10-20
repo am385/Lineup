@@ -68,6 +68,24 @@ public sealed class AppPlaybackConfigurationTests
         Assert.DoesNotContain("Â", source, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Verifies stale player surfaces cannot stop a replacement that reuses the same video element identifier.
+    /// </summary>
+    [Fact]
+    public void App_PlayerCleanup_RequiresMatchingSurfaceOwner()
+    {
+        // Arrange
+        var repositoryRoot = FindRepositoryRoot();
+        var playerScriptPath = Path.Combine(repositoryRoot, "src", "Apps", "Lineup.Web", "wwwroot", "js", "cmaf-playback.js");
+
+        // Act
+        var source = File.ReadAllText(playerScriptPath);
+
+        // Assert
+        Assert.Contains("window.lineupMediaPlayerOwners.set(videoElementId, playerOwnerId);", source, StringComparison.Ordinal);
+        Assert.Contains("window.lineupMediaPlayerOwners?.get(videoElementId) !== playerOwnerId", source, StringComparison.Ordinal);
+    }
+
     private static string FindRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
