@@ -14,12 +14,12 @@ internal sealed class RunJournal
         _compactJson = new JsonSerializerOptions(json) { WriteIndented = false };
     }
 
-    public Task WriteEventAsync(string type, object payload) => AppendAsync(new { utc = DateTimeOffset.UtcNow, type, payload });
+    public Task WriteEventAsync(string type, object payload) => AppendAsync(new { schemaVersion = SweepRun.CurrentSchema, utc = DateTimeOffset.UtcNow, type, payload });
 
     public Task WriteTerminalAsync(string matrix, string channel, ChannelAttemptResult result) =>
-        AppendAsync(new { utc = DateTimeOffset.UtcNow, type = "channel-terminal", payload = new { matrix, channel, result } });
+        AppendAsync(new { schemaVersion = SweepRun.CurrentSchema, utc = DateTimeOffset.UtcNow, type = "channel-terminal", payload = new { matrix, channel, result } });
 
-    public async Task<HashSet<string>> ReadTerminalKeysAsync()
+    public async Task<HashSet<string>> ReadTerminalKeysAsync(bool requireVersion = false)
     {
         if (!File.Exists(_path))
         {
@@ -28,6 +28,10 @@ internal sealed class RunJournal
         var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var node in await JsonSequence.ReadAsync(_path))
         {
+            if (requireVersion && node?["schemaVersion"]?.GetValue<int>() != SweepRun.CurrentSchema)
+            {
+                throw new InvalidDataException("Journal schema is absent or incompatible with canonical resume.");
+            }
             if (node?["type"]?.GetValue<string>() == "channel-terminal")
             {
                 result.Add($"{node["payload"]!["matrix"]!.GetValue<string>()}|{node["payload"]!["channel"]!.GetValue<string>()}");

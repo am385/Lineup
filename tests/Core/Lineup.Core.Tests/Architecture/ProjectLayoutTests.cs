@@ -149,6 +149,7 @@ public sealed class ProjectLayoutTests
         var repositoryRoot = GetRepositoryRoot();
         var solution = XDocument.Load(Path.Combine(repositoryRoot, "Lineup.slnx"));
         var integrationProjects = GetProjects(Path.Combine(repositoryRoot, "tests", "Integration"))
+            .Where(path => IsOptInHardwareIntegrationProject(repositoryRoot, path))
             .Select(path => Normalize(Path.GetRelativePath(repositoryRoot, path)))
             .ToArray();
 
@@ -162,6 +163,7 @@ public sealed class ProjectLayoutTests
         // Assert
         Assert.NotEmpty(integrationProjects);
         Assert.All(integrationProjects, project => Assert.DoesNotContain(project, solutionProjects));
+        Assert.Contains("tests/Integration/Lineup.Streaming.Sweep.Tests/Lineup.Streaming.Sweep.Tests.csproj", solutionProjects);
     }
 
     /// <summary>Verifies network-facing worker executables do not directly reference trusted implementation layers or applications.</summary>
@@ -374,7 +376,9 @@ public sealed class ProjectLayoutTests
         Path.GetRelativePath(sourceRoot, projectPath).Split(Path.DirectorySeparatorChar)[1];
 
     private static bool IsOptInHardwareIntegrationProject(string repositoryRoot, string projectPath) =>
-        Normalize(Path.GetRelativePath(repositoryRoot, projectPath)).StartsWith("tests/Integration/", StringComparison.OrdinalIgnoreCase);
+        Normalize(Path.GetRelativePath(repositoryRoot, projectPath)).StartsWith("tests/Integration/", StringComparison.OrdinalIgnoreCase)
+        && !Normalize(Path.GetRelativePath(repositoryRoot, projectPath))
+            .Equals("tests/Integration/Lineup.Streaming.Sweep.Tests/Lineup.Streaming.Sweep.Tests.csproj", StringComparison.OrdinalIgnoreCase);
 
     private static string Normalize(string path) => path.Replace('\\', '/');
 

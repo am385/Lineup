@@ -356,7 +356,11 @@ app.MapPost("/media/stop/{sessionId}", async (string sessionId) =>
     }
     return Results.NoContent();
 });
+
 app.MapGet("/health", () => Results.Ok(new { ready = true, activeSessions = sessions.Count }));
+
+// This passive inventory uses the same listener network, TLS and rate-limit policies as media requests.
+app.MapGet("/media/sessions", () => Results.Ok(new { generation = bootstrap.Generation, sessionIds = sessions.GetSessionIds() }));
 
 using var leaseCancellation = new CancellationTokenSource();
 var leaseTask = workerSession.RunLeaseLoopAsync(

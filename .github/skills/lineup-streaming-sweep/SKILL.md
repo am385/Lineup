@@ -9,14 +9,16 @@ Use the checked-in harness at `tests/Integration/Lineup.Streaming.Sweep`. Its sy
 
 ## Safety rules
 
-- Never add this project to `Lineup.slnx`, `dotnet test`, or CI/CD. The live sweep requires local physical tuner access.
+- Never add the live executable or fault source as solution/CI entry points. The separate non-live `Lineup.Streaming.Sweep.Tests` project is in the normal gate.
 - Never hard-code a tuner address, browser path, output path, or machine-specific repository path.
 - Do not run multiple sweeps concurrently. Each run requires exclusive access to the physical tuners.
-- Do not start a live run while any tuner is in use. The harness waits for all four tuners to become idle and fails rather than interrupting active viewers.
+- Docker matrices require all discovered tuner receivers idle; no four-tuner assumption. Existing-instance mode preserves and verifies the pre-existing viewer baseline instead of requiring globally zero streams.
 - Run one compatibility profile at the beginning of each matrix only. Do not invoke separate compatibility checks between channels.
 - Leave generated matrices, browser profiles, logs, screenshots, and reports beneath the configured output directory. Do not add them to source control.
 - Do not treat protected content or transient source availability as Lineup playback defects. Use the structured outcome category, HTTP status, code, stage, and message.
 - Stop and report the exact artifact path if cleanup fails or the tuners do not return to idle.
+- Existing-instance mode must never restart/reconfigure/reset/refresh the guide or stop unrelated viewers. Compatibility setup requires `--setup-compatibility`.
+- Docker leak recovery requires `--allow-matrix-recovery`; it permanently fails the lifecycle invariant even if a later attempt succeeds.
 
 ## Determine the requested scope
 
@@ -32,15 +34,20 @@ Choose the smallest command that answers the request:
 | Quick live sanity check using the first enabled channel | `smoke` |
 | Run a new complete six-matrix sweep | `execute-fresh` |
 | Resume the current complete sweep | `execute` |
+| Attach without deployment changes | `existing --base-url <origin> --profile <output-profile>` |
+| Fresh synchronization observation only | `sync-only --include <numbers> --profile <output-profile>` |
+| Resume an explicit checkpoint | `resume --input-run <sweep-run.json>` |
+| Retry failed/pending channels from explicit input | `recheck-post-fix-failures --input-run <sweep-run.json>` |
+| Regenerate reports entirely offline | `report-only --input-run <sweep-run.json>` |
 
 Use `execute-fresh` only when the user explicitly requests a new full sweep. Prefer targeted commands while developing a fix.
 
 ## Prepare a live run
 
-1. Read `tests/Integration/Lineup.Streaming.Sweep/README.md`.
-2. Confirm Docker is available.
-3. Require `LINEUP_SWEEP_TUNER_ADDRESS`. If it is unset and the user has not supplied the tuner address, ask for it rather than guessing.
-4. Build a current image from the repository root:
+1. Read `tests/Integration/Lineup.Streaming.Sweep/README.md` for the authoritative command/options/exit contract. Existing-instance and offline modes do not require Docker or a tuner environment variable.
+2. For Docker modes, confirm Docker is available.
+3. For Docker modes, require `LINEUP_SWEEP_TUNER_ADDRESS`. If it is unset and the user has not supplied the tuner address, ask for it rather than guessing.
+4. For Docker modes, build a current image from the repository root:
 
    ```powershell
    docker build -t lineup-sweep:current -f Dockerfile .
@@ -83,23 +90,37 @@ Run evidence lives under `out\integration\streaming-sweep\runs`. The repository'
 
 Each run includes:
 
-- `run.json` — image, tuner, matrix, and execution metadata
+- `sweep-run.json` — versioned atomic canonical checkpoint with effective options, environment, frozen projections, all attempts and ownership
 - `events.jsonl` — durable per-attempt and terminal event journal
-- `results.json` — typed terminal results
+- `results.json` — canonical run export (not the legacy result array)
 - `results.csv` — tabular results
 - `summary.md` — grouped outcome summary
 - per-matrix compatibility results, browser traces, screenshots, network logs, player metrics, active-stream status, and compose logs
+
+Canonical schema 1 is required for resume/offline regeneration. Changed target/runtime/topology/profile/options
+or malformed journals are not silently mixed with prior evidence. Ctrl+C requests bounded cleanup and partial
+reports, exiting 130. Exit 2 means an invariant/threshold failure; exit 3 means incomplete/preflight/infrastructure
+failure. A missing or invalid cleanup inventory is inconclusive, never assumed success. Dedicated listeners
+require the passive `/media/sessions` API; it does not refresh session lifetime.
 
 Classify outcomes as follows:
 
 - `pass` — startup succeeded and required AV/caption evidence passed
 - `protected-content` — expected terminal outcome; no retry
-- `source-availability` — no signal, no data, or capacity; retryable and not automatically a product defect
+- `source-availability` — structured no-signal/no-data/unavailable source, not generic HTTP 502/503
+- `capacity-contamination` — unresolved resource baseline; never an accepted channel outcome
 - `product-startup-defect` — Lineup returned a non-availability startup failure
 - `product-playback-defect` — HTTP startup succeeded but attachment or decoded playback failed
 - `harness-failure` — navigation, request transport, client cancellation, or no response
 
 The exact CMAF start response is authoritative. Do not replace a structured response with a later player-locator timeout.
+Canonical typed verdicts additionally distinguish fallback-start failures, confirmed/inferred/unconfirmed
+protection, disabled/unknown generated slates, decoder failures and observation expiry. HTTP `inferred`
+and `source` and the current owned synthetic-flow reason are retained; generated transport is never a
+broadcast playback pass. Fresh sync requires two distinct successful fragments per active audio/video
+representation, with default absolute sequence delta <= 1. DASH and HLS playback both use the current
+owned startup's public DASH manifest solely for metadata, rejecting stale/fallback session mappings.
+Insufficient samples are not alignment evidence; transport alignment is not audible lip-sync certification.
 
 ## Report progress and completion
 

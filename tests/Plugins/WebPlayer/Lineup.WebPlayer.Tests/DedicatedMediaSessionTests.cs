@@ -6,6 +6,28 @@ namespace Lineup.WebPlayer.Tests;
 /// <summary>Verifies dedicated Web Player session ownership and inactivity cleanup.</summary>
 public sealed class DedicatedMediaSessionTests
 {
+    /// <summary>Concurrent passive snapshots cannot extend session leases.</summary>
+    [Fact]
+    public async Task GetSessionIds_DoesNotTouchLifetime()
+    {
+        // Arrange
+        var clock = new MutableTimeProvider();
+        var registry = new DedicatedMediaSessionRegistry<TestSession>(clock, TimeSpan.FromSeconds(20));
+        var session = new TestSession();
+        registry.TryAdd("owned", session);
+        clock.Advance(TimeSpan.FromSeconds(19));
+
+        // Act
+        var snapshots = await Task.WhenAll(Enumerable.Range(0, 20).Select(_ => Task.Run(registry.GetSessionIds)));
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await registry.ExpireInactiveAsync();
+
+        // Assert
+        Assert.All(snapshots, snapshot => Assert.Equal(["owned"], snapshot));
+        Assert.Empty(registry.GetSessionIds());
+        Assert.True(session.IsDisposed);
+    }
+
     /// <summary>Verifies media access refreshes inactivity and an abandoned session is eventually disposed.</summary>
     [Fact]
     public async Task ExpireInactiveAsync_AbandonedSession_DisposesAfterLastAccessTimeout()

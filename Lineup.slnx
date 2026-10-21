@@ -49,6 +49,9 @@
     <Project Path="scripts/Lineup.VirtualOutputWorkerPackager/Lineup.VirtualOutputWorkerPackager.csproj" />
   </Folder>
   <Folder Name="/tests/" />
+  <Folder Name="/tests/Integration/">
+    <Project Path="tests/Integration/Lineup.Streaming.Sweep.Tests/Lineup.Streaming.Sweep.Tests.csproj" />
+  </Folder>
   <!-- Mirrored test hierarchy -->
   <Folder Name="/tests/Apps/">
     <Project Path="tests/Apps/Lineup.Tui.Tests/Lineup.Tui.Tests.csproj" />

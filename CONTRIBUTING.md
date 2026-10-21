@@ -37,6 +37,8 @@ dotnet run --project tests/Integration/Lineup.Streaming.Sweep/Lineup.Streaming.S
 ```
 
 It is intentionally excluded from the solution and CI/CD because the full sweep requires exclusive access to physical tuner hardware. See [`tests/Integration/Lineup.Streaming.Sweep/README.md`](tests/Integration/Lineup.Streaming.Sweep/README.md).
+The separate `Lineup.Streaming.Sweep.Tests` xunit project participates in the normal solution gate and
+exercises only deterministic policies, persistence, ownership and reports; it never launches the live harness.
 
 ### Running the Web App
 
@@ -180,7 +182,8 @@ Provider family folders are organizational only; every adapter and support libra
 | `Lineup.LineupLink.VirtualOutputHost` | Isolated Lineup Link listener executable |
 | `Lineup.Web` | Blazor Server web app — dashboard, EPG viewer, settings, live TV |
 | `Lineup.Tui` | Terminal UI — interactive menu using Spectre.Console |
-| `Lineup.Streaming.Sweep` | Deterministic CI checks and opt-in six-matrix Docker/HDHomeRun streaming certification harness |
+| `Lineup.Streaming.Sweep` | Opt-in six-matrix Docker/HDHomeRun and existing-instance streaming harness (not a solution test entry point) |
+| `Lineup.Streaming.Sweep.Tests` | Non-live deterministic sweep regression tests in the normal solution gate |
 
 ## License
 

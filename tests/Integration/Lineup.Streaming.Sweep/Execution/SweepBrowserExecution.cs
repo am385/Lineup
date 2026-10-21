@@ -4,6 +4,10 @@ internal sealed partial class SweepHarness
 {
     private async Task RefreshGuideAsync(IBrowserContext context, string baseUrl, RunJournal journal, string role)
     {
+        if (_options.ExistingInstance)
+        {
+            throw new InvalidOperationException("Existing-instance mode forbids guide refresh.");
+        }
         var page = await context.NewPageAsync();
         try
         {
@@ -37,6 +41,43 @@ internal sealed partial class SweepHarness
     {
         var page = await context.NewPageAsync();
         var errors = new List<string>();
+        var matrix = new MatrixDefinition("compatibility", 0, null, null, null, HostingMode.Management, false, baseUrl);
+        var baseline = await CaptureBaselineAsync(matrix);
+        var observation = new SweepAttempt
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Key = baseUrl,
+            Purpose = "compatibility",
+            SyntheticPlayback = true
+        };
+        observation.Baseline = JsonSerializer.SerializeToNode(baseline, _json);
+        _run?.Compatibility.Add(observation);
+        await CheckpointAsync();
+        var tasks = new System.Collections.Concurrent.ConcurrentQueue<Task>();
+        var pending = new System.Collections.Concurrent.ConcurrentDictionary<IRequest, StartupRequestEvidence>();
+        page.Request += (_, request) =>
+        {
+            if (request.Url.Contains("/api/stream/watch-test/start", StringComparison.Ordinal))
+            {
+                var item = new StartupRequestEvidence(Guid.NewGuid().ToString("N"), request.Url, DateTimeOffset.UtcNow, null);
+                pending[request] = item;
+                tasks.Enqueue(CheckpointAsync(() => observation.Requests.Add(item)));
+            }
+        };
+        page.RequestFailed += (_, request) =>
+        {
+            if (pending.TryRemove(request, out var item))
+            {
+                tasks.Enqueue(CheckpointAsync(() => item.Failure = TruncateOutcomeText(request.Failure)));
+            }
+        };
+        page.Response += (_, response) =>
+        {
+            if (pending.TryGetValue(response.Request, out var item))
+            {
+                tasks.Enqueue(CaptureStartupAndReleaseAsync(response, observation, journal, item, pending));
+            }
+        };
         page.Console += (_, message) =>
         {
             if (message.Type == "error")
@@ -44,14 +85,21 @@ internal sealed partial class SweepHarness
                 errors.Add(message.Text);
             }
         };
-        page.PageError += (_, error) => errors.Add(error);
+        page.PageError += (_, error) =>
+        {
+            errors.Add(error);
+            observation.BrowserFailures.Add(TruncateOutcomeText(error) ?? "Compatibility script failed.");
+        };
+        page.Crash += (_, _) => observation.BrowserFailures.Add("Compatibility page crashed.");
         try
         {
-            await page.GotoAsync($"{baseUrl.TrimEnd('/')}/watch-test?runAll=true", new() { WaitUntil = WaitUntilState.NetworkIdle, Timeout = 120_000 });
+            await page.GotoAsync($"{baseUrl.TrimEnd('/')}/watch-test", new() { WaitUntil = WaitUntilState.NetworkIdle, Timeout = 120_000 }).WaitAsync(_cancellation);
+            await page.EvaluateAsync($"localStorage.removeItem('{CompatibilityStorageKey}')");
+            await page.GotoAsync($"{baseUrl.TrimEnd('/')}/watch-test?runAll=true", new() { WaitUntil = WaitUntilState.NetworkIdle, Timeout = 120_000 }).WaitAsync(_cancellation);
             await page.WaitForFunctionAsync(
                 $"() => localStorage.getItem('{CompatibilityStorageKey}') !== null",
                 null,
-                new() { Timeout = 1_800_000, PollingInterval = 1_000 });
+                new() { Timeout = 1_800_000, PollingInterval = 1_000 }).WaitAsync(_cancellation);
             await page.Locator("#runAllCompatibilityTests").WaitForAsync(new()
             {
                 State = WaitForSelectorState.Visible,
@@ -68,7 +116,28 @@ internal sealed partial class SweepHarness
         }
         finally
         {
-            await page.CloseAsync();
+            try
+            {
+                observation.Cleanup = await new OwnedPlayback(_http).CleanupAsync(
+                    observation.Ownership,
+                    async () =>
+                    {
+                        await page.GotoAsync("about:blank", new() { Timeout = 5_000 });
+                        await Task.WhenAll(tasks.ToArray()).WaitAsync(TimeSpan.FromSeconds(_options.StartupSeconds));
+                    },
+                    TimeSpan.FromSeconds(_options.CleanupSeconds),
+                    token => VerifyBaselineAsync(matrix, baseline, pending, token));
+                observation.FinishedUtc = DateTimeOffset.UtcNow;
+                await CheckpointAsync();
+                if (observation.Cleanup.Forced || !observation.Cleanup.VerifiedAbsent)
+                {
+                    throw new InvalidOperationException("Compatibility setup failed its owned-session cleanup invariant.");
+                }
+            }
+            finally
+            {
+                await page.CloseAsync();
+            }
         }
     }
 
@@ -81,24 +150,57 @@ internal sealed partial class SweepHarness
         RunJournal journal,
         bool requireAudio = true)
     {
+        _cancellation.ThrowIfCancellationRequested();
         await EnsureTunerIdleAsync(TimeSpan.FromMinutes(2));
         var safeChannel = string.Concat(channel.Number.Select(character => char.IsLetterOrDigit(character) ? character : '_'));
-        var attemptRoot = Path.Combine(matrixRunRoot, "attempts", safeChannel, attempt.ToString(CultureInfo.InvariantCulture));
+        var evidence = _attempt ?? new SweepAttempt { Id = Guid.NewGuid().ToString("N"), Key = $"{matrix.Id}|{channel.VirtualDeviceId}|{channel.Number}" };
+        var attemptRoot = Path.Combine(matrixRunRoot, "attempts", safeChannel, evidence.Id);
+        evidence.Artifacts = Path.GetRelativePath(_runRoot ?? matrixRunRoot, attemptRoot);
         Directory.CreateDirectory(attemptRoot);
+        var baseline = await CaptureBaselineAsync(matrix);
+        evidence.Baseline = JsonSerializer.SerializeToNode(baseline, _json);
         var tracePath = Path.Combine(attemptRoot, "trace.zip");
         await context.Tracing.StartAsync(new() { Screenshots = true, Snapshots = true, Sources = false });
         var page = await context.NewPageAsync();
+        if (evidence.Purpose == "sync")
+        {
+            // Playwright routing disables the HTTP cache for this fresh observation.
+            await page.RouteAsync("**/*", route => route.ContinueAsync());
+        }
         var console = new List<object>();
         var network = new List<object>();
         var startResponseSource = new TaskCompletionSource<IResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
         var startFailureSource = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var captureTasks = new System.Collections.Concurrent.ConcurrentQueue<Task>();
+        var fragments = new System.Collections.Concurrent.ConcurrentQueue<FragmentSample>();
+        var representations = new System.Collections.Concurrent.ConcurrentDictionary<string, string>(StringComparer.Ordinal);
+        var pendingStarts = new System.Collections.Concurrent.ConcurrentDictionary<IRequest, StartupRequestEvidence>();
+        page.Request += (_, request) =>
+        {
+            if (IsCmafStartUrl(request.Url))
+            {
+                var requestEvidence = new StartupRequestEvidence(Guid.NewGuid().ToString("N"), request.Url, DateTimeOffset.UtcNow,
+                    request.PostData is { } body ? SafeStartupRequest(body) : null);
+                pendingStarts[request] = requestEvidence;
+                captureTasks.Enqueue(CheckpointAsync(() => evidence.Requests.Add(requestEvidence)));
+            }
+        };
         page.Console += (_, message) => console.Add(new { utc = DateTimeOffset.UtcNow, message.Type, message.Text });
-        page.PageError += (_, error) => console.Add(new { utc = DateTimeOffset.UtcNow, type = "pageerror", text = error });
+        page.PageError += (_, error) =>
+        {
+            console.Add(new { utc = DateTimeOffset.UtcNow, type = "pageerror", text = error });
+            evidence.BrowserFailures.Add(TruncateOutcomeText(error) ?? "Uncaught browser error.");
+        };
+        page.Crash += (_, _) => evidence.BrowserFailures.Add("Browser page crashed.");
         page.RequestFailed += (_, request) =>
         {
             network.Add(new { utc = DateTimeOffset.UtcNow, type = "failed", request.Url, error = request.Failure });
             if (IsCmafStartUrl(request.Url))
             {
+                if (pendingStarts.TryRemove(request, out var requestEvidence))
+                {
+                    captureTasks.Enqueue(CheckpointAsync(() => requestEvidence.Failure = TruncateOutcomeText(request.Failure)));
+                }
                 startFailureSource.TrySetResult(request.Failure ?? "The CMAF startup request failed without a response.");
             }
         };
@@ -110,7 +212,16 @@ internal sealed partial class SweepHarness
             }
             if (IsCmafStartUrl(response.Url))
             {
+                pendingStarts.TryGetValue(response.Request, out var requestEvidence);
+                captureTasks.Enqueue(CaptureStartupAndReleaseAsync(response, evidence, journal, requestEvidence, pendingStarts));
                 startResponseSource.TrySetResult(response);
+            }
+            if (response.Status is >= 200 and < 300)
+            {
+                if (FragmentAlignment.Parse(response.Url, DateTimeOffset.UtcNow) is { } fragment)
+                {
+                    fragments.Enqueue(fragment);
+                }
             }
         };
 
@@ -121,12 +232,14 @@ internal sealed partial class SweepHarness
         JsonNode? activeStatus = null;
         PlayerMetrics? metrics = null;
         StartupOutcome? startupOutcome = null;
+        byte[]? failureScreenshot = null;
+        string? synchronizationExchange = null;
         string captionResult = "not-applicable";
         try
         {
-            await page.GotoAsync($"{matrix.WatchUrl.TrimEnd('/')}/watch", new() { WaitUntil = WaitUntilState.NetworkIdle, Timeout = 120_000 });
+            await page.GotoAsync($"{matrix.WatchUrl.TrimEnd('/')}/watch", new() { WaitUntil = WaitUntilState.NetworkIdle, Timeout = 120_000 }).WaitAsync(_cancellation);
             var numbers = page.Locator(".cmaf-channel-number");
-            await numbers.First.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 120_000 });
+            await numbers.First.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 120_000 }).WaitAsync(_cancellation);
             ILocator? channelButton = null;
             for (var index = 0; index < await numbers.CountAsync(); index++)
             {
@@ -140,14 +253,15 @@ internal sealed partial class SweepHarness
             {
                 throw new InvalidOperationException($"Channel {channel.Number} was not present on the Watch page.");
             }
-            await Task.Delay(3_000);
+            await Task.Delay(3_000, _cancellation);
             startupStartedAtUtc = DateTimeOffset.UtcNow;
             await channelButton.ClickAsync(new() { Timeout = 30_000 });
             startupOutcome = await WaitForStartupOutcomeAsync(
                 startResponseSource.Task,
                 startFailureSource.Task,
                 startupStartedAtUtc,
-                TimeSpan.FromSeconds(60));
+                TimeSpan.FromSeconds(_options.StartupSeconds)).WaitAsync(_cancellation);
+            await Task.WhenAll(captureTasks.ToArray());
             await File.WriteAllTextAsync(
                 Path.Combine(attemptRoot, "startup-outcome.json"),
                 JsonSerializer.Serialize(startupOutcome, _json));
@@ -156,14 +270,16 @@ internal sealed partial class SweepHarness
                 failurePhase = "startup";
                 throw new InvalidOperationException(FormatStartupFailure(startupOutcome));
             }
+            var observation = Stopwatch.StartNew();
+            TimeSpan RemainingObservation() => TimeSpan.FromSeconds(Math.Max(0.001, _options.ObservationSeconds - observation.Elapsed.TotalSeconds));
             failurePhase = "player-attachment";
-            await page.Locator("#cmafVideoPlayer").WaitForAsync(new() { State = WaitForSelectorState.Attached, Timeout = 45_000 });
+            await page.Locator("#cmafVideoPlayer").WaitForAsync(new() { State = WaitForSelectorState.Attached, Timeout = 45_000 }).WaitAsync(RemainingObservation(), _cancellation);
             failurePhase = "playback";
             await page.WaitForFunctionAsync(
                 "() => { const v=document.querySelector('#cmafVideoPlayer'); return v && v.readyState >= 2 && v.videoWidth > 0 && v.currentTime > 0; }",
                 null,
-                new() { Timeout = 30_000, PollingInterval = 500 });
-            activeStatus = await WaitForActiveStreamAsync(matrix.WatchUrl, TimeSpan.FromSeconds(30));
+                new() { Timeout = 30_000, PollingInterval = 500 }).WaitAsync(RemainingObservation(), _cancellation);
+            activeStatus = await WaitForActiveStreamAsync(matrix.WatchUrl, TimeSpan.FromSeconds(30)).WaitAsync(RemainingObservation(), _cancellation);
             network.Clear();
             await page.EvaluateAsync(
                 """
@@ -204,7 +320,36 @@ internal sealed partial class SweepHarness
                   }
                 }
                 """);
-            await Task.Delay(TimeSpan.FromSeconds(30));
+            var stable = new StablePlayback(_options.StableSeconds, _options.MediaAdvanceSeconds);
+            var stablePassed = false;
+            while (observation.Elapsed.TotalSeconds < _options.ObservationSeconds)
+            {
+                _cancellation.ThrowIfCancellationRequested();
+                var sample = await page.EvaluateAsync<JsonElement>(
+                    """
+                    () => {
+                      const v = document.querySelector('#cmafVideoPlayer');
+                      const s = window.__lineupSweep;
+                      return { mediaTime: v?.currentTime ?? 0, ready: !!v && v.readyState >= 2 && v.videoWidth > 0,
+                        paused: !v || v.paused, error: !!v?.error, discontinuities: s.waiting + s.stalled,
+                        session: v?.currentSrc ?? '' };
+                    }
+                    """);
+                var value = sample.Deserialize<PlaybackSample>(_json) ?? throw new InvalidDataException("Browser stability sample missing.");
+                var identity = evidence.Starts.LastOrDefault(exchange => exchange.Outcome.Succeeded)?.SessionId ?? value.Session;
+                stablePassed = stable.Observe(observation.Elapsed.TotalSeconds, value with { Session = identity });
+                if (stablePassed)
+                {
+                    break;
+                }
+                await Task.Delay(500, _cancellation);
+            }
+            if (!stablePassed)
+            {
+                throw new TimeoutException("Continuous stability and media advancement did not meet configured thresholds before the observation deadline.");
+            }
+            evidence.StableDurationSeconds = stable.StableDurationSeconds;
+            evidence.StableMediaAdvanceSeconds = stable.MediaAdvanceSeconds;
             var metricsJson = await page.EvaluateAsync<JsonElement>(
                 """
                 () => {
@@ -239,6 +384,9 @@ internal sealed partial class SweepHarness
             metrics = metricsJson.Deserialize<PlayerMetrics>(_json)
                 ?? throw new InvalidOperationException("Browser player metrics were empty.");
             activeStatus = await WaitForActiveStreamAsync(matrix.WatchUrl, TimeSpan.FromSeconds(5));
+            evidence.ActiveStatus = activeStatus.DeepClone();
+            var flowStatus = await GetStatusAsync(matrix.WatchUrl);
+            SweepPolicy.CaptureFlow(evidence, flowStatus);
             var sourceCaptions = HasSourceCaptions(activeStatus);
             var exposedCaptions = metrics.TextTracks.Count > 0;
             captionResult = !sourceCaptions
@@ -249,7 +397,7 @@ internal sealed partial class SweepHarness
                         ? "track-and-cue"
                         : "track-no-cue";
 
-            if (metrics.FinalTime - metrics.InitialTime < 15)
+            if (metrics.FinalTime - metrics.InitialTime < _options.MediaAdvanceSeconds)
             {
                 failure = $"Media time advanced only {metrics.FinalTime - metrics.InitialTime:F1} seconds.";
             }
@@ -285,86 +433,143 @@ internal sealed partial class SweepHarness
                     failure = await alert.InnerTextAsync();
                 }
             }
+            if (failure is null && evidence.Purpose == "sync")
+            {
+                failurePhase = "synchronization-metadata";
+                await Task.WhenAll(captureTasks.ToArray());
+                var current = evidence.Starts.LastOrDefault() ?? throw new InvalidDataException("No startup evidence for synchronization metadata.");
+                synchronizationExchange = current.Id;
+                using var metadataDeadline = CancellationTokenSource.CreateLinkedTokenSource(_cancellation);
+                metadataDeadline.CancelAfter(RemainingObservation());
+                try
+                {
+                    var metadata = await FragmentAlignment.ReadOwnedMetadataAsync(
+                        current, evidence.Ownership, url => _http.GetStringAsync(url, metadataDeadline.Token));
+                    evidence.SynchronizationManifestUrl = metadata.ManifestUrl;
+                    foreach (var pair in metadata.Representations)
+                    {
+                        representations[pair.Key] = pair.Value;
+                    }
+                }
+                catch (Exception metadataError) when (metadataError is IOException or HttpRequestException or OperationCanceledException)
+                {
+                    evidence.EvidenceFailures.Add($"Current-session synchronization metadata failed: {metadataError.Message}");
+                    throw;
+                }
+            }
+            if (failure is not null || captionResult == "source-caption-not-exposed")
+            {
+                failureScreenshot = await page.ScreenshotAsync(new() { FullPage = true, Timeout = 5_000 });
+            }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is PlaywrightException or InvalidOperationException or TimeoutException or HttpRequestException or OperationCanceledException or JsonException)
         {
             failurePhase ??= startupOutcome is null ? "navigation" : startupOutcome.Succeeded ? "playback" : "startup";
             failure = startupOutcome is { Succeeded: false }
                 ? FormatStartupFailure(startupOutcome)
                 : ex.Message;
+            try
+            {
+                failureScreenshot = await page.ScreenshotAsync(new() { FullPage = true, Timeout = 5_000 });
+            }
+            catch (PlaywrightException screenshotError)
+            {
+                console.Add(new { type = "screenshot-error", text = screenshotError.Message });
+            }
         }
         finally
         {
-            await File.WriteAllTextAsync(Path.Combine(attemptRoot, "console.json"), JsonSerializer.Serialize(console, _json));
-            await File.WriteAllTextAsync(Path.Combine(attemptRoot, "network.json"), JsonSerializer.Serialize(network, _json));
-            if (activeStatus is not null)
+            // Cleanup is deliberately outside diagnostics. No screenshot, trace or filesystem error can skip stop.
+            try
             {
-                await File.WriteAllTextAsync(Path.Combine(attemptRoot, "active-status.json"), activeStatus.ToJsonString(_json));
+                evidence.Cleanup = await new OwnedPlayback(_http).CleanupAsync(
+                    evidence.Ownership,
+                    async () =>
+                    {
+                        try
+                        {
+                            var stop = page.Locator("button.btn-danger");
+                            if (await stop.CountAsync() > 0)
+                            {
+                                await stop.First.ClickAsync(new() { Timeout = 5_000 });
+                            }
+                        }
+                        finally
+                        {
+                            try
+                            {
+                                await page.GotoAsync("about:blank", new() { Timeout = 5_000 });
+                            }
+                            finally
+                            {
+                                await Task.WhenAll(captureTasks.ToArray()).WaitAsync(TimeSpan.FromSeconds(_options.StartupSeconds));
+                            }
+                        }
+                    },
+                    TimeSpan.FromSeconds(_options.CleanupSeconds),
+                    token => VerifyBaselineAsync(matrix, baseline, pendingStarts, token));
+                if (evidence.Cleanup.Forced || !evidence.Cleanup.VerifiedAbsent)
+                {
+                    failurePhase = "cleanup";
+                    failure = $"{failure} Cleanup failed: forced={evidence.Cleanup.Forced}, absent={evidence.Cleanup.VerifiedAbsent}. {string.Join("; ", evidence.Cleanup.Errors)}".Trim();
+                }
+                await CheckpointAsync();
             }
-            if (metrics is not null)
-            {
-                await File.WriteAllTextAsync(Path.Combine(attemptRoot, "player-metrics.json"), JsonSerializer.Serialize(metrics, _json));
-            }
-            if (failure is not null || captionResult == "source-caption-not-exposed")
-            {
-                await page.ScreenshotAsync(new() { Path = Path.Combine(attemptRoot, "failure.png"), FullPage = true });
-                await context.Tracing.StopAsync(new() { Path = tracePath });
-            }
-            else
-            {
-                var temporaryTrace = Path.Combine(attemptRoot, "success-trace.zip");
-                await context.Tracing.StopAsync(new() { Path = temporaryTrace });
-                File.Delete(temporaryTrace);
-            }
-            var stop = page.Locator("button.btn-danger");
-            if (await stop.CountAsync() > 0)
+            finally
             {
                 try
                 {
-                    await stop.First.ClickAsync(new() { Timeout = 5_000 });
-                    await WaitForCleanupAsync(matrix.WatchUrl, TimeSpan.FromSeconds(30));
-                }
-                catch
-                {
-                }
-            }
-            await page.CloseAsync();
-            try
-            {
-                await WaitForCleanupAsync(matrix.WatchUrl, TimeSpan.FromSeconds(10));
-            }
-            catch
-            {
-                if (activeStatus?["sessionId"]?.GetValue<string>() is { } sessionId)
-                {
-                    try
+                    await File.WriteAllTextAsync(Path.Combine(attemptRoot, "console.json"), JsonSerializer.Serialize(console, _json));
+                    await File.WriteAllTextAsync(Path.Combine(attemptRoot, "network.json"), JsonSerializer.Serialize(network, _json));
+                    await File.WriteAllTextAsync(Path.Combine(attemptRoot, "fragments.json"), JsonSerializer.Serialize(fragments, _json));
+                    await File.WriteAllTextAsync(Path.Combine(attemptRoot, "representations.json"), JsonSerializer.Serialize(representations, _json));
+                    if (activeStatus is not null)
                     {
-                        using var response = await _http.PostAsync(
-                            $"{matrix.WatchUrl.TrimEnd('/')}/api/stream/cmaf/stop/{sessionId}",
-                            null);
+                        await File.WriteAllTextAsync(Path.Combine(attemptRoot, "active-status.json"), activeStatus.ToJsonString(_json));
                     }
-                    catch
+                    if (metrics is not null)
                     {
+                        await File.WriteAllTextAsync(Path.Combine(attemptRoot, "player-metrics.json"), JsonSerializer.Serialize(metrics, _json));
+                    }
+                    if (failure is not null || captionResult == "source-caption-not-exposed")
+                    {
+                        if (failureScreenshot is not null)
+                        {
+                            await File.WriteAllBytesAsync(Path.Combine(attemptRoot, "failure.png"), failureScreenshot);
+                        }
+                        await context.Tracing.StopAsync(new() { Path = tracePath });
+                    }
+                    else
+                    {
+                        var temporaryTrace = Path.Combine(attemptRoot, "success-trace.zip");
+                        await context.Tracing.StopAsync(new() { Path = temporaryTrace });
+                        File.Delete(temporaryTrace);
                     }
                 }
-            }
-            try
-            {
-                await WaitForCleanupAsync(matrix.WatchUrl, TimeSpan.FromSeconds(45));
-                await EnsureTunerIdleAsync(TimeSpan.FromSeconds(45));
-            }
-            catch (Exception ex)
-            {
-                if (failure is null)
+                finally
                 {
-                    failurePhase = "cleanup";
+                    await page.CloseAsync();
                 }
-                failure = failure is null
-                    ? $"Cleanup failed: {ex.Message}"
-                    : $"{failure} Cleanup failed: {ex.Message}";
             }
         }
 
+        if (evidence.Starts.LastOrDefault() is { Outcome.Succeeded: false } last)
+        {
+            startupOutcome = last.Outcome;
+            failure = FormatStartupFailure(startupOutcome);
+            failurePhase = "startup";
+        }
+        if (evidence.Purpose == "sync")
+        {
+            evidence.Synchronization = failure is null
+                ? synchronizationExchange != evidence.Starts.LastOrDefault()?.Id
+                    ? new("insufficient-samples", null, null, null, null, null, "Startup changed after metadata capture; stale/fallback metadata is not synchronization evidence.")
+                    : FragmentAlignment.Evaluate(fragments.ToArray(), representations, _options.MaximumSequenceDelta)
+                : new SynchronizationEvidence(
+                    startupOutcome?.Outcome == "source-unavailable" ? "unavailable-on-retest"
+                        : startupOutcome?.Outcome == "capacity-contamination" ? "capacity-contaminated" : "startup-failure",
+                    null, null, null, null, null, failure);
+        }
         var result = new ChannelAttemptResult(
             matrix.Id,
             channel.Number,
@@ -378,9 +583,17 @@ internal sealed partial class SweepHarness
             startupOutcome,
             attempt,
             failure is null ? null : failurePhase,
-            ClassifyResult(failure, startupOutcome));
+            evidence.SyntheticPlayback == true && failure is null ? "synthetic-playback" : ClassifyResult(failure, startupOutcome));
         await File.WriteAllTextAsync(Path.Combine(attemptRoot, "result.json"), JsonSerializer.Serialize(result, _json));
         await journal.WriteEventAsync("channel-attempt", result);
+        if (_cancellation.IsCancellationRequested)
+        {
+            evidence.Interrupted = true;
+            evidence.Result = result;
+            evidence.FinishedUtc = DateTimeOffset.UtcNow;
+            await CheckpointAsync();
+            _cancellation.ThrowIfCancellationRequested();
+        }
         return result;
     }
 
@@ -517,7 +730,8 @@ internal sealed partial class SweepHarness
             true);
     }
 
-    private static async Task<StartupOutcome> CreateStartupOutcomeAsync(
+    /// <summary>Captures actual HTTP protection evidence without promoting absent inference to confirmation.</summary>
+    internal static async Task<StartupOutcome> CreateStartupOutcomeAsync(
         IResponse response,
         DateTimeOffset startedAtUtc,
         DateTimeOffset completedAtUtc)
@@ -525,6 +739,9 @@ internal sealed partial class SweepHarness
         string? code = null;
         string? stage = null;
         string? message = null;
+        bool? retryable = null;
+        bool? inferred = null;
+        string? source = null;
         if (response.Status >= 400)
         {
             try
@@ -535,6 +752,9 @@ internal sealed partial class SweepHarness
                     var payload = JsonNode.Parse(responseText);
                     code = ReadOutcomeField(payload, "code");
                     stage = ReadOutcomeField(payload, "stage");
+                    retryable = payload?["retryable"]?.GetValue<bool?>();
+                    inferred = payload?["inferred"]?.GetValue<bool?>();
+                    source = ReadOutcomeField(payload, "source");
                     message = ReadOutcomeField(payload, "message")
                         ?? ReadOutcomeField(payload, "error")
                         ?? ReadOutcomeField(payload, "detail");
@@ -551,6 +771,10 @@ internal sealed partial class SweepHarness
         }
 
         var outcome = ClassifyStartupHttpOutcome(response.Status, code);
+        if (outcome == "protected-content")
+        {
+            outcome = inferred switch { true => "inferred-protected-content", false => "protected-content", null => "unconfirmed-protected-content" };
+        }
         return new StartupOutcome(
             outcome,
             response.Status,
@@ -562,21 +786,16 @@ internal sealed partial class SweepHarness
             (long)(completedAtUtc - startedAtUtc).TotalMilliseconds,
             response.Url,
             response.Status is >= 200 and < 300,
-            IsRetryableStartupStatus(response.Status));
+            SweepPolicy.Retryable(outcome, response.Status, retryable))
+        {
+            Inferred = inferred,
+            Source = source
+        };
     }
 
     private static string ClassifyStartupHttpOutcome(int status, string? code)
     {
-        return status switch
-        {
-            >= 200 and < 300 => "success",
-            499 => "client-cancelled",
-            408 or 504 => "startup-timeout",
-            502 or 503 => "source-unavailable",
-            >= 500 => "server-failure",
-            _ when string.Equals(code, "protected_content", StringComparison.OrdinalIgnoreCase) => "protected-content",
-            _ => "rejected"
-        };
+        return SweepPolicy.StartupCategory(status, code);
     }
 
     private static bool IsRetryableStartupStatus(int status)
@@ -606,8 +825,8 @@ internal sealed partial class SweepHarness
 
     private static string? ReadOutcomeField(JsonNode? payload, string name)
     {
-        return payload?[name] is JsonValue value && value.TryGetValue<string>(out var text)
-            ? TruncateOutcomeText(text)
+        return payload?[name] is JsonValue value
+            ? value.TryGetValue<string>(out var text) ? TruncateOutcomeText(text) : TruncateOutcomeText(value.ToJsonString())
             : null;
     }
 
@@ -693,8 +912,9 @@ internal sealed partial class SweepHarness
 
         return startup?.Outcome switch
         {
-            "protected-content" => "protected-content",
+            "protected-content" or "inferred-protected-content" or "unconfirmed-protected-content" => "protected-content",
             "source-unavailable" => "source-availability",
+            "capacity-contamination" => "capacity-contamination",
             "transport-failure" or "no-response-timeout" or "client-cancelled" => "harness-failure",
             "success" => "product-playback-defect",
             null => "harness-failure",

@@ -5,18 +5,45 @@ internal sealed partial class SweepHarness
     private async Task<IReadOnlyList<ChannelDefinition>> ReadEnabledChannelsAsync(string baseUrl)
     {
         var status = await GetStatusAsync(baseUrl);
-        var items = status["channels"]?["items"]?.AsArray() ?? [];
-        return items
-            .Where(item => item?["enabled"]?.GetValue<bool>() == true)
-            .Select(item => new ChannelDefinition(
-                item!["effectiveNumber"]!.GetValue<string>(),
-                item["effectiveName"]!.GetValue<string>(),
-                item["providerKey"]!.GetValue<string>(),
-                item["physicalDeviceId"]!.GetValue<string>()))
+        return ReadProjectedChannels(status)
             .OrderBy(channel => ParseChannelNumber(channel.Number).Major)
             .ThenBy(channel => ParseChannelNumber(channel.Number).Minor)
             .ThenBy(channel => channel.Number, StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+
+    /// <summary>Uses the same single enabled Web Player projection as Watch, not physical inventory.</summary>
+    internal static IReadOnlyList<ChannelDefinition> ReadProjectedChannels(JsonNode status)
+    {
+        var players = status["configuration"]?["streaming"]?["virtualDevices"]?.AsArray()
+            .Where(item => item?["enabled"]?.GetValue<bool>() == true
+                && item["adapter"]?["kind"]?.GetValue<string>() == "web-player").ToArray() ?? [];
+        if (players.Length != 1)
+        {
+            throw new InvalidDataException("Preflight requires exactly one enabled Web Player.");
+        }
+        var id = players[0]!["virtualDeviceId"]!.GetValue<string>();
+        var projection = status["channels"]?["virtualProjections"]?.AsArray().SingleOrDefault(item => item?["virtualDeviceId"]?.GetValue<string>() == id)
+            ?? throw new InvalidDataException("Web Player projection is unavailable.");
+        if (projection["conflicts"]?.AsArray().Count > 0)
+        {
+            throw new InvalidDataException("Web Player projection contains conflicting channel numbers.");
+        }
+        return (projection["channels"]?.AsArray() ?? throw new InvalidDataException("Projected channels are unavailable."))
+            .Select(item =>
+            {
+                var sources = item!["sources"]!.AsArray().Select(source => new SourceCandidate(
+                    source!["physicalDeviceId"]!.GetValue<string>(), source["providerKey"]!.GetValue<string>())).ToArray();
+                if (sources.Length == 0)
+                {
+                    throw new InvalidDataException("Projected channel has no physical source candidates.");
+                }
+                return new ChannelDefinition(item["number"]!.GetValue<string>(), item["name"]!.GetValue<string>(), sources[0].ProviderKey, sources[0].PhysicalDeviceId)
+                {
+                    VirtualDeviceId = id,
+                    Sources = sources
+                };
+            }).ToArray();
     }
 
     private async Task<JsonNode> WaitForActiveStreamAsync(string baseUrl, TimeSpan timeout)
@@ -26,9 +53,14 @@ internal sealed partial class SweepHarness
         {
             var status = await GetStatusAsync(baseUrl);
             var items = status["streams"]?["items"]?.AsArray();
-            if (items is { Count: > 0 })
+            var currentSession = _attempt?.Starts.LastOrDefault()?.SessionId;
+            var owned = _attempt?.Ownership.Where(owner => currentSession is null || owner.SessionId == currentSession)
+                .Select(owner => owner.SessionId).ToHashSet(StringComparer.Ordinal);
+            var matching = items?.FirstOrDefault(item => owned is null || owned.Contains(item?["sessionId"]?.GetValue<string>() ?? string.Empty)
+                || owned.Contains(item?["workerMediaSessionId"]?.GetValue<string>() ?? string.Empty));
+            if (matching is not null)
             {
-                return items[0]!.DeepClone();
+                return matching.DeepClone();
             }
             await Task.Delay(500);
         }
@@ -152,23 +184,35 @@ internal sealed partial class SweepHarness
 
     private async Task EnsureTunerIdleAsync(TimeSpan timeout)
     {
+        if (_options.ExistingInstance)
+        {
+            return;
+        }
+        var discovery = JsonNode.Parse(await _http.GetStringAsync($"http://{GetTunerAddress()}/discover.json"))
+            ?? throw new InvalidDataException("Tuner discovery was null.");
+        var capacity = discovery["TunerCount"]?.GetValue<int>() ?? throw new InvalidDataException("Tuner discovery omitted capacity.");
+        if (capacity < 1)
+        {
+            throw new InvalidDataException("Tuner capacity must be positive.");
+        }
         var deadline = DateTimeOffset.UtcNow + timeout;
         while (DateTimeOffset.UtcNow < deadline)
         {
             try
             {
                 var html = await _http.GetStringAsync($"http://{GetTunerAddress()}/tuners.html");
-                if (CountOccurrences(html, "not in use") >= 4)
+                if (CountOccurrences(html, "not in use") == capacity)
                 {
                     return;
                 }
             }
-            catch
+            catch (HttpRequestException ex)
             {
+                Console.Error.WriteLine($"Tuner idle probe failed: {ex.Message}");
             }
             await Task.Delay(2_000);
         }
-        throw new TimeoutException("The four physical tuners did not return to idle.");
+        throw new TimeoutException($"The {capacity} discovered physical tuners did not return to idle.");
     }
 
     private string GetTunerAddress()
@@ -181,7 +225,7 @@ internal sealed partial class SweepHarness
     private async Task<BrowserLease> OpenBrowserAsync(string profilePath)
     {
         Directory.CreateDirectory(profilePath);
-        var configuredExecutable = Environment.GetEnvironmentVariable("LINEUP_SWEEP_BROWSER_EXECUTABLE")?.Trim();
+        var configuredExecutable = _options.BrowserExecutable ?? Environment.GetEnvironmentVariable("LINEUP_SWEEP_BROWSER_EXECUTABLE")?.Trim();
         if (!string.IsNullOrWhiteSpace(configuredExecutable) && !File.Exists(configuredExecutable))
         {
             throw new FileNotFoundException("The configured sweep browser executable does not exist.", configuredExecutable);
@@ -203,7 +247,7 @@ internal sealed partial class SweepHarness
             {
                 ExecutablePath = executable,
                 Headless = true,
-                IgnoreHTTPSErrors = true,
+                IgnoreHTTPSErrors = false,
                 Args =
                 [
                     "--autoplay-policy=no-user-gesture-required",
@@ -218,30 +262,30 @@ internal sealed partial class SweepHarness
 
     private async Task SaveComposeLogsAsync(MatrixDefinition matrix, string project, string outputRoot)
     {
-        try
+        if (_options.ExistingInstance)
         {
-            var result = await RunProcessAsync(
-                "docker",
-                $"compose -p {project} -f \"{Path.Combine(MatrixRoot(matrix), "compose.yml")}\" logs --no-color --timestamps",
-                MatrixRoot(matrix),
-                false);
-            Directory.CreateDirectory(outputRoot);
-            await File.WriteAllTextAsync(Path.Combine(outputRoot, "compose.log"), result.Output + result.Error);
+            throw new InvalidOperationException("Existing-instance mode does not operate Docker Compose.");
         }
-        catch
-        {
-        }
+        var result = await RunProcessAsync(
+            "docker",
+            $"compose -p {project} -f \"{Path.Combine(MatrixRoot(matrix), "compose.yml")}\" logs --no-color --timestamps",
+            MatrixRoot(matrix));
+        Directory.CreateDirectory(outputRoot);
+        await SweepStore.WriteAtomicAsync(Path.Combine(outputRoot, "compose.log"), result.Output + result.Error);
     }
 
     private async Task StopMatrixAsync(MatrixDefinition matrix, string project, string outputRoot)
     {
+        if (_options.ExistingInstance)
+        {
+            throw new InvalidOperationException("Existing-instance mode forbids deployment teardown.");
+        }
         try
         {
             await RunProcessAsync(
                 "docker",
                 $"compose -p {project} -f \"{Path.Combine(MatrixRoot(matrix), "compose.yml")}\" down -v --remove-orphans",
-                MatrixRoot(matrix),
-                false);
+                MatrixRoot(matrix));
         }
         finally
         {
@@ -256,24 +300,6 @@ internal sealed partial class SweepHarness
                 throw;
             }
         }
-    }
-
-    private async Task WriteRunManifestAsync(string runRoot)
-    {
-        var imageInspection = await RunProcessAsync("docker", $"image inspect {_image}", _repositoryRoot);
-        var image = JsonNode.Parse(imageInspection.Output)?.AsArray().FirstOrDefault()
-            ?? throw new JsonException($"Docker returned no inspection metadata for image '{_image}'.");
-        await File.WriteAllTextAsync(Path.Combine(runRoot, "run.json"), JsonSerializer.Serialize(new
-        {
-            startedAtUtc = DateTimeOffset.UtcNow,
-            image,
-            tunerAddress = GetTunerAddress(),
-            browser = Environment.GetEnvironmentVariable("LINEUP_SWEEP_BROWSER_EXECUTABLE") ?? "Playwright Chromium or an installed Chromium-family browser",
-            observationSeconds = 30,
-            minimumMediaAdvanceSeconds = 15,
-            maximumAttempts = 3,
-            matrices = _matrices
-        }, _json));
     }
 
     private async Task BuildReportsAsync(string runRoot)

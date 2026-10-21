@@ -33,6 +33,15 @@ internal sealed class DedicatedMediaSessionRegistry<TSession>
         }
     }
 
+    /// <summary>Returns an immutable identifier snapshot without touching session inactivity leases.</summary>
+    internal string[] GetSessionIds()
+    {
+        lock (_gate)
+        {
+            return _sessions.Keys.Order(StringComparer.Ordinal).ToArray();
+        }
+    }
+
     internal bool TryAdd(string id, TSession session)
     {
         lock (_gate)

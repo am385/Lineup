@@ -14,6 +14,14 @@ internal sealed partial class SweepHarness
     private readonly JsonSerializerOptions _json = new() { WriteIndented = true, PropertyNameCaseInsensitive = true };
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(15) };
     private readonly MatrixDefinition[] _matrices;
+    private SweepOptions _options = new();
+    private CancellationToken _cancellation;
+    private SweepRun? _run;
+    private SweepAttempt? _attempt;
+    private string? _runRoot;
+    private string _generation = string.Empty;
+    private readonly SemaphoreSlim _checkpointGate = new(1, 1);
+    private readonly HashSet<string> _allowedOrigins = new(StringComparer.Ordinal);
 
     public SweepHarness(string root, string repositoryRoot, string projectRoot)
     {
@@ -42,6 +50,10 @@ internal sealed partial class SweepHarness
     public async Task GenerateAsync()
     {
         Directory.CreateDirectory(_runsRoot);
+        if (_options.ExistingInstance)
+        {
+            return;
+        }
         foreach (var matrix in _matrices)
         {
             var matrixRoot = MatrixRoot(matrix);
@@ -59,168 +71,30 @@ internal sealed partial class SweepHarness
         await File.WriteAllTextAsync(Path.Combine(_root, "matrices.json"), JsonSerializer.Serialize(_matrices, _json));
     }
 
-    public async Task RunSmokeAsync()
+    public async Task RecheckPostFixFailuresAsync(string inputRun)
     {
-        var matrix = _matrices[0];
-        var runRoot = Path.Combine(_runsRoot, "smoke");
-        if (Directory.Exists(runRoot))
-        {
-            Directory.Delete(runRoot, true);
-        }
-        Directory.CreateDirectory(runRoot);
-        var journal = new RunJournal(runRoot, _json);
-        await journal.WriteEventAsync("smoke-start", new { matrix = matrix.Id });
-        try
-        {
-            await PrepareAndStartAsync(matrix, "lineup-sweep-smoke", journal);
-            await using var browser = await OpenBrowserAsync(Path.Combine(runRoot, "browser"));
-            await RefreshGuideAsync(browser.Context, matrix.SourceUrl, journal, "source");
-            var channels = await ReadEnabledChannelsAsync(matrix.SourceUrl);
-            if (channels.Count == 0)
-            {
-                throw new InvalidOperationException("The smoke topology returned no enabled channels.");
-            }
-            await RunCompatibilityAsync(browser.Context, matrix.WatchUrl, Path.Combine(runRoot, "compatibility.json"), journal);
-            var result = await RunChannelAsync(browser.Context, matrix, channels[0], 1, runRoot, journal);
-            if (!result.AvPassed)
-            {
-                throw new InvalidOperationException($"Smoke playback failed: {result.Failure}");
-            }
-            await journal.WriteEventAsync("smoke-passed", result);
-        }
-        finally
-        {
-            await SaveComposeLogsAsync(matrix, "lineup-sweep-smoke", runRoot);
-            await StopMatrixAsync(matrix, "lineup-sweep-smoke", runRoot);
-        }
-    }
-
-    public async Task RecheckPostFixFailuresAsync()
-    {
-        var referenceResultsPath = Path.Combine(_runsRoot, "run-20261018-234438", "results.json");
-        var referenceResults = JsonSerializer.Deserialize<IReadOnlyList<ChannelAttemptResult>>(
-            await File.ReadAllTextAsync(referenceResultsPath),
-            _json)
-            ?? throw new InvalidOperationException($"Unable to read reference results from {referenceResultsPath}.");
-        var failedChannels = referenceResults
-            .Where(result => !result.AvPassed)
-            .Select(result => result.Channel)
+        var reference = await SweepStore.LoadAsync(inputRun);
+        var failedChannels = reference.Selected
+            .Where(row => !reference.Accepted.TryGetValue(row.Key, out var id)
+                || reference.Attempts.Single(attempt => attempt.Id == id).Verdict != SweepVerdict.StablePlayback)
+            .Select(row => row.Channel.Number)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (failedChannels.Count == 0)
+        {
+            throw new InvalidOperationException("Input run has no failed or pending channels.");
+        }
+        _options = reference.Options with { Include = failedChannels.Order(StringComparer.OrdinalIgnoreCase).ToArray() };
+        await GenerateAsync();
         await ExecuteAsync(failedChannels, $"post-fix-failure-recheck-{DateTime.UtcNow:yyyyMMdd-HHmmss}");
     }
 
     public async Task ExecuteAsync(IReadOnlySet<string>? channelNumbers = null, string? runId = null, IReadOnlySet<string>? matrixIds = null)
     {
-        var runRoot = runId is null
-            ? GetOrCreateMainRunRoot()
-            : Path.Combine(_runsRoot, runId);
-        Directory.CreateDirectory(runRoot);
-        var journal = new RunJournal(runRoot, _json);
-        if (!File.Exists(Path.Combine(runRoot, "run.json")))
+        _options = _options with
         {
-            await WriteRunManifestAsync(runRoot);
-        }
-        var completed = await journal.ReadTerminalKeysAsync();
-        IReadOnlyList<ChannelDefinition>? canonicalChannels = null;
-
-        foreach (var matrix in _matrices.Where(matrix => matrixIds is null || matrixIds.Contains(matrix.Id)))
-        {
-            var project = $"lineup-sweep-{matrix.Id}";
-            var matrixRunRoot = Path.Combine(runRoot, matrix.Id);
-            Directory.CreateDirectory(matrixRunRoot);
-            await journal.WriteEventAsync("matrix-start", new { matrix = matrix.Id });
-            try
-            {
-                await PrepareAndStartAsync(matrix, project, journal);
-                await using var browser = await OpenBrowserAsync(Path.Combine(matrixRunRoot, "browser"));
-                await RefreshGuideAsync(browser.Context, matrix.SourceUrl, journal, "source");
-                if (matrix.Remote)
-                {
-                    await RefreshGuideAsync(browser.Context, matrix.WatchUrl, journal, "consumer");
-                }
-
-                var channels = await ReadEnabledChannelsAsync(matrix.WatchUrl);
-                canonicalChannels ??= channelNumbers is null
-                    ? channels
-                    : channels.Where(channel => channelNumbers.Contains(channel.Number)).ToArray();
-                await File.WriteAllTextAsync(
-                    Path.Combine(matrixRunRoot, "channels.json"),
-                    JsonSerializer.Serialize(channels, _json));
-                await File.WriteAllTextAsync(
-                    Path.Combine(runRoot, "canonical-channels.json"),
-                    JsonSerializer.Serialize(canonicalChannels, _json));
-                await journal.WriteEventAsync("channel-inventory", new
-                {
-                    matrix = matrix.Id,
-                    count = channels.Count,
-                    canonicalCount = canonicalChannels.Count,
-                    differences = CompareChannels(canonicalChannels, channels)
-                });
-                if (channels.Count == 0)
-                {
-                    throw new InvalidOperationException($"{matrix.Id} returned no enabled channels.");
-                }
-
-                await RunCompatibilityAsync(
-                    browser.Context,
-                    matrix.WatchUrl,
-                    Path.Combine(matrixRunRoot, "compatibility.json"),
-                    journal);
-
-                foreach (var channel in canonicalChannels)
-                {
-                    var terminalKey = TerminalKey(matrix.Id, channel.Number);
-                    if (completed.Contains(terminalKey))
-                    {
-                        continue;
-                    }
-
-                    var attempts = new List<ChannelAttemptResult>();
-                    for (var attempt = 1; attempt <= 3; attempt++)
-                    {
-                        var attemptResult = await RunChannelAsync(browser.Context, matrix, channel, attempt, matrixRunRoot, journal);
-                        attempts.Add(attemptResult);
-                        if (attemptResult.Failure?.Contains("Cleanup failed:", StringComparison.Ordinal) == true)
-                        {
-                            var recoveryRoot = Path.Combine(
-                                matrixRunRoot,
-                                "recoveries",
-                                channel.Number.Replace('.', '_'),
-                                attempt.ToString(CultureInfo.InvariantCulture));
-                            await SaveComposeLogsAsync(matrix, project, recoveryRoot);
-                            await StopMatrixAsync(matrix, project, recoveryRoot);
-                            await PrepareAndStartAsync(matrix, project, journal);
-                            await RefreshGuideAsync(browser.Context, matrix.SourceUrl, journal, "source-recovery");
-                            if (matrix.Remote)
-                            {
-                                await RefreshGuideAsync(browser.Context, matrix.WatchUrl, journal, "consumer-recovery");
-                            }
-                        }
-                        if (!ShouldRetry(attemptResult))
-                        {
-                            break;
-                        }
-                    }
-                    var final = SelectTerminalResult(attempts);
-                    await journal.WriteTerminalAsync(matrix.Id, channel.Number, final!);
-                    completed.Add(terminalKey);
-                }
-                await journal.WriteEventAsync("matrix-complete", new { matrix = matrix.Id });
-            }
-            catch (Exception ex)
-            {
-                await journal.WriteEventAsync("matrix-failed", new { matrix = matrix.Id, error = ex.ToString() });
-                throw;
-            }
-            finally
-            {
-                await SaveComposeLogsAsync(matrix, project, matrixRunRoot);
-                await StopMatrixAsync(matrix, project, matrixRunRoot);
-            }
-        }
-
-        await BuildReportsAsync(runRoot);
-        await journal.WriteEventAsync("run-complete", new { completedAtUtc = DateTimeOffset.UtcNow });
-        await File.WriteAllTextAsync(Path.Combine(runRoot, "completed.marker"), DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+            Include = channelNumbers?.Order(StringComparer.OrdinalIgnoreCase).ToArray() ?? _options.Include,
+            Matrices = matrixIds?.Order(StringComparer.OrdinalIgnoreCase).ToArray() ?? _options.Matrices
+        };
+        await ExecuteRunAsync(runId is null ? GetOrCreateMainRunRoot() : Path.Combine(_runsRoot, runId));
     }
 }

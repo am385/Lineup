@@ -325,6 +325,10 @@ internal sealed partial class SweepHarness
 
     private async Task PrepareAndStartAsync(MatrixDefinition matrix, string project, RunJournal journal)
     {
+        if (_options.ExistingInstance)
+        {
+            throw new InvalidOperationException("Existing-instance mode forbids deployment preparation/start.");
+        }
         await EnsureTunerIdleAsync(TimeSpan.FromMinutes(5));
         var matrixRoot = MatrixRoot(matrix);
         var runtime = Path.Combine(matrixRoot, "runtime");

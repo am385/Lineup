@@ -8,6 +8,12 @@ Consumer --> Dependency
 
 NuGet packages and framework references are intentionally omitted. Transitive dependencies can be inferred by following arrows through the graph.
 
+`Lineup.Streaming.Sweep.Tests` references the opt-in `Lineup.Streaming.Sweep` executable to test its
+non-live policies. That project reference builds the executable but never runs it. The executable
+and sibling `Lineup.Streaming.Sweep.FaultSource` remain excluded as solution/CI entry points.
+No ordinary test launches Docker, Playwright or a tuner. The executable retains its existing Core,
+Lineup Link, SiliconDust guide/physical tuner and Web Player references for matrix generation.
+
 ## Production dependency graph
 
 ```mermaid

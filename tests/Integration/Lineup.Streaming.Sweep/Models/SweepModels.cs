@@ -7,10 +7,11 @@ internal sealed record MatrixDefinition(
     int? ConsumerManagementPort,
     int? ConsumerOutputPort,
     HostingMode Mode,
-    bool Remote)
+    bool Remote,
+    string? ExistingUrl = null)
 {
-    public string SourceUrl => $"http://127.0.0.1:{SourceManagementPort}";
-    public string WatchUrl => Remote ? $"http://127.0.0.1:{ConsumerManagementPort}" : SourceUrl;
+    public string SourceUrl => ExistingUrl ?? $"http://127.0.0.1:{SourceManagementPort}";
+    public string WatchUrl => ExistingUrl ?? (Remote ? $"http://127.0.0.1:{ConsumerManagementPort}" : SourceUrl);
 }
 
 internal enum HostingMode
@@ -20,7 +21,15 @@ internal enum HostingMode
     ExternalProcess
 }
 
-internal sealed record ChannelDefinition(string Number, string Name, string ProviderKey, string PhysicalDeviceId);
+internal sealed record ChannelDefinition(string Number, string Name, string ProviderKey, string PhysicalDeviceId)
+{
+    /// <summary>Gets the projected Web Player identity.</summary>
+    public string VirtualDeviceId { get; init; } = string.Empty;
+    /// <summary>Gets ordered source candidates, not just the first physical source.</summary>
+    public IReadOnlyList<SourceCandidate> Sources { get; init; } = [];
+}
+/// <summary>One ordered physical source candidate in a virtual projection.</summary>
+internal sealed record SourceCandidate(string PhysicalDeviceId, string ProviderKey);
 internal sealed record ChannelAttemptResult(
     string Matrix,
     string Channel,
@@ -46,7 +55,13 @@ internal sealed record StartupOutcome(
     long DurationMilliseconds,
     string? Endpoint,
     bool Succeeded,
-    bool Retryable);
+    bool Retryable)
+{
+    /// <summary>Gets explicit product inference evidence; absent evidence is not confirmation.</summary>
+    public bool? Inferred { get; init; }
+    /// <summary>Gets the product's protection evidence source, independently of request options.</summary>
+    public string? Source { get; init; }
+}
 internal sealed record PlayerMetrics(
     double InitialTime,
     double FinalTime,
