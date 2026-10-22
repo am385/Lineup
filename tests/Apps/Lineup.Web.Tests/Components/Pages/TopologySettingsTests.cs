@@ -219,7 +219,7 @@ public sealed class TopologySettingsTests
     /// Verifies exporting a Lineup Link connection bundle downloads the generated JSON.
     /// </summary>
     [Fact]
-    public void ExportLineupLinkBundle_AvailableToken_DownloadsJsonFile()
+    public async Task ExportLineupLinkBundle_AvailableToken_DownloadsJsonFile()
     {
         // Arrange
         using var context = CreateContext(out _, out _);
@@ -234,7 +234,7 @@ public sealed class TopologySettingsTests
         component.Find("#createLineupLinkGrant-1").Click();
 
         // Act
-        component.Find(".lineup-link-access-grant button[id^='exportLineupLinkBundle-']").Click();
+        await component.Find(".lineup-link-access-grant button[id^='exportLineupLinkBundle-']").ClickAsync(new());
 
         // Assert
         component.WaitForAssertion(() =>
@@ -256,7 +256,7 @@ public sealed class TopologySettingsTests
 
     /// <summary>Verifies a connection bundle can be exported before a public Lineup URL is assigned.</summary>
     [Fact]
-    public void ExportLineupLinkBundle_WithoutPublicUrl_UsesNullAddress()
+    public async Task ExportLineupLinkBundle_WithoutPublicUrl_UsesNullAddress()
     {
         // Arrange
         using var context = CreateContext(out _, out _);
@@ -270,7 +270,7 @@ public sealed class TopologySettingsTests
         component.Find("#createLineupLinkGrant-1").Click();
 
         // Act
-        component.Find(".lineup-link-access-grant button[id^='exportLineupLinkBundle-']").Click();
+        await component.Find(".lineup-link-access-grant button[id^='exportLineupLinkBundle-']").ClickAsync(new());
 
         // Assert
         component.WaitForAssertion(() =>
@@ -283,7 +283,7 @@ public sealed class TopologySettingsTests
 
     /// <summary>Verifies dedicated Lineup Link outputs derive HTTP or HTTPS from the listener instead of presenting a second transport switch.</summary>
     [Fact]
-    public void ConfigureDedicatedLineupLink_ListenerOwnsTransportSelection()
+    public async Task ConfigureDedicatedLineupLink_ListenerOwnsTransportSelection()
     {
         // Arrange
         using var context = CreateContext(out _, out _);
@@ -341,7 +341,7 @@ public sealed class TopologySettingsTests
         component.Find("#createLineupLinkGrant-1").Click();
 
         // Act
-        component.Find(".lineup-link-access-grant button[id^='exportLineupLinkBundle-']").Click();
+        await component.Find(".lineup-link-access-grant button[id^='exportLineupLinkBundle-']").ClickAsync(new());
 
         // Assert
         component.WaitForAssertion(() =>
@@ -380,7 +380,7 @@ public sealed class TopologySettingsTests
     /// Verifies generated Lineup Link bundles remain collapsed until shown and can be copied.
     /// </summary>
     [Fact]
-    public void ShowAndCopyLineupLinkBundle_GeneratedBundle_CopiesExactJson()
+    public async Task ShowAndCopyLineupLinkBundle_GeneratedBundle_CopiesExactJson()
     {
         // Arrange
         using var context = CreateContext(out _, out _);
@@ -396,7 +396,7 @@ public sealed class TopologySettingsTests
         component.Find(".lineup-link-access-grant button[id^='rotateLineupLinkGrant-']").Click();
 
         // Act
-        component.Find(".lineup-link-access-grant button[id^='copyLineupLinkBundle-']").Click();
+        await component.Find(".lineup-link-access-grant button[id^='copyLineupLinkBundle-']").ClickAsync(new());
 
         // Assert
         var copyButton = component.Find(".lineup-link-access-grant button[id^='copyLineupLinkBundle-']");
@@ -701,7 +701,7 @@ public sealed class TopologySettingsTests
     /// Verifies Test &amp; Identify uses unsaved values and applies a discovered name only when requested.
     /// </summary>
     [Fact]
-    public void TestPhysicalDevice_UnsavedAddress_ShowsIdentityAndOffersName()
+    public async Task TestPhysicalDevice_UnsavedAddress_ShowsIdentityAndOffersName()
     {
         // Arrange
         using var context = CreateContext(out var settingsService, out var settings);
@@ -726,7 +726,7 @@ public sealed class TopologySettingsTests
         component.Find("#physicalAddress-0").Change("unsaved.local");
 
         // Act
-        component.Find("#testPhysicalDevice-0").Click();
+        await component.Find("#testPhysicalDevice-0").ClickAsync(new());
 
         // Assert
         component.WaitForAssertion(() =>
@@ -737,20 +737,20 @@ public sealed class TopologySettingsTests
         });
         Assert.Equal("unsaved.local", driver.ProbedConfiguration?.Configuration.GetProperty("Address").GetString());
         Assert.Equal("HDHomeRun 1", component.Find("#physicalName-0").GetAttribute("value"));
-        settingsService.DidNotReceive().UpdateAsync(Arg.Any<Action<LineupSettings>>());
+        await settingsService.DidNotReceive().UpdateAsync(Arg.Any<Action<LineupSettings>>());
         Assert.Empty(settings.Streaming.PhysicalDevices);
 
         component.Find(".use-discovered-name").Click();
 
         Assert.Equal("Living Room HDHomeRun (ABCDEF01)", component.Find("#physicalName-0").GetAttribute("value"));
-        settingsService.DidNotReceive().UpdateAsync(Arg.Any<Action<LineupSettings>>());
+        await settingsService.DidNotReceive().UpdateAsync(Arg.Any<Action<LineupSettings>>());
     }
 
     /// <summary>
     /// Verifies failed physical-device probes remain inline and successful results are cleared by connection edits.
     /// </summary>
     [Fact]
-    public void TestPhysicalDevice_FailureAndConnectionEdit_UpdatesInlineState()
+    public async Task TestPhysicalDevice_FailureAndConnectionEdit_UpdatesInlineState()
     {
         // Arrange
         using var context = CreateContext(out _, out _);
@@ -762,7 +762,7 @@ public sealed class TopologySettingsTests
         component.Find(".physical-device-type").Click();
 
         // Act
-        component.Find("#testPhysicalDevice-0").Click();
+        await component.Find("#testPhysicalDevice-0").ClickAsync(new());
 
         // Assert
         component.WaitForAssertion(() => Assert.Contains("Device refused the connection.", component.Find(".physical-device-probe-error").TextContent));
@@ -772,7 +772,7 @@ public sealed class TopologySettingsTests
         {
             Details = [new PhysicalDeviceProbeDetail { Label = "Device ID", Value = "ABCDEF01" }]
         });
-        component.Find("#testPhysicalDevice-0").Click();
+        await component.Find("#testPhysicalDevice-0").ClickAsync(new());
         component.WaitForAssertion(() => Assert.NotNull(component.Find(".physical-device-probe-success")));
 
         component.Find("#physicalAddress-0").Change("changed.local");
@@ -910,7 +910,7 @@ public sealed class TopologySettingsTests
     /// Verifies Selected subscriptions persist only checked physical devices.
     /// </summary>
     [Fact]
-    public void Save_SelectedSubscription_PersistsSelection()
+    public async Task Save_SelectedSubscription_PersistsSelection()
     {
         // Arrange
         using var context = CreateContext(out var settingsService, out var settings);
@@ -927,18 +927,18 @@ public sealed class TopologySettingsTests
         component.Find(".physical-subscription-selection").Change(true);
 
         // Act
-        component.Find("button.btn-primary").Click();
+        await component.Find("button.btn-primary").ClickAsync(new());
 
         // Assert
         var player = Assert.Single(settings.Streaming.VirtualDevices);
         Assert.Equal(PhysicalDeviceSubscriptionMode.Selected, player.Subscription.Mode);
         Assert.Equal(settings.Streaming.PhysicalDevices[0].Id, Assert.Single(player.Subscription.SelectedDeviceIds));
-        settingsService.Received(1).UpdateAsync(Arg.Any<Action<LineupSettings>>());
+        await settingsService.Received(1).UpdateAsync(Arg.Any<Action<LineupSettings>>());
     }
 
     /// <summary>Verifies a non-XMLTV Guide Output renders and persists its plugin-owned portable settings.</summary>
     [Fact]
-    public void Save_NonXmltvGuideOutput_PersistsPortableSettings()
+    public async Task Save_NonXmltvGuideOutput_PersistsPortableSettings()
     {
         // Arrange
         using var context = CreateContext(out var settingsService, out var settings);
@@ -951,7 +951,7 @@ public sealed class TopologySettingsTests
 
         // Act
         component.Find("[data-setting-key='outputDirectoryPath'] input").Change(outputDirectory);
-        component.Find("button.btn-primary").Click();
+        await component.Find("button.btn-primary").ClickAsync(new());
 
         // Assert
         Assert.Empty(component.FindAll("#guideOutputDirectoryPath"));
@@ -959,7 +959,7 @@ public sealed class TopologySettingsTests
         Assert.Equal(
             Path.Combine(outputDirectory, "lineup-json_1.json"),
             new JsonGuideOutputDriver().ResolveDestination(output.Adapter).Path);
-        settingsService.Received(1).UpdateAsync(Arg.Any<Action<LineupSettings>>());
+        await settingsService.Received(1).UpdateAsync(Arg.Any<Action<LineupSettings>>());
     }
 
     private static BunitContext CreateContext(out ILineupSettingsService settingsService, out LineupSettings settings)

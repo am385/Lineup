@@ -425,8 +425,8 @@ public class WatchTests
         component.WaitForAssertion(() => Assert.Contains("First channel failed.", component.Markup, StringComparison.Ordinal));
 
         // Act
-        var replacementTune = component.InvokeAsync(() =>
-            component.FindAll(".cmaf-channel-item").Single(item => item.TextContent.Contains("2.2", StringComparison.Ordinal)).Click());
+        var replacementTune = component.FindAll(".cmaf-channel-item")
+            .Single(item => item.TextContent.Contains("2.2", StringComparison.Ordinal)).ClickAsync(new());
 
         // Assert
         component.WaitForAssertion(() =>
@@ -1278,7 +1278,7 @@ public class WatchTests
         });
 
         // Act
-        component.WaitForElement(".cmaf-channel-item").Click();
+        await component.WaitForElement(".cmaf-channel-item").ClickAsync(new());
 
         // Assert
         component.WaitForAssertion(() =>

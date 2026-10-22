@@ -84,7 +84,7 @@ public class SettingsLoggingTests
     /// Verifies saved file options are persisted and applied to the running process.
     /// </summary>
     [Fact]
-    public void Save_ChangedFileLogging_PersistsAndAppliesImmediately()
+    public async Task Save_ChangedFileLogging_PersistsAndAppliesImmediately()
     {
         // Arrange
         using var context = CreateContext(out var settings);
@@ -101,7 +101,7 @@ public class SettingsLoggingTests
         component.Find("#fileLogLevel").Change("Warning");
         component.Find("#fileLogRetentionDays").Change("14");
         component.Find("#fileLogSizeLimitMb").Change("100");
-        component.Find("button.btn-primary").Click();
+        await component.Find("button.btn-primary").ClickAsync(new());
 
         // Assert
         Assert.True(settings.EnableFileLogging);
@@ -124,7 +124,7 @@ public class SettingsLoggingTests
     /// Verifies startup categories are discovered and a complete runtime override is persisted and applied.
     /// </summary>
     [Fact]
-    public void Save_ApplicationFilterOverride_PersistsAndAppliesImmediately()
+    public async Task Save_ApplicationFilterOverride_PersistsAndAppliesImmediately()
     {
         // Arrange
         using var context = CreateContext(out var settings);
@@ -145,7 +145,7 @@ public class SettingsLoggingTests
         component.Find("#addLogCategoryOverride").Click();
         component.FindAll(".log-category-prefix")[^1].Change("Lineup.Noisy");
         component.FindAll(".log-category-level")[^1].Change("None");
-        component.Find("button.btn-primary").Click();
+        await component.Find("button.btn-primary").ClickAsync(new());
 
         // Assert
         Assert.True(settings.OverrideLoggingDefaults);
@@ -164,7 +164,7 @@ public class SettingsLoggingTests
     /// Verifies startup categories added after an override was saved remain visible and effective.
     /// </summary>
     [Fact]
-    public void Save_ExistingApplicationFilterOverride_MergesNewStartupCategories()
+    public async Task Save_ExistingApplicationFilterOverride_MergesNewStartupCategories()
     {
         // Arrange
         using var context = CreateContext(out var settings);
@@ -181,7 +181,7 @@ public class SettingsLoggingTests
         component.Find("#tab-logging").Click();
 
         // Act
-        component.Find("button.btn-primary").Click();
+        await component.Find("button.btn-primary").ClickAsync(new());
 
         // Assert
         Assert.Equal(2, settings.LogCategoryOverrides.Count);
@@ -194,7 +194,7 @@ public class SettingsLoggingTests
     /// Verifies disabling UI overrides restores the complete startup filter set immediately.
     /// </summary>
     [Fact]
-    public void Save_DisabledApplicationFilterOverride_RestoresStartupFilters()
+    public async Task Save_DisabledApplicationFilterOverride_RestoresStartupFilters()
     {
         // Arrange
         using var context = CreateContext(out var settings);
@@ -213,7 +213,7 @@ public class SettingsLoggingTests
 
         // Act
         component.Find("#overrideLoggingDefaults").Change(false);
-        component.Find("button.btn-primary").Click();
+        await component.Find("button.btn-primary").ClickAsync(new());
 
         // Assert
         Assert.False(settings.OverrideLoggingDefaults);
@@ -227,7 +227,7 @@ public class SettingsLoggingTests
     /// Verifies duplicate category prefixes are rejected before settings are persisted.
     /// </summary>
     [Fact]
-    public void Save_DuplicateApplicationFilterCategory_ShowsValidationError()
+    public async Task Save_DuplicateApplicationFilterCategory_ShowsValidationError()
     {
         // Arrange
         using var context = CreateContext(out var settings);
@@ -244,7 +244,7 @@ public class SettingsLoggingTests
         component.Find("#overrideLoggingDefaults").Change(true);
         component.Find("#addLogCategoryOverride").Click();
         component.FindAll(".log-category-prefix")[^1].Change("microsoft.aspnetcore");
-        component.Find("button.btn-primary").Click();
+        await component.Find("button.btn-primary").ClickAsync(new());
 
         // Assert
         Assert.False(settings.OverrideLoggingDefaults);

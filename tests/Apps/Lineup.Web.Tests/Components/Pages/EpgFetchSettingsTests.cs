@@ -1,5 +1,6 @@
 using Bunit;
 using Lineup.Web.Components.Pages;
+using Lineup.Web.Services;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using Xunit;
@@ -12,20 +13,22 @@ namespace Lineup.Web.Tests.Components.Pages;
 public class EpgFetchSettingsTests
 {
     /// <summary>
-    /// Verifies the channel refresh setting defaults to enabled and persists edits.
+    /// Verifies the channel refresh setting defaults to enabled and reports success only after delayed persistence completes.
     /// </summary>
     [Fact]
-    public void Save_RefreshChannelsBeforeGuideFetch_PersistsValue()
+    public async Task Save_RefreshChannelsBeforeGuideFetch_PersistsValue()
     {
         // Arrange
         using var context = new BunitContext();
         var settings = new LineupSettings { IsSetupComplete = true };
         var settingsService = Substitute.For<ILineupSettingsService>();
         settingsService.Settings.Returns(settings);
-        settingsService.UpdateAsync(Arg.Any<Action<LineupSettings>>()).Returns(callInfo =>
+        var persistence = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        settingsService.UpdateAsync(Arg.Any<Action<LineupSettings>>()).Returns(async callInfo =>
         {
-            callInfo.Arg<Action<LineupSettings>>()(settings);
-            return Task.CompletedTask;
+            var update = callInfo.Arg<Action<LineupSettings>>();
+            await persistence.Task;
+            update(settings);
         });
         var timeZoneService = Substitute.For<ITimeZoneService>();
         timeZoneService.TimeZone.Returns(TimeZoneInfo.Utc);
@@ -43,14 +46,30 @@ public class EpgFetchSettingsTests
         // Act
         component.Find("#refreshChannelsBeforeGuideFetch").Change(false);
         historyRetention.Change("48");
-        component.Find("button.btn-primary").Click();
+        var saveClick = component.Find("button.btn-primary").ClickAsync(new());
 
         // Assert
+        try
+        {
+            component.WaitForAssertion(() => Assert.True(component.Find("button.btn-primary").HasAttribute("disabled")));
+            Assert.False(saveClick.IsCompleted);
+            Assert.True(settings.RefreshChannelsBeforeGuideFetch);
+            Assert.Empty(context.Services.GetRequiredService<IStatusNotificationService>().Notifications);
+        }
+        finally
+        {
+            persistence.SetResult();
+            await saveClick;
+        }
         Assert.True(enabledByDefault);
         Assert.True(historyDefaultsTo24Hours);
         Assert.True(guideCheckboxesUseSwitches);
         Assert.False(settings.RefreshChannelsBeforeGuideFetch);
         Assert.Equal(48, settings.EpgHistoryRetentionHours);
-        settingsService.Received(1).UpdateAsync(Arg.Any<Action<LineupSettings>>());
+        await settingsService.Received(1).UpdateAsync(Arg.Any<Action<LineupSettings>>());
+        var notification = Assert.Single(context.Services.GetRequiredService<IStatusNotificationService>().Notifications);
+        Assert.Equal("Settings saved successfully!", notification.Message);
+        Assert.False(notification.IsError);
+        Assert.False(component.Find("button.btn-primary").HasAttribute("disabled"));
     }
 }

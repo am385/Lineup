@@ -120,7 +120,7 @@ public class WatchTestTests
     /// Verifies Run All measures the server-owned catalog and atomically saves a complete browser profile.
     /// </summary>
     [Fact]
-    public void RunAll_CompletedSuite_WritesCompatibilityProfile()
+    public async Task RunAll_CompletedSuite_WritesCompatibilityProfile()
     {
         // Arrange
         using var context = CreateContext();
@@ -139,7 +139,7 @@ public class WatchTestTests
         component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal));
 
         // Act
-        component.Find("#runAllCompatibilityTests").Click();
+        await component.Find("#runAllCompatibilityTests").ClickAsync(new());
 
         // Assert
         component.WaitForAssertion(() =>
@@ -285,7 +285,7 @@ public class WatchTestTests
     /// Verifies an individual unavailable case updates the in-progress matrix without starting media or saving an incomplete profile.
     /// </summary>
     [Fact]
-    public void RunSingleCase_BeforeCompleteProfile_AccumulatesWithoutSaving()
+    public async Task RunSingleCase_BeforeCompleteProfile_AccumulatesWithoutSaving()
     {
         // Arrange
         using var context = CreateContext();
@@ -293,7 +293,7 @@ public class WatchTestTests
         component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal));
 
         // Act
-        component.Find("#runCompatibilityTest-audio-ac4-unavailable").Click();
+        await component.Find("#runCompatibilityTest-audio-ac4-unavailable").ClickAsync(new());
 
         // Assert
         component.WaitForAssertion(() =>
@@ -311,7 +311,7 @@ public class WatchTestTests
     /// Verifies rerunning one row replaces only that result and persists a complete valid profile.
     /// </summary>
     [Fact]
-    public void RunSingleCase_ExistingProfile_ReplacesRowAndSavesCompleteProfile()
+    public async Task RunSingleCase_ExistingProfile_ReplacesRowAndSavesCompleteProfile()
     {
         // Arrange
         var storedProfile = CreateCompatibilityProfile("video-h264-1080p");
@@ -339,7 +339,7 @@ public class WatchTestTests
         component.WaitForAssertion(() => Assert.Contains(nameof(CmafCapabilityStatus.Failed), component.Find("[data-test-case='video-h264-1080p']").TextContent, StringComparison.Ordinal));
 
         // Act
-        component.Find("#runCompatibilityTest-video-h264-1080p").Click();
+        await component.Find("#runCompatibilityTest-video-h264-1080p").ClickAsync(new());
 
         // Assert
         component.WaitForAssertion(() =>
@@ -364,7 +364,7 @@ public class WatchTestTests
     /// Verifies Exact Test Selection requests audible playback after the player starts.
     /// </summary>
     [Fact]
-    public void StartManualTest_InitializesAudiblePlayback()
+    public async Task StartManualTest_InitializesAudiblePlayback()
     {
         // Arrange
         using var context = CreateContext();
@@ -378,7 +378,7 @@ public class WatchTestTests
         component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal));
 
         // Act
-        component.Find("#startManualCompatibilityTest").Click();
+        await component.Find("#startManualCompatibilityTest").ClickAsync(new());
 
         // Assert
         component.WaitForAssertion(() =>

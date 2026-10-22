@@ -136,7 +136,7 @@ public class DashboardComponentTests
     [InlineData("toggleGuideSection", "GuideExpanded")]
     [InlineData("toggleDeviceSection", "DeviceExpanded")]
     [InlineData("toggleActiveStreamsSection", "ActiveStreamsExpanded")]
-    public void ToggleSection_PersistsUpdatedState(string toggleId, string collapsedProperty)
+    public async Task ToggleSection_PersistsUpdatedState(string toggleId, string collapsedProperty)
     {
         // Arrange
         using var context = CreateContext();
@@ -145,7 +145,7 @@ public class DashboardComponentTests
         var component = context.Render<Dashboard>();
 
         // Act
-        component.Find($"#{toggleId}").Click();
+        await component.Find($"#{toggleId}").ClickAsync(new());
 
         // Assert
         component.WaitForAssertion(() => Assert.Equal("false", component.Find($"#{toggleId}").GetAttribute("aria-expanded")));
@@ -181,7 +181,7 @@ public class DashboardComponentTests
     /// Verifies the dashboard fetch action uses the topology-aware guide service.
     /// </summary>
     [Fact]
-    public void FetchGuide_UsesConfiguredDeviceOwnedSources()
+    public async Task FetchGuide_UsesConfiguredDeviceOwnedSources()
     {
         // Arrange
         var guides = Substitute.For<ITopologyGuideService>();
@@ -193,7 +193,7 @@ public class DashboardComponentTests
         var notifications = context.Services.GetRequiredService<IStatusNotificationService>();
 
         // Act
-        component.Find("#fetchGuide").Click();
+        await component.Find("#fetchGuide").ClickAsync(new());
 
         // Assert
         component.WaitForAssertion(() =>

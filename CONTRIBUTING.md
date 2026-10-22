@@ -92,6 +92,8 @@ The app starts on `http://localhost:8080`.
 - Every test must contain explicit `// Arrange`, `// Act`, and `// Assert` sections.
 - Test the requested outcome directly, including meaningful failure and edge cases.
 - Keep tests deterministic and independent of execution order.
+- In bUnit tests, await `ClickAsync(new())` when the click handler performs asynchronous work before asserting completion. Use `Click()` only for synchronous handlers.
+- When testing an in-flight operation, retain the `ClickAsync` task, assert the pending state, release any controlled dependency, and await the task before disposing the component.
 
 #### Formatting
 

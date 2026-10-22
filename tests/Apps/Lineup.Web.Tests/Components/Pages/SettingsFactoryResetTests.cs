@@ -42,7 +42,7 @@ public class SettingsFactoryResetTests
     /// Verifies that restarting Lineup preserves data and watches for the replacement process.
     /// </summary>
     [Fact]
-    public void RestartLineup_Clicked_RequestsRestartAndShowsOverlay()
+    public async Task RestartLineup_Clicked_RequestsRestartAndShowsOverlay()
     {
         // Arrange
         using var context = new BunitContext();
@@ -60,10 +60,10 @@ public class SettingsFactoryResetTests
         component.Find("#tab-reset").Click();
 
         // Act
-        component.Find("#restartLineup").Click();
+        await component.Find("#restartLineup").ClickAsync(new());
 
         // Assert
-        restartService.Received(1).RestartAsync(Arg.Any<CancellationToken>());
+        await restartService.Received(1).RestartAsync(Arg.Any<CancellationToken>());
         var invocation = Assert.Single(context.JSInterop.Invocations, item => item.Identifier == "beginLineupRestartWatch");
         Assert.Equal("/settings#reset", Assert.Single(invocation.Arguments));
         Assert.Contains("Lineup will return to this page automatically", component.Find("#factoryResetRestartOverlay").TextContent);
@@ -73,7 +73,7 @@ public class SettingsFactoryResetTests
     /// Verifies that factory reset requires checkbox confirmation and blocks the settings interface while restart detection runs.
     /// </summary>
     [Fact]
-    public void FactoryReset_ConfirmationChecked_RequestsResetAndShowsRestartOverlay()
+    public async Task FactoryReset_ConfirmationChecked_RequestsResetAndShowsRestartOverlay()
     {
         // Arrange
         using var context = new BunitContext();
@@ -97,14 +97,14 @@ public class SettingsFactoryResetTests
 
         // Act
         component.Find("#factoryResetConfirmationCheck").Change(true);
-        component.Find("#confirmFactoryReset").Click();
+        await component.Find("#confirmFactoryReset").ClickAsync(new());
 
         // Assert
         Assert.Equal("tab-reset", lastTabId);
         Assert.True(hiddenOutsideResetTab);
         Assert.False(confirmationWasChecked);
         Assert.True(confirmButtonBeforeSelection.HasAttribute("disabled"));
-        factoryResetService.Received(1).RequestResetAsync(Arg.Any<CancellationToken>());
+        await factoryResetService.Received(1).RequestResetAsync(Arg.Any<CancellationToken>());
         Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "beginLineupFactoryResetWatch");
         Assert.EndsWith("/settings#reset", context.Services.GetRequiredService<NavigationManager>().Uri, StringComparison.Ordinal);
         Assert.Contains("Restarting Lineup", component.Find("#factoryResetRestartOverlay").TextContent);

@@ -15,7 +15,7 @@ public class TranscodingSettingsTests
     /// Verifies the disabled-channel behavior defaults to an error and persists edits.
     /// </summary>
     [Fact]
-    public void Save_DisabledChannelMode_PersistsValue()
+    public async Task Save_DisabledChannelMode_PersistsValue()
     {
         // Arrange
         using var context = new BunitContext();
@@ -38,10 +38,10 @@ public class TranscodingSettingsTests
 
         // Act
         selector.Change(DisabledChannelMode.StreamSlate.ToString());
-        component.Find("button.btn-primary").Click();
+        await component.Find("button.btn-primary").ClickAsync(new());
 
         // Assert
         Assert.Equal(DisabledChannelMode.StreamSlate, settings.DisabledChannelMode);
-        settingsService.Received(1).UpdateAsync(Arg.Any<Action<LineupSettings>>());
+        await settingsService.Received(1).UpdateAsync(Arg.Any<Action<LineupSettings>>());
     }
 }
