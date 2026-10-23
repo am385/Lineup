@@ -126,6 +126,17 @@ public sealed class LineupLinkPhysicalTunerDevice :
         {
             response = await _client.OpenStreamAsync(channel.RemoteKey, cancellationToken);
         }
+        catch (UnauthorizedAccessException exception)
+        {
+            throw new PhysicalStreamAcquisitionException(
+                PhysicalStreamFailureCategory.Unavailable,
+                "source_unauthorized",
+                "The remote Lineup Link device rejected the configured access token.",
+                false,
+                _deviceId,
+                request.ChannelId,
+                exception);
+        }
         catch (LineupLinkRemoteException exception)
         {
             throw new PhysicalStreamAcquisitionException(

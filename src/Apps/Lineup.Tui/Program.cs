@@ -83,7 +83,7 @@ class Program
         var lineups = host.Services.GetRequiredService<IPhysicalLineupService>();
         var settings = host.Services.GetRequiredService<ILineupSettingsService>();
         var adapters = host.Services.GetRequiredService<IStreamingAdapterRegistry>();
-        await ApplyTopologyAsync(lineups, guides, settings.Settings.Streaming);
+        var topologyErrors = await ApplyTopologyIfValidAsync(lineups, guides, settings.Settings.Streaming);
 
         while (true)
         {
@@ -91,13 +91,33 @@ class Program
             AnsiConsole.Write(new FigletText("Lineup").Color(Color.Blue));
 
             var configuration = settings.Settings.Streaming;
-            await DisplayStatsAsync(guideQueries, configuration);
+            if (topologyErrors.Count == 0)
+            {
+                await DisplayStatsAsync(guideQueries, configuration);
+            }
+            else
+            {
+                AnsiConsole.MarkupLine("[red]Streaming configuration is invalid and could not be applied.[/]");
+                foreach (var error in topologyErrors)
+                {
+                    AnsiConsole.MarkupLine($"[red]{Markup.Escape(error)}[/]");
+                }
+                AnsiConsole.MarkupLine("[yellow]Use Configure Sources to correct the topology, or exit without changing saved settings.[/]");
+            }
+
+            var choices = topologyErrors.Count == 0
+                ? new[]
+                {
+                    "Configure Sources", "View Cache Statistics", "Refresh Physical Channels", "Fetch EPG Data", "Generate Guide Outputs",
+                    "Export XMLTV", "View Channels", "View Programs", "About", "Exit"
+                }
+                : ["Configure Sources", "Exit"];
 
             var choice = AnsiConsole.Prompt(
                 new SelectionPrompt<string>()
                     .Title("[bold blue]What would you like to do?[/]")
                     .PageSize(10)
-                    .AddChoices(["Configure Sources", "View Cache Statistics", "Refresh Physical Channels", "Fetch EPG Data", "Generate Guide Outputs", "Export XMLTV", "View Channels", "View Programs", "About", "Exit"]));
+                    .AddChoices(choices));
 
             switch (choice)
             {
@@ -108,7 +128,7 @@ class Program
                         host.Services.GetServices<IVirtualTunerDriver>().ToArray(),
                         host.Services.GetServices<IGuideSourceDriver>().ToArray(),
                         host.Services.GetServices<IGuideOutputDriver>().ToArray());
-                    await ApplyTopologyAsync(lineups, guides, settings.Settings.Streaming);
+                    topologyErrors = await ApplyTopologyIfValidAsync(lineups, guides, settings.Settings.Streaming);
                     break;
                 case "View Cache Statistics":
                     await ViewStatsAsync(guideQueries, configuration);
@@ -200,6 +220,20 @@ class Program
         var results = await lineups.RefreshAsync(configuration, cancellationToken);
         await guides.ApplyAsync(configuration, cancellationToken);
         return results;
+    }
+
+    /// <summary>Applies valid topology or returns diagnostics so configuration remains accessible.</summary>
+    internal static async Task<IReadOnlyList<string>> ApplyTopologyIfValidAsync(IPhysicalLineupService lineups, IGuideOrchestrator guides, StreamingConfiguration configuration, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var errors = StreamingConfigurationValidator.Validate(configuration);
+        if (errors.Count > 0)
+        {
+            return errors;
+        }
+
+        await ApplyTopologyAsync(lineups, guides, configuration, cancellationToken);
+        return [];
     }
 
     static LineupStartupState? RequestFactoryReset(LineupStartupState startupState, AppDataStore appDataStore, string databasePath)

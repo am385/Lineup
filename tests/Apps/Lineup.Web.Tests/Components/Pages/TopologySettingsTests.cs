@@ -1,6 +1,7 @@
 using Bunit;
 using System.Text.Json;
 using Lineup.GuideOutputs.Json.Plugin;
+using Lineup.GuideOutputs.Xmltv.Plugin;
 using Lineup.LineupLink.Protocol;
 using Lineup.LineupLink.Virtual;
 using Lineup.Web.Components.Transcoding;
@@ -18,6 +19,80 @@ namespace Lineup.Web.Tests.Components.Pages;
 /// </summary>
 public sealed class TopologySettingsTests
 {
+    /// <summary>Verifies invalid listener-port edits remain renderable, fail Save without persistence, and can be corrected without losing other edits.</summary>
+    [Theory]
+    [InlineData("web-player", false)]
+    [InlineData("web-player", true)]
+    [InlineData("hdhomerun", false)]
+    [InlineData("hdhomerun", true)]
+    [InlineData("lineup-link", false)]
+    [InlineData("lineup-link", true)]
+    public async Task Save_ListenerPortEditing_InvalidPort_PreservesEditsAndAllowsCorrection(string kind, bool manualOverride)
+    {
+        // Arrange
+        using var context = CreateContext(out var settingsService, out var settings);
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        context.Services.AddSingleton<IVirtualTunerDriver, LineupLinkVirtualTunerDriver>();
+        var component = context.Render<Settings>();
+        var initialConfiguration = settings.Streaming;
+        component.Find("#tab-virtual-devices").Click();
+        if (kind == "web-player")
+        {
+            component.Find(".virtual-device-tab").Click();
+        }
+        else
+        {
+            component.Find("#addVirtualDevice").Click();
+            component.Find($"[data-virtual-device-kind='{kind}']").Click();
+        }
+        var index = kind == "web-player" ? 0 : 1;
+        var device = component.Instance.Topology.VirtualDevices.Single(candidate => candidate.Kind == kind);
+        component.Find($"#dedicatedListener-{index}").Change(true);
+        component.Find($"#workerRestarts-{index}").Change(2);
+        if (manualOverride)
+        {
+            component.Find($"#listenerPublicUriOverride-{index}").Change(true);
+            component.Find($"#listenerPublicUri-{index}").Change("http://public.example:9600/");
+        }
+
+        // Act
+        component.Find($"#listenerPort-{index}").Change(65_536);
+        await component.Find("button.btn-primary").ClickAsync(new());
+
+        // Assert
+        Assert.Equal("65536", component.Find($"#listenerPort-{index}").GetAttribute("value"));
+        Assert.Equal("2", component.Find($"#workerRestarts-{index}").GetAttribute("value"));
+        Assert.Equal(manualOverride ? "http://public.example:9600/" : string.Empty, component.Find($"#listenerClientUrl-{index}").GetAttribute("value") ?? string.Empty);
+        Assert.Equal(manualOverride, device.OverridePublicBaseUri);
+        if (manualOverride)
+        {
+            Assert.Equal("http://public.example:9600/", component.Find($"#listenerPublicUri-{index}").GetAttribute("value"));
+            Assert.Equal(string.Empty, component.Find($"#listenerPublicUri-{index}").GetAttribute("placeholder") ?? string.Empty);
+        }
+        Assert.Same(initialConfiguration, settings.Streaming);
+        await settingsService.DidNotReceive().UpdateAsync(Arg.Any<Action<LineupSettings>>());
+        var notifications = context.Services.GetRequiredService<IStatusNotificationService>();
+        var error = Assert.Single(notifications.Notifications);
+        Assert.True(error.IsError);
+        Assert.Contains($"Virtual device {device.Id} output binding port must be between 1 and 65535.", error.Message, StringComparison.Ordinal);
+
+        // Act
+        component.Find($"#listenerPort-{index}").Change(9800);
+        var expectedUri = manualOverride ? "http://public.example:9600/" : "http://localhost:9800/";
+        Assert.Equal(expectedUri, component.Find($"#listenerClientUrl-{index}").GetAttribute("value"));
+        await component.Find("button.btn-primary").ClickAsync(new());
+
+        // Assert
+        var saved = settings.Streaming.VirtualDevices.Single(candidate => candidate.Id == device.Id);
+        var hosting = Assert.IsType<VirtualOutputHostingDefinition>(saved.Hosting);
+        var binding = Assert.Single(hosting.Bindings);
+        Assert.Equal(9800, binding.Port);
+        Assert.Equal(expectedUri, binding.PublicBaseUri);
+        Assert.Equal(2, Assert.Single(settings.Streaming.VirtualOutputWorkerPolicies, policy => policy.Key == hosting.WorkerPolicyKey).MaximumRestarts);
+        Assert.Contains(notifications.Notifications, notification => !notification.IsError);
+        await settingsService.Received(1).UpdateAsync(Arg.Any<Action<LineupSettings>>());
+    }
+
     /// <summary>
     /// Verifies empty topology collections direct the user to the corresponding add action.
     /// </summary>
@@ -960,6 +1035,110 @@ public sealed class TopologySettingsTests
             Path.Combine(outputDirectory, "lineup-json_1.json"),
             new JsonGuideOutputDriver().ResolveDestination(output.Adapter).Path);
         await settingsService.Received(1).UpdateAsync(Arg.Any<Action<LineupSettings>>());
+    }
+
+    /// <summary>Verifies unrelated saves retain the latest portable guide-output settings for new and existing outputs.</summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task Save_NonXmltvGuideOutput_RepeatedSavesPreservePortableSettings(bool existingOutput, bool failFirstSave)
+    {
+        // Arrange
+        using var context = CreateContext(out var settingsService, out var settings);
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        var driver = new JsonGuideOutputDriver();
+        if (existingOutput)
+        {
+            var editor = new TopologySettingsEditor();
+            var model = editor.Edit(settings.Streaming, guideOutputDrivers: [new XmltvGuideOutputDriver(), driver]);
+            editor.AddGuideOutput(model, driver, Path.GetFullPath("original-json-guide-output"));
+            Assert.Empty(editor.TryBuild(model, out var configuration, guideOutputDrivers: [new XmltvGuideOutputDriver(), driver]));
+            settings.Streaming = configuration;
+        }
+        var initialConfiguration = settings.Streaming;
+        var saveAttempts = 0;
+        settingsService.UpdateAsync(Arg.Any<Action<LineupSettings>>()).Returns(callInfo =>
+        {
+            if (failFirstSave && saveAttempts++ == 0)
+            {
+                return Task.FromException(new IOException("Simulated settings persistence failure."));
+            }
+            callInfo.Arg<Action<LineupSettings>>()(settings);
+            return Task.CompletedTask;
+        });
+        var component = context.Render<Settings>();
+        component.Find("#tab-guide-outputs").Click();
+        if (existingOutput)
+        {
+            var output = settings.Streaming.GuideOutputs.Single(candidate => candidate.Adapter.Kind == driver.Kind);
+            component.Find($".guide-output-tab[data-guide-output-id='{output.Id}']").Click();
+        }
+        else
+        {
+            component.Find("#addGuideOutput").Click();
+            component.Find($"[data-guide-output-kind='{driver.Kind}']").Click();
+        }
+        var outputDirectory = Path.GetFullPath("changed-json-guide-output");
+        component.Find("[data-setting-key='outputDirectoryPath'] input").Change(outputDirectory);
+
+        // Act
+        if (failFirstSave)
+        {
+            await component.Find("button.btn-primary").ClickAsync(new());
+            Assert.Same(initialConfiguration, settings.Streaming);
+            Assert.Equal(outputDirectory, component.Find("[data-setting-key='outputDirectoryPath'] input").GetAttribute("value"));
+        }
+        await component.Find("button.btn-primary").ClickAsync(new());
+        var firstOutput = settings.Streaming.GuideOutputs.Single(candidate => candidate.Adapter.Kind == driver.Kind);
+        component.Find("#tab-guide").Click();
+        component.Find("#epgHistoryRetentionHours").Change(48);
+        await component.Find("button.btn-primary").ClickAsync(new());
+
+        // Assert
+        var secondOutput = settings.Streaming.GuideOutputs.Single(candidate => candidate.Id == firstOutput.Id);
+        var expectedPath = Path.Combine(outputDirectory, "lineup-json_1.json");
+        Assert.Equal(expectedPath, driver.ResolveDestination(firstOutput.Adapter).Path);
+        Assert.Equal(expectedPath, driver.ResolveDestination(secondOutput.Adapter).Path);
+        Assert.Equal(48, settings.EpgHistoryRetentionHours);
+        var notifications = context.Services.GetRequiredService<IStatusNotificationService>().Notifications;
+        Assert.Equal(failFirstSave ? 1 : 0, notifications.Count(notification => notification.IsError));
+        Assert.Equal(2, notifications.Count(notification => !notification.IsError));
+        await settingsService.Received(failFirstSave ? 3 : 2).UpdateAsync(Arg.Any<Action<LineupSettings>>());
+    }
+
+    /// <summary>Verifies unsaved checkbox changes do not alter the live saved subscription until the next save.</summary>
+    [Fact]
+    public async Task Save_SelectedSubscription_UnsavedEditsDoNotChangeLiveConfiguration()
+    {
+        // Arrange
+        using var context = CreateContext(out var settingsService, out var settings);
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        var component = context.Render<Settings>();
+        component.Find("#tab-physical-devices").Click();
+        component.Find("#addPhysicalDevice").Click();
+        component.Find(".physical-device-type").Click();
+        component.Find("#physicalAddress-0").Change("antenna.local");
+        component.Find("#tab-virtual-devices").Click();
+        component.Find(".virtual-device-tab").Click();
+        component.Find("#virtualSubscription-0").Change(nameof(PhysicalDeviceSubscriptionMode.Selected));
+        component.Find(".physical-subscription-selection").Change(true);
+        await component.Find("button.btn-primary").ClickAsync(new());
+        var savedConfiguration = settings.Streaming;
+        var savedPlayer = Assert.Single(savedConfiguration.VirtualDevices);
+        var physicalId = Assert.Single(savedConfiguration.PhysicalDevices).Id;
+
+        // Act
+        component.Find(".physical-subscription-selection").Change(false);
+        var selectionBeforeSave = savedPlayer.Subscription.SelectedDeviceIds.ToArray();
+        await component.Find("button.btn-primary").ClickAsync(new());
+
+        // Assert
+        Assert.Equal(physicalId, Assert.Single(selectionBeforeSave));
+        Assert.Equal(physicalId, Assert.Single(savedPlayer.Subscription.SelectedDeviceIds));
+        Assert.Empty(Assert.Single(settings.Streaming.VirtualDevices).Subscription.SelectedDeviceIds);
+        await settingsService.Received(2).UpdateAsync(Arg.Any<Action<LineupSettings>>());
     }
 
     private static BunitContext CreateContext(out ILineupSettingsService settingsService, out LineupSettings settings)

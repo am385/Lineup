@@ -568,6 +568,7 @@ public partial class Settings : IDisposable
                     Notifications.ShowSuccess(Text["Settings_SecretShownOnce", output.Name, secret.Key, secret.Value]);
                 }
                 output.GeneratedSecrets = new Dictionary<string, string>(StringComparer.Ordinal);
+                output.AdapterConfiguration = streamingConfiguration.GuideOutputs.Single(candidate => candidate.Id == output.Id).Adapter.Configuration.Clone();
                 foreach (var setting in output.AdapterSettings)
                 {
                     setting.Action = AdapterSettingEditAction.Preserve;

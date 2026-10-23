@@ -211,7 +211,7 @@ public sealed class TopologySettingsEditor
         return model;
     }
 
-    /// <summary>Builds and validates provider-neutral configuration from editable forms.</summary>
+    /// <summary>Builds and validates provider-neutral configuration with selection sets independent of the editable forms.</summary>
     public IReadOnlyList<string> TryBuild(
         TopologySettingsModel model,
         out StreamingConfiguration configuration,
@@ -290,7 +290,7 @@ public sealed class TopologySettingsEditor
                 Subscription = new PhysicalDeviceSubscription
                 {
                     Mode = source.SubscriptionMode,
-                    SelectedDeviceIds = source.SelectedDeviceIds
+                    SelectedDeviceIds = source.SelectedDeviceIds.ToHashSet()
                 }
             }).ToArray(),
             GuideOutputs = model.GuideOutputs.Select(output => new GuideOutputDefinition
@@ -302,9 +302,9 @@ public sealed class TopologySettingsEditor
                 IsBuiltIn = output.IsBuiltIn,
                 Adapter = BuildGuideOutputAdapter(output, outputDrivers, errors),
                 VirtualDeviceSelectionMode = output.VirtualDeviceSelectionMode,
-                SelectedVirtualDeviceIds = output.SelectedVirtualDeviceIds,
+                SelectedVirtualDeviceIds = output.SelectedVirtualDeviceIds.ToHashSet(),
                 GuideSourceSelectionMode = output.GuideSourceSelectionMode,
-                SelectedGuideSourceIds = output.SelectedGuideSourceIds
+                SelectedGuideSourceIds = output.SelectedGuideSourceIds.ToHashSet()
             }).ToArray(),
             VirtualDevices = model.VirtualDevices.Select(device => new VirtualDeviceDefinition
             {
@@ -316,7 +316,7 @@ public sealed class TopologySettingsEditor
                 Subscription = new PhysicalDeviceSubscription
                 {
                     Mode = device.SubscriptionMode,
-                    SelectedDeviceIds = device.SelectedDeviceIds
+                    SelectedDeviceIds = device.SelectedDeviceIds.ToHashSet()
                 },
                 TranscodeOverrides = new VirtualTranscodeOverrides
                 {
@@ -1469,7 +1469,7 @@ public sealed class VirtualDeviceSettingsModel : ITranscodeOverrideSettingsModel
     /// <summary>Gets or sets the manually overridden client-facing listener root URI.</summary>
     public string PublicBaseUri { get; set; } = string.Empty;
 
-    /// <summary>Gets the client-facing root URI derived from the listener transport, address, and published port.</summary>
+    /// <summary>Gets the client-facing root URI derived from the listener transport, address, and published port, or an empty string while the derived port is invalid.</summary>
     public string AutomaticPublicBaseUri
     {
         get
@@ -1483,6 +1483,10 @@ public sealed class VirtualDeviceSettingsModel : ITranscodeOverrideSettingsModel
             }
             var scheme = ListenerTransport == VirtualOutputTransport.Https ? Uri.UriSchemeHttps : Uri.UriSchemeHttp;
             var port = PublishedPort is >= 1 and <= 65_535 ? PublishedPort.Value : ListenerPort;
+            if (port is < 1 or > 65_535)
+            {
+                return string.Empty;
+            }
             return new UriBuilder(scheme, address, port).Uri.AbsoluteUri;
         }
     }

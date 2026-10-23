@@ -8,7 +8,7 @@ namespace Lineup.VirtualOutputs.Runtime;
 /// <summary>Validates declarative worker manifests and installed executable provenance without loading worker assemblies.</summary>
 public static class VirtualOutputWorkerManifestValidator
 {
-    /// <summary>Returns every validation error for one untrusted manifest.</summary>
+    /// <summary>Returns every validation error for one untrusted manifest, including descriptor membership in its declared adapter kinds.</summary>
     public static IReadOnlyList<string> Validate(VirtualOutputWorkerManifest manifest)
     {
         ArgumentNullException.ThrowIfNull(manifest);
@@ -65,8 +65,7 @@ public static class VirtualOutputWorkerManifestValidator
         {
             errors.Add("Maximum Lineup version must be valid and not less than the minimum version.");
         }
-        if (!string.Equals(manifest.SettingsDescriptor.AdapterKind, manifest.AdapterKinds.SingleOrDefault(), StringComparison.OrdinalIgnoreCase) &&
-            !manifest.AdapterKinds.Contains(manifest.SettingsDescriptor.AdapterKind, StringComparer.OrdinalIgnoreCase))
+        if (!manifest.AdapterKinds.Contains(manifest.SettingsDescriptor.AdapterKind, StringComparer.OrdinalIgnoreCase))
         {
             errors.Add("The settings descriptor adapter kind must be declared by the worker manifest.");
         }

@@ -1,4 +1,9 @@
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
 using System.Text.Json;
+using Lineup.LineupLink.Physical;
+using Lineup.LineupLink.Protocol;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -9,6 +14,68 @@ namespace Lineup.Web.Tests.Services;
 /// <summary>Verifies ordered physical failover routing.</summary>
 public sealed class StreamingRouteFailoverTests
 {
+    /// <summary>Verifies rejected Lineup Link credentials do not prevent acquisition from a healthy equivalent source.</summary>
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    public async Task SubscribeFirstAvailableAsync_RemoteAuthorizationRejected_UsesHealthySource(HttpStatusCode status)
+    {
+        // Arrange
+        await using var remote = new RejectedLinkSource(status);
+        using var first = Assert.IsType<LineupLinkPhysicalTunerDevice>(await remote.CreateDeviceAsync());
+        var firstChannel = Assert.Single(await first.RefreshLineupAsync(TestContext.Current.CancellationToken)).Id;
+        var second = new FakeDevice(PhysicalDeviceId.New(), fail: false);
+        var secondChannel = new SourceChannelId(second.Snapshot.Id, "7.1-local");
+        var capacity = new PhysicalCapacityLeaseRegistry();
+        var graph = new StreamingSessionGraph(capacity, NullLogger<StreamingSessionGraph>.Instance);
+        var multiplexer = new TunerStreamMultiplexer(graph, Substitute.For<IMediaProcessFactory>(), NullLogger<TunerStreamMultiplexer>.Instance);
+        var route = Route([Candidate(first, firstChannel, remote.BaseUri.ToString()), Candidate(second, secondChannel, "http://local/auto/v7.1")]);
+
+        // Act
+        await using var selected = await multiplexer.SubscribeFirstAvailableAsync(route, TestContext.Current.CancellationToken);
+        await selected.DisposeAsync();
+
+        // Assert
+        Assert.Equal(secondChannel, selected.Candidate.SourceChannelId);
+        Assert.Equal(secondChannel, Assert.Single(second.Requests));
+        Assert.Equal(1, remote.StreamRequestCount);
+        Assert.Empty(capacity.GetDiagnostics());
+        Assert.Empty(graph.GetDiagnostics().Nodes);
+    }
+
+    /// <summary>Verifies a rejected grant without fallback produces a safe non-retryable failure with exact source identity.</summary>
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    public async Task SubscribeFirstAvailableAsync_RemoteAuthorizationRejected_ReportsStructuredFailure(HttpStatusCode status)
+    {
+        // Arrange
+        await using var remote = new RejectedLinkSource(status);
+        using var device = Assert.IsType<LineupLinkPhysicalTunerDevice>(await remote.CreateDeviceAsync());
+        var channel = Assert.Single(await device.RefreshLineupAsync(TestContext.Current.CancellationToken)).Id;
+        var capacity = new PhysicalCapacityLeaseRegistry();
+        var graph = new StreamingSessionGraph(capacity, NullLogger<StreamingSessionGraph>.Instance);
+        var multiplexer = new TunerStreamMultiplexer(graph, Substitute.For<IMediaProcessFactory>(), NullLogger<TunerStreamMultiplexer>.Instance);
+
+        // Act
+        var exception = await Assert.ThrowsAsync<StreamAcquisitionException>(
+            async () => await multiplexer.SubscribeFirstAvailableAsync(Route([Candidate(device, channel, remote.BaseUri.ToString())]), TestContext.Current.CancellationToken));
+
+        // Assert
+        var failure = Assert.Single(exception.CandidateFailures);
+        Assert.Equal(channel.PhysicalDeviceId, failure.DeviceId);
+        Assert.Equal(channel, failure.ChannelId);
+        Assert.Equal(PhysicalStreamFailureCategory.Unavailable, failure.Category);
+        Assert.Equal("source_unauthorized", failure.Code);
+        Assert.False(failure.Retryable);
+        Assert.DoesNotContain("test-token", failure.Message, StringComparison.Ordinal);
+        var aggregate = Assert.IsType<AggregateException>(exception.InnerException);
+        var physical = Assert.IsType<PhysicalStreamAcquisitionException>(Assert.Single(aggregate.InnerExceptions));
+        Assert.IsType<UnauthorizedAccessException>(physical.InnerException);
+        Assert.Empty(capacity.GetDiagnostics());
+        Assert.Empty(graph.GetDiagnostics().Nodes);
+    }
+
     /// <summary>Verifies stale preferred devices are skipped while a live equivalent candidate remains available.</summary>
     [Fact]
     public async Task ResolveHdHomeRunAsync_StalePreferredDevice_UsesFirstLiveCandidate()
@@ -218,11 +285,7 @@ public sealed class StreamingRouteFailoverTests
         };
     }
 
-    private static ResolvedStreamingCandidate Candidate(
-        FakeDevice device,
-        SourceChannelId channel,
-        string diagnosticUri,
-        bool convertAc4ToAc3 = false) =>
+    private static ResolvedStreamingCandidate Candidate(IPhysicalTunerDevice device, SourceChannelId channel, string diagnosticUri, bool convertAc4ToAc3 = false) =>
         new()
         {
             PhysicalDevice = device,
@@ -237,6 +300,93 @@ public sealed class StreamingRouteFailoverTests
             },
             DiagnosticUri = new Uri(diagnosticUri)
         };
+
+    private sealed class RejectedLinkSource : IAsyncDisposable
+    {
+        private readonly HttpListener _listener = new();
+        private readonly CancellationTokenSource _shutdown = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        private readonly Guid _virtualDeviceId = Guid.NewGuid();
+        private readonly Task _responses;
+        private int _streamRequestCount;
+
+        public RejectedLinkSource(HttpStatusCode status)
+        {
+            var reservation = new TcpListener(IPAddress.Loopback, 0);
+            reservation.Start();
+            BaseUri = new Uri($"http://127.0.0.1:{((IPEndPoint)reservation.LocalEndpoint).Port}/");
+            reservation.Stop();
+            _listener.Prefixes.Add(BaseUri.ToString());
+            _listener.Start();
+            _responses = RespondAsync(status);
+        }
+
+        public Uri BaseUri { get; }
+
+        public int StreamRequestCount => Volatile.Read(ref _streamRequestCount);
+
+        public Task<IPhysicalTunerDevice> CreateDeviceAsync() => new LineupLinkPhysicalTunerDriver().CreateAsync(
+            PhysicalDeviceId.New(),
+            "Remote",
+            new AdapterConfiguration(LineupLinkProtocol.AdapterKind, JsonSerializer.SerializeToElement(new LineupLinkPhysicalConfiguration
+            {
+                BaseUrl = BaseUri.ToString(),
+                VirtualDeviceId = _virtualDeviceId,
+                AccessToken = "test-token",
+                TransportSecurity = LineupLinkTransportSecurity.Http
+            })),
+            _shutdown.Token).AsTask();
+
+        public async ValueTask DisposeAsync()
+        {
+            await _shutdown.CancelAsync();
+            try
+            {
+                await _responses.WaitAsync(TimeSpan.FromSeconds(3));
+            }
+            catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
+            {
+            }
+            finally
+            {
+                _listener.Close();
+                _shutdown.Dispose();
+            }
+        }
+
+        private async Task RespondAsync(HttpStatusCode status)
+        {
+            while (true)
+            {
+                var context = await _listener.GetContextAsync().WaitAsync(_shutdown.Token);
+                var path = context.Request.Url!.AbsolutePath;
+                string payload;
+                if (path == LineupLinkProtocol.ManifestPath(_virtualDeviceId))
+                {
+                    payload = JsonSerializer.Serialize(new LineupLinkManifest { InstanceId = Guid.NewGuid(), VirtualDeviceId = _virtualDeviceId, Name = "Remote", TunerCount = 1 });
+                }
+                else if (path == LineupLinkProtocol.LineupPath(_virtualDeviceId))
+                {
+                    payload = JsonSerializer.Serialize(new LineupLinkLineup
+                    {
+                        VirtualDeviceId = _virtualDeviceId,
+                        Channels = [new LineupLinkChannel { Key = "7.1", Number = "7.1", Name = "News" }]
+                    });
+                }
+                else
+                {
+                    Assert.Equal(LineupLinkProtocol.StreamPath(_virtualDeviceId, "7.1"), path);
+                    Interlocked.Increment(ref _streamRequestCount);
+                    context.Response.StatusCode = (int)status;
+                    payload = JsonSerializer.Serialize(new LineupLinkError { Code = "unauthorized", Message = "Rejected test-token" });
+                }
+                var bytes = Encoding.UTF8.GetBytes(payload);
+                context.Response.ContentType = "application/json";
+                context.Response.ContentLength64 = bytes.Length;
+                await context.Response.OutputStream.WriteAsync(bytes, _shutdown.Token);
+                context.Response.Close();
+            }
+        }
+    }
 
     private sealed class FakeDevice : IPhysicalTunerDevice
     {

@@ -245,7 +245,7 @@ public sealed class HDHomeRunPhysicalTunerDriver : IPhysicalTunerDriver, IPhysic
                 throw new InvalidOperationException($"HDHomeRun device '{deviceInfo.DeviceID}' reported invalid tuner count {deviceInfo.TunerCount}.");
             }
 
-            return new HDHomeRunConnection(typedConfiguration.Address, httpClient, deviceClient, deviceInfo);
+            return new HDHomeRunConnection(baseAddress.DnsSafeHost, httpClient, deviceClient, deviceInfo);
         }
         catch
         {

@@ -196,7 +196,10 @@ Owned matrix generations are recorded separately when normally recreated; existi
 changes require a new run.
 
 Failed-channel retry takes its endpoint/matrices and effective policy from the explicit input run,
-not a historical machine-specific directory. Offline `report-only` accepts only input/output options,
+not a historical machine-specific directory. It selects pending/failed playback and unresolved mandatory
+evidence, including missing or insufficient fresh synchronization and fresh-sync startup, decoder, or
+alignment failures. A fresh-sync source-unavailable result remains availability, not a product failure.
+Offline `report-only` accepts only input/output options,
 requires **no** browser, Docker, tuner or running deployment, and deterministically regenerates reports.
 It rejects an actively leased input/output run and never rewrites its authoritative input checkpoint.
 Schema 1 canonical objects are supported. Legacy result arrays/journals are not silently upgraded.
@@ -209,6 +212,10 @@ not the previous unversioned terminal array. JSON, CSV and Markdown are atomical
 same-directory temporary files and flushed writes. `events.jsonl` remains append-only and durable.
 Every startup request/response, source/fallback owner, discarded attempt, accepted playback reference,
 independent caption reference, cleanup result and fresh sync result retains its attempt provenance.
+Browser attempt results carry `EvidenceId`, independently of their numeric retry ordinal. Diagnostic
+readers use that exact identity under `attempts\<channel>\<EvidenceId>`; they never guess from numeric
+or older directories. Historical results without this additive field remain loadable, but cannot be
+used for identity-dependent diagnostic reads.
 `summary.md` contains one uniquely keyed row for **every selected channel**, explicitly marking pending
 rows, plus environment/options, media metrics, lifecycle findings and evidence limitations.
 
@@ -222,6 +229,9 @@ Synthetic protected/disabled slates preserve the owned flow's source reason and 
 from broadcasts (`UnconfirmedDrm`, `DisabledSlate`, or `UnknownSynthetic` when the reason is unknown).
 `AV` remains the decoded transport check used by Issue 6's slate regression; it is not a broadcast pass.
 Broadcast pass totals exclude known synthetic playback, even when that transport check succeeds.
+When audio is required, the browser must report a positive decoded-audio byte delta or a positive
+analyser peak. Missing, zero, or negative counters alone do not establish an audio pass. Explicit
+video-only observations retain their existing exemption.
 
 For every accepted playback pass a separate fresh tune observes successful fragments with
 `chunk-<representation>-<sequence>.m4s` names. Current DASH manifests map the observed audio/video

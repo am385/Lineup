@@ -173,6 +173,134 @@ public sealed class DedicatedCmafSessionPlanTests
         Assert.Equal("ac3", outputAudio.Codec);
     }
 
+    /// <summary>Verifies each audio track keeps its own topology policy regardless of the selected track across arguments, rendition labels, and status.</summary>
+    [Theory]
+    [InlineData(OutputAudioPolicy.Copy, OutputAudioPolicy.Copy, 1, "copy", "copy")]
+    [InlineData(OutputAudioPolicy.Copy, OutputAudioPolicy.Copy, 4, "copy", "copy")]
+    [InlineData(OutputAudioPolicy.Copy, OutputAudioPolicy.Ac3, 1, "copy", "ac3")]
+    [InlineData(OutputAudioPolicy.Copy, OutputAudioPolicy.Ac3, 4, "copy", "ac3")]
+    [InlineData(OutputAudioPolicy.Copy, OutputAudioPolicy.Eac3, 1, "copy", "eac3")]
+    [InlineData(OutputAudioPolicy.Copy, OutputAudioPolicy.Eac3, 4, "copy", "eac3")]
+    [InlineData(OutputAudioPolicy.Ac3, OutputAudioPolicy.Copy, 1, "ac3", "copy")]
+    [InlineData(OutputAudioPolicy.Ac3, OutputAudioPolicy.Copy, 4, "ac3", "copy")]
+    [InlineData(OutputAudioPolicy.Eac3, OutputAudioPolicy.Copy, 1, "eac3", "copy")]
+    [InlineData(OutputAudioPolicy.Eac3, OutputAudioPolicy.Copy, 4, "eac3", "copy")]
+    [InlineData(OutputAudioPolicy.Ac3, OutputAudioPolicy.Ac3, 1, "ac3", "ac3")]
+    [InlineData(OutputAudioPolicy.Ac3, OutputAudioPolicy.Ac3, 4, "ac3", "ac3")]
+    [InlineData(OutputAudioPolicy.Eac3, OutputAudioPolicy.Eac3, 1, "eac3", "eac3")]
+    [InlineData(OutputAudioPolicy.Eac3, OutputAudioPolicy.Eac3, 4, "eac3", "eac3")]
+    [InlineData(OutputAudioPolicy.Ac3, OutputAudioPolicy.Eac3, 1, "ac3", "eac3")]
+    [InlineData(OutputAudioPolicy.Ac3, OutputAudioPolicy.Eac3, 4, "ac3", "eac3")]
+    [InlineData(OutputAudioPolicy.Eac3, OutputAudioPolicy.Ac3, 1, "eac3", "ac3")]
+    [InlineData(OutputAudioPolicy.Eac3, OutputAudioPolicy.Ac3, 4, "eac3", "ac3")]
+    public void Create_MixedAudioTopology_UsesPerTrackPolicies(OutputAudioPolicy audioPolicy, OutputAudioPolicy ac4Policy, int selectedAudio, string aacEncoder, string ac4Encoder)
+    {
+        // Arrange
+        var response = CreateMixedAudioResponse(audioPolicy, ac4Policy);
+        var request = new CmafStreamRequest { AudioTrack = selectedAudio };
+
+        // Act
+        var plan = DedicatedCmafSessionPlan.Create(response, request, Path.GetTempPath());
+        var snapshot = plan.CreateActiveStreamSnapshot("broker-session", "audio-policy", DateTime.UnixEpoch);
+
+        // Assert
+        AssertAudioPresentation(plan, snapshot, selectedAudio, aacEncoder, ac4Encoder);
+    }
+
+    /// <summary>Verifies enabled browser audio overrides own every track, while disabled overrides cannot suppress topology policies.</summary>
+    [Theory]
+    [InlineData(true, CmafPreferredAudio.Source, 1, "copy", "copy")]
+    [InlineData(true, CmafPreferredAudio.Source, 4, "copy", "copy")]
+    [InlineData(true, CmafPreferredAudio.Fallback, 1, "aac", "aac")]
+    [InlineData(true, CmafPreferredAudio.Fallback, 4, "aac", "aac")]
+    [InlineData(false, CmafPreferredAudio.Source, 1, "ac3", "eac3")]
+    [InlineData(false, CmafPreferredAudio.Source, 4, "ac3", "eac3")]
+    [InlineData(false, CmafPreferredAudio.Fallback, 1, "ac3", "eac3")]
+    [InlineData(false, CmafPreferredAudio.Fallback, 4, "ac3", "eac3")]
+    public void Create_MixedAudioTopology_RespectsBrowserOverrides(bool enabled, CmafPreferredAudio audioOverride, int selectedAudio, string aacEncoder, string ac4Encoder)
+    {
+        // Arrange
+        var response = CreateMixedAudioResponse(OutputAudioPolicy.Ac3, OutputAudioPolicy.Eac3);
+        var request = new CmafStreamRequest
+        {
+            AudioTrack = selectedAudio,
+            Overrides = new CmafStreamOverrides
+            {
+                Enabled = enabled,
+                Audio = audioOverride,
+                FallbackAudio = CmafFallbackAudio.AacStereo
+            }
+        };
+
+        // Act
+        var plan = DedicatedCmafSessionPlan.Create(response, request, Path.GetTempPath());
+        var snapshot = plan.CreateActiveStreamSnapshot("broker-session", "audio-override", DateTime.UnixEpoch);
+
+        // Assert
+        AssertAudioPresentation(plan, snapshot, selectedAudio, aacEncoder, ac4Encoder);
+        Assert.All(plan.AudioRenditions, rendition => Assert.Equal(enabled, rendition.Plan.Title.Contains("Override", StringComparison.Ordinal)));
+    }
+
+    /// <summary>Verifies a video-only browser override does not change the independent topology audio policies.</summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(4)]
+    public void Create_MixedAudioTopology_VideoOverrideDoesNotOwnAudio(int selectedAudio)
+    {
+        // Arrange
+        var response = CreateMixedAudioResponse(OutputAudioPolicy.Ac3, OutputAudioPolicy.Eac3);
+        var request = new CmafStreamRequest
+        {
+            AudioTrack = selectedAudio,
+            Overrides = new CmafStreamOverrides { Enabled = true, Video = CmafPreferredVideo.Source }
+        };
+
+        // Act
+        var plan = DedicatedCmafSessionPlan.Create(response, request, Path.GetTempPath());
+        var snapshot = plan.CreateActiveStreamSnapshot("broker-session", "video-override", DateTime.UnixEpoch);
+
+        // Assert
+        AssertAudioPresentation(plan, snapshot, selectedAudio, "ac3", "eac3");
+    }
+
+    private static VirtualOutputOpenStreamResponse CreateMixedAudioResponse(OutputAudioPolicy audioPolicy, OutputAudioPolicy ac4Policy) => new()
+    {
+        Accepted = true,
+        Source = new MediaProbeResult(
+        [
+            new MediaTrackMetadata(0, MediaTrackType.Video, "h264", 6_000_000, 1920, 1080, null, null),
+            new MediaTrackMetadata(1, MediaTrackType.Audio, "aac", 128_000, null, null, 2, 48_000) { Language = "eng" },
+            new MediaTrackMetadata(4, MediaTrackType.Audio, "AC4", 384_000, null, null, 8, 48_000) { Language = "spa" }
+        ],
+        null),
+        Profile = new VirtualTranscodeProfile { Audio = audioPolicy, Ac4Audio = ac4Policy }
+    };
+
+    private static void AssertAudioPresentation(DedicatedCmafSessionPlan plan, ActiveStreamSnapshot snapshot, int selectedAudio, string aacEncoder, string ac4Encoder)
+    {
+        Assert.Equal(2, plan.AudioRenditions.Count);
+        Assert.Equal(selectedAudio == 1 ? [1, 4] : new[] { 4, 1 }, plan.AudioRenditions.Select(rendition => rendition.Source.Index));
+        var outputAudio = snapshot.VirtualOutput!.Tracks.Where(track => track.Type == MediaTrackType.Audio).ToArray();
+        Assert.Equal(2, outputAudio.Length);
+        for (var index = 0; index < plan.AudioRenditions.Count; index++)
+        {
+            var rendition = plan.AudioRenditions[index];
+            var encoder = rendition.Source.Index == 1 ? aacEncoder : ac4Encoder;
+            var expectedCodec = encoder == "copy" ? rendition.Source.Codec : encoder;
+            var output = Assert.Single(outputAudio, track => track.Index == rendition.Source.Index);
+            Assert.Equal(encoder == "copy", rendition.Plan.CopySource);
+            Assert.Equal(expectedCodec, rendition.Plan.Codec);
+            AssertOption(plan.Arguments, $"-c:a:{index}", encoder);
+            Assert.Contains(plan.Arguments.Select((value, position) => (value, position)),
+                item => item.value == "-map" && plan.Arguments[item.position + 1] == $"0:{rendition.Source.Index}");
+            Assert.Contains($"title={rendition.Plan.Title}", plan.Arguments);
+            Assert.Equal(expectedCodec, output.Codec);
+            Assert.Equal(rendition.Plan.Channels, output.Channels);
+            Assert.Equal(rendition.Plan.BitRate, output.BitRate);
+        }
+        Assert.Equal(["aac", "AC4"], snapshot.PhysicalInput!.Tracks.Where(track => track.Type == MediaTrackType.Audio).Select(track => track.Codec));
+    }
+
     private static void AssertOption(IReadOnlyList<string> arguments, string option, string value)
     {
         var index = Assert.Single(arguments.Select((argument, index) => (argument, index)), item => item.argument == option).index;

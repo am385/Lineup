@@ -1,3 +1,4 @@
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using Lineup.VirtualOutputs.Protocol;
@@ -102,7 +103,7 @@ public sealed class VirtualOutputWorkerSession
         LeaseExpiresUtc = leaseExpiresUtc;
     }
 
-    /// <summary>Renews the worker lease until cancellation or revocation, invoking fail-closed shutdown on failure.</summary>
+    /// <summary>Renews the worker lease within its current expiration deadline, invoking fail-closed shutdown on expiration or revocation.</summary>
     public async Task RunLeaseLoopAsync(
         Func<(bool Ready, int ActiveConnections)> readHealth,
         Action requestShutdown,
@@ -115,21 +116,37 @@ public sealed class VirtualOutputWorkerSession
         {
             var expiresUtc = LeaseExpiresUtc ?? _timeProvider.GetUtcNow();
             var remaining = expiresUtc - _timeProvider.GetUtcNow();
+            if (remaining <= TimeSpan.Zero)
+            {
+                requestShutdown();
+                return;
+            }
+            using var expiration = new CancellationTokenSource(remaining, _timeProvider);
+            using var renewalCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, expiration.Token);
             var delay = remaining > TimeSpan.FromSeconds(3)
                 ? TimeSpan.FromTicks(remaining.Ticks / 2)
                 : TimeSpan.FromSeconds(1);
-            await Task.Delay(delay, _timeProvider, cancellationToken);
 
             try
             {
+                await Task.Delay(delay < remaining ? delay : remaining, _timeProvider, renewalCancellation.Token);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (expiration.IsCancellationRequested || _timeProvider.GetUtcNow() >= expiresUtc)
+                {
+                    requestShutdown();
+                    return;
+                }
                 var health = readHealth();
                 var renewal = await _client.RenewLeaseAsync(new VirtualOutputLeaseRenewalRequest
                 {
                     Session = context,
                     Ready = health.Ready,
                     ActiveConnections = health.ActiveConnections
-                }, cancellationToken);
-                if (!renewal.Accepted || renewal.Drain || renewal.LeaseExpiresUtc is not { } renewedExpiration)
+                }, renewalCancellation.Token);
+                cancellationToken.ThrowIfCancellationRequested();
+                var now = _timeProvider.GetUtcNow();
+                if (expiration.IsCancellationRequested || now >= expiresUtc ||
+                    !renewal.Accepted || renewal.Drain || renewal.LeaseExpiresUtc is not { } renewedExpiration || renewedExpiration <= now)
                 {
                     requestShutdown();
                     return;
@@ -140,9 +157,14 @@ public sealed class VirtualOutputWorkerSession
             {
                 throw;
             }
-            catch (Exception)
+            catch (OperationCanceledException) when (expiration.IsCancellationRequested)
             {
-                if (_timeProvider.GetUtcNow() >= expiresUtc)
+                requestShutdown();
+                return;
+            }
+            catch (Exception exception) when (exception is IOException or SocketException or VirtualOutputClientException)
+            {
+                if (expiration.IsCancellationRequested || _timeProvider.GetUtcNow() >= expiresUtc)
                 {
                     requestShutdown();
                     return;

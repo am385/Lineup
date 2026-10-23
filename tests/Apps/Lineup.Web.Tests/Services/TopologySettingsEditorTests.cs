@@ -15,6 +15,122 @@ namespace Lineup.Web.Tests.Services;
 /// </summary>
 public sealed class TopologySettingsEditorTests
 {
+    /// <summary>Verifies invalid intermediate listener ports leave URL previews empty without altering the editable value.</summary>
+    [Theory]
+    [InlineData(int.MinValue)]
+    [InlineData(-2)]
+    [InlineData(-1)]
+    [InlineData(0)]
+    [InlineData(65_536)]
+    [InlineData(int.MaxValue)]
+    public void AutomaticPublicBaseUri_ListenerPortEditing_InvalidPort_ReturnsEmptyPreview(int port)
+    {
+        // Arrange
+        var device = new VirtualDeviceSettingsModel { ListenerPort = port };
+
+        // Act
+        var automatic = device.AutomaticPublicBaseUri;
+        var effective = device.EffectivePublicBaseUri;
+        device.OverridePublicBaseUri = true;
+        var overridden = device.EffectivePublicBaseUri;
+
+        // Assert
+        Assert.Empty(automatic);
+        Assert.Empty(effective);
+        Assert.Empty(overridden);
+        Assert.Empty(device.PublicBaseUri);
+        Assert.Equal(port, device.ListenerPort);
+        Assert.Null(device.PublishedPort);
+        Assert.True(device.OverridePublicBaseUri);
+    }
+
+    /// <summary>Verifies invalid listener-port previews do not discard an explicit public URL override.</summary>
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(65_536)]
+    public void EffectivePublicBaseUri_ListenerPortEditing_InvalidPort_PreservesManualOverride(int port)
+    {
+        // Arrange
+        var device = new VirtualDeviceSettingsModel
+        {
+            ListenerPort = port,
+            PublicBaseUri = "https://public.example/output/",
+            OverridePublicBaseUri = true
+        };
+
+        // Act
+        var automatic = device.AutomaticPublicBaseUri;
+        var effective = device.EffectivePublicBaseUri;
+
+        // Assert
+        Assert.Empty(automatic);
+        Assert.Equal("https://public.example/output/", effective);
+        Assert.Equal(effective, device.PublicBaseUri);
+        Assert.Equal(port, device.ListenerPort);
+        Assert.True(device.OverridePublicBaseUri);
+    }
+
+    /// <summary>Verifies valid derived ports preserve boundary values, transport, wildcard normalization, IPv6, and published-port precedence.</summary>
+    [Theory]
+    [InlineData(VirtualOutputTransport.Http, 1, "localhost", null, "http://localhost:1/")]
+    [InlineData(VirtualOutputTransport.Https, 65_535, "192.0.2.10", null, "https://192.0.2.10:65535/")]
+    [InlineData(VirtualOutputTransport.Http, 80, "*", null, "http://localhost/")]
+    [InlineData(VirtualOutputTransport.Https, 443, "[::]", null, "https://localhost/")]
+    [InlineData(VirtualOutputTransport.Http, 8600, "::1", 9600, "http://[::1]:9600/")]
+    [InlineData(VirtualOutputTransport.Http, 65_536, "localhost", 9600, "http://localhost:9600/")]
+    public void AutomaticPublicBaseUri_ListenerPortEditing_ValidDerivedPort_PreservesUrl(VirtualOutputTransport transport, int port, string addresses, int? publishedPort, string expected)
+    {
+        // Arrange
+        var device = new VirtualDeviceSettingsModel
+        {
+            ListenerTransport = transport,
+            ListenerPort = port,
+            ListenerAddresses = addresses,
+            PublishedPort = publishedPort
+        };
+
+        // Act
+        var automatic = device.AutomaticPublicBaseUri;
+        var effective = device.EffectivePublicBaseUri;
+
+        // Assert
+        Assert.Equal(expected, automatic);
+        Assert.Equal(expected, effective);
+        Assert.Equal(port, device.ListenerPort);
+        Assert.Equal(publishedPort, device.PublishedPort);
+        Assert.Equal(addresses, device.ListenerAddresses);
+    }
+
+    /// <summary>Verifies invalid listener ports return normal topology diagnostics even when a valid published port is provided.</summary>
+    [Theory]
+    [InlineData(-1, null)]
+    [InlineData(0, null)]
+    [InlineData(65_536, null)]
+    [InlineData(int.MinValue, null)]
+    [InlineData(int.MaxValue, null)]
+    [InlineData(65_536, 9600)]
+    public void TryBuild_ListenerPortEditing_InvalidPort_ReturnsValidationError(int port, int? publishedPort)
+    {
+        // Arrange
+        var editor = new TopologySettingsEditor();
+        var model = editor.Edit(TopologySettingsEditor.CreateDefault());
+        var driver = new LineupLinkVirtualTunerDriver();
+        var device = editor.AddVirtualDevice(model, driver);
+        device.UseDedicatedListener = true;
+        device.ListenerPort = port;
+        device.PublishedPort = publishedPort;
+
+        // Act
+        var errors = editor.TryBuild(model, out var configuration, virtualTunerDrivers: [new WebPlayerVirtualTunerDriver(), driver]);
+
+        // Assert
+        Assert.Contains($"Virtual device {device.Id} output binding port must be between 1 and 65535.", errors);
+        var persisted = configuration.VirtualDevices.Single(candidate => candidate.Id == device.Id);
+        Assert.Equal(port, Assert.Single(Assert.IsType<VirtualOutputHostingDefinition>(persisted.Hosting).Bindings).Port);
+        Assert.Equal(port, device.ListenerPort);
+        Assert.Equal(publishedPort, device.PublishedPort);
+    }
+
     /// <summary>Verifies Lineup Link virtual forms persist only the token hash.</summary>
     [Fact]
     public void TryBuild_LineupLinkVirtualDevice_DoesNotPersistRawToken()
@@ -588,6 +704,106 @@ public sealed class TopologySettingsEditorTests
         Assert.Equal(
             Path.Combine(changedDirectory, "lineup-json_1.json"),
             driver.ResolveDestination(persisted.Adapter).Path);
+    }
+
+    /// <summary>Verifies unsaved physical subscription edits cannot mutate an earlier built configuration.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TryBuild_PhysicalSubscriptions_IsolatesSelections(bool guideSourceSubscription)
+    {
+        // Arrange
+        var editor = new TopologySettingsEditor();
+        var model = editor.Edit(TopologySettingsEditor.CreateDefault());
+        var firstDevice = editor.AddPhysicalDevice(model, new TestPhysicalTunerDriver());
+        var secondDevice = editor.AddPhysicalDevice(model, new TestPhysicalTunerDriver());
+        secondDevice.Address = "second-tuner.local";
+        var source = editor.AddGuideSource(model, new TestGuideSourceDriver());
+        var player = Assert.Single(model.VirtualDevices);
+        source.SubscriptionMode = PhysicalDeviceSubscriptionMode.Selected;
+        player.SubscriptionMode = PhysicalDeviceSubscriptionMode.Selected;
+        var selection = guideSourceSubscription ? source.SelectedDeviceIds : player.SelectedDeviceIds;
+        selection.Add(firstDevice.Id);
+        var errors = editor.TryBuild(model, out var firstConfiguration);
+        var subscription = guideSourceSubscription
+            ? Assert.Single(firstConfiguration.GuideSources).Subscription
+            : Assert.Single(firstConfiguration.VirtualDevices).Subscription;
+
+        // Act
+        selection.Remove(firstDevice.Id);
+        selection.Add(secondDevice.Id);
+        var nextErrors = editor.TryBuild(model, out var nextConfiguration);
+        var nextSubscription = guideSourceSubscription
+            ? Assert.Single(nextConfiguration.GuideSources).Subscription
+            : Assert.Single(nextConfiguration.VirtualDevices).Subscription;
+
+        // Assert
+        Assert.Empty(errors);
+        Assert.Empty(nextErrors);
+        Assert.Equal(firstDevice.Id, Assert.Single(subscription.SelectedDeviceIds));
+        Assert.Equal(secondDevice.Id, Assert.Single(nextSubscription.SelectedDeviceIds));
+        Assert.NotSame(selection, subscription.SelectedDeviceIds);
+        Assert.NotSame(selection, nextSubscription.SelectedDeviceIds);
+    }
+
+    /// <summary>Verifies unsaved output virtual-device selections cannot mutate an earlier built configuration.</summary>
+    [Fact]
+    public void TryBuild_GuideOutputVirtualDevices_IsolatesSelections()
+    {
+        // Arrange
+        var editor = new TopologySettingsEditor();
+        var model = editor.Edit(TopologySettingsEditor.CreateDefault());
+        var player = Assert.Single(model.VirtualDevices);
+        var secondDevice = editor.AddVirtualDevice(model, new HdHomeRunVirtualTunerDriver());
+        var output = Assert.Single(model.GuideOutputs);
+        output.VirtualDeviceSelectionMode = GuideOutputSelectionMode.Selected;
+        output.SelectedVirtualDeviceIds.Add(player.Id);
+        var errors = editor.TryBuild(model, out var firstConfiguration);
+
+        // Act
+        output.SelectedVirtualDeviceIds.Remove(player.Id);
+        output.SelectedVirtualDeviceIds.Add(secondDevice.Id);
+        var nextErrors = editor.TryBuild(model, out var nextConfiguration);
+
+        // Assert
+        Assert.Empty(errors);
+        Assert.Empty(nextErrors);
+        var firstOutput = Assert.Single(firstConfiguration.GuideOutputs);
+        var nextOutput = Assert.Single(nextConfiguration.GuideOutputs);
+        Assert.Equal(player.Id, Assert.Single(firstOutput.SelectedVirtualDeviceIds));
+        Assert.Equal(secondDevice.Id, Assert.Single(nextOutput.SelectedVirtualDeviceIds));
+        Assert.NotSame(output.SelectedVirtualDeviceIds, firstOutput.SelectedVirtualDeviceIds);
+        Assert.NotSame(output.SelectedVirtualDeviceIds, nextOutput.SelectedVirtualDeviceIds);
+    }
+
+    /// <summary>Verifies unsaved output guide-source selections cannot mutate an earlier built configuration.</summary>
+    [Fact]
+    public void TryBuild_GuideOutputGuideSources_IsolatesSelections()
+    {
+        // Arrange
+        var editor = new TopologySettingsEditor();
+        var model = editor.Edit(TopologySettingsEditor.CreateDefault());
+        var firstSource = editor.AddGuideSource(model, new TestGuideSourceDriver());
+        var secondSource = editor.AddGuideSource(model, new TestGuideSourceDriver());
+        var output = Assert.Single(model.GuideOutputs);
+        output.GuideSourceSelectionMode = GuideOutputSelectionMode.Selected;
+        output.SelectedGuideSourceIds.Add(firstSource.Id);
+        var errors = editor.TryBuild(model, out var firstConfiguration);
+
+        // Act
+        output.SelectedGuideSourceIds.Remove(firstSource.Id);
+        output.SelectedGuideSourceIds.Add(secondSource.Id);
+        var nextErrors = editor.TryBuild(model, out var nextConfiguration);
+
+        // Assert
+        Assert.Empty(errors);
+        Assert.Empty(nextErrors);
+        var firstOutput = Assert.Single(firstConfiguration.GuideOutputs);
+        var nextOutput = Assert.Single(nextConfiguration.GuideOutputs);
+        Assert.Equal(firstSource.Id, Assert.Single(firstOutput.SelectedGuideSourceIds));
+        Assert.Equal(secondSource.Id, Assert.Single(nextOutput.SelectedGuideSourceIds));
+        Assert.NotSame(output.SelectedGuideSourceIds, firstOutput.SelectedGuideSourceIds);
+        Assert.NotSame(output.SelectedGuideSourceIds, nextOutput.SelectedGuideSourceIds);
     }
 
     /// <summary>

@@ -18,6 +18,96 @@ namespace Lineup.SiliconDust.HDHomeRun.PhysicalTuner.Tests;
 /// </summary>
 public sealed class HDHomeRunPhysicalTunerDriverTests
 {
+    /// <summary>Gets accepted address forms and operations that initialize native control.</summary>
+    public static TheoryData<string, string, string, string> NativeControlAddresses
+    {
+        get
+        {
+            var addresses = new (string Address, string Host, string BaseAddress)[]
+            {
+                ("device.local", "device.local", "http://device.local/"),
+                ("127.0.0.1", "127.0.0.1", "http://127.0.0.1/"),
+                ("  device.local  ", "device.local", "http://device.local/"),
+                ("device.local:8080", "device.local", "http://device.local:8080/"),
+                ("http://DEVICE.LOCAL:8080/", "device.local", "http://device.local:8080/"),
+                ("  https://127.0.0.1:8443/  ", "127.0.0.1", "https://127.0.0.1:8443/"),
+                ("http://[2001:db8::10]:8080/", "2001:db8::10", "http://[2001:db8::10]:8080/"),
+                ("[2001:db8::10]", "2001:db8::10", "http://[2001:db8::10]/")
+            };
+            var data = new TheoryData<string, string, string, string>();
+            foreach (var address in addresses)
+            {
+                foreach (var operation in new[] { "status", "stop", "restart" })
+                {
+                    data.Add(address.Address, address.Host, address.BaseAddress, operation);
+                }
+            }
+            return data;
+        }
+    }
+
+    /// <summary>Verifies native initialization receives only the validated host while HTTP retains the configured endpoint.</summary>
+    [Theory]
+    [MemberData(nameof(NativeControlAddresses))]
+    public async Task NativeControl_UsesHostWithoutChangingHttpEndpointOrSettings(string address, string expectedHost, string expectedBaseAddress, string operation)
+    {
+        // Arrange
+        var requests = new List<Uri>();
+        using var handler = new DelegateHttpMessageHandler((request, _) =>
+        {
+            requests.Add(request.RequestUri!);
+            return Task.FromResult(JsonResponse(DiscoverJson(tunerCount: 2)));
+        });
+        var clients = new StaticHttpClientFactory(handler);
+        var controlFactory = new HDHomeRunHttpControlFactory(clients, NullLogger<HDHomeRunHttpControl>.Instance);
+        using var service = new RecordingDeviceService(controlFactory);
+        var driver = new HDHomeRunPhysicalTunerDriver(clients, NullLoggerFactory.Instance, service);
+        var configuration = Configuration(address);
+        var deviceId = PhysicalDeviceId.New();
+        var device = await driver.CreateAsync(deviceId, "Living room", configuration, TestContext.Current.CancellationToken);
+
+        // Act
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => InvokeNativeControlAsync(device, operation, TestContext.Current.CancellationToken));
+
+        // Assert
+        var lookup = Assert.Single(service.Lookups);
+        Assert.Equal(expectedHost, lookup.Address);
+        Assert.Equal(TestContext.Current.CancellationToken, lookup.Token);
+        Assert.Equal(new Uri(new Uri(expectedBaseAddress), "discover.json"), Assert.Single(requests));
+        Assert.Equal(address, driver.GetSettings(configuration).Values.Single().Value?.GetString());
+        Assert.Equal($"HDHomeRun device {deviceId} is unavailable through the native control protocol.", exception.Message);
+    }
+
+    /// <summary>Verifies native lookup cancellation propagates and releases initialization for later attempts.</summary>
+    [Theory]
+    [InlineData("status")]
+    [InlineData("stop")]
+    [InlineData("restart")]
+    public async Task NativeControl_CanceledLookup_PreservesCancellationAndAllowsRetry(string operation)
+    {
+        // Arrange
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        using var handler = new DelegateHttpMessageHandler((_, _) => Task.FromResult(JsonResponse(DiscoverJson(tunerCount: 2))));
+        var clients = new StaticHttpClientFactory(handler);
+        var controlFactory = new HDHomeRunHttpControlFactory(clients, NullLogger<HDHomeRunHttpControl>.Instance);
+        using var service = new RecordingDeviceService(controlFactory) { CancelLookup = cancellation };
+        var driver = new HDHomeRunPhysicalTunerDriver(clients, NullLoggerFactory.Instance, service);
+        var device = await driver.CreateAsync(PhysicalDeviceId.New(), "Living room", Configuration("device.local"), TestContext.Current.CancellationToken);
+
+        // Act
+        var canceled = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => InvokeNativeControlAsync(device, operation, cancellation.Token));
+        service.CancelLookup = null;
+        var unavailable = await Assert.ThrowsAsync<InvalidOperationException>(() => InvokeNativeControlAsync(device, operation, TestContext.Current.CancellationToken));
+
+        // Assert
+        Assert.Equal(cancellation.Token, canceled.CancellationToken);
+        Assert.EndsWith("is unavailable through the native control protocol.", unavailable.Message);
+        Assert.Equal(2, service.Lookups.Count);
+        Assert.All(service.Lookups, lookup => Assert.Equal("device.local", lookup.Address));
+        Assert.Equal(cancellation.Token, service.Lookups[0].Token);
+        Assert.Equal(TestContext.Current.CancellationToken, service.Lookups[1].Token);
+    }
+
     /// <summary>Verifies the portable settings descriptor and address edit round trip.</summary>
     [Fact]
     public void Settings_AddressEdit_RoundTripsValidConfiguration()
@@ -139,8 +229,14 @@ public sealed class HDHomeRunPhysicalTunerDriverTests
     /// <summary>
     /// Verifies recurring tuner-status refreshes reuse creation metadata and the initialized protocol device.
     /// </summary>
-    [Fact]
-    public async Task RefreshStatusAsync_RecurringRefresh_DoesNotRediscoverDevice()
+    [Theory]
+    [InlineData("127.0.0.1")]
+    [InlineData("http://127.0.0.1/")]
+    [InlineData("http://127.0.0.1:8080/")]
+    [InlineData("https://127.0.0.1:8443/")]
+    [InlineData("127.0.0.1:8080")]
+    [InlineData("  127.0.0.1  ")]
+    public async Task RefreshStatusAsync_RecurringRefresh_DoesNotRediscoverDevice(string address)
     {
         // Arrange
         var discoveryRequestCount = 0;
@@ -151,7 +247,7 @@ public sealed class HDHomeRunPhysicalTunerDriverTests
             "/status.json" => CountedJsonResponse(ref statusRequestCount, "[]"),
             _ => throw new InvalidOperationException($"Unexpected request {request.RequestUri}.")
         });
-        var device = await driver.CreateAsync(PhysicalDeviceId.New(), "Living room", Configuration("127.0.0.1"), TestContext.Current.CancellationToken);
+        var device = await driver.CreateAsync(PhysicalDeviceId.New(), "Living room", Configuration(address), TestContext.Current.CancellationToken);
         var statusCapability = Assert.IsAssignableFrom<IPhysicalDeviceStatusCapability>(device);
 
         // Act
@@ -364,6 +460,15 @@ public sealed class HDHomeRunPhysicalTunerDriverTests
         Assert.IsType<HDHomeRunPhysicalTunerDriver>(driver);
     }
 
+    private static Task InvokeNativeControlAsync(IPhysicalTunerDevice device, string operation, CancellationToken cancellationToken) =>
+        operation switch
+        {
+            "status" => ((IPhysicalDeviceStatusCapability)device).RefreshStatusAsync(cancellationToken),
+            "stop" => ((IPhysicalReceiverControlCapability)device).StopReceiverAsync(0, cancellationToken),
+            "restart" => ((IPhysicalDeviceRestartCapability)device).RestartAsync(cancellationToken),
+            _ => throw new ArgumentOutOfRangeException(nameof(operation))
+        };
+
     private static HDHomeRunPhysicalTunerDriver CreateDriver(Func<HttpRequestMessage, HttpResponseMessage> responseFactory)
         => CreateDriver((request, _) => Task.FromResult(responseFactory(request)));
 
@@ -417,6 +522,21 @@ public sealed class HDHomeRunPhysicalTunerDriverTests
                "TunerCount":{{tunerCount}}
              }
              """;
+
+    private sealed class RecordingDeviceService(IHDHomeRunHttpControlFactory factory) : HDHomeRunService(NullLoggerFactory.Instance, factory)
+    {
+        public List<(string Address, CancellationToken Token)> Lookups { get; } = [];
+
+        public CancellationTokenSource? CancelLookup { get; set; }
+
+        public override Task<HDHomeRunDevice?> GetDeviceByIpAsync(string addressOrHostname, CancellationToken cancellationToken = default)
+        {
+            Lookups.Add((addressOrHostname, cancellationToken));
+            CancelLookup?.Cancel();
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult<HDHomeRunDevice?>(null);
+        }
+    }
 
     private sealed class StaticHttpClientFactory(HttpMessageHandler handler) : IHttpClientFactory
     {

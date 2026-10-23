@@ -19,7 +19,7 @@ public sealed record VirtualOutputRuntimeOptions
     /// <summary>Gets the lifetime of one-time worker bootstrap credentials.</summary>
     public TimeSpan BootstrapLifetime { get; init; } = TimeSpan.FromMinutes(1);
 
-    /// <summary>Gets the active worker lease lifetime between renewals.</summary>
+    /// <summary>Gets the lease lifetime for shared runtime services. Virtual-output workers use their configured worker-policy lease lifetime.</summary>
     public TimeSpan LeaseLifetime { get; init; } = TimeSpan.FromSeconds(30);
 }
 
@@ -299,13 +299,14 @@ public sealed class VirtualOutputSupervisor : BackgroundService
             var hosting = device.Hosting!;
             workerPolicy = configuration.VirtualOutputWorkerPolicies.Single(
                 policy => string.Equals(policy.Key, hosting.WorkerPolicyKey, StringComparison.OrdinalIgnoreCase));
+            var leaseLifetime = TimeSpan.FromSeconds(workerPolicy.LeaseGracePeriodSeconds);
             var package = await _catalog.ResolveAsync(device.Adapter.Kind, cancellationToken);
             var ticket = _authority.CreateActivation(
                 device.Id,
                 package.Manifest.WorkerId,
                 WorkerCapabilities,
                 _options.BootstrapLifetime,
-                _options.LeaseLifetime);
+                leaseLifetime);
             var referencedSecurityKeys = hosting.Bindings.Select(binding => binding.SecurityPolicyKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var securityPolicies = configuration.VirtualOutputSecurityPolicies
                 .Where(policy => referencedSecurityKeys.Contains(policy.Key))
@@ -357,7 +358,7 @@ public sealed class VirtualOutputSupervisor : BackgroundService
                         package.Manifest.WorkerId,
                         WorkerCapabilities,
                         _options.BootstrapLifetime,
-                        _options.LeaseLifetime);
+                        leaseLifetime);
                     currentGeneration = renewedTicket.Generation;
                     var renewedBootstrap = bootstrapTemplate with
                     {

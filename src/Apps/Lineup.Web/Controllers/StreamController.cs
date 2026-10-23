@@ -421,7 +421,7 @@ public class StreamController : ControllerBase
         try
         {
             selection = CmafStreamPlanner.SelectTracks(source, request);
-            request = CmafStreamPlanner.ApplyTopologyProfile(request, virtualProfile, selection.Audio);
+            request = CmafStreamPlanner.ApplyTopologyProfile(request, virtualProfile);
             fallbackAudio = CmafStreamPlanner.ResolveFallbackAudio(request);
             if (topologyRoute is not null && !protectedContent)
             {
@@ -435,14 +435,7 @@ public class StreamController : ControllerBase
             _ = CmafStreamPlanner.CreateAudioPlan(selection.Audio, request.PreferredAudio, fallbackAudio);
             audioRenditions = disabled || protectedContent
                 ? []
-                : CmafStreamPlanner.CreatePresentationAudioRenditions(
-                    source,
-                    selection.Audio,
-                    request.PreferredAudio,
-                    fallbackAudio,
-                    request.CompatibilityProfile,
-                    request.Overrides.Enabled ? request.Overrides.FallbackAudio : null,
-                    request.Overrides.Enabled && request.Overrides.Audio.HasValue);
+                : CmafStreamPlanner.CreatePresentationAudioRenditions(source, selection.Audio, request, virtualProfile);
         }
         catch (ArgumentException ex)
         {
@@ -676,14 +669,7 @@ public class StreamController : ControllerBase
                             PlaylistPath = manifestPath,
                             StartTime = startedAt,
                             SourceVideoCodec = sourceSession.SourceVideoCodec,
-                            AudioRenditions = CmafStreamPlanner.CreatePresentationAudioRenditions(
-                                source,
-                                selection.Audio,
-                                retryRequest.PreferredAudio,
-                                fallbackAudio,
-                                retryRequest.CompatibilityProfile,
-                                retryRequest.Overrides.Enabled ? retryRequest.Overrides.FallbackAudio : null,
-                                retryRequest.Overrides.Enabled && retryRequest.Overrides.Audio.HasValue),
+                            AudioRenditions = CmafStreamPlanner.CreatePresentationAudioRenditions(source, selection.Audio, retryRequest, virtualProfile),
                             CapacityLease = sourceSession.CapacityLease,
                             CaptionProcess = sourceSession.CaptionProcess,
                             CaptionErrorTask = sourceSession.CaptionErrorTask,

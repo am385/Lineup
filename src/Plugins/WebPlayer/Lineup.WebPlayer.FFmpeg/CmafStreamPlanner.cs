@@ -54,8 +54,8 @@ public static class CmafStreamPlanner
         };
     }
 
-    /// <summary>Applies the effective virtual-device profile unless an explicit browser override owns that setting.</summary>
-    public static CmafStreamRequest ApplyTopologyProfile(CmafStreamRequest request, VirtualTranscodeProfile profile, MediaTrackMetadata? selectedAudio)
+    /// <summary>Applies presentation-wide video defaults; audio defaults are resolved separately for each rendition.</summary>
+    public static CmafStreamRequest ApplyTopologyProfile(CmafStreamRequest request, VirtualTranscodeProfile profile)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(profile);
@@ -66,6 +66,13 @@ public static class CmafStreamPlanner
                 request = request with { PreferredVideo = CmafPreferredVideo.Fallback };
             }
         }
+        return request;
+    }
+
+    /// <summary>Applies the effective profile to video and one audio track, preserving explicit browser audio overrides.</summary>
+    public static CmafStreamRequest ApplyTopologyProfile(CmafStreamRequest request, VirtualTranscodeProfile profile, MediaTrackMetadata? selectedAudio)
+    {
+        request = ApplyTopologyProfile(request, profile);
         if (!request.Overrides.Enabled || !request.Overrides.Audio.HasValue)
         {
             var audioPolicy = string.Equals(selectedAudio?.Codec, "ac4", StringComparison.OrdinalIgnoreCase)
@@ -326,7 +333,31 @@ public static class CmafStreamPlanner
         return [CreateAudioPlan(audio, preferredAudio, fallback)];
     }
 
-    /// <summary>Creates one copy-first or compatibility rendition for every source audio track.</summary>
+    /// <summary>Resolves topology audio policy independently for each track before applying browser compatibility and explicit overrides.</summary>
+    public static IReadOnlyList<CmafAudioRendition> CreatePresentationAudioRenditions(MediaProbeResult source, MediaTrackMetadata? preferredAudio, CmafStreamRequest request, VirtualTranscodeProfile profile)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(request.Overrides);
+        _ = ResolveFallbackAudio(request);
+        var renditions = new List<CmafAudioRendition>();
+        foreach (var audio in source.Tracks.Where(track => track.Type == MediaTrackType.Audio).OrderByDescending(track => track.Index == preferredAudio?.Index).ThenBy(track => track.Index))
+        {
+            var effective = ApplyTopologyProfile(request, profile, audio);
+            renditions.AddRange(CreatePresentationAudioRenditions(
+                source with { Tracks = [audio] },
+                audio,
+                effective.PreferredAudio,
+                ResolveFallbackAudio(effective),
+                effective.CompatibilityProfile,
+                effective.Overrides.Enabled ? effective.Overrides.FallbackAudio : null,
+                effective.Overrides.Enabled && effective.Overrides.Audio.HasValue));
+        }
+        return renditions;
+    }
+
+    /// <summary>Creates one copy-first or compatibility rendition for every source audio track using an already-resolved audio policy.</summary>
     public static IReadOnlyList<CmafAudioRendition> CreatePresentationAudioRenditions(
         MediaProbeResult source,
         MediaTrackMetadata? preferredAudio,
@@ -475,14 +506,7 @@ public static class CmafStreamPlanner
         IReadOnlyDictionary<int, string>? webVttPaths = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(manifestPath);
-        var audioRenditions = CreatePresentationAudioRenditions(
-            source,
-            selection.Audio,
-            request.PreferredAudio,
-            ResolveFallbackAudio(request),
-            request.CompatibilityProfile,
-            request.Overrides.Enabled ? request.Overrides.FallbackAudio : null,
-            request.Overrides.Enabled && request.Overrides.Audio.HasValue);
+        var audioRenditions = CreatePresentationAudioRenditions(source, selection.Audio, request, profile);
         var burnIn = selection.SubtitlePresentation == SubtitlePresentation.BurnIn;
         var sourceVideo = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video);
         var deinterlaceMode = profile.Deinterlace;

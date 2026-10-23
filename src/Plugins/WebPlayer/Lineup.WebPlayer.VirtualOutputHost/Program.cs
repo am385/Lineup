@@ -640,8 +640,8 @@ internal sealed class MediaSession : IAsyncDisposable
         Plan = plan;
         Lifetime = lifetime;
         Logger = logger;
-        ErrorTask = process.StandardError.ReadToEndAsync();
-        CaptionErrorTask = captionProcess?.StandardError.ReadToEndAsync();
+        ErrorTask = ReadDiagnosticTailAsync(process.StandardError);
+        CaptionErrorTask = captionProcess is null ? null : ReadDiagnosticTailAsync(captionProcess.StandardError);
     }
 
     public string Id { get; }
@@ -667,6 +667,28 @@ internal sealed class MediaSession : IAsyncDisposable
     public Task<string> ErrorTask { get; }
 
     public Task<string>? CaptionErrorTask { get; }
+
+    /// <summary>Drains FFmpeg stderr without owning the reader, retaining at most fifty non-empty lines from the last 16,384 characters with normalized LF separators.</summary>
+    internal static async Task<string> ReadDiagnosticTailAsync(TextReader reader)
+    {
+        var buffer = new char[16_384];
+        var offset = 0;
+        var retained = 0;
+        while (true)
+        {
+            var count = await reader.ReadAsync(buffer.AsMemory(offset));
+            if (count == 0)
+            {
+                break;
+            }
+            offset = (offset + count) % buffer.Length;
+            retained = Math.Min(buffer.Length, retained + count);
+        }
+        var tail = retained < buffer.Length
+            ? new string(buffer, 0, retained)
+            : string.Concat(buffer.AsSpan(offset), buffer.AsSpan(0, offset));
+        return string.Join("\n", tail.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).TakeLast(50));
+    }
 
     public async ValueTask DisposeAsync()
     {

@@ -709,10 +709,10 @@ internal sealed class StatusApiService
             snapshot.Nodes.Select(node => new StreamingFlowNodeStatusResponse(
                 node.Id,
                 FormatName(node.Lane),
-                node.Label,
+                settings.RedactApiClientAddresses && node.Lane == StreamingFlowLane.Consumer ? "Consumer" : node.Label,
                 node.Subtitle,
                 FormatName(node.State),
-                FilterFlowDetails(node.Details, settings),
+                FilterFlowDetails(node.Details, settings, node.Lane == StreamingFlowLane.Consumer),
                 node.ActiveChannels,
                 node.ActiveSessionCount)).ToArray(),
             snapshot.ActivePaths.Select(path => new StreamingFlowPathStatusResponse(
@@ -727,16 +727,25 @@ internal sealed class StatusApiService
                 path.SharedReceiverCount,
                 path.Stages.Select(stage => new StreamingFlowStageStatusResponse(
                     FormatName(stage.Kind),
-                    stage.Label,
+                    settings.RedactApiClientAddresses && stage.Kind == StreamingFlowStageKind.Consumer ? "Consumer" : stage.Label,
                     stage.Subtitle,
-                    FilterFlowDetails(stage.Details, settings),
+                    FilterFlowDetails(stage.Details, settings, stage.Kind == StreamingFlowStageKind.Consumer),
                     ToMediaStatus(stage.InputMedia),
                     ToMediaStatus(stage.OutputMedia))).ToArray())).ToArray());
     }
 
-    private static IReadOnlyDictionary<string, string> FilterFlowDetails(IReadOnlyList<StreamingFlowDetail> details, WebSettings settings) =>
-        details.Where(detail => !ShouldRedactDetail(settings, detail.Label))
+    private static IReadOnlyDictionary<string, string> FilterFlowDetails(IReadOnlyList<StreamingFlowDetail> details, WebSettings settings, bool isConsumer) =>
+        details.Where(detail => !ShouldRedactFlowDetail(settings, detail.Label, isConsumer))
             .ToDictionary(detail => detail.Label, detail => detail.Value, StringComparer.Ordinal);
+
+    private static bool ShouldRedactFlowDetail(WebSettings settings, string label, bool isConsumer)
+    {
+        if (isConsumer && (string.Equals(label, "Endpoint", StringComparison.OrdinalIgnoreCase) || string.Equals(label, "Client address", StringComparison.OrdinalIgnoreCase)))
+        {
+            return settings.RedactApiClientAddresses;
+        }
+        return ShouldRedactDetail(settings, label);
+    }
 
     private IReadOnlyList<VirtualOutputRuntimeStatusResponse> GetVirtualOutputWorkerStatuses(WebSettings settings) =>
         _virtualOutputRuntime?.GetSnapshots()

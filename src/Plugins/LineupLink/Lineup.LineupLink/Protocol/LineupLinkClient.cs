@@ -9,17 +9,26 @@ using Lineup.LineupLink.Physical;
 
 namespace Lineup.LineupLink.Protocol;
 
-/// <summary>Calls one authenticated remote Lineup Link virtual device.</summary>
+/// <summary>Calls one authenticated remote Lineup Link virtual device with bounded control requests and non-buffered live streams.</summary>
 public sealed class LineupLinkClient : IDisposable
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
+    private static readonly TimeSpan ControlRequestTimeout = TimeSpan.FromSeconds(30);
     private readonly HttpClient _httpClient;
     private readonly Guid _virtualDeviceId;
+    private readonly TimeProvider _timeProvider;
 
     /// <summary>Initializes a Lineup Link protocol client.</summary>
     public LineupLinkClient(LineupLinkPhysicalConfiguration configuration)
+        : this(configuration, TimeProvider.System)
+    {
+    }
+
+    /// <summary>Initializes a protocol client using the supplied clock for control-request deadlines.</summary>
+    internal LineupLinkClient(LineupLinkPhysicalConfiguration configuration, TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(configuration);
+        _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         if (!LineupLinkConfigurationValidation.TryNormalizeBaseUri(configuration.BaseUrl, configuration.TransportSecurity, out var baseUri))
         {
             throw new ArgumentException("The Lineup Link base URL does not match the selected transport security.", nameof(configuration));
@@ -122,15 +131,29 @@ public sealed class LineupLinkClient : IDisposable
 
     private async Task<T> GetJsonAsync<T>(string path, CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, path);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        if (!response.IsSuccessStatusCode)
+        cancellationToken.ThrowIfCancellationRequested();
+        using var deadline = new CancellationTokenSource(ControlRequestTimeout, _timeProvider);
+        using var requestLifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
+        try
         {
-            await ThrowRemoteErrorAsync(response, cancellationToken);
+            using var request = new HttpRequestMessage(HttpMethod.Get, path);
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, requestLifetime.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                await ThrowRemoteErrorAsync(response, requestLifetime.Token);
+            }
+            return await response.Content.ReadFromJsonAsync<T>(SerializerOptions, requestLifetime.Token)
+                ?? throw new InvalidDataException("The remote Lineup Link response was empty.");
         }
-        return await response.Content.ReadFromJsonAsync<T>(SerializerOptions, cancellationToken)
-            ?? throw new InvalidDataException("The remote Lineup Link response was empty.");
+        catch (OperationCanceledException exception) when (cancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException("The Lineup Link control request was canceled.", exception, cancellationToken);
+        }
+        catch (OperationCanceledException exception) when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw new HttpRequestException("The remote Lineup Link control request timed out after 30 seconds.", exception);
+        }
     }
 
     private static void ValidateProtocol(int version)

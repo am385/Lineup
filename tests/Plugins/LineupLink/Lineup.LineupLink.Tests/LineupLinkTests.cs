@@ -104,8 +104,10 @@ public sealed class LineupLinkTests
     }
 
     /// <summary>Verifies physical probing does not expose a remote error body that echoes the configured token.</summary>
-    [Fact]
-    public async Task PhysicalProbe_UnauthorizedRemoteError_DoesNotExposeToken()
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    public async Task PhysicalProbe_UnauthorizedRemoteError_DoesNotExposeToken(HttpStatusCode status)
     {
         // Arrange
         var virtualDeviceId = Guid.NewGuid();
@@ -117,7 +119,7 @@ public sealed class LineupLinkTests
         {
             var context = await listener.GetContextAsync();
             var bytes = Encoding.UTF8.GetBytes("""{"message":"client-secret"}""");
-            context.Response.StatusCode = (int)HttpStatusCode.Unauthorized;
+            context.Response.StatusCode = (int)status;
             context.Response.ContentType = "application/json";
             context.Response.ContentLength64 = bytes.Length;
             await context.Response.OutputStream.WriteAsync(bytes);

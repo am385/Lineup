@@ -27,9 +27,13 @@ public class ActiveStreamServiceTests
         ], 8_768_000);
         var selection = WebPlayerTrackPlanner.SelectTracks(source, 1, 3);
         var request = new CmafStreamRequest { PreferredAudio = CmafPreferredAudio.Source, FallbackAudio = CmafFallbackAudio.Ac3 };
+        var settings = new LineupSettings
+        {
+            Streaming = new StreamingConfiguration { VirtualDefaults = new VirtualTranscodeProfile { Ac4Audio = OutputAudioPolicy.Copy } }
+        };
 
         // Act
-        var snapshot = ActiveStreamPlanFactory.CreateCmaf("session", "7.1", DateTime.UtcNow, source, selection, request, new LineupSettings());
+        var snapshot = ActiveStreamPlanFactory.CreateCmaf("session", "7.1", DateTime.UtcNow, source, selection, request, settings);
 
         // Assert
         Assert.Equal(HostedStreamFormat.Cmaf, snapshot.Format);
@@ -46,6 +50,45 @@ public class ActiveStreamServiceTests
         Assert.Equal("copy", alternateSource.OutputCodec);
         Assert.True(alternateSource.IsSelected);
         Assert.Equal("webvtt", snapshot.Tracks.Single(track => track.SourceIndex == 3).OutputCodec);
+    }
+
+    /// <summary>Verifies application defaults convert only AC-4 and describe the same output in FFmpeg arguments and legacy settings-based status.</summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void CreateCmaf_MixedAudioTopology_ApplicationDefaultsMatchArguments(int selectedAudio)
+    {
+        // Arrange
+        var source = new MediaProbeResult(
+        [
+            new MediaTrackMetadata(0, MediaTrackType.Video, "h264", 8_000_000, 1920, 1080, null, null),
+            new MediaTrackMetadata(1, MediaTrackType.Audio, "ac4", 384_000, null, null, 8, 48_000),
+            new MediaTrackMetadata(2, MediaTrackType.Audio, "aac", 128_000, null, null, 2, 48_000)
+        ],
+        null);
+        var selection = WebPlayerTrackPlanner.SelectTracks(source, selectedAudio, null);
+        var request = new CmafStreamRequest();
+        var settings = new LineupSettings();
+
+        // Act
+        var snapshot = ActiveStreamPlanFactory.CreateCmaf("session", "7.1", DateTime.UnixEpoch, source, selection, request, settings);
+        var arguments = CmafStreamPlanner.CreateArguments(settings.Streaming.VirtualDefaults, source, selection, request, "manifest.mpd");
+
+        // Assert
+        var ac4 = Assert.Single(snapshot.Tracks, track => track.SourceIndex == 1);
+        var aac = Assert.Single(snapshot.Tracks, track => track.SourceIndex == 2);
+        Assert.Equal("ac3", ac4.OutputCodec);
+        Assert.Equal(448_000, ac4.OutputBitRate);
+        Assert.Equal(6, ac4.OutputChannels);
+        Assert.Equal("copy", aac.OutputCodec);
+        Assert.Equal(128_000, aac.OutputBitRate);
+        Assert.Equal(2, aac.OutputChannels);
+        var firstEncoder = arguments.ToList().IndexOf("-c:a:0");
+        var secondEncoder = arguments.ToList().IndexOf("-c:a:1");
+        Assert.True(firstEncoder >= 0);
+        Assert.True(secondEncoder >= 0);
+        Assert.Equal(selectedAudio == 1 ? "ac3" : "copy", arguments[firstEncoder + 1]);
+        Assert.Equal(selectedAudio == 1 ? "copy" : "ac3", arguments[secondEncoder + 1]);
     }
 
     /// <summary>

@@ -134,7 +134,7 @@ public interface IStreamingSessionGraph
         IStreamTransform transform,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Acquires an ordered reusable transform pipeline over a physical source.</summary>
+    /// <summary>Acquires an ordered reusable transform pipeline, retaining an unused leaf until its idle deadline regardless of incoming traffic.</summary>
     ValueTask<IStreamSessionLease> AcquirePipelineAsync(
         StreamAcquisitionDescriptor descriptor,
         StreamAcquisitionFactory acquisitionFactory,
@@ -194,6 +194,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
     private const int SubscriberBufferCount = 2048;
     private readonly IPhysicalCapacityLeaseRegistry _capacity;
     private readonly ILogger<StreamingSessionGraph> _logger;
+    private readonly TimeProvider _timeProvider;
     private readonly ConcurrentDictionary<AcquisitionNodeKey, SharedNode> _acquisitions = [];
     private readonly ConcurrentDictionary<TransformNodeKey, SharedNode> _transforms = [];
     private readonly ConcurrentDictionary<AcquisitionMetadataKey, Lazy<Task<AcquisitionMetadataSnapshot>>> _metadata = [];
@@ -202,9 +203,17 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
 
     /// <summary>Initializes the shared graph.</summary>
     public StreamingSessionGraph(IPhysicalCapacityLeaseRegistry capacity, ILogger<StreamingSessionGraph> logger)
+        : this(capacity, logger, TimeProvider.System)
     {
+    }
+
+    /// <summary>Initializes the shared graph with a clock for keep-warm expiration.</summary>
+    internal StreamingSessionGraph(IPhysicalCapacityLeaseRegistry capacity, ILogger<StreamingSessionGraph> logger, TimeProvider timeProvider)
+    {
+        ArgumentNullException.ThrowIfNull(timeProvider);
         _capacity = capacity;
         _logger = logger;
+        _timeProvider = timeProvider;
     }
 
     /// <inheritdoc />
@@ -555,6 +564,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                     }
                 },
                 _logger,
+                _timeProvider,
                 completed => RemoveAcquisitionNode(key, completed)));
     }
 
@@ -580,6 +590,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                     }
                 },
                 _logger,
+                _timeProvider,
                 completed => _transforms.TryRemove(new KeyValuePair<TransformNodeKey, SharedNode>(key, completed))));
     }
 
@@ -674,6 +685,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         private readonly GraphNodeKey _key;
         private readonly Func<CancellationToken, ValueTask<IStreamSourceLease>> _sourceFactory;
         private readonly ILogger _logger;
+        private readonly TimeProvider _timeProvider;
         private readonly Action<SharedNode> _onCompleted;
         private readonly object _gate = new();
         private readonly Dictionary<Guid, Subscriber> _subscribers = [];
@@ -684,17 +696,13 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         private long _totalSubscriptions;
         private bool _completed;
 
-        public SharedNode(
-            string kind,
-            GraphNodeKey key,
-            Func<CancellationToken, ValueTask<IStreamSourceLease>> sourceFactory,
-            ILogger logger,
-            Action<SharedNode> onCompleted)
+        public SharedNode(string kind, GraphNodeKey key, Func<CancellationToken, ValueTask<IStreamSourceLease>> sourceFactory, ILogger logger, TimeProvider timeProvider, Action<SharedNode> onCompleted)
         {
             _kind = kind;
             _key = key;
             _sourceFactory = sourceFactory;
             _logger = logger;
+            _timeProvider = timeProvider;
             _onCompleted = onCompleted;
         }
 
@@ -867,7 +875,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
 
         private Task? BeginIdle(TimeSpan keepWarmPeriod)
         {
-            if (_subscribers.Count != 0 || _completed)
+            if (_subscribers.Count != 0 || _completed || _warmCancellation is not null)
             {
                 return null;
             }
@@ -878,7 +886,6 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                 return _runTask;
             }
 
-            CancelWarmExpiration();
             var expiration = new CancellationTokenSource();
             _warmCancellation = expiration;
             _ = ExpireWarmAsync(expiration, keepWarmPeriod);
@@ -889,7 +896,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         {
             try
             {
-                await Task.Delay(keepWarmPeriod, expiration.Token);
+                await Task.Delay(keepWarmPeriod, _timeProvider, expiration.Token);
                 lock (_gate)
                 {
                     if (!ReferenceEquals(_warmCancellation, expiration) || _subscribers.Count != 0 || _completed)

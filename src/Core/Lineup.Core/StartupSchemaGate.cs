@@ -72,7 +72,7 @@ public static class StartupSchemaGate
     }
 
     /// <summary>
-    /// Checks one serialized settings document without modifying it.
+    /// Checks one serialized settings document without modifying it, returning a recovery result for invalid schema values.
     /// </summary>
     /// <param name="json">Serialized settings document.</param>
     /// <returns>The settings schema result.</returns>
@@ -82,15 +82,9 @@ public static class StartupSchemaGate
         {
             using var document = JsonDocument.Parse(json);
             var root = document.RootElement;
-            if (root.ValueKind != JsonValueKind.Object ||
-                !root.TryGetProperty("SchemaVersion", out var settingsVersion) ||
-                !settingsVersion.TryGetInt32(out var parsedSettingsVersion) ||
-                parsedSettingsVersion != CurrentSettingsSchemaVersion ||
+            if (!HasSchemaVersion(root, CurrentSettingsSchemaVersion) ||
                 !root.TryGetProperty("Streaming", out var streaming) ||
-                streaming.ValueKind != JsonValueKind.Object ||
-                !streaming.TryGetProperty("SchemaVersion", out var streamingVersion) ||
-                !streamingVersion.TryGetInt32(out var parsedStreamingVersion) ||
-                parsedStreamingVersion != StreamingConfiguration.CurrentSchemaVersion)
+                !HasSchemaVersion(streaming, StreamingConfiguration.CurrentSchemaVersion))
             {
                 return FactoryResetRequired("The persisted settings do not use the schema required by this Lineup release.");
             }
@@ -256,6 +250,13 @@ public static class StartupSchemaGate
             return FactoryResetRequired("The persisted settings are invalid or cannot be read.");
         }
     }
+
+    private static bool HasSchemaVersion(JsonElement element, int expectedVersion) =>
+        element.ValueKind == JsonValueKind.Object &&
+        element.TryGetProperty("SchemaVersion", out var version) &&
+        version.ValueKind == JsonValueKind.Number &&
+        version.TryGetInt32(out var parsedVersion) &&
+        parsedVersion == expectedVersion;
 
     private static LineupStartupState FactoryResetRequired(string reason) => new(LineupStartupStatus.FactoryResetRequired, reason);
 }

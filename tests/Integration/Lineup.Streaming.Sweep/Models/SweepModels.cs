@@ -43,7 +43,11 @@ internal sealed record ChannelAttemptResult(
     StartupOutcome? Startup,
     int AttemptsExecuted,
     string? FailurePhase,
-    string Category);
+    string Category)
+{
+    /// <summary>Gets the immutable evidence identity used for this attempt's artifact directory.</summary>
+    public string? EvidenceId { get; init; }
+}
 internal sealed record StartupOutcome(
     string Outcome,
     int? HttpStatus,

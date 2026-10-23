@@ -131,7 +131,7 @@ public sealed record VirtualOutputWorkerPolicyDefinition
     /// <summary>Gets the graceful drain timeout in seconds.</summary>
     public int DrainTimeoutSeconds { get; init; } = 15;
 
-    /// <summary>Gets the control-plane lease grace period in seconds.</summary>
+    /// <summary>Gets the complete worker-session lease lifetime in seconds after each registration or successful renewal.</summary>
     public int LeaseGracePeriodSeconds { get; init; } = 15;
 
     /// <summary>Gets the maximum concurrent broker capability calls.</summary>

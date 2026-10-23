@@ -9,7 +9,7 @@ namespace Lineup.Core.Streaming;
 /// </summary>
 public interface IPhysicalLineupService
 {
-    /// <summary>Applies the configuration and refreshes every enabled physical device.</summary>
+    /// <summary>Applies configuration and returns one refresh outcome per enabled physical device, including activation failures.</summary>
     Task<IReadOnlyList<PhysicalLineupRefreshResult>> RefreshAsync(
         StreamingConfiguration configuration,
         CancellationToken cancellationToken = default);
@@ -65,9 +65,24 @@ public sealed class PhysicalLineupService : IPhysicalLineupService
         {
             await _devices.ApplyAsync(configuration, cancellationToken);
             await _topology.PruneDevicesAsync(configuration.PhysicalDevices.Select(device => device.Id), cancellationToken);
-            var results = new List<PhysicalLineupRefreshResult>(_devices.Devices.Count);
-            foreach (var device in _devices.Devices)
+            var activeDevices = _devices.Devices.ToDictionary(device => device.Snapshot.Id);
+            var results = new List<PhysicalLineupRefreshResult>(configuration.PhysicalDevices.Count);
+            foreach (var definition in configuration.PhysicalDevices.Where(device => device.Enabled).OrderBy(device => device.Order).ThenBy(device => device.Id.Value))
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!activeDevices.TryGetValue(definition.Id, out var device))
+                {
+                    _logger.LogWarning(
+                        "Unable to refresh physical lineup for inactive device {PhysicalDeviceId}; activation failed and prior state was preserved",
+                        definition.Id);
+                    results.Add(new PhysicalLineupRefreshResult
+                    {
+                        DeviceId = definition.Id,
+                        Succeeded = false,
+                        Error = "Physical device activation failed; check the device configuration and connection. Prior state was preserved."
+                    });
+                    continue;
+                }
                 try
                 {
                     var lineup = await device.RefreshLineupAsync(cancellationToken);

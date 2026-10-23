@@ -1,4 +1,6 @@
 using System.Text.Json;
+using Lineup.Core;
+using Lineup.Core.Settings;
 using Lineup.Common.Configuration;
 using Lineup.Extensibility.Configuration;
 using Lineup.Common.Guides;
@@ -9,6 +11,8 @@ using Lineup.LineupLink.Protocol;
 using Lineup.LineupLink.Virtual;
 using Lineup.SiliconDust.HDHomeRun.VirtualTuner;
 using Lineup.Tui;
+using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
 using Xunit;
 
 namespace Lineup.Tui.Tests;
@@ -18,6 +22,260 @@ namespace Lineup.Tui.Tests;
 /// </summary>
 public sealed class TuiAdapterSettingsEditorTests
 {
+    /// <summary>Verifies invalid listener, security, and worker settings are rejected before persistence.</summary>
+    [Theory]
+    [InlineData("conflicting-bindings")]
+    [InlineData("invalid-network")]
+    [InlineData("missing-certificate")]
+    [InlineData("invalid-worker")]
+    public async Task TrySaveTopologyAsync_InvalidHosting_DoesNotPersist(string invalidSetting)
+    {
+        // Arrange
+        var original = CreateHostingConfiguration();
+        var candidate = invalidSetting switch
+        {
+            "conflicting-bindings" => CreateHostingConfiguration(8600),
+            "invalid-network" => original with
+            {
+                VirtualOutputSecurityPolicies = [original.VirtualOutputSecurityPolicies[0] with { AllowedNetworks = ["invalid-network"] }]
+            },
+            "missing-certificate" => original with
+            {
+                VirtualDevices =
+                [
+                    original.VirtualDevices[0] with
+                    {
+                        Hosting = original.VirtualDevices[0].Hosting! with
+                        {
+                            Bindings = [original.VirtualDevices[0].Hosting!.Bindings[0] with { Transport = VirtualOutputTransport.Https }]
+                        }
+                    },
+                    original.VirtualDevices[1]
+                ]
+            },
+            _ => original with
+            {
+                VirtualOutputWorkerPolicies = [original.VirtualOutputWorkerPolicies[0] with { RestartWindowSeconds = 0 }]
+            }
+        };
+        Assert.NotEmpty(StreamingConfigurationValidator.Validate(candidate));
+        var settings = new LineupSettings { Streaming = original };
+        var service = CreateSettingsService(settings);
+
+        // Act
+        var saved = await TuiAdapterSettingsEditor.TrySaveTopologyAsync(service, candidate);
+
+        // Assert
+        Assert.False(saved);
+        Assert.Same(original, settings.Streaming);
+        await service.DidNotReceive().UpdateAsync(Arg.Any<Action<LineupSettings>>());
+    }
+
+    /// <summary>Verifies nonconflicting hosting changes are saved after complete topology validation.</summary>
+    [Fact]
+    public async Task TrySaveTopologyAsync_ValidHosting_PersistsConfiguration()
+    {
+        // Arrange
+        var settings = new LineupSettings { Streaming = CreateHostingConfiguration() };
+        var service = CreateSettingsService(settings);
+        var candidate = CreateHostingConfiguration(8601);
+
+        // Act
+        var saved = await TuiAdapterSettingsEditor.TrySaveTopologyAsync(service, candidate);
+
+        // Assert
+        Assert.True(saved);
+        Assert.Same(candidate, settings.Streaming);
+        Assert.Empty(StreamingConfigurationValidator.Validate(settings.Streaming));
+        await service.Received(1).UpdateAsync(Arg.Any<Action<LineupSettings>>());
+    }
+
+    /// <summary>Verifies disabling a conflicting listener allows an existing invalid topology to be repaired.</summary>
+    [Fact]
+    public async Task TrySaveTopologyAsync_DisableConflictingHosting_PersistsRepair()
+    {
+        // Arrange
+        var original = CreateHostingConfiguration(8600);
+        var settings = new LineupSettings { Streaming = original };
+        var service = CreateSettingsService(settings);
+        var candidate = original with
+        {
+            VirtualDevices = [original.VirtualDevices[0], original.VirtualDevices[1] with { Hosting = null }]
+        };
+
+        // Act
+        var saved = await TuiAdapterSettingsEditor.TrySaveTopologyAsync(service, candidate);
+
+        // Assert
+        Assert.True(saved);
+        Assert.Null(settings.Streaming.VirtualDevices[1].Hosting);
+        Assert.Empty(StreamingConfigurationValidator.Validate(settings.Streaming));
+        Assert.NotNull(original.VirtualDevices[1].Hosting);
+        await service.Received(1).UpdateAsync(Arg.Any<Action<LineupSettings>>());
+    }
+
+    /// <summary>Verifies rejected hosting conflicts preserve both persisted settings and their healthy backup.</summary>
+    [Fact]
+    public async Task TrySaveTopologyAsync_ConflictingHosting_PreservesFilesAndLiveSettings()
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-tui-hosting-");
+        try
+        {
+            var settingsPath = Path.Combine(root.FullName, AppConstants.SettingsFileName);
+            var backupPath = $"{settingsPath}.bak";
+            var service = new LineupSettingsService(NullLogger<LineupSettingsService>.Instance, settingsPath, root.FullName);
+            await service.UpdateAsync(settings => settings.Streaming = CreateHostingConfiguration());
+            await service.UpdateAsync(settings => settings.TargetDays = 7);
+            var original = service.Settings;
+            var settingsContent = await File.ReadAllTextAsync(settingsPath, TestContext.Current.CancellationToken);
+            var backupContent = await File.ReadAllTextAsync(backupPath, TestContext.Current.CancellationToken);
+
+            // Act
+            var saved = await TuiAdapterSettingsEditor.TrySaveTopologyAsync(service, CreateHostingConfiguration(8600));
+
+            // Assert
+            Assert.False(saved);
+            Assert.Same(original, service.Settings);
+            Assert.Equal(settingsContent, await File.ReadAllTextAsync(settingsPath, TestContext.Current.CancellationToken));
+            Assert.Equal(backupContent, await File.ReadAllTextAsync(backupPath, TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>Verifies invalid persisted topology returns diagnostics instead of invoking activation that prevents reaching configuration.</summary>
+    [Fact]
+    public async Task ApplyTopologyIfValidAsync_ConflictingHosting_ReturnsErrorsWithoutActivation()
+    {
+        // Arrange
+        var configuration = CreateHostingConfiguration(8600);
+        var expectedErrors = StreamingConfigurationValidator.Validate(configuration);
+        var lineups = Substitute.For<IPhysicalLineupService>();
+        lineups.RefreshAsync(configuration, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<IReadOnlyList<PhysicalLineupRefreshResult>>(new InvalidOperationException(string.Join(Environment.NewLine, expectedErrors))));
+        var guides = Substitute.For<IGuideOrchestrator>();
+
+        // Act
+        var errors = await Program.ApplyTopologyIfValidAsync(lineups, guides, configuration, TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(expectedErrors, errors);
+        Assert.Contains(errors, error => error.Contains("conflicting output bindings on port 8600", StringComparison.Ordinal));
+        await lineups.DidNotReceive().RefreshAsync(Arg.Any<StreamingConfiguration>(), Arg.Any<CancellationToken>());
+        await guides.DidNotReceive().ApplyAsync(Arg.Any<StreamingConfiguration>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>Verifies a corrected topology can activate successfully without restarting the TUI process.</summary>
+    [Fact]
+    public async Task ApplyTopologyIfValidAsync_RepairedHosting_ActivatesPhysicalDevicesBeforeGuides()
+    {
+        // Arrange
+        var original = CreateHostingConfiguration(8600);
+        var settings = new LineupSettings { Streaming = original };
+        var service = CreateSettingsService(settings);
+        var configuration = original with
+        {
+            VirtualDevices =
+            [
+                original.VirtualDevices[0],
+                original.VirtualDevices[1] with
+                {
+                    Hosting = original.VirtualDevices[1].Hosting! with
+                    {
+                        Bindings = [original.VirtualDevices[1].Hosting!.Bindings[0] with { Port = 8601, PublicBaseUri = "http://localhost:8601/" }]
+                    }
+                }
+            ]
+        };
+        var calls = new List<string>();
+        var lineups = Substitute.For<IPhysicalLineupService>();
+        lineups.RefreshAsync(configuration, Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            calls.Add("physical");
+            return Task.FromResult<IReadOnlyList<PhysicalLineupRefreshResult>>([]);
+        });
+        var guides = Substitute.For<IGuideOrchestrator>();
+        guides.ApplyAsync(configuration, Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            calls.Add("guides");
+            return Task.CompletedTask;
+        });
+
+        // Act
+        var originalErrors = await Program.ApplyTopologyIfValidAsync(lineups, guides, original, TestContext.Current.CancellationToken);
+        var saved = await TuiAdapterSettingsEditor.TrySaveTopologyAsync(service, configuration);
+        var errors = await Program.ApplyTopologyIfValidAsync(lineups, guides, settings.Streaming, TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.NotEmpty(originalErrors);
+        Assert.True(saved);
+        Assert.Empty(errors);
+        Assert.Equal(["physical", "guides"], calls);
+        await lineups.DidNotReceive().RefreshAsync(original, Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>Verifies valid topology activation failures are not hidden as configuration diagnostics.</summary>
+    [Fact]
+    public async Task ApplyTopologyIfValidAsync_RuntimeFailure_PropagatesException()
+    {
+        // Arrange
+        var configuration = CreateHostingConfiguration(8601);
+        var lineups = Substitute.For<IPhysicalLineupService>();
+        var guides = Substitute.For<IGuideOrchestrator>();
+        var failure = new InvalidOperationException("Runtime activation failed.");
+        lineups.RefreshAsync(configuration, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<IReadOnlyList<PhysicalLineupRefreshResult>>(failure));
+
+        // Act
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => Program.ApplyTopologyIfValidAsync(lineups, guides, configuration, TestContext.Current.CancellationToken));
+
+        // Assert
+        Assert.Same(failure, exception);
+        await guides.DidNotReceive().ApplyAsync(Arg.Any<StreamingConfiguration>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>Verifies caller cancellation is preserved even when topology would otherwise require recovery.</summary>
+    [Fact]
+    public async Task ApplyTopologyIfValidAsync_CallerCancellation_DoesNotActivate()
+    {
+        // Arrange
+        var configuration = CreateHostingConfiguration(8600);
+        var lineups = Substitute.For<IPhysicalLineupService>();
+        var guides = Substitute.For<IGuideOrchestrator>();
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        // Act
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Program.ApplyTopologyIfValidAsync(lineups, guides, configuration, cancellation.Token));
+
+        // Assert
+        await lineups.DidNotReceive().RefreshAsync(Arg.Any<StreamingConfiguration>(), Arg.Any<CancellationToken>());
+        await guides.DidNotReceive().ApplyAsync(Arg.Any<StreamingConfiguration>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>Verifies persistence errors remain explicit failures rather than validation rejections.</summary>
+    [Fact]
+    public async Task TrySaveTopologyAsync_PersistenceFailure_PropagatesException()
+    {
+        // Arrange
+        var original = CreateHostingConfiguration();
+        var settings = new LineupSettings { Streaming = original };
+        var service = CreateSettingsService(settings);
+        var failure = new IOException("Settings persistence failed.");
+        service.UpdateAsync(Arg.Any<Action<LineupSettings>>()).Returns(Task.FromException(failure));
+
+        // Act
+        var exception = await Assert.ThrowsAsync<IOException>(() => TuiAdapterSettingsEditor.TrySaveTopologyAsync(service, CreateHostingConfiguration(8601)));
+
+        // Assert
+        Assert.Same(failure, exception);
+        Assert.Same(original, settings.Streaming);
+    }
+
     /// <summary>Verifies the TUI derives a client-facing URL from the dedicated listener.</summary>
     [Theory]
     [InlineData(VirtualOutputTransport.Http, "192.0.2.10, ::1", 8600, "http://192.0.2.10:8600/")]
@@ -268,6 +526,46 @@ public sealed class TuiAdapterSettingsEditorTests
         Assert.Equal(builtInId, remaining.Id);
         Assert.True(remaining.IsBuiltIn);
     }
+
+    private static ILineupSettingsService CreateSettingsService(LineupSettings settings)
+    {
+        var service = Substitute.For<ILineupSettingsService>();
+        service.Settings.Returns(settings);
+        service.UpdateAsync(Arg.Any<Action<LineupSettings>>()).Returns(call =>
+        {
+            call.Arg<Action<LineupSettings>>()(settings);
+            return Task.CompletedTask;
+        });
+        return service;
+    }
+
+    private static StreamingConfiguration CreateHostingConfiguration(int? secondPort = null) => new()
+    {
+        VirtualDevices = Enumerable.Range(0, 2).Select(index => new VirtualDeviceDefinition
+        {
+            Id = VirtualDeviceId.New(),
+            Name = $"Output {index + 1}",
+            Adapter = Adapter("hdhomerun"),
+            Hosting = (index == 0 ? 8600 : secondPort) is int port
+                ? new VirtualOutputHostingDefinition
+                {
+                    WorkerPolicyKey = "worker",
+                    Bindings =
+                    [
+                        new VirtualOutputBindingDefinition
+                        {
+                            Addresses = ["localhost"],
+                            Port = port,
+                            PublicBaseUri = $"http://localhost:{port}/",
+                            SecurityPolicyKey = "security"
+                        }
+                    ]
+                }
+                : null
+        }).ToArray(),
+        VirtualOutputSecurityPolicies = [new VirtualOutputSecurityPolicyDefinition { Key = "security", Name = "Security" }],
+        VirtualOutputWorkerPolicies = [new VirtualOutputWorkerPolicyDefinition { Key = "worker", Name = "Worker" }]
+    };
 
     private static StreamingConfiguration CreateConfiguration(
         PhysicalDeviceId physicalId,

@@ -163,14 +163,7 @@ public static class ActiveStreamPlanFactory
         CmafStreamRequest request,
         VirtualTranscodeProfile profile)
     {
-        var audioRenditions = CmafStreamPlanner.CreatePresentationAudioRenditions(
-            source,
-            selection.Audio,
-            request.PreferredAudio,
-            CmafStreamPlanner.ResolveFallbackAudio(request),
-            request.CompatibilityProfile,
-            request.Overrides.Enabled ? request.Overrides.FallbackAudio : null,
-            request.Overrides.Enabled && request.Overrides.Audio.HasValue);
+        var audioRenditions = CmafStreamPlanner.CreatePresentationAudioRenditions(source, selection.Audio, request, profile);
         var sourceVideo = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video);
         var videoPlans = CmafStreamPlanner.CreateVideoRenditions(
             sourceVideo,

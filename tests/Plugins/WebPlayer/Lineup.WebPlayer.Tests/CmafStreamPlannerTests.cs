@@ -526,6 +526,56 @@ public class CmafStreamPlannerTests
             });
     }
 
+    /// <summary>Verifies topology-aware presentation planning still rejects an invalid fallback even when there are no audio tracks.</summary>
+    [Fact]
+    public void CreateArguments_TopologyWithoutAudio_RejectsInvalidFallback()
+    {
+        // Arrange
+        var source = new MediaProbeResult([Track(0, MediaTrackType.Video, "h264")], null);
+        var selection = WebPlayerTrackPlanner.SelectTracks(source, null, null);
+        var request = new CmafStreamRequest { FallbackAudio = (CmafFallbackAudio)int.MaxValue };
+
+        // Act
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            CmafStreamPlanner.CreateArguments(new VirtualTranscodeProfile(), source, selection, request, "manifest.mpd"));
+
+        // Assert
+        Assert.Equal("request", exception.ParamName);
+    }
+
+    /// <summary>Verifies Auto keeps supported source audio and adds browser compatibility only alongside the topology-converted track.</summary>
+    [Theory]
+    [InlineData(1, "copy", "ac3", "aac")]
+    [InlineData(4, "ac3", "aac", "copy")]
+    public void CreateArguments_MixedAudioTopology_AutoKeepsPerTrackBrowserFallbacks(int selectedAudio, string firstEncoder, string secondEncoder, string thirdEncoder)
+    {
+        // Arrange
+        var source = Source("aac") with
+        {
+            Tracks =
+            [
+                Track(0, MediaTrackType.Video, "h264"),
+                Track(1, MediaTrackType.Audio, "aac") with { Channels = 2 },
+                Track(4, MediaTrackType.Audio, "ac4") with { Channels = 8 }
+            ]
+        };
+        var selection = WebPlayerTrackPlanner.SelectTracks(source, selectedAudio, null);
+        var request = new CmafStreamRequest { PreferredAudio = CmafPreferredAudio.Auto, CompatibilityProfile = CreateAacOnlyCompatibilityProfile() };
+        var profile = new VirtualTranscodeProfile { Audio = OutputAudioPolicy.Copy, Ac4Audio = OutputAudioPolicy.Ac3 };
+
+        // Act
+        var arguments = CmafStreamPlanner.CreateArguments(profile, source, selection, request, "manifest.mpd");
+        var snapshot = ActiveStreamPlanFactory.CreateCmaf("session", "audio-policy", DateTime.UnixEpoch, source, source, selection, request, profile);
+
+        // Assert
+        AssertOption(arguments, "-c:a:0", firstEncoder);
+        AssertOption(arguments, "-c:a:1", secondEncoder);
+        AssertOption(arguments, "-c:a:2", thirdEncoder);
+        Assert.DoesNotContain("-c:a:3", arguments);
+        Assert.Equal(["aac", "ac3", "aac"], snapshot.VirtualOutput!.Tracks.Where(track => track.Type == MediaTrackType.Audio).Select(track => track.Codec));
+        Assert.Single(snapshot.VirtualOutput!.Tracks, track => track.RenditionTitle?.Contains("Browser compatibility", StringComparison.Ordinal) == true);
+    }
+
     /// <summary>
     /// Verifies an AC-4 MP4 tag failure requests one fallback-only startup retry.
     /// </summary>

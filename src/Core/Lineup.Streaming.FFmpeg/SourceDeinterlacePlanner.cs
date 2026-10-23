@@ -4,7 +4,7 @@ using Lineup.Common.Streaming;
 using Lineup.Extensibility.Streaming;
 
 /// <summary>
-/// Plans shared source normalization for confirmed interlaced video.
+/// Plans shared source normalization for optional video and independent audio policies.
 /// </summary>
 public static class SourceDeinterlacePlanner
 {
@@ -39,7 +39,7 @@ public static class SourceDeinterlacePlanner
     public static MediaProbeResult CreateEffectiveSource(MediaProbeResult source, LineupSettings settings)
         => CreateEffectiveSource(source, ToPhysicalProfile(settings));
 
-    /// <summary>Returns metadata for a source normalized with an effective topology profile.</summary>
+    /// <summary>Returns metadata for a source normalized with an effective topology profile, including audio-only sources.</summary>
     public static MediaProbeResult CreateEffectiveSource(MediaProbeResult source, PhysicalTranscodeProfile profile)
     {
         if (!ShouldNormalize(source, profile))
@@ -47,12 +47,12 @@ public static class SourceDeinterlacePlanner
             return source;
         }
 
-        var primaryVideo = source.Tracks.First(track => track.Type == MediaTrackType.Video);
-        var transcodeVideo = ShouldTranscodeVideo(primaryVideo, profile);
+        var primaryVideo = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video);
         var outputIndex = 0;
-        var tracks = new List<MediaTrackMetadata>
+        var tracks = new List<MediaTrackMetadata>();
+        if (primaryVideo is not null)
         {
-            transcodeVideo
+            tracks.Add(ShouldTranscodeVideo(primaryVideo, profile)
                 ? primaryVideo with
                 {
                     Index = outputIndex++,
@@ -64,11 +64,8 @@ public static class SourceDeinterlacePlanner
                         ? VideoScanType.Progressive
                         : primaryVideo.ScanType
                 }
-                : primaryVideo with
-            {
-                Index = outputIndex++
-            }
-        };
+                : primaryVideo with { Index = outputIndex++ });
+        }
         tracks.AddRange(source.Tracks
             .Where(track => track.Type == MediaTrackType.Audio)
             .Select(track =>
@@ -119,7 +116,7 @@ public static class SourceDeinterlacePlanner
     }
 
     /// <summary>
-    /// Creates FFmpeg arguments for one shared progressive H.264 MPEG-TS source.
+    /// Creates FFmpeg arguments for one shared normalized MPEG-TS source, including audio-only sources.
     /// </summary>
     public static IReadOnlyList<string> CreateArguments(MediaProbeResult source, LineupSettings settings)
         => CreateArguments(source, ToPhysicalProfile(settings), settings);
@@ -132,7 +129,7 @@ public static class SourceDeinterlacePlanner
             throw new ArgumentException("Shared source normalization requires at least one enabled physical-stage transform.", nameof(source));
         }
 
-        var video = source.Tracks.First(track => track.Type == MediaTrackType.Video);
+        var video = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video);
         var deinterlace = ShouldDeinterlace(video, profile.Deinterlace);
         var transcodeVideo = ShouldTranscodeVideo(video, profile);
         List<string> arguments =
@@ -222,9 +219,9 @@ public static class SourceDeinterlacePlanner
             _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, "Deinterlacing must be enabled to create a filter.")
         };
 
-    private static bool ShouldTranscodeVideo(MediaTrackMetadata video, PhysicalTranscodeProfile profile) =>
+    private static bool ShouldTranscodeVideo(MediaTrackMetadata? video, PhysicalTranscodeProfile profile) =>
         ShouldDeinterlace(video, profile.Deinterlace)
-        || profile.ConvertHevcToH264 && string.Equals(video.Codec, "hevc", StringComparison.OrdinalIgnoreCase);
+        || profile.ConvertHevcToH264 && string.Equals(video?.Codec, "hevc", StringComparison.OrdinalIgnoreCase);
 
     private static string ResolveAudioCodec(string codec, PhysicalTranscodeProfile profile)
     {

@@ -43,8 +43,10 @@ public sealed class PhysicalDeviceCatalogTests
     }
 
     /// <summary>Verifies one device activation failure does not suppress healthy devices.</summary>
-    [Fact]
-    public async Task ApplyAsync_OneDeviceFails_ActivatesRemainingDevices()
+    [Theory]
+    [InlineData("Unauthorized")]
+    [InlineData("HttpTimeout")]
+    public async Task ApplyAsync_OneDeviceFails_ActivatesRemainingDevices(string failure)
     {
         // Arrange
         var registry = new StreamingAdapterRegistry([new FakePhysicalDriver()], [], []);
@@ -55,7 +57,7 @@ public sealed class PhysicalDeviceCatalogTests
         {
             PhysicalDevices =
             [
-                CreateDefinition(failedId, "Unauthorized", 0, true),
+                CreateDefinition(failedId, failure, 0, true),
                 CreateDefinition(healthyId, "Healthy", 1, true)
             ]
         };
@@ -216,6 +218,7 @@ public sealed class PhysicalDeviceCatalogTests
             {
                 "Fail" => ValueTask.FromException<IPhysicalTunerDevice>(new IOException("Unavailable")),
                 "Unauthorized" => ValueTask.FromException<IPhysicalTunerDevice>(new UnauthorizedAccessException("Rejected")),
+                "HttpTimeout" => ValueTask.FromException<IPhysicalTunerDevice>(new HttpRequestException("Remote control request timed out.", new TaskCanceledException())),
                 _ => ValueTask.FromResult<IPhysicalTunerDevice>(new FakePhysicalDevice(deviceId, name))
             };
         }

@@ -1,9 +1,12 @@
+using Lineup.Core.Settings;
 using Lineup.Core.Storage;
 using Lineup.Common.Streaming;
 using Lineup.Extensibility.Streaming;
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace Lineup.Core.Tests;
@@ -13,6 +16,127 @@ namespace Lineup.Core.Tests;
 /// </summary>
 public sealed class StartupSchemaGateTests
 {
+    /// <summary>Gets invalid schema values at both the application and nested streaming boundaries.</summary>
+    public static TheoryData<string, bool> InvalidSchemaVersions
+    {
+        get
+        {
+            var cases = new TheoryData<string, bool>();
+            foreach (var value in new[] { "\"1\"", "null", "true", "false", "{}", "[]", "1.5", "2147483648" })
+            {
+                cases.Add(value, false);
+                cases.Add(value, true);
+            }
+            return cases;
+        }
+    }
+
+    /// <summary>Verifies malformed schema values return a recovery result rather than throwing from JSON number access.</summary>
+    [Theory]
+    [MemberData(nameof(InvalidSchemaVersions))]
+    public void CheckSettingsContent_InvalidSchemaValue_ReturnsFactoryResetRequired(string schemaValue, bool streamingSchema)
+    {
+        // Arrange
+        var settings = CreateSettingsWithSchemaValue(schemaValue, streamingSchema);
+
+        // Act
+        var state = StartupSchemaGate.CheckSettingsContent(settings);
+
+        // Assert
+        Assert.Equal(LineupStartupStatus.FactoryResetRequired, state.Status);
+        Assert.Contains("schema", state.Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Verifies malformed primary schema values permit healthy backup recovery without modifying persisted files.</summary>
+    [Theory]
+    [MemberData(nameof(InvalidSchemaVersions))]
+    public async Task Check_InvalidSchemaValue_RecoversHealthyBackupWithoutChangingFiles(string schemaValue, bool streamingSchema)
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-schema-value-");
+        try
+        {
+            var settingsPath = Path.Combine(root.FullName, AppConstants.SettingsFileName);
+            var backupPath = $"{settingsPath}.bak";
+            var settings = CreateSettingsWithSchemaValue(schemaValue, streamingSchema);
+            var backup = JsonSerializer.Serialize(new LineupSettings { TargetDays = 7 });
+            await File.WriteAllTextAsync(settingsPath, settings, TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync(backupPath, backup, TestContext.Current.CancellationToken);
+
+            // Act
+            var state = StartupSchemaGate.Check(settingsPath, backupPath, Path.Combine(root.FullName, AppConstants.DefaultDatabaseFileName));
+            var service = new LineupSettingsService(NullLogger<LineupSettingsService>.Instance, settingsPath, root.FullName);
+
+            // Assert
+            Assert.Equal(LineupStartupStatus.Ready, state.Status);
+            Assert.Null(state.Reason);
+            Assert.Equal(7, service.Settings.TargetDays);
+            Assert.Equal(settings, await File.ReadAllTextAsync(settingsPath, TestContext.Current.CancellationToken));
+            Assert.Equal(backup, await File.ReadAllTextAsync(backupPath, TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>Verifies invalid schemas without a healthy backup keep recovery available and prohibit overwriting persisted state.</summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Check_InvalidSchemaValueWithoutHealthyBackup_RequiresResetWithoutChangingFiles(bool streamingSchema, bool backupExists)
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-schema-value-");
+        try
+        {
+            var settingsPath = Path.Combine(root.FullName, AppConstants.SettingsFileName);
+            var backupPath = $"{settingsPath}.bak";
+            var settings = CreateSettingsWithSchemaValue("null", streamingSchema);
+            await File.WriteAllTextAsync(settingsPath, settings, TestContext.Current.CancellationToken);
+            if (backupExists)
+            {
+                await File.WriteAllTextAsync(backupPath, settings, TestContext.Current.CancellationToken);
+            }
+
+            // Act
+            var state = StartupSchemaGate.Check(settingsPath, backupPath, Path.Combine(root.FullName, AppConstants.DefaultDatabaseFileName));
+            var service = new LineupSettingsService(NullLogger<LineupSettingsService>.Instance, settingsPath, root.FullName);
+            var exception = await Assert.ThrowsAsync<FactoryResetRequiredException>(() => service.SaveAsync());
+
+            // Assert
+            Assert.Equal(LineupStartupStatus.FactoryResetRequired, state.Status);
+            Assert.Equal(state.Reason, exception.Message);
+            Assert.Equal(settings, await File.ReadAllTextAsync(settingsPath, TestContext.Current.CancellationToken));
+            Assert.Equal(backupExists, File.Exists(backupPath));
+            if (backupExists)
+            {
+                Assert.Equal(settings, await File.ReadAllTextAsync(backupPath, TestContext.Current.CancellationToken));
+            }
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>Verifies current integer settings and streaming schema versions remain accepted.</summary>
+    [Fact]
+    public void CheckSettingsContent_CurrentSchemas_ReturnsReady()
+    {
+        // Arrange
+        var settings = JsonSerializer.Serialize(new LineupSettings());
+
+        // Act
+        var state = StartupSchemaGate.CheckSettingsContent(settings);
+
+        // Assert
+        Assert.Equal(LineupStartupStatus.Ready, state.Status);
+        Assert.Null(state.Reason);
+    }
+
     /// <summary>
     /// Verifies an unsupported application and streaming schema requires the documented factory reset.
     /// </summary>
@@ -253,4 +377,9 @@ public sealed class StartupSchemaGateTests
         SqliteConnection.ClearAllPools();
         root.Delete(recursive: true);
     }
+
+    private static string CreateSettingsWithSchemaValue(string schemaValue, bool streamingSchema) =>
+        streamingSchema
+            ? $$$"""{"SchemaVersion":{{{StartupSchemaGate.CurrentSettingsSchemaVersion}}},"Streaming":{"SchemaVersion":{{{schemaValue}}}}}"""
+            : $$$"""{"SchemaVersion":{{{schemaValue}}},"Streaming":{"SchemaVersion":{{{StreamingConfiguration.CurrentSchemaVersion}}}}}""";
 }

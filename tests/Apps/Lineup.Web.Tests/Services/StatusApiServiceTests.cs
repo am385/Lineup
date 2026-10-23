@@ -19,6 +19,117 @@ public class StatusApiServiceTests
 {
     private static readonly JsonSerializerOptions WebJsonOptions = new(JsonSerializerDefaults.Web);
 
+    /// <summary>Verifies client privacy covers the complete real flow projection independently of device and URL privacy.</summary>
+    [Theory]
+    [InlineData("192.0.2.20:54321", false, false, false)]
+    [InlineData("192.0.2.20:54321", false, false, true)]
+    [InlineData("192.0.2.20:54321", false, true, false)]
+    [InlineData("192.0.2.20:54321", false, true, true)]
+    [InlineData("192.0.2.20:54321", true, false, false)]
+    [InlineData("192.0.2.20:54321", true, false, true)]
+    [InlineData("192.0.2.20:54321", true, true, false)]
+    [InlineData("192.0.2.20:54321", true, true, true)]
+    [InlineData("[2001:db8::20]:54321", false, false, false)]
+    [InlineData("[2001:db8::20]:54321", false, false, true)]
+    [InlineData("[2001:db8::20]:54321", false, true, false)]
+    [InlineData("[2001:db8::20]:54321", false, true, true)]
+    [InlineData("[2001:db8::20]:54321", true, false, false)]
+    [InlineData("[2001:db8::20]:54321", true, false, true)]
+    [InlineData("[2001:db8::20]:54321", true, true, false)]
+    [InlineData("[2001:db8::20]:54321", true, true, true)]
+    public async Task GetStatusAsync_FlowClientPrivacy_RedactsEveryProjection(string clientAddress, bool redactClients, bool redactDevices, bool redactUrls)
+    {
+        // Arrange
+        using var fixture = CreateFixture(useRealStreamingFlows: true, clientAddress: clientAddress);
+        fixture.Settings.RedactApiClientAddresses = redactClients;
+        fixture.Settings.RedactApiDeviceAddresses = redactDevices;
+        fixture.Settings.RedactApiUrls = redactUrls;
+        var snapshot = fixture.StreamingFlows.GetSnapshot();
+        var originalConsumer = Assert.Single(snapshot.GetLane(StreamingFlowLane.Consumer));
+        var originalPath = Assert.Single(snapshot.ActivePaths);
+
+        // Act
+        var result = await fixture.Service.GetStatusAsync(TestContext.Current.CancellationToken);
+        var json = JsonSerializer.Serialize(result, WebJsonOptions);
+
+        // Assert
+        var consumer = Assert.Single(result.StreamingFlows.Nodes, node => node.Lane == "consumer");
+        var path = Assert.Single(result.StreamingFlows.ActivePaths);
+        var consumerStage = Assert.Single(path.Stages, stage => stage.Kind == "consumer");
+        Assert.Equal(redactClients ? "Consumer" : clientAddress, consumer.Label);
+        Assert.Equal(redactClients ? "Consumer" : clientAddress, consumerStage.Label);
+        Assert.Equal(redactClients ? null : clientAddress, path.Endpoint);
+        Assert.Equal(redactClients ? null : clientAddress, Assert.Single(result.Streams.Items).ClientAddress);
+        Assert.Equal(!redactClients, consumer.Details.ContainsKey("Endpoint"));
+        Assert.Equal(!redactClients, consumerStage.Details.ContainsKey("Client address"));
+        if (redactClients)
+        {
+            Assert.DoesNotContain(clientAddress, json, StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.Equal(clientAddress, consumer.Details["Endpoint"]);
+            Assert.Equal(clientAddress, consumerStage.Details["Client address"]);
+            Assert.Contains(clientAddress, json, StringComparison.Ordinal);
+        }
+        Assert.Equal(originalConsumer.Id, consumer.Id);
+        Assert.Equal(originalConsumer.Subtitle, consumer.Subtitle);
+        Assert.Equal(originalConsumer.ActiveChannels, consumer.ActiveChannels);
+        Assert.Equal(originalConsumer.ActiveSessionCount, consumer.ActiveSessionCount);
+        Assert.Equal("stream-1", consumer.Details["Session"]);
+        Assert.Equal("watch-1", consumer.Details["Client ID"]);
+        Assert.Equal("watch-1", consumerStage.Details["Client ID"]);
+        Assert.Equal("5.1", path.Channel);
+        Assert.Equal(originalPath.SessionId, path.SessionId);
+        Assert.Equal(originalPath.Stages.Count, path.Stages.Count);
+        Assert.Equal(snapshot.ActiveConsumerCount, result.StreamingFlows.ActiveConsumerCount);
+        Assert.Equal(snapshot.ActiveProducerCount, result.StreamingFlows.ActiveProducerCount);
+        Assert.Equal(snapshot.WarmProducerCount, result.StreamingFlows.WarmProducerCount);
+        foreach (var node in snapshot.Nodes.Where(node => node.Lane != StreamingFlowLane.Consumer))
+        {
+            var projected = Assert.Single(result.StreamingFlows.Nodes, candidate => candidate.Id == node.Id);
+            Assert.Equal(node.Label, projected.Label);
+            Assert.Equal(node.Subtitle, projected.Subtitle);
+        }
+        foreach (var stage in originalPath.Stages.Where(stage => stage.Kind != StreamingFlowStageKind.Consumer))
+        {
+            var projected = Assert.Single(path.Stages, candidate => candidate.Kind == char.ToLowerInvariant(stage.Kind.ToString()[0]) + stage.Kind.ToString()[1..]);
+            Assert.Equal(stage.Label, projected.Label);
+            Assert.Equal(stage.Subtitle, projected.Subtitle);
+        }
+        var dashboardConsumer = Assert.Single(fixture.StreamingFlows.GetSnapshot().GetLane(StreamingFlowLane.Consumer));
+        Assert.Equal(clientAddress, dashboardConsumer.Label);
+        Assert.Equal(clientAddress, dashboardConsumer.Details.Single(detail => detail.Label == "Endpoint").Value);
+        Assert.Equal(redactUrls ? null : "http://client.local:5000", result.Receivers[0].TargetUrl);
+    }
+
+    /// <summary>Verifies missing addresses preserve client identifiers without leaking the Dashboard fallback label.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GetStatusAsync_FlowClientPrivacyWithoutAddress_PreservesIdentity(bool redactClients)
+    {
+        // Arrange
+        using var fixture = CreateFixture(useRealStreamingFlows: true, clientAddress: null);
+        fixture.Settings.RedactApiClientAddresses = redactClients;
+
+        // Act
+        var result = await fixture.Service.GetStatusAsync(TestContext.Current.CancellationToken);
+
+        // Assert
+        var consumer = Assert.Single(result.StreamingFlows.Nodes, node => node.Lane == "consumer");
+        var path = Assert.Single(result.StreamingFlows.ActivePaths);
+        var stage = Assert.Single(path.Stages, item => item.Kind == "consumer");
+        Assert.Equal(redactClients ? "Consumer" : "watch-1", consumer.Label);
+        Assert.Equal(redactClients ? "Consumer" : "watch-1", stage.Label);
+        Assert.Equal(redactClients ? null : "watch-1", path.Endpoint);
+        Assert.Null(Assert.Single(result.Streams.Items).ClientAddress);
+        Assert.Equal("watch-1", consumer.Details["Client ID"]);
+        Assert.Equal("watch-1", stage.Details["Client ID"]);
+        Assert.Equal(!redactClients, consumer.Details.ContainsKey("Endpoint"));
+        Assert.Equal(!redactClients, stage.Details.ContainsKey("Client address"));
+    }
+
     /// <summary>
     /// Verifies the default privacy policy and representative state mapping.
     /// </summary>
@@ -224,7 +335,7 @@ public class StatusApiServiceTests
         Assert.True(import.HasSupplementalMetadata);
     }
 
-    private static StatusApiFixture CreateFixture(LineupStartupState? startupState = null)
+    private static StatusApiFixture CreateFixture(LineupStartupState? startupState = null, bool useRealStreamingFlows = false, string? clientAddress = "192.0.2.20:54321")
     {
         var xmltvPath = Path.Combine(Path.GetTempPath(), $"lineup-status-{Guid.NewGuid():N}.xml");
         var settings = new LineupSettings
@@ -338,7 +449,7 @@ public class StatusApiServiceTests
                 ClientId = "watch-1",
                 AuthenticatedClientId = "grant-1",
                 AuthenticatedClientName = "Remote household",
-                ClientAddress = "192.0.2.20:54321",
+                ClientAddress = clientAddress,
                 BrokerRequestId = "broker-request-1",
                 WorkerMediaSessionId = "worker-media-1",
                 WorkerStartupStage = nameof(VirtualOutputStreamStartupStage.Ready)
@@ -443,6 +554,9 @@ public class StatusApiServiceTests
             1,
             1,
             0));
+        IStreamingFlowSnapshotService flowService = useRealStreamingFlows
+            ? new StreamingFlowSnapshotService(settingsService, graph, [], activeStreams, deviceState)
+            : streamingFlows;
         var service = new StatusApiService(
             guideReader,
             settingsService,
@@ -460,8 +574,8 @@ public class StatusApiServiceTests
             virtualOutputRuntime,
             topologyStore: topologyStore,
             guideStore: guideStore,
-            streamingFlows: streamingFlows);
-        return new StatusApiFixture(settings, guideReader, service, adapters, topologyStore, guideStore, physicalDeviceId, databasePath);
+            streamingFlows: flowService);
+        return new StatusApiFixture(settings, guideReader, service, adapters, topologyStore, guideStore, physicalDeviceId, databasePath, flowService);
     }
 
     private static IGuideSourceDriver CreateGuideDriver()
@@ -514,7 +628,8 @@ public class StatusApiServiceTests
         StreamingTopologyStore TopologyStore,
         DeviceGuideStore GuideStore,
         PhysicalDeviceId PhysicalDeviceId,
-        string DatabasePath) : IDisposable
+        string DatabasePath,
+        IStreamingFlowSnapshotService StreamingFlows) : IDisposable
     {
         public void Dispose()
         {

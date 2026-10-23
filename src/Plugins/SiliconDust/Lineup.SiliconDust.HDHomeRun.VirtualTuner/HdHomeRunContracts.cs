@@ -242,22 +242,11 @@ public sealed record HdHomeRunProxyChannel
     {
         ArgumentNullException.ThrowIfNull(channel);
         ArgumentNullException.ThrowIfNull(baseUri);
-        var tags = channel.Tags?.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).ToList() ?? [];
-        if (channel.Favorite)
-        {
-            tags.Add("favorite");
-        }
-
-        if (channel.DRM)
-        {
-            tags.Add("drm");
-        }
-
         return new HdHomeRunProxyChannel
         {
             GuideNumber = channel.GuideNumber,
             GuideName = channel.GuideName,
-            Tags = tags.Count == 0 ? null : string.Join(',', tags.Distinct(StringComparer.OrdinalIgnoreCase)),
+            Tags = GetTags(channel.Tags, channel.Favorite, channel.DRM),
             VideoCodec = convertHevcToH264 && string.Equals(channel.VideoCodec, "HEVC", StringComparison.OrdinalIgnoreCase) ? "H264" : channel.VideoCodec,
             AudioCodec = string.Equals(channel.AudioCodec, "AC4", StringComparison.OrdinalIgnoreCase) ? "AC3" : channel.AudioCodec,
             Hd = channel.HD ? 1 : null,
@@ -270,17 +259,34 @@ public sealed record HdHomeRunProxyChannel
         };
     }
 
-    /// <summary>Creates a virtual channel directly from provider-neutral topology.</summary>
+    /// <summary>Creates a virtual channel with topology identity, favorites, and tags, without asserting source codecs or protection as output properties.</summary>
     public static HdHomeRunProxyChannel Create(ResolvedVirtualChannel channel, Uri baseUri)
     {
         ArgumentNullException.ThrowIfNull(channel);
         ArgumentNullException.ThrowIfNull(baseUri);
+        var favorite = channel.Metadata.TryGetValue("favorite", out var value) && bool.TryParse(value, out var parsed) && parsed;
         return new HdHomeRunProxyChannel
         {
             GuideNumber = channel.Number,
             GuideName = channel.Name,
+            Tags = GetTags(channel.Metadata.GetValueOrDefault("tags"), favorite),
+            Favorite = favorite ? 1 : null,
             Url = new Uri(baseUri, $"auto/v{Uri.EscapeDataString(channel.Number)}").AbsoluteUri
         };
+    }
+
+    private static string? GetTags(string? value, bool favorite, bool drm = false)
+    {
+        var tags = value?.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).ToList() ?? [];
+        if (favorite)
+        {
+            tags.Add("favorite");
+        }
+        if (drm)
+        {
+            tags.Add("drm");
+        }
+        return tags.Count == 0 ? null : string.Join(',', tags.Distinct(StringComparer.OrdinalIgnoreCase));
     }
 
     private static Dictionary<string, JsonElement>? GetAdditionalProperties(IReadOnlyDictionary<string, JsonElement>? additionalProperties)

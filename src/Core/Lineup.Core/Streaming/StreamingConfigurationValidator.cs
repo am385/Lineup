@@ -11,7 +11,7 @@ namespace Lineup.Core.Streaming;
 public static class StreamingConfigurationValidator
 {
     /// <summary>
-    /// Returns every configuration error without mutating the supplied configuration.
+    /// Returns every configuration error without mutating the supplied configuration, including binding diagnostics for all policies with a duplicate key.
     /// </summary>
     public static IReadOnlyList<string> Validate(StreamingConfiguration configuration)
     {
@@ -322,13 +322,14 @@ public static class StreamingConfigurationValidator
                 }
             }
 
-            var policy = configuration.VirtualOutputSecurityPolicies.SingleOrDefault(
-                candidate => string.Equals(candidate.Key, binding.SecurityPolicyKey, StringComparison.OrdinalIgnoreCase));
-            if (policy is null)
+            var policies = configuration.VirtualOutputSecurityPolicies
+                .Where(candidate => string.Equals(candidate.Key, binding.SecurityPolicyKey, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            if (policies.Length == 0)
             {
                 errors.Add($"Virtual device {device.Id} output binding references unknown security policy '{binding.SecurityPolicyKey}'.");
             }
-            else
+            foreach (var policy in policies)
             {
                 if (binding.Transport == VirtualOutputTransport.Https && string.IsNullOrWhiteSpace(policy.CertificateReference))
                 {

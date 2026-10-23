@@ -12,6 +12,7 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
   </ItemGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Lineup.Core.Tests" />
     <ProjectReference Include="..\Lineup.Common\Lineup.Common.csproj" />
     <ProjectReference Include="..\Lineup.Extensibility\Lineup.Extensibility.csproj" />
   </ItemGroup>

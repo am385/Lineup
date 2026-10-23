@@ -219,7 +219,7 @@ public sealed class LineupLinkVirtualTunerDriver : IVirtualTunerDriver, IVirtual
         return errors;
     }
 
-    /// <summary>Gets the aggregate capacity exported by this virtual device.</summary>
+    /// <summary>Gets the aggregate capacity of already subscribed, compatible physical devices.</summary>
     public PhysicalTunerCapacity GetCapacity(IEnumerable<PhysicalDeviceSnapshot> physicalDevices)
     {
         ArgumentNullException.ThrowIfNull(physicalDevices);
@@ -236,14 +236,18 @@ public sealed class LineupLinkVirtualTunerDriver : IVirtualTunerDriver, IVirtual
         return new PhysicalTunerCapacity(finiteCapacity);
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets output capacity from physical devices that are both subscribed and adapter-compatible.</summary>
     public PhysicalTunerCapacity GetCapacity(VirtualDeviceDefinition virtualDevice, IEnumerable<PhysicalDeviceSnapshot> physicalDevices)
     {
         ArgumentNullException.ThrowIfNull(virtualDevice);
         ArgumentNullException.ThrowIfNull(physicalDevices);
         var subscribed = physicalDevices.Where(snapshot =>
-            virtualDevice.Subscription.Mode == PhysicalDeviceSubscriptionMode.All ||
-            virtualDevice.Subscription.SelectedDeviceIds.Contains(snapshot.Id));
+        {
+            ArgumentNullException.ThrowIfNull(snapshot);
+            return SupportsPhysicalAdapter(snapshot.Kind) &&
+                (virtualDevice.Subscription.Mode == PhysicalDeviceSubscriptionMode.All ||
+                 virtualDevice.Subscription.SelectedDeviceIds.Contains(snapshot.Id));
+        });
         return GetCapacity(subscribed);
     }
 

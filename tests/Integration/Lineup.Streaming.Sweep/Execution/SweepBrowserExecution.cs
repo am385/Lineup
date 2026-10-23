@@ -152,9 +152,8 @@ internal sealed partial class SweepHarness
     {
         _cancellation.ThrowIfCancellationRequested();
         await EnsureTunerIdleAsync(TimeSpan.FromMinutes(2));
-        var safeChannel = string.Concat(channel.Number.Select(character => char.IsLetterOrDigit(character) ? character : '_'));
         var evidence = _attempt ?? new SweepAttempt { Id = Guid.NewGuid().ToString("N"), Key = $"{matrix.Id}|{channel.VirtualDeviceId}|{channel.Number}" };
-        var attemptRoot = Path.Combine(matrixRunRoot, "attempts", safeChannel, evidence.Id);
+        var attemptRoot = GetAttemptArtifactRoot(matrixRunRoot, channel.Number, evidence.Id);
         evidence.Artifacts = Path.GetRelativePath(_runRoot ?? matrixRunRoot, attemptRoot);
         Directory.CreateDirectory(attemptRoot);
         var baseline = await CaptureBaselineAsync(matrix);
@@ -409,7 +408,7 @@ internal sealed partial class SweepHarness
             {
                 failure = "The active stream did not report an audio track.";
             }
-            else if (requireAudio && metrics.AudioBytesDelta is <= 0 && metrics.AudioPeak is <= 0)
+            else if (requireAudio && !SweepPolicy.HasAudioDecodeEvidence(metrics))
             {
                 failure = $"No browser audio decode evidence was observed ({metrics.AudioError ?? "no analyser error"}).";
             }
@@ -583,7 +582,10 @@ internal sealed partial class SweepHarness
             startupOutcome,
             attempt,
             failure is null ? null : failurePhase,
-            evidence.SyntheticPlayback == true && failure is null ? "synthetic-playback" : ClassifyResult(failure, startupOutcome));
+            evidence.SyntheticPlayback == true && failure is null ? "synthetic-playback" : ClassifyResult(failure, startupOutcome))
+        {
+            EvidenceId = evidence.Id
+        };
         await File.WriteAllTextAsync(Path.Combine(attemptRoot, "result.json"), JsonSerializer.Serialize(result, _json));
         await journal.WriteEventAsync("channel-attempt", result);
         if (_cancellation.IsCancellationRequested)

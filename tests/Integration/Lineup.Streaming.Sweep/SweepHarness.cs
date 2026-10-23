@@ -74,11 +74,7 @@ internal sealed partial class SweepHarness
     public async Task RecheckPostFixFailuresAsync(string inputRun)
     {
         var reference = await SweepStore.LoadAsync(inputRun);
-        var failedChannels = reference.Selected
-            .Where(row => !reference.Accepted.TryGetValue(row.Key, out var id)
-                || reference.Attempts.Single(attempt => attempt.Id == id).Verdict != SweepVerdict.StablePlayback)
-            .Select(row => row.Channel.Number)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var failedChannels = SweepPolicy.RecheckChannels(reference);
         if (failedChannels.Count == 0)
         {
             throw new InvalidOperationException("Input run has no failed or pending channels.");

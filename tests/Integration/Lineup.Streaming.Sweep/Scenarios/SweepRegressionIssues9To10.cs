@@ -170,7 +170,7 @@ internal sealed partial class SweepHarness
                 {
                     playback = await RunChannelAsync(browser.Context, matrix, channel, attempt, matrixRunRoot, journal);
                     await journal.WriteTerminalAsync(matrix.Id, channel.Number, playback);
-                    audioPlan = ReadIssue10AudioPlan(matrixRunRoot, channel.Number, attempt);
+                    audioPlan = ReadIssue10AudioPlan(matrixRunRoot, channel.Number, playback);
                     if (playback.AvPassed && audioPlan is { SourceCodec: "ac4", OutputCodec: "ac3" })
                     {
                         break;
@@ -244,14 +244,26 @@ internal sealed partial class SweepHarness
         Console.WriteLine(runRoot);
     }
 
-    private JsonNode? ReadActiveStatus(string matrixRunRoot, string channel, int attempt)
+    /// <summary>Gets the artifact directory shared by an attempt's writer and diagnostic readers.</summary>
+    internal static string GetAttemptArtifactRoot(string matrixRunRoot, string channel, string? evidenceId)
     {
+        if (string.IsNullOrWhiteSpace(evidenceId) || evidenceId is "." or ".." || Path.IsPathRooted(evidenceId)
+            || evidenceId.IndexOfAny(['/', '\\']) >= 0 || evidenceId.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            throw new InvalidDataException("An attempt requires a nonempty, single-segment evidence identity.");
+        }
         var safeChannel = string.Concat(channel.Select(character => char.IsLetterOrDigit(character) ? character : '_'));
-        var path = Path.Combine(matrixRunRoot, "attempts", safeChannel, attempt.ToString(CultureInfo.InvariantCulture), "active-status.json");
+        return Path.Combine(matrixRunRoot, "attempts", safeChannel, evidenceId);
+    }
+
+    /// <summary>Reads the active diagnostic snapshot for one completed browser attempt.</summary>
+    internal static JsonNode? ReadActiveStatus(string matrixRunRoot, string channel, ChannelAttemptResult attempt)
+    {
+        var path = Path.Combine(GetAttemptArtifactRoot(matrixRunRoot, channel, attempt.EvidenceId), "active-status.json");
         return File.Exists(path) ? JsonNode.Parse(File.ReadAllText(path)) : null;
     }
 
-    private Issue10AudioPlan? ReadIssue10AudioPlan(string matrixRunRoot, string channel, int attempt)
+    private static Issue10AudioPlan? ReadIssue10AudioPlan(string matrixRunRoot, string channel, ChannelAttemptResult attempt)
     {
         var status = ReadActiveStatus(matrixRunRoot, channel, attempt);
         var audio = status?["tracks"]?.AsArray()

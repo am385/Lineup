@@ -108,15 +108,15 @@ internal static class TuiAdapterSettingsEditor
         var workerKey = GetVirtualOutputPolicyKey(device.Id, "worker");
         if (!enabled)
         {
-            await settings.UpdateAsync(value => value.Streaming = value.Streaming with
+            await TrySaveTopologyAsync(settings, configuration with
             {
-                VirtualDevices = value.Streaming.VirtualDevices
+                VirtualDevices = configuration.VirtualDevices
                     .Select(candidate => candidate.Id == device.Id ? candidate with { Hosting = null } : candidate)
                     .ToArray(),
-                VirtualOutputSecurityPolicies = value.Streaming.VirtualOutputSecurityPolicies
+                VirtualOutputSecurityPolicies = configuration.VirtualOutputSecurityPolicies
                     .Where(policy => !string.Equals(policy.Key, securityKey, StringComparison.OrdinalIgnoreCase))
                     .ToArray(),
-                VirtualOutputWorkerPolicies = value.Streaming.VirtualOutputWorkerPolicies
+                VirtualOutputWorkerPolicies = configuration.VirtualOutputWorkerPolicies
                     .Where(policy => !string.Equals(policy.Key, workerKey, StringComparison.OrdinalIgnoreCase))
                     .ToArray()
             });
@@ -199,9 +199,9 @@ internal static class TuiAdapterSettingsEditor
             MaximumCpuPercent = currentWorker?.MaximumCpuPercent ?? 0
         };
 
-        await settings.UpdateAsync(value => value.Streaming = value.Streaming with
+        await TrySaveTopologyAsync(settings, configuration with
         {
-            VirtualDevices = value.Streaming.VirtualDevices
+            VirtualDevices = configuration.VirtualDevices
                 .Select(candidate => candidate.Id == device.Id
                     ? candidate with
                     {
@@ -212,17 +212,35 @@ internal static class TuiAdapterSettingsEditor
                 .ToArray(),
             VirtualOutputSecurityPolicies =
             [
-                .. value.Streaming.VirtualOutputSecurityPolicies.Where(policy =>
+                .. configuration.VirtualOutputSecurityPolicies.Where(policy =>
                             !string.Equals(policy.Key, securityKey, StringComparison.OrdinalIgnoreCase)),
                         securityPolicy
             ],
             VirtualOutputWorkerPolicies =
             [
-                .. value.Streaming.VirtualOutputWorkerPolicies.Where(policy =>
+                .. configuration.VirtualOutputWorkerPolicies.Where(policy =>
                             !string.Equals(policy.Key, workerKey, StringComparison.OrdinalIgnoreCase)),
                         workerPolicy
             ]
         });
+    }
+
+    /// <summary>Validates a candidate topology before persistence, reporting errors and leaving saved settings unchanged on rejection.</summary>
+    internal static async Task<bool> TrySaveTopologyAsync(ILineupSettingsService settings, StreamingConfiguration configuration)
+    {
+        var errors = StreamingConfigurationValidator.Validate(configuration);
+        if (errors.Count > 0)
+        {
+            AnsiConsole.MarkupLine("[red]Configuration was not saved. Correct the following topology errors:[/]");
+            foreach (var error in errors)
+            {
+                AnsiConsole.MarkupLine($"[red]{Markup.Escape(error)}[/]");
+            }
+            return false;
+        }
+
+        await settings.UpdateAsync(value => value.Streaming = configuration);
+        return true;
     }
 
     /// <summary>Aligns Lineup Link protocol security with its client-facing base URI.</summary>
@@ -470,17 +488,7 @@ internal static class TuiAdapterSettingsEditor
             AdapterCategory.Guide => RemoveGuideSource(settings.Settings.Streaming, new GuideSourceId(item.Id)),
             _ => RemoveGuideOutput(settings.Settings.Streaming, new GuideOutputId(item.Id))
         };
-        var errors = StreamingConfigurationValidator.Validate(updated);
-        if (errors.Count > 0)
-        {
-            foreach (var error in errors)
-            {
-                AnsiConsole.MarkupLine($"[red]{Markup.Escape(error)}[/]");
-            }
-            return;
-        }
-
-        await settings.UpdateAsync(value => value.Streaming = updated);
+        await TrySaveTopologyAsync(settings, updated);
     }
 
     private static async Task ManageAccessGrantsAsync(

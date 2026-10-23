@@ -3,6 +3,36 @@ namespace Lineup.Streaming.Sweep;
 /// <summary>Shared classification and invariant policy for live execution and offline tests.</summary>
 internal static class SweepPolicy
 {
+    /// <summary>Determines whether browser metrics establish decoded audio rather than missing counters.</summary>
+    public static bool HasAudioDecodeEvidence(PlayerMetrics metrics) =>
+        metrics.AudioBytesDelta is > 0 || metrics.AudioPeak is > 0;
+
+    /// <summary>Selects failed or pending channel numbers from authoritative playback and synchronization evidence.</summary>
+    public static IReadOnlySet<string> RecheckChannels(SweepRun run) => run.Selected
+        .Where(row =>
+        {
+            if (!run.Accepted.TryGetValue(row.Key, out var id))
+            {
+                return true;
+            }
+            var playback = run.Attempts.Single(attempt => attempt.Id == id);
+            if (playback.Verdict != SweepVerdict.StablePlayback || playback.Result is null
+                || playback.SyntheticPlayback == true || HasIncompleteEvidence(playback))
+            {
+                return true;
+            }
+            var sync = FreshSynchronization(run, playback);
+            return sync is null || HasIncompleteEvidence(sync) || IsProductFailure(sync.Verdict)
+                || sync.Verdict is SweepVerdict.InfrastructureFailure or SweepVerdict.CapacityContamination
+                || sync.Synchronization?.State is "misaligned" or "insufficient-samples";
+        })
+        .Select(row => row.Channel.Number)
+        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    private static bool HasIncompleteEvidence(SweepAttempt attempt) =>
+        attempt.FinishedUtc is null || attempt.Interrupted || attempt.Cleanup is not { VerifiedAbsent: true, Forced: false }
+        || attempt.BrowserFailures.Count > 0 || attempt.EvidenceFailures.Count > 0;
+
     /// <summary>Classifies structured codes before generic HTTP status.</summary>
     public static string StartupCategory(int status, string? code)
     {

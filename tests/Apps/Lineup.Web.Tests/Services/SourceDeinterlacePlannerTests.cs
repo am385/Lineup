@@ -207,6 +207,185 @@ public class SourceDeinterlacePlannerTests
         Assert.True(Assert.Single(effective.Tracks, track => track.Type == MediaTrackType.Subtitle).IsEmbeddedClosedCaptions);
     }
 
+    /// <summary>Verifies audio-only physical transforms produce optional video mapping without video encoding or timing filters.</summary>
+    [Theory]
+    [InlineData(OutputAudioPolicy.Copy, OutputAudioPolicy.Ac3, "copy", "ac3")]
+    [InlineData(OutputAudioPolicy.Copy, OutputAudioPolicy.Eac3, "copy", "eac3")]
+    [InlineData(OutputAudioPolicy.Ac3, OutputAudioPolicy.Copy, "ac3", "copy")]
+    [InlineData(OutputAudioPolicy.Eac3, OutputAudioPolicy.Copy, "eac3", "copy")]
+    [InlineData(OutputAudioPolicy.Ac3, OutputAudioPolicy.Eac3, "ac3", "eac3")]
+    [InlineData(OutputAudioPolicy.Eac3, OutputAudioPolicy.Ac3, "eac3", "ac3")]
+    public void CreateArguments_AudioOnlyTopology_EncodesWithoutVideo(OutputAudioPolicy audioPolicy, OutputAudioPolicy ac4Policy, string aacEncoder, string ac4Encoder)
+    {
+        // Arrange
+        var source = AudioOnlySource();
+        var profile = AudioOnlyProfile(audioPolicy, ac4Policy);
+
+        // Act
+        var arguments = SourceDeinterlacePlanner.CreateArguments(source, profile, new LineupSettings());
+
+        // Assert
+        Assert.True(SourceDeinterlacePlanner.ShouldNormalize(source, profile));
+        AssertMapping(arguments, "0:v:0?");
+        AssertMapping(arguments, "0:a?");
+        AssertMapping(arguments, "0:10");
+        AssertOption(arguments, "-c", "copy");
+        AssertOption(arguments, "-f", "mpegts");
+        Assert.DoesNotContain("-c:v:0", arguments);
+        Assert.DoesNotContain("-filter:v:0", arguments);
+        Assert.DoesNotContain("-copyts", arguments);
+        Assert.DoesNotContain("-fps_mode:v:0", arguments);
+        Assert.DoesNotContain("0:11", arguments);
+        AssertAudioEncoder(arguments, 0, aacEncoder);
+        AssertAudioEncoder(arguments, 1, ac4Encoder);
+        if (ac4Encoder != "copy")
+        {
+            AssertOption(arguments, "-ac:a:1", "6");
+        }
+    }
+
+    /// <summary>Verifies audio-only effective source metadata matches physical transforms, starts at index zero, and preserves supported subtitles.</summary>
+    [Theory]
+    [InlineData(OutputAudioPolicy.Copy, OutputAudioPolicy.Ac3, "copy", "ac3")]
+    [InlineData(OutputAudioPolicy.Copy, OutputAudioPolicy.Eac3, "copy", "eac3")]
+    [InlineData(OutputAudioPolicy.Ac3, OutputAudioPolicy.Copy, "ac3", "copy")]
+    [InlineData(OutputAudioPolicy.Eac3, OutputAudioPolicy.Copy, "eac3", "copy")]
+    [InlineData(OutputAudioPolicy.Ac3, OutputAudioPolicy.Eac3, "ac3", "eac3")]
+    [InlineData(OutputAudioPolicy.Eac3, OutputAudioPolicy.Ac3, "eac3", "ac3")]
+    public void CreateEffectiveSource_AudioOnlyTopology_RemapsWithoutVideo(OutputAudioPolicy audioPolicy, OutputAudioPolicy ac4Policy, string aacEncoder, string ac4Encoder)
+    {
+        // Arrange
+        var source = AudioOnlySource();
+        var profile = AudioOnlyProfile(audioPolicy, ac4Policy);
+
+        // Act
+        var effective = SourceDeinterlacePlanner.CreateEffectiveSource(source, profile);
+
+        // Assert
+        AssertAudioOnlyMetadata(source, effective, aacEncoder, ac4Encoder);
+    }
+
+    /// <summary>Verifies virtual MPEG-TS output metadata supports the same audio-only transforms and remapping as the physical stage.</summary>
+    [Theory]
+    [InlineData(OutputAudioPolicy.Copy, OutputAudioPolicy.Ac3, "copy", "ac3")]
+    [InlineData(OutputAudioPolicy.Copy, OutputAudioPolicy.Eac3, "copy", "eac3")]
+    [InlineData(OutputAudioPolicy.Ac3, OutputAudioPolicy.Copy, "ac3", "copy")]
+    [InlineData(OutputAudioPolicy.Eac3, OutputAudioPolicy.Copy, "eac3", "copy")]
+    [InlineData(OutputAudioPolicy.Ac3, OutputAudioPolicy.Eac3, "ac3", "eac3")]
+    [InlineData(OutputAudioPolicy.Eac3, OutputAudioPolicy.Ac3, "eac3", "ac3")]
+    public void CreateVirtualMpegTsSource_AudioOnlyTopology_RemapsWithoutVideo(OutputAudioPolicy audioPolicy, OutputAudioPolicy ac4Policy, string aacEncoder, string ac4Encoder)
+    {
+        // Arrange
+        var source = AudioOnlySource();
+        var profile = new VirtualTranscodeProfile
+        {
+            Audio = audioPolicy,
+            Ac4Audio = ac4Policy,
+            ConvertHevcToH264 = true,
+            Deinterlace = SourceDeinterlacePolicy.SourceFieldRate
+        };
+
+        // Act
+        var effective = SourceDeinterlacePlanner.CreateVirtualMpegTsSource(source, profile);
+
+        // Assert
+        AssertAudioOnlyMetadata(source, effective, aacEncoder, ac4Encoder);
+    }
+
+    /// <summary>Verifies legacy settings overloads retain audio-only transform behavior.</summary>
+    [Fact]
+    public void CreatePlan_AudioOnlyTopology_SettingsOverloadsMatchProfile()
+    {
+        // Arrange
+        var source = AudioOnlySource();
+        var settings = new LineupSettings
+        {
+            Streaming = new StreamingConfiguration { PhysicalDefaults = AudioOnlyProfile(OutputAudioPolicy.Ac3, OutputAudioPolicy.Eac3) }
+        };
+
+        // Act
+        var arguments = SourceDeinterlacePlanner.CreateArguments(source, settings);
+        var effective = SourceDeinterlacePlanner.CreateEffectiveSource(source, settings);
+
+        // Assert
+        AssertAudioEncoder(arguments, 0, "ac3");
+        AssertAudioEncoder(arguments, 1, "eac3");
+        AssertAudioOnlyMetadata(source, effective, "ac3", "eac3");
+    }
+
+    /// <summary>Verifies video policies alone cannot create a transform for audio-only or empty sources.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ShouldNormalize_AudioOnlyTopology_CopyPoliciesDoNotTransform(bool emptySource)
+    {
+        // Arrange
+        var source = emptySource ? new MediaProbeResult([], null) : AudioOnlySource();
+        var profile = AudioOnlyProfile(OutputAudioPolicy.Copy, OutputAudioPolicy.Copy);
+
+        // Act
+        var normalize = SourceDeinterlacePlanner.ShouldNormalize(source, profile);
+        var effective = SourceDeinterlacePlanner.CreateEffectiveSource(source, profile);
+        var exception = Record.Exception(() => SourceDeinterlacePlanner.CreateArguments(source, profile, new LineupSettings()));
+
+        // Assert
+        Assert.False(normalize);
+        Assert.Same(source, effective);
+        Assert.IsType<ArgumentException>(exception);
+    }
+
+    private static MediaProbeResult AudioOnlySource() => new(
+    [
+        new MediaTrackMetadata(3, MediaTrackType.Audio, "aac", 128_000, null, null, 2, 44_100) { Language = "eng", Title = "Main" },
+        new MediaTrackMetadata(8, MediaTrackType.Audio, "AC4", 384_000, null, null, 8, 48_000) { Language = "spa", Title = "Alternate" },
+        new MediaTrackMetadata(10, MediaTrackType.Subtitle, "dvb_subtitle", null, null, null, null, null),
+        new MediaTrackMetadata(11, MediaTrackType.Subtitle, "subrip", null, null, null, null, null)
+    ],
+    512_000);
+
+    private static PhysicalTranscodeProfile AudioOnlyProfile(OutputAudioPolicy audioPolicy, OutputAudioPolicy ac4Policy) => new()
+    {
+        Audio = audioPolicy,
+        Ac4Audio = ac4Policy,
+        ConvertHevcToH264 = true,
+        Deinterlace = SourceDeinterlacePolicy.SourceFieldRate
+    };
+
+    private static void AssertAudioOnlyMetadata(MediaProbeResult source, MediaProbeResult effective, string aacEncoder, string ac4Encoder)
+    {
+        Assert.Equal([0, 1, 2], effective.Tracks.Select(track => track.Index));
+        Assert.DoesNotContain(effective.Tracks, track => track.Type == MediaTrackType.Video);
+        var audio = effective.Tracks.Where(track => track.Type == MediaTrackType.Audio).ToArray();
+        for (var index = 0; index < audio.Length; index++)
+        {
+            var original = source.Tracks[index];
+            var codec = index == 0 ? aacEncoder : ac4Encoder;
+            var expected = codec == "copy" ? original with { Index = index } : original with
+            {
+                Index = index,
+                Codec = codec,
+                BitRate = codec == "ac3" ? 448_000 : 640_000,
+                Channels = original.Channels is > 6 ? 6 : original.Channels
+            };
+            Assert.Equal(expected, audio[index]);
+        }
+        Assert.Equal(source.Tracks[2] with { Index = 2 }, Assert.Single(effective.Tracks, track => track.Type == MediaTrackType.Subtitle));
+        Assert.Equal([3, 8, 10, 11], source.Tracks.Select(track => track.Index));
+    }
+
+    private static void AssertAudioEncoder(IReadOnlyList<string> arguments, int index, string codec)
+    {
+        if (codec == "copy")
+        {
+            Assert.DoesNotContain($"-c:a:{index}", arguments);
+        }
+        else
+        {
+            AssertOption(arguments, $"-c:a:{index}", codec);
+            AssertOption(arguments, $"-b:a:{index}", codec == "ac3" ? "448k" : "640k");
+        }
+    }
+
     private static void AssertOption(IReadOnlyList<string> arguments, string option, string value)
     {
         var index = Assert.Single(arguments.Select((argument, index) => (argument, index)), item => item.argument == option).index;
