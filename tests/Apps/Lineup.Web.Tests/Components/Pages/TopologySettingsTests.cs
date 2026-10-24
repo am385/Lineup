@@ -19,6 +19,101 @@ namespace Lineup.Web.Tests.Components.Pages;
 /// </summary>
 public sealed class TopologySettingsTests
 {
+    /// <summary>Verifies exported, copied, displayed, and reloaded dedicated bundles use the same effective URL as saved listener bindings.</summary>
+    [Theory]
+    [InlineData(VirtualOutputTransport.Http, "192.0.2.10", null, false, "", "http://192.0.2.10:9600/")]
+    [InlineData(VirtualOutputTransport.Https, "192.0.2.20", 443, false, "", "https://192.0.2.20/")]
+    [InlineData(VirtualOutputTransport.Https, "192.0.2.20", 9443, false, "", "https://192.0.2.20:9443/")]
+    [InlineData(VirtualOutputTransport.Http, "*", 9800, false, "", "http://localhost:9800/")]
+    [InlineData(VirtualOutputTransport.Http, "2001:db8::10", null, false, "", "http://[2001:db8::10]:9600/")]
+    [InlineData(VirtualOutputTransport.Http, "localhost", null, false, "http://stale.example:8600/", "http://localhost:9600/")]
+    [InlineData(VirtualOutputTransport.Https, "localhost", 443, true, "https://public.example:9443/", "https://public.example/")]
+    [InlineData(VirtualOutputTransport.Http, "localhost", 443, true, "https://public.example:9443/", "https://public.example/")]
+    [InlineData(VirtualOutputTransport.Http, "localhost", null, true, "http://public.example:9443/", "http://public.example:9443/")]
+    public async Task LineupLinkBundle_DedicatedListener_UsesEffectiveAddress(
+        VirtualOutputTransport transport,
+        string addresses,
+        int? publishedPort,
+        bool manualOverride,
+        string manualUri,
+        string expected
+    )
+    {
+        // Arrange
+        using var context = CreateContext(out var settingsService, out var settings);
+        context.Services.AddSingleton<IVirtualTunerDriver, LineupLinkVirtualTunerDriver>();
+        context.JSInterop.SetupVoid("downloadTextFile", _ => true).SetVoidResult();
+        context.JSInterop.SetupVoid("copyTextToClipboard", _ => true).SetVoidResult();
+        var component = context.Render<Settings>();
+        component.Find("#tab-virtual-devices").Click();
+        component.Find("#addVirtualDevice").Click();
+        component.Find("[data-virtual-device-kind='lineup-link']").Click();
+        component.Find("#dedicatedListener-1").Change(true);
+        component.Find("#listenerTransport-1").Change(transport);
+        component.Find("#listenerAddresses-1").Change(addresses);
+        component.Find("#listenerPort-1").Change(9600);
+        if (publishedPort.HasValue)
+        {
+            component.Find("#publishedPort-1").Change(publishedPort.Value);
+        }
+        if (transport == VirtualOutputTransport.Https)
+        {
+            component.Find("#listenerCertificate-1").Change("test-certificate");
+        }
+        var device = component.Instance.Topology.VirtualDevices.Single(candidate => candidate.IsLineupLink);
+        device.PublicBaseUri = manualUri;
+        if (manualOverride)
+        {
+            component.Find("#listenerPublicUriOverride-1").Change(true);
+            component.Find("#listenerPublicUri-1").Change(manualUri);
+        }
+        var requireEncryption = expected.StartsWith("https:", StringComparison.Ordinal);
+        if (requireEncryption)
+        {
+            component.Find("#linkServerCertificate-1").Change(new string('A', 64));
+        }
+        component.Find("#newLineupLinkGrantName-1").Change("Effective address");
+        component.Find("#createLineupLinkGrant-1").Click();
+
+        // Act
+        await component.Find(".lineup-link-access-grant button[id^='exportLineupLinkBundle-']").ClickAsync(new());
+        await component.Find(".lineup-link-access-grant button[id^='copyLineupLinkBundle-']").ClickAsync(new());
+        component.Find(".lineup-link-access-grant button[id^='showLineupLinkBundle-']").Click();
+
+        // Assert
+        var download = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "downloadTextFile");
+        var copy = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "copyTextToClipboard");
+        var displayed = component.Find(".lineup-link-access-grant pre.connection-bundle-json code").TextContent;
+        var expectedSecurity = requireEncryption ? LineupLinkTransportSecurity.Https : LineupLinkTransportSecurity.Http;
+        foreach (var json in new[] { Assert.IsType<string>(download.Arguments[2]), Assert.IsType<string>(copy.Arguments[0]), displayed })
+        {
+            var bundle = LineupLinkConnectionBundleCodec.Deserialize(json);
+            Assert.Equal(expected, bundle.BaseUrl);
+            Assert.Equal(device.Id.Value, bundle.VirtualDeviceId);
+            Assert.Equal(expectedSecurity, bundle.TransportSecurity);
+            Assert.Equal(requireEncryption ? new string('A', 64) : null, bundle.CertificateSha256);
+            Assert.NotEqual(LineupLinkConnectionBundleCodec.RedactedAccessToken, bundle.AccessToken);
+        }
+        Assert.Equal(expected, component.Find("#listenerClientUrl-1").GetAttribute("value"));
+
+        // Act
+        await component.Find("button.btn-primary").ClickAsync(new());
+        var reloaded = context.Render<Settings>();
+        reloaded.Find("#tab-virtual-devices").Click();
+        reloaded.FindAll(".virtual-device-tab").Single(tab => tab.TextContent.Contains("Lineup Link", StringComparison.Ordinal)).Click();
+        reloaded.Find(".lineup-link-access-grant button[id^='showLineupLinkBundle-']").Click();
+
+        // Assert
+        await settingsService.Received(1).UpdateAsync(Arg.Any<Action<LineupSettings>>());
+        var saved = settings.Streaming.VirtualDevices.Single(candidate => candidate.Id == device.Id);
+        Assert.Equal(expected, Assert.Single(Assert.IsType<VirtualOutputHostingDefinition>(saved.Hosting).Bindings).PublicBaseUri);
+        using var redacted = JsonDocument.Parse(reloaded.Find(".lineup-link-access-grant pre.connection-bundle-json code").TextContent);
+        Assert.Equal(expected, redacted.RootElement.GetProperty("baseUrl").GetString());
+        Assert.Equal(LineupLinkConnectionBundleCodec.RedactedAccessToken, redacted.RootElement.GetProperty("accessToken").GetString());
+        Assert.True(reloaded.Find(".lineup-link-access-grant button[id^='copyLineupLinkBundle-']").HasAttribute("disabled"));
+        Assert.True(reloaded.Find(".lineup-link-access-grant button[id^='exportLineupLinkBundle-']").HasAttribute("disabled"));
+    }
+
     /// <summary>Verifies invalid listener-port edits remain renderable, fail Save without persistence, and can be corrected without losing other edits.</summary>
     [Theory]
     [InlineData("web-player", false)]

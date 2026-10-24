@@ -90,7 +90,7 @@ public sealed record ResolvedStreamingCandidate
 }
 
 /// <summary>
-/// Lazily activates configured physical adapters, refreshes topology, and resolves virtual routes.
+/// Lazily activates configured physical adapters, retries incomplete lineup initialization, and resolves virtual routes.
 /// </summary>
 public sealed class StreamingRouteResolver : IStreamingRouteResolver
 {
@@ -228,8 +228,12 @@ public sealed class StreamingRouteResolver : IStreamingRouteResolver
             {
                 return;
             }
-            await _lineups.RefreshAsync(configuration, cancellationToken);
-            Volatile.Write(ref _activeConfiguration, configuration);
+            Volatile.Write(ref _activeConfiguration, null);
+            var results = await _lineups.RefreshAsync(configuration, cancellationToken);
+            if (results.All(result => result.Succeeded))
+            {
+                Volatile.Write(ref _activeConfiguration, configuration);
+            }
         }
         finally
         {

@@ -407,6 +407,11 @@ quality/lower browser support to broadest browser support: EAC3 up to 5.1, AC3 u
 AAC Stereo. AAC Stereo is the default. FFmpeg encodes channel-based E-AC-3 but cannot create E-AC-3 JOC/Atmos; existing
 E-AC-3 Atmos metadata can be retained only when the Source rendition is copied successfully.
 
+Management-hosted Watch viewers with identical playback requests (apart from client ID), effective profiles, and exact physical
+sources share one CMAF producer. Each viewer retains its own manifest/subtitle URLs, client diagnostics,
+inactivity lifetime, and admission-limit slot. Stopping or expiring one viewer leaves the others attached; the final viewer's
+release follows the configured keep-warm policy. Different media plans or physical source/channel identities remain isolated.
+
 Watch hides manual stream policy controls behind **Override stream settings**. Each protocol, quality, video, audio, and
 fallback-audio setting can independently use **Browser profile** or a manual value. Overrides are applied to a request-scoped
 effective capability matrix, so an audio-only override preserves measured video, protocol, and subtitle decisions and never
@@ -496,11 +501,21 @@ Each Lineup Link virtual device can issue multiple named access grants so separa
 
 A management-hosted Lineup Link output may export a bundle before **Public Lineup URL** is known. The bundle then contains a null address, and the consuming instance leaves its physical-device URL empty for later entry. Any supplied URL must be an absolute HTTP or HTTPS address that matches the output's transport policy. HTTPS uses normal operating-system certificate validation and can add an exact SHA-256 certificate pin. HTTP remains authenticated but unencrypted and should be limited to trusted networks.
 
+Dedicated Lineup Link connection bundles use the same effective client-facing URL as the saved listener: the automatically derived address unless a manual override is enabled, with any published-port override applied. Export, copy, and display use this URL, including redacted display after reloading saved grants.
+
 Lineup Link manifest, lineup, and guide requests have a 30-second total timeout covering response headers and body, including error responses. Timeouts are reported as remote request failures so other configured physical devices can still activate; caller cancellation remains cancellation. Live MPEG-TS streams do not have this timeout. If a remote stream rejects a revoked, expired, or otherwise invalid access grant with HTTP 401 or 403, Lineup reports a non-retryable failure for that source and can continue to the next equivalent source. Device probing still reports rejected credentials explicitly.
 
 Network-facing Lineup Link, virtual HDHomeRun, and Web Player media outputs can be served through the management UI host or through one isolated worker process per virtual device. Management-hosted mode reuses the existing Lineup HTTP/HTTPS ports for simpler local deployments. A management-hosted virtual HDHomeRun needs its externally reachable management URL in **Advertised base URL** when network discovery is enabled. Dedicated mode gives the output its own sockets, firewall boundary, TLS and network policy, and process lifecycle. Dedicated workers receive instance-scoped capabilities over authenticated named-pipe or Unix-domain-socket IPC. A separate shared HDHomeRun discovery worker owns UDP 65001 and SSDP 1900 and receives only bounded advertisement snapshots for enabled virtual devices. Web Player presentation remains in Blazor in both modes; its selected host owns CMAF/HLS/DASH generation and delivery. Worker packages are hash-verified before launch, bootstrap credentials are one-time and generation-bound, leases fail closed, and TLS certificate bytes are delivered through activation stdin rather than exposing trusted-host certificate paths. The Web and TUI hosts both run the same trusted supervisor for outputs configured in dedicated mode; `Lineup:VirtualOutputs:WorkerPath` overrides the packaged `virtual-output-workers` directory.
 
+Managed workers receive a unique temporary directory beneath the trusted host's operating-system temporary path through their sanitized environment. This keeps dedicated Web Player media artifacts writable for ordinary Windows users without inheriting the host's user profile or unrelated environment variables. The launcher removes the directory after terminating and disposing the worker, including failed launches, and logs cleanup failures with the affected path. These worker directories are separate from the management host's `Lineup:TransientPath` setting.
+
+Output reconciliation cleans up only identities owned by the configured-output supervisor, including failed activations and externally supervised outputs. Removing, disabling, or returning an output to management-hosted mode revokes that output's credentials and removes its enrollment and status without revoking the independent shared HDHomeRun discovery worker.
+
+Management-hosted Watch Test startup owns its encoder and transient files until the manifests, fragments, and codec metadata are ready and its viewer is registered. Cancellation, readiness timeout, encoder exit, and startup errors terminate the encoder and remove its files even before registration. Successful presentations remain available until their viewer stops or expires.
+
 The TUI validates the complete topology before saving hosting changes. Conflicting listener bindings or invalid security and worker settings are reported without changing live settings, the settings file, or its backup. If saved topology is already invalid, the TUI shows the validation errors and offers **Configure Sources** and **Exit** instead of applying it to physical devices and guide sources. Correct the errors and return from configuration to resume the normal menu.
+
+TUI hosting edits preserve the existing listener's client-certificate mode, forwarded-header setting, and trusted proxies, which the terminal editor does not expose. Editing a port or other hosting field does not remove these requirements. Switching to HTTP is rejected if the preserved policy requires or accepts client certificates; change that policy explicitly before selecting HTTP.
 
 For management-hosted Lineup Link outputs, **Require HTTPS** selects which management-host transport is accepted and exported. A dedicated Lineup Link output derives this requirement from its client-facing public base URL rather than its internal listener transport. This permits an HTTPS public URL to terminate TLS at a trusted reverse proxy while the dedicated worker listens over private HTTP. The optional connection-bundle certificate pin is independent of the dedicated listener's server-certificate reference.
 
@@ -628,6 +643,12 @@ Open **Settings → Physical Devices**, **Guide Sources**, and **Virtual Devices
 subscribes to every enabled physical device by default, or can select a subset. Its advertised tuner count is the sum of subscribed finite physical
 capacities, subject to its optional cap.
 
+Dedicated HDHomeRun listeners retrieve the current manifest for each `/discover.json` request, so changes to subscribed physical capacity are reflected without restarting the output worker. Clearing the optional tuner-count cap restores aggregate advertised capacity, bounded by the protocol maximum of 255. Clearing an explicit Device ID restores the stable checksum-valid identity derived from that virtual device.
+
+Lineup retries incomplete physical-lineup initialization on a later tune without requiring a settings save, including when status polling has already recovered device activation. Fully successful initialization is reused, and healthy routes remain usable while another configured source is unavailable.
+
+The Dashboard and runtime status API report every enabled physical device, including failed activations. An inactive device has a safe activation error and no receiver-control or restart actions. Its last successful status and capacity are retained when the adapter kind is unchanged; without a prior snapshot, capacity is zero and no observations are fabricated. Successful refresh clears the error, and disabled or removed devices are excluded.
+
 For management-hosted virtual HDHomeRun devices, the first enabled device is available at the root routes:
 
 - `/discover.json`
@@ -655,9 +676,23 @@ pages, but are excluded from published XMLTV and virtual JSON, XML, and M3U line
 synthetic slate when configured. Global channel number/name overrides resolve conflicts once at the physical source, so every subscribed virtual output,
 guide view, and XMLTV publication uses the same canonical identity. Equivalent source groups provide ordered physical failover.
 
+Successful guide imports update matching programs and remove missing current or future programs within the source's reported coverage window.
+Retained ended programs and future coverage outside that window survive narrower refreshes. Expired history is pruned according to the configured
+retention policy, including expired programs sent again by the source. Channel changes, program merging, pruning, and last-import metadata commit
+together for that source without changing another source's data.
+
+An enabled guide source that cannot activate still contributes its committed cache to virtual guides when its configured subscription is compatible.
+The refresh reports the activation failure; disabling or removing the source, or changing its subscription, immediately restricts that cached projection.
+Recovering the source updates its committed cache on the next successful refresh.
+
+Automatic guide refresh treats a failed source refresh or guide-output publication as a failure, preserving the last successful fetch timestamp and
+using the existing one-hour retry schedule. Only a fully successful operation records completion and selects the normal randomized 20-28-hour interval.
+
 ### Lineup Link
 
 A provider instance can add a **Lineup Link** virtual device and export its published lineup, optional guide, and post-output-transcode MPEG-TS streams through `/api/lineup-link/v2/virtual-devices/{virtualDeviceId}` when management-hosted or the equivalent path on its dedicated listener. A consuming instance imports the generated connection bundle into a **Lineup Link** physical device and may add a separately managed Lineup Link guide source. The virtual output uses Lineup's existing shared acquisition and MPEG-TS transformation graph, so consumers requesting the same effective source and output profile reuse the physical stream, physical normalization, and virtual transform.
+
+A Lineup Link guide source subscribed to multiple remote outputs merges their root supplemental metadata into one envelope before import. The first subscribed output wins conflicting root attributes with the same qualified name; all preserved root elements remain in subscription order. Channel and program metadata retain their remote-output-qualified identities. Invalid root envelopes fail the refresh without replacing the previously committed guide, rather than deferring failure until XMLTV or JSON publication.
 
 Lineup Link virtual devices cannot subscribe to Lineup Link physical devices, preventing recursive links. Under the Web host, each output can reuse the management host's ports or run in its own dedicated worker. The TUI can configure and supervise dedicated output workers but does not expose the Web management routes. New outputs start with no access grants, so every remote request is denied until a user explicitly creates one named grant per remote consumer and copies or exports its one-time connection bundle. Rotate only the affected grant when its raw token is unavailable or may have been exposed, or revoke it without interrupting other consumers on the same virtual device. Revoked grants may be permanently purged after confirmation when their retained identity and lifecycle history are no longer needed, including the final grant to return the output to its deny-all state.
 

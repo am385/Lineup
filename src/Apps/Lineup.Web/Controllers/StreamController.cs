@@ -220,13 +220,15 @@ public class StreamController : ControllerBase
 
         var sessionId = StreamSessionId.New().ToString();
         var directory = _transientData.CreateSessionDirectory(WebPlayerTransientWorkspaces.Cmaf, sessionId);
-        var manifestPath = _transientData.GetFilePath(directory, CmafStreamPlanner.DashManifestName);
-        var subtitlePath = request.SubtitleMode == CmafTestSubtitleMode.WebVttSidecar
-            ? _transientData.GetFilePath(directory, "captions-0.vtt")
-            : null;
         Process? process = null;
+        CmafSession? session = null;
+        var ownershipTransferred = false;
         try
         {
+            var manifestPath = _transientData.GetFilePath(directory, CmafStreamPlanner.DashManifestName);
+            var subtitlePath = request.SubtitleMode == CmafTestSubtitleMode.WebVttSidecar
+                ? _transientData.GetFilePath(directory, "captions-0.vtt")
+                : null;
             if (subtitlePath is not null)
             {
                 await System.IO.File.WriteAllTextAsync(
@@ -235,7 +237,7 @@ public class StreamController : ControllerBase
                     HttpContext.RequestAborted);
             }
             process = _compatibilityTestService.Start(_settingsService.Settings.Streaming.VirtualDefaults, request, manifestPath);
-            var session = new CmafSession
+            session = new CmafSession
             {
                 SessionId = sessionId,
                 Channel = "Watch Test",
@@ -255,25 +257,22 @@ public class StreamController : ControllerBase
                 if (process.HasExited)
                 {
                     await errorMonitorTask;
-                    StopCmafSession(sessionId);
                     return StatusCode(StatusCodes.Status502BadGateway, new { error = errors.LastOrDefault() ?? "FFmpeg exited before the Watch Test presentation was ready." });
                 }
 
                 var hlsPath = _transientData.GetFilePath(directory, CmafStreamPlanner.HlsManifestName);
                 if (_transientData.FileExists(manifestPath) && _transientData.FileExists(hlsPath) && _transientData.EnumerateFiles(directory, "*.m4s").Count >= 2)
                 {
-                    Volatile.Write(ref session.IsStarting, 0);
-                    session = await RegisterCmafSessionAsync(session, HttpContext.RequestAborted);
                     var baseUrl = $"/api/stream/watch-test/{sessionId}";
                     var manifestUrl = request.Protocol == CmafProtocol.Dash
                         ? $"{baseUrl}/{CmafStreamPlanner.DashManifestName}"
                         : $"{baseUrl}/{CmafStreamPlanner.HlsManifestName}";
                     var (width, height) = CmafCompatibilityTestPlanner.GetResolution(request.Quality);
-                    using var manifestStream = _transientData.OpenRead(manifestPath) ?? throw new IOException("Watch Test manifest could not be opened.");
-                    using var manifestReader = new StreamReader(manifestStream);
                     (string VideoCodec, string AudioCodec) codecs;
                     try
                     {
+                        using var manifestStream = _transientData.OpenRead(manifestPath) ?? throw new IOException("Watch Test manifest could not be opened.");
+                        using var manifestReader = new StreamReader(manifestStream);
                         codecs = CmafCompatibilityTestPlanner.ParseManifestCodecs(await manifestReader.ReadToEndAsync(HttpContext.RequestAborted));
                     }
                     catch (System.Xml.XmlException)
@@ -281,7 +280,14 @@ public class StreamController : ControllerBase
                         await Task.Delay(100, HttpContext.RequestAborted);
                         continue;
                     }
-                    return Ok(new CmafCompatibilityTestResponse(
+                    session = await RegisterCmafSessionAsync(session, HttpContext.RequestAborted);
+                    Volatile.Write(ref session.IsStarting, 0);
+                    if (!session.IsActive || process.HasExited)
+                    {
+                        await errorMonitorTask;
+                        return StatusCode(StatusCodes.Status502BadGateway, new { error = errors.LastOrDefault() ?? "FFmpeg exited before the Watch Test presentation was ready." });
+                    }
+                    var response = new CmafCompatibilityTestResponse(
                         sessionId,
                         manifestUrl,
                         codecs.VideoCodec,
@@ -289,33 +295,38 @@ public class StreamController : ControllerBase
                         CmafCompatibilityTestPlanner.GetChannelCount(request.ChannelLayout),
                         width,
                         height,
-                        subtitlePath is null ? null : $"{baseUrl}/captions-0.vtt"));
+                        subtitlePath is null ? null : $"{baseUrl}/captions-0.vtt");
+                    ownershipTransferred = true;
+                    return Ok(response);
                 }
 
                 await Task.Delay(100, HttpContext.RequestAborted);
             }
 
-            StopCmafSession(sessionId);
             return StatusCode(StatusCodes.Status504GatewayTimeout, new { error = "FFmpeg did not create the Watch Test manifests and fragments in time." });
         }
         catch (OperationCanceledException) when (HttpContext.RequestAborted.IsCancellationRequested)
         {
-            if (!StopCmafSession(sessionId))
-            {
-                TryDeleteTransientDirectory(directory);
-                process?.Dispose();
-            }
             return new EmptyResult();
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or IOException)
         {
-            if (!StopCmafSession(sessionId))
-            {
-                TryDeleteTransientDirectory(directory);
-                process?.Dispose();
-            }
             _logger.LogError(ex, "Error starting Watch Test CMAF session {SessionId}", sessionId);
             return StatusCode(StatusCodes.Status500InternalServerError, new { error = ex.Message });
+        }
+        finally
+        {
+            if (!ownershipTransferred)
+            {
+                if (session is not null)
+                {
+                    StopCmafSession(session);
+                }
+                else
+                {
+                    CleanupIncompleteCmafOutput(process, null, null, directory);
+                }
+            }
         }
     }
 

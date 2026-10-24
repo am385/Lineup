@@ -1567,7 +1567,7 @@ public partial class Settings : IDisposable
         {
             var connectionBundle = new LineupLinkConnectionBundle
             {
-                BaseUrl = NullIfWhiteSpace(device.UseDedicatedListener ? device.PublicBaseUri : device.LinkPublicBaseUrl),
+                BaseUrl = NullIfWhiteSpace(device.UseDedicatedListener ? device.EffectivePublicBaseUri : device.LinkPublicBaseUrl),
                 VirtualDeviceId = device.Id.Value,
                 AccessToken = string.IsNullOrWhiteSpace(grant.RawToken)
                     ? LineupLinkConnectionBundleCodec.RedactedAccessToken

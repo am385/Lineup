@@ -22,6 +22,108 @@ namespace Lineup.Tui.Tests;
 /// </summary>
 public sealed class TuiAdapterSettingsEditorTests
 {
+    /// <summary>Verifies hosting edits persist unexposed security settings while leaving a separately keyed shared policy unchanged.</summary>
+    [Theory]
+    [InlineData(VirtualOutputClientCertificateMode.Require, true)]
+    [InlineData(VirtualOutputClientCertificateMode.Require, false)]
+    [InlineData(VirtualOutputClientCertificateMode.Allow, true)]
+    [InlineData(VirtualOutputClientCertificateMode.Allow, false)]
+    [InlineData(VirtualOutputClientCertificateMode.None, true)]
+    [InlineData(VirtualOutputClientCertificateMode.None, false)]
+    public async Task BuildSecurityPolicy_HostingEdit_PersistsUnexposedSettings(VirtualOutputClientCertificateMode certificateMode, bool allowForwardedHeaders)
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-tui-security-");
+        try
+        {
+            var path = Path.Combine(root.FullName, AppConstants.SettingsFileName);
+            var service = new LineupSettingsService(NullLogger<LineupSettingsService>.Instance, path, root.FullName);
+            await service.UpdateAsync(settings => settings.Streaming = CreateSecuredHostingConfiguration(certificateMode, allowForwardedHeaders));
+            var original = service.Settings.Streaming;
+            var originalPolicy = Assert.Single(original.VirtualOutputSecurityPolicies);
+
+            // Act
+            var candidate = CreateSecurityPolicyEdit(original);
+            var saved = await TuiAdapterSettingsEditor.TrySaveTopologyAsync(service, candidate);
+            var reloaded = new LineupSettingsService(NullLogger<LineupSettingsService>.Instance, path, root.FullName).Settings.Streaming;
+
+            // Assert
+            Assert.True(saved);
+            Assert.Empty(StreamingConfigurationValidator.Validate(reloaded));
+            var device = reloaded.VirtualDevices[0];
+            var binding = Assert.Single(device.Hosting!.Bindings);
+            var policy = reloaded.VirtualOutputSecurityPolicies.Single(item => item.Key == binding.SecurityPolicyKey);
+            Assert.Equal(certificateMode, policy.ClientCertificateMode);
+            Assert.Equal(allowForwardedHeaders, policy.AllowForwardedHeaders);
+            Assert.Equal(originalPolicy.TrustedProxies, policy.TrustedProxies);
+            Assert.Equal($"virtual-{device.Id.Value:N}-security", policy.Key);
+            Assert.Equal($"{device.Name} listener security", policy.Name);
+            Assert.Equal(8601, binding.Port);
+            Assert.Equal("new-certificate", policy.CertificateReference);
+            Assert.Equal(["198.51.100.0/24", "2001:db8::/32"], policy.AllowedNetworks);
+            Assert.Equal(30, policy.MaximumConnections);
+            Assert.Equal(240, policy.RequestsPerMinutePerClient);
+            var sharedPolicy = reloaded.VirtualOutputSecurityPolicies.Single(item => item.Key == originalPolicy.Key);
+            Assert.Equal(certificateMode, sharedPolicy.ClientCertificateMode);
+            Assert.Equal(allowForwardedHeaders, sharedPolicy.AllowForwardedHeaders);
+            Assert.Equal(originalPolicy.TrustedProxies, sharedPolicy.TrustedProxies);
+            Assert.Equal("original-certificate", sharedPolicy.CertificateReference);
+            Assert.Equal(["192.0.2.0/24"], sharedPolicy.AllowedNetworks);
+            Assert.Equal(10, sharedPolicy.MaximumConnections);
+            Assert.Equal(120, sharedPolicy.RequestsPerMinutePerClient);
+            Assert.Equal(originalPolicy.Key, Assert.Single(reloaded.VirtualDevices[1].Hosting!.Bindings).SecurityPolicyKey);
+            Assert.Same(originalPolicy, Assert.Single(original.VirtualOutputSecurityPolicies));
+            Assert.Equal("original-certificate", originalPolicy.CertificateReference);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>Verifies first-time listener policies keep default certificate and proxy behavior while applying editable fields.</summary>
+    [Fact]
+    public void BuildSecurityPolicy_NoExistingPolicy_KeepsDefaults()
+    {
+        // Arrange
+        var device = CreateHostingConfiguration().VirtualDevices[0];
+
+        // Act
+        var policy = TuiAdapterSettingsEditor.BuildSecurityPolicy(device, null, "  ", " 192.0.2.0/24, ::1/128 ", 10, 120);
+
+        // Assert
+        Assert.Equal($"virtual-{device.Id.Value:N}-security", policy.Key);
+        Assert.Equal($"{device.Name} listener security", policy.Name);
+        Assert.Null(policy.CertificateReference);
+        Assert.Equal(VirtualOutputClientCertificateMode.None, policy.ClientCertificateMode);
+        Assert.False(policy.AllowForwardedHeaders);
+        Assert.Empty(policy.TrustedProxies);
+        Assert.Equal(["192.0.2.0/24", "::1/128"], policy.AllowedNetworks);
+        Assert.Equal(10, policy.MaximumConnections);
+        Assert.Equal(120, policy.RequestsPerMinutePerClient);
+    }
+
+    /// <summary>Verifies switching to HTTP cannot silently remove an existing client-certificate requirement.</summary>
+    [Fact]
+    public async Task BuildSecurityPolicy_HttpWithRequiredClientCertificate_RejectsSave()
+    {
+        // Arrange
+        var original = CreateSecuredHostingConfiguration(VirtualOutputClientCertificateMode.Require, true);
+        var settings = new LineupSettings { Streaming = original };
+        var service = CreateSettingsService(settings);
+
+        // Act
+        var candidate = CreateSecurityPolicyEdit(original, VirtualOutputTransport.Http);
+        var saved = await TuiAdapterSettingsEditor.TrySaveTopologyAsync(service, candidate);
+
+        // Assert
+        Assert.False(saved);
+        Assert.Contains(StreamingConfigurationValidator.Validate(candidate), error => error.Contains("HTTP output binding cannot use client certificates", StringComparison.Ordinal));
+        Assert.Same(original, settings.Streaming);
+        Assert.Equal(VirtualOutputClientCertificateMode.Require, Assert.Single(original.VirtualOutputSecurityPolicies).ClientCertificateMode);
+        await service.DidNotReceive().UpdateAsync(Arg.Any<Action<LineupSettings>>());
+    }
+
     /// <summary>Verifies invalid listener, security, and worker settings are rejected before persistence.</summary>
     [Theory]
     [InlineData("conflicting-bindings")]
@@ -525,6 +627,70 @@ public sealed class TuiAdapterSettingsEditorTests
         var remaining = Assert.Single(builtInProtected.GuideOutputs);
         Assert.Equal(builtInId, remaining.Id);
         Assert.True(remaining.IsBuiltIn);
+    }
+
+    private static StreamingConfiguration CreateSecuredHostingConfiguration(VirtualOutputClientCertificateMode certificateMode, bool allowForwardedHeaders)
+    {
+        var configuration = CreateHostingConfiguration(8602);
+        return configuration with
+        {
+            VirtualDevices = configuration.VirtualDevices.Select(device => device with
+            {
+                Hosting = device.Hosting! with
+                {
+                    Bindings = device.Hosting!.Bindings.Select(binding => binding with
+                    {
+                        Transport = VirtualOutputTransport.Https,
+                        PublicBaseUri = $"https://localhost:{binding.Port}/"
+                    }).ToArray()
+                }
+            }).ToArray(),
+            VirtualOutputSecurityPolicies =
+            [
+                configuration.VirtualOutputSecurityPolicies[0] with
+                {
+                    CertificateReference = "original-certificate",
+                    ClientCertificateMode = certificateMode,
+                    AllowedNetworks = ["192.0.2.0/24"],
+                    MaximumConnections = 10,
+                    RequestsPerMinutePerClient = 120,
+                    AllowForwardedHeaders = allowForwardedHeaders,
+                    TrustedProxies = allowForwardedHeaders ? ["127.0.0.1", "192.0.2.0/24", "::1/128"] : []
+                }
+            ]
+        };
+    }
+
+    private static StreamingConfiguration CreateSecurityPolicyEdit(StreamingConfiguration original, VirtualOutputTransport transport = VirtualOutputTransport.Https)
+    {
+        var device = original.VirtualDevices[0];
+        var binding = Assert.Single(device.Hosting!.Bindings);
+        var currentPolicy = original.VirtualOutputSecurityPolicies.Single(policy => policy.Key == binding.SecurityPolicyKey);
+        var policy = TuiAdapterSettingsEditor.BuildSecurityPolicy(device, currentPolicy, " new-certificate ", " 198.51.100.0/24, 2001:db8::/32 ", 30, 240);
+        return original with
+        {
+            VirtualDevices =
+            [
+                device with
+                {
+                    Hosting = device.Hosting with
+                    {
+                        Bindings =
+                        [
+                            binding with
+                            {
+                                Transport = transport,
+                                Port = 8601,
+                                PublicBaseUri = $"{(transport == VirtualOutputTransport.Https ? "https" : "http")}://localhost:8601/",
+                                SecurityPolicyKey = policy.Key
+                            }
+                        ]
+                    }
+                },
+                original.VirtualDevices[1]
+            ],
+            VirtualOutputSecurityPolicies = [.. original.VirtualOutputSecurityPolicies, policy]
+        };
     }
 
     private static ILineupSettingsService CreateSettingsService(LineupSettings settings)

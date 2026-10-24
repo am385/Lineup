@@ -16,6 +16,136 @@ namespace Lineup.Web.Tests.Controllers;
 /// <summary>Verifies stream transport validation, routing, and lifecycle boundaries.</summary>
 public sealed class StreamControllerTests
 {
+    /// <summary>Verifies disconnecting before readiness terminates the unregistered encoder and removes its files.</summary>
+    [Fact]
+    public async Task StartCmafCompatibilityTest_RequestCanceled_CleansStartingEncoder()
+    {
+        // Arrange
+        await using var fixture = new CompatibilityStartupFixture("waiting");
+
+        // Act
+        var starting = fixture.Controller.StartCmafCompatibilityTest(new CmafCompatibilityTestRequest());
+        await fixture.RequestCancellation.CancelAsync();
+        var result = await starting;
+
+        // Assert
+        Assert.IsType<EmptyResult>(result);
+        Assert.False(fixture.IsEncoderRunning);
+        Assert.False(Directory.Exists(fixture.SessionDirectory));
+        Assert.Empty(fixture.Outputs.GetViewers());
+    }
+
+    /// <summary>Verifies the real readiness deadline terminates an encoder that never produces manifests.</summary>
+    [Fact]
+    public async Task StartCmafCompatibilityTest_ReadinessTimeout_CleansStartingEncoder()
+    {
+        // Arrange
+        await using var fixture = new CompatibilityStartupFixture("waiting");
+
+        // Act
+        var result = await fixture.Controller.StartCmafCompatibilityTest(new CmafCompatibilityTestRequest());
+
+        // Assert
+        Assert.Equal(StatusCodes.Status504GatewayTimeout, Assert.IsType<ObjectResult>(result).StatusCode);
+        Assert.False(fixture.IsEncoderRunning);
+        Assert.False(Directory.Exists(fixture.SessionDirectory));
+        Assert.Empty(fixture.Outputs.GetViewers());
+    }
+
+    /// <summary>Verifies storage and registration failures release the encoder even before it has a viewer alias.</summary>
+    [Theory]
+    [InlineData("io")]
+    [InlineData("registration")]
+    public async Task StartCmafCompatibilityTest_StartupFailure_CleansStartingEncoder(string failure)
+    {
+        // Arrange
+        await using var fixture = new CompatibilityStartupFixture(failure);
+
+        // Act
+        var result = await fixture.Controller.StartCmafCompatibilityTest(new CmafCompatibilityTestRequest());
+
+        // Assert
+        Assert.Equal(StatusCodes.Status500InternalServerError, Assert.IsType<ObjectResult>(result).StatusCode);
+        Assert.False(fixture.IsEncoderRunning);
+        Assert.False(Directory.Exists(fixture.SessionDirectory));
+        Assert.Empty(fixture.Outputs.GetViewers());
+    }
+
+    /// <summary>Verifies an encoder exiting before readiness does not leave an unregistered artifact directory.</summary>
+    [Fact]
+    public async Task StartCmafCompatibilityTest_EncoderExits_CleansStartingArtifacts()
+    {
+        // Arrange
+        await using var fixture = new CompatibilityStartupFixture("exit");
+
+        // Act
+        var result = await fixture.Controller.StartCmafCompatibilityTest(new CmafCompatibilityTestRequest());
+
+        // Assert
+        Assert.Equal(StatusCodes.Status502BadGateway, Assert.IsType<ObjectResult>(result).StatusCode);
+        Assert.False(fixture.IsEncoderRunning);
+        Assert.False(Directory.Exists(fixture.SessionDirectory));
+        Assert.Empty(fixture.Outputs.GetViewers());
+    }
+
+    /// <summary>Verifies successful startup transfers ownership until the viewer explicitly stops its presentation.</summary>
+    [Fact]
+    public async Task StartCmafCompatibilityTest_Ready_PreservesEncoderUntilStopped()
+    {
+        // Arrange
+        await using var fixture = new CompatibilityStartupFixture("ready");
+
+        // Act
+        var result = await fixture.Controller.StartCmafCompatibilityTest(new CmafCompatibilityTestRequest());
+
+        // Assert
+        var response = Assert.IsType<CmafCompatibilityTestResponse>(Assert.IsType<OkObjectResult>(result).Value);
+        Assert.True(fixture.IsEncoderRunning);
+        Assert.True(Directory.Exists(fixture.SessionDirectory));
+        Assert.Single(fixture.Outputs.GetViewers());
+        Assert.IsType<OkObjectResult>(fixture.Controller.StopCmaf(response.SessionId));
+        Assert.False(fixture.IsEncoderRunning);
+        Assert.False(Directory.Exists(fixture.SessionDirectory));
+        Assert.Empty(fixture.Outputs.GetViewers());
+    }
+
+    /// <summary>Verifies an incomplete manifest can be retried without registering the same viewer twice.</summary>
+    [Fact]
+    public async Task StartCmafCompatibilityTest_PartialManifest_RetriesBeforeOwnershipTransfer()
+    {
+        // Arrange
+        await using var fixture = new CompatibilityStartupFixture("partial");
+
+        // Act
+        var result = await fixture.Controller.StartCmafCompatibilityTest(new CmafCompatibilityTestRequest());
+
+        // Assert
+        var response = Assert.IsType<CmafCompatibilityTestResponse>(Assert.IsType<OkObjectResult>(result).Value);
+        Assert.True(fixture.IsEncoderRunning);
+        Assert.Equal(2, fixture.ManifestReads);
+        Assert.Single(fixture.Outputs.GetViewers());
+        Assert.Equal(1, fixture.Outputs.ActiveOutputCount);
+        Assert.IsType<OkObjectResult>(fixture.Controller.StopCmaf(response.SessionId));
+        Assert.False(fixture.IsEncoderRunning);
+        Assert.False(Directory.Exists(fixture.SessionDirectory));
+    }
+
+    /// <summary>Verifies unexpected startup exceptions propagate only after resources have been released.</summary>
+    [Fact]
+    public async Task StartCmafCompatibilityTest_UnexpectedParserFailure_CleansBeforePropagating()
+    {
+        // Arrange
+        await using var fixture = new CompatibilityStartupFixture("unexpected");
+
+        // Act
+        await Assert.ThrowsAsync<ArgumentException>(() => fixture.Controller.StartCmafCompatibilityTest(new CmafCompatibilityTestRequest()));
+
+        // Assert
+        Assert.False(fixture.IsEncoderRunning);
+        Assert.False(Directory.Exists(fixture.SessionDirectory));
+        Assert.Empty(fixture.Outputs.GetViewers());
+    }
+
     /// <summary>Verifies unavailable synthetic encoders are rejected before a compatibility session starts.</summary>
     [Fact]
     public async Task StartCmafCompatibilityTest_Ac4ReturnsUnprocessableEntity()
@@ -493,7 +623,8 @@ public sealed class StreamControllerTests
         IMediaProbeService? mediaProbe = null,
         ITransientDataStore? transientData = null,
         ICmafOutputCoordinator? cmafOutputs = null,
-        TimeSpan? cmafStartupTimeout = null)
+        TimeSpan? cmafStartupTimeout = null,
+        ICmafCompatibilityTestService? compatibilityTestService = null)
     {
         var settings = Substitute.For<ILineupSettingsService>();
         settings.Settings.Returns(new LineupSettings
@@ -530,7 +661,8 @@ public sealed class StreamControllerTests
             transientData: transientData ?? new TransientDataStore(Path.Combine(AppContext.BaseDirectory, "stream-controller-artifacts")),
             streamRoutes: routes,
             cmafOutputs: cmafOutputs,
-            cmafStartupTimeout: cmafStartupTimeout)
+            cmafStartupTimeout: cmafStartupTimeout,
+            compatibilityTestService: compatibilityTestService)
         {
             ControllerContext = new ControllerContext
             {
@@ -670,6 +802,109 @@ public sealed class StreamControllerTests
             _ = cancellationToken;
             await Task.Delay(delay);
             return 0;
+        }
+    }
+
+    private sealed class CompatibilityStartupFixture : IAsyncDisposable
+    {
+        private readonly DirectoryInfo _root = Directory.CreateTempSubdirectory("lineup-watch-test-startup-");
+        private readonly Process _encoder;
+        private readonly Process _observer;
+
+        internal CompatibilityStartupFixture(string scenario)
+        {
+            var configuration = new DirectoryInfo(AppContext.BaseDirectory).Name;
+            var executable = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "Lineup.FakeFFmpeg", configuration, "Lineup.FakeFFmpeg.dll"));
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "dotnet",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardInput = true,
+                RedirectStandardError = true
+            };
+            startInfo.ArgumentList.Add(executable);
+            startInfo.ArgumentList.Add("hold");
+            _encoder = Process.Start(startInfo) ?? throw new InvalidOperationException("The deterministic compatibility encoder could not be started.");
+            _observer = Process.GetProcessById(_encoder.Id);
+            var files = new TransientDataStore(_root.FullName);
+            var transient = Substitute.For<ITransientDataStore>();
+            transient.CreateSessionDirectory(Arg.Any<string>(), Arg.Any<string>()).Returns(call =>
+            {
+                SessionDirectory = files.CreateSessionDirectory(call.ArgAt<string>(0), call.ArgAt<string>(1));
+                File.WriteAllText(Path.Combine(SessionDirectory, "ownership.txt"), "probe");
+                return SessionDirectory;
+            });
+            transient.GetFilePath(Arg.Any<string>(), Arg.Any<string>()).Returns(call => files.GetFilePath(call.ArgAt<string>(0), call.ArgAt<string>(1)));
+            transient.FileExists(Arg.Any<string>()).Returns(call => scenario == "io"
+                ? throw new IOException("Synthetic manifest storage failure.")
+                : files.FileExists(call.Arg<string>()));
+            transient.EnumerateFiles(Arg.Any<string>(), Arg.Any<string>()).Returns(call => files.EnumerateFiles(call.ArgAt<string>(0), call.ArgAt<string>(1)));
+            transient.OpenRead(Arg.Any<string>()).Returns(call =>
+            {
+                ManifestReads++;
+                if (scenario == "unexpected" || scenario == "partial" && ManifestReads == 1)
+                {
+                    return new MemoryStream(System.Text.Encoding.UTF8.GetBytes(scenario == "unexpected" ? " " : "<MPD>"));
+                }
+                return files.OpenRead(call.Arg<string>());
+            });
+            transient.When(store => store.DeleteDirectory(Arg.Any<string>())).Do(call => files.DeleteDirectory(call.Arg<string>()));
+            var service = Substitute.For<ICmafCompatibilityTestService>();
+            service.Start(Arg.Any<VirtualTranscodeProfile>(), Arg.Any<CmafCompatibilityTestRequest>(), Arg.Any<string>()).Returns(call =>
+            {
+                if (scenario is "ready" or "partial" or "registration" or "unexpected")
+                {
+                    File.WriteAllText(call.Arg<string>(), """
+                        <MPD><Period><AdaptationSet>
+                          <Representation mimeType="video/mp4" codecs="avc1.64002a" />
+                          <Representation mimeType="audio/mp4" codecs="mp4a.40.2" />
+                        </AdaptationSet></Period></MPD>
+                        """);
+                    File.WriteAllText(Path.Combine(SessionDirectory, CmafStreamPlanner.HlsManifestName), "#EXTM3U");
+                    File.WriteAllBytes(Path.Combine(SessionDirectory, "chunk-0-00001.m4s"), [0]);
+                    File.WriteAllBytes(Path.Combine(SessionDirectory, "chunk-1-00001.m4s"), [0]);
+                }
+                if (scenario == "exit")
+                {
+                    _observer.Kill(entireProcessTree: true);
+                    _observer.WaitForExit();
+                }
+                return _encoder;
+            });
+            if (scenario == "registration")
+            {
+                Outputs.StopAsync().AsTask().GetAwaiter().GetResult();
+            }
+            Controller = CreateController(transientData: transient, cmafOutputs: Outputs, compatibilityTestService: service);
+            Controller.HttpContext.RequestAborted = RequestCancellation.Token;
+        }
+
+        internal StreamController Controller { get; }
+
+        internal CmafOutputCoordinator Outputs { get; } = new();
+
+        internal CancellationTokenSource RequestCancellation { get; } = new();
+
+        internal string SessionDirectory { get; private set; } = string.Empty;
+
+        internal int ManifestReads { get; private set; }
+
+        internal bool IsEncoderRunning => !_observer.HasExited;
+
+        /// <inheritdoc />
+        public async ValueTask DisposeAsync()
+        {
+            await Outputs.DisposeAsync();
+            if (!_observer.HasExited)
+            {
+                _observer.Kill(entireProcessTree: true);
+                await _observer.WaitForExitAsync(CancellationToken.None);
+            }
+            _encoder.Dispose();
+            _observer.Dispose();
+            RequestCancellation.Dispose();
+            _root.Delete(recursive: true);
         }
     }
 

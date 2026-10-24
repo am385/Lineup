@@ -16,7 +16,7 @@ public sealed class GuideOrchestrator : IGuideOrchestrator
     private readonly StreamingTopologyStore _topologyStore;
     private readonly ILogger<GuideOrchestrator> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private ActiveConfiguration _active = new(new StreamingConfiguration(), [], []);
+    private ActiveConfiguration _active = new(new StreamingConfiguration(), [], [], []);
 
     /// <summary>Initializes a guide orchestrator.</summary>
     public GuideOrchestrator(
@@ -43,21 +43,22 @@ public sealed class GuideOrchestrator : IGuideOrchestrator
 
         var sources = new List<ActiveGuideSource>();
         var activationFailures = new List<GuideRefreshResult>();
+        var guideScopes = new List<GuideSourceScope>();
         foreach (var definition in configuration.GuideSources.Where(source => source.Enabled))
         {
             try
             {
                 var driver = _adapters.GetGuide(definition.Adapter.Kind);
-                var adapterErrors = driver.Validate(definition.Adapter);
-                if (adapterErrors.Count > 0)
-                {
-                    throw new InvalidOperationException($"Guide source '{definition.Name}' is invalid: {string.Join(" ", adapterErrors)}");
-                }
-
                 var scope = GuideSourceSubscriptionResolver.Resolve(definition, configuration.PhysicalDevices, driver);
                 if (scope.PhysicalDeviceIds.Count == 0)
                 {
                     throw new InvalidOperationException($"Guide source '{definition.Name}' has no compatible enabled physical devices.");
+                }
+                guideScopes.Add(scope);
+                var adapterErrors = driver.Validate(definition.Adapter);
+                if (adapterErrors.Count > 0)
+                {
+                    throw new InvalidOperationException($"Guide source '{definition.Name}' is invalid: {string.Join(" ", adapterErrors)}");
                 }
 
                 var source = await driver.CreateAsync(definition.Id, definition.Adapter, scope.PhysicalDeviceIds.ToArray(), cancellationToken);
@@ -86,7 +87,7 @@ public sealed class GuideOrchestrator : IGuideOrchestrator
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            _active = new ActiveConfiguration(configuration, sources, activationFailures);
+            _active = new ActiveConfiguration(configuration, sources, activationFailures, guideScopes);
         }
         finally
         {
@@ -134,8 +135,7 @@ public sealed class GuideOrchestrator : IGuideOrchestrator
             _adapters.GetVirtual(virtualDevice.Adapter.Kind));
         var identities = await _topologyStore.ReadActiveAsync(cancellationToken);
         var resolution = ChannelTopologyResolver.Resolve(virtualDevice, physicalDevices, identities);
-        var activeGuideScopes = active.Sources.Select(source => source.Scope).ToArray();
-        return await _guideStore.BuildSnapshotAsync(virtualDeviceId, resolution.Channels, activeGuideScopes, cancellationToken: cancellationToken);
+        return await _guideStore.BuildSnapshotAsync(virtualDeviceId, resolution.Channels, active.GuideScopes, cancellationToken: cancellationToken);
     }
 
     private async Task<GuideRefreshResult> RefreshAsync(IGuideSource source, GuideSourceScope scope, CancellationToken cancellationToken)
@@ -176,8 +176,5 @@ public sealed class GuideOrchestrator : IGuideOrchestrator
 
     private sealed record ActiveGuideSource(IGuideSource Source, GuideSourceScope Scope);
 
-    private sealed record ActiveConfiguration(
-        StreamingConfiguration Configuration,
-        IReadOnlyList<ActiveGuideSource> Sources,
-        IReadOnlyList<GuideRefreshResult> ActivationFailures);
+    private sealed record ActiveConfiguration(StreamingConfiguration Configuration, IReadOnlyList<ActiveGuideSource> Sources, IReadOnlyList<GuideRefreshResult> ActivationFailures, IReadOnlyList<GuideSourceScope> GuideScopes);
 }

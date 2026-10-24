@@ -1,3 +1,39 @@
+using System.Text.Json;
+
+if (args.Length == 0)
+{
+    using var bootstrap = JsonDocument.Parse(await Console.In.ReadLineAsync() ?? throw new InvalidDataException("The worker probe requires a bootstrap descriptor."));
+    var temporaryPath = Path.GetTempPath();
+    var artifactDirectory = Path.Combine(temporaryPath, $"lineup-worker-probe-{Guid.NewGuid():N}", "lineup-web-player");
+    string? writeError = null;
+    try
+    {
+        Directory.CreateDirectory(artifactDirectory);
+        await File.WriteAllTextAsync(Path.Combine(artifactDirectory, "fragment.m4s"), "probe");
+    }
+    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+    {
+        writeError = exception.GetType().Name;
+    }
+    var report = new
+    {
+        TemporaryPath = temporaryPath,
+        ArtifactDirectory = artifactDirectory,
+        WriteError = writeError,
+        Variables = Environment.GetEnvironmentVariables().Cast<System.Collections.DictionaryEntry>()
+            .ToDictionary(item => (string)item.Key, item => (string?)item.Value),
+        Arguments = Environment.GetCommandLineArgs()
+    };
+    var reportPath = Path.Combine(Environment.CurrentDirectory, "worker-environment.json");
+    await File.WriteAllTextAsync(reportPath + ".tmp", JsonSerializer.Serialize(report));
+    File.Move(reportPath + ".tmp", reportPath);
+    if (bootstrap.RootElement.GetProperty("virtualDevice").GetProperty("name").GetString() != "exit")
+    {
+        await Task.Delay(Timeout.InfiniteTimeSpan);
+    }
+    return writeError is null ? 0 : 1;
+}
+
 var fail = string.Equals(Environment.GetEnvironmentVariable("LINEUP_FAKE_FFMPEG_FAIL"), "1", StringComparison.Ordinal);
 if (fail)
 {

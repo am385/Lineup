@@ -94,16 +94,19 @@ var manifest = await session.Broker.GetManifestAsync(
     new VirtualOutputManifestRequest { Session = sessionContext },
     CancellationToken.None);
 
-app.MapGet("/discover.json", (HttpContext context) =>
+app.MapGet("/discover.json", async (HttpContext context, CancellationToken cancellationToken) =>
 {
+    var currentManifest = await session.Broker.GetManifestAsync(
+        new VirtualOutputManifestRequest { Session = sessionContext },
+        cancellationToken);
     var baseUri = VirtualOutputBindingResolver.ResolvePublicBaseUri(bindingsByPort, context.Connection.LocalPort);
     var version = typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
     return Results.Ok(HdHomeRunProxyResponseFactory.CreateDiscover(
-        manifest.Name,
+        currentManifest.Name,
         deviceId,
         deviceAuth,
         baseUri,
-        checked((byte)Math.Clamp(manifest.TunerCount ?? 0, 0, byte.MaxValue)),
+        checked((byte)Math.Clamp(currentManifest.TunerCount ?? 0, 0, byte.MaxValue)),
         version));
 });
 app.MapGet("/lineup.json", async (HttpContext context, CancellationToken cancellationToken) =>

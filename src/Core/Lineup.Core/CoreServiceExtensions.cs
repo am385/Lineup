@@ -30,7 +30,7 @@ public static class CoreServiceExtensions
         services.AddDbContextFactory<EpgDbContext>(options =>
             options.UseSqlite($"Data Source={dbPath}"));
         services.AddSingleton(provider => new StreamingTopologyStore(provider.GetRequiredService<IDbContextFactory<EpgDbContext>>()));
-        services.AddSingleton(provider => new DeviceGuideStore(provider.GetRequiredService<IDbContextFactory<EpgDbContext>>()));
+        services.AddSingleton<DeviceGuideStore>();
         services.AddSingleton<IPhysicalCapacityLeaseRegistry, PhysicalCapacityLeaseRegistry>();
         services.AddSingleton<IPhysicalLineupService, PhysicalLineupService>();
         services.AddSingleton<IPhysicalDeviceStatusService, PhysicalDeviceStatusService>();

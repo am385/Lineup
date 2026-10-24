@@ -163,7 +163,7 @@ public sealed class DeviceGuideStoreTests
             var sourceChannelId = new SourceChannelId(owner, "physical-station");
             var guideSourceId = GuideSourceId.New();
             var guideChannelId = new GuideChannelId(guideSourceId, "guide-station");
-            var start = DateTimeOffset.Parse("2026-10-02T12:00:00Z");
+            var start = DateTimeOffset.UtcNow;
             await topology.ReconcileAsync(
                 owner,
                 [new PhysicalSourceChannel { Id = sourceChannelId, ProviderNumber = "7.1", ProviderName = "News" }],
@@ -413,7 +413,7 @@ public sealed class DeviceGuideStoreTests
 
     private static GuideImport Import(GuideSourceId sourceId, IReadOnlyList<GuideChannel> channels, IReadOnlyList<GuideProgram>? programs = null)
     {
-        var start = DateTimeOffset.Parse("2026-10-02T12:00:00Z");
+        var start = DateTimeOffset.UtcNow;
         return new GuideImport
         {
             SourceId = sourceId,

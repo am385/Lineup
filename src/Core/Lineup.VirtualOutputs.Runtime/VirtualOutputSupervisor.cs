@@ -140,6 +140,7 @@ public sealed class VirtualOutputSupervisor : BackgroundService
     private readonly CancellationTokenSource _retryCancellation = new();
     private readonly Dictionary<VirtualDeviceId, ActiveWorker> _active = [];
     private readonly Dictionary<VirtualDeviceId, ExternalWorker> _externalActive = [];
+    private readonly HashSet<VirtualDeviceId> _ownedOutputs = [];
     private readonly Dictionary<VirtualDeviceId, VirtualOutputWorkerRestartBudget> _restartBudgets = [];
     private readonly Dictionary<VirtualDeviceId, PendingRetry> _pendingRetries = [];
     private readonly Dictionary<VirtualDeviceId, string> _quarantinedFingerprints = [];
@@ -224,27 +225,19 @@ public sealed class VirtualOutputSupervisor : BackgroundService
             .Where(device => device.Enabled && device.Hosting is not null)
             .ToDictionary(device => device.Id);
 
-        foreach (var obsoleteId in _active.Keys
-                     .Concat(_externalActive.Keys)
+        foreach (var obsoleteId in _ownedOutputs
                      .Where(id => !desired.ContainsKey(id))
-                     .Distinct()
                      .ToArray())
         {
             await StopWorkerAsync(obsoleteId, cancellationToken);
-        }
-        foreach (var obsoleteId in _status.GetSnapshots()
-                     .Where(snapshot => !desired.ContainsKey(snapshot.VirtualDeviceId))
-                     .Select(snapshot => snapshot.VirtualDeviceId)
-                     .ToArray())
-        {
             _status.Remove(obsoleteId);
-            _externalEnrollments.Remove(obsoleteId);
-            _authority.Revoke(obsoleteId, "The virtual output is no longer enabled.");
             ResetFailureState(obsoleteId);
+            _ownedOutputs.Remove(obsoleteId);
         }
 
         foreach (var device in desired.Values)
         {
+            _ownedOutputs.Add(device.Id);
             var fingerprint = CreateFingerprint(device, configuration);
             if (_pendingRetries.TryGetValue(device.Id, out var pendingRetry))
             {

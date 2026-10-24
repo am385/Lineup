@@ -205,7 +205,7 @@ public sealed class PhysicalLineupServiceTests
         var retry = await fixture.Service.RefreshAsync(configuration, TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         // Assert
-        var canceled = Assert.IsAssignableFrom<OperationCanceledException>(exception);
+        var canceled = Assert.IsType<OperationCanceledException>(exception, exactMatch: false);
         Assert.Equal(cancellation.Token, canceled.CancellationToken);
         Assert.True(Assert.Single(retry).Succeeded);
         Assert.Empty(fixture.Logger.Warnings);

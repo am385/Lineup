@@ -21,7 +21,7 @@ public class EpgAutoFetchService : BackgroundService
 
     // Used to cancel the current delay when settings change
     private CancellationTokenSource? _delayCts;
-    private readonly object _delayLock = new();
+    private readonly Lock _delayLock = new();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="EpgAutoFetchService"/> class.
@@ -216,9 +216,11 @@ public class EpgAutoFetchService : BackgroundService
         var result = _settingsService.Settings.AutoGenerateXmltv
             ? await guides.RefreshAndPublishAsync(stoppingToken)
             : await guides.RefreshAsync(stoppingToken);
-        if (result.FailedSourceCount > 0)
+        var failedOutputs = result.Outputs.Count(output => !output.Succeeded);
+        if (result.FailedSourceCount > 0 || failedOutputs > 0)
         {
-            throw new InvalidOperationException($"{result.FailedSourceCount} configured guide source(s) failed to refresh.");
+            throw new InvalidOperationException(
+                $"{result.FailedSourceCount} configured guide source(s) failed to refresh; {failedOutputs} configured guide output(s) failed to publish.");
         }
 
         var nextInterval = CreateRandomizedFetchInterval();

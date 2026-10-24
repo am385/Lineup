@@ -38,7 +38,7 @@ public sealed record PhysicalDeviceRuntimeStatus
     /// <summary>Gets the most recent successful status snapshot.</summary>
     public PhysicalDeviceStatusSnapshot? Status { get; init; }
 
-    /// <summary>Gets a safe status-refresh failure message.</summary>
+    /// <summary>Gets a safe activation or status-refresh failure message.</summary>
     public string? Error { get; init; }
 
     /// <summary>Gets whether receiver control is supported.</summary>
@@ -79,9 +79,16 @@ public sealed class PhysicalDeviceStatusService : IPhysicalDeviceStatusService
         try
         {
             await _catalog.ApplyAsync(configuration, cancellationToken);
-            var statuses = new List<PhysicalDeviceRuntimeStatus>(_catalog.Devices.Count);
-            foreach (var device in _catalog.Devices)
+            var activeDevices = _catalog.Devices.ToDictionary(device => device.Snapshot.Id);
+            var statuses = new List<PhysicalDeviceRuntimeStatus>(configuration.PhysicalDevices.Count);
+            foreach (var definition in configuration.PhysicalDevices.Where(device => device.Enabled).OrderBy(device => device.Order).ThenBy(device => device.Id.Value))
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!activeDevices.TryGetValue(definition.Id, out var device))
+                {
+                    statuses.Add(CreateActivationFailureStatus(definition));
+                    continue;
+                }
                 try
                 {
                     var status = device is IPhysicalDeviceStatusCapability capability
@@ -117,9 +124,16 @@ public sealed class PhysicalDeviceStatusService : IPhysicalDeviceStatusService
         try
         {
             await _catalog.ApplyAsync(configuration, cancellationToken);
-            var statuses = new List<PhysicalDeviceRuntimeStatus>(_catalog.Devices.Count);
-            foreach (var device in _catalog.Devices)
+            var activeDevices = _catalog.Devices.ToDictionary(device => device.Snapshot.Id);
+            var statuses = new List<PhysicalDeviceRuntimeStatus>(configuration.PhysicalDevices.Count);
+            foreach (var definition in configuration.PhysicalDevices.Where(device => device.Enabled).OrderBy(device => device.Order).ThenBy(device => device.Id.Value))
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!activeDevices.TryGetValue(definition.Id, out var device))
+                {
+                    statuses.Add(CreateActivationFailureStatus(definition));
+                    continue;
+                }
                 var prior = Devices.SingleOrDefault(item => item.Device.Id == device.Snapshot.Id);
                 try
                 {
@@ -173,6 +187,25 @@ public sealed class PhysicalDeviceStatusService : IPhysicalDeviceStatusService
     private IPhysicalTunerDevice GetDevice(PhysicalDeviceId deviceId) =>
         _catalog.Devices.SingleOrDefault(device => device.Snapshot.Id == deviceId)
         ?? throw new KeyNotFoundException($"Physical device {deviceId} is not active.");
+
+    private PhysicalDeviceRuntimeStatus CreateActivationFailureStatus(PhysicalDeviceDefinition definition)
+    {
+        _logger.LogWarning("Unable to report status for inactive physical device {PhysicalDeviceId}; activation failed", definition.Id);
+        var prior = Devices.SingleOrDefault(device => device.Device.Id == definition.Id &&
+            string.Equals(device.Device.Kind, definition.Adapter.Kind, StringComparison.OrdinalIgnoreCase));
+        return new PhysicalDeviceRuntimeStatus
+        {
+            Device = new PhysicalDeviceSnapshot
+            {
+                Id = definition.Id,
+                Kind = definition.Adapter.Kind,
+                Name = definition.Name,
+                Capacity = prior?.Device.Capacity ?? new PhysicalTunerCapacity(0)
+            },
+            Status = prior?.Status,
+            Error = "Physical device activation failed; check the device configuration and connection."
+        };
+    }
 
     private static PhysicalDeviceRuntimeStatus CreateRuntimeStatus(
         IPhysicalTunerDevice device,

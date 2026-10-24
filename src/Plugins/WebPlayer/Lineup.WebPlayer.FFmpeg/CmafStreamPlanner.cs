@@ -585,7 +585,7 @@ public static class CmafStreamPlanner
         return arguments;
     }
 
-    /// <summary>Creates a stable identity from the complete effective FFmpeg output plan.</summary>
+    /// <summary>Creates a stable output-plan identity independent of the owning viewer.</summary>
     public static string CreatePlanKey(
         VirtualTranscodeProfile profile,
         MediaProbeResult source,
@@ -596,7 +596,7 @@ public static class CmafStreamPlanner
             subtitle => subtitle.Index,
             subtitle => $"captions-{subtitle.Index}.vtt");
         var arguments = CreateArguments(profile, source, selection, request, DashManifestName, subtitlePaths);
-        var canonical = $"{JsonSerializer.Serialize(request)}\u001e{JsonSerializer.Serialize(profile)}\u001e" +
+        var canonical = $"{JsonSerializer.Serialize(request with { ClientId = null })}\u001e{JsonSerializer.Serialize(profile)}\u001e" +
             string.Join('\u001f', arguments.Select(argument => $"{argument.Length}:{argument}"));
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
     }

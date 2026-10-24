@@ -190,7 +190,7 @@ public sealed class GuideOutputProjectionTests
         CancellationToken cancellationToken)
     {
         var channelId = new GuideChannelId(sourceId, number);
-        var start = DateTimeOffset.Parse("2026-10-08T12:00:00Z");
+        var start = DateTimeOffset.UtcNow;
         await store.ImportAsync(
             new GuideImport
             {

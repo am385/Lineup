@@ -29,7 +29,7 @@ public interface IVirtualOutputWorkerLauncher
         CancellationToken cancellationToken = default);
 }
 
-/// <summary>Process-based managed virtual-output worker launcher.</summary>
+/// <summary>Process-based managed virtual-output worker launcher with activation-scoped temporary storage.</summary>
 public sealed class VirtualOutputWorkerLauncher : IVirtualOutputWorkerLauncher
 {
     private readonly ILogger<VirtualOutputWorkerLauncher> _logger;
@@ -79,20 +79,25 @@ public sealed class VirtualOutputWorkerLauncher : IVirtualOutputWorkerLauncher
             startInfo.Environment[item.Key] = item.Value;
         }
         startInfo.Environment["DOTNET_EnableDiagnostics"] = "0";
+        var temporaryDirectory = Directory.CreateTempSubdirectory($"lineup-worker-{bootstrap.VirtualDevice.Id}-");
+        foreach (var variable in new[] { "TMP", "TEMP", "TMPDIR", "SystemTemp" })
+        {
+            startInfo.Environment[variable] = temporaryDirectory.FullName;
+        }
         var process = new Process
         {
             StartInfo = startInfo,
             EnableRaisingEvents = true
         };
-        if (!process.Start())
-        {
-            process.Dispose();
-            throw new InvalidOperationException($"Virtual-output worker '{package.Manifest.WorkerId}' could not be started.");
-        }
-
+        var processStarted = false;
         IDisposable? processLimits = null;
         try
         {
+            processStarted = process.Start();
+            if (!processStarted)
+            {
+                throw new InvalidOperationException($"Virtual-output worker '{package.Manifest.WorkerId}' could not be started.");
+            }
             processLimits = VirtualOutputProcessLimits.Apply(process, bootstrap.WorkerPolicy);
             var bootstrapJson = JsonSerializer.Serialize(bootstrap, new JsonSerializerOptions(JsonSerializerDefaults.Web));
             await process.StandardInput.WriteLineAsync(bootstrapJson.AsMemory(), cancellationToken);
@@ -101,6 +106,7 @@ public sealed class VirtualOutputWorkerLauncher : IVirtualOutputWorkerLauncher
             var managed = new ManagedVirtualOutputWorkerProcess(
                 process,
                 processLimits,
+                temporaryDirectory,
                 package.Manifest.WorkerId,
                 _logger);
             processLimits = null;
@@ -109,13 +115,33 @@ public sealed class VirtualOutputWorkerLauncher : IVirtualOutputWorkerLauncher
         }
         catch
         {
-            if (!process.HasExited)
+            try
             {
-                process.Kill(entireProcessTree: true);
+                if (processStarted && !process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync(CancellationToken.None);
+                }
             }
-            processLimits?.Dispose();
-            process.Dispose();
+            finally
+            {
+                processLimits?.Dispose();
+                process.Dispose();
+                DeleteTemporaryDirectory(temporaryDirectory, package.Manifest.WorkerId, _logger);
+            }
             throw;
+        }
+    }
+
+    private static void DeleteTemporaryDirectory(DirectoryInfo directory, string workerId, ILogger logger)
+    {
+        try
+        {
+            directory.Delete(recursive: true);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            logger.LogWarning(exception, "Could not remove virtual-output worker {WorkerId} temporary directory {TemporaryDirectory}.", workerId, directory.FullName);
         }
     }
 
@@ -123,6 +149,7 @@ public sealed class VirtualOutputWorkerLauncher : IVirtualOutputWorkerLauncher
     {
         private readonly Process _process;
         private readonly IDisposable? _processLimits;
+        private readonly DirectoryInfo _temporaryDirectory;
         private readonly string _workerId;
         private readonly ILogger _logger;
         private readonly TaskCompletionSource<int> _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -130,14 +157,11 @@ public sealed class VirtualOutputWorkerLauncher : IVirtualOutputWorkerLauncher
         private Task? _stderr;
         private int _disposed;
 
-        internal ManagedVirtualOutputWorkerProcess(
-            Process process,
-            IDisposable? processLimits,
-            string workerId,
-            ILogger logger)
+        internal ManagedVirtualOutputWorkerProcess(Process process, IDisposable? processLimits, DirectoryInfo temporaryDirectory, string workerId, ILogger logger)
         {
             _process = process;
             _processLimits = processLimits;
+            _temporaryDirectory = temporaryDirectory;
             _workerId = workerId;
             _logger = logger;
             _process.Exited += ProcessExited;
@@ -189,21 +213,28 @@ public sealed class VirtualOutputWorkerLauncher : IVirtualOutputWorkerLauncher
                 return;
             }
             _process.Exited -= ProcessExited;
-            if (!_process.HasExited)
+            try
             {
-                _process.Kill(entireProcessTree: true);
-                await _process.WaitForExitAsync();
+                if (!_process.HasExited)
+                {
+                    _process.Kill(entireProcessTree: true);
+                    await _process.WaitForExitAsync();
+                }
+                if (_stdout is not null)
+                {
+                    await _stdout;
+                }
+                if (_stderr is not null)
+                {
+                    await _stderr;
+                }
             }
-            if (_stdout is not null)
+            finally
             {
-                await _stdout;
+                _process.Dispose();
+                _processLimits?.Dispose();
+                DeleteTemporaryDirectory(_temporaryDirectory, _workerId, _logger);
             }
-            if (_stderr is not null)
-            {
-                await _stderr;
-            }
-            _process.Dispose();
-            _processLimits?.Dispose();
         }
 
         private async Task PumpAsync(StreamReader reader, LogLevel level)

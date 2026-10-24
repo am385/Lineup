@@ -19,6 +19,7 @@
     <ProjectReference Include="..\..\..\src\Core\Lineup.VirtualOutputs.Hosting\Lineup.VirtualOutputs.Hosting.csproj" />
     <ProjectReference Include="..\..\..\src\Core\Lineup.VirtualOutputs.Runtime\Lineup.VirtualOutputs.Runtime.csproj" />
     <ProjectReference Include="..\..\..\src\Plugins\WebPlayer\Lineup.WebPlayer.VirtualOutputHost\Lineup.WebPlayer.VirtualOutputHost.csproj" />
+    <ProjectReference Include="..\..\..\src\Plugins\SiliconDust\Lineup.SiliconDust.HDHomeRun.VirtualOutputHost\Lineup.SiliconDust.HDHomeRun.VirtualOutputHost.csproj" />
     <ProjectReference Include="..\..\TestSupport\Lineup.FakeFFmpeg\Lineup.FakeFFmpeg.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 </Project>

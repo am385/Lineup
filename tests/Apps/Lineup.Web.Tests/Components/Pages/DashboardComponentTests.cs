@@ -18,6 +18,43 @@ public class DashboardComponentTests
 {
     private const string StorageKey = "lineup-dashboard-sections-v1";
 
+    /// <summary>Verifies failed activation remains visible in the device panel and increases the unavailable summary count.</summary>
+    [Fact]
+    public async Task PhysicalDevices_ActivationFailure_ShowsUnavailableDeviceAndCount()
+    {
+        // Arrange
+        var catalog = Substitute.For<IPhysicalDeviceCatalog>();
+        var statuses = new PhysicalDeviceStatusService(catalog);
+        using var context = CreateContext(deviceStatuses: statuses);
+        context.JSInterop.Setup<string?>("localStorage.getItem", StorageKey).SetResult(null);
+        var healthy = new PhysicalDeviceDefinition
+        {
+            Id = PhysicalDeviceId.New(),
+            Name = "Healthy source",
+            Adapter = new AdapterConfiguration("dashboard-test", JsonSerializer.SerializeToElement(new { }))
+        };
+        var failed = healthy with { Id = PhysicalDeviceId.New(), Name = "Unavailable source" };
+        var configuration = new StreamingConfiguration { PhysicalDevices = [healthy, failed] };
+        context.Services.GetRequiredService<ILineupSettingsService>().Settings.Streaming = configuration;
+        var live = Substitute.For<IPhysicalTunerDevice>();
+        live.Snapshot.Returns(new PhysicalDeviceSnapshot { Id = healthy.Id, Name = healthy.Name, Kind = healthy.Adapter.Kind, Capacity = new PhysicalTunerCapacity(1) });
+        catalog.Devices.Returns([live]);
+        await statuses.RefreshAsync(configuration, Xunit.TestContext.Current.CancellationToken);
+
+        // Act
+        var component = context.Render<Dashboard>();
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            Assert.Contains("2 devices", component.Markup, StringComparison.Ordinal);
+            Assert.Contains("1 unavailable", component.Markup, StringComparison.Ordinal);
+            Assert.Contains(healthy.Name, component.Find("#deviceSection").TextContent, StringComparison.Ordinal);
+            Assert.Contains(failed.Name, component.Find("#deviceSection").TextContent, StringComparison.Ordinal);
+            Assert.Contains("activation failed", Assert.Single(component.FindAll("#deviceSection .alert-danger")).TextContent, StringComparison.OrdinalIgnoreCase);
+        });
+    }
+
     /// <summary>
     /// Verifies dashboard disposal does not resolve services after the host service provider has shut down.
     /// </summary>
@@ -263,7 +300,9 @@ public class DashboardComponentTests
     private static BunitContext CreateContext(
         IActiveStreamRegistry? activeStreams = null,
         ITopologyGuideService? guides = null,
-        StreamingFlowSnapshot? streamingFlow = null)
+        StreamingFlowSnapshot? streamingFlow = null,
+        IPhysicalDeviceStatusService? deviceStatuses = null
+    )
     {
         var context = new BunitContext();
         var repository = Substitute.For<ILineupGuideReader>();
@@ -305,7 +344,7 @@ public class DashboardComponentTests
 
         context.Services.AddSingleton(repository);
         context.Services.AddSingleton(settings);
-        context.Services.AddSingleton(deviceState);
+        context.Services.AddSingleton(deviceStatuses ?? deviceState);
         context.Services.AddSingleton(autoFetchState);
         context.Services.AddSingleton(timeZone);
         context.Services.AddSingleton(activeStreams);

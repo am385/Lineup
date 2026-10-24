@@ -15,6 +15,132 @@ namespace Lineup.Core.Tests.Guides;
 /// </summary>
 public sealed class GuideOrchestratorTests
 {
+    /// <summary>Verifies eligible committed guide data survives source activation failures and is replaced after recovery.</summary>
+    [Theory]
+    [InlineData("io")]
+    [InlineData("http")]
+    [InlineData("unauthorized")]
+    [InlineData("argument")]
+    [InlineData("invalid-operation")]
+    [InlineData("wrong-identity")]
+    [InlineData("validation")]
+    public async Task BuildSnapshotAsync_ActivationFailure_PreservesEligibleCommittedGuide(string failure)
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-guide-activation-cache-");
+        try
+        {
+            var factory = new TestContextFactory(Path.Combine(root.FullName, "guides.db"));
+            var store = new DeviceGuideStore(factory);
+            var topology = new StreamingTopologyStore(factory);
+            var device = PhysicalDeviceId.New();
+            var source = GuideSourceId.New();
+            var output = VirtualDeviceId.New();
+            await topology.ReconcileAsync(device, [PhysicalChannel(device, "7")], TestContext.Current.CancellationToken);
+            await store.ImportAsync(Import(source, "7", "Committed"), TestContext.Current.CancellationToken);
+            var driver = new FakeGuideDriver(new Dictionary<GuideSourceId, Func<Task<GuideImport>>>
+            {
+                [source] = () => Task.FromResult(Import(source, "7", "Recovered"))
+            })
+            {
+                ActivationException = failure switch
+                {
+                    "io" => new IOException("Private activation detail"),
+                    "http" => new HttpRequestException("Private activation detail"),
+                    "unauthorized" => new UnauthorizedAccessException("Private activation detail"),
+                    "argument" => new ArgumentException("Private activation detail"),
+                    "invalid-operation" => new InvalidOperationException("Private activation detail"),
+                    _ => null
+                },
+                ReturnWrongIdentity = failure == "wrong-identity",
+                RejectConfiguration = failure == "validation"
+            };
+            var adapters = new StreamingAdapterRegistry([], [new FakeVirtualDriver()], [driver]);
+            var orchestrator = new GuideOrchestrator(adapters, store, topology);
+            var configuration = Configuration([PhysicalDefinition(device, 0)], [GuideDefinition(source, device)], [VirtualDefinition(output, device)]);
+
+            // Act
+            await orchestrator.ApplyAsync(configuration, TestContext.Current.CancellationToken);
+            var failed = Assert.Single(await orchestrator.RefreshAllAsync(TestContext.Current.CancellationToken));
+            var cached = await orchestrator.BuildSnapshotAsync(output, TestContext.Current.CancellationToken);
+            var union = await new GuideQueryService(topology, store, adapters).BuildUnionSnapshotAsync(configuration, cancellationToken: TestContext.Current.CancellationToken);
+            driver.ActivationException = null;
+            driver.RejectConfiguration = false;
+            driver.ReturnWrongIdentity = false;
+            await orchestrator.ApplyAsync(configuration, TestContext.Current.CancellationToken);
+            var recovered = Assert.Single(await orchestrator.RefreshAllAsync(TestContext.Current.CancellationToken));
+            var refreshed = await orchestrator.BuildSnapshotAsync(output, TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.False(failed.Succeeded);
+            Assert.Contains("preserved", failed.Error, StringComparison.Ordinal);
+            Assert.DoesNotContain("Private activation detail", failed.Error!, StringComparison.Ordinal);
+            Assert.Equal("Committed", Assert.Single(Assert.Single(cached.Channels).Programs).Title);
+            Assert.Equal("Committed", Assert.Single(Assert.Single(union.Channels).Programs).Title);
+            Assert.True(recovered.Succeeded);
+            Assert.Equal("Recovered", Assert.Single(Assert.Single(refreshed.Channels).Programs).Title);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            root.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>Verifies retained imports never bypass disabled, removed, incompatible, or changed source subscriptions.</summary>
+    [Theory]
+    [InlineData("disabled")]
+    [InlineData("removed")]
+    [InlineData("unsubscribed")]
+    [InlineData("incompatible")]
+    [InlineData("unknown-driver")]
+    public async Task BuildSnapshotAsync_IneligibleCachedSource_DoesNotPublishPrograms(string restriction)
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-guide-scope-cache-");
+        try
+        {
+            var factory = new TestContextFactory(Path.Combine(root.FullName, "guides.db"));
+            var store = new DeviceGuideStore(factory);
+            var topology = new StreamingTopologyStore(factory);
+            var first = PhysicalDeviceId.New();
+            var second = PhysicalDeviceId.New();
+            var source = GuideSourceId.New();
+            var output = VirtualDeviceId.New();
+            await topology.ReconcileAsync(first, [PhysicalChannel(first, "7")], TestContext.Current.CancellationToken);
+            await store.ImportAsync(Import(source, "7", "Committed"), TestContext.Current.CancellationToken);
+            var driver = new FakeGuideDriver(new Dictionary<GuideSourceId, Func<Task<GuideImport>>> { [source] = () => Task.FromResult(Import(source, "7", "Unused")) });
+            var orchestrator = new GuideOrchestrator(new StreamingAdapterRegistry([], [new FakeVirtualDriver()], [driver]), store, topology);
+            var definition = GuideDefinition(source, first);
+            var configuration = Configuration(
+                [PhysicalDefinition(first, 0), PhysicalDefinition(second, 1)], [definition], [VirtualDefinition(output, first)]);
+            await orchestrator.ApplyAsync(configuration, TestContext.Current.CancellationToken);
+            Assert.Single(Assert.Single((await orchestrator.BuildSnapshotAsync(output, TestContext.Current.CancellationToken)).Channels).Programs);
+            driver.ActivationException = new IOException("Offline");
+            configuration = restriction switch
+            {
+                "disabled" => configuration with { GuideSources = [definition with { Enabled = false }] },
+                "removed" => configuration with { GuideSources = [] },
+                "unsubscribed" => configuration with { GuideSources = [GuideDefinition(source, second)] },
+                "incompatible" => configuration with { PhysicalDevices = [PhysicalDefinition(first, 0) with { Adapter = Adapter("incompatible") }] },
+                _ => configuration with { GuideSources = [definition with { Adapter = Adapter("unknown") }] }
+            };
+
+            // Act
+            await orchestrator.ApplyAsync(configuration, TestContext.Current.CancellationToken);
+            var snapshot = await orchestrator.BuildSnapshotAsync(output, TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.Empty(snapshot.Channels.SelectMany(channel => channel.Programs));
+            Assert.Equal(1, Assert.Single(await store.ReadImportStatesAsync(TestContext.Current.CancellationToken)).ProgramCount);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            root.Delete(recursive: true);
+        }
+    }
+
     /// <summary>
     /// Verifies one source failure does not stop another refresh or replace the failed source's last committed import.
     /// </summary>
@@ -287,7 +413,7 @@ public sealed class GuideOrchestratorTests
     private static GuideImport Import(GuideSourceId sourceId, string number, string title)
     {
         var channelId = new GuideChannelId(sourceId, $"guide-{number}");
-        var start = DateTimeOffset.Parse("2026-10-02T12:00:00Z");
+        var start = DateTimeOffset.UtcNow;
         return new GuideImport
         {
             SourceId = sourceId,
@@ -320,19 +446,27 @@ public sealed class GuideOrchestratorTests
 
         public int RefreshCount => Volatile.Read(ref _refreshCount);
 
+        internal Exception? ActivationException { get; set; }
+
+        internal bool ReturnWrongIdentity { get; set; }
+
+        internal bool RejectConfiguration { get; set; }
+
         public AdapterConfiguration CreateDefaultConfiguration(GuideSourceId sourceId) => Adapter(Kind);
 
         public bool SupportsPhysicalAdapter(string physicalAdapterKind) =>
             string.Equals(physicalAdapterKind, "unused-physical", StringComparison.Ordinal);
 
-        public IReadOnlyList<string> Validate(AdapterConfiguration configuration) => [];
+        public IReadOnlyList<string> Validate(AdapterConfiguration configuration) => RejectConfiguration ? ["Private activation detail"] : [];
 
         public ValueTask<IGuideSource> CreateAsync(
             GuideSourceId sourceId,
             AdapterConfiguration configuration,
             IReadOnlyList<PhysicalDeviceId> physicalDeviceIds,
             CancellationToken cancellationToken = default) =>
-            ValueTask.FromResult<IGuideSource>(new FakeGuideSource(sourceId, refreshes[sourceId], () => Interlocked.Increment(ref _refreshCount)));
+            ActivationException is not null
+                ? ValueTask.FromException<IGuideSource>(ActivationException)
+                : ValueTask.FromResult<IGuideSource>(new FakeGuideSource(ReturnWrongIdentity ? GuideSourceId.New() : sourceId, refreshes[sourceId], () => Interlocked.Increment(ref _refreshCount)));
     }
 
     private sealed class FakeGuideSource(GuideSourceId id, Func<Task<GuideImport>> refresh, Action onRefresh) : IGuideSource

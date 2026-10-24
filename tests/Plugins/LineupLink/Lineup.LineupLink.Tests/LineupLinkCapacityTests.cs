@@ -27,7 +27,9 @@ public sealed class LineupLinkCapacityTests
         var second = Snapshot("another-provider", 100);
         var incompatible = Snapshot(incompatibleKind, incompatibleCapacity);
         var definition = Virtual(driver, mode, first, second, incompatible);
+#pragma warning disable CA1859 // Use concrete types when possible for improved performance
         IVirtualTunerCapacityProvider provider = driver;
+#pragma warning restore CA1859 // Use concrete types when possible for improved performance
 
         // Act
         var capacity = provider.GetCapacity(definition, [first, incompatible, second]);

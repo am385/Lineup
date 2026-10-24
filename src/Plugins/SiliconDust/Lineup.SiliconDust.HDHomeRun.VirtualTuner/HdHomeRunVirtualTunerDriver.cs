@@ -326,6 +326,7 @@ public sealed class HdHomeRunVirtualTunerDriver : IVirtualTunerDriver, IVirtualT
         }
         if (edit.Action == AdapterSettingEditAction.Clear)
         {
+            value = null;
             return true;
         }
         if (edit.Action != AdapterSettingEditAction.Set ||
@@ -346,6 +347,7 @@ public sealed class HdHomeRunVirtualTunerDriver : IVirtualTunerDriver, IVirtualT
         }
         if (edit.Action == AdapterSettingEditAction.Clear)
         {
+            value = null;
             return true;
         }
         if (edit.Action != AdapterSettingEditAction.Set ||

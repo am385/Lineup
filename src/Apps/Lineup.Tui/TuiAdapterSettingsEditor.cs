@@ -177,15 +177,7 @@ internal static class TuiAdapterSettingsEditor
             ],
             WorkerPolicyKey = workerKey
         };
-        var securityPolicy = new VirtualOutputSecurityPolicyDefinition
-        {
-            Key = securityKey,
-            Name = $"{device.Name} listener security",
-            CertificateReference = string.IsNullOrWhiteSpace(certificateReference) ? null : certificateReference.Trim(),
-            AllowedNetworks = SplitList(allowedNetworks),
-            MaximumConnections = maximumConnections,
-            RequestsPerMinutePerClient = requestsPerMinute
-        };
+        var securityPolicy = BuildSecurityPolicy(device, currentSecurity, certificateReference, allowedNetworks, maximumConnections, requestsPerMinute);
         var workerPolicy = new VirtualOutputWorkerPolicyDefinition
         {
             Key = workerKey,
@@ -224,6 +216,28 @@ internal static class TuiAdapterSettingsEditor
             ]
         });
     }
+
+    /// <summary>Applies the TUI's editable security fields to a device-specific policy while preserving unexposed certificate and proxy requirements.</summary>
+    internal static VirtualOutputSecurityPolicyDefinition BuildSecurityPolicy(
+        VirtualDeviceDefinition device,
+        VirtualOutputSecurityPolicyDefinition? currentSecurity,
+        string certificateReference,
+        string allowedNetworks,
+        int maximumConnections,
+        int requestsPerMinute
+    ) =>
+        new()
+        {
+            Key = GetVirtualOutputPolicyKey(device.Id, "security"),
+            Name = $"{device.Name} listener security",
+            CertificateReference = string.IsNullOrWhiteSpace(certificateReference) ? null : certificateReference.Trim(),
+            ClientCertificateMode = currentSecurity?.ClientCertificateMode ?? VirtualOutputClientCertificateMode.None,
+            AllowedNetworks = SplitList(allowedNetworks),
+            MaximumConnections = maximumConnections,
+            RequestsPerMinutePerClient = requestsPerMinute,
+            AllowForwardedHeaders = currentSecurity?.AllowForwardedHeaders ?? false,
+            TrustedProxies = currentSecurity?.TrustedProxies.ToArray() ?? []
+        };
 
     /// <summary>Validates a candidate topology before persistence, reporting errors and leaving saved settings unchanged on rejection.</summary>
     internal static async Task<bool> TrySaveTopologyAsync(ILineupSettingsService settings, StreamingConfiguration configuration)

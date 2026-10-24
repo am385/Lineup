@@ -175,6 +175,7 @@ public sealed class LineupLinkGuideSourceDriver : IGuideSourceDriver, IAdapterSe
                 }
             }
 
+            var rootMetadata = supplemental.Select(XmltvSupplementalMetadata.Parse).OfType<XmltvSupplementalMetadata>().ToArray();
             var now = DateTimeOffset.UtcNow;
             return new GuideImport
             {
@@ -183,7 +184,9 @@ public sealed class LineupLinkGuideSourceDriver : IGuideSourceDriver, IAdapterSe
                 Programs = programs.OrderBy(program => program.StartUtc).ToArray(),
                 CoverageStartUtc = programs.Count == 0 ? now : programs.Min(program => program.StartUtc),
                 CoverageEndUtc = programs.Count == 0 ? now.AddHours(1) : programs.Max(program => program.EndUtc),
-                SupplementalXml = supplemental.Count == 0 ? null : string.Join(Environment.NewLine, supplemental)
+                SupplementalXml = XmltvSupplementalMetadata.Create(
+                    rootMetadata.SelectMany(metadata => metadata.Attributes).DistinctBy(attribute => attribute.Name),
+                    rootMetadata.SelectMany(metadata => metadata.Elements))
             };
         }
     }

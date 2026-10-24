@@ -19,6 +19,40 @@ public class StatusApiServiceTests
 {
     private static readonly JsonSerializerOptions WebJsonOptions = new(JsonSerializerDefaults.Web);
 
+    /// <summary>Verifies failed activation appears in the runtime API projection rather than only in configured-device metadata.</summary>
+    [Fact]
+    public async Task GetStatusAsync_PhysicalActivationFailure_ReportsUnavailableDevice()
+    {
+        // Arrange
+        var catalog = Substitute.For<IPhysicalDeviceCatalog>();
+        var statuses = new PhysicalDeviceStatusService(catalog);
+        using var fixture = CreateFixture(statuses: statuses);
+        var healthy = Assert.Single(fixture.Settings.Streaming.PhysicalDevices);
+        var failed = healthy with { Id = PhysicalDeviceId.New(), Name = "Unavailable" };
+        fixture.Settings.Streaming = fixture.Settings.Streaming with { PhysicalDevices = [healthy, failed] };
+        var live = Substitute.For<IPhysicalTunerDevice>();
+        live.Snapshot.Returns(new PhysicalDeviceSnapshot { Id = healthy.Id, Name = healthy.Name, Kind = healthy.Adapter.Kind, Capacity = new PhysicalTunerCapacity(1) });
+        catalog.Devices.Returns([live]);
+        await statuses.RefreshAsync(fixture.Settings.Streaming, TestContext.Current.CancellationToken);
+
+        // Act
+        var result = await fixture.Service.GetStatusAsync(TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(2, result.Configuration.Streaming.PhysicalDevices.Count);
+        Assert.Equal(2, result.PhysicalDevices.Count);
+        Assert.Equal("available", Assert.Single(result.PhysicalDevices, device => device.PhysicalDeviceId == healthy.Id.ToString()).Status);
+        var unavailable = Assert.Single(result.PhysicalDevices, device => device.PhysicalDeviceId == failed.Id.ToString());
+        Assert.Equal(failed.Name, unavailable.Name);
+        Assert.Equal("error", unavailable.Status);
+        Assert.Contains("activation failed", unavailable.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, unavailable.Capacity);
+        Assert.False(unavailable.SupportsReceiverControl);
+        Assert.False(unavailable.SupportsRestart);
+        Assert.Empty(unavailable.Details);
+        Assert.Null(unavailable.ObservedAtUtc);
+    }
+
     /// <summary>Verifies client privacy covers the complete real flow projection independently of device and URL privacy.</summary>
     [Theory]
     [InlineData("192.0.2.20:54321", false, false, false)]
@@ -335,7 +369,7 @@ public class StatusApiServiceTests
         Assert.True(import.HasSupplementalMetadata);
     }
 
-    private static StatusApiFixture CreateFixture(LineupStartupState? startupState = null, bool useRealStreamingFlows = false, string? clientAddress = "192.0.2.20:54321")
+    private static StatusApiFixture CreateFixture(LineupStartupState? startupState = null, bool useRealStreamingFlows = false, string? clientAddress = "192.0.2.20:54321", IPhysicalDeviceStatusService? statuses = null)
     {
         var xmltvPath = Path.Combine(Path.GetTempPath(), $"lineup-status-{Guid.NewGuid():N}.xml");
         var settings = new LineupSettings
@@ -555,13 +589,13 @@ public class StatusApiServiceTests
             1,
             0));
         IStreamingFlowSnapshotService flowService = useRealStreamingFlows
-            ? new StreamingFlowSnapshotService(settingsService, graph, [], activeStreams, deviceState)
+            ? new StreamingFlowSnapshotService(settingsService, graph, [], activeStreams, statuses ?? deviceState)
             : streamingFlows;
         var service = new StatusApiService(
             guideReader,
             settingsService,
             CreateWebSettingsService(settings),
-            deviceState,
+            statuses ?? deviceState,
             autoFetch,
             activeStreams,
             new StatusApiRuntime("runtime-test"),

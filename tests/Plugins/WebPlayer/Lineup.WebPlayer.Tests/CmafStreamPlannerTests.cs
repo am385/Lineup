@@ -10,6 +10,79 @@ namespace Lineup.WebPlayer.Tests;
 /// </summary>
 public class CmafStreamPlannerTests
 {
+    /// <summary>Verifies viewer identity does not split otherwise identical output plans or mutate the original request.</summary>
+    [Theory]
+    [InlineData("viewer-a", "viewer-b")]
+    [InlineData(null, "viewer-b")]
+    [InlineData("", null)]
+    public void CreatePlanKey_DifferentViewers_ShareIdenticalPlan(string? firstClient, string? secondClient)
+    {
+        // Arrange
+        var source = Source("aac");
+        var profile = new VirtualTranscodeProfile();
+        var selection = WebPlayerTrackPlanner.SelectTracks(source, 1, null);
+        var first = new CmafStreamRequest { ClientId = firstClient };
+        var second = first with { ClientId = secondClient };
+
+        // Act
+        var firstKey = CmafStreamPlanner.CreatePlanKey(profile, source, selection, first);
+        var secondKey = CmafStreamPlanner.CreatePlanKey(profile, source, selection, second);
+
+        // Assert
+        Assert.Equal(firstKey, secondKey);
+        Assert.Equal(64, firstKey.Length);
+        Assert.Equal(firstClient, first.ClientId);
+        Assert.Equal(secondClient, second.ClientId);
+        Assert.Equal(firstKey, CmafStreamPlanner.CreatePlanKey(profile, source, selection, first));
+        Assert.Equal(
+            CmafStreamPlanner.CreateArguments(profile, source, selection, first, "manifest.mpd"),
+            CmafStreamPlanner.CreateArguments(profile, source, selection, second, "manifest.mpd"));
+    }
+
+    /// <summary>Verifies removing viewer identity does not collapse incompatible media or topology plans.</summary>
+    [Theory]
+    [InlineData("quality")]
+    [InlineData("video")]
+    [InlineData("audio")]
+    [InlineData("subtitle")]
+    [InlineData("profile")]
+    [InlineData("deinterlace")]
+    [InlineData("source")]
+    public void CreatePlanKey_DifferentMediaPlans_RemainIsolated(string change)
+    {
+        // Arrange
+        var source = Source("aac") with
+        {
+            Tracks =
+            [
+                Track(0, MediaTrackType.Video, "h264"),
+                Track(1, MediaTrackType.Audio, "aac") with { Channels = 2 },
+                Track(2, MediaTrackType.Subtitle, "hdmv_pgs_subtitle") with { SubtitlePresentation = SubtitlePresentation.BurnIn }
+            ]
+        };
+        var profile = new VirtualTranscodeProfile();
+        var request = new CmafStreamRequest { ClientId = "same-viewer" };
+        var selection = CmafStreamPlanner.SelectTracks(source, request);
+        var baseline = CmafStreamPlanner.CreatePlanKey(profile, source, selection, request);
+        switch (change)
+        {
+            case "quality": request = request with { Quality = WebPlayerQuality.Low }; break;
+            case "video": request = request with { PreferredVideo = CmafPreferredVideo.Fallback }; break;
+            case "audio": request = request with { PreferredAudio = CmafPreferredAudio.Fallback, FallbackAudio = CmafFallbackAudio.Ac3 }; break;
+            case "subtitle": request = request with { SubtitleTrack = 2 }; break;
+            case "profile": profile = profile with { MaximumVideoBitRateMbps = 13 }; break;
+            case "deinterlace": profile = profile with { Deinterlace = SourceDeinterlacePolicy.SourceFrameRate }; break;
+            case "source": source = source with { Tracks = source.Tracks.Select(track => track.Type == MediaTrackType.Video ? track with { Codec = "hevc" } : track).ToArray() }; break;
+            default: throw new ArgumentOutOfRangeException(nameof(change));
+        }
+
+        // Act
+        var changed = CmafStreamPlanner.CreatePlanKey(profile, source, CmafStreamPlanner.SelectTracks(source, request), request);
+
+        // Assert
+        Assert.NotEqual(baseline, changed);
+    }
+
     /// <summary>Verifies the reusable key separates every output-affecting request plan.</summary>
     [Fact]
     public void CreatePlanKey_IncompatibleRequests_DoNotShare()

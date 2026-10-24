@@ -70,12 +70,19 @@ public sealed record GuideSourceImportState
 public sealed class DeviceGuideStore
 {
     private readonly IDbContextFactory<EpgDbContext> _contextFactory;
+    private readonly IEpgRetentionPolicy _retentionPolicy;
+    private readonly TimeProvider _timeProvider;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     /// <summary>Initializes a device guide store.</summary>
-    public DeviceGuideStore(IDbContextFactory<EpgDbContext> contextFactory)
+    /// <param name="contextFactory">Factory for source-scoped storage transactions.</param>
+    /// <param name="retentionPolicy">History retention policy, defaulting to 24 hours.</param>
+    /// <param name="timeProvider">Clock used for history pruning, defaulting to the system clock.</param>
+    public DeviceGuideStore(IDbContextFactory<EpgDbContext> contextFactory, IEpgRetentionPolicy? retentionPolicy = null, TimeProvider? timeProvider = null)
     {
         _contextFactory = contextFactory;
+        _retentionPolicy = retentionPolicy ?? new DefaultEpgRetentionPolicy();
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     /// <summary>
@@ -134,7 +141,7 @@ public sealed class DeviceGuideStore
     }
 
     /// <summary>
-    /// Replaces the last successful import for one guide source.
+    /// Merges one source's covered programs and channel roster, retaining configured history and out-of-window future data.
     /// </summary>
     public async Task ImportAsync(GuideImport import, CancellationToken cancellationToken = default)
     {
@@ -193,35 +200,48 @@ public sealed class DeviceGuideStore
             await context.SaveChangesAsync(cancellationToken);
 
             var channelIds = existing.Values.Select(channel => channel.Id).ToArray();
-            await context.GuideSourcePrograms
-                .Where(program => channelIds.Contains(program.GuideSourceChannelId))
-                .ExecuteDeleteAsync(cancellationToken);
+            var coverageStart = import.CoverageStartUtc.ToUnixTimeSeconds();
+            var coverageEnd = import.CoverageEndUtc.ToUnixTimeSeconds();
+            var now = _timeProvider.GetUtcNow();
+            var nowUnix = now.ToUnixTimeSeconds();
+            var historyCutoff = (now - _retentionPolicy.HistoryRetention).ToUnixTimeSeconds();
+            var coveredPrograms = await context.GuideSourcePrograms
+                .Where(program => channelIds.Contains(program.GuideSourceChannelId) && program.EndTime > coverageStart && program.StartTime < coverageEnd)
+                .ToDictionaryAsync(program => (program.GuideSourceChannelId, program.StartTime, program.EndTime, program.Title), cancellationToken);
+            var importedPrograms = new List<StoredGuideSourceProgram>(import.Programs.Count);
             foreach (var program in import.Programs)
             {
                 if (!existing.TryGetValue(program.ChannelId.ProviderKey, out var channel) || !channel.IsActive)
                 {
                     throw new InvalidDataException($"Program channel {program.ChannelId.ProviderKey} is not present in the guide import.");
                 }
-                context.GuideSourcePrograms.Add(new StoredGuideSourceProgram
+                var start = program.StartUtc.ToUnixTimeSeconds();
+                var end = program.EndUtc.ToUnixTimeSeconds();
+                if (!coveredPrograms.TryGetValue((channel.Id, start, end, program.Title), out var stored))
                 {
-                    GuideSourceChannelId = channel.Id,
-                    StartTime = program.StartUtc.ToUnixTimeSeconds(),
-                    EndTime = program.EndUtc.ToUnixTimeSeconds(),
-                    Title = program.Title,
-                    Synopsis = program.Synopsis,
-                    EpisodeTitle = program.EpisodeTitle,
-                    ImageUrl = program.ImageUrl,
-                    PosterUrl = program.PosterUrl,
-                    EpisodeNumber = program.EpisodeNumber,
-                    OriginalAirdate = program.OriginalAirdateUtc?.ToUnixTimeSeconds(),
-                    IsFirstAiring = program.IsFirstAiring,
-                    SeriesId = program.SeriesId,
-                    CategoriesJson = Serialize(program.Categories),
-                    MetadataJson = Serialize(program.Metadata),
-                    SupplementalXml = program.SupplementalXml
-                });
+                    stored = new StoredGuideSourceProgram { GuideSourceChannelId = channel.Id, StartTime = start, EndTime = end, Title = program.Title };
+                    context.GuideSourcePrograms.Add(stored);
+                }
+                stored.Synopsis = program.Synopsis;
+                stored.EpisodeTitle = program.EpisodeTitle;
+                stored.ImageUrl = program.ImageUrl;
+                stored.PosterUrl = program.PosterUrl;
+                stored.EpisodeNumber = program.EpisodeNumber;
+                stored.OriginalAirdate = program.OriginalAirdateUtc?.ToUnixTimeSeconds();
+                stored.IsFirstAiring = program.IsFirstAiring;
+                stored.SeriesId = program.SeriesId;
+                stored.CategoriesJson = Serialize(program.Categories);
+                stored.MetadataJson = Serialize(program.Metadata);
+                stored.SupplementalXml = program.SupplementalXml;
+                importedPrograms.Add(stored);
             }
             await context.SaveChangesAsync(cancellationToken);
+            var importedIds = importedPrograms.Select(program => program.Id).ToArray();
+            await context.GuideSourcePrograms
+                .Where(program => channelIds.Contains(program.GuideSourceChannelId) &&
+                    (program.EndTime <= historyCutoff ||
+                        (program.EndTime > nowUnix && program.EndTime > coverageStart && program.StartTime < coverageEnd && !importedIds.Contains(program.Id))))
+                .ExecuteDeleteAsync(cancellationToken);
 
             var storedImport = await context.DeviceGuideImports.SingleOrDefaultAsync(
                 item => item.GuideSourceId == sourceKey,

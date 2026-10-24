@@ -13,6 +13,160 @@ namespace Lineup.SiliconDust.HDHomeRun.VirtualTuner.Tests;
 /// <summary>Tests the virtual HDHomeRun adapter.</summary>
 public sealed class HdHomeRunVirtualTunerAdapterTests
 {
+    /// <summary>Verifies optional edits clear persisted values or preserve them without changing unrelated advertisement settings.</summary>
+    [Theory]
+    [InlineData("deviceId", AdapterSettingEditAction.Clear)]
+    [InlineData("deviceId", AdapterSettingEditAction.Preserve)]
+    [InlineData("tunerCountCap", AdapterSettingEditAction.Clear)]
+    [InlineData("tunerCountCap", AdapterSettingEditAction.Preserve)]
+    public void ApplySettings_OptionalEdit_RoundTripsRequestedAction(string key, AdapterSettingEditAction action)
+    {
+        // Arrange
+        var driver = new HdHomeRunVirtualTunerDriver();
+        var original = new HdHomeRunVirtualTunerConfiguration
+        {
+            DeviceId = HdHomeRunProxyIdentity.CreateDeviceId("explicit-identity"),
+            TunerCountCap = 1,
+            EnableNetworkAdvertisement = true,
+            AdvertisedBaseUrl = "https://aggregate.example/"
+        };
+        var configuration = Configuration(driver.Kind, original);
+
+        // Act
+        var result = driver.ApplySettings(configuration, [new AdapterSettingEdit { Key = key, Action = action }]);
+        var reloaded = JsonSerializer.Deserialize<AdapterConfiguration>(JsonSerializer.Serialize(result.Configuration))!;
+        var updated = reloaded.Configuration.Deserialize<HdHomeRunVirtualTunerConfiguration>()!;
+        var snapshot = driver.GetSettings(reloaded);
+        var value = Assert.Single(snapshot.Values, item => item.Key == key);
+
+        // Assert
+        Assert.True(result.Succeeded);
+        Assert.Empty(driver.Validate(reloaded));
+        Assert.Equal(action != AdapterSettingEditAction.Clear, value.HasValue);
+        Assert.Equal(action == AdapterSettingEditAction.Clear ? JsonValueKind.Null : key == "deviceId" ? JsonValueKind.String : JsonValueKind.Number, value.Value!.Value.ValueKind);
+        Assert.Equal(key == "deviceId" && action == AdapterSettingEditAction.Clear ? null : original.DeviceId, updated.DeviceId);
+        Assert.Equal(key == "tunerCountCap" && action == AdapterSettingEditAction.Clear ? null : original.TunerCountCap, updated.TunerCountCap);
+        Assert.Equal(original.EnableNetworkAdvertisement, updated.EnableNetworkAdvertisement);
+        Assert.Equal(original.AdvertisedBaseUrl, updated.AdvertisedBaseUrl);
+        Assert.Equal(original, configuration.Configuration.Deserialize<HdHomeRunVirtualTunerConfiguration>());
+    }
+
+    /// <summary>Verifies clearing both optional overrides restores aggregate capacity and the stable derived external identity after reload.</summary>
+    [Fact]
+    public void ApplySettings_ClearOverrides_RestoresAggregateAndDerivedIdentity()
+    {
+        // Arrange
+        var driver = new HdHomeRunVirtualTunerDriver();
+        var device = new VirtualDeviceDefinition
+        {
+            Id = new VirtualDeviceId(Guid.Parse("f828a690-c3f1-46e4-955a-13f11bf24dce")),
+            Name = "Aggregate",
+            Adapter = Configuration(driver.Kind, new HdHomeRunVirtualTunerConfiguration
+            {
+                DeviceId = HdHomeRunProxyIdentity.CreateDeviceId("explicit-identity"),
+                TunerCountCap = 1
+            })
+        };
+
+        // Act
+        var result = driver.ApplySettings(device.Adapter,
+        [
+            new AdapterSettingEdit { Key = "deviceId", Action = AdapterSettingEditAction.Clear },
+            new AdapterSettingEdit { Key = "tunerCountCap", Action = AdapterSettingEditAction.Clear }
+        ]);
+        var reloaded = JsonSerializer.Deserialize<VirtualDeviceDefinition>(JsonSerializer.Serialize(device with { Adapter = result.Configuration! }))!;
+        var identity = driver.GetDeviceId(reloaded);
+        var count = driver.GetTunerCount(reloaded, [Snapshot(2), Snapshot(4)]);
+
+        // Assert
+        Assert.True(result.Succeeded);
+        Assert.Equal(6, count);
+        Assert.Equal(byte.MaxValue, driver.GetTunerCount(reloaded, [Snapshot(200), Snapshot(100)]));
+        Assert.Equal(HdHomeRunProxyIdentity.CreateDeviceId(device.Id.Value.ToString("N")), identity);
+        Assert.True(HdHomeRunProxyIdentity.IsValidDeviceId(identity));
+        Assert.Equal(identity, driver.GetDeviceId(reloaded));
+        Assert.All(driver.GetSettings(reloaded.Adapter).Values.Where(value => value.Key is "deviceId" or "tunerCountCap"), value => Assert.False(value.HasValue));
+    }
+
+    /// <summary>Verifies clearing an already absent override is idempotent.</summary>
+    [Theory]
+    [InlineData("deviceId")]
+    [InlineData("tunerCountCap")]
+    public void ApplySettings_ClearAbsentOverride_RemainsUnset(string key)
+    {
+        // Arrange
+        var driver = new HdHomeRunVirtualTunerDriver();
+        var configuration = Configuration(driver.Kind, new HdHomeRunVirtualTunerConfiguration());
+
+        // Act
+        var result = driver.ApplySettings(configuration, [new AdapterSettingEdit { Key = key, Action = AdapterSettingEditAction.Clear }]);
+
+        // Assert
+        Assert.True(result.Succeeded);
+        Assert.Equal(new HdHomeRunVirtualTunerConfiguration(), result.Configuration!.Configuration.Deserialize<HdHomeRunVirtualTunerConfiguration>());
+        Assert.False(Assert.Single(driver.GetSettings(result.Configuration).Values, value => value.Key == key).HasValue);
+    }
+
+    /// <summary>Verifies the shared optional-string clearer still enforces the required URL when advertisement is enabled.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ApplySettings_ClearAdvertisementUrl_ValidatesRemainingConfiguration(bool advertise)
+    {
+        // Arrange
+        var driver = new HdHomeRunVirtualTunerDriver();
+        var configuration = Configuration(driver.Kind, new HdHomeRunVirtualTunerConfiguration
+        {
+            EnableNetworkAdvertisement = advertise,
+            AdvertisedBaseUrl = "https://aggregate.example/"
+        });
+
+        // Act
+        var result = driver.ApplySettings(configuration, [new AdapterSettingEdit { Key = "advertisedBaseUrl", Action = AdapterSettingEditAction.Clear }]);
+
+        // Assert
+        Assert.Equal(!advertise, result.Succeeded);
+        Assert.Equal("https://aggregate.example/", configuration.Configuration.Deserialize<HdHomeRunVirtualTunerConfiguration>()!.AdvertisedBaseUrl);
+        if (advertise)
+        {
+            Assert.Null(result.Configuration);
+            Assert.Contains("advertised base URL", Assert.Single(result.Errors[""]), StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.Null(result.Configuration!.Configuration.Deserialize<HdHomeRunVirtualTunerConfiguration>()!.AdvertisedBaseUrl);
+        }
+    }
+
+    /// <summary>Verifies invalid replacements remain rejected without mutating the input configuration.</summary>
+    [Theory]
+    [InlineData("deviceId")]
+    [InlineData("tunerCountCap")]
+    public void ApplySettings_InvalidReplacement_PreservesInput(string key)
+    {
+        // Arrange
+        var driver = new HdHomeRunVirtualTunerDriver();
+        var configuration = driver.CreateDefaultConfiguration(VirtualDeviceId.New());
+        var original = configuration.Configuration.GetRawText();
+
+        // Act
+        var result = driver.ApplySettings(configuration,
+        [
+            new AdapterSettingEdit
+            {
+                Key = key,
+                Action = AdapterSettingEditAction.Set,
+                Value = key == "deviceId" ? JsonSerializer.SerializeToElement("invalid") : JsonSerializer.SerializeToElement(256)
+            }
+        ]);
+
+        // Assert
+        Assert.False(result.Succeeded);
+        Assert.Null(result.Configuration);
+        Assert.NotEmpty(result.Errors);
+        Assert.Equal(original, configuration.Configuration.GetRawText());
+    }
+
     /// <summary>Verifies network advertisement requires and persists a valid public base URL.</summary>
     [Fact]
     public void Settings_EnableAdvertisement_RequiresValidBaseUrl()
