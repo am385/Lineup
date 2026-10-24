@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Threading.RateLimiting;
 using Lineup.Common.Networking;
 using Lineup.Common.Streaming;
+using Lineup.LineupLink.Guides;
 using Lineup.LineupLink.Protocol;
 using Lineup.LineupLink.Virtual;
 using Lineup.VirtualOutputs.Hosting;
@@ -155,43 +156,7 @@ app.MapGet($"{deviceRoot}/guide", async (CancellationToken cancellationToken) =>
     var guide = await session.Broker.GetGuideAsync(
         new VirtualOutputGuideRequest { Session = sessionContext },
         cancellationToken);
-    var snapshot = guide.Snapshot;
-    return Results.Ok(new LineupLinkGuide
-    {
-        VirtualDeviceId = bootstrap.VirtualDevice.Id.Value,
-        Channels = snapshot.Channels.Select(channel => new LineupLinkGuideChannel
-        {
-            Key = channel.Number,
-            Number = channel.Number,
-            Name = channel.Name,
-            Affiliate = channel.Affiliate,
-            ImageUrl = channel.ImageUrl,
-            IsProtected = channel.IsProtected,
-            IsFavorite = channel.IsFavorite,
-            SupplementalXml = channel.SupplementalXml
-        }).ToArray(),
-        Programs = snapshot.Channels.SelectMany(channel => channel.Programs.Select(program => new LineupLinkGuideProgram
-        {
-            ChannelKey = channel.Number,
-            StartUtc = program.StartUtc,
-            EndUtc = program.EndUtc,
-            Title = program.Title,
-            Synopsis = program.Synopsis,
-            EpisodeTitle = program.EpisodeTitle,
-            ImageUrl = program.ImageUrl,
-            PosterUrl = program.PosterUrl,
-            EpisodeNumber = program.EpisodeNumber,
-            OriginalAirdateUtc = program.OriginalAirdateUtc,
-            IsFirstAiring = program.IsFirstAiring,
-            SeriesId = program.SeriesId,
-            Categories = program.Categories,
-            Metadata = program.Metadata,
-            SupplementalXml = program.SupplementalXml
-        })).ToArray(),
-        SupplementalXml = snapshot.SupplementalXml.Count == 0
-            ? null
-            : string.Join(Environment.NewLine, snapshot.SupplementalXml)
-    });
+    return Results.Ok(LineupLinkGuideExporter.Create(guide.Snapshot));
 });
 
 app.MapGet($"{deviceRoot}/streams/{{channelKey}}", async (HttpContext context, string channelKey, CancellationToken cancellationToken) =>

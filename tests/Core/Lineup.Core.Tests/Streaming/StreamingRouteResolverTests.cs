@@ -175,6 +175,124 @@ public sealed class StreamingRouteResolverTests
         Assert.Empty(await fixture.Store.ReadActiveAsync(TestContext.Current.CancellationToken));
     }
 
+    /// <summary>Verifies known healthy routes do not wait behind a stalled sibling retry, including another caller holding the initialization gate.</summary>
+    [Theory]
+    [InlineData("activation", false)]
+    [InlineData("lineup", false)]
+    [InlineData("activation", true)]
+    [InlineData("lineup", true)]
+    public async Task ResolveVirtualAsync_StalledSiblingRetry_ServesCommittedHealthyRoute(string failure, bool concurrentRetry)
+    {
+        // Arrange
+        using var fixture = new Fixture();
+        using var retryCancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        using var healthyCancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var failed = fixture.AddPhysical("7.1");
+        var healthy = fixture.AddPhysical("9.1");
+        var configuration = fixture.Configure(failed, healthy);
+        fixture.SetUnavailable(failed.Id, failure, true);
+        await fixture.Lineups.RefreshAsync(configuration, TestContext.Current.CancellationToken);
+        var original = fixture.Catalog.GetRequired(healthy.Id);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.BeforeRefresh = async token =>
+        {
+            entered.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, token);
+        };
+        Task<ResolvedStreamingRoute?>? retry = null;
+        if (concurrentRetry)
+        {
+            retry = fixture.ResolveAsync("7.1", retryCancellation.Token);
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        }
+
+        try
+        {
+            // Act
+            var route = await fixture.ResolveAsync("9.1", healthyCancellation.Token).WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+            var repeated = await fixture.ResolveAsync("9.1", healthyCancellation.Token).WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.NotNull(route);
+            Assert.NotNull(repeated);
+            Assert.Same(original, route.PhysicalDevice);
+            Assert.Same(original, repeated.PhysicalDevice);
+            Assert.Equal(concurrentRetry ? 1 : 0, fixture.RefreshCount);
+            Assert.Equal(1, fixture.ActivationCounts[healthy.Id]);
+            Assert.False(healthyCancellation.IsCancellationRequested);
+        }
+        finally
+        {
+            await healthyCancellation.CancelAsync();
+            await retryCancellation.CancelAsync();
+            if (retry is not null)
+            {
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => retry);
+            }
+        }
+    }
+
+    /// <summary>Verifies a changed definition cannot reuse a previously committed healthy route without applying the new configuration.</summary>
+    [Fact]
+    public async Task ResolveVirtualAsync_ChangedPhysicalDefinition_ActivatesReplacement()
+    {
+        // Arrange
+        using var fixture = new Fixture();
+        var device = fixture.AddPhysical("7.1");
+        fixture.Configure(device);
+        var original = await fixture.ResolveAsync("7.1");
+        fixture.Configure(device with { Name = "Replacement" });
+
+        // Act
+        var replacement = await fixture.ResolveAsync("7.1");
+
+        // Assert
+        Assert.NotNull(original);
+        Assert.NotNull(replacement);
+        Assert.NotSame(original.PhysicalDevice, replacement.PhysicalDevice);
+        Assert.Equal("Replacement", replacement.PhysicalDevice.Snapshot.Name);
+        Assert.Equal(2, fixture.RefreshCount);
+    }
+
+    /// <summary>Verifies the healthy fast path does not bypass topology validation after a nonphysical configuration edit.</summary>
+    [Fact]
+    public async Task ResolveVirtualAsync_InvalidReplacement_RejectsCommittedRoute()
+    {
+        // Arrange
+        using var fixture = new Fixture();
+        var configuration = fixture.Configure(fixture.AddPhysical("7.1"));
+        await fixture.ResolveAsync("7.1");
+        fixture.Settings.Streaming = configuration with { KeepWarmPeriodSeconds = 301 };
+
+        // Act
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.ResolveAsync("7.1"));
+
+        // Assert
+        Assert.Contains("Keep-warm", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(1, fixture.RefreshCount);
+    }
+
+    /// <summary>Verifies an active runtime with no committed channel still refreshes its lineup instead of caching incomplete initialization.</summary>
+    [Fact]
+    public async Task ResolveVirtualAsync_ActiveWithoutCommittedLineup_RefreshesChannels()
+    {
+        // Arrange
+        using var fixture = new Fixture();
+        var device = fixture.AddPhysical("7.1");
+        var configuration = fixture.Configure(device);
+        await fixture.Catalog.ApplyAsync(configuration, TestContext.Current.CancellationToken);
+        var original = fixture.Catalog.GetRequired(device.Id);
+
+        // Act
+        var route = await fixture.ResolveAsync("7.1");
+
+        // Assert
+        Assert.NotNull(route);
+        Assert.Same(original, route.PhysicalDevice);
+        Assert.Equal(1, fixture.RefreshCount);
+        Assert.Equal(1, fixture.LineupCounts[device.Id]);
+    }
+
     private sealed class Fixture : IDisposable
     {
         private readonly DirectoryInfo _directory = Directory.CreateTempSubdirectory("lineup-route-recovery-");
@@ -213,6 +331,7 @@ public sealed class StreamingRouteResolverTests
             });
             Catalog = new PhysicalDeviceCatalog(new StreamingAdapterRegistry([driver], [], []));
             var lineups = new PhysicalLineupService(Catalog, Store);
+            Lineups = lineups;
             var trackedLineups = Substitute.For<IPhysicalLineupService>();
             trackedLineups.RefreshAsync(Arg.Any<StreamingConfiguration>(), Arg.Any<CancellationToken>()).Returns(async call =>
             {
@@ -242,6 +361,9 @@ public sealed class StreamingRouteResolverTests
         internal PhysicalDeviceCatalog Catalog { get; }
 
         internal StreamingRouteResolver Resolver { get; }
+
+        /// <summary>Gets the real lineup service for activation outside the resolver.</summary>
+        internal PhysicalLineupService Lineups { get; }
 
         internal Dictionary<PhysicalDeviceId, int> ActivationCounts { get; } = [];
 

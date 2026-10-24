@@ -45,13 +45,7 @@ public static class ProtectedContentDetector
     }
 
     /// <summary>Determines whether normalized physical-source metadata marks a channel as protected.</summary>
-    public static bool IsProtected(IReadOnlyDictionary<string, string> sourceMetadata)
-    {
-        ArgumentNullException.ThrowIfNull(sourceMetadata);
-        return sourceMetadata.TryGetValue("drm", out var drm)
-            && (bool.TryParse(drm, out var protectedFlag) && protectedFlag
-                || int.TryParse(drm, out var protectedValue) && protectedValue != 0);
-    }
+    public static bool IsProtected(IReadOnlyDictionary<string, string> sourceMetadata) => ProtectedContentMetadata.IsProtected(sourceMetadata);
 
     /// <summary>Classifies a resolved route as known protected only when every available equivalent source is marked protected.</summary>
     public static ProtectedContentDetection Detect(ResolvedStreamingRoute route)

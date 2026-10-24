@@ -464,13 +464,19 @@ public sealed class VirtualOutputSupervisor : BackgroundService
         drainCancellation.CancelAfter(TimeSpan.FromSeconds(active.Policy.DrainTimeoutSeconds));
         try
         {
-            await active.Process.Completion.WaitAsync(drainCancellation.Token);
+            try
+            {
+                await active.Process.Completion.WaitAsync(drainCancellation.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                await active.Process.StopAsync(TimeSpan.Zero, cancellationToken);
+            }
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        finally
         {
-            await active.Process.StopAsync(TimeSpan.Zero, cancellationToken);
+            await active.Process.DisposeAsync();
         }
-        await active.Process.DisposeAsync();
     }
 
     private async Task ObserveExitAsync(VirtualDeviceId deviceId, ActiveWorker worker)

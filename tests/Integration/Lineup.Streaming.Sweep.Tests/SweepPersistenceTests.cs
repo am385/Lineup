@@ -8,6 +8,87 @@ namespace Lineup.Streaming.Sweep.Tests;
 /// <summary>Atomic, versioned and interruption-safe offline artifact coverage.</summary>
 public sealed class SweepPersistenceTests
 {
+    /// <summary>Canonical reports keep startup/media/sync evidence separate from permanent cleanup failure and never emit a success marker.</summary>
+    [Fact]
+    public async Task ContinuedCleanupFailureIsPersistedAndReportedSeparately()
+    {
+        // Arrange
+        using var directory = new TemporaryDirectory();
+        var run = SweepPolicyTests.CreateRun() with { Options = new() { ContinueAfterVerifiedCleanup = true, SyncOnly = true } };
+        run.State = "complete";
+        var now = DateTimeOffset.UnixEpoch;
+        var startup = new StartupOutcome("success", 200, null, null, null, now, now, 0, null, true, false);
+        var attempt = new SweepAttempt
+        {
+            Id = "sync",
+            Key = run.Selected[0].Key,
+            Purpose = "sync",
+            FinishedUtc = now.AddSeconds(30),
+            Verdict = SweepVerdict.StablePlayback,
+            Cleanup = new(true, true, true, [], ["Normal stop did not release the viewer."]),
+            CleanupContinuationVerified = true,
+            Result = new("target", "1", "One", 1, true, "track-and-cue", 30, null, null, startup, 1, null, "pass"),
+            Synchronization = new("misaligned", "v", "a", 10, 13, 3, "Fresh transport sequences.")
+        };
+        run.Attempts.Add(attempt);
+        run.Accepted[attempt.Key] = attempt.Id;
+        run.Selected.Add(new("target|player|2", "target", run.Selected[0].Channel with { Number = "2" }));
+
+        // Act
+        await SweepStore.ReportsAsync(directory.Path, run);
+        var loaded = await SweepStore.LoadAsync(System.IO.Path.Combine(directory.Path, "sweep-run.json"));
+        var markdown = await File.ReadAllTextAsync(System.IO.Path.Combine(directory.Path, "summary.md"), TestContext.Current.CancellationToken);
+        using var parser = new Microsoft.VisualBasic.FileIO.TextFieldParser(System.IO.Path.Combine(directory.Path, "results.csv"));
+        parser.SetDelimiters(",");
+        var header = parser.ReadFields()!;
+        var observed = parser.ReadFields()!;
+        var pending = parser.ReadFields()!;
+        var mismatch = Record.Exception(() => SweepStore.ValidateResume(loaded, loaded.Options with { ContinueAfterVerifiedCleanup = false }, "target", "identity"));
+
+        // Assert
+        Assert.True(loaded.Options.ContinueAfterVerifiedCleanup);
+        Assert.True(loaded.Attempts[0].CleanupContinuationVerified);
+        Assert.True(loaded.Attempts[0].Result!.AvPassed);
+        Assert.Null(loaded.Attempts[0].Result!.Failure);
+        Assert.Equal("misaligned", loaded.Attempts[0].Synchronization?.State);
+        Assert.Contains("lifecycle failure; see attempt evidence", markdown);
+        Assert.Contains("Normal stop did not release the viewer.", markdown);
+        Assert.DoesNotContain("startup-failure", markdown);
+        Assert.Equal(header.Length, observed.Length);
+        Assert.Equal(header.Length, pending.Length);
+        Assert.Equal("success", observed[Array.IndexOf(header, "StartupOutcome")]);
+        Assert.Equal("True", observed[Array.IndexOf(header, "AV")]);
+        Assert.Equal("", observed[Array.IndexOf(header, "Failure")]);
+        Assert.Equal("True", observed[Array.IndexOf(header, "ForcedCleanup")]);
+        Assert.Equal("True", observed[Array.IndexOf(header, "CleanupContinuationVerified")]);
+        Assert.Equal("misaligned", observed[Array.IndexOf(header, "Sync")]);
+        Assert.IsType<InvalidDataException>(mismatch);
+        Assert.False(File.Exists(System.IO.Path.Combine(directory.Path, "completed.marker")));
+    }
+
+    /// <summary>Additive continuation fields default to disabled/unverified for older schema-one checkpoints.</summary>
+    [Fact]
+    public async Task LegacyCheckpointCannotImplicitlyOptIntoContinuation()
+    {
+        // Arrange
+        using var directory = new TemporaryDirectory();
+        var run = SweepPolicyTests.CreateRun();
+        run.Attempts.Add(new() { Id = "attempt", Key = run.Selected[0].Key, Cleanup = new(true, true, true, [], []) });
+        var document = JsonSerializer.SerializeToNode(run, SweepStore.Json)!;
+        document["Options"]!.AsObject().Remove("ContinueAfterVerifiedCleanup");
+        document["Attempts"]![0]!.AsObject().Remove("CleanupContinuationVerified");
+        var path = System.IO.Path.Combine(directory.Path, "sweep-run.json");
+        await File.WriteAllTextAsync(path, document.ToJsonString(), TestContext.Current.CancellationToken);
+
+        // Act
+        var loaded = await SweepStore.LoadAsync(path);
+
+        // Assert
+        Assert.False(loaded.Options.ContinueAfterVerifiedCleanup);
+        Assert.False(loaded.Attempts[0].CleanupContinuationVerified);
+        Assert.False(SweepPolicy.HasAcceptableCleanup(loaded, loaded.Attempts[0]));
+    }
+
     /// <summary>A malformed final record is corruption, not a provably torn interruption.</summary>
     [Fact]
     public async Task MalformedTailIsNotRecovered()

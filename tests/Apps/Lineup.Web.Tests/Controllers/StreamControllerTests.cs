@@ -262,7 +262,7 @@ public sealed class StreamControllerTests
         var pendingType = typeof(StreamController).GetNestedType("PendingCmafOutput", BindingFlags.NonPublic);
         Assert.NotNull(pendingType);
         var constructor = Assert.Single(pendingType.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic));
-        var pending = constructor.Invoke([controller]);
+        var pending = constructor.Invoke([controller, Path.Combine(AppContext.BaseDirectory, "stream-controller-artifacts", Guid.NewGuid().ToString("N"))]);
         Assert.NotNull(pending);
         var lifetimeProperty = pendingType.GetProperty("LifetimeToken", BindingFlags.Instance | BindingFlags.Public);
         Assert.NotNull(lifetimeProperty);

@@ -98,7 +98,8 @@ public sealed class PhysicalLineupService : IPhysicalLineupService
                 {
                     throw;
                 }
-                catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or IOException or HttpRequestException or UnauthorizedAccessException)
+                catch (Exception exception) when (
+                    exception is ArgumentException or InvalidOperationException or InvalidDataException or IOException or HttpRequestException or UnauthorizedAccessException)
                 {
                     _logger.LogWarning(exception, "Unable to refresh physical lineup for device {PhysicalDeviceId}; prior state was preserved", device.Snapshot.Id);
                     results.Add(new PhysicalLineupRefreshResult

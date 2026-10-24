@@ -33,6 +33,24 @@ internal static class SweepPolicy
         attempt.FinishedUtc is null || attempt.Interrupted || attempt.Cleanup is not { VerifiedAbsent: true, Forced: false }
         || attempt.BrowserFailures.Count > 0 || attempt.EvidenceFailures.Count > 0;
 
+    /// <summary>Permits a completed media result after explicitly reverified emergency cleanup without waiving its lifecycle failure.</summary>
+    public static bool HasAcceptableCleanup(SweepRun run, SweepAttempt attempt) =>
+        attempt.Cleanup is { VerifiedAbsent: true } cleanup && (!cleanup.Forced || (run.Options.ContinueAfterVerifiedCleanup && attempt.CleanupContinuationVerified));
+
+    /// <summary>Standalone regression scenarios without canonical lifecycle orchestration must still fail on emergency or unproven cleanup.</summary>
+    public static void RequireNormalCleanup(SweepAttempt attempt, string artifactRoot)
+    {
+        if (attempt.Cleanup is not { VerifiedAbsent: true, Forced: false })
+        {
+            throw new InvalidOperationException($"Standalone observation {attempt.Id} failed cleanup. Evidence: {artifactRoot}");
+        }
+    }
+
+    /// <summary>Retries unresolved playback/caption evidence while honoring terminal structured startup outcomes.</summary>
+    public static bool ShouldRetry(ChannelAttemptResult result) =>
+        !(result.AvPassed && result.CaptionResult != "source-caption-not-exposed")
+        && (result.Startup is null || result.Startup.Succeeded || result.Startup.Retryable);
+
     /// <summary>Classifies structured codes before generic HTTP status.</summary>
     public static string StartupCategory(int status, string? code)
     {
@@ -197,7 +215,7 @@ internal static class SweepPolicy
         {
             var attempt = run.Attempts.FirstOrDefault(item => item.Id == id);
             if (!selected.Contains(key) || attempt is null || attempt.Key != key || attempt.FinishedUtc is null || attempt.Result is null
-                || attempt.Interrupted || attempt.Verdict == SweepVerdict.CapacityContamination || attempt.Cleanup is not { VerifiedAbsent: true, Forced: false }
+                || attempt.Interrupted || attempt.Verdict == SweepVerdict.CapacityContamination || !HasAcceptableCleanup(run, attempt)
                 || attempt is { Verdict: SweepVerdict.StablePlayback, SyntheticPlayback: true })
             {
                 violations.Add($"Invalid accepted result for {key}.");

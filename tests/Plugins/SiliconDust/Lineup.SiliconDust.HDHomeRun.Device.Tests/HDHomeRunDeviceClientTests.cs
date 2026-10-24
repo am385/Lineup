@@ -222,6 +222,107 @@ public class HDHomeRunDeviceClientTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => fetch);
     }
 
+    /// <summary>Verifies an HTTP client's own deadline becomes a recoverable device failure instead of caller cancellation.</summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task ControlRequest_HttpTimeout_WrapsIndependentCancellation(bool discovery, bool body)
+    {
+        // Arrange
+        using var http = new HttpClient(body ? new BlockingBodyHandler() : new BlockingHandler())
+        {
+            BaseAddress = new Uri("http://hdhomerun.local/"),
+            Timeout = TimeSpan.FromMilliseconds(100)
+        };
+        var client = new HDHomeRunDeviceClient(_logger, http);
+
+        // Act
+        var exception = await Record.ExceptionAsync(async () =>
+        {
+            if (discovery)
+            {
+                await client.DiscoverDeviceAsync(TestContext.Current.CancellationToken);
+            }
+            else
+            {
+                await client.FetchChannelLineupAsync(TestContext.Current.CancellationToken);
+            }
+        });
+
+        // Assert
+        var failure = Assert.IsType<InvalidOperationException>(exception);
+        Assert.IsAssignableFrom<OperationCanceledException>(failure.InnerException);
+        Assert.False(TestContext.Current.CancellationToken.IsCancellationRequested);
+    }
+
+    /// <summary>Verifies caller cancellation of a response body is not translated into a device timeout.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ControlRequest_BodyCanceled_PropagatesCallerCancellation(bool discovery)
+    {
+        // Arrange
+        var handler = new BlockingBodyHandler();
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("http://hdhomerun.local/") };
+        var client = new HDHomeRunDeviceClient(_logger, http);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        Task operation = discovery ? client.DiscoverDeviceAsync(cancellation.Token) : client.FetchChannelLineupAsync(cancellation.Token);
+        await handler.Started.Task.WaitAsync(TestContext.Current.CancellationToken);
+
+        // Act
+        await cancellation.CancelAsync();
+        var exception = await Record.ExceptionAsync(() => operation);
+
+        // Assert
+        Assert.IsAssignableFrom<OperationCanceledException>(exception);
+        Assert.True(cancellation.IsCancellationRequested);
+    }
+
+    private sealed class BlockingBodyHandler : HttpMessageHandler
+    {
+        /// <summary>Gets the signal raised when JSON body reading begins.</summary>
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <inheritdoc />
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StreamContent(new BlockingBodyStream(Started)) });
+    }
+
+    private sealed class BlockingBodyStream(TaskCompletionSource started) : Stream
+    {
+        /// <inheritdoc />
+        public override bool CanRead => true;
+        /// <inheritdoc />
+        public override bool CanSeek => false;
+        /// <inheritdoc />
+        public override bool CanWrite => false;
+        /// <inheritdoc />
+        public override long Length => throw new NotSupportedException();
+        /// <inheritdoc />
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+
+        /// <inheritdoc />
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            started.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return 0;
+        }
+
+        /// <inheritdoc />
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        /// <inheritdoc />
+        public override void Flush() => throw new NotSupportedException();
+        /// <inheritdoc />
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        /// <inheritdoc />
+        public override void SetLength(long value) => throw new NotSupportedException();
+        /// <inheritdoc />
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
     private sealed class BlockingHandler : HttpMessageHandler
     {
         public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);

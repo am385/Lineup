@@ -176,6 +176,98 @@ public sealed class PhysicalDeviceCatalogTests
         Assert.Equal(2, driver.CreateCount);
     }
 
+    /// <summary>Verifies retrying a failed sibling retains the healthy runtime and later admits the recovered device.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ApplyAsync_PartialActivation_RetainsUnchangedHealthyDevice(bool recover)
+    {
+        // Arrange
+        var driver = new FakePhysicalDriver();
+        var catalog = new PhysicalDeviceCatalog(new StreamingAdapterRegistry([driver], [], []));
+        var healthyId = PhysicalDeviceId.New();
+        var failedId = PhysicalDeviceId.New();
+        var configuration = new StreamingConfiguration
+        {
+            PhysicalDevices = [CreateDefinition(healthyId, "Healthy", 0, true), CreateDefinition(failedId, "Fail", 1, true)]
+        };
+        await catalog.ApplyAsync(configuration, TestContext.Current.CancellationToken);
+        var original = Assert.IsType<FakePhysicalDevice>(Assert.Single(catalog.Devices));
+        driver.FailActivation = !recover;
+
+        // Act
+        await catalog.ApplyAsync(configuration, TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Same(original, catalog.GetRequired(healthyId));
+        Assert.False(original.IsDisposed);
+        Assert.Equal(recover ? 2 : 1, catalog.Devices.Count);
+        Assert.Equal(3, driver.CreateCount);
+    }
+
+    /// <summary>Verifies cancellation rolls back only newly created devices, not retained or previously published devices.</summary>
+    [Fact]
+    public async Task ApplyAsync_CanceledReplacement_PreservesPublishedDevices()
+    {
+        // Arrange
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var driver = new FakePhysicalDriver();
+        var catalog = new PhysicalDeviceCatalog(new StreamingAdapterRegistry([driver], [], []));
+        var retained = CreateDefinition(PhysicalDeviceId.New(), "Retained", 0, true);
+        var changed = CreateDefinition(PhysicalDeviceId.New(), "Original", 1, true);
+        var configuration = new StreamingConfiguration { PhysicalDevices = [retained, changed] };
+        await catalog.ApplyAsync(configuration, cancellation.Token);
+        var original = catalog.Devices.Cast<FakePhysicalDevice>().ToArray();
+        driver.BeforeCreate = (name, token) =>
+        {
+            if (name == "Cancel")
+            {
+                cancellation.Cancel();
+                token.ThrowIfCancellationRequested();
+            }
+        };
+
+        // Act
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => catalog.ApplyAsync(configuration with
+        {
+            PhysicalDevices = [retained, changed with { Name = "Replacement" }, CreateDefinition(PhysicalDeviceId.New(), "Cancel", 2, true)]
+        }, cancellation.Token));
+
+        // Assert
+        Assert.Equal(original, catalog.Devices);
+        Assert.All(original, device => Assert.False(device.IsDisposed));
+        Assert.True(Assert.Single(driver.Created, device => device.Snapshot.Name == "Replacement").IsDisposed);
+    }
+
+    /// <summary>Verifies removing or disabling a definition disposes only that runtime and updates the published configuration identity.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ApplyAsync_RemovedOrDisabledDevice_RetainsRemainingRuntime(bool disable)
+    {
+        // Arrange
+        var driver = new FakePhysicalDriver();
+        var catalog = new PhysicalDeviceCatalog(new StreamingAdapterRegistry([driver], [], []));
+        var retained = CreateDefinition(PhysicalDeviceId.New(), "Retained", 0, true);
+        var removed = CreateDefinition(PhysicalDeviceId.New(), "Removed", 1, true);
+        var original = new StreamingConfiguration { PhysicalDevices = [retained, removed] };
+        await catalog.ApplyAsync(original, TestContext.Current.CancellationToken);
+        var retainedRuntime = Assert.IsType<FakePhysicalDevice>(catalog.GetRequired(retained.Id));
+        var removedRuntime = Assert.IsType<FakePhysicalDevice>(catalog.GetRequired(removed.Id));
+        var replacement = original with { PhysicalDevices = disable ? [retained, removed with { Enabled = false }] : [retained] };
+
+        // Act
+        await catalog.ApplyAsync(replacement, TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Same(retainedRuntime, Assert.Single(catalog.Devices));
+        Assert.False(retainedRuntime.IsDisposed);
+        Assert.True(removedRuntime.IsDisposed);
+        Assert.True(catalog.IsConfigurationCurrent(replacement));
+        Assert.False(catalog.IsConfigurationCurrent(original));
+        Assert.Equal(2, driver.CreateCount);
+    }
+
     private static PhysicalDeviceDefinition CreateDefinition(PhysicalDeviceId id, string name, int order, bool enabled) =>
         new()
         {
@@ -193,6 +285,15 @@ public sealed class PhysicalDeviceCatalogTests
         public const string DriverKind = "fake";
 
         public int CreateCount => Volatile.Read(ref _createCount);
+
+        /// <summary>Gets or sets whether the named failing device remains unavailable.</summary>
+        public bool FailActivation { get; set; } = true;
+
+        /// <summary>Gets or sets an activation hook for deterministic cancellation.</summary>
+        public Action<string, CancellationToken>? BeforeCreate { get; set; }
+
+        /// <summary>Gets owned fake runtime instances for rollback checks.</summary>
+        public List<FakePhysicalDevice> Created { get; } = [];
 
         public string Kind => DriverKind;
 
@@ -214,6 +315,13 @@ public sealed class PhysicalDeviceCatalogTests
             CancellationToken cancellationToken = default)
         {
             Interlocked.Increment(ref _createCount);
+            BeforeCreate?.Invoke(name, cancellationToken);
+            if (name is not ("Unauthorized" or "HttpTimeout") && (name != "Fail" || !FailActivation))
+            {
+                var device = new FakePhysicalDevice(deviceId, name);
+                Created.Add(device);
+                return ValueTask.FromResult<IPhysicalTunerDevice>(device);
+            }
             return name switch
             {
                 "Fail" => ValueTask.FromException<IPhysicalTunerDevice>(new IOException("Unavailable")),

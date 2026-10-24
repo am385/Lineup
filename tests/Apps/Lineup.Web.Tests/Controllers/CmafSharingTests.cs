@@ -162,6 +162,119 @@ public sealed class CmafSharingTests
         Assert.IsType<ContentResult>(first.Controller.GetCmafFile(response.SessionId, "manifest.mpd"));
     }
 
+    /// <summary>Verifies a departing initiator cannot cancel or abandon readiness for another pending viewer.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Start_InitiatorLeavesBeforeReadiness_SurvivorReceivesReadyProducer(bool cancelRequest)
+    {
+        // Arrange
+        await using var fixture = new Fixture { HoldReadiness = true };
+        var first = fixture.BeginStart("owner");
+        await fixture.EncoderStarted.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        var second = fixture.BeginStart("survivor");
+        await WaitUntilAsync(() => fixture.Outputs.GetViewers().Count == 2);
+        var ownerId = fixture.ActiveStreams.GetActiveStreams().Single(stream => stream.ClientId == "owner").SessionId;
+
+        // Act
+        if (cancelRequest)
+        {
+            first.Cancellation.Cancel();
+        }
+        else
+        {
+            Assert.True(fixture.ActiveStreams.RequestStop(ownerId));
+        }
+        Assert.IsType<EmptyResult>(await first.Start.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+        fixture.PublishReadiness();
+        var response = await ResponseAsync(second.Start.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+
+        // Assert
+        Assert.False(second.Cancellation.IsCancellationRequested);
+        Assert.Equal(1, fixture.EncoderCount);
+        Assert.Equal(1, Assert.Single(fixture.Outputs.GetDiagnostics()).ViewerCount);
+        Assert.Equal("survivor", Assert.Single(fixture.ActiveStreams.GetActiveStreams()).ClientId);
+        Assert.True(fixture.IsEncoderRunning);
+        Assert.IsType<ContentResult>(second.Controller.GetCmafFile(response.SessionId, "manifest.mpd"));
+        Assert.IsType<NotFoundObjectResult>(first.Controller.GetCmafFile(ownerId, "manifest.mpd"));
+
+        // Act
+        Assert.IsType<OkObjectResult>(second.Controller.StopCmaf(response.SessionId));
+        await WaitUntilAsync(() => fixture.ActiveInputs == 0);
+
+        // Assert
+        Assert.Empty(fixture.Outputs.GetViewers());
+        Assert.Empty(fixture.ActiveStreams.GetActiveStreams());
+        Assert.False(fixture.IsEncoderRunning);
+        Assert.False(fixture.HasEncoderDirectory);
+    }
+
+    /// <summary>Verifies releasing all pending viewers cancels producer work and cleans its input, process, and directory.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Start_AllViewersLeaveBeforeReadiness_CleansProducer(bool cancelRequests)
+    {
+        // Arrange
+        await using var fixture = new Fixture { HoldReadiness = true };
+        var first = fixture.BeginStart("owner");
+        await fixture.EncoderStarted.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        var second = fixture.BeginStart("joining");
+        await WaitUntilAsync(() => fixture.Outputs.GetViewers().Count == 2);
+
+        // Act
+        if (cancelRequests)
+        {
+            first.Cancellation.Cancel();
+            second.Cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => second.Start);
+        }
+        else
+        {
+            Assert.Equal(1, fixture.ActiveStreams.RequestStopByClientId("owner"));
+            Assert.Equal(1, fixture.ActiveStreams.RequestStopByClientId("joining"));
+            Assert.IsType<EmptyResult>(await second.Start.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+        }
+        Assert.IsType<EmptyResult>(await first.Start.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+        await WaitUntilAsync(() => fixture.ActiveInputs == 0 && !fixture.IsEncoderRunning && !fixture.HasEncoderDirectory);
+
+        // Assert
+        Assert.Equal(0, fixture.Outputs.ActiveOutputCount);
+        Assert.Empty(fixture.Outputs.GetViewers());
+        Assert.Empty(fixture.ActiveStreams.GetActiveStreams());
+    }
+
+    /// <summary>Verifies producer-owned failure or deadline still reaches a surviving viewer after the initiator leaves.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Start_ProducerFailsAfterInitiatorLeaves_SurvivorReceivesFailureAndCleanup(bool encoderExits)
+    {
+        // Arrange
+        await using var fixture = new Fixture { HoldReadiness = true };
+        var first = fixture.BeginStart("owner", startupTimeout: TimeSpan.FromSeconds(2));
+        await fixture.EncoderStarted.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        var second = fixture.BeginStart("survivor", startupTimeout: TimeSpan.FromSeconds(10));
+        await WaitUntilAsync(() => fixture.Outputs.GetViewers().Count == 2);
+        first.Cancellation.Cancel();
+        Assert.IsType<EmptyResult>(await first.Start);
+
+        // Act
+        if (encoderExits)
+        {
+            await fixture.TerminateEncoderAsync();
+        }
+        var result = Assert.IsType<ObjectResult>(await second.Start.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+        await WaitUntilAsync(() => fixture.ActiveInputs == 0 && !fixture.IsEncoderRunning && !fixture.HasEncoderDirectory);
+
+        // Assert
+        Assert.False(second.Cancellation.IsCancellationRequested);
+        Assert.Equal(encoderExits ? StatusCodes.Status502BadGateway : StatusCodes.Status504GatewayTimeout, result.StatusCode);
+        Assert.Equal(0, fixture.Outputs.ActiveOutputCount);
+        Assert.Empty(fixture.Outputs.GetViewers());
+        Assert.Empty(fixture.ActiveStreams.GetActiveStreams());
+    }
+
     /// <summary>Verifies sharing does not bypass the independently counted viewer admission limit.</summary>
     [Fact]
     public async Task Start_ThirdViewer_StillEnforcesViewerLimit()
@@ -248,6 +361,7 @@ public sealed class CmafSharingTests
         private readonly IMediaProbeService _probe = Substitute.For<IMediaProbeService>();
         private readonly IMediaProcessFactory _processes = Substitute.For<IMediaProcessFactory>();
         private readonly IStreamingRouteResolver _routes = Substitute.For<IStreamingRouteResolver>();
+        private readonly HttpClient _diagnosticClient = new(new UnavailableDiagnostics());
         private readonly StreamingTopologyStore _topology;
         private readonly TransientDataStore _files;
         private int _activeInputs;
@@ -322,14 +436,20 @@ public sealed class CmafSharingTests
         internal int ActiveInputs => Volatile.Read(ref _activeInputs);
 
         /// <summary>Starts a real controller request with its own client metadata and cancellation lifetime.</summary>
-        internal (StreamController Controller, CancellationTokenSource Cancellation, Task<IActionResult> Start) BeginStart(string clientId, CmafStreamRequest? request = null, string channel = "7.1")
+        internal (StreamController Controller, CancellationTokenSource Cancellation, Task<IActionResult> Start) BeginStart(
+            string clientId,
+            CmafStreamRequest? request = null,
+            string channel = "7.1",
+            TimeSpan? startupTimeout = null)
         {
             var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
             _cancellations.Add(cancellation);
+            var httpClients = Substitute.For<IHttpClientFactory>();
+            httpClients.CreateClient("StreamProxy").Returns(_diagnosticClient);
             var controller = new StreamController(
-                Substitute.For<IHttpClientFactory>(), Substitute.For<ILineupGuideReader>(), _settings, _topology, _probe, ActiveStreams,
+                httpClients, Substitute.For<ILineupGuideReader>(), _settings, _topology, _probe, ActiveStreams,
                 Substitute.For<IProtectedContentSlateService>(), _multiplexer, NullLogger<StreamController>.Instance,
-                transientData: _files, mediaProcessFactory: _processes, streamRoutes: _routes, cmafOutputs: Outputs)
+                transientData: _files, mediaProcessFactory: _processes, streamRoutes: _routes, cmafOutputs: Outputs, cmafStartupTimeout: startupTimeout)
             {
                 ControllerContext = new ControllerContext
                 {
@@ -350,6 +470,16 @@ public sealed class CmafSharingTests
             foreach (var encoder in _encoders)
             {
                 PublishReadiness(encoder.Directory);
+            }
+        }
+
+        /// <summary>Exits owned encoders before readiness without using external hardware or network requests.</summary>
+        internal async Task TerminateEncoderAsync()
+        {
+            foreach (var encoder in _encoders)
+            {
+                encoder.Observer.Kill(entireProcessTree: true);
+                await encoder.Observer.WaitForExitAsync(TestContext.Current.CancellationToken);
             }
         }
 
@@ -458,9 +588,17 @@ public sealed class CmafSharingTests
                 {
                     cancellation.Dispose();
                 }
+                _diagnosticClient.Dispose();
                 _root.Delete(recursive: true);
             }
         }
+    }
+
+    private sealed class UnavailableDiagnostics : HttpMessageHandler
+    {
+        /// <inheritdoc />
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromException<HttpResponseMessage>(new HttpRequestException("No live tuner diagnostics are used by this test."));
     }
 
     private sealed class LogicalClock : TimeProvider

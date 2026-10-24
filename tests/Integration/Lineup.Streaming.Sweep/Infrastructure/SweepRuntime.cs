@@ -182,13 +182,13 @@ internal sealed partial class SweepHarness
         return JsonNode.Parse(text) ?? throw new JsonException("Status API returned null.");
     }
 
-    private async Task EnsureTunerIdleAsync(TimeSpan timeout)
+    private async Task EnsureTunerIdleAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
     {
         if (_options.ExistingInstance)
         {
             return;
         }
-        var discovery = JsonNode.Parse(await _http.GetStringAsync($"http://{GetTunerAddress()}/discover.json"))
+        var discovery = JsonNode.Parse(await _http.GetStringAsync($"http://{GetTunerAddress()}/discover.json", cancellationToken))
             ?? throw new InvalidDataException("Tuner discovery was null.");
         var capacity = discovery["TunerCount"]?.GetValue<int>() ?? throw new InvalidDataException("Tuner discovery omitted capacity.");
         if (capacity < 1)
@@ -200,7 +200,7 @@ internal sealed partial class SweepHarness
         {
             try
             {
-                var html = await _http.GetStringAsync($"http://{GetTunerAddress()}/tuners.html");
+                var html = await _http.GetStringAsync($"http://{GetTunerAddress()}/tuners.html", cancellationToken);
                 if (CountOccurrences(html, "not in use") == capacity)
                 {
                     return;
@@ -210,7 +210,7 @@ internal sealed partial class SweepHarness
             {
                 Console.Error.WriteLine($"Tuner idle probe failed: {ex.Message}");
             }
-            await Task.Delay(2_000);
+            await Task.Delay(2_000, cancellationToken);
         }
         throw new TimeoutException($"The {capacity} discovered physical tuners did not return to idle.");
     }

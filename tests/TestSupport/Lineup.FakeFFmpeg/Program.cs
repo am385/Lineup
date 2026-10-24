@@ -34,6 +34,28 @@ if (args.Length == 0)
     return writeError is null ? 0 : 1;
 }
 
+if (args is ["diagnostics", var length, var code, var hold])
+{
+    var remaining = int.Parse(length, System.Globalization.CultureInfo.InvariantCulture);
+    await Console.Error.WriteLineAsync("Earlier diagnostic");
+    var chunk = new string('x', 1024);
+    while (remaining > 0)
+    {
+        var count = Math.Min(remaining, chunk.Length);
+        await Console.Error.WriteAsync(chunk.AsMemory(0, count));
+        remaining -= count;
+    }
+    await Console.Error.WriteLineAsync("final-error");
+    await Console.Error.FlushAsync();
+    await Console.OpenStandardOutput().WriteAsync(new byte[] { 0x47 });
+    await Console.OpenStandardOutput().FlushAsync();
+    if (hold == "hold")
+    {
+        await Console.OpenStandardInput().CopyToAsync(Stream.Null);
+    }
+    return int.Parse(code, System.Globalization.CultureInfo.InvariantCulture);
+}
+
 var fail = string.Equals(Environment.GetEnvironmentVariable("LINEUP_FAKE_FFMPEG_FAIL"), "1", StringComparison.Ordinal);
 if (fail)
 {

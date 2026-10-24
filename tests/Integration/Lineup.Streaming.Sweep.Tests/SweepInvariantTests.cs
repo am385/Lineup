@@ -6,6 +6,54 @@ namespace Lineup.Streaming.Sweep.Tests;
 /// <summary>Exit policy, discarded contamination, independent evidence provenance and fallback handling.</summary>
 public sealed class SweepInvariantTests
 {
+    /// <summary>Issue regression helpers cannot bypass lifecycle failure simply because media evidence is now independent.</summary>
+    [Theory]
+    [InlineData(false, true, false)]
+    [InlineData(true, true, true)]
+    [InlineData(false, false, true)]
+    public void StandaloneScenariosStillRequireNormalCleanup(bool forced, bool absent, bool failure)
+    {
+        // Arrange
+        var attempt = new SweepAttempt { Id = "standalone", Key = "key", Cleanup = new(true, forced, absent, [], []), CleanupContinuationVerified = true };
+
+        // Act
+        var error = Record.Exception(() => SweepPolicy.RequireNormalCleanup(attempt, "artifacts"));
+
+        // Assert
+        if (failure)
+        {
+            Assert.IsType<InvalidOperationException>(error);
+            Assert.Contains("Evidence: artifacts", error.Message);
+        }
+        else
+        {
+            Assert.Null(error);
+        }
+    }
+
+    /// <summary>Continuation permits a result reference only with opt-in and verified proof, while every forced cleanup still fails certification.</summary>
+    [Theory]
+    [InlineData(false, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, false)]
+    public void ForcedCleanupRequiresOptInAndContinuationProof(bool optedIn, bool verified, bool invalid)
+    {
+        // Arrange
+        var run = CompletedRun(SweepVerdict.SourceUnavailable) with { Options = new() { ContinueAfterVerifiedCleanup = optedIn } };
+        run.Attempts[0].Cleanup = new(true, true, true, [], []);
+        run.Attempts[0].CleanupContinuationVerified = verified;
+
+        // Act
+        var errors = SweepPolicy.Evaluate(run, true);
+        var exit = SweepPolicy.ExitCode(run);
+
+        // Assert
+        Assert.Equal(invalid, errors.Any(error => error.StartsWith("Invalid accepted", StringComparison.Ordinal)));
+        Assert.Contains(errors, error => error.StartsWith("Lifecycle invariant failed", StringComparison.Ordinal));
+        Assert.Equal(2, exit);
+    }
+
     /// <summary>Expected protected/unavailable channels can complete without product failure limits.</summary>
     [Theory]
     [InlineData((int)SweepVerdict.SourceUnavailable)]

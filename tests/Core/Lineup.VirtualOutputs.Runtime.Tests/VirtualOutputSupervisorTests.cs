@@ -12,6 +12,127 @@ namespace Lineup.VirtualOutputs.Runtime.Tests;
 /// <summary>Verifies desired-versus-applied virtual-output worker supervision.</summary>
 public sealed class VirtualOutputSupervisorTests
 {
+    /// <summary>Verifies cancellation of reconciliation cannot strand a managed child removed from active ownership.</summary>
+    [Theory]
+    [InlineData("remove")]
+    [InlineData("disable")]
+    [InlineData("replace")]
+    public async Task StopAsync_DuringWorkerDrain_CompletesChildCleanup(string change)
+    {
+        // Arrange
+        await using var fixture = new OwnershipFixture();
+        var device = fixture.CreateDevice(VirtualOutputExecutionMode.ManagedProcess);
+        fixture.Configuration = fixture.Configuration with
+        {
+            VirtualDevices = [device],
+            VirtualOutputWorkerPolicies = [Assert.Single(fixture.Configuration.VirtualOutputWorkerPolicies) with { DrainTimeoutSeconds = 60 }]
+        };
+        await fixture.StartAsync();
+        await WaitUntilAsync(() => fixture.Status.GetSnapshots().Any(snapshot => snapshot.State == VirtualOutputRuntimeState.Starting),
+            TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        var process = Assert.Single(fixture.Processes);
+        fixture.Register(fixture.GetBootstrap(VirtualOutputExecutionMode.ManagedProcess, device.Id));
+        fixture.Configuration = fixture.Configuration with
+        {
+            VirtualDevices = change switch
+            {
+                "remove" => [],
+                "disable" => [device with { Enabled = false }],
+                _ => [device with { Name = "Replacement" }]
+            }
+        };
+        fixture.SignalSettingsChanged();
+        await WaitUntilAsync(() => fixture.Status.GetSnapshots().Any(snapshot => snapshot.State == VirtualOutputRuntimeState.Draining),
+            TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+
+        // Act
+        await fixture.StopAsync().WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.True(process.Completion.IsCompletedSuccessfully);
+        await process.Received().DisposeAsync();
+        Assert.Single(fixture.Processes);
+    }
+
+    /// <summary>Verifies forced-stop failures still dispose an owned child before surfacing the failure.</summary>
+    [Fact]
+    public async Task Reconcile_ForcedStopFails_DisposesChild()
+    {
+        // Arrange
+        await using var fixture = new OwnershipFixture();
+        var device = fixture.CreateDevice(VirtualOutputExecutionMode.ManagedProcess);
+        fixture.Configuration = fixture.Configuration with { VirtualDevices = [device] };
+        await fixture.ReconcileAsync();
+        var process = Assert.Single(fixture.Processes);
+        process.StopAsync(Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>()).Returns(Task.FromException(new IOException("Synthetic stop failure.")));
+        fixture.Configuration = fixture.Configuration with { VirtualDevices = [] };
+
+        // Act
+        await Assert.ThrowsAsync<IOException>(() => fixture.ReconcileAsync());
+
+        // Assert
+        Assert.True(process.Completion.IsCompletedSuccessfully);
+        await process.Received().DisposeAsync();
+    }
+
+    /// <summary>Verifies direct reconciliation cancellation still propagates after its removed child is disposed.</summary>
+    [Fact]
+    public async Task Reconcile_CanceledDrain_CleansChildAndPropagatesCancellation()
+    {
+        // Arrange
+        await using var fixture = new OwnershipFixture();
+        var device = fixture.CreateDevice(VirtualOutputExecutionMode.ManagedProcess);
+        fixture.Configuration = fixture.Configuration with
+        {
+            VirtualDevices = [device],
+            VirtualOutputWorkerPolicies = [Assert.Single(fixture.Configuration.VirtualOutputWorkerPolicies) with { DrainTimeoutSeconds = 60 }]
+        };
+        await fixture.ReconcileAsync();
+        var process = Assert.Single(fixture.Processes);
+        fixture.Configuration = fixture.Configuration with { VirtualDevices = [] };
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var reconcile = fixture.ReconcileAsync(cancellation.Token);
+        await WaitUntilAsync(() => fixture.Status.GetSnapshots().Any(snapshot => snapshot.State == VirtualOutputRuntimeState.Draining),
+            TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+
+        // Act
+        await cancellation.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => reconcile.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken));
+
+        // Assert
+        Assert.True(process.Completion.IsCompletedSuccessfully);
+        await process.Received().DisposeAsync();
+    }
+
+    /// <summary>Verifies a gracefully exiting child is disposed without invoking the forced-stop path.</summary>
+    [Fact]
+    public async Task Reconcile_ChildExitsDuringDrain_DoesNotForceStop()
+    {
+        // Arrange
+        await using var fixture = new OwnershipFixture();
+        var device = fixture.CreateDevice(VirtualOutputExecutionMode.ManagedProcess);
+        fixture.Configuration = fixture.Configuration with
+        {
+            VirtualDevices = [device],
+            VirtualOutputWorkerPolicies = [Assert.Single(fixture.Configuration.VirtualOutputWorkerPolicies) with { DrainTimeoutSeconds = 60 }]
+        };
+        await fixture.ReconcileAsync();
+        var process = Assert.Single(fixture.Processes);
+        fixture.Configuration = fixture.Configuration with { VirtualDevices = [] };
+        var reconcile = fixture.ReconcileAsync();
+        await WaitUntilAsync(() => fixture.Status.GetSnapshots().Any(snapshot => snapshot.State == VirtualOutputRuntimeState.Draining),
+            TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+
+        // Act
+        fixture.ExitProcess(process);
+        await reconcile.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+
+        // Assert
+        await process.DidNotReceive().StopAsync(Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>());
+        await process.Received().DisposeAsync();
+        Assert.Empty(fixture.Status.GetSnapshots());
+    }
+
     /// <summary>Verifies initial and subsequent reconciliation preserve the independently owned discovery worker.</summary>
     [Theory]
     [InlineData(true)]
@@ -194,11 +315,14 @@ public sealed class VirtualOutputSupervisorTests
     private sealed class OwnershipFixture : IAsyncDisposable
     {
         private readonly VirtualOutputSupervisor _supervisor;
+        private readonly ILineupSettingsService _settings;
+        private readonly Dictionary<IVirtualOutputWorkerProcess, TaskCompletionSource<int>> _completions = [];
         private VirtualOutputWorkerBootstrap? _bootstrap;
 
         internal OwnershipFixture()
         {
             var settings = Substitute.For<ILineupSettingsService>();
+            _settings = settings;
             settings.Settings.Returns(_ => new LineupSettings { Streaming = Configuration });
             var catalog = Substitute.For<IVirtualOutputWorkerCatalog>();
             catalog.ResolveAsync("ownership-test", Arg.Any<CancellationToken>()).Returns(_ =>
@@ -227,6 +351,7 @@ public sealed class VirtualOutputSupervisorTests
                 _bootstrap = call.Arg<VirtualOutputWorkerBootstrap>();
                 var completion = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
                 var process = Substitute.For<IVirtualOutputWorkerProcess>();
+                _completions.Add(process, completion);
                 process.Completion.Returns(completion.Task);
                 process.StopAsync(Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>()).Returns(_ =>
                 {
@@ -273,6 +398,18 @@ public sealed class VirtualOutputSupervisorTests
         internal bool FailActivation { get; set; }
 
         internal int ActivationAttempts { get; private set; }
+
+        /// <summary>Starts the hosted reconciliation loop.</summary>
+        internal Task StartAsync() => _supervisor.StartAsync(TestContext.Current.CancellationToken);
+
+        /// <summary>Stops the hosted loop and waits for its final cleanup.</summary>
+        internal Task StopAsync() => _supervisor.StopAsync(TestContext.Current.CancellationToken);
+
+        /// <summary>Notifies the hosted loop of updated desired topology.</summary>
+        internal void SignalSettingsChanged() => _settings.OnSettingsChanged += Raise.Event<Action>();
+
+        /// <summary>Completes a controlled child without a supervisor stop request.</summary>
+        internal void ExitProcess(IVirtualOutputWorkerProcess process) => _completions[process].TrySetResult(0);
 
         internal VirtualDeviceDefinition CreateDevice(VirtualOutputExecutionMode mode) => new()
         {
@@ -328,15 +465,16 @@ public sealed class VirtualOutputSupervisorTests
             return new VirtualOutputSessionContext { SessionId = registration.SessionId!.Value, Generation = bootstrap.Generation };
         }
 
-        internal async Task ReconcileAsync()
+        internal async Task ReconcileAsync(CancellationToken? cancellationToken = null)
         {
+            var token = cancellationToken ?? TestContext.Current.CancellationToken;
             var gate = Assert.IsType<SemaphoreSlim>(typeof(VirtualOutputSupervisor).GetField("_stateGate", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(_supervisor));
             var reconcile = typeof(VirtualOutputSupervisor).GetMethod("ReconcileAsync", BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.NotNull(reconcile);
-            await gate.WaitAsync(TestContext.Current.CancellationToken);
+            await gate.WaitAsync(token);
             try
             {
-                await Assert.IsAssignableFrom<Task>(reconcile.Invoke(_supervisor, [TestContext.Current.CancellationToken]));
+                await Assert.IsAssignableFrom<Task>(reconcile.Invoke(_supervisor, [token]));
             }
             finally
             {
@@ -350,6 +488,10 @@ public sealed class VirtualOutputSupervisorTests
             Configuration = Configuration with { VirtualDevices = [] };
             await ReconcileAsync();
             await _supervisor.StopAsync(CancellationToken.None);
+            foreach (var process in Processes)
+            {
+                await process.DisposeAsync();
+            }
             _supervisor.Dispose();
             Authority.Dispose();
         }

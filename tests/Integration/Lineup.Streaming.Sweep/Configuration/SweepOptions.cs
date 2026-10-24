@@ -35,6 +35,8 @@ internal sealed record SweepOptions
     public bool SetupCompatibility { get; init; }
     /// <summary>Gets whether owned Compose recovery was explicitly permitted.</summary>
     public bool AllowMatrixRecovery { get; init; }
+    /// <summary>Gets whether emergency cleanup may continue after ownership, runtime and resource baselines are reverified; the lifecycle violation remains permanent.</summary>
+    public bool ContinueAfterVerifiedCleanup { get; init; }
     /// <summary>Gets an optional product failure limit; lifecycle invariants cannot be waived.</summary>
     public int? MaximumProductFailures { get; init; }
     /// <summary>Gets a configured browser executable.</summary>

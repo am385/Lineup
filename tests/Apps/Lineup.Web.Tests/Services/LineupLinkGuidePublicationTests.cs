@@ -1,11 +1,17 @@
 using System.Xml.Linq;
+using System.Text.Json;
 using Lineup.GuideOutputs.Json;
 using Lineup.GuideOutputs.Json.Plugin;
 using Lineup.GuideOutputs.Xmltv.Plugin;
 using Lineup.LineupLink.Guides;
 using Lineup.LineupLink.Physical;
 using Lineup.LineupLink.Protocol;
+using Lineup.LineupLink.Virtual;
+using Lineup.Web.Controllers;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Xunit;
 
@@ -14,6 +20,137 @@ namespace Lineup.Web.Tests.Services;
 /// <summary>Verifies linked guide metadata survives import, persistence, projection, and publication.</summary>
 public sealed class LineupLinkGuidePublicationTests
 {
+    /// <summary>Verifies exported independent imports can be reimported with one valid root envelope and all schedules intact.</summary>
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(1, false)]
+    [InlineData(2, false)]
+    [InlineData(0, true)]
+    [InlineData(1, true)]
+    [InlineData(2, true)]
+    public async Task GetGuideAsync_IndependentSources_RoundTripsThroughLinkedImporter(int metadataCount, bool dedicatedMapping)
+    {
+        // Arrange
+        using var fixture = new Fixture();
+        var scopes = new List<GuideSourceScope>();
+        var channels = new List<ResolvedVirtualChannel>();
+        var now = DateTimeOffset.UtcNow;
+        for (var index = 0; index < 2; index++)
+        {
+            var number = index == 0 ? "7.1" : "9.1";
+            var physical = PhysicalDeviceId.New();
+            var source = GuideSourceId.New();
+            var channel = new SourceChannelId(physical, "station");
+            var guideChannel = new GuideChannelId(source, "station");
+            await fixture.Topology.ReconcileAsync(physical,
+                [new PhysicalSourceChannel { Id = channel, ProviderNumber = number, ProviderName = number }], TestContext.Current.CancellationToken);
+            await fixture.Store.ImportAsync(new GuideImport
+            {
+                SourceId = source,
+                Channels =
+                [
+                    new GuideChannel
+                    {
+                        Id = guideChannel,
+                        Number = number,
+                        Name = number,
+                        IsProtected = true,
+                        SupplementalXml = XmltvSupplementalMetadata.Create(elements: [new XElement("display-name", new XAttribute("lang", "es"), number)])
+                    }
+                ],
+                Programs =
+                [
+                    new GuideProgram
+                    {
+                        ChannelId = guideChannel,
+                        StartUtc = now,
+                        EndUtc = now.AddHours(1),
+                        Title = number,
+                        SupplementalXml = XmltvSupplementalMetadata.Create(elements: [new XElement("desc", new XAttribute("lang", "es"), number)])
+                    }
+                ],
+                CoverageStartUtc = now,
+                CoverageEndUtc = now.AddHours(1),
+                SupplementalXml = index < metadataCount ? RootMetadata(index == 0 ? "First" : "Second") : null
+            }, TestContext.Current.CancellationToken);
+            channels.Add(new ResolvedVirtualChannel(number, number, [channel]));
+            scopes.Add(new GuideSourceScope(source, [physical]));
+        }
+        var id = VirtualDeviceId.New();
+        var snapshot = await fixture.Store.BuildSnapshotAsync(id, channels, scopes, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(metadataCount, snapshot.SupplementalXml.Count);
+        var grant = LineupLinkAccessGrantManager.Create(new LineupLinkVirtualConfiguration
+        {
+            RequireEncryption = false,
+            PublicBaseUrl = "http://localhost:8080/"
+        }, "round trip", null, DateTime.UtcNow);
+        var settings = Substitute.For<ILineupSettingsService>();
+        settings.Settings.Returns(new LineupSettings
+        {
+            ProtectedContentMode = dedicatedMapping ? ProtectedContentMode.ReturnError : ProtectedContentMode.StreamSlate,
+            Streaming = new StreamingConfiguration
+            {
+                VirtualDevices =
+                [
+                    new VirtualDeviceDefinition
+                    {
+                        Id = id,
+                        Name = "Export",
+                        Adapter = new AdapterConfiguration(LineupLinkProtocol.AdapterKind, JsonSerializer.SerializeToElement(grant.Configuration))
+                    }
+                ]
+            }
+        });
+        var guides = Substitute.For<IGuideOrchestrator>();
+        guides.BuildSnapshotAsync(id, Arg.Any<CancellationToken>()).Returns(snapshot);
+        var controller = new LineupLinkController(settings, new StreamingAdapterRegistry([], [new LineupLinkVirtualTunerDriver()], []),
+            Substitute.For<IPhysicalDeviceCatalog>(), Substitute.For<IStreamingRouteResolver>(), guides, Substitute.For<IVirtualMpegTsOutputService>(),
+            new ActiveStreamRegistry(), NullLogger<LineupLinkController>.Instance)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
+        controller.Request.Headers.Authorization = "Bearer " + grant.GeneratedToken;
+
+        // Act
+        var exported = dedicatedMapping
+            ? LineupLinkGuideExporter.Create(snapshot)
+            : Assert.IsType<LineupLinkGuide>((await controller.GetGuideAsync(id.Value, TestContext.Current.CancellationToken)).Value);
+        var resolver = Substitute.For<IPhysicalDeviceResolver>();
+        var linked = Substitute.For<IPhysicalTunerDevice, ILineupLinkGuideCapability>();
+        var capability = (ILineupLinkGuideCapability)linked;
+        var linkedId = PhysicalDeviceId.New();
+        capability.PhysicalDeviceId.Returns(linkedId);
+        capability.Manifest.Returns(new LineupLinkManifest { InstanceId = Guid.NewGuid(), VirtualDeviceId = id.Value, Name = "Export" });
+        capability.GetGuideAsync(Arg.Any<CancellationToken>()).Returns(exported);
+        resolver.GetRequired(linkedId).Returns(linked);
+        var driver = new LineupLinkGuideSourceDriver(resolver);
+        var importId = GuideSourceId.New();
+        var importer = await driver.CreateAsync(importId, driver.CreateDefaultConfiguration(importId), [linkedId], TestContext.Current.CancellationToken);
+        var imported = await importer.RefreshAsync(TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(["7.1", "9.1"], imported.Channels.Select(channel => channel.Number));
+        Assert.Equal(["7.1", "9.1"], imported.Programs.Select(program => program.Title).Order());
+        Assert.All(imported.Channels, channel => Assert.Single(imported.Programs, program => program.ChannelId == channel.Id));
+        Assert.All(imported.Channels, channel => Assert.Equal(dedicatedMapping, channel.IsProtected));
+        Assert.All(imported.Channels, channel => Assert.Equal(
+            channel.Number, Assert.Single(Assert.IsType<XmltvSupplementalMetadata>(XmltvSupplementalMetadata.Parse(channel.SupplementalXml)).Elements).Value));
+        Assert.All(imported.Programs, program => Assert.Equal(
+            program.Title, Assert.Single(Assert.IsType<XmltvSupplementalMetadata>(XmltvSupplementalMetadata.Parse(program.SupplementalXml)).Elements).Value));
+        if (metadataCount == 0)
+        {
+            Assert.Null(exported.SupplementalXml);
+            Assert.Null(imported.SupplementalXml);
+        }
+        else
+        {
+            var metadata = Assert.IsType<XmltvSupplementalMetadata>(XmltvSupplementalMetadata.Parse(imported.SupplementalXml));
+            Assert.Equal("First", Assert.Single(metadata.Attributes, attribute => attribute.Name == "source-info-name").Value);
+            Assert.Equal(new[] { "First", "Second" }.Take(metadataCount), metadata.Elements.Select(element => element.Value));
+            Assert.Equal(metadataCount, metadata.Attributes.Count(attribute => attribute.Name.LocalName == "provider"));
+        }
+    }
+
     /// <summary>Verifies two remote metadata envelopes publish successfully without losing root, channel, or program metadata.</summary>
     [Theory]
     [InlineData("xmltv")]

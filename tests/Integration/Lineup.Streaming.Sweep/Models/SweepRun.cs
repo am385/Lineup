@@ -84,6 +84,8 @@ internal sealed record SweepAttempt
     public SweepVerdict Verdict { get; set; } = SweepVerdict.InfrastructureFailure;
     /// <summary>Gets cleanup evidence.</summary>
     public CleanupEvidence? Cleanup { get; set; }
+    /// <summary>Gets whether explicit continuation reverified owned-session absence, runtime identity and resource baselines after emergency cleanup.</summary>
+    public bool CleanupContinuationVerified { get; set; }
     /// <summary>Gets synchronization evidence.</summary>
     public SynchronizationEvidence? Synchronization { get; set; }
     /// <summary>Gets the current owned public manifest used solely for representation metadata, including during HLS playback.</summary>

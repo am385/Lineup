@@ -116,6 +116,20 @@ internal sealed class OwnedPlayback(HttpClient http)
         }
     }
 
+    /// <summary>Passively reverifies absence against ownership-qualified runtime generations without stopping any viewer.</summary>
+    public async Task<bool> VerifyAbsentAsync(IReadOnlyList<OwnedSession> owners, CancellationToken cancellationToken)
+    {
+        foreach (var group in Snapshot(owners).GroupBy(owner => (owner.InventoryUrl, owner.Generation)))
+        {
+            var inventory = await InventoryAsync(group.Key.InventoryUrl, cancellationToken, group.Key.Generation);
+            if (group.Any(owner => inventory.Contains(owner.SessionId)))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private static OwnedSession[] Snapshot(IReadOnlyList<OwnedSession> owners)
     {
         lock (owners)

@@ -18,6 +18,8 @@ public sealed class PhysicalDeviceStatusServiceTests
     [InlineData("argument", true)]
     [InlineData("invalid-operation", false)]
     [InlineData("invalid-operation", true)]
+    [InlineData("invalid-data", false)]
+    [InlineData("invalid-data", true)]
     [InlineData("io", false)]
     [InlineData("io", true)]
     [InlineData("http", false)]
@@ -300,6 +302,34 @@ public sealed class PhysicalDeviceStatusServiceTests
             ? service.RefreshDeviceInformationAsync(configuration, cancellationToken ?? TestContext.Current.CancellationToken)
             : service.RefreshAsync(configuration, cancellationToken ?? TestContext.Current.CancellationToken);
 
+    /// <summary>Verifies malformed live control data preserves prior observations without suppressing healthy sibling status.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Refresh_InvalidRemoteData_PreservesPriorStatusAndHealthySibling(bool informationOnly)
+    {
+        // Arrange
+        var driver = new FakePhysicalDriver();
+        var catalog = new PhysicalDeviceCatalog(new StreamingAdapterRegistry([driver], [], []));
+        var service = new PhysicalDeviceStatusService(catalog);
+        var failed = Definition("Invalid remote", null, 0);
+        var healthy = Definition("Healthy", null, 1);
+        var configuration = new StreamingConfiguration { PhysicalDevices = [failed, healthy] };
+        await service.RefreshAsync(configuration, TestContext.Current.CancellationToken);
+        var prior = Assert.Single(service.Devices, device => device.Device.Id == failed.Id).Status;
+        Assert.IsType<FakePhysicalDevice>(catalog.GetRequired(failed.Id)).RejectData = true;
+
+        // Act
+        await RefreshSelectedAsync(service, configuration, informationOnly);
+
+        // Assert
+        var failure = Assert.Single(service.Devices, device => device.Device.Id == failed.Id);
+        Assert.Same(prior, failure.Status);
+        Assert.Contains("InvalidDataException", failure.Error, StringComparison.Ordinal);
+        Assert.DoesNotContain(PrivateDetail, failure.Error!, StringComparison.Ordinal);
+        Assert.Null(Assert.Single(service.Devices, device => device.Device.Id == healthy.Id).Error);
+    }
+
     private sealed class FakePhysicalDriver : IPhysicalTunerDriver
     {
         public const string DriverKind = "fake-status";
@@ -339,6 +369,7 @@ public sealed class PhysicalDeviceStatusServiceTests
             {
                 "argument" => new ArgumentException(PrivateDetail),
                 "invalid-operation" => new InvalidOperationException(PrivateDetail),
+                "invalid-data" => new InvalidDataException(PrivateDetail),
                 "io" => new IOException(PrivateDetail),
                 "http" => new HttpRequestException(PrivateDetail),
                 "unauthorized" => (Exception)new UnauthorizedAccessException(PrivateDetail),
@@ -378,11 +409,18 @@ public sealed class PhysicalDeviceStatusServiceTests
 
         public bool RejectStatus { get; set; }
 
+        /// <summary>Gets or sets whether control refreshes return malformed remote data.</summary>
+        public bool RejectData { get; set; }
+
         public PhysicalDeviceSnapshot Snapshot { get; }
 
         public Task<PhysicalDeviceStatusSnapshot> RefreshDeviceInformationAsync(CancellationToken cancellationToken = default)
         {
             Interlocked.Increment(ref _informationRefreshCount);
+            if (RejectData)
+            {
+                throw new InvalidDataException(PrivateDetail);
+            }
             return Task.FromResult(
                 new PhysicalDeviceStatusSnapshot
                 {
@@ -394,6 +432,10 @@ public sealed class PhysicalDeviceStatusServiceTests
         public Task<PhysicalDeviceStatusSnapshot> RefreshStatusAsync(CancellationToken cancellationToken = default)
         {
             Interlocked.Increment(ref _statusRefreshCount);
+            if (RejectData)
+            {
+                throw new InvalidDataException(PrivateDetail);
+            }
             if (RejectStatus)
             {
                 throw new UnauthorizedAccessException("Rejected");

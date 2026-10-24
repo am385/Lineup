@@ -6,6 +6,26 @@ namespace Lineup.Streaming.Sweep.Tests;
 /// <summary>Deterministic verdict, selection, stability and report regressions; no live initialization.</summary>
 public sealed class SweepPolicyTests
 {
+    /// <summary>Safe continuation is explicit and independent of permission to restart owned deployments.</summary>
+    [Theory]
+    [InlineData("execute-fresh", false)]
+    [InlineData("existing", true)]
+    public void VerifiedCleanupContinuationRequiresExplicitFlag(string command, bool existing)
+    {
+        // Arrange
+        string[] arguments = [command, "--continue-after-verified-cleanup"];
+
+        // Act
+        var parsed = SweepCommand.Parse(arguments);
+        var defaults = SweepCommand.Parse([command]);
+
+        // Assert
+        Assert.True(parsed.Options.ContinueAfterVerifiedCleanup);
+        Assert.Equal(existing, parsed.Options.ExistingInstance);
+        Assert.False(parsed.Options.AllowMatrixRecovery);
+        Assert.False(defaults.Options.ContinueAfterVerifiedCleanup);
+    }
+
     /// <summary>Command aliases remain case insensitive without accidentally selecting Docker mode.</summary>
     [Fact]
     public void ExistingCommandIsCaseInsensitive()

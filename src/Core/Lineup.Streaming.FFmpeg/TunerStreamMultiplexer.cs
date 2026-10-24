@@ -8,7 +8,7 @@ namespace Lineup.Streaming.FFmpeg;
 /// </summary>
 public interface ITunerStreamMultiplexer : ISharedStreamShutdown
 {
-    /// <summary>Subscribes to the first available exact physical candidate.</summary>
+    /// <summary>Subscribes to the first available exact physical candidate, allowing ten seconds for each acquisition without limiting established stream lifetime.</summary>
     ValueTask<ResolvedTunerStream> SubscribeFirstAvailableAsync(ResolvedStreamingRoute route, CancellationToken cancellationToken);
 
     /// <summary>Subscribes to a provider-owned physical acquisition.</summary>
@@ -72,19 +72,28 @@ public interface IStreamProducerCorrelation
 /// </summary>
 public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffectiveTunerStreamMultiplexer
 {
+    private static readonly TimeSpan CandidateAcquisitionTimeout = TimeSpan.FromSeconds(10);
     private readonly IStreamingSessionGraph _graph;
     private readonly IMediaProcessFactory _processFactory;
     private readonly ILogger<TunerStreamMultiplexer> _logger;
+    private readonly TimeProvider _timeProvider;
 
     /// <summary>Initializes the Core graph adapter.</summary>
     public TunerStreamMultiplexer(
         IStreamingSessionGraph graph,
         IMediaProcessFactory processFactory,
         ILogger<TunerStreamMultiplexer> logger)
+        : this(graph, processFactory, logger, TimeProvider.System)
+    {
+    }
+
+    /// <summary>Initializes the graph adapter with a clock for physical acquisition deadlines.</summary>
+    public TunerStreamMultiplexer(IStreamingSessionGraph graph, IMediaProcessFactory processFactory, ILogger<TunerStreamMultiplexer> logger, TimeProvider timeProvider)
     {
         _graph = graph;
         _processFactory = processFactory;
         _logger = logger;
+        _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
     }
 
     /// <inheritdoc />
@@ -95,14 +104,29 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
         var candidateFailures = new List<StreamAcquisitionCandidateFailure>();
         foreach (var candidate in route.Candidates)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var deadline = new CancellationTokenSource(CandidateAcquisitionTimeout, _timeProvider);
+            using var acquisition = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
             try
             {
-                var stream = await SubscribeAsync(candidate.Acquisition, candidate.OpenAsync, cancellationToken);
+                var stream = await SubscribeAsync(candidate.Acquisition, candidate.OpenAsync, acquisition.Token);
                 return new ResolvedTunerStream(candidate, stream);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 throw;
+            }
+            catch (OperationCanceledException exception) when (deadline.IsCancellationRequested)
+            {
+                const string message = "The physical source did not complete stream acquisition within 10 seconds.";
+                failures.Add(new TimeoutException(message, exception));
+                candidateFailures.Add(CreateCandidateFailure(
+                    candidate,
+                    PhysicalStreamFailureCategory.Unavailable,
+                    "source_acquisition_timeout",
+                    message,
+                    retryable: true));
+                _logger.LogWarning("Physical stream acquisition timed out for device {PhysicalDeviceId}, channel {SourceChannelId}", candidate.Acquisition.DeviceId, candidate.SourceChannelId);
             }
             catch (StreamCapacityExceededException exception)
             {
@@ -117,7 +141,7 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
                     Retryable = true
                 });
             }
-            catch (Exception exception) when (exception is IOException or HttpRequestException or InvalidOperationException or KeyNotFoundException)
+            catch (Exception exception) when (exception is IOException or InvalidDataException or HttpRequestException or InvalidOperationException or KeyNotFoundException)
             {
                 failures.Add(exception);
                 candidateFailures.Add(CreateCandidateFailure(candidate, exception));

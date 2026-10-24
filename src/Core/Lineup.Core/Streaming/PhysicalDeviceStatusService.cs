@@ -100,7 +100,8 @@ public sealed class PhysicalDeviceStatusService : IPhysicalDeviceStatusService
                 {
                     throw;
                 }
-                catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or IOException or HttpRequestException or UnauthorizedAccessException)
+                catch (Exception exception) when (
+                    exception is ArgumentException or InvalidOperationException or InvalidDataException or IOException or HttpRequestException or UnauthorizedAccessException)
                 {
                     _logger.LogWarning(exception, "Unable to refresh status for physical device {PhysicalDeviceId}", device.Snapshot.Id);
                     var prior = Devices.SingleOrDefault(item => item.Device.Id == device.Snapshot.Id)?.Status;
@@ -147,7 +148,8 @@ public sealed class PhysicalDeviceStatusService : IPhysicalDeviceStatusService
                 {
                     throw;
                 }
-                catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or IOException or HttpRequestException or UnauthorizedAccessException)
+                catch (Exception exception) when (
+                    exception is ArgumentException or InvalidOperationException or InvalidDataException or IOException or HttpRequestException or UnauthorizedAccessException)
                 {
                     _logger.LogWarning(exception, "Unable to refresh information for physical device {PhysicalDeviceId}", device.Snapshot.Id);
                     statuses.Add(CreateRuntimeStatus(device, prior?.Status, $"Device information refresh failed ({exception.GetType().Name})."));

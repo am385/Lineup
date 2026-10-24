@@ -49,6 +49,7 @@ internal sealed record SweepCommand(string[] Arguments, SweepOptions Options, st
                 "--profile" => options with { BrowserProfile = Path.GetFullPath(Value()) },
                 "--setup-compatibility" => options with { SetupCompatibility = true },
                 "--allow-matrix-recovery" => options with { AllowMatrixRecovery = true },
+                "--continue-after-verified-cleanup" => options with { ContinueAfterVerifiedCleanup = true },
                 "--sync-only" => options with { SyncOnly = true },
                 "--output" or "--input-run" => options,
                 _ => throw new ArgumentException($"Unknown option '{name}'.")

@@ -16,9 +16,9 @@ Use the checked-in harness at `tests/Integration/Lineup.Streaming.Sweep`. Its sy
 - Run one compatibility profile at the beginning of each matrix only. Do not invoke separate compatibility checks between channels.
 - Leave generated matrices, browser profiles, logs, screenshots, and reports beneath the configured output directory. Do not add them to source control.
 - Do not treat protected content or transient source availability as Lineup playback defects. Use the structured outcome category, HTTP status, code, stage, and message.
-- Stop and report the exact artifact path if cleanup fails or the tuners do not return to idle.
+- By default, stop and report the exact artifact path if cleanup fails. Explicit `--continue-after-verified-cleanup` permits continuation after an emergency owned-session stop only when ownership/runtime, viewer/capacity baseline, and (for Docker) physical tuner idleness are reverified; the lifecycle failure remains permanent. Never continue with unproven cleanup or non-idle Docker tuners.
 - Existing-instance mode must never restart/reconfigure/reset/refresh the guide or stop unrelated viewers. Compatibility setup requires `--setup-compatibility`.
-- Docker leak recovery requires `--allow-matrix-recovery`; it permanently fails the lifecycle invariant even if a later attempt succeeds.
+- Docker leak recovery requires `--allow-matrix-recovery`; playback, fresh sync and resumed sync share the bounded attempt budget for their respective observations. Recovery permanently fails the lifecycle invariant even if a later attempt succeeds, and reuses the matrix's compatibility profile instead of rerunning compatibility setup.
 
 ## Determine the requested scope
 
@@ -114,6 +114,7 @@ Classify outcomes as follows:
 - `harness-failure` — navigation, request transport, client cancellation, or no response
 
 The exact CMAF start response is authoritative. Do not replace a structured response with a later player-locator timeout.
+Startup, decoded playback, synchronization and cleanup are independent evidence: an emergency stop does not erase valid alignment samples or relabel HTTP 200 as a startup failure. A fully observed run that continued after verified cleanup still exits 2 for its permanent lifecycle violation.
 Canonical typed verdicts additionally distinguish fallback-start failures, confirmed/inferred/unconfirmed
 protection, disabled/unknown generated slates, decoder failures and observation expiry. HTTP `inferred`
 and `source` and the current owned synthetic-flow reason are retained; generated transport is never a

@@ -7,6 +7,44 @@ namespace Lineup.Streaming.Sweep.Tests;
 /// <summary>Fake HTTP coverage of ownership isolation, stop routing and independent cleanup cancellation.</summary>
 public sealed class OwnedPlaybackTests
 {
+    /// <summary>Continuation verification reads ownership-qualified inventory without sending stop requests.</summary>
+    [Theory]
+    [InlineData("owned", false)]
+    [InlineData("unrelated", true)]
+    public async Task ContinuationVerificationIsPassive(string session, bool expected)
+    {
+        // Arrange
+        var posts = 0;
+        using var http = new HttpClient(new Handler(request =>
+        {
+            posts += request.Method == HttpMethod.Post ? 1 : 0;
+            return new(HttpStatusCode.OK) { Content = new StringContent($"{{\"generation\":1,\"sessionIds\":[\"{session}\"]}}") };
+        }));
+        var owner = OwnedPlayback.CreateOwner("http://localhost/media/start/1", "owned", "/media/stop/owned", "app|start|1");
+
+        // Act
+        var absent = await new OwnedPlayback(http).VerifyAbsentAsync([owner], TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(expected, absent);
+        Assert.Equal(0, posts);
+    }
+
+    /// <summary>Reused viewer identifiers in another runtime cannot establish safe continuation.</summary>
+    [Fact]
+    public async Task ContinuationRejectsChangedGeneration()
+    {
+        // Arrange
+        using var http = new HttpClient(new Handler(_ => new(HttpStatusCode.OK) { Content = new StringContent("{\"generation\":2,\"sessionIds\":[]}") }));
+        var owner = OwnedPlayback.CreateOwner("http://localhost/media/start/1", "owned", "/media/stop/owned", "app|start|1");
+
+        // Act
+        var error = await Record.ExceptionAsync(() => new OwnedPlayback(http).VerifyAbsentAsync([owner], TestContext.Current.CancellationToken));
+
+        // Assert
+        Assert.IsType<InvalidDataException>(error);
+    }
+
     /// <summary>Legitimate layered warm drain does not imply forced cleanup when viewers are already absent.</summary>
     [Fact]
     public async Task WarmDrainDoesNotTriggerEmergencyIntervention()

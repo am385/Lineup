@@ -13,6 +13,51 @@ public sealed class LineupLinkControlRequestTests
 {
     private static readonly TimeSpan Watchdog = TimeSpan.FromSeconds(3);
 
+    /// <summary>Verifies invalid remote control payloads are recoverable failures and do not poison subsequent requests.</summary>
+    [Theory]
+    [InlineData("manifest", false)]
+    [InlineData("lineup", false)]
+    [InlineData("guide", false)]
+    [InlineData("manifest", true)]
+    [InlineData("lineup", true)]
+    [InlineData("guide", true)]
+    public async Task ControlRequest_InvalidPayload_ThrowsRecoverableFailure(string endpoint, bool unsupportedProtocol)
+    {
+        // Arrange
+        var virtualDeviceId = Guid.NewGuid();
+        var valid = false;
+        await using var server = new LoopbackServer((context, cancellationToken) => WriteJsonAsync(context.Response,
+            valid || unsupportedProtocol
+                ? JsonSerializer.Serialize(new
+                {
+                    VirtualDeviceId = virtualDeviceId,
+                    InstanceId = Guid.NewGuid(),
+                    Name = "Remote",
+                    ProtocolVersion = valid ? LineupLinkProtocol.Version : 999
+                })
+                : "<html>temporarily unavailable</html>", cancellationToken));
+        var clock = new ManualTimeProvider();
+        using var client = new LineupLinkClient(CreateConfiguration(server.BaseUri) with { VirtualDeviceId = virtualDeviceId }, clock);
+
+        // Act
+        var exception = await Assert.ThrowsAsync<InvalidDataException>(() =>
+            SendControlAsync(client, endpoint, TestContext.Current.CancellationToken).WaitAsync(Watchdog, TestContext.Current.CancellationToken));
+        valid = true;
+        await SendControlAsync(client, endpoint, TestContext.Current.CancellationToken).WaitAsync(Watchdog, TestContext.Current.CancellationToken);
+
+        // Assert
+        if (unsupportedProtocol)
+        {
+            Assert.Contains("999", exception.Message, StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.IsType<JsonException>(exception.InnerException);
+            Assert.DoesNotContain("<html>", exception.Message, StringComparison.Ordinal);
+        }
+        Assert.Equal(0, clock.ActiveTimerCount);
+    }
+
     /// <summary>Verifies one deadline bounds headers and successful or error bodies across all control endpoints.</summary>
     [Theory]
     [InlineData("manifest", "headers")]

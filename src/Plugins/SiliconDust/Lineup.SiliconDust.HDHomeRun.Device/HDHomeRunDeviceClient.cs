@@ -55,7 +55,11 @@ public class HDHomeRunDeviceClient
 
             return deviceInfo;
         }
-        catch (Exception e) when (e is not InvalidOperationException and not OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception e) when (e is not InvalidOperationException)
         {
             _logger.LogError(e, "Error discovering device at {BaseAddress}", baseUri);
             throw new InvalidOperationException($"Error discovering device at {baseUri}", e);
@@ -99,7 +103,11 @@ public class HDHomeRunDeviceClient
 
             return channels;
         }
-        catch (Exception e) when (e is not InvalidOperationException and not OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception e) when (e is not InvalidOperationException)
         {
             _logger.LogError(e, "Error fetching channel lineup from {BaseAddress}", baseUri);
             throw new InvalidOperationException($"Error fetching channel lineup from {baseUri}", e);

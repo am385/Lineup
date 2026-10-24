@@ -507,11 +507,6 @@ internal sealed partial class SweepHarness
                     },
                     TimeSpan.FromSeconds(_options.CleanupSeconds),
                     token => VerifyBaselineAsync(matrix, baseline, pendingStarts, token));
-                if (evidence.Cleanup.Forced || !evidence.Cleanup.VerifiedAbsent)
-                {
-                    failurePhase = "cleanup";
-                    failure = $"{failure} Cleanup failed: forced={evidence.Cleanup.Forced}, absent={evidence.Cleanup.VerifiedAbsent}. {string.Join("; ", evidence.Cleanup.Errors)}".Trim();
-                }
                 await CheckpointAsync();
             }
             finally
@@ -522,6 +517,7 @@ internal sealed partial class SweepHarness
                     await File.WriteAllTextAsync(Path.Combine(attemptRoot, "network.json"), JsonSerializer.Serialize(network, _json));
                     await File.WriteAllTextAsync(Path.Combine(attemptRoot, "fragments.json"), JsonSerializer.Serialize(fragments, _json));
                     await File.WriteAllTextAsync(Path.Combine(attemptRoot, "representations.json"), JsonSerializer.Serialize(representations, _json));
+                    await File.WriteAllTextAsync(Path.Combine(attemptRoot, "cleanup.json"), JsonSerializer.Serialize(evidence.Cleanup, _json));
                     if (activeStatus is not null)
                     {
                         await File.WriteAllTextAsync(Path.Combine(attemptRoot, "active-status.json"), activeStatus.ToJsonString(_json));
@@ -530,7 +526,7 @@ internal sealed partial class SweepHarness
                     {
                         await File.WriteAllTextAsync(Path.Combine(attemptRoot, "player-metrics.json"), JsonSerializer.Serialize(metrics, _json));
                     }
-                    if (failure is not null || captionResult == "source-caption-not-exposed")
+                    if (failure is not null || captionResult == "source-caption-not-exposed" || evidence.Cleanup is not { VerifiedAbsent: true, Forced: false })
                     {
                         if (failureScreenshot is not null)
                         {
@@ -558,17 +554,6 @@ internal sealed partial class SweepHarness
             failure = FormatStartupFailure(startupOutcome);
             failurePhase = "startup";
         }
-        if (evidence.Purpose == "sync")
-        {
-            evidence.Synchronization = failure is null
-                ? synchronizationExchange != evidence.Starts.LastOrDefault()?.Id
-                    ? new("insufficient-samples", null, null, null, null, null, "Startup changed after metadata capture; stale/fallback metadata is not synchronization evidence.")
-                    : FragmentAlignment.Evaluate(fragments.ToArray(), representations, _options.MaximumSequenceDelta)
-                : new SynchronizationEvidence(
-                    startupOutcome?.Outcome == "source-unavailable" ? "unavailable-on-retest"
-                        : startupOutcome?.Outcome == "capacity-contamination" ? "capacity-contaminated" : "startup-failure",
-                    null, null, null, null, null, failure);
-        }
         var result = new ChannelAttemptResult(
             matrix.Id,
             channel.Number,
@@ -586,6 +571,10 @@ internal sealed partial class SweepHarness
         {
             EvidenceId = evidence.Id
         };
+        if (evidence.Purpose == "sync")
+        {
+            evidence.Synchronization = FragmentAlignment.EvaluateObservation(evidence, result, synchronizationExchange, fragments.ToArray(), representations, _options.MaximumSequenceDelta);
+        }
         await File.WriteAllTextAsync(Path.Combine(attemptRoot, "result.json"), JsonSerializer.Serialize(result, _json));
         await journal.WriteEventAsync("channel-attempt", result);
         if (_cancellation.IsCancellationRequested)
@@ -595,6 +584,10 @@ internal sealed partial class SweepHarness
             evidence.FinishedUtc = DateTimeOffset.UtcNow;
             await CheckpointAsync();
             _cancellation.ThrowIfCancellationRequested();
+        }
+        if (_attempt is null)
+        {
+            SweepPolicy.RequireNormalCleanup(evidence, attemptRoot);
         }
         return result;
     }
@@ -657,11 +650,11 @@ internal sealed partial class SweepHarness
             TimeSpan.FromSeconds(1));
 
         // Assert
-        if (protectedResult.Startup?.Outcome != "protected-content" || ShouldRetry(protectedResult))
+        if (protectedResult.Startup?.Outcome != "protected-content" || SweepPolicy.ShouldRetry(protectedResult))
         {
             throw new InvalidOperationException("Protected-content outcomes must be classified as terminal without retry.");
         }
-        if (unavailableResult.Category != "source-availability" || !ShouldRetry(unavailableResult))
+        if (unavailableResult.Category != "source-availability" || !SweepPolicy.ShouldRetry(unavailableResult))
         {
             throw new InvalidOperationException("Source availability failures must remain retryable and separately classified.");
         }
@@ -830,16 +823,6 @@ internal sealed partial class SweepHarness
         return payload?[name] is JsonValue value
             ? value.TryGetValue<string>(out var text) ? TruncateOutcomeText(text) : TruncateOutcomeText(value.ToJsonString())
             : null;
-    }
-
-    private static bool ShouldRetry(ChannelAttemptResult result)
-    {
-        if (result.AvPassed && result.CaptionResult != "source-caption-not-exposed")
-        {
-            return false;
-        }
-
-        return result.Startup is null || result.Startup.Succeeded || result.Startup.Retryable;
     }
 
     private static ChannelAttemptResult SelectTerminalResult(IReadOnlyList<ChannelAttemptResult> attempts)

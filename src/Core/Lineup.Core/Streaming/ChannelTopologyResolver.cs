@@ -92,7 +92,12 @@ public static class ChannelTopologyResolver
             {
                 var index = resolved.FindIndex(channel => channel.Number.Equals(candidate.EffectiveNumber, StringComparison.OrdinalIgnoreCase));
                 var current = resolved[index];
-                resolved[index] = current with { Sources = current.Sources.Append(candidate.Source.Id).ToArray() };
+                var metadata = current.Metadata;
+                if (ProtectedContentMetadata.IsProtected(metadata) && !ProtectedContentMetadata.IsProtected(candidate.Source.Metadata))
+                {
+                    metadata = new Dictionary<string, string>(metadata, StringComparer.Ordinal) { ["drm"] = bool.FalseString };
+                }
+                resolved[index] = current with { Sources = current.Sources.Append(candidate.Source.Id).ToArray(), Metadata = metadata };
                 continue;
             }
 

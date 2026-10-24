@@ -106,6 +106,34 @@ internal static partial class FragmentAlignment
         return new(delta <= maximumDelta ? "aligned" : "misaligned", video[0].Key.Representation, audio[0].Key.Representation, vh, ah, delta, "Fresh transport sequence heads; not audible lip-sync.");
     }
 
+    /// <summary>Retains media alignment independently of cleanup and distinguishes post-start failures from failed startup.</summary>
+    public static SynchronizationEvidence EvaluateObservation(
+        SweepAttempt attempt,
+        ChannelAttemptResult result,
+        string? metadataExchange,
+        IReadOnlyList<FragmentSample> samples,
+        IReadOnlyDictionary<string, string> representations,
+        int maximumDelta)
+    {
+        if (result.Failure is null)
+        {
+            return metadataExchange is null || metadataExchange != attempt.Starts.LastOrDefault()?.Id
+                ? new("insufficient-samples", null, null, null, null, null, "Startup changed after metadata capture; stale/fallback metadata is not synchronization evidence.")
+                : Evaluate(samples, representations, maximumDelta);
+        }
+        var startup = attempt.Starts.LastOrDefault()?.Outcome ?? result.Startup;
+        var state = startup?.Outcome switch
+        {
+            "source-unavailable" => "unavailable-on-retest",
+            "capacity-contamination" => "capacity-contaminated",
+            _ when startup is { Succeeded: false } => "startup-failure",
+            _ when result.FailurePhase == "synchronization-metadata" => "metadata-failure",
+            _ when startup?.Succeeded == true => "playback-failure",
+            _ => "harness-failure"
+        };
+        return new(state, null, null, null, null, null, result.Failure);
+    }
+
     [GeneratedRegex(@"/([^/]+)/chunk-(.+)-([0-9]+)\.m4s$", RegexOptions.CultureInvariant)]
     private static partial Regex FragmentPattern();
 }

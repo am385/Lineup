@@ -112,6 +112,7 @@ public sealed class LineupLinkClient : IDisposable
         var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
+            using var failedResponse = response;
             await ThrowRemoteErrorAsync(response, cancellationToken);
         }
         if (response.Content.Headers.ContentType?.MediaType is not LineupLinkProtocol.MpegTsMediaType)
@@ -154,13 +155,18 @@ public sealed class LineupLinkClient : IDisposable
         {
             throw new HttpRequestException("The remote Lineup Link control request timed out after 30 seconds.", exception);
         }
+        catch (JsonException exception)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            throw new InvalidDataException("The remote Lineup Link response was not valid protocol JSON.", exception);
+        }
     }
 
     private static void ValidateProtocol(int version)
     {
         if (version != LineupLinkProtocol.Version)
         {
-            throw new NotSupportedException($"Remote Lineup Link protocol version {version} is not supported.");
+            throw new InvalidDataException($"Remote Lineup Link protocol version {version} is not supported.");
         }
     }
 

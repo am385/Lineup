@@ -6,6 +6,84 @@ namespace Lineup.Streaming.Sweep.Tests;
 /// <summary>Fresh fragment parsing, representation mapping and alignment thresholds.</summary>
 public sealed class FragmentAlignmentTests
 {
+    /// <summary>Emergency cleanup does not replace valid alignment or successful startup with a fabricated media failure.</summary>
+    [Theory]
+    [InlineData(0, "aligned")]
+    [InlineData(3, "misaligned")]
+    public void CleanupFailurePreservesSynchronizationEvidence(int delta, string expected)
+    {
+        // Arrange
+        var (start, owner) = CurrentStartup(false);
+        var attempt = new SweepAttempt
+        {
+            Id = "sync",
+            Key = "target|player|1",
+            Purpose = "sync",
+            Starts = [start],
+            Ownership = [owner],
+            Cleanup = new(true, true, true, [owner], [])
+        };
+        var result = new ChannelAttemptResult("target", "1", "One", 1, true, "track-and-cue", 30, null, null, start.Outcome, 1, null, "pass");
+        var now = DateTimeOffset.UnixEpoch;
+        FragmentSample[] samples = [new("current", "v", 10, now), new("current", "v", 11, now.AddSeconds(2)),
+            new("current", "a", 10 + delta, now), new("current", "a", 11 + delta, now.AddSeconds(2))];
+
+        // Act
+        var sync = FragmentAlignment.EvaluateObservation(attempt, result, start.Id, samples, new Dictionary<string, string> { ["v"] = "video", ["a"] = "audio" }, 1);
+        var verdict = SweepPolicy.Classify(result, attempt.Starts, attempt);
+
+        // Assert
+        Assert.Equal(expected, sync.State);
+        Assert.Equal(delta, sync.Delta);
+        Assert.Equal(SweepVerdict.StablePlayback, verdict);
+        Assert.Equal(200, result.Startup?.HttpStatus);
+        Assert.True(result.AvPassed);
+        Assert.Null(result.Failure);
+        Assert.True(attempt.Cleanup.Forced);
+    }
+
+    /// <summary>Missing or stale metadata cannot borrow otherwise valid fragments even after verified cleanup.</summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("earlier-exchange")]
+    public void SynchronizationStillRejectsStaleMetadata(string? metadataExchange)
+    {
+        // Arrange
+        var (start, _) = CurrentStartup(false);
+        var attempt = new SweepAttempt { Id = "sync", Key = "key", Starts = [start], Cleanup = new(true, true, true, [], []) };
+        var result = new ChannelAttemptResult("target", "1", "One", 1, true, "not-applicable", 30, null, null, start.Outcome, 1, null, "pass");
+
+        // Act
+        var sync = FragmentAlignment.EvaluateObservation(attempt, result, metadataExchange, [], new Dictionary<string, string>(), 1);
+
+        // Assert
+        Assert.Equal("insufficient-samples", sync.State);
+        Assert.Null(sync.Delta);
+    }
+
+    /// <summary>Post-start playback and metadata failures are not mislabeled as server startup failures.</summary>
+    [Theory]
+    [InlineData("success", "playback", "playback-failure")]
+    [InlineData("success", "synchronization-metadata", "metadata-failure")]
+    [InlineData("server-failure", "startup", "startup-failure")]
+    [InlineData("source-unavailable", "startup", "unavailable-on-retest")]
+    [InlineData("capacity-contamination", "startup", "capacity-contaminated")]
+    public void SynchronizationFailureUsesAuthoritativeStage(string outcome, string phase, string expected)
+    {
+        // Arrange
+        var (start, _) = CurrentStartup(false);
+        var startup = start.Outcome with { Outcome = outcome, Succeeded = outcome == "success", HttpStatus = outcome == "success" ? 200 : 503 };
+        var attempt = new SweepAttempt { Id = "sync", Key = "key", Starts = [start with { Outcome = startup }] };
+        var result = new ChannelAttemptResult("target", "1", "One", 1, false, "not-applicable", 30, "failed", null, startup, 1, phase, "failure");
+
+        // Act
+        var sync = FragmentAlignment.EvaluateObservation(attempt, result, start.Id, [], new Dictionary<string, string>(), 1);
+
+        // Assert
+        Assert.Equal(expected, sync.State);
+        Assert.Equal("failed", sync.Detail);
+    }
+
     /// <summary>Queries do not affect current representation/sequence parsing.</summary>
     [Fact]
     public void ParseUsesCurrentFragmentShape()

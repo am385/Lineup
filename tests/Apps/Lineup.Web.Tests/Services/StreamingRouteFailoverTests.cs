@@ -14,6 +14,318 @@ namespace Lineup.Web.Tests.Services;
 /// <summary>Verifies ordered physical failover routing.</summary>
 public sealed class StreamingRouteFailoverTests
 {
+    /// <summary>Verifies invalid live responses do not bypass healthy-source failover or structured route failures.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task SubscribeFirstAvailableAsync_InvalidStreamResponse_IsolatesCandidate(bool hasFallback)
+    {
+        // Arrange
+        await using var remote = new RejectedLinkSource(HttpStatusCode.OK);
+        using var device = Assert.IsType<LineupLinkPhysicalTunerDevice>(await remote.CreateDeviceAsync());
+        var channel = Assert.Single(await device.RefreshLineupAsync(TestContext.Current.CancellationToken)).Id;
+        var healthy = new FakeDevice(PhysicalDeviceId.New(), fail: false);
+        var candidates = new List<ResolvedStreamingCandidate> { Candidate(device, channel, remote.BaseUri.ToString()) };
+        if (hasFallback)
+        {
+            candidates.Add(Candidate(healthy, new SourceChannelId(healthy.Snapshot.Id, "healthy"), "http://local/source"));
+        }
+        var capacity = new PhysicalCapacityLeaseRegistry();
+        var graph = new StreamingSessionGraph(capacity, NullLogger<StreamingSessionGraph>.Instance);
+        var multiplexer = new TunerStreamMultiplexer(graph, Substitute.For<IMediaProcessFactory>(), NullLogger<TunerStreamMultiplexer>.Instance);
+
+        // Act
+        var failure = await Record.ExceptionAsync(async () =>
+        {
+            await using var selected = await multiplexer.SubscribeFirstAvailableAsync(Route(candidates), TestContext.Current.CancellationToken);
+            Assert.Same(healthy, selected.Candidate.PhysicalDevice);
+        });
+
+        // Assert
+        if (hasFallback)
+        {
+            Assert.Null(failure);
+            Assert.Single(healthy.Requests);
+        }
+        else
+        {
+            var aggregate = Assert.IsType<StreamAcquisitionException>(failure);
+            var candidate = Assert.Single(aggregate.CandidateFailures);
+            Assert.Equal(channel, candidate.ChannelId);
+            Assert.Equal(PhysicalStreamFailureCategory.Unavailable, candidate.Category);
+            Assert.Equal("source_unavailable", candidate.Code);
+            Assert.DoesNotContain("test-token", candidate.Message, StringComparison.Ordinal);
+            Assert.IsType<InvalidDataException>(Assert.Single(Assert.IsType<AggregateException>(aggregate.InnerException).InnerExceptions));
+        }
+        Assert.Empty(capacity.GetDiagnostics());
+        Assert.Empty(graph.GetDiagnostics().Nodes);
+    }
+
+    /// <summary>Verifies stream headers and error bodies share a bounded per-candidate acquisition phase.</summary>
+    [Theory]
+    [InlineData("headers", true)]
+    [InlineData("error-body", true)]
+    [InlineData("headers", false)]
+    [InlineData("error-body", false)]
+    public async Task SubscribeFirstAvailableAsync_StalledStream_UsesCandidateBudget(string stalledPhase, bool hasFallback)
+    {
+        // Arrange
+        await using var remote = new RejectedLinkSource(HttpStatusCode.ServiceUnavailable) { StalledStreamPhase = stalledPhase };
+        using var device = Assert.IsType<LineupLinkPhysicalTunerDevice>(await remote.CreateDeviceAsync());
+        var channel = Assert.Single(await device.RefreshLineupAsync(TestContext.Current.CancellationToken)).Id;
+        var healthy = new FakeDevice(PhysicalDeviceId.New(), fail: false, streamFactory: () => new BlockingStream());
+        var clock = new AcquisitionClock();
+        var capacity = new PhysicalCapacityLeaseRegistry();
+        var graph = new StreamingSessionGraph(capacity, NullLogger<StreamingSessionGraph>.Instance);
+        var multiplexer = new TunerStreamMultiplexer(graph, Substitute.For<IMediaProcessFactory>(), NullLogger<TunerStreamMultiplexer>.Instance, clock);
+        var candidates = new List<ResolvedStreamingCandidate> { Candidate(device, channel, remote.BaseUri.ToString()) };
+        if (hasFallback)
+        {
+            candidates.Add(Candidate(healthy, new SourceChannelId(healthy.Snapshot.Id, "healthy"), "http://local/source"));
+        }
+        using var caller = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var operation = multiplexer.SubscribeFirstAvailableAsync(Route(candidates), caller.Token).AsTask();
+        try
+        {
+            await remote.StreamStalled.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+
+            // Act
+            clock.Advance(TimeSpan.FromSeconds(9));
+            Assert.False(operation.IsCompleted);
+            clock.Advance(TimeSpan.FromSeconds(1));
+
+            // Assert
+            if (hasFallback)
+            {
+                await using var selected = await operation.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+                clock.Advance(TimeSpan.FromMinutes(5));
+                Assert.Same(healthy, selected.Candidate.PhysicalDevice);
+                Assert.Single(healthy.Requests);
+                Assert.Equal(healthy.Snapshot.Id, Assert.Single(capacity.GetDiagnostics()).DeviceId);
+            }
+            else
+            {
+                var exception = await Assert.ThrowsAsync<StreamAcquisitionException>(() => operation.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken));
+                var failure = Assert.Single(exception.CandidateFailures);
+                Assert.Equal(channel, failure.ChannelId);
+                Assert.Equal(PhysicalStreamFailureCategory.Unavailable, failure.Category);
+                Assert.Equal("source_acquisition_timeout", failure.Code);
+                Assert.True(failure.Retryable);
+                Assert.IsType<TimeoutException>(Assert.Single(Assert.IsType<AggregateException>(exception.InnerException).InnerExceptions));
+                Assert.Empty(healthy.Requests);
+            }
+            Assert.False(caller.IsCancellationRequested);
+            Assert.Equal(0, clock.ActiveTimerCount);
+            Assert.Empty(capacity.GetDiagnostics());
+            Assert.Empty(graph.GetDiagnostics().Nodes);
+        }
+        finally
+        {
+            await caller.CancelAsync();
+            await Record.ExceptionAsync(() => operation);
+            await graph.StopAsync(TestContext.Current.CancellationToken);
+        }
+    }
+
+    /// <summary>Verifies explicit caller cancellation takes precedence over a simultaneous candidate deadline and never opens fallback.</summary>
+    [Theory]
+    [InlineData("headers")]
+    [InlineData("error-body")]
+    public async Task SubscribeFirstAvailableAsync_CallerCancels_DoesNotAttemptFallback(string stalledPhase)
+    {
+        // Arrange
+        await using var remote = new RejectedLinkSource(HttpStatusCode.ServiceUnavailable) { StalledStreamPhase = stalledPhase };
+        using var device = Assert.IsType<LineupLinkPhysicalTunerDevice>(await remote.CreateDeviceAsync());
+        var channel = Assert.Single(await device.RefreshLineupAsync(TestContext.Current.CancellationToken)).Id;
+        var healthy = new FakeDevice(PhysicalDeviceId.New(), fail: false);
+        var clock = new AcquisitionClock();
+        var capacity = new PhysicalCapacityLeaseRegistry();
+        var graph = new StreamingSessionGraph(capacity, NullLogger<StreamingSessionGraph>.Instance);
+        var multiplexer = new TunerStreamMultiplexer(graph, Substitute.For<IMediaProcessFactory>(), NullLogger<TunerStreamMultiplexer>.Instance, clock);
+        using var caller = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var operation = multiplexer.SubscribeFirstAvailableAsync(Route(
+            [Candidate(device, channel, remote.BaseUri.ToString()), Candidate(healthy, new SourceChannelId(healthy.Snapshot.Id, "healthy"), "http://local/source")]), caller.Token).AsTask();
+        await remote.StreamStalled.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+
+        // Act
+        await caller.CancelAsync();
+        clock.Advance(TimeSpan.FromSeconds(10));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => operation.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken));
+
+        // Assert
+        Assert.Empty(healthy.Requests);
+        Assert.Equal(0, clock.ActiveTimerCount);
+        Assert.Empty(capacity.GetDiagnostics());
+        Assert.Empty(graph.GetDiagnostics().Nodes);
+    }
+
+    /// <summary>Verifies an established remote body outlives candidate startup deadlines and remains readable until viewer cancellation.</summary>
+    [Fact]
+    public async Task SubscribeFirstAvailableAsync_LiveBody_OutlivesAcquisitionDeadline()
+    {
+        // Arrange
+        await using var remote = new RejectedLinkSource(HttpStatusCode.OK) { LiveStream = true };
+        using var device = Assert.IsType<LineupLinkPhysicalTunerDevice>(await remote.CreateDeviceAsync());
+        var channel = Assert.Single(await device.RefreshLineupAsync(TestContext.Current.CancellationToken)).Id;
+        var clock = new AcquisitionClock();
+        var capacity = new PhysicalCapacityLeaseRegistry();
+        var graph = new StreamingSessionGraph(capacity, NullLogger<StreamingSessionGraph>.Instance);
+        var multiplexer = new TunerStreamMultiplexer(graph, Substitute.For<IMediaProcessFactory>(), NullLogger<TunerStreamMultiplexer>.Instance, clock);
+        using var caller = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        await using var selected = await multiplexer.SubscribeFirstAvailableAsync(Route([Candidate(device, channel, remote.BaseUri.ToString())]), caller.Token);
+        var packet = new byte[1];
+        await selected.Stream.ReadExactlyAsync(packet, caller.Token).AsTask().WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        Assert.Equal(0x47, packet[0]);
+
+        // Act
+        clock.Advance(TimeSpan.FromMinutes(5));
+        remote.ContinueStream.TrySetResult();
+        await selected.Stream.ReadExactlyAsync(packet, caller.Token).AsTask().WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        var pendingRead = selected.Stream.ReadAsync(new byte[1], caller.Token).AsTask();
+        await caller.CancelAsync();
+
+        // Assert
+        Assert.Equal(0x48, packet[0]);
+        Assert.Equal(0, clock.ActiveTimerCount);
+        Assert.Equal(1, remote.StreamRequestCount);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pendingRead.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken));
+        await selected.DisposeAsync();
+        Assert.Empty(capacity.GetDiagnostics());
+        Assert.Empty(graph.GetDiagnostics().Nodes);
+    }
+
+    /// <summary>Verifies a timing-out subscriber does not cancel the same pending acquisition still owned by another subscriber.</summary>
+    [Fact]
+    public async Task SubscribeFirstAvailableAsync_SharedPendingAcquisition_TimeoutReleasesOnlyOneSubscriber()
+    {
+        // Arrange
+        var physical = Substitute.For<IPhysicalTunerDevice>();
+        physical.Snapshot.Returns(new PhysicalDeviceSnapshot
+        {
+            Id = PhysicalDeviceId.New(),
+            Name = "Pending source",
+            Kind = "fake",
+            Capacity = new PhysicalTunerCapacity(1)
+        });
+        var opened = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        CancellationToken sourceLifetime = default;
+        physical.OpenStreamAsync(Arg.Any<PhysicalStreamRequest>(), Arg.Any<CancellationToken>()).Returns(call => OpenAsync(call.Arg<CancellationToken>()));
+        var healthy = new FakeDevice(PhysicalDeviceId.New(), fail: false, streamFactory: () => new BlockingStream());
+        var candidate = Candidate(physical, new SourceChannelId(physical.Snapshot.Id, "station"), "http://pending/source");
+        var clock = new AcquisitionClock();
+        var capacity = new PhysicalCapacityLeaseRegistry();
+        var graph = new StreamingSessionGraph(capacity, NullLogger<StreamingSessionGraph>.Instance);
+        var firstMux = new TunerStreamMultiplexer(graph, Substitute.For<IMediaProcessFactory>(), NullLogger<TunerStreamMultiplexer>.Instance, clock);
+        var secondMux = new TunerStreamMultiplexer(graph, Substitute.For<IMediaProcessFactory>(), NullLogger<TunerStreamMultiplexer>.Instance, new AcquisitionClock());
+        using var caller = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var first = firstMux.SubscribeFirstAvailableAsync(Route(
+            [candidate, Candidate(healthy, new SourceChannelId(healthy.Snapshot.Id, "healthy"), "http://local/source")]), caller.Token).AsTask();
+        await opened.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        var second = secondMux.SubscribeFirstAvailableAsync(Route([candidate]), caller.Token).AsTask();
+        try
+        {
+            Assert.Equal(2, Assert.Single(graph.GetDiagnostics().Nodes).ReceiverCount);
+
+            // Act
+            clock.Advance(TimeSpan.FromSeconds(10));
+            await using var fallback = await first.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+            Assert.False(sourceLifetime.IsCancellationRequested);
+            ready.TrySetResult();
+            await using var original = await second.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.Same(healthy, fallback.Candidate.PhysicalDevice);
+            Assert.Same(physical, original.Candidate.PhysicalDevice);
+            await physical.Received(1).OpenStreamAsync(Arg.Any<PhysicalStreamRequest>(), Arg.Any<CancellationToken>());
+            await fallback.DisposeAsync();
+            await original.DisposeAsync();
+            Assert.Empty(capacity.GetDiagnostics());
+            Assert.Empty(graph.GetDiagnostics().Nodes);
+        }
+        finally
+        {
+            ready.TrySetResult();
+            await caller.CancelAsync();
+            await Record.ExceptionAsync(() => first);
+            await Record.ExceptionAsync(() => second);
+            await graph.StopAsync(TestContext.Current.CancellationToken);
+        }
+
+        async ValueTask<IPhysicalStreamLease> OpenAsync(CancellationToken cancellationToken)
+        {
+            sourceLifetime = cancellationToken;
+            opened.TrySetResult();
+            await ready.Task.WaitAsync(cancellationToken);
+            return new FakeLease(new BlockingStream());
+        }
+    }
+
+    /// <summary>Verifies invalid remote manifests and lineups leave a healthy device activated, published, and routable.</summary>
+    [Theory]
+    [InlineData("manifest", false)]
+    [InlineData("manifest", true)]
+    [InlineData("lineup", false)]
+    [InlineData("lineup", true)]
+    public async Task ResolveVirtualAsync_InvalidRemoteControlResponse_PreservesHealthySource(string endpoint, bool unsupportedProtocol)
+    {
+        // Arrange
+        await using var remote = new RejectedLinkSource(HttpStatusCode.Unauthorized)
+        {
+            InvalidControlEndpoint = endpoint,
+            UnsupportedProtocol = unsupportedProtocol
+        };
+        var directory = Directory.CreateTempSubdirectory("lineup-invalid-link-");
+        var store = new StreamingTopologyStore(new TestDbContextFactory(
+            new DbContextOptionsBuilder<EpgDbContext>().UseSqlite($"Data Source={Path.Combine(directory.FullName, "topology.db")};Pooling=False").Options));
+        var healthy = new FakeDevice(PhysicalDeviceId.New(), fail: false, "station");
+        var driver = Substitute.For<IPhysicalTunerDriver>();
+        driver.Kind.Returns("fake");
+        driver.Validate(Arg.Any<AdapterConfiguration>()).Returns([]);
+        driver.CreateAsync(Arg.Any<PhysicalDeviceId>(), Arg.Any<string>(), Arg.Any<AdapterConfiguration>(), Arg.Any<CancellationToken>())
+            .Returns(ValueTask.FromResult<IPhysicalTunerDevice>(healthy));
+        var catalog = new PhysicalDeviceCatalog(new StreamingAdapterRegistry([driver, new LineupLinkPhysicalTunerDriver()], [], []));
+        var remoteId = PhysicalDeviceId.New();
+        var output = Route([Candidate(healthy, new SourceChannelId(healthy.Snapshot.Id, "station"), "http://local/auto/v7.1")]).VirtualDevice;
+        var configuration = new StreamingConfiguration
+        {
+            PhysicalDevices =
+            [
+                new PhysicalDeviceDefinition { Id = healthy.Snapshot.Id, Name = "Healthy", Order = 0, Adapter = new AdapterConfiguration("fake", JsonSerializer.SerializeToElement(new { })) },
+                new PhysicalDeviceDefinition { Id = remoteId, Name = "Remote", Order = 1, Adapter = remote.Configuration }
+            ],
+            VirtualDevices = [output]
+        };
+        var settings = Substitute.For<ILineupSettingsService>();
+        settings.Settings.Returns(new LineupSettings { Streaming = configuration });
+        var lineups = new PhysicalLineupService(catalog, store);
+        var resolver = new StreamingRouteResolver(settings, catalog, lineups, store);
+
+        try
+        {
+            // Act
+            var results = await lineups.RefreshAsync(configuration, TestContext.Current.CancellationToken);
+            var route = await resolver.ResolveVirtualAsync(output.Id, "7.1", TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.False(Assert.Single(results, result => result.DeviceId == remoteId).Succeeded);
+            Assert.True(Assert.Single(results, result => result.DeviceId == healthy.Snapshot.Id).Succeeded);
+            Assert.Same(healthy, catalog.GetRequired(healthy.Snapshot.Id));
+            Assert.NotNull(route);
+            Assert.Same(healthy, route.PhysicalDevice);
+            Assert.Equal(new SourceChannelId(healthy.Snapshot.Id, "station"), route.SourceChannelId);
+            Assert.Equal(healthy.Snapshot.Id, Assert.Single(await store.ReadActiveAsync(TestContext.Current.CancellationToken)).Source.Id.PhysicalDeviceId);
+        }
+        finally
+        {
+            foreach (var device in catalog.Devices.OfType<IDisposable>())
+            {
+                device.Dispose();
+            }
+            directory.Delete(recursive: true);
+        }
+    }
+
     /// <summary>Verifies rejected Lineup Link credentials do not prevent acquisition from a healthy equivalent source.</summary>
     [Theory]
     [InlineData(HttpStatusCode.Unauthorized)]
@@ -324,16 +636,37 @@ public sealed class StreamingRouteFailoverTests
 
         public int StreamRequestCount => Volatile.Read(ref _streamRequestCount);
 
+        /// <summary>Gets or sets the control endpoint that returns an invalid response.</summary>
+        public string? InvalidControlEndpoint { get; init; }
+
+        /// <summary>Gets or sets whether the invalid response declares an unsupported protocol.</summary>
+        public bool UnsupportedProtocol { get; init; }
+
+        /// <summary>Gets or sets the phase at which stream acquisition stops responding.</summary>
+        public string? StalledStreamPhase { get; init; }
+
+        /// <summary>Gets notification that stream acquisition has reached its stalled phase.</summary>
+        public TaskCompletionSource StreamStalled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Gets or sets whether the source returns a continuing MPEG-TS body.</summary>
+        public bool LiveStream { get; init; }
+
+        /// <summary>Gets the gate controlling the second live packet.</summary>
+        public TaskCompletionSource ContinueStream { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Gets the physical adapter configuration for the loopback source.</summary>
+        public AdapterConfiguration Configuration => new(LineupLinkProtocol.AdapterKind, JsonSerializer.SerializeToElement(new LineupLinkPhysicalConfiguration
+        {
+            BaseUrl = BaseUri.ToString(),
+            VirtualDeviceId = _virtualDeviceId,
+            AccessToken = "test-token",
+            TransportSecurity = LineupLinkTransportSecurity.Http
+        }));
+
         public Task<IPhysicalTunerDevice> CreateDeviceAsync() => new LineupLinkPhysicalTunerDriver().CreateAsync(
             PhysicalDeviceId.New(),
             "Remote",
-            new AdapterConfiguration(LineupLinkProtocol.AdapterKind, JsonSerializer.SerializeToElement(new LineupLinkPhysicalConfiguration
-            {
-                BaseUrl = BaseUri.ToString(),
-                VirtualDeviceId = _virtualDeviceId,
-                AccessToken = "test-token",
-                TransportSecurity = LineupLinkTransportSecurity.Http
-            })),
+            Configuration,
             _shutdown.Token).AsTask();
 
         public async ValueTask DisposeAsync()
@@ -377,13 +710,144 @@ public sealed class StreamingRouteFailoverTests
                     Assert.Equal(LineupLinkProtocol.StreamPath(_virtualDeviceId, "7.1"), path);
                     Interlocked.Increment(ref _streamRequestCount);
                     context.Response.StatusCode = (int)status;
+                    if (LiveStream)
+                    {
+                        try
+                        {
+                            context.Response.ContentType = LineupLinkProtocol.MpegTsMediaType;
+                            context.Response.SendChunked = true;
+                            await context.Response.OutputStream.WriteAsync(new byte[] { 0x47 }, _shutdown.Token);
+                            await context.Response.OutputStream.FlushAsync(_shutdown.Token);
+                            await ContinueStream.Task.WaitAsync(_shutdown.Token);
+                            await context.Response.OutputStream.WriteAsync(new byte[] { 0x48 }, _shutdown.Token);
+                            await context.Response.OutputStream.FlushAsync(_shutdown.Token);
+                            await Task.Delay(Timeout.InfiniteTimeSpan, _shutdown.Token);
+                        }
+                        finally
+                        {
+                            context.Response.Close();
+                        }
+                    }
+                    if (StalledStreamPhase is { } phase)
+                    {
+                        try
+                        {
+                            if (phase == "error-body")
+                            {
+                                context.Response.ContentType = "application/json";
+                                context.Response.SendChunked = true;
+                                await context.Response.OutputStream.WriteAsync("{"u8.ToArray(), _shutdown.Token);
+                                await context.Response.OutputStream.FlushAsync(_shutdown.Token);
+                            }
+                            StreamStalled.TrySetResult();
+                            await Task.Delay(Timeout.InfiniteTimeSpan, _shutdown.Token);
+                        }
+                        finally
+                        {
+                            context.Response.Close();
+                        }
+                    }
                     payload = JsonSerializer.Serialize(new LineupLinkError { Code = "unauthorized", Message = "Rejected test-token" });
+                }
+
+                if (InvalidControlEndpoint is { } endpoint && path.EndsWith($"/{endpoint}", StringComparison.Ordinal))
+                {
+                    payload = UnsupportedProtocol
+                        ? JsonSerializer.Serialize(new { ProtocolVersion = 999, VirtualDeviceId = _virtualDeviceId, InstanceId = Guid.NewGuid(), Name = "Remote" })
+                        : "<html>temporarily unavailable</html>";
                 }
                 var bytes = Encoding.UTF8.GetBytes(payload);
                 context.Response.ContentType = "application/json";
                 context.Response.ContentLength64 = bytes.Length;
                 await context.Response.OutputStream.WriteAsync(bytes, _shutdown.Token);
                 context.Response.Close();
+            }
+        }
+    }
+
+    private sealed class AcquisitionClock : TimeProvider
+    {
+        private readonly List<AcquisitionTimer> _timers = [];
+        private TimeSpan _elapsed;
+
+        /// <summary>Gets the number of pending acquisition deadlines.</summary>
+        internal int ActiveTimerCount
+        {
+            get
+            {
+                lock (_timers)
+                {
+                    return _timers.Count;
+                }
+            }
+        }
+
+        /// <inheritdoc />
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            var timer = new AcquisitionTimer(this, callback, state);
+            timer.Change(dueTime, period);
+            return timer;
+        }
+
+        /// <summary>Fires one-shot deadlines at the new logical instant.</summary>
+        internal void Advance(TimeSpan duration)
+        {
+            AcquisitionTimer[] elapsed;
+            lock (_timers)
+            {
+                _elapsed += duration;
+                elapsed = _timers.Where(timer => timer.Due <= _elapsed).ToArray();
+                foreach (var timer in elapsed)
+                {
+                    _timers.Remove(timer);
+                }
+            }
+            foreach (var timer in elapsed)
+            {
+                timer.Callback(timer.State);
+            }
+        }
+
+        private sealed class AcquisitionTimer(AcquisitionClock owner, TimerCallback callback, object? state) : ITimer
+        {
+            /// <summary>Gets the expiration callback.</summary>
+            internal TimerCallback Callback { get; } = callback;
+            /// <summary>Gets the callback state.</summary>
+            internal object? State { get; } = state;
+            /// <summary>Gets the logical deadline.</summary>
+            internal TimeSpan Due { get; private set; }
+
+            /// <inheritdoc />
+            public bool Change(TimeSpan dueTime, TimeSpan period)
+            {
+                Assert.Equal(Timeout.InfiniteTimeSpan, period);
+                lock (owner._timers)
+                {
+                    owner._timers.Remove(this);
+                    if (dueTime != Timeout.InfiniteTimeSpan)
+                    {
+                        Due = owner._elapsed + dueTime;
+                        owner._timers.Add(this);
+                    }
+                }
+                return true;
+            }
+
+            /// <inheritdoc />
+            public void Dispose()
+            {
+                lock (owner._timers)
+                {
+                    owner._timers.Remove(this);
+                }
+            }
+
+            /// <inheritdoc />
+            public ValueTask DisposeAsync()
+            {
+                Dispose();
+                return ValueTask.CompletedTask;
             }
         }
     }
@@ -440,6 +904,9 @@ public sealed class StreamingRouteFailoverTests
     private sealed class FakeCatalog(IReadOnlyList<IPhysicalTunerDevice> devices) : IPhysicalDeviceCatalog
     {
         public IReadOnlyList<IPhysicalTunerDevice> Devices { get; } = devices;
+
+        /// <inheritdoc />
+        public bool IsConfigurationCurrent(StreamingConfiguration configuration) => true;
 
         public IPhysicalTunerDevice GetRequired(PhysicalDeviceId deviceId) =>
             Devices.Single(device => device.Snapshot.Id == deviceId);

@@ -56,6 +56,7 @@ public sealed class HdHomeRunDiscoveryWorkerSupervisor : BackgroundService
     public const string DiscoveryAdapterKind = "hdhomerun-discovery";
 
     private static readonly VirtualDeviceId DiscoveryWorkerId = new(new Guid("d1d41379-85f9-4834-970d-3ba27ea7c104"));
+    private static readonly TimeSpan AdvertisementRefreshInterval = TimeSpan.FromSeconds(5);
     private static readonly IReadOnlySet<VirtualOutputCapability> Capabilities = new HashSet<VirtualOutputCapability>
     {
         VirtualOutputCapability.ReportHealth
@@ -129,6 +130,7 @@ public sealed class HdHomeRunDiscoveryWorkerSupervisor : BackgroundService
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        using var refreshTimer = _timeProvider.CreateTimer(_ => SettingsChanged(), null, AdvertisementRefreshInterval, AdvertisementRefreshInterval);
         try
         {
             while (!stoppingToken.IsCancellationRequested)

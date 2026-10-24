@@ -154,7 +154,6 @@ public sealed class StreamingRouteResolver : IStreamingRouteResolver
             throw new InvalidOperationException("No enabled physical streaming devices are configured.");
         }
 
-        await EnsureCatalogAsync(configuration, cancellationToken);
         var virtualDevice = configuration.VirtualDevices.SingleOrDefault(device => device.Enabled && device.Id == virtualDeviceId)
             ?? throw new KeyNotFoundException("The requested configured virtual device was not found.");
         var physicalDefinitions = _adapters is null
@@ -166,8 +165,21 @@ public sealed class StreamingRouteResolver : IStreamingRouteResolver
         var identities = await _topologyStore.ReadActiveAsync(cancellationToken);
         var resolution = ChannelTopologyResolver.Resolve(virtualDevice, physicalDefinitions, identities);
         var channel = resolution.Channels.SingleOrDefault(candidate =>
-            string.Equals(candidate.Number, channelNumber.Trim(), StringComparison.OrdinalIgnoreCase))
-            ?? throw new KeyNotFoundException($"Channel '{channelNumber}' is not available to virtual device {virtualDevice.Id}.");
+            string.Equals(candidate.Number, channelNumber.Trim(), StringComparison.OrdinalIgnoreCase));
+        if (!_catalog.IsConfigurationCurrent(configuration) ||
+            channel is null ||
+            !channel.Sources.Any(source => _catalog.Devices.Any(device => device.Snapshot.Id == source.PhysicalDeviceId)))
+        {
+            await EnsureCatalogAsync(configuration, cancellationToken);
+            identities = await _topologyStore.ReadActiveAsync(cancellationToken);
+            resolution = ChannelTopologyResolver.Resolve(virtualDevice, physicalDefinitions, identities);
+            channel = resolution.Channels.SingleOrDefault(candidate =>
+                string.Equals(candidate.Number, channelNumber.Trim(), StringComparison.OrdinalIgnoreCase));
+        }
+        if (channel is null)
+        {
+            throw new KeyNotFoundException($"Channel '{channelNumber}' is not available to virtual device {virtualDevice.Id}.");
+        }
         var liveDevices = _catalog.Devices.ToDictionary(device => device.Snapshot.Id);
         var availableSources = channel.Sources.Where(source => liveDevices.ContainsKey(source.PhysicalDeviceId)).ToArray();
         if (availableSources.Length == 0)
@@ -216,7 +228,7 @@ public sealed class StreamingRouteResolver : IStreamingRouteResolver
 
     private async Task EnsureCatalogAsync(StreamingConfiguration configuration, CancellationToken cancellationToken)
     {
-        if (ReferenceEquals(Volatile.Read(ref _activeConfiguration), configuration))
+        if (ReferenceEquals(Volatile.Read(ref _activeConfiguration), configuration) && _catalog.IsConfigurationCurrent(configuration))
         {
             return;
         }
@@ -224,7 +236,7 @@ public sealed class StreamingRouteResolver : IStreamingRouteResolver
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            if (ReferenceEquals(_activeConfiguration, configuration))
+            if (ReferenceEquals(_activeConfiguration, configuration) && _catalog.IsConfigurationCurrent(configuration))
             {
                 return;
             }

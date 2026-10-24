@@ -117,6 +117,89 @@ public sealed class ChannelTopologyResolverTests
         Assert.Equal("92", channel.Metadata["signalQuality"]);
     }
 
+    /// <summary>Verifies protection describes all equivalent sources without changing preferred metadata or physical identities.</summary>
+    [Theory]
+    [InlineData("True", "False", "False")]
+    [InlineData("1", "0", "False")]
+    [InlineData("True", null, "False")]
+    [InlineData("1", "True", "1")]
+    [InlineData("False", "True", "False")]
+    public void Resolve_EquivalentProtection_PublishesAggregateMetadata(string preferredDrm, string? fallbackDrm, string expectedDrm)
+    {
+        // Arrange
+        var first = CreatePhysical("First", 0);
+        var second = CreatePhysical("Second", 1);
+        var third = CreatePhysical("Third", 2);
+        var group = Guid.NewGuid();
+        var preferred = new Dictionary<string, string> { ["drm"] = preferredDrm, ["videoCodec"] = "mpeg2video" };
+        var fallback = new Dictionary<string, string>();
+        if (fallbackDrm is not null)
+        {
+            fallback["drm"] = fallbackDrm;
+        }
+        PhysicalChannelIdentity[] channels =
+        [
+            CreateChannel(first.Id, "a", "7.1", "News", preferred) with { EquivalenceGroupId = group },
+            CreateChannel(second.Id, "b", "7.1", "Other", fallback) with { EquivalenceGroupId = group },
+            CreateChannel(third.Id, "c", "7.1", "Last", new Dictionary<string, string> { ["drm"] = "True" }) with { EquivalenceGroupId = group }
+        ];
+
+        // Act
+        var result = ChannelTopologyResolver.Resolve(CreateVirtual(), [first, second, third], channels);
+
+        // Assert
+        var channel = Assert.Single(result.Channels);
+        Assert.Equal(expectedDrm, channel.Metadata["drm"]);
+        Assert.Equal("mpeg2video", channel.Metadata["videoCodec"]);
+        Assert.Equal("News", channel.Name);
+        Assert.Equal([first.Id, second.Id, third.Id], channel.Sources.Select(source => source.PhysicalDeviceId));
+        Assert.Equal(preferredDrm, preferred["drm"]);
+        Assert.Equal(fallbackDrm, fallback.GetValueOrDefault("drm"));
+        Assert.Empty(result.Conflicts);
+    }
+
+    /// <summary>Verifies an excluded clear source cannot remove protection from a protected-only output.</summary>
+    [Theory]
+    [InlineData("disabled-device")]
+    [InlineData("disabled-channel")]
+    [InlineData("unsubscribed")]
+    [InlineData("conflict")]
+    public void Resolve_ExcludedClearSource_PreservesProtection(string exclusion)
+    {
+        // Arrange
+        var first = CreatePhysical("First", 0);
+        var second = CreatePhysical("Second", 1) with { Enabled = exclusion != "disabled-device" };
+        var output = CreateVirtual();
+        if (exclusion == "unsubscribed")
+        {
+            output = output with
+            {
+                Subscription = new PhysicalDeviceSubscription
+                {
+                    Mode = PhysicalDeviceSubscriptionMode.Selected,
+                    SelectedDeviceIds = [first.Id]
+                }
+            };
+        }
+        var group = Guid.NewGuid();
+        PhysicalChannelIdentity[] channels =
+        [
+            CreateChannel(first.Id, "a", "7.1", "News", new Dictionary<string, string> { ["drm"] = "True" }) with { EquivalenceGroupId = group },
+            CreateChannel(second.Id, "b", "7.1", "Other", new Dictionary<string, string> { ["drm"] = "False" }) with
+            {
+                EquivalenceGroupId = exclusion == "conflict" ? null : group,
+                IsEnabled = exclusion != "disabled-channel"
+            }
+        ];
+
+        // Act
+        var result = ChannelTopologyResolver.Resolve(output, [first, second], channels);
+
+        // Assert
+        Assert.Equal("True", Assert.Single(result.Channels).Metadata["drm"]);
+        Assert.Equal(first.Id, Assert.Single(Assert.Single(result.Channels).Sources).PhysicalDeviceId);
+    }
+
     private static PhysicalDeviceDefinition CreatePhysical(string name, int order)
     {
         var id = PhysicalDeviceId.New();

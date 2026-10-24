@@ -35,7 +35,7 @@ public sealed class FfmpegStreamTransform : IStreamTransform
         });
         var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var pumpTask = MediaStreamPump.PumpAsync(input, process, _logger, _sourceName, lifetime.Token);
-        var errorTask = process.StandardError.ReadToEndAsync(lifetime.Token);
+        var errorTask = MediaProcessDiagnostics.ReadTailAsync(process.StandardError, lifetime.Token);
         return ValueTask.FromResult<IStreamSourceLease>(new ProcessOutputLease(process, pumpTask, errorTask, lifetime));
     }
 

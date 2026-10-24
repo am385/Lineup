@@ -128,7 +128,7 @@ internal static class SweepStore
         var text = new StringBuilder("# Lineup streaming sweep\n\n");
         text.AppendLine($"Run: `{Escape(run.Id)}`. State: **{Escape(run.State)}**. Recommendation: **{(SweepPolicy.ExitCode(run) == 0 ? "PASS" : "FAIL / INCONCLUSIVE")}**.\n");
         text.AppendLine($"Started: {run.StartedUtc:O}. Finished: {run.FinishedUtc:O}. Selected: {run.Selected.Count}. Accepted: {run.Accepted.Count}. Attempts: {run.Attempts.Count}.");
-        text.AppendLine($"Broadcast playback passes: {run.Aggregates.PlaybackPassed}; synthetic transport is excluded.\n");
+        text.AppendLine($"Broadcast playback passes: {run.Aggregates.PlaybackPassed}; synthetic transport is excluded. Media passes do not waive lifecycle failures.\n");
         text.AppendLine("Canonical JSON: `sweep-run.json` (also exported as `results.json`).\n");
         text.AppendLine("## Environment and effective options\n");
         foreach (var pair in run.Environment.OrderBy(pair => pair.Key, StringComparer.Ordinal))
@@ -146,10 +146,12 @@ internal static class SweepStore
             var metrics = accepted?.Result?.Metrics;
             var caption = run.CaptionAccepted.TryGetValue(row.Key, out var captionId) ? attempts.Single(item => item.Id == captionId) : accepted;
             var sync = attempts.LastOrDefault(attempt => attempt.Purpose == "sync")?.Synchronization;
+            var cleanup = attempts.Any(attempt => attempt.Cleanup is { Forced: true } || attempt.Cleanup is { VerifiedAbsent: false })
+                ? "lifecycle failure; see attempt evidence" : accepted?.Cleanup?.VerifiedAbsent == true ? "owned sessions absent" : "unverified";
             var video = metrics is null ? "unavailable" : $"{metrics.VideoWidth}x{metrics.VideoHeight} / {metrics.DroppedFrames?.ToString(CultureInfo.InvariantCulture) ?? "unavailable"}";
             text.AppendLine($"| {Escape(row.Key)} | {Escape(row.Channel.Name)} | {accepted?.Verdict.ToString() ?? "pending"} | {attempts.Length} "
                 + $"| {Escape(caption?.Result?.CaptionResult ?? "unavailable")} | {video} | {Escape(sync?.State ?? "not-observed")} "
-                + $"| {(accepted?.Cleanup?.VerifiedAbsent == true ? "owned sessions absent" : "unverified")} "
+                + $"| {cleanup} "
                 + $"| {Escape(accepted?.SyntheticPlayback is true ? $"synthetic: {accepted.SyntheticReason ?? "unknown reason"}"
                     : accepted?.SyntheticPlayback is false ? "broadcast" : "unconfirmed")} |");
         }
@@ -164,8 +166,13 @@ internal static class SweepStore
         foreach (var attempt in run.Attempts)
         {
             text.AppendLine($"- `{attempt.Id}` `{Escape(attempt.Key)}` {attempt.Purpose}: {attempt.Verdict}; "
-                + $"cleanup forced={attempt.Cleanup?.Forced}, absent={attempt.Cleanup?.VerifiedAbsent}; artifacts `{Escape(attempt.Artifacts ?? "unavailable")}`; "
+                + $"cleanup forced={attempt.Cleanup?.Forced}, absent={attempt.Cleanup?.VerifiedAbsent}, continuation verified={attempt.CleanupContinuationVerified}; "
+                + $"artifacts `{Escape(attempt.Artifacts ?? "unavailable")}`; "
                 + $"{Escape(attempt.Result?.Failure ?? attempt.Synchronization?.Detail ?? "in flight")}");
+            if (attempt.Cleanup is { } cleanup)
+            {
+                text.AppendLine($"  Cleanup errors: {Escape(cleanup.Errors.Count == 0 ? "none" : string.Join("; ", cleanup.Errors))}.");
+            }
             text.AppendLine($"  Stable interval: {attempt.StableDurationSeconds:F1}s / media {attempt.StableMediaAdvanceSeconds:F1}s. "
                 + $"Caption provenance: `{run.CaptionAccepted.GetValueOrDefault(attempt.Key) ?? "unavailable"}`. "
                 + $"Sync delta: {attempt.Synchronization?.Delta?.ToString(CultureInfo.InvariantCulture) ?? "unavailable"}. "
@@ -187,14 +194,15 @@ internal static class SweepStore
     {
         static string Quote(string? value) => $"\"{(value ?? string.Empty).Replace("\"", "\"\"")}\"";
         var text = new StringBuilder("Matrix,Channel,Name,Attempts,AV,Caption,Category,StartupOutcome,HttpStatus,Code,Stage,StartupDurationMilliseconds,"
-            + "FailurePhase,DurationSeconds,Failure,Key,Disposition,AttemptId,Purpose,Verdict,ForcedCleanup,VerifiedAbsent,Sync,Inferred,ProtectionSource,Synthetic,SyntheticReason\n");
+            + "FailurePhase,DurationSeconds,Failure,Key,Disposition,AttemptId,Purpose,Verdict,ForcedCleanup,VerifiedAbsent,Sync,Inferred,ProtectionSource,Synthetic,SyntheticReason,"
+            + "CleanupContinuationVerified,CleanupErrors\n");
         foreach (var row in run.Selected)
         {
             var attempts = run.Attempts.Where(attempt => attempt.Key == row.Key).ToArray();
             if (attempts.Length == 0)
             {
                 text.AppendLine(string.Join(",", Quote(row.Target), Quote(row.Channel.Number), Quote(row.Channel.Name),
-                    "0", "", "", "", "", "", "", "", "", "", "", "", Quote(row.Key), "pending", "", "", "", "", "", "", "", "", "", ""));
+                    "0", "", "", "", "", "", "", "", "", "", "", "", Quote(row.Key), "pending", "", "", "", "", "", "", "", "", "", "", "", ""));
             }
             foreach (var attempt in attempts)
             {
@@ -205,7 +213,8 @@ internal static class SweepStore
                     Quote(result?.Startup?.Code), Quote(result?.Startup?.Stage), result?.Startup?.DurationMilliseconds, Quote(result?.FailurePhase),
                     result?.DurationSeconds.ToString("F1", CultureInfo.InvariantCulture), Quote(result?.Failure), Quote(row.Key), accepted ? "accepted" : "retained",
                     Quote(attempt.Id), attempt.Purpose, attempt.Verdict, attempt.Cleanup?.Forced, attempt.Cleanup?.VerifiedAbsent, Quote(attempt.Synchronization?.State),
-                    attempt.Result?.Startup?.Inferred, Quote(attempt.Result?.Startup?.Source), attempt.SyntheticPlayback, Quote(attempt.SyntheticReason)));
+                    attempt.Result?.Startup?.Inferred, Quote(attempt.Result?.Startup?.Source), attempt.SyntheticPlayback, Quote(attempt.SyntheticReason),
+                    attempt.CleanupContinuationVerified, Quote(attempt.Cleanup is { } cleanup ? string.Join("; ", cleanup.Errors) : null)));
             }
         }
         return text.ToString();

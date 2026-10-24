@@ -128,10 +128,9 @@ internal sealed partial class SweepHarness
                             await RefreshGuideAsync(browser.Context, matrix.WatchUrl, journal, "consumer");
                         }
                     }
-                    var channels = _options.Select(await ReadEnabledChannelsAsync(matrix.WatchUrl));
+                    var selected = await ReadSelectedChannelsAsync(matrix);
                     await PreflightAsync(matrix, browser.Context, matrixRoot, journal);
                     var frozen = _run.Selected.Where(row => row.Target == matrix.Id).ToArray();
-                    var selected = channels.Select(channel => new SelectedChannel($"{matrix.Id}|{channel.VirtualDeviceId}|{channel.Number}", matrix.Id, channel)).ToArray();
                     if (frozen.Length > 0 && JsonSerializer.Serialize(frozen, SweepStore.Json) != JsonSerializer.Serialize(selected, SweepStore.Json))
                     {
                         throw new InvalidDataException($"Projected inventory changed for {matrix.Id}. Start a new run.");
@@ -150,67 +149,22 @@ internal sealed partial class SweepHarness
                             var previousAttempt = _run.Attempts.Single(item => item.Id == _run.Accepted[row.Key]);
                             if (previousAttempt.Verdict == SweepVerdict.StablePlayback)
                             {
-                                var resumedSync = SweepPolicy.FreshSynchronization(_run, previousAttempt)
-                                    ?? await ObserveAsync(browser.Context, matrix, row, 1, matrixRoot, journal, "sync");
+                                var resumedSync = await ObserveWithLifecycleAsync(browser.Context, matrix, row, matrixRoot, journal, "sync",
+                                    SweepPolicy.FreshSynchronization(_run, previousAttempt));
                                 previousAttempt.Synchronization = resumedSync.Synchronization;
                                 await CheckpointAsync();
-                                if (resumedSync.Cleanup is not { VerifiedAbsent: true, Forced: false } || resumedSync.Verdict == SweepVerdict.CapacityContamination)
-                                {
-                                    throw new InvalidOperationException("Resumed synchronization contaminated capacity or failed cleanup.");
-                                }
                             }
                             continue;
                         }
-                        SweepAttempt? accepted = null;
-                        for (var number = 1; number <= _options.MaximumAttempts; number++)
-                        {
-                            _cancellation.ThrowIfCancellationRequested();
-                            var attempt = await ObserveAsync(browser.Context, matrix, row, number, matrixRoot, journal, _options.SyncOnly ? "sync" : "playback");
-                            if (attempt.Cleanup is not { VerifiedAbsent: true, Forced: false } || attempt.Verdict == SweepVerdict.CapacityContamination)
-                            {
-                                _run.Violations.Add($"First contamination/lifecycle trigger: {row.Key}, attempt {attempt.Id}.");
-                                await CheckpointAsync();
-                                if (!_options.ExistingInstance && _options.AllowMatrixRecovery && number < _options.MaximumAttempts)
-                                {
-                                    _run.Violations.Add($"Capacity-release deployment recovery required by {attempt.Id}; violation is permanent.");
-                                    var recovery = Path.Combine(matrixRoot, "recoveries", attempt.Id);
-                                    await SaveComposeLogsAsync(matrix, project, recovery);
-                                    await StopMatrixAsync(matrix, project, recovery);
-                                    await PrepareAndStartAsync(matrix, project, journal);
-                                    await RefreshGuideAsync(browser.Context, matrix.SourceUrl, journal, "source-recovery");
-                                    if (matrix.Remote)
-                                    {
-                                        await RefreshGuideAsync(browser.Context, matrix.WatchUrl, journal, "consumer-recovery");
-                                    }
-                                    await PreflightAsync(matrix, browser.Context, matrixRoot, journal, recovery: true);
-                                    continue;
-                                }
-                                throw new InvalidOperationException($"Stopped at contamination: {row.Key}. Evidence: {root}");
-                            }
-                            accepted = accepted?.Result?.AvPassed == true ? accepted : attempt;
-                            if (attempt.Result is not null && !ShouldRetry(attempt.Result))
-                            {
-                                break;
-                            }
-                            await Task.Delay(TimeSpan.FromSeconds(_options.RetryDelaySeconds), _cancellation);
-                        }
-                        if (accepted is null)
-                        {
-                            throw new InvalidOperationException($"No uncontaminated attempt for {row.Key}.");
-                        }
+                        var accepted = await ObserveWithLifecycleAsync(browser.Context, matrix, row, matrixRoot, journal, _options.SyncOnly ? "sync" : "playback");
                         _run.Accepted[row.Key] = accepted.Id;
                         _run.CaptionAccepted[row.Key] = _run.Attempts.Where(item => item.Key == row.Key && item.Purpose == "playback" && item.Result is not null
-                            && !item.Interrupted && item.Cleanup is { VerifiedAbsent: true, Forced: false } && item.Verdict != SweepVerdict.CapacityContamination)
+                            && !item.Interrupted && SweepPolicy.HasAcceptableCleanup(_run, item) && item.Verdict != SweepVerdict.CapacityContamination)
                             .OrderByDescending(item => GetCaptionResultScore(item.Result!.CaptionResult)).Select(item => item.Id).FirstOrDefault() ?? accepted.Id;
                         if (!_options.SyncOnly && accepted.Verdict == SweepVerdict.StablePlayback)
                         {
-                            var sync = await ObserveAsync(browser.Context, matrix, row, 1, matrixRoot, journal, "sync");
+                            var sync = await ObserveWithLifecycleAsync(browser.Context, matrix, row, matrixRoot, journal, "sync");
                             accepted.Synchronization = sync.Synchronization;
-                            if (sync.Cleanup is not { VerifiedAbsent: true, Forced: false } || sync.Verdict == SweepVerdict.CapacityContamination)
-                            {
-                                _run.Violations.Add($"Synchronization lifecycle failed at {row.Key}.");
-                                throw new InvalidOperationException("Fresh synchronization contaminated capacity or failed cleanup.");
-                            }
                         }
                         await journal.WriteTerminalAsync(matrix.Id, row.Channel.Number, accepted.Result!);
                         await SweepStore.ReportsAsync(root, _run);
@@ -251,6 +205,67 @@ internal sealed partial class SweepHarness
             await SweepStore.ReportsAsync(root, _run);
             Environment.ExitCode = SweepPolicy.ExitCode(_run);
             Console.WriteLine($"Run state: {_run.State}; exit: {Environment.ExitCode}; canonical results: {Path.Combine(root, "sweep-run.json")}");
+        }
+    }
+
+    private Task<SweepAttempt> ObserveWithLifecycleAsync(IBrowserContext context, MatrixDefinition matrix, SelectedChannel row, string matrixRoot, RunJournal journal, string purpose, SweepAttempt? previous = null)
+    {
+        return SweepObservationRunner.RunAsync(
+            _run!,
+            _runRoot!,
+            number => ObserveAsync(context, matrix, row, number, matrixRoot, journal, purpose),
+            attempt => VerifyCleanupContinuationAsync(matrix, attempt),
+            async attempt =>
+            {
+                var project = $"lineup-sweep-{matrix.Id}";
+                var recovery = Path.Combine(matrixRoot, "recoveries", attempt.Id);
+                await SaveComposeLogsAsync(matrix, project, recovery);
+                await StopMatrixAsync(matrix, project, recovery);
+                await PrepareAndStartAsync(matrix, project, journal);
+                await RefreshGuideAsync(context, matrix.SourceUrl, journal, "source-recovery");
+                if (matrix.Remote)
+                {
+                    await RefreshGuideAsync(context, matrix.WatchUrl, journal, "consumer-recovery");
+                }
+                await PreflightAsync(matrix, context, matrixRoot, journal, recovery: true);
+                var recovered = await ReadSelectedChannelsAsync(matrix);
+                var frozen = _run!.Selected.Where(item => item.Target == matrix.Id).ToArray();
+                if (JsonSerializer.Serialize(frozen, SweepStore.Json) != JsonSerializer.Serialize(recovered, SweepStore.Json))
+                {
+                    throw new InvalidDataException($"Projected inventory changed during recovery for {matrix.Id}. Start a new run.");
+                }
+            },
+            () => CheckpointAsync(),
+            _cancellation,
+            previous);
+    }
+
+    private async Task<SelectedChannel[]> ReadSelectedChannelsAsync(MatrixDefinition matrix) =>
+        _options.Select(await ReadEnabledChannelsAsync(matrix.WatchUrl))
+            .Select(channel => new SelectedChannel($"{matrix.Id}|{channel.VirtualDeviceId}|{channel.Number}", matrix.Id, channel)).ToArray();
+
+    private async Task<bool> VerifyCleanupContinuationAsync(MatrixDefinition matrix, SweepAttempt attempt)
+    {
+        var baseline = attempt.Baseline?.Deserialize<PlaybackBaseline>(_json);
+        if (baseline is null || baseline.Generation.Length == 0 || attempt.Ownership.Count == 0)
+        {
+            return false;
+        }
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(_cancellation);
+        deadline.CancelAfter(TimeSpan.FromSeconds(_options.CleanupSeconds));
+        try
+        {
+            if (!await new OwnedPlayback(_http).VerifyAbsentAsync(attempt.Ownership, deadline.Token)
+                || !await VerifyBaselineAsync(matrix, baseline, new(), deadline.Token))
+            {
+                return false;
+            }
+            await EnsureTunerIdleAsync(TimeSpan.FromSeconds(_options.CleanupSeconds), deadline.Token);
+            return true;
+        }
+        catch (OperationCanceledException ex) when (!_cancellation.IsCancellationRequested)
+        {
+            throw new TimeoutException($"Cleanup continuation verification expired for {attempt.Id}. Evidence: {_runRoot}", ex);
         }
     }
 
@@ -356,7 +371,7 @@ internal sealed partial class SweepHarness
         {
             await page.GotoAsync(matrix.WatchUrl.TrimEnd('/') + "/watch", new() { Timeout = (float)(_options.StartupSeconds * 1000) });
             await page.Locator(".cmaf-channel-number").First.WaitForAsync(new() { Timeout = (float)(_options.StartupSeconds * 1000) });
-            if (_options.SetupCompatibility || !_options.ExistingInstance)
+            if (!recovery && (_options.SetupCompatibility || !_options.ExistingInstance))
             {
                 await RunCompatibilityAsync(context, matrix.WatchUrl, Path.Combine(matrixRoot, "compatibility.json"), journal);
             }

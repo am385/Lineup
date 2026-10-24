@@ -168,6 +168,7 @@ Missing requested channels, duplicate keys, conflicts and zero filter matches fa
 | `--output <directory>` | `LINEUP_SWEEP_OUTPUT_ROOT` or `out\integration\streaming-sweep` |
 | `--setup-compatibility` | Explicitly permit synthetic Watch Test setup on an existing deployment |
 | `--allow-matrix-recovery` | Explicitly permit owned Compose teardown/recreation after contamination; **never** existing instances |
+| `--continue-after-verified-cleanup` | Default off: continue after an emergency owned-session stop only after passive ownership/runtime and viewer/capacity baseline reverification, plus physical tuner-idle verification for Docker; the lifecycle failure remains permanent |
 | `--sync-only` | Fresh transport observation without a separate preceding playback pass |
 | `--input-run <sweep-run.json>` | Required for explicit resume, failed-channel retry and offline regeneration |
 
@@ -177,6 +178,41 @@ Missing requested channels, duplicate keys, conflicts and zero filter matches fa
 `smoke` selects the first projected channel in `local-management`.
 Issue regression commands retain their existing focused reports and synthetic fault source.
 Use the same configured output root to find the `current.txt` pointer.
+
+### Collecting remaining results after emergency cleanup
+
+Default execution still stops on any forced or unverified cleanup. To collect remaining channel
+and matrix observations after **successful emergency cleanup**, explicitly opt in on a new run:
+
+```powershell
+dotnet run --project tests\Integration\Lineup.Streaming.Sweep\Lineup.Streaming.Sweep.csproj -c Release --no-build -- execute-fresh --continue-after-verified-cleanup
+```
+
+This does not waive the failure or restart the deployment. Continuation requires verified owned
+session absence, valid runtime identity, no unresolved browser/mandatory-evidence failures, and a
+fresh passive check of the captured viewer/capacity baseline. Docker also requires the discovered
+physical receivers to be idle. Missing ownership/baseline evidence, a changed runtime, or a failed
+verification cannot be treated as safe continuation. Existing-instance mode preserves unrelated
+viewers and compares against their baseline, never a globally idle target.
+
+`--allow-matrix-recovery` is separate permission to recreate an **owned Docker** deployment.
+Playback, fresh sync and resumed sync use the same lifecycle/recovery handling. Recovery consumes
+the next attempt within `--attempts` for that observation; it is not an additional unbounded retry
+loop. Recovery preserves evidence and the browser's existing compatibility profile instead of
+rerunning synthetic compatibility setup between channels. Teardown must verify tuner idleness,
+and preflight and frozen channel-inventory validation must succeed before retrying. A failed teardown
+or unproven tuner-idle check stops the run. Existing-instance mode never permits deployment recovery.
+
+When both options are enabled, verified continuation is tried before deployment recovery.
+Every emergency stop and recovery remains a permanent lifecycle finding, even when later media
+observations pass. A complete run with these findings exits **2**, never 0; an aborted/incomplete
+run exits **3**. Historical failed attempts remain in canonical JSON, CSV and Markdown reports.
+Continuation permission is persisted with the effective options; resume cannot enable it on an
+older run whose options did not request it.
+
+The normal Watch-stop grace interval remains at most 10 seconds (or one third of a shorter cleanup
+deadline). `--cleanup-seconds` controls the overall cleanup/baseline deadline, not an unlimited
+normal-stop grace interval.
 
 ### Interruption, retry and offline reports
 
@@ -212,6 +248,15 @@ not the previous unversioned terminal array. JSON, CSV and Markdown are atomical
 same-directory temporary files and flushed writes. `events.jsonl` remains append-only and durable.
 Every startup request/response, source/fallback owner, discarded attempt, accepted playback reference,
 independent caption reference, cleanup result and fresh sync result retains its attempt provenance.
+Startup, decoded AV and transport alignment remain separate from cleanup. An emergency stop cannot
+rewrite HTTP 200 as a startup failure or discard already collected alignment measurements.
+Post-start playback and metadata failures are labeled `playback-failure` and `metadata-failure`
+in synchronization evidence, not `startup-failure`. `CleanupContinuationVerified` records explicit
+post-cleanup reverification. Older schema-one checkpoints default this field and the new option to
+false. CSV includes separate cleanup intervention, absence, continuation and error columns; selected
+Markdown rows flag lifecycle failures even if the accepted media result passed.
+Each observation also writes independent `cleanup.json` evidence beside `result.json`.
+Standalone issue-regression scenarios retain strict cleanup failure behavior.
 Browser attempt results carry `EvidenceId`, independently of their numeric retry ordinal. Diagnostic
 readers use that exact identity under `attempts\<channel>\<EvidenceId>`; they never guess from numeric
 or older directories. Historical results without this additive field remain loadable, but cannot be
@@ -247,7 +292,8 @@ Transport alignment is **not human audible lip-sync assessment**.
 Watch stop/navigation is attempted first. Only still-owned viewers may receive an emergency POST at
 the validated returned stop URL (management responses without a stop URL use Watch's management route).
 Forced cleanup, leaked/unproven ownership, browser failures, unresolved capacity, invalid totals and
-output failures cannot be waived by product thresholds. Opted-in Compose recovery preserves logs and
+output failures cannot be waived by product thresholds. Explicitly permitted safe continuation affects
+whether more observations run, never certification success. Opted-in Compose recovery preserves logs and
 all prior attempts; any restart needed to release capacity permanently fails the run, even after a
 successful rerun. Normal teardown of services created for a Docker matrix is not leak recovery.
 

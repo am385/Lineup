@@ -60,7 +60,7 @@ public sealed class ChannelSlateStreamFactory : IChannelSlateStreamFactory
         public ChannelSlateProcessStream(Process process)
         {
             _process = process;
-            _standardError = process.StandardError.ReadToEndAsync();
+            _standardError = MediaProcessDiagnostics.ReadTailAsync(process.StandardError);
         }
 
         private Stream Inner => _process.StandardOutput.BaseStream;

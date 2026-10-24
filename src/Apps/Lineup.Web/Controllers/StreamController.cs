@@ -464,7 +464,7 @@ public class StreamController : ControllerBase
         var subtitlePaths = selectableSubtitles.ToDictionary(
             subtitle => subtitle.Index,
             subtitle => _transientData.GetFilePath(directory, $"captions-{subtitle.Index}.vtt"));
-        var stopRequested = 0;
+        var viewerStopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var startedAt = DateTime.UtcNow;
         var outputVideoBitRate = WebVideoTranscodePlanner.GetMaximumBitRate(virtualProfile, request.Quality);
         var activeStream = disabled
@@ -484,7 +484,7 @@ public class StreamController : ControllerBase
         };
         if (!_activeStreamRegistry.TryRegister(activeStream, _settingsService.Settings.MaximumConcurrentStreams, () =>
             {
-                Interlocked.Exchange(ref stopRequested, 1);
+                viewerStopped.TrySetResult();
                 StopCmafSession(sessionId);
             }))
         {
@@ -497,7 +497,7 @@ public class StreamController : ControllerBase
             : new StreamTransformKey(
                 providerPlan.TransformKey.Stage,
                 $"{selectedCandidate!.SourceChannelId.PhysicalDeviceId}:{selectedCandidate.SourceChannelId.ProviderKey}|{CmafStreamPlanner.CreatePlanKey(virtualProfile, source, selection, request)}");
-        var pendingOutput = new PendingCmafOutput(this);
+        var pendingOutput = new PendingCmafOutput(this, directory);
         ICmafOutputLease outputLease;
         try
         {
@@ -513,7 +513,6 @@ public class StreamController : ControllerBase
         }
         catch (OperationCanceledException) when (startupToken.IsCancellationRequested)
         {
-            pendingOutput.Cancel(startupToken);
             await pendingOutput.DisposeAsync();
             _activeStreamRegistry.Unregister(sessionId);
             TryDeleteTransientDirectory(directory);
@@ -532,320 +531,322 @@ public class StreamController : ControllerBase
         {
             Flow = activeStream.Flow! with { ReusableOutputId = outputLease.OutputId }
         };
-        _activeStreamRegistry.Register(activeStream);
-        if (outputLease.State is PendingCmafOutput sharedOutput && !ReferenceEquals(sharedOutput, pendingOutput))
+        _activeStreamRegistry.TryUpdate(sessionId, _ => activeStream);
+        var sharedOutput = (PendingCmafOutput)outputLease.State;
+        var ownsProducer = ReferenceEquals(sharedOutput, pendingOutput);
+        if (!ownsProducer)
         {
+            await pendingOutput.DisposeAsync();
             TryDeleteTransientDirectory(directory);
-            try
-            {
-                var sharedResponse = await sharedOutput.Response.WaitAsync(startupToken);
-                return Ok(RebaseCmafResponse(sharedResponse, sessionId));
-            }
-            catch
-            {
-                await outputLease.DisposeAsync();
-                throw;
-            }
         }
-
-        Process? process = null;
-        Process? captionProcess = null;
-        Task<string>? captionErrorTask = null;
+        else
+        {
+            _ = pendingOutput.RunAsync(StartProducerAsync, _cmafStartupTimeout, outputLease.OutputId);
+        }
         try
         {
-            var ffmpegArguments = disabled
-                ? null
-                : CmafStreamPlanner.CreateArguments(virtualProfile, source, selection, request, manifestPath, subtitlePaths);
-            if (Volatile.Read(ref stopRequested) != 0)
+            await Task.WhenAny(sharedOutput.Response, viewerStopped.Task).WaitAsync(startupToken);
+            if (viewerStopped.Task.IsCompleted)
             {
                 await outputLease.DisposeAsync();
-                _activeStreamRegistry.Unregister(sessionId);
-                TryDeleteTransientDirectory(directory);
                 return new EmptyResult();
             }
+            var result = await sharedOutput.Response;
+            return result is OkObjectResult { Value: CmafStreamResponse response } ? Ok(RebaseCmafResponse(response, sessionId)) : result;
+        }
+        catch (OperationCanceledException) when (startupToken.IsCancellationRequested && ownsProducer)
+        {
+            await outputLease.DisposeAsync();
+            return HttpContext.RequestAborted.IsCancellationRequested ? new EmptyResult() : CreateCmafStartupTimeoutResult();
+        }
+        catch
+        {
+            await outputLease.DisposeAsync();
+            throw;
+        }
 
-            if (disabled || protectedContent)
+        async Task<IActionResult> StartProducerAsync(CancellationToken producerToken)
+        {
+            Process? process = null;
+            Process? captionProcess = null;
+            Task<string>? captionErrorTask = null;
+            try
             {
-                process = _protectedContentSlateService.StartCmaf(
-                    channel,
-                    manifestPath,
-                    disabled ? ChannelSlateReason.DisabledChannel : ChannelSlateReason.ContentProtected);
-            }
-            else
-            {
-                process = _mediaProcessFactory.Start(new MediaProcessRequest
+                var ffmpegArguments = disabled
+                    ? null
+                    : CmafStreamPlanner.CreateArguments(virtualProfile, source, selection, request, manifestPath, subtitlePaths);
+                producerToken.ThrowIfCancellationRequested();
+
+                if (disabled || protectedContent)
                 {
-                    FileName = "ffmpeg",
-                    Arguments = ffmpegArguments!,
-                    WorkingDirectory = directory,
-                    RedirectStandardInput = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true
-                });
-            }
-
-            if (process == null)
-            {
-                throw new InvalidOperationException("Failed to start FFmpeg process.");
-            }
-            pendingOutput.Attach(process, directory);
-            if (!disabled)
-            {
-                _ = PumpEffectiveSourceAsync(selectedCandidate!, rawSource, sourceSettings, process, pendingOutput.LifetimeToken);
-            }
-            var embeddedCaptions = selectableSubtitles.FirstOrDefault(subtitle => subtitle.IsEmbeddedClosedCaptions);
-            if (!disabled && embeddedCaptions is not null)
-            {
-                captionProcess = _mediaProcessFactory.Start(new MediaProcessRequest
-                {
-                    FileName = "ffmpeg",
-                    Arguments = WebPlayerTrackPlanner.CreateEmbeddedCaptionArguments(subtitlePaths[embeddedCaptions.Index]),
-                    RedirectStandardInput = true,
-                    RedirectStandardError = true
-                });
-                captionErrorTask = captionProcess.StandardError.ReadToEndAsync();
-                pendingOutput.Attach(process, directory, captionProcess, captionErrorTask);
-                _ = PumpSourceAsync(selectedCandidate!, captionProcess, pendingOutput.LifetimeToken);
-            }
-
-            var session = new CmafSession
-            {
-                SessionId = sessionId,
-                Channel = channel,
-                Process = process,
-                CmafDirectory = directory,
-                PlaylistPath = manifestPath,
-                StartTime = startedAt,
-                SourceVideoCodec = CmafStreamPlanner.CreateVideoRenditions(
-                    source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video),
-                    request,
-                    selection.SubtitlePresentation == SubtitlePresentation.BurnIn,
-                    virtualProfile.Deinterlace)
-                    .Any(plan => plan.CopySource)
-                        ? CmafStreamPlanner.CreateHevcCodecString(source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video))
-                        : null,
-                AudioRenditions = audioRenditions,
-                CaptionProcess = captionProcess,
-                CaptionErrorTask = captionErrorTask,
-                TransformKey = transformKey,
-                OutputId = outputLease.OutputId
-            };
-            var errors = new ConcurrentQueue<string>();
-            var errorMonitorTask = StartCmafErrorMonitor(process, session, errors, parseSourceMetadata: false, outputVideoBitRate);
-            var usingSlate = disabled || protectedContent;
-            var sourceAudioFallbackApplied = false;
-
-            for (var attempt = 0; attempt < 200; attempt++)
-            {
-                if (Volatile.Read(ref stopRequested) != 0)
-                {
-                    StopCmafSession(sessionId);
-                    return new EmptyResult();
+                    process = _protectedContentSlateService.StartCmaf(
+                        channel,
+                        manifestPath,
+                        disabled ? ChannelSlateReason.DisabledChannel : ChannelSlateReason.ContentProtected);
                 }
-                if (process.HasExited)
+                else
                 {
-                    await errorMonitorTask;
-                    if (!usingSlate && CmafStreamPlanner.ShouldRetryWithFallback(
+                    process = _mediaProcessFactory.Start(new MediaProcessRequest
+                    {
+                        FileName = "ffmpeg",
+                        Arguments = ffmpegArguments!,
+                        WorkingDirectory = directory,
+                        RedirectStandardInput = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true
+                    });
+                }
+
+                if (process == null)
+                {
+                    throw new InvalidOperationException("Failed to start FFmpeg process.");
+                }
+                pendingOutput.Attach(process, directory);
+                if (!disabled)
+                {
+                    _ = PumpEffectiveSourceAsync(selectedCandidate!, rawSource, sourceSettings, process, pendingOutput.LifetimeToken);
+                }
+                var embeddedCaptions = selectableSubtitles.FirstOrDefault(subtitle => subtitle.IsEmbeddedClosedCaptions);
+                if (!disabled && embeddedCaptions is not null)
+                {
+                    captionProcess = _mediaProcessFactory.Start(new MediaProcessRequest
+                    {
+                        FileName = "ffmpeg",
+                        Arguments = WebPlayerTrackPlanner.CreateEmbeddedCaptionArguments(subtitlePaths[embeddedCaptions.Index]),
+                        RedirectStandardInput = true,
+                        RedirectStandardError = true
+                    });
+                    pendingOutput.Attach(process, directory, captionProcess);
+                    captionErrorTask = MediaProcessDiagnostics.ReadTailAsync(captionProcess.StandardError);
+                    pendingOutput.Attach(process, directory, captionProcess, captionErrorTask);
+                    _ = PumpSourceAsync(selectedCandidate!, captionProcess, pendingOutput.LifetimeToken);
+                }
+
+                var session = new CmafSession
+                {
+                    SessionId = sessionId,
+                    Channel = channel,
+                    Process = process,
+                    CmafDirectory = directory,
+                    PlaylistPath = manifestPath,
+                    StartTime = startedAt,
+                    SourceVideoCodec = CmafStreamPlanner.CreateVideoRenditions(
+                        source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video),
                         request,
-                        source.Tracks.Where(track => track.Type == MediaTrackType.Audio),
-                        errors))
-                    {
-                        _logger.LogInformation(
-                            "CMAF source audio codec {Codec} is not supported by the MP4 muxer for session {SessionId}; retrying with {FallbackAudio}",
-                            selection.Audio?.Codec,
-                            sessionId,
-                            fallbackAudio);
-                        var retryRequest = request with { PreferredAudio = CmafPreferredAudio.Fallback };
-                        var retryProcess = _mediaProcessFactory.Start(new MediaProcessRequest
-                        {
-                            FileName = "ffmpeg",
-                            Arguments = CmafStreamPlanner.CreateArguments(virtualProfile, source, selection, retryRequest, manifestPath, subtitlePaths),
-                            WorkingDirectory = directory,
-                            RedirectStandardInput = true,
-                            RedirectStandardOutput = true,
-                            RedirectStandardError = true
-                        });
+                        selection.SubtitlePresentation == SubtitlePresentation.BurnIn,
+                        virtualProfile.Deinterlace)
+                        .Any(plan => plan.CopySource)
+                            ? CmafStreamPlanner.CreateHevcCodecString(source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video))
+                            : null,
+                    AudioRenditions = audioRenditions,
+                    CaptionProcess = captionProcess,
+                    CaptionErrorTask = captionErrorTask,
+                    TransformKey = transformKey,
+                    OutputId = outputLease.OutputId
+                };
+                var errors = new ConcurrentQueue<string>();
+                var errorMonitorTask = StartCmafErrorMonitor(process, session, errors, parseSourceMetadata: false, outputVideoBitRate);
+                var usingSlate = disabled || protectedContent;
+                var sourceAudioFallbackApplied = false;
 
-                        var sourceSession = session;
-                        process = retryProcess;
-                        pendingOutput.Attach(process, directory, captionProcess, captionErrorTask);
-                        request = retryRequest;
-                        sourceAudioFallbackApplied = true;
-                        session = new CmafSession
+                for (var attempt = 0; attempt < 200; attempt++)
+                {
+                    producerToken.ThrowIfCancellationRequested();
+                    if (process.HasExited)
+                    {
+                        await errorMonitorTask.WaitAsync(producerToken);
+                        if (!usingSlate && CmafStreamPlanner.ShouldRetryWithFallback(
+                            request,
+                            source.Tracks.Where(track => track.Type == MediaTrackType.Audio),
+                            errors))
                         {
-                            SessionId = sessionId,
-                            Channel = channel,
-                            Process = process,
-                            CmafDirectory = directory,
-                            PlaylistPath = manifestPath,
-                            StartTime = startedAt,
-                            SourceVideoCodec = sourceSession.SourceVideoCodec,
-                            AudioRenditions = CmafStreamPlanner.CreatePresentationAudioRenditions(source, selection.Audio, retryRequest, virtualProfile),
-                            CapacityLease = sourceSession.CapacityLease,
-                            CaptionProcess = sourceSession.CaptionProcess,
-                            CaptionErrorTask = sourceSession.CaptionErrorTask,
-                            TransformKey = sourceSession.TransformKey,
-                            OutputId = outputLease.OutputId
-                        };
-                        sourceSession.CapacityLease = null;
-                        sourceSession.CaptionProcess = null;
-                        sourceSession.CaptionErrorTask = null;
-                        sourceSession.IsActive = false;
-                        sourceSession.Process.Dispose();
-                        _ = PumpEffectiveSourceAsync(selectedCandidate!, rawSource, sourceSettings, process, pendingOutput.LifetimeToken);
-                        _activeStreamRegistry.Register(ActiveStreamPlanFactory.CreateCmaf(
-                            sessionId,
-                            channel,
-                            startedAt,
-                            rawSource,
-                            source,
-                            selection,
-                            retryRequest,
-                            _settingsService.Settings,
-                            virtualProfile) with
-                        {
-                            ClientAddress = FormatClientAddress(HttpContext.Connection.RemoteIpAddress, HttpContext.Connection.RemotePort),
-                            ClientId = retryRequest.ClientId,
-                            Flow = CreatePhysicalFlow(selectedCandidate!, topologyRoute!.VirtualDevice.Id) with
+                            _logger.LogInformation(
+                                "CMAF source audio codec {Codec} is not supported by the MP4 muxer for session {SessionId}; retrying with {FallbackAudio}",
+                                selection.Audio?.Codec,
+                                sessionId,
+                                fallbackAudio);
+                            var retryRequest = request with { PreferredAudio = CmafPreferredAudio.Fallback };
+                            var retryProcess = _mediaProcessFactory.Start(new MediaProcessRequest
                             {
-                                ReusableOutputId = outputLease.OutputId
-                            }
-                        });
-                        errors.Clear();
-                        errorMonitorTask = StartCmafErrorMonitor(process, session, errors, parseSourceMetadata: false, outputVideoBitRate);
-                        continue;
-                    }
+                                FileName = "ffmpeg",
+                                Arguments = CmafStreamPlanner.CreateArguments(virtualProfile, source, selection, retryRequest, manifestPath, subtitlePaths),
+                                WorkingDirectory = directory,
+                                RedirectStandardInput = true,
+                                RedirectStandardOutput = true,
+                                RedirectStandardError = true
+                            });
 
-                    var tunerError = usingSlate ? null : await GetTunerErrorAsync(sourceUri!, startupToken);
-                    var protection = usingSlate
-                        ? new ProtectedContentDetection(IsProtected: false, IsInferred: false, Message: null)
-                        : await DetectContentProtectionAsync(channel, tunerError);
-                    if (protection.IsProtected && _settingsService.Settings.ProtectedContentMode == ProtectedContentMode.StreamSlate)
-                    {
-                        DeleteCmafFiles(directory);
-                        var tunerSession = session;
-                        StopCaptionProcess(tunerSession);
-                        var slateProcess = _protectedContentSlateService.StartCmaf(channel, manifestPath);
-                        pendingOutput.Attach(slateProcess, directory);
-                        session = new CmafSession
-                        {
-                            SessionId = sessionId,
-                            Channel = channel,
-                            Process = slateProcess,
-                            CmafDirectory = directory,
-                            PlaylistPath = manifestPath,
-                            StartTime = DateTime.UtcNow,
-                            TransformKey = transformKey,
-                            OutputId = outputLease.OutputId
-                        };
-                        process = slateProcess;
-                        tunerSession.IsActive = false;
-                        tunerSession.CapacityLease?.Dispose();
-                        tunerSession.Process.Dispose();
-                        _activeStreamRegistry.Register(ActiveStreamPlanFactory.CreateProtectedSlate(sessionId, channel, HostedStreamFormat.Cmaf, session.StartTime) with
-                        {
-                            ClientAddress = FormatClientAddress(HttpContext.Connection.RemoteIpAddress, HttpContext.Connection.RemotePort),
-                            ClientId = request.ClientId,
-                            Flow = CreateSyntheticFlow(GetWebPlayerVirtualDeviceId(), "Protected content slate") with
+                            var sourceSession = session;
+                            process = retryProcess;
+                            pendingOutput.Attach(process, directory, captionProcess, captionErrorTask);
+                            request = retryRequest;
+                            sourceAudioFallbackApplied = true;
+                            session = new CmafSession
                             {
-                                ReusableOutputId = outputLease.OutputId
-                            }
-                        });
-                        errors.Clear();
-                        errorMonitorTask = StartCmafErrorMonitor(process, session, errors, parseSourceMetadata: false, outputVideoBitRate);
-                        usingSlate = true;
-                        continue;
+                                SessionId = sessionId,
+                                Channel = channel,
+                                Process = process,
+                                CmafDirectory = directory,
+                                PlaylistPath = manifestPath,
+                                StartTime = startedAt,
+                                SourceVideoCodec = sourceSession.SourceVideoCodec,
+                                AudioRenditions = CmafStreamPlanner.CreatePresentationAudioRenditions(source, selection.Audio, retryRequest, virtualProfile),
+                                CapacityLease = sourceSession.CapacityLease,
+                                CaptionProcess = sourceSession.CaptionProcess,
+                                CaptionErrorTask = sourceSession.CaptionErrorTask,
+                                TransformKey = sourceSession.TransformKey,
+                                OutputId = outputLease.OutputId
+                            };
+                            sourceSession.CapacityLease = null;
+                            sourceSession.CaptionProcess = null;
+                            sourceSession.CaptionErrorTask = null;
+                            sourceSession.IsActive = false;
+                            sourceSession.Process.Dispose();
+                            _ = PumpEffectiveSourceAsync(selectedCandidate!, rawSource, sourceSettings, process, pendingOutput.LifetimeToken);
+                            UpdateCmafViewerPlans(outputLease.OutputId, ActiveStreamPlanFactory.CreateCmaf(
+                                sessionId,
+                                channel,
+                                startedAt,
+                                rawSource,
+                                source,
+                                selection,
+                                retryRequest,
+                                _settingsService.Settings,
+                                virtualProfile) with
+                            {
+                                Flow = CreatePhysicalFlow(selectedCandidate!, topologyRoute!.VirtualDevice.Id) with
+                                {
+                                    ReusableOutputId = outputLease.OutputId
+                                }
+                            });
+                            errors.Clear();
+                            errorMonitorTask = StartCmafErrorMonitor(process, session, errors, parseSourceMetadata: false, outputVideoBitRate);
+                            continue;
+                        }
+
+                        var tunerError = usingSlate ? null : await GetTunerErrorAsync(sourceUri!, producerToken);
+                        var protection = usingSlate
+                            ? new ProtectedContentDetection(IsProtected: false, IsInferred: false, Message: null)
+                            : await DetectContentProtectionAsync(channel, tunerError, producerToken);
+                        if (protection.IsProtected && _settingsService.Settings.ProtectedContentMode == ProtectedContentMode.StreamSlate)
+                        {
+                            DeleteCmafFiles(directory);
+                            var tunerSession = session;
+                            StopCaptionProcess(tunerSession);
+                            var slateProcess = _protectedContentSlateService.StartCmaf(channel, manifestPath);
+                            pendingOutput.Attach(slateProcess, directory);
+                            session = new CmafSession
+                            {
+                                SessionId = sessionId,
+                                Channel = channel,
+                                Process = slateProcess,
+                                CmafDirectory = directory,
+                                PlaylistPath = manifestPath,
+                                StartTime = DateTime.UtcNow,
+                                TransformKey = transformKey,
+                                OutputId = outputLease.OutputId
+                            };
+                            process = slateProcess;
+                            tunerSession.IsActive = false;
+                            tunerSession.CapacityLease?.Dispose();
+                            tunerSession.Process.Dispose();
+                            UpdateCmafViewerPlans(outputLease.OutputId, ActiveStreamPlanFactory.CreateProtectedSlate(sessionId, channel, HostedStreamFormat.Cmaf, session.StartTime) with
+                            {
+                                Flow = CreateSyntheticFlow(GetWebPlayerVirtualDeviceId(), "Protected content slate") with
+                                {
+                                    ReusableOutputId = outputLease.OutputId
+                                }
+                            });
+                            errors.Clear();
+                            errorMonitorTask = StartCmafErrorMonitor(process, session, errors, parseSourceMetadata: false, outputVideoBitRate);
+                            usingSlate = true;
+                            continue;
+                        }
+
+                        if (protection.IsProtected)
+                        {
+                            return CreateProtectedContentResult(protection);
+                        }
+                        return StatusCode(StatusCodes.Status502BadGateway, new { error = errors.LastOrDefault() ?? "FFmpeg exited before the CMAF presentation was ready." });
                     }
 
-                    StopCmafSession(sessionId);
-                    pendingOutput.Fail(new IOException(errors.LastOrDefault() ?? "FFmpeg exited before the CMAF presentation was ready."));
-                    if (protection.IsProtected)
+                    var hlsPath = _transientData.GetFilePath(directory, CmafStreamPlanner.HlsManifestName);
+                    int[] representationFragmentCounts = usingSlate
+                        ? []
+                        : GetRepresentationFragmentCounts(directory, session.AudioRenditions.Count + 1);
+                    var fragmentsReady = usingSlate
+                        ? _transientData.EnumerateFiles(directory, "*.m4s").Count >= 2
+                        : representationFragmentCounts.All(count => count >= 2);
+                    if (_transientData.FileExists(manifestPath) && _transientData.FileExists(hlsPath) && fragmentsReady)
                     {
-                        return CreateProtectedContentResult(protection);
+                        Volatile.Write(ref session.IsStarting, 0);
+                        var baseUrl = $"/api/stream/cmaf/{sessionId}";
+                        var hlsUrl = $"{baseUrl}/{CmafStreamPlanner.HlsManifestName}";
+                        var packagedFallback = session.AudioRenditions.FirstOrDefault(rendition => !rendition.Plan.CopySource)?.Plan;
+                        var response = new CmafStreamResponse(sessionId, hlsUrl, $"{baseUrl}/{CmafStreamPlanner.DashManifestName}")
+                        {
+                            SourceAudioFallbackApplied = sourceAudioFallbackApplied,
+                            FallbackAudioTitle = packagedFallback?.Title,
+                            FallbackAudioCodec = packagedFallback?.Codec,
+                            HasSourceVideoRendition = CmafStreamPlanner.CreateVideoRenditions(
+                                source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video),
+                                request,
+                                selection.SubtitlePresentation == SubtitlePresentation.BurnIn,
+                                virtualProfile.Deinterlace).Any(plan => plan.CopySource),
+                            SourceVideoCodec = session.SourceVideoCodec,
+                            Subtitles = selectableSubtitles.Select(subtitle => new CmafSubtitleRendition(
+                                subtitle.Index,
+                                subtitle.Title ?? subtitle.Language ?? $"Subtitle {subtitle.Index}",
+                                subtitle.Language,
+                                $"{baseUrl}/captions-{subtitle.Index}.vtt",
+                                subtitle.IsEmbeddedClosedCaptions)).ToArray()
+                        };
+                        pendingOutput.Complete(session);
+                        return Ok(response);
                     }
-                    return StatusCode(StatusCodes.Status502BadGateway, new { error = errors.LastOrDefault() ?? "FFmpeg exited before the CMAF presentation was ready." });
+                    await Task.Delay(100, producerToken);
                 }
 
-                var hlsPath = _transientData.GetFilePath(directory, CmafStreamPlanner.HlsManifestName);
-                int[] representationFragmentCounts = usingSlate
+                int[] timedOutFragmentCounts = usingSlate
                     ? []
                     : GetRepresentationFragmentCounts(directory, session.AudioRenditions.Count + 1);
-                var fragmentsReady = usingSlate
-                    ? _transientData.EnumerateFiles(directory, "*.m4s").Count >= 2
-                    : representationFragmentCounts.All(count => count >= 2);
-                if (_transientData.FileExists(manifestPath) && _transientData.FileExists(hlsPath) && fragmentsReady)
+                _logger.LogWarning(
+                    "CMAF readiness timed out for channel {Channel}, session {SessionId}; expected {RepresentationCount} representations with fragment counts [{FragmentCounts}]. FFmpeg diagnostics: {FfmpegDiagnostics}",
+                    channel,
+                    sessionId,
+                    session.AudioRenditions.Count + 1,
+                    string.Join(", ", timedOutFragmentCounts),
+                    string.Join(" | ", errors.TakeLast(10)));
+                return StatusCode(StatusCodes.Status504GatewayTimeout, new { error = "FFmpeg did not create the shared CMAF manifests and fragments in time." });
+            }
+            catch (OperationCanceledException) when (producerToken.IsCancellationRequested)
+            {
+                return pendingOutput.LifetimeToken.IsCancellationRequested ? new EmptyResult() : CreateCmafStartupTimeoutResult();
+            }
+            catch (Exception ex) when (ex is MediaProcessException or InvalidOperationException or IOException or StreamCapacityExceededException)
+            {
+                _logger.LogError(ex, "Error starting CMAF stream for channel {Channel}", channel);
+                if (ex is StreamAcquisitionException acquisitionException)
                 {
-                    Volatile.Write(ref session.IsStarting, 0);
-                    var baseUrl = $"/api/stream/cmaf/{sessionId}";
-                    var hlsUrl = $"{baseUrl}/{CmafStreamPlanner.HlsManifestName}";
-                    var packagedFallback = session.AudioRenditions.FirstOrDefault(rendition => !rendition.Plan.CopySource)?.Plan;
-                    var response = new CmafStreamResponse(sessionId, hlsUrl, $"{baseUrl}/{CmafStreamPlanner.DashManifestName}")
-                    {
-                        SourceAudioFallbackApplied = sourceAudioFallbackApplied,
-                        FallbackAudioTitle = packagedFallback?.Title,
-                        FallbackAudioCodec = packagedFallback?.Codec,
-                        HasSourceVideoRendition = CmafStreamPlanner.CreateVideoRenditions(
-                            source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video),
-                            request,
-                            selection.SubtitlePresentation == SubtitlePresentation.BurnIn,
-                            virtualProfile.Deinterlace).Any(plan => plan.CopySource),
-                        SourceVideoCodec = session.SourceVideoCodec,
-                        Subtitles = selectableSubtitles.Select(subtitle => new CmafSubtitleRendition(
-                            subtitle.Index,
-                            subtitle.Title ?? subtitle.Language ?? $"Subtitle {subtitle.Index}",
-                            subtitle.Language,
-                            $"{baseUrl}/captions-{subtitle.Index}.vtt",
-                            subtitle.IsEmbeddedClosedCaptions)).ToArray()
-                    };
-                    pendingOutput.Complete(session, response);
-                    return Ok(response);
+                    return CreateSourceAcquisitionResult(channel, acquisitionException);
                 }
-                await Task.Delay(100, startupToken);
+                var statusCode = ex is StreamCapacityExceededException ? StatusCodes.Status503ServiceUnavailable : StatusCodes.Status500InternalServerError;
+                return StatusCode(statusCode, new { error = ex.Message });
             }
+        }
+    }
 
-            int[] timedOutFragmentCounts = usingSlate
-                ? []
-                : GetRepresentationFragmentCounts(directory, session.AudioRenditions.Count + 1);
-            _logger.LogWarning(
-                "CMAF readiness timed out for channel {Channel}, session {SessionId}; expected {RepresentationCount} representations with fragment counts [{FragmentCounts}]. FFmpeg diagnostics: {FfmpegDiagnostics}",
-                channel,
-                sessionId,
-                session.AudioRenditions.Count + 1,
-                string.Join(", ", timedOutFragmentCounts),
-                string.Join(" | ", errors.TakeLast(10)));
-            pendingOutput.Fail(new TimeoutException("FFmpeg did not create the shared CMAF manifests and fragments in time."));
-            StopCmafSession(sessionId);
-            return StatusCode(StatusCodes.Status504GatewayTimeout, new { error = "FFmpeg did not create the shared CMAF manifests and fragments in time." });
-        }
-        catch (OperationCanceledException) when (startupToken.IsCancellationRequested)
+    private void UpdateCmafViewerPlans(StreamSessionId outputId, ActiveStreamSnapshot plan)
+    {
+        foreach (var viewer in _cmafOutputs.GetViewers().Where(viewer => viewer.OutputId == outputId))
         {
-            pendingOutput.Cancel(startupToken);
-            if (!StopCmafSession(sessionId))
+            _activeStreamRegistry.TryUpdate(viewer.ViewerSessionId.ToString(), current => plan with
             {
-                _activeStreamRegistry.Unregister(sessionId);
-                TryDeleteTransientDirectory(directory);
-            }
-            return HttpContext.RequestAborted.IsCancellationRequested
-                ? new EmptyResult()
-                : CreateCmafStartupTimeoutResult();
-        }
-        catch (Exception ex) when (ex is MediaProcessException or InvalidOperationException or IOException or StreamCapacityExceededException)
-        {
-            pendingOutput.Fail(ex);
-            if (!StopCmafSession(sessionId))
-            {
-                _activeStreamRegistry.Unregister(sessionId);
-                TryDeleteTransientDirectory(directory);
-                process?.Dispose();
-                StopCaptionProcess(captionProcess, captionErrorTask, sessionId);
-            }
-            _logger.LogError(ex, "Error starting CMAF stream for channel {Channel}", channel);
-            if (ex is StreamAcquisitionException acquisitionException)
-            {
-                return CreateSourceAcquisitionResult(channel, acquisitionException);
-            }
-            var statusCode = ex is StreamCapacityExceededException ? StatusCodes.Status503ServiceUnavailable : StatusCodes.Status500InternalServerError;
-            return StatusCode(statusCode, new { error = ex.Message });
+                SessionId = current.SessionId,
+                StartedAtUtc = current.StartedAtUtc,
+                ClientAddress = current.ClientAddress,
+                ClientId = current.ClientId
+            });
         }
     }
 
@@ -1577,14 +1578,14 @@ public class StreamController : ControllerBase
         return int.TryParse(codeText, out var code) ? code : null;
     }
 
-    private async Task<ProtectedContentDetection> DetectContentProtectionAsync(string channel, string? tunerError)
+    private async Task<ProtectedContentDetection> DetectContentProtectionAsync(string channel, string? tunerError, CancellationToken cancellationToken)
     {
         if (!string.IsNullOrWhiteSpace(tunerError))
         {
             return ProtectedContentDetector.Detect(tunerError, cachedDrm: false);
         }
 
-        var cachedChannel = (await _guideReader.GetChannelsAsync())
+        var cachedChannel = (await _guideReader.GetChannelsAsync(cancellationToken: cancellationToken))
             .FirstOrDefault(candidate => string.Equals(candidate.GuideNumber, channel, StringComparison.Ordinal));
         return ProtectedContentDetector.Detect(tunerError, cachedChannel?.DRM == true);
     }
@@ -1749,23 +1750,83 @@ public class StreamController : ControllerBase
         }
     }
 
-    private sealed class PendingCmafOutput(StreamController controller) : IAsyncDisposable
+    private sealed class PendingCmafOutput : IAsyncDisposable
     {
-        private readonly TaskCompletionSource<CmafStreamResponse> _response = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<IActionResult> _response = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly object _gate = new();
         private readonly CancellationTokenSource _lifetimeCancellation = new();
-        private StreamController? _controller = controller;
+        private readonly CancellationToken _lifetimeToken;
+        private StreamController? _controller;
         private Process? _process;
         private Process? _captionProcess;
         private Task<string>? _captionErrorTask;
         private string? _directory;
+        private bool _starting;
+        private bool _resourcesDisposed;
 
-        public Task<CmafStreamResponse> Response => _response.Task;
+        /// <summary>Owns pending startup artifacts independently of the initiating viewer.</summary>
+        public PendingCmafOutput(StreamController controller, string directory)
+        {
+            _controller = controller;
+            _directory = directory;
+            _lifetimeToken = _lifetimeCancellation.Token;
+        }
 
-        public CancellationToken LifetimeToken => _lifetimeCancellation.Token;
+        /// <summary>Gets the producer's terminal startup result shared by all viewers.</summary>
+        public Task<IActionResult> Response => _response.Task;
 
+        /// <summary>Gets cancellation when the coordinator releases the producer.</summary>
+        public CancellationToken LifetimeToken => _lifetimeToken;
+
+        /// <summary>Gets the completed media session once readiness succeeds.</summary>
         public CmafSession? Session { get; private set; }
 
+        /// <summary>Runs bounded readiness and propagates its terminal result without using an individual viewer's lifetime.</summary>
+        public async Task RunAsync(Func<CancellationToken, Task<IActionResult>> start, TimeSpan timeout, StreamSessionId outputId)
+        {
+            StreamController owner;
+            lock (_gate)
+            {
+                if (_controller is not { } controller)
+                {
+                    return;
+                }
+                owner = controller;
+                _starting = true;
+            }
+            try
+            {
+                using var startupCancellation = CancellationTokenSource.CreateLinkedTokenSource(LifetimeToken);
+                startupCancellation.CancelAfter(timeout);
+                _response.TrySetResult(await start(startupCancellation.Token));
+            }
+            catch (Exception exception)
+            {
+                owner._logger.LogError(exception, "Shared CMAF producer startup failed for output {OutputId}", outputId);
+                _response.TrySetException(exception);
+                _ = _response.Task.Exception;
+            }
+            finally
+            {
+                bool disposed;
+                lock (_gate)
+                {
+                    _starting = false;
+                    disposed = _controller is null;
+                }
+                if (disposed)
+                {
+                    DisposeResources(owner);
+                }
+                else if (Session is null)
+                {
+                    await owner._cmafOutputs.ReleaseOutputAsync(outputId);
+                }
+            }
+        }
+
+        /// <summary>Transfers current process and artifact ownership, including replacements made during startup.</summary>
         public void Attach(Process process, string directory, Process? captionProcess = null, Task<string>? captionErrorTask = null)
         {
             lock (_gate)
@@ -1777,26 +1838,46 @@ public class StreamController : ControllerBase
             }
         }
 
-        public void Complete(CmafSession session, CmafStreamResponse response)
+        /// <summary>Transfers pending resources into a ready media session.</summary>
+        public void Complete(CmafSession session)
         {
             lock (_gate)
             {
+                LifetimeToken.ThrowIfCancellationRequested();
                 Session = session;
                 _process = null;
                 _captionProcess = null;
                 _captionErrorTask = null;
                 _directory = null;
             }
-            _response.TrySetResult(response);
         }
 
-        public void Fail(Exception exception) => _response.TrySetException(exception);
-
-        public void Cancel(CancellationToken cancellationToken) => _response.TrySetCanceled(cancellationToken);
-
+        /// <inheritdoc />
         public ValueTask DisposeAsync()
         {
-            var owner = Interlocked.Exchange(ref _controller, null);
+            StreamController owner;
+            lock (_gate)
+            {
+                if (_controller is not { } controller)
+                {
+                    return ValueTask.CompletedTask;
+                }
+                owner = controller;
+                _controller = null;
+                _lifetimeCancellation.Cancel();
+                _response.TrySetCanceled();
+                if (_starting)
+                {
+                    // Startup retains cleanup ownership until any in-flight process replacement finishes.
+                    return new ValueTask(_stopped.Task);
+                }
+            }
+            DisposeResources(owner);
+            return ValueTask.CompletedTask;
+        }
+
+        private void DisposeResources(StreamController owner)
+        {
             CmafSession? session;
             Process? process;
             Process? captionProcess;
@@ -1804,6 +1885,11 @@ public class StreamController : ControllerBase
             string? directory;
             lock (_gate)
             {
+                if (_resourcesDisposed)
+                {
+                    return;
+                }
+                _resourcesDisposed = true;
                 session = Session;
                 process = _process;
                 captionProcess = _captionProcess;
@@ -1814,27 +1900,28 @@ public class StreamController : ControllerBase
                 _captionErrorTask = null;
                 _directory = null;
             }
-            if (owner is not null)
+            try
             {
-                _lifetimeCancellation.Cancel();
-                try
+                if (session is not null)
                 {
-                    if (session is not null)
-                    {
-                        owner.CleanupCmafSession(session, stopProcess: true);
-                    }
-                    else
-                    {
-                        owner.CleanupIncompleteCmafOutput(process, captionProcess, captionErrorTask, directory);
-                    }
+                    owner.CleanupCmafSession(session, stopProcess: true);
                 }
-                finally
+                else
                 {
-                    _lifetimeCancellation.Dispose();
+                    owner.CleanupIncompleteCmafOutput(process, captionProcess, captionErrorTask, directory);
                 }
             }
-            _response.TrySetCanceled();
-            return ValueTask.CompletedTask;
+            catch (Exception exception)
+            {
+                owner._logger.LogError(exception, "Unable to clean up shared CMAF producer resources");
+                _stopped.TrySetException(exception);
+                throw;
+            }
+            finally
+            {
+                _lifetimeCancellation.Dispose();
+                _stopped.TrySetResult();
+            }
         }
     }
 

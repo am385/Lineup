@@ -4,6 +4,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Threading.RateLimiting;
 using Lineup.Common.Networking;
 using Lineup.Common.Streaming;
+using Lineup.Streaming.FFmpeg;
 using Lineup.VirtualOutputs.Hosting;
 using Lineup.VirtualOutputs.Protocol;
 using Lineup.WebPlayer;
@@ -669,26 +670,7 @@ internal sealed class MediaSession : IAsyncDisposable
     public Task<string>? CaptionErrorTask { get; }
 
     /// <summary>Drains FFmpeg stderr without owning the reader, retaining at most fifty non-empty lines from the last 16,384 characters with normalized LF separators.</summary>
-    internal static async Task<string> ReadDiagnosticTailAsync(TextReader reader)
-    {
-        var buffer = new char[16_384];
-        var offset = 0;
-        var retained = 0;
-        while (true)
-        {
-            var count = await reader.ReadAsync(buffer.AsMemory(offset));
-            if (count == 0)
-            {
-                break;
-            }
-            offset = (offset + count) % buffer.Length;
-            retained = Math.Min(buffer.Length, retained + count);
-        }
-        var tail = retained < buffer.Length
-            ? new string(buffer, 0, retained)
-            : string.Concat(buffer.AsSpan(offset), buffer.AsSpan(0, offset));
-        return string.Join("\n", tail.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).TakeLast(50));
-    }
+    internal static Task<string> ReadDiagnosticTailAsync(TextReader reader) => MediaProcessDiagnostics.ReadTailAsync(reader);
 
     public async ValueTask DisposeAsync()
     {
