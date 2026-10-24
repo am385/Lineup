@@ -1,0 +1,60 @@
+@page "/"
+@page "/dashboard"
+@using Lineup.Web.Components.Streaming
+@using Lineup.Web.Services
+
+<PageTitle>@Text["Dashboard_PageTitle"]</PageTitle>
+
+<h1><span class="bi bi-tv me-2"></span>@Text["Dashboard_Heading"]</h1>
+
+
+@if (_stats == null)
+{
+    <p><em>@Text["Common_Loading"]</em></p>
+}
+else
+{
+    <DashboardChannelsPanel Expanded="_channelsExpanded"
+                            Summary="@FormatChannelsSummary()"
+                            IsBusy="_isBusy"
+                            IsRefreshing="@(_isBusy && _currentAction == "channels")"
+                            EnabledCount="_topologyChannels.Count(channel => channel.IsEnabled)"
+                            DisabledCount="_topologyChannels.Count(channel => !channel.IsEnabled)"
+                            LastUpdated="@(_topologyChannels.Count == 0 ? Text["Common_Never"].Value : Tz.ConvertFromUtc(_topologyChannels.Max(channel => channel.LastSeenUtc)).ToString("yyyy-MM-dd HH:mm:ss"))"
+                            RefreshRequested="RefreshChannels"
+                            ToggleRequested="() => ToggleSection(DashboardSection.Channels)" />
+
+    <DashboardGuidePanel Expanded="_guideExpanded"
+                         Summary="@FormatGuideSummary()"
+                         Statistics="_stats"
+                         AutoFetchState="AutoFetchState"
+                         TimeZone="Tz"
+                         Countdown="_countdown"
+                         ManualFetchProgress="_fetchProgress"
+                         IsBusy="_isBusy"
+                         CurrentAction="@_currentAction"
+                         ChannelGap="_channelGap"
+                         TopologyChannels="_topologyChannels"
+                         XmltvFileExists="_xmltvFileExists"
+                         ToggleRequested="() => ToggleSection(DashboardSection.Guide)"
+                         FetchRequested="FetchData"
+                         GenerateRequested="GenerateXmltv" />
+
+    <DashboardPhysicalDevicesPanel Expanded="_deviceExpanded"
+                                   Summary="@FormatDeviceSummary()"
+                                   Devices="DeviceStatuses.Devices"
+                                   IsRefreshing="_isRefreshingDevices"
+                                   StoppingReceivers="_stoppingReceivers"
+                                   RefreshRequested="RefreshDevices"
+                                   ToggleRequested="() => ToggleSection(DashboardSection.Device)"
+                                   StopReceiverRequested="receiver => StopReceiver(receiver.DeviceId, receiver.ReceiverIndex)"
+                                   RestartDeviceRequested="RestartDevice" />
+
+    <DashboardActiveStreamsPanel Expanded="_activeStreamsExpanded"
+                                 Summary="@FormatActiveStreamsSummary()"
+                                 Snapshot="_streamingFlow"
+                                 StoppingSessionIds="_stoppingStreams"
+                                 StopRequested="StopActiveStream"
+                                 RefreshRequested="RefreshActiveStreams"
+                                 ToggleRequested="() => ToggleSection(DashboardSection.ActiveStreams)" />
+}

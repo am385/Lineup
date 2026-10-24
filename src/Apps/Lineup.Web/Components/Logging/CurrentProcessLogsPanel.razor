@@ -1,0 +1,188 @@
+@using Serilog.Events
+@using Lineup.Web.Services
+
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
+        <h5 class="mb-0">@Text["Logs_CurrentProcessHeading"]</h5>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <button id="toggleLogRefresh" type="button" class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center" @onclick="() => ToggleRefreshRequested.InvokeAsync()">
+                <span class="bi @(AutoRefresh ? "bi-pause-fill" : "bi-play-fill") me-1"></span>@Text[AutoRefresh ? "Common_Pause" : "Common_Resume"]
+            </button>
+            <button id="refreshLogs" type="button" class="btn btn-sm btn-outline-primary d-inline-flex align-items-center" @onclick="() => RefreshRequested.InvokeAsync()">
+                <span class="bi bi-arrow-clockwise me-1"></span>@Text["Common_Refresh"]
+            </button>
+            <button id="clearLogs" type="button" class="btn btn-sm btn-outline-danger d-inline-flex align-items-center" @onclick="() => ClearRequested.InvokeAsync()">
+                <span class="bi bi-trash me-1"></span>@Text["Common_Clear"]
+            </button>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="row g-3 mb-3">
+            <div class="col-md-3">
+                <label for="minimumLogLevel" class="form-label">@Text["Logs_MinimumLevelLabel"]</label>
+                <select id="minimumLogLevel" class="form-select" value="@MinimumLevel" @onchange="ChangeMinimumLevelAsync">
+                    @foreach (var level in DisplayLevels)
+                    {
+                        <option value="@level">@GetLevelLabel(level)</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label for="logCategory" class="form-label">@Text["Logs_CategoryLabel"]</label>
+                <input id="logCategory" class="form-control" value="@Category" @oninput="ChangeCategoryAsync" placeholder="@Text["Logs_AllCategories"]" />
+            </div>
+            <div class="col-md-4">
+                <label for="logSearch" class="form-label">@Text["Common_Search"]</label>
+                <input id="logSearch" class="form-control" value="@Search" @oninput="ChangeSearchAsync" placeholder="@Text["Logs_SearchPlaceholder"]" />
+            </div>
+            <div class="col-md-2">
+                <label for="logPageSize" class="form-label">@Text["Logs_EventsLabel"]</label>
+                <select id="logPageSize" class="form-select" value="@PageSize" @onchange="ChangePageSizeAsync">
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                    <option value="250">250</option>
+                    <option value="500">500</option>
+                </select>
+            </div>
+        </div>
+
+        @if (Events.Count == 0)
+        {
+            <p id="emptyLogs" class="text-body-secondary mb-0">@Text["Logs_NoMatchingEvents"]</p>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>@Text["Logs_TimeColumn"]</th>
+                            <th>@Text["Logs_LevelColumn"]</th>
+                            <th>@Text["Logs_CategoryLabel"]</th>
+                            <th>@Text["Logs_MessageColumn"]</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var logEvent in Events)
+                        {
+                            <tr>
+                                <td class="text-nowrap"><time datetime="@logEvent.Timestamp.ToString("O")">@logEvent.Timestamp.ToLocalTime().ToString("HH:mm:ss.fff")</time></td>
+                                <td><span class="badge @GetLevelBadge(logEvent.Level)">@logEvent.Level</span></td>
+                                <td><code>@logEvent.Category</code></td>
+                                <td>
+                                    <div>@logEvent.Message</div>
+                                    @if (logEvent.Exception != null || logEvent.Properties.Count > 0)
+                                    {
+                                        <details class="mt-1">
+                                            <summary class="small text-body-secondary">@Text["Logs_Details"]</summary>
+                                            @if (logEvent.Exception != null)
+                                            {
+                                                <pre class="small text-danger text-wrap mt-2 mb-2">@logEvent.Exception</pre>
+                                            }
+                                            <dl class="row small mb-0 mt-2">
+                                                @foreach (var property in logEvent.Properties.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+                                                {
+                                                    <dt class="col-sm-4">@property.Key</dt>
+                                                    <dd class="col-sm-8 text-break">@property.Value</dd>
+                                                }
+                                            </dl>
+                                        </details>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>Gets or sets the available display levels.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<LogEventLevel> DisplayLevels { get; set; } = [];
+
+    /// <summary>Gets or sets the minimum displayed level.</summary>
+    [Parameter]
+    public LogEventLevel MinimumLevel { get; set; }
+
+    /// <summary>Gets or sets the category filter.</summary>
+    [Parameter]
+    public string Category { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the search filter.</summary>
+    [Parameter]
+    public string Search { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the maximum event count.</summary>
+    [Parameter]
+    public int PageSize { get; set; }
+
+    /// <summary>Gets or sets whether automatic refresh is enabled.</summary>
+    [Parameter]
+    public bool AutoRefresh { get; set; }
+
+    /// <summary>Gets or sets the filtered events.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<LineupLogEvent> Events { get; set; } = [];
+
+    /// <summary>Gets or sets the minimum-level change callback.</summary>
+    [Parameter]
+    public EventCallback<LogEventLevel> MinimumLevelChanged { get; set; }
+
+    /// <summary>Gets or sets the category change callback.</summary>
+    [Parameter]
+    public EventCallback<string> CategoryChanged { get; set; }
+
+    /// <summary>Gets or sets the search change callback.</summary>
+    [Parameter]
+    public EventCallback<string> SearchChanged { get; set; }
+
+    /// <summary>Gets or sets the page-size change callback.</summary>
+    [Parameter]
+    public EventCallback<int> PageSizeChanged { get; set; }
+
+    /// <summary>Gets or sets the auto-refresh toggle callback.</summary>
+    [Parameter]
+    public EventCallback ToggleRefreshRequested { get; set; }
+
+    /// <summary>Gets or sets the refresh callback.</summary>
+    [Parameter]
+    public EventCallback RefreshRequested { get; set; }
+
+    /// <summary>Gets or sets the clear callback.</summary>
+    [Parameter]
+    public EventCallback ClearRequested { get; set; }
+
+    private async Task ChangeMinimumLevelAsync(ChangeEventArgs args)
+    {
+        if (Enum.TryParse<LogEventLevel>(args.Value?.ToString(), out var level))
+        {
+            await MinimumLevelChanged.InvokeAsync(level);
+        }
+    }
+
+    private Task ChangeCategoryAsync(ChangeEventArgs args) => CategoryChanged.InvokeAsync(args.Value?.ToString() ?? string.Empty);
+
+    private Task ChangeSearchAsync(ChangeEventArgs args) => SearchChanged.InvokeAsync(args.Value?.ToString() ?? string.Empty);
+
+    private async Task ChangePageSizeAsync(ChangeEventArgs args)
+    {
+        if (int.TryParse(args.Value?.ToString(), out var pageSize))
+        {
+            await PageSizeChanged.InvokeAsync(pageSize);
+        }
+    }
+
+    private static string GetLevelBadge(LogEventLevel level) => level switch
+    {
+        LogEventLevel.Fatal => "text-bg-dark",
+        LogEventLevel.Error => "text-bg-danger",
+        LogEventLevel.Warning => "text-bg-warning",
+        LogEventLevel.Information => "text-bg-info",
+        _ => "text-bg-secondary"
+    };
+
+    private string GetLevelLabel(LogEventLevel level) => Text[$"Logs_Level{(level == LogEventLevel.Verbose ? "Trace" : level)}"];
+}

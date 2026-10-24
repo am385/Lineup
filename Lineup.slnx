@@ -1,24 +1,89 @@
 <Solution>
   <Folder Name="/src/" />
-  <!-- Core Libraries -->
-  <Folder Name="/src/Core/">
-    <Project Path="src/Lineup.Core/Lineup.Core.csproj" />
-    <Project Path="src/Lineup.HDHomeRun.Api/Lineup.HDHomeRun.Api.csproj" />
-    <Project Path="src/Lineup.HDHomeRun.Device/Lineup.HDHomeRun.Device.csproj" />
-  </Folder>
-
   <!-- Applications -->
   <Folder Name="/src/Apps/">
-    <Project Path="src/Lineup.Tui/Lineup.Tui.csproj" />
-    <Project Path="src/Lineup.Web/Lineup.Web.csproj" />
+    <Project Path="src/Apps/Lineup.Tui/Lineup.Tui.csproj" />
+    <Project Path="src/Apps/Lineup.Web/Lineup.Web.csproj" />
   </Folder>
 
-  <!-- Tests -->
-  <Folder Name="/tests/">
-    <Project Path="tests/Lineup.Core.Tests/Lineup.Core.Tests.csproj" />
-    <Project Path="tests/Lineup.HDHomeRun.Api.Tests/Lineup.HDHomeRun.Api.Tests.csproj" />
-    <Project Path="tests/Lineup.HDHomeRun.Device.Tests/Lineup.HDHomeRun.Device.Tests.csproj" />
-    <Project Path="tests/Lineup.Web.Tests/Lineup.Web.Tests.csproj" />
+  <!-- Host-neutral foundations -->
+  <Folder Name="/src/Core/">
+    <Project Path="src/Core/Lineup.Common/Lineup.Common.csproj" />
+    <Project Path="src/Core/Lineup.Extensibility/Lineup.Extensibility.csproj" />
+    <Project Path="src/Core/Lineup.Core/Lineup.Core.csproj" />
+    <Project Path="src/Core/Lineup.Core.Hosting/Lineup.Core.Hosting.csproj" />
+    <Project Path="src/Core/Lineup.Streaming.FFmpeg/Lineup.Streaming.FFmpeg.csproj" />
+    <Project Path="src/Core/Lineup.VirtualOutputs.Hosting/Lineup.VirtualOutputs.Hosting.csproj" />
+    <Project Path="src/Core/Lineup.VirtualOutputs.Protocol/Lineup.VirtualOutputs.Protocol.csproj" />
+    <Project Path="src/Core/Lineup.VirtualOutputs.Runtime/Lineup.VirtualOutputs.Runtime.csproj" />
+  </Folder>
+  <Folder Name="/src/Plugins/" />
+
+  <!-- Independently composable adapters -->
+  <Folder Name="/src/Plugins/GuideOutputs/">
+    <Project Path="src/Plugins/GuideOutputs/Lineup.GuideOutputs.Json/Lineup.GuideOutputs.Json.csproj" />
+    <Project Path="src/Plugins/GuideOutputs/Lineup.GuideOutputs.Json.Plugin/Lineup.GuideOutputs.Json.Plugin.csproj" />
+    <Project Path="src/Plugins/GuideOutputs/Lineup.GuideOutputs.Xmltv/Lineup.GuideOutputs.Xmltv.csproj" />
+    <Project Path="src/Plugins/GuideOutputs/Lineup.GuideOutputs.Xmltv.Plugin/Lineup.GuideOutputs.Xmltv.Plugin.csproj" />
+  </Folder>
+  <Folder Name="/src/Plugins/LineupLink/">
+    <Project Path="src/Plugins/LineupLink/Lineup.LineupLink/Lineup.LineupLink.csproj" />
+    <Project Path="src/Plugins/LineupLink/Lineup.LineupLink.VirtualOutputHost/Lineup.LineupLink.VirtualOutputHost.csproj" />
+  </Folder>
+  <Folder Name="/src/Plugins/SiliconDust/">
+    <Project Path="src/Plugins/SiliconDust/Lineup.SiliconDust.GuideSource/Lineup.SiliconDust.GuideSource.csproj" />
+    <Project Path="src/Plugins/SiliconDust/Lineup.SiliconDust.HDHomeRun.Api/Lineup.SiliconDust.HDHomeRun.Api.csproj" />
+    <Project Path="src/Plugins/SiliconDust/Lineup.SiliconDust.HDHomeRun.Device/Lineup.SiliconDust.HDHomeRun.Device.csproj" />
+    <Project Path="src/Plugins/SiliconDust/Lineup.SiliconDust.HDHomeRun.DiscoveryHost/Lineup.SiliconDust.HDHomeRun.DiscoveryHost.csproj" />
+    <Project Path="src/Plugins/SiliconDust/Lineup.SiliconDust.HDHomeRun.DiscoveryRuntime/Lineup.SiliconDust.HDHomeRun.DiscoveryRuntime.csproj" />
+    <Project Path="src/Plugins/SiliconDust/Lineup.SiliconDust.HDHomeRun.PhysicalTuner/Lineup.SiliconDust.HDHomeRun.PhysicalTuner.csproj" />
+    <Project Path="src/Plugins/SiliconDust/Lineup.SiliconDust.HDHomeRun.VirtualTuner/Lineup.SiliconDust.HDHomeRun.VirtualTuner.csproj" />
+    <Project Path="src/Plugins/SiliconDust/Lineup.SiliconDust.HDHomeRun.VirtualOutputHost/Lineup.SiliconDust.HDHomeRun.VirtualOutputHost.csproj" />
+  </Folder>
+  <Folder Name="/src/Plugins/WebPlayer/">
+    <Project Path="src/Plugins/WebPlayer/Lineup.WebPlayer.VirtualOutputHost/Lineup.WebPlayer.VirtualOutputHost.csproj" />
+    <Project Path="src/Plugins/WebPlayer/Lineup.WebPlayer/Lineup.WebPlayer.csproj" />
+    <Project Path="src/Plugins/WebPlayer/Lineup.WebPlayer.FFmpeg/Lineup.WebPlayer.FFmpeg.csproj" />
+  </Folder>
+  <Folder Name="/scripts/">
+    <Project Path="scripts/Lineup.VirtualOutputWorkerPackager/Lineup.VirtualOutputWorkerPackager.csproj" />
+  </Folder>
+  <Folder Name="/tests/" />
+  <Folder Name="/tests/Integration/">
+    <Project Path="tests/Integration/Lineup.Streaming.Sweep.Tests/Lineup.Streaming.Sweep.Tests.csproj" />
+  </Folder>
+  <!-- Mirrored test hierarchy -->
+  <Folder Name="/tests/Apps/">
+    <Project Path="tests/Apps/Lineup.Tui.Tests/Lineup.Tui.Tests.csproj" />
+    <Project Path="tests/Apps/Lineup.Web.Tests/Lineup.Web.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tests/Core/">
+    <Project Path="tests/Core/Lineup.Core.Tests/Lineup.Core.Tests.csproj" />
+    <Project Path="tests/Core/Lineup.VirtualOutputs.Protocol.Tests/Lineup.VirtualOutputs.Protocol.Tests.csproj" />
+    <Project Path="tests/Core/Lineup.VirtualOutputs.Runtime.Tests/Lineup.VirtualOutputs.Runtime.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tests/Plugins/LineupLink/">
+    <Project Path="tests/Plugins/LineupLink/Lineup.LineupLink.Tests/Lineup.LineupLink.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tests/Plugins/" />
+  <Folder Name="/tests/Plugins/GuideOutputs/">
+    <Project Path="tests/Plugins/GuideOutputs/Lineup.GuideOutputs.Json.Tests/Lineup.GuideOutputs.Json.Tests.csproj" />
+    <Project Path="tests/Plugins/GuideOutputs/Lineup.GuideOutputs.Json.Plugin.Tests/Lineup.GuideOutputs.Json.Plugin.Tests.csproj" />
+    <Project Path="tests/Plugins/GuideOutputs/Lineup.GuideOutputs.Xmltv.Tests/Lineup.GuideOutputs.Xmltv.Tests.csproj" />
+    <Project Path="tests/Plugins/GuideOutputs/Lineup.GuideOutputs.Xmltv.Plugin.Tests/Lineup.GuideOutputs.Xmltv.Plugin.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tests/Plugins/SiliconDust/">
+    <Project Path="tests/Plugins/SiliconDust/Lineup.SiliconDust.GuideSource.Tests/Lineup.SiliconDust.GuideSource.Tests.csproj" />
+    <Project Path="tests/Plugins/SiliconDust/Lineup.SiliconDust.HDHomeRun.Api.Tests/Lineup.SiliconDust.HDHomeRun.Api.Tests.csproj" />
+    <Project Path="tests/Plugins/SiliconDust/Lineup.SiliconDust.HDHomeRun.Device.Tests/Lineup.SiliconDust.HDHomeRun.Device.Tests.csproj" />
+    <Project Path="tests/Plugins/SiliconDust/Lineup.SiliconDust.HDHomeRun.PhysicalTuner.Tests/Lineup.SiliconDust.HDHomeRun.PhysicalTuner.Tests.csproj" />
+    <Project Path="tests/Plugins/SiliconDust/Lineup.SiliconDust.HDHomeRun.VirtualTuner.Tests/Lineup.SiliconDust.HDHomeRun.VirtualTuner.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tests/Plugins/WebPlayer/">
+    <Project Path="tests/Plugins/WebPlayer/Lineup.WebPlayer.Tests/Lineup.WebPlayer.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tests/TestSupport/">
+    <Project Path="tests/TestSupport/Lineup.FakeFFmpeg/Lineup.FakeFFmpeg.csproj" />
   </Folder>
   <Folder Name="/_Solution Items/">
     <File Path=".dockerignore" />

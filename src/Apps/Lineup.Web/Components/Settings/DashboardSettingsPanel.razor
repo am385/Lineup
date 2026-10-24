@@ -1,0 +1,29 @@
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0">@Text["Settings_DashboardActiveStreamsHeading"]</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-6">
+                <label for="activeStreamRefreshInterval" class="form-label">@Text["Settings_DashboardRefreshIntervalLabel"]</label>
+                <input type="number" class="form-control" id="activeStreamRefreshInterval"
+                       value="@ActiveStreamRefreshIntervalSeconds" @onchange="ChangeRefreshIntervalAsync" min="0" max="300" />
+                <div class="form-text">@Text["Settings_DashboardRefreshIntervalHelp"]</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>Gets or sets the active-stream refresh interval.</summary>
+    [Parameter]
+    public int ActiveStreamRefreshIntervalSeconds { get; set; }
+
+    /// <summary>Gets or sets the callback raised when the refresh interval changes.</summary>
+    [Parameter]
+    public EventCallback<int> ActiveStreamRefreshIntervalSecondsChanged { get; set; }
+
+    private Task ChangeRefreshIntervalAsync(ChangeEventArgs args) =>
+        ActiveStreamRefreshIntervalSecondsChanged.InvokeAsync(
+            int.TryParse(args.Value?.ToString(), out var parsed) ? parsed : ActiveStreamRefreshIntervalSeconds);
+}

@@ -1,0 +1,232 @@
+@using Lineup.Core.Streaming
+@using Lineup.Web.Services
+
+<div class="device-transcoder-settings">
+    <div class="small fw-semibold">@Text["Transcoding_Settings"]</div>
+    <div class="small text-body-secondary mb-2">@Text["Transcoding_UsesGlobalSettings"]</div>
+    @if (RequestsTranscoding)
+    {
+        <div class="alert alert-warning py-2 @WarningClass" role="alert">
+            <span class="bi bi-exclamation-triangle me-1"></span>
+            @Text["Transcoding_DeviceWarning", StageName]
+        </div>
+    }
+
+    <div class="border rounded p-3 mb-3 @VideoSettingsClass">
+        <div class="fw-semibold mb-2">@Text["Transcoding_Video"]</div>
+        <div class="row g-3">
+            <div class="col-md-6">
+                <div class="form-check mb-2">
+                    <input id="@HevcOverrideId" class="form-check-input" type="checkbox" @bind="Settings.OverrideConvertHevcToH264" />
+                    <label class="form-check-label" for="@HevcOverrideId">
+                        @Text["Transcoding_OverrideHevcConversion"]
+                        @if (!Settings.OverrideConvertHevcToH264)
+                        {
+                            <span class="text-body-secondary">@Text["Transcoding_Inherits", Defaults.ConvertHevcToH264]</span>
+                        }
+                    </label>
+                </div>
+                <div class="form-text mb-2">@Text["Transcoding_DeviceHevcOverrideHelp"]</div>
+                @if (Settings.OverrideConvertHevcToH264)
+                {
+                    <div class="form-check form-switch">
+                        <input class="form-check-input @HevcValueClass" type="checkbox" @bind="Settings.ConvertHevcToH264" />
+                        <label class="form-check-label">@Text["Transcoding_ConvertHevcToH264"]</label>
+                    </div>
+                    <div class="form-text">@Text["Transcoding_DeviceHevcHelp"]</div>
+                }
+            </div>
+            <div class="col-md-6">
+                <div class="form-check mb-2">
+                    <input id="@DeinterlaceOverrideId" class="form-check-input" type="checkbox" @bind="Settings.OverrideDeinterlace" />
+                    <label class="form-check-label" for="@DeinterlaceOverrideId">
+                        @Text["Transcoding_OverrideDeinterlacing"]
+                        @if (!Settings.OverrideDeinterlace)
+                        {
+                            <span class="text-body-secondary">@Text["Transcoding_Inherits", TranscoderSettingDisplay.Deinterlace(Defaults.Deinterlace, Text)]</span>
+                        }
+                    </label>
+                </div>
+                <div class="form-text mb-2">@Text["Transcoding_DeviceDeinterlaceOverrideHelp"]</div>
+                @if (Settings.OverrideDeinterlace)
+                {
+                    <select class="form-select @DeinterlaceValueClass" @bind="Settings.Deinterlace">
+                        @foreach (var value in Enum.GetValues<SourceDeinterlacePolicy>())
+                        {
+                            <option value="@value">@TranscoderSettingDisplay.Deinterlace(value, Text)</option>
+                        }
+                    </select>
+                    <div class="form-text">@Text["Transcoding_DeviceDeinterlaceHelp"]</div>
+                }
+            </div>
+            @if (RequestsVideoTranscoding)
+            {
+                <div class="col-md-6">
+                    <div class="form-check mb-2">
+                        <input id="@PresetOverrideId" class="form-check-input" type="checkbox" @bind="Settings.OverrideVideoPreset" />
+                        <label class="form-check-label" for="@PresetOverrideId">
+                            @Text["Transcoding_OverrideEncoderPreset"]
+                            @if (!Settings.OverrideVideoPreset)
+                            {
+                                <span class="text-body-secondary">@Text["Transcoding_Inherits", TranscoderSettingDisplay.Preset(Defaults.VideoPreset, Text)]</span>
+                            }
+                        </label>
+                    </div>
+                    <div class="form-text mb-2">@Text["Transcoding_DevicePresetOverrideHelp"]</div>
+                    @if (Settings.OverrideVideoPreset)
+                    {
+                        <select class="form-select @PresetValueClass" @bind="Settings.VideoPreset">
+                            @foreach (var value in Enum.GetValues<VideoEncoderPreset>())
+                            {
+                                <option value="@value">@TranscoderSettingDisplay.Preset(value, Text)</option>
+                            }
+                        </select>
+                        <div class="form-text">@Text["Transcoding_DevicePresetHelp"]</div>
+                    }
+                </div>
+                <div class="col-md-6">
+                    <div class="form-check mb-2">
+                        <input id="@QualityOverrideId" class="form-check-input" type="checkbox" @bind="Settings.OverrideVideoQuality" />
+                        <label class="form-check-label" for="@QualityOverrideId">
+                            @Text["Transcoding_OverrideVideoQuality"]
+                            @if (!Settings.OverrideVideoQuality)
+                            {
+                                <span class="text-body-secondary">@Text["Transcoding_InheritsCrf", Defaults.VideoQuality]</span>
+                            }
+                        </label>
+                    </div>
+                    <div class="form-text mb-2">@Text["Transcoding_DeviceQualityOverrideHelp"]</div>
+                    @if (Settings.OverrideVideoQuality)
+                    {
+                        <input class="form-control @QualityValueClass" type="number" min="16" max="30" @bind="Settings.VideoQuality" />
+                        <div class="form-text">@Text["Transcoding_DeviceQualityHelp"]</div>
+                    }
+                </div>
+                <div class="col-md-6">
+                    <div class="form-check mb-2">
+                        <input id="@BitrateOverrideId" class="form-check-input" type="checkbox" @bind="Settings.OverrideMaximumVideoBitRate" />
+                        <label class="form-check-label" for="@BitrateOverrideId">
+                            @Text["Transcoding_OverrideBitrate"]
+                            @if (!Settings.OverrideMaximumVideoBitRate)
+                            {
+                                <span class="text-body-secondary">@Text["Transcoding_InheritsMbps", Defaults.MaximumVideoBitRateMbps]</span>
+                            }
+                        </label>
+                    </div>
+                    <div class="form-text mb-2">@Text["Transcoding_DeviceBitrateOverrideHelp"]</div>
+                    @if (Settings.OverrideMaximumVideoBitRate)
+                    {
+                        <div class="input-group">
+                            <input class="form-control @BitrateValueClass" type="number" min="1" max="200" @bind="Settings.MaximumVideoBitRateMbps" />
+                            <span class="input-group-text">Mbps</span>
+                        </div>
+                        <div class="form-text">@Text["Transcoding_DeviceBitrateHelp"]</div>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="border rounded p-3 @AudioSettingsClass">
+        <div class="fw-semibold mb-2">@Text["Transcoding_Audio"]</div>
+        <div class="row g-3">
+            <div class="col-md-6">
+                <div class="form-check mb-2">
+                    <input id="@AudioOverrideId" class="form-check-input" type="checkbox" @bind="Settings.OverrideAudio" />
+                    <label class="form-check-label" for="@AudioOverrideId">
+                        @Text["Transcoding_OverrideNonAc4Audio"]
+                        @if (!Settings.OverrideAudio)
+                        {
+                            <span class="text-body-secondary">@Text["Transcoding_Inherits", TranscoderSettingDisplay.Audio(Defaults.Audio, Text)]</span>
+                        }
+                    </label>
+                </div>
+                <div class="form-text mb-2">@Text["Transcoding_DeviceAudioOverrideHelp"]</div>
+                @if (Settings.OverrideAudio)
+                {
+                    <select class="form-select @AudioValueClass" @bind="Settings.Audio">
+                        @foreach (var value in Enum.GetValues<OutputAudioPolicy>())
+                        {
+                            <option value="@value">@TranscoderSettingDisplay.Audio(value, Text)</option>
+                        }
+                    </select>
+                    <div class="form-text">@Text["Transcoding_DeviceAudioHelp"]</div>
+                }
+            </div>
+            <div class="col-md-6">
+                <div class="form-check mb-2">
+                    <input id="@Ac4AudioOverrideId" class="form-check-input" type="checkbox" @bind="Settings.OverrideAc4Audio" />
+                    <label class="form-check-label" for="@Ac4AudioOverrideId">
+                        @Text["Transcoding_OverrideAc4Audio"]
+                        @if (!Settings.OverrideAc4Audio)
+                        {
+                            <span class="text-body-secondary">@Text["Transcoding_Inherits", TranscoderSettingDisplay.Audio(Defaults.Ac4Audio, Text)]</span>
+                        }
+                    </label>
+                </div>
+                <div class="form-text mb-2">@Text["Transcoding_DeviceAc4OverrideHelp"]</div>
+                @if (Settings.OverrideAc4Audio)
+                {
+                    <select class="form-select @Ac4AudioValueClass" @bind="Settings.Ac4Audio">
+                        @foreach (var value in Enum.GetValues<OutputAudioPolicy>())
+                        {
+                            <option value="@value">@TranscoderSettingDisplay.Audio(value, Text)</option>
+                        }
+                    </select>
+                    <div class="form-text">@Text["Transcoding_DeviceAc4Help"]</div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>Gets or sets the mutable device transcoder settings.</summary>
+    [Parameter, EditorRequired]
+    public ITranscodeOverrideSettingsModel Settings { get; set; } = default!;
+
+    /// <summary>Gets or sets the inherited global transcoder settings.</summary>
+    [Parameter, EditorRequired]
+    public ITranscodeSettingsModel Defaults { get; set; } = default!;
+
+    /// <summary>Gets or sets the stable HTML identifier prefix.</summary>
+    [Parameter, EditorRequired]
+    public string IdPrefix { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the CSS class prefix used by the owning settings surface.</summary>
+    [Parameter, EditorRequired]
+    public string CssPrefix { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the device index used to make form identifiers unique.</summary>
+    [Parameter]
+    public int Index { get; set; }
+
+    /// <summary>Gets or sets the stage name shown in the transcoding warning.</summary>
+    [Parameter, EditorRequired]
+    public string StageName { get; set; } = string.Empty;
+
+    private bool EffectiveHevc => Settings.OverrideConvertHevcToH264 ? Settings.ConvertHevcToH264 : Defaults.ConvertHevcToH264;
+    private SourceDeinterlacePolicy EffectiveDeinterlace => Settings.OverrideDeinterlace ? Settings.Deinterlace : Defaults.Deinterlace;
+    private OutputAudioPolicy EffectiveAudio => Settings.OverrideAudio ? Settings.Audio : Defaults.Audio;
+    private OutputAudioPolicy EffectiveAc4Audio => Settings.OverrideAc4Audio ? Settings.Ac4Audio : Defaults.Ac4Audio;
+    private bool RequestsVideoTranscoding => EffectiveHevc || EffectiveDeinterlace != SourceDeinterlacePolicy.Preserve;
+    private bool RequestsTranscoding => RequestsVideoTranscoding || EffectiveAudio != OutputAudioPolicy.Copy || EffectiveAc4Audio != OutputAudioPolicy.Copy;
+    private string HevcOverrideId => $"{IdPrefix}OverrideHevc-{Index}";
+    private string DeinterlaceOverrideId => $"{IdPrefix}OverrideDeinterlace-{Index}";
+    private string AudioOverrideId => $"{IdPrefix}OverrideAudio-{Index}";
+    private string Ac4AudioOverrideId => $"{IdPrefix}OverrideAc4Audio-{Index}";
+    private string PresetOverrideId => $"{IdPrefix}OverridePreset-{Index}";
+    private string QualityOverrideId => $"{IdPrefix}OverrideQuality-{Index}";
+    private string BitrateOverrideId => $"{IdPrefix}OverrideBitrate-{Index}";
+    private string WarningClass => $"{CssPrefix}-device-transcode-warning";
+    private string VideoSettingsClass => $"{CssPrefix}-device-video-settings";
+    private string AudioSettingsClass => $"{CssPrefix}-device-audio-settings";
+    private string HevcValueClass => $"{CssPrefix}-hevc";
+    private string DeinterlaceValueClass => $"{CssPrefix}-deinterlace";
+    private string AudioValueClass => $"{CssPrefix}-audio";
+    private string Ac4AudioValueClass => $"{CssPrefix}-ac4-audio";
+    private string PresetValueClass => $"{CssPrefix}-video-preset";
+    private string QualityValueClass => $"{CssPrefix}-video-quality";
+    private string BitrateValueClass => $"{CssPrefix}-bitrate";
+
+}

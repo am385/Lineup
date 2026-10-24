@@ -1,0 +1,437 @@
+        <div id="virtualDevicesSettingsTab" class="@CssClass" role="tabpanel" aria-labelledby="tab-virtual-devices" @onchange="Host.NotifySettingsUiChanged">
+            <div id="virtualTopologySettings" class="device-settings-workspace mb-4">
+                <div class="d-flex align-items-end gap-2 mb-3">
+                    <div class="device-tab-strip flex-grow-1">
+                        <ul class="nav nav-tabs flex-nowrap">
+                            <li class="nav-item">
+                                <button id="virtualSubtabGlobal" type="button"
+                                        class="nav-link @(Host.SelectedVirtualDeviceId is null ? "active" : null)"
+                                        @onclick="() => Host.SelectedVirtualDeviceId = null">
+                                    @Text["Settings_GlobalSettingsTab"]
+                                </button>
+                            </li>
+                            @foreach (var device in Host.Topology.VirtualDevices.OrderBy(device => device.IsWebPlayer ? 0 : 1))
+                            {
+                                <li class="nav-item">
+                                    <button type="button"
+                                            class="nav-link virtual-device-tab @(Host.SelectedVirtualDeviceId == device.Id ? "active" : null)"
+                                            data-device-id="@device.Id"
+                                            @onclick="() => Host.SelectedVirtualDeviceId = device.Id">
+                                        @device.Name
+                                        @if (!device.Enabled)
+                                        {
+                                            <span class="badge text-bg-secondary ms-1">@Text["Settings_DisabledBadge"]</span>
+                                        }
+                                    </button>
+                                </li>
+                            }
+                        </ul>
+                    </div>
+                    <button id="addVirtualDevice" type="button" class="btn btn-sm btn-outline-primary flex-shrink-0" @onclick="Host.ShowVirtualDeviceTypePicker">
+                        <span class="bi bi-plus-lg me-1"></span>@Text["Settings_AddVirtualDeviceButton"]
+                    </button>
+                </div>
+                @if (!Host.Topology.VirtualDevices.Any(device => !device.IsWebPlayer))
+                {
+                    var webPlayer = Host.Topology.VirtualDevices.SingleOrDefault(device => device.IsWebPlayer);
+                    <div id="virtualDevicesEmptyState" class="alert alert-info py-2" role="status">
+                        <span class="bi bi-info-circle me-1"></span>@Text["Settings_NoAdditionalVirtualDevices"]
+                        @if (webPlayer?.Enabled == true)
+                        {
+                            <span>@Text["Settings_VirtualDevicesEmptyWebPlayerEnabledPrefix"] <strong>@Text["Settings_AddVirtualDeviceButton"]</strong> @Text["Settings_VirtualDevicesEmptyWebPlayerEnabledSuffix"]</span>
+                        }
+                        else if (webPlayer is not null)
+                        {
+                            <span>@Text["Settings_VirtualDevicesEmptyWebPlayerDisabledPrefix"] <strong>@Text["Settings_AddVirtualDeviceButton"]</strong> @Text["Settings_VirtualDevicesEmptyWebPlayerDisabledSuffix"]</span>
+                        }
+                        else
+                        {
+                            <span>@Text["Settings_VirtualDevicesMissingWebPlayer"]</span>
+                        }
+                    </div>
+                }
+
+                @if (Host.SelectedVirtualDeviceId is null)
+                {
+                    <div id="virtualGlobalSettings" class="d-grid gap-4">
+                        <section id="virtualTranscoderSettings" class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">@Text["Settings_TranscoderSettingsHeading"]</h5>
+                            </div>
+                            <div class="card-body">
+                                <p class="small text-body-secondary">@Text["Settings_VirtualTranscoderDefaultsDescription"]</p>
+                                <GlobalTranscoderSettings Settings="Host.Topology.VirtualDefaults"
+                                                          IdPrefix="virtualDefault"
+                                                          CssPrefix="virtual"
+                                                          StageName="@Text["Settings_OutputStageName"]"
+                                                          HevcHelpText="@Text["Settings_VirtualHevcHelp"]"
+                                                          SettingsChanged="Host.OnTranscoderSettingsChanged" />
+                            </div>
+                        </section>
+
+                        <section id="networkDiscoverySettings" class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">@Text["Settings_VirtualTunerDiscoveryHeading"]</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="form-check form-switch">
+                                    <input id="enableNetworkDiscovery" class="form-check-input" type="checkbox" @bind="Host.EnableNetworkDiscovery" />
+                                    <label class="form-check-label" for="enableNetworkDiscovery">@Text["Settings_EnableNetworkDiscoveryLabel"]</label>
+                                </div>
+                                <div class="form-text">@Text["Settings_EnableNetworkDiscoveryHelp"]</div>
+                            </div>
+                        </section>
+                    </div>
+                }
+                else
+                {
+                    var index = Host.Topology.VirtualDevices.FindIndex(device => device.Id == Host.SelectedVirtualDeviceId);
+                    if (index >= 0)
+                    {
+                        var device = Host.Topology.VirtualDevices[index];
+                        <div class="virtual-device d-grid gap-4" data-device-id="@device.Id" data-device-kind="@device.Kind">
+                            <section class="card virtual-device-settings">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h5 class="mb-0">@Text["Settings_DeviceSettingsHeading"]</h5>
+                                        <div class="small text-body-secondary">@device.Name - @(device.IsWebPlayer ? Text["Settings_BuiltInWebPlayer"] : Host.GetVirtualDeviceTypeName(device))</div>
+                                    </div>
+                                    <div class="d-flex align-items-center gap-3">
+                                        <div class="form-check form-switch mb-0">
+                                            <input id="@($"virtualEnabled-{index}")" class="form-check-input virtual-enabled" type="checkbox" @bind="device.Enabled" />
+                                            <label class="form-check-label" for="@($"virtualEnabled-{index}")">@Text["Settings_EnabledLabel"]</label>
+                                        </div>
+                                        @if (!device.IsWebPlayer)
+                                        {
+                                            <button type="button" class="btn btn-sm btn-outline-danger remove-virtual-device"
+                                                    aria-label="@Text["Settings_RemoveVirtualDeviceLabel"]" @onclick="() => Host.RemoveVirtualDevice(device.Id)">
+                                                <span class="bi bi-trash"></span>
+                                            </button>
+                                        }
+                                    </div>
+                                </div>
+                                @if (device.Enabled)
+                                {
+                                    <div class="card-body virtual-device-details">
+                                        <div class="row g-3">
+                                            @if (!device.IsWebPlayer)
+                                            {
+                                                <div class="col-md-6">
+                                                    <label class="form-label" for="@($"virtualName-{index}")">@Text["Settings_NameLabel"]</label>
+                                                    <input id="@($"virtualName-{index}")" class="form-control virtual-name"
+                                                           @bind="device.Name" @bind:after="Host.NotifySettingsUiChanged" />
+                                                    <div class="form-text">@Text["Settings_VirtualDeviceNameHelp"]</div>
+                                                </div>
+                                            }
+                                            @if (device.IsHdHomeRun)
+                                            {
+                                                <div class="col-md-6">
+                                                    <label class="form-label" for="@($"virtualTunerCap-{index}")">@Text["Settings_TunerCountCapLabel"]</label>
+                                                    <input id="@($"virtualTunerCap-{index}")" class="form-control virtual-tuner-cap" type="number" min="1" max="255" @bind="device.TunerCountCap" />
+                                                    <div class="form-text">@Text["Settings_TunerCountCapHelp"]</div>
+                                                </div>
+                                                <div class="col-md-6 d-flex align-items-end">
+                                                    <div class="form-check form-switch mb-2">
+                                                        <input id="@($"virtualNetworkAdvertisement-{index}")" class="form-check-input virtual-network-advertisement"
+                                                               type="checkbox" @bind="device.EnableNetworkAdvertisement" />
+                                                        <label class="form-check-label" for="@($"virtualNetworkAdvertisement-{index}")">@Text["Settings_AdvertiseLocalNetworkLabel"]</label>
+                                                        <div class="form-text">@Text["Settings_AdvertiseLocalNetworkHelp"]</div>
+                                                    </div>
+                                                </div>
+                                                @if (!device.UseDedicatedListener)
+                                                {
+                                                    <div class="col-md-6">
+                                                        <label class="form-label" for="@($"virtualAdvertisedUrl-{index}")">@Text["Settings_AdvertisedBaseUrlLabel"]</label>
+                                                        <input id="@($"virtualAdvertisedUrl-{index}")" class="form-control" placeholder="https://lineup.example:8443/" @bind="device.AdvertisedBaseUrl" />
+                                                        <div class="form-text">@Text["Settings_AdvertisedBaseUrlHelp"]</div>
+                                                    </div>
+                                                }
+                                            }
+                                            else if (device.IsLineupLink)
+                                            {
+                                                @if (!device.UseDedicatedListener)
+                                                {
+                                                    <div class="col-md-6">
+                                                        <label class="form-label" for="@($"linkPublicUrl-{index}")">@Text["Settings_PublicLineupUrlLabel"]</label>
+                                                        <input id="@($"linkPublicUrl-{index}")" class="form-control" placeholder="https://lineup.example:8443" @bind="device.LinkPublicBaseUrl" />
+                                                        <div class="form-text">@Text["Settings_PublicLineupUrlHelp"]</div>
+                                                    </div>
+                                                }
+                                                @if (!device.UseDedicatedListener)
+                                                {
+                                                    <div class="col-md-6 d-flex align-items-end">
+                                                        <div class="form-check form-switch mb-2">
+                                                            <input id="@($"linkEncryption-{index}")" class="form-check-input" type="checkbox" @bind="device.LinkRequireEncryption" />
+                                                            <label class="form-check-label" for="@($"linkEncryption-{index}")">@Text["Settings_RequireHttpsLabel"]</label>
+                                                            <div class="form-text">@Text["Settings_RequireHttpsHelp"]</div>
+                                                        </div>
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    <div class="col-12">
+                                                        <div class="alert alert-info mb-0 lineup-link-listener-transport" role="status">
+                                                            @Text["Settings_LineupLinkDedicatedTransportPrefix"] <strong>@(device.EffectiveLineupLinkEncryptionRequired ? Text["Settings_Https"] : Text["Settings_Http"])</strong> @Text["Settings_LineupLinkDedicatedTransportSuffix"]
+                                                        </div>
+                                                    </div>
+                                                }
+                                                @if (device.EffectiveLineupLinkEncryptionRequired)
+                                                {
+                                                    <div class="col-12">
+                                                        <label class="form-label" for="@($"linkServerCertificate-{index}")">@Text["Settings_ConnectionBundleCertificatePinLabel"]</label>
+                                                        <input id="@($"linkServerCertificate-{index}")" class="form-control" @bind="device.LinkCertificateSha256" />
+                                                        <div class="form-text">@Text["Settings_ConnectionBundleCertificatePinHelp"]</div>
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    <div class="col-12">
+                                                        <div class="alert alert-warning mb-0">@Text["Settings_LineupLinkHttpExposureWarning"]</div>
+                                                    </div>
+                                                }
+                                                <LineupLinkBundlePanel Device="device"
+                                                                       Index="index"
+                                                                       CreateRequested="Host.CreateLineupLinkAccessGrant"
+                                                                       RotateRequested="grant => Host.RotateLineupLinkAccessGrant(device, grant)"
+                                                                       RevokeRequested="grant => Host.RevokeLineupLinkAccessGrant(device, grant)"
+                                                                       PurgeRequested="grant => Host.PurgeLineupLinkAccessGrant(device, grant)"
+                                                                       ExportRequested="grant => Host.ExportLineupLinkBundleAsync(device, grant)"
+                                                                       CopyRequested="grant => Host.CopyLineupLinkBundleAsync(device, grant)"
+                                                                       ToggleRequested="grant => Host.ToggleLineupLinkBundle(device, grant)" />
+                                            }
+                                            <div class="col-12">
+                                                <label class="form-label" for="@($"virtualSubscription-{index}")">@Text["Settings_PhysicalSubscriptionLabel"]</label>
+                                                <select id="@($"virtualSubscription-{index}")" class="form-select virtual-subscription" @bind="device.SubscriptionMode">
+                                                    <option value="@PhysicalDeviceSubscriptionMode.All">@Text["Settings_AllEnabledPhysicalDevices"]</option>
+                                                    <option value="@PhysicalDeviceSubscriptionMode.Selected">@Text["Settings_SelectedPhysicalDevices"]</option>
+                                                </select>
+                                                <div class="form-text">@Text["Settings_PhysicalSubscriptionHelp"]</div>
+                                            </div>
+                                            @if (device.SubscriptionMode == PhysicalDeviceSubscriptionMode.Selected)
+                                            {
+                                                <div class="col-12 selected-physical-devices">
+                                                    <div class="form-text mb-2">@Text["Settings_SelectedPhysicalDevicesHelp"]</div>
+                                                    @foreach (var physical in Host.Topology.PhysicalDevices.Where(physical => Host.IsVirtualCompatible(device, physical)))
+                                                    {
+                                                        <div class="form-check">
+                                                            <input id="@($"subscription-{index}-{physical.Id}")" class="form-check-input physical-subscription-selection" type="checkbox"
+                                                                   checked="@device.SelectedDeviceIds.Contains(physical.Id)"
+                                                                   @onchange="args => Host.SetPhysicalSubscription(device, physical.Id, args.Value is true)" />
+                                                            <label class="form-check-label" for="@($"subscription-{index}-{physical.Id}")">@physical.Name</label>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            </section>
+                            @if (device.Enabled && device.SupportsDedicatedHosting)
+                            {
+                                <section class="card virtual-output-hosting-settings">
+                                    <div class="card-header">
+                                        <h5 class="mb-0">@Text["Settings_OutputHostingHeading"]</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="form-check form-switch mb-3">
+                                            <input id="@($"dedicatedListener-{index}")" class="form-check-input" type="checkbox" @bind="device.UseDedicatedListener" />
+                                            <label class="form-check-label" for="@($"dedicatedListener-{index}")">@Text["Settings_UseDedicatedListenerLabel"]</label>
+                                            <div class="form-text">@Text["Settings_UseDedicatedListenerHelp"]</div>
+                                        </div>
+                                        @if (!device.UseDedicatedListener)
+                                        {
+                                            <div class="alert alert-info mb-0" role="status">
+                                                @Text["Settings_ManagementHostOutputHelp"]
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <div class="alert alert-info mb-3" role="status">
+                                                @Text["Settings_DedicatedListenerHelp"]
+                                            </div>
+                                            <div class="row g-3">
+                                                <div class="col-md-3">
+                                                    <label class="form-label" for="@($"listenerMode-{index}")">@Text["Settings_ExecutionModeLabel"]</label>
+                                                    <select id="@($"listenerMode-{index}")" class="form-select" @bind="device.ExecutionMode">
+                                                        <option value="@VirtualOutputExecutionMode.ManagedProcess">@Text["Settings_ManagedProcessOption"]</option>
+                                                        <option value="@VirtualOutputExecutionMode.ExternalProcess">@Text["Settings_ExternalProcessOption"]</option>
+                                                    </select>
+                                                    <div class="form-text">@Text["Settings_ExecutionModeHelp"]</div>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label" for="@($"listenerTransport-{index}")">@Text["Settings_TransportLabel"]</label>
+                                                    <select id="@($"listenerTransport-{index}")" class="form-select" @bind="device.ListenerTransport">
+                                                        <option value="@VirtualOutputTransport.Http">@Text["Settings_Http"]</option>
+                                                        <option value="@VirtualOutputTransport.Https">@Text["Settings_Https"]</option>
+                                                    </select>
+                                                    <div class="form-text">@Text["Settings_OutputTransportHelp"]</div>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label" for="@($"listenerPort-{index}")">@Text["Settings_InternalListenerPortLabel"]</label>
+                                                    <input id="@($"listenerPort-{index}")" class="form-control" type="number" min="1" max="65535" @bind="device.ListenerPort" />
+                                                    <div class="form-text">@Text["Settings_InternalListenerPortHelp"]</div>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label" for="@($"publishedPort-{index}")">@Text["Settings_PublishedPortOverrideLabel"]</label>
+                                                    <input id="@($"publishedPort-{index}")" class="form-control" type="number" min="1" max="65535" placeholder="@device.ListenerPort" @bind="device.PublishedPort" />
+                                                    <div class="form-text">@Text["Settings_PublishedPortOverrideHelp"]</div>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <label class="form-label" for="@($"listenerAddresses-{index}")">@Text["Settings_BindAddressesLabel"]</label>
+                                                    <input id="@($"listenerAddresses-{index}")" class="form-control" placeholder="localhost, 192.0.2.10" @bind="device.ListenerAddresses" />
+                                                    <div class="form-text">@Text["Settings_BindAddressesHelp"]</div>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <label class="form-label" for="@($"listenerClientUrl-{index}")">@Text["Settings_ClientFacingBaseUrlLabel"]</label>
+                                                    <input id="@($"listenerClientUrl-{index}")" class="form-control" value="@device.EffectivePublicBaseUri" readonly />
+                                                    <div class="form-text">@Text["Settings_ClientFacingBaseUrlHelp"]</div>
+                                                </div>
+                                                <div class="col-12">
+                                                    <details class="border rounded p-3 virtual-output-advanced-networking">
+                                                        <summary class="fw-semibold">@Text["Settings_AdvancedNetworkingHeading"]</summary>
+                                                        <div class="row g-3 mt-1">
+                                                            <div class="col-12">
+                                                                <div class="form-check form-switch">
+                                                                    <input id="@($"listenerPublicUriOverride-{index}")" class="form-check-input" type="checkbox" @bind="device.OverridePublicBaseUri" />
+                                                                    <label class="form-check-label" for="@($"listenerPublicUriOverride-{index}")">@Text["Settings_OverrideClientFacingUrlLabel"]</label>
+                                                                </div>
+                                                                <div class="form-text">@Text["Settings_OverrideClientFacingUrlHelp"]</div>
+                                                            </div>
+                                                            @if (device.OverridePublicBaseUri)
+                                                            {
+                                                                <div class="col-12">
+                                                                    <label class="form-label" for="@($"listenerPublicUri-{index}")">@Text["Settings_ClientFacingUrlOverrideLabel"]</label>
+                                                                    <input id="@($"listenerPublicUri-{index}")" class="form-control" placeholder="@device.AutomaticPublicBaseUri" @bind="device.PublicBaseUri" />
+                                                                    <div class="form-text">@Text["Settings_ClientFacingUrlOverrideHelp"]</div>
+                                                                </div>
+                                                            }
+                                                @if (device.ListenerTransport == VirtualOutputTransport.Https)
+                                                {
+                                                    <div class="col-md-8">
+                                                        <label class="form-label" for="@($"listenerCertificate-{index}")">@Text["Settings_CertificateReferenceLabel"]</label>
+                                                        <input id="@($"listenerCertificate-{index}")" class="form-control" @bind="device.CertificateReference" />
+                                                        <div class="form-text">@Text["Settings_CertificateReferenceHelp"]</div>
+                                                    </div>
+                                                    <div class="col-md-4">
+                                                        <label class="form-label" for="@($"listenerClientCertificate-{index}")">@Text["Settings_ClientCertificatesLabel"]</label>
+                                                        <select id="@($"listenerClientCertificate-{index}")" class="form-select" @bind="device.ClientCertificateMode">
+                                                            <option value="@VirtualOutputClientCertificateMode.None">@Text["Settings_ClientCertificatesNotRequested"]</option>
+                                                            <option value="@VirtualOutputClientCertificateMode.Allow">@Text["Settings_ClientCertificatesOptional"]</option>
+                                                            <option value="@VirtualOutputClientCertificateMode.Require">@Text["Settings_ClientCertificatesRequired"]</option>
+                                                        </select>
+                                                        <div class="form-text">@Text["Settings_ClientCertificatesHelp"]</div>
+                                                    </div>
+                                                }
+                                                <div class="col-md-6">
+                                                    <label class="form-label" for="@($"listenerNetworks-{index}")">@Text["Settings_AllowedClientNetworksLabel"]</label>
+                                                    <input id="@($"listenerNetworks-{index}")" class="form-control" placeholder="192.0.2.0/24, 2001:db8::/32" @bind="device.AllowedNetworks" />
+                                                    <div class="form-text">@Text["Settings_AllowedClientNetworksHelp"]</div>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label" for="@($"listenerConnections-{index}")">@Text["Settings_MaximumConnectionsLabel"]</label>
+                                                    <input id="@($"listenerConnections-{index}")" class="form-control" type="number" min="0" @bind="device.MaximumConnections" />
+                                                    <div class="form-text">@Text["Settings_MaximumConnectionsHelp"]</div>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label" for="@($"listenerRate-{index}")">@Text["Settings_RequestRateLabel"]</label>
+                                                    <input id="@($"listenerRate-{index}")" class="form-control" type="number" min="0" @bind="device.RequestsPerMinutePerClient" />
+                                                    <div class="form-text">@Text["Settings_RequestRateHelp"]</div>
+                                                </div>
+                                                <div class="col-12">
+                                                    <div class="form-check form-switch">
+                                                        <input id="@($"listenerForwarded-{index}")" class="form-check-input" type="checkbox" @bind="device.AllowForwardedHeaders" />
+                                                        <label class="form-check-label" for="@($"listenerForwarded-{index}")">@Text["Settings_HonorForwardedHeadersLabel"]</label>
+                                                    </div>
+                                                    <div class="form-text">@Text["Settings_HonorForwardedHeadersHelp"]</div>
+                                                </div>
+                                                @if (device.AllowForwardedHeaders)
+                                                {
+                                                    <div class="col-12">
+                                                        <label class="form-label" for="@($"listenerProxies-{index}")">@Text["Settings_TrustedProxiesLabel"]</label>
+                                                        <input id="@($"listenerProxies-{index}")" class="form-control" placeholder="192.0.2.15, 2001:db8::/32" @bind="device.TrustedProxies" />
+                                                        <div class="form-text">@Text["Settings_TrustedProxiesHelp"]</div>
+                                                    </div>
+                                                }
+                                                <div class="col-md-3">
+                                                    <label class="form-label" for="@($"workerRestarts-{index}")">@Text["Settings_MaximumRestartsLabel"]</label>
+                                                    <input id="@($"workerRestarts-{index}")" class="form-control" type="number" min="0" @bind="device.MaximumRestarts" />
+                                                    <div class="form-text">@Text["Settings_MaximumRestartsHelp"]</div>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label" for="@($"workerRestartWindow-{index}")">@Text["Settings_RestartWindowLabel"]</label>
+                                                    <input id="@($"workerRestartWindow-{index}")" class="form-control" type="number" min="1" @bind="device.RestartWindowSeconds" />
+                                                    <div class="form-text">@Text["Settings_RestartWindowHelp"]</div>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label" for="@($"workerDrain-{index}")">@Text["Settings_DrainTimeoutLabel"]</label>
+                                                    <input id="@($"workerDrain-{index}")" class="form-control" type="number" min="1" @bind="device.DrainTimeoutSeconds" />
+                                                    <div class="form-text">@Text["Settings_DrainTimeoutHelp"]</div>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label" for="@($"workerLease-{index}")">@Text["Settings_LeaseGraceLabel"]</label>
+                                                    <input id="@($"workerLease-{index}")" class="form-control" type="number" min="1" @bind="device.LeaseGracePeriodSeconds" />
+                                                    <div class="form-text">@Text["Settings_LeaseGraceHelp"]</div>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label class="form-label" for="@($"workerBrokerCalls-{index}")">@Text["Settings_MaximumBrokerCallsLabel"]</label>
+                                                    <input id="@($"workerBrokerCalls-{index}")" class="form-control" type="number" min="1" @bind="device.MaximumOutstandingBrokerCalls" />
+                                                    <div class="form-text">@Text["Settings_MaximumBrokerCallsHelp"]</div>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label class="form-label" for="@($"workerMemory-{index}")">@Text["Settings_MemoryLimitLabel"]</label>
+                                                    <input id="@($"workerMemory-{index}")" class="form-control" type="number" min="0" @bind="device.MaximumMemoryMib" />
+                                                    <div class="form-text">@Text["Settings_MemoryLimitHelp"]</div>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label class="form-label" for="@($"workerCpu-{index}")">@Text["Settings_CpuLimitLabel"]</label>
+                                                    <input id="@($"workerCpu-{index}")" class="form-control" type="number" min="0" max="100" @bind="device.MaximumCpuPercent" />
+                                                    <div class="form-text">@Text["Settings_CpuLimitHelp"]</div>
+                                                </div>
+                                                        </div>
+                                                    </details>
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                </section>
+                            }
+                            @if (device.Enabled)
+                            {
+                                <section class="card virtual-device-transcoder-settings">
+                                    <div class="card-header">
+                                        <h5 class="mb-0">@Text["Settings_TranscoderSettingsHeading"]</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <DeviceTranscoderSettings Settings="device"
+                                                                  Defaults="Host.Topology.VirtualDefaults"
+                                                                  IdPrefix="virtual"
+                                                                  CssPrefix="virtual"
+                                                                  Index="index"
+                                                                  StageName="@Text["Settings_OutputStageName"]" />
+                                    </div>
+                                </section>
+                            }
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+
+        @if (Host.ShowVirtualDeviceTypePickerValue)
+        {
+            <TypePickerModal Id="virtualDeviceTypePicker"
+                             Title="@Text["Settings_AddVirtualDeviceButton"]"
+                             Description="@Text["Settings_AddVirtualDeviceDescription"]"
+                             CloseRequested="() => Host.ShowVirtualDeviceTypePickerValue = false">
+                @foreach (var driver in Host.AvailableVirtualTunerDrivers)
+                {
+                    <button type="button" class="list-group-item list-group-item-action virtual-device-type"
+                            data-virtual-device-kind="@driver.Kind" @onclick="() => Host.AddVirtualDevice(driver)">
+                        @driver.DisplayName
+                    </button>
+                }
+            </TypePickerModal>
+        }
+
+@using Lineup.Core.Streaming
+@using Lineup.Web.Components.Transcoding

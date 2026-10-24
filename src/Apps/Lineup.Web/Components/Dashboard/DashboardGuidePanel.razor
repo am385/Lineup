@@ -1,0 +1,222 @@
+@using Lineup.Web.Services
+
+<div class="card mb-4">
+    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div>
+            <h5 class="mb-0"><span class="bi bi-calendar3 me-1"></span>@Text["Dashboard_GuideXmltvHeading"]</h5>
+            @if (!Expanded)
+            {
+                <small class="text-muted">@Summary</small>
+            }
+        </div>
+        <button id="toggleGuideSection" type="button" class="btn btn-sm btn-outline-secondary ms-auto"
+                aria-expanded="@(Expanded ? "true" : "false")" aria-controls="guideSection"
+                @onclick="() => ToggleRequested.InvokeAsync()">
+            <span class="@(Expanded ? "bi bi-chevron-up" : "bi bi-chevron-down")"></span>
+            <span class="visually-hidden">@Text[Expanded ? "Dashboard_CollapseGuideSection" : "Dashboard_ExpandGuideSection"]</span>
+        </button>
+    </div>
+    <div id="guideSection" class="card-body" hidden="@(!Expanded)">
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">@Text["Dashboard_ChannelsLabel"]</h5>
+                        <p class="display-4">@Statistics.ChannelCount</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">@Text["Dashboard_ProgramsLabel"]</h5>
+                        <p class="display-4">@Statistics.ProgramCount</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">@Text["Dashboard_RemainingLabel"]</h5>
+                        <p class="h4">@(Statistics.TotalTimeSpan?.ToString(Text["Dashboard_RemainingDurationFormat"].Value) ?? Text["Common_NotAvailable"].Value)</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card h-100 @(AutoFetchState.IsRunning ? "border-info" : "") @(!AutoFetchState.IsEnabled ? "border-secondary" : "")">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">@Text["Dashboard_AutoFetchHeading"]</h5>
+                        @if (!AutoFetchState.IsEnabled)
+                        {
+                            <p class="h6 text-muted"><span class="bi bi-pause-circle me-1"></span>@Text["Common_Disabled"]</p>
+                            <small class="text-muted">@Text["Dashboard_EnableIn"] <a href="/settings#guide">@Text["Nav_Settings"]</a></small>
+                        }
+                        else if (AutoFetchState.IsRunning)
+                        {
+                            <p class="h6 text-info"><span class="spinner-border spinner-border-sm me-1"></span>@Text["Dashboard_Running"]</p>
+                            <small class="text-muted"><span class="bi bi-arrow-repeat me-1"></span>@Text["Dashboard_EveryInterval", Text["Dashboard_AutoFetchInterval"]]</small>
+                        }
+                        else if (AutoFetchState.NextFetchTime.HasValue)
+                        {
+                            <p class="h6">@TimeZone.ConvertFromUtc(AutoFetchState.NextFetchTime.Value).ToString("HH:mm:ss")</p>
+                            <p class="h5 text-primary mb-0">@FormatCountdown(Countdown)</p>
+                            <small class="text-muted"><span class="bi bi-arrow-repeat me-1"></span>@Text["Dashboard_EveryInterval", Text["Dashboard_AutoFetchInterval"]]</small>
+                        }
+                        else
+                        {
+                            <p class="h6">@Text["Dashboard_Pending"]</p>
+                            <small class="text-muted"><span class="bi bi-arrow-repeat me-1"></span>@Text["Dashboard_EveryInterval", Text["Dashboard_AutoFetchInterval"]]</small>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @if (AutoFetchState.IsRunning && AutoFetchState.CurrentProgress != null)
+        {
+            <GuideFetchProgress Title="@Text["Dashboard_AutoFetchInProgress"]" Progress="AutoFetchState.CurrentProgress" IsAutoFetch="true" />
+        }
+
+        @if (ManualFetchProgress != null && IsBusy && CurrentAction == "fetch")
+        {
+            <GuideFetchProgress Id="manualFetchProgress" Title="@Text["Dashboard_ManualFetchProgress"]" Progress="ManualFetchProgress" />
+        }
+
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header"><h5 class="mb-0">@Text["Dashboard_TimeRangeHeading"]</h5></div>
+                    <div class="card-body">
+                        <p><strong>@Text["Dashboard_EarliestLabel"]:</strong> @(Statistics.EarliestProgramStartUtc?.ToString("yyyy-MM-dd HH:mm") ?? Text["Common_NotAvailable"].Value) UTC</p>
+                        <p><strong>@Text["Dashboard_LatestLabel"]:</strong> @(Statistics.LatestProgramEndUtc?.ToString("yyyy-MM-dd HH:mm") ?? Text["Common_NotAvailable"].Value) UTC</p>
+                        @if (ChannelGap.HasValue)
+                        {
+                            <p class="text-warning"><strong>@Text["Dashboard_ChannelGapLabel"]:</strong> @ChannelGap.Value.ToString(Text["Dashboard_ChannelGapDurationFormat"].Value)</p>
+                        }
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header"><h5 class="mb-0">@Text["Common_Actions"]</h5></div>
+                    <div class="card-body">
+                        <div class="alert alert-info py-2 mb-3">
+                            @if (TopologyChannels.Count == 0)
+                            {
+                                <span>@Text["Dashboard_RefreshChannelsBeforeGuide"]</span>
+                            }
+                            else
+                            {
+                                <span>
+                                    @Text["Dashboard_ProjectionChannelSummary",
+                                        TopologyChannels.Count,
+                                        TimeZone.ConvertFromUtc(TopologyChannels.Max(channel => channel.LastSeenUtc)).ToString("yyyy-MM-dd HH:mm:ss")]
+                                </span>
+                            }
+                        </div>
+                        <button id="fetchGuide" class="btn btn-primary me-2" @onclick="() => FetchRequested.InvokeAsync()" disabled="@IsBusy">
+                            @if (IsBusy && CurrentAction == "fetch")
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                            }
+                            <span class="bi bi-cloud-download me-1"></span>@Text["Dashboard_FetchGuide"]
+                        </button>
+                        <button id="generateXmltv" class="btn btn-success me-2" @onclick="() => GenerateRequested.InvokeAsync()" disabled="@IsBusy">
+                            @if (IsBusy && CurrentAction == "generate")
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                            }
+                            <span class="bi bi-file-earmark-code me-1"></span>@Text["Dashboard_GenerateXmltv"]
+                        </button>
+                        @if (XmltvFileExists)
+                        {
+                            <a class="btn btn-outline-secondary" href="/api/xmltv" download="epg.xml">
+                                <span class="bi bi-download me-1"></span>@Text["Dashboard_ExportXmltv"]
+                            </a>
+                        }
+                        else
+                        {
+                            <button class="btn btn-outline-secondary" disabled>
+                                <span class="bi bi-download me-1"></span>@Text["Dashboard_ExportXmltv"]
+                            </button>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>Gets or sets whether the panel is expanded.</summary>
+    [Parameter]
+    public bool Expanded { get; set; }
+
+    /// <summary>Gets or sets the collapsed summary.</summary>
+    [Parameter, EditorRequired]
+    public string Summary { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets guide statistics.</summary>
+    [Parameter, EditorRequired]
+    public GuideStatistics Statistics { get; set; } = default!;
+
+    /// <summary>Gets or sets automatic fetch state.</summary>
+    [Parameter, EditorRequired]
+    public IAutoFetchStateService AutoFetchState { get; set; } = default!;
+
+    /// <summary>Gets or sets the configured timezone service.</summary>
+    [Parameter, EditorRequired]
+    public ITimeZoneService TimeZone { get; set; } = default!;
+
+    /// <summary>Gets or sets the next-fetch countdown.</summary>
+    [Parameter]
+    public TimeSpan Countdown { get; set; }
+
+    /// <summary>Gets or sets manual fetch progress.</summary>
+    [Parameter]
+    public FetchProgressInfo? ManualFetchProgress { get; set; }
+
+    /// <summary>Gets or sets whether a guide operation is active.</summary>
+    [Parameter]
+    public bool IsBusy { get; set; }
+
+    /// <summary>Gets or sets the current guide action.</summary>
+    [Parameter]
+    public string CurrentAction { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the detected channel coverage gap.</summary>
+    [Parameter]
+    public TimeSpan? ChannelGap { get; set; }
+
+    /// <summary>Gets or sets physical source channels.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<PhysicalChannelIdentity> TopologyChannels { get; set; } = [];
+
+    /// <summary>Gets or sets whether the XMLTV output exists.</summary>
+    [Parameter]
+    public bool XmltvFileExists { get; set; }
+
+    /// <summary>Gets or sets the panel toggle callback.</summary>
+    [Parameter]
+    public EventCallback ToggleRequested { get; set; }
+
+    /// <summary>Gets or sets the guide fetch callback.</summary>
+    [Parameter]
+    public EventCallback FetchRequested { get; set; }
+
+    /// <summary>Gets or sets the XMLTV generation callback.</summary>
+    [Parameter]
+    public EventCallback GenerateRequested { get; set; }
+
+    private string FormatCountdown(TimeSpan countdown)
+    {
+        if (countdown <= TimeSpan.Zero)
+        {
+            return Text["Dashboard_DueNow"];
+        }
+
+        return countdown.TotalHours >= 1
+            ? Text["Dashboard_CountdownHours", (int)countdown.TotalHours, countdown.Minutes, countdown.Seconds]
+            : Text["Dashboard_CountdownMinutes", countdown.Minutes, countdown.Seconds];
+    }
+}

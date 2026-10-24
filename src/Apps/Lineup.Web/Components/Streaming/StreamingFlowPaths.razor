@@ -1,0 +1,192 @@
+@using Lineup.Web.Services
+
+<div class="streaming-flow-paths">
+    @if (Snapshot.ActivePaths.Count == 0)
+    {
+        <div class="text-body-secondary">@Text["Streaming_NoConsumersAttached"]</div>
+    }
+    else
+    {
+        @foreach (var path in Snapshot.ActivePaths)
+        {
+            <div class="streaming-flow-path" data-flow-path-id="@path.Id">
+                <header class="streaming-flow-path-header">
+                    <div class="streaming-flow-path-identity">
+                        <div class="d-flex flex-wrap align-items-center gap-2">
+                            <strong>@path.Endpoint</strong>
+                            <span class="badge text-bg-info">@FormatHostedStreamFormat(path.Format)</span>
+                            <span class="badge text-bg-dark">@Text["Streaming_Channel", path.Channel]</span>
+                            @if (path.IsShared)
+                            {
+                                <span class="badge text-bg-success">@Text["Streaming_SharedSessions", path.SharedReceiverCount]</span>
+                            }
+                        </div>
+                        <dl class="streaming-flow-path-meta mb-0">
+                            <dt>@Text["Streaming_Session"]</dt>
+                            <dd><code>@path.SessionId</code></dd>
+                            <dt>@Text["Streaming_Active"]</dt>
+                            <dd>@FormatStreamDuration(path.StartedAtUtc)</dd>
+                        </dl>
+                    </div>
+                    <button type="button"
+                            class="btn btn-sm btn-outline-danger"
+                            disabled="@StoppingSessionIds.Contains(path.SessionId)"
+                            aria-label="@Text["Streaming_StopStreamAriaLabel", path.SessionId]"
+                            @onclick="() => StopRequested.InvokeAsync(path.SessionId)">
+                        <span class="bi bi-stop-fill me-1"></span>@Text["Streaming_Stop"]
+                    </button>
+                </header>
+
+                <div class="streaming-flow-path-stages" role="group" aria-label="@Text["Streaming_StagesAriaLabel", path.SessionId]">
+                    @for (var stageIndex = 0; stageIndex < path.Stages.Count; stageIndex++)
+                    {
+                        var stage = path.Stages[stageIndex];
+                        var isSelected = IsStageSelected(path.Id, stage.Kind);
+                        <button type="button"
+                                class="streaming-flow-path-stage @(isSelected ? "selected" : null)"
+                                data-flow-stage="@stage.Kind"
+                                aria-pressed="@(isSelected ? "true" : "false")"
+                                aria-expanded="@(isSelected ? "true" : "false")"
+                                aria-controls="@GetStageDetailsId(path.Id)"
+                                @onclick="() => SelectStage(path.Id, stage.Kind)">
+                            <span class="streaming-flow-path-stage-label">@stage.Label</span>
+                            <span class="streaming-flow-path-stage-subtitle">@stage.Subtitle</span>
+                        </button>
+                        @if (stageIndex < path.Stages.Count - 1)
+                        {
+                            <div class="streaming-flow-path-arrow" aria-hidden="true"><span class="bi bi-arrow-right"></span></div>
+                        }
+                    }
+                </div>
+
+                @if (GetSelectedStage(path) is { } selectedStage)
+                {
+                    <section id="@GetStageDetailsId(path.Id)"
+                             class="streaming-flow-path-details"
+                             data-selected-stage="@selectedStage.Kind"
+                             aria-live="polite">
+                        <div class="streaming-flow-path-details-header">
+                            <div>
+                                <h6 class="mb-1">@selectedStage.Label</h6>
+                                <div class="text-body-secondary">@selectedStage.Subtitle</div>
+                            </div>
+                            <span class="badge text-bg-light">@FormatStageKind(selectedStage.Kind)</span>
+                        </div>
+                        @if (selectedStage.Details.Count > 0)
+                        {
+                            <dl class="streaming-flow-stage-details mb-0">
+                                @foreach (var detail in selectedStage.Details)
+                                {
+                                    <dt>@detail.Label</dt>
+                                    <dd>@detail.Value</dd>
+                                }
+                            </dl>
+                        }
+                        <div class="streaming-flow-stage-media">
+                            @if (ShowInputMedia(selectedStage.Kind))
+                            {
+                                <div>
+                                    <h6>@GetInputMediaTitle(selectedStage.Kind)</h6>
+                                    <StreamMediaDetails Media="selectedStage.InputMedia" />
+                                </div>
+                            }
+                            <div>
+                                <h6>@GetOutputMediaTitle(selectedStage.Kind)</h6>
+                                <StreamMediaDetails Media="selectedStage.OutputMedia" />
+                            </div>
+                        </div>
+                    </section>
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private readonly Dictionary<string, StreamingFlowStageKind> _selectedStages = new(StringComparer.Ordinal);
+
+    /// <summary>Gets the active streaming paths to render.</summary>
+    [Parameter, EditorRequired]
+    public StreamingFlowSnapshot Snapshot { get; set; } = new([], [], 0, 0, 0);
+
+    /// <summary>Gets stream sessions that are currently processing a stop request.</summary>
+    [Parameter]
+    public IReadOnlySet<string> StoppingSessionIds { get; set; } = new HashSet<string>(StringComparer.Ordinal);
+
+    /// <summary>Gets the callback invoked when a user requests that one active stream stop.</summary>
+    [Parameter]
+    public EventCallback<string> StopRequested { get; set; }
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        foreach (var pathId in _selectedStages.Keys.Where(pathId => Snapshot.ActivePaths.All(path => path.Id != pathId)).ToArray())
+        {
+            _selectedStages.Remove(pathId);
+        }
+    }
+
+    private void SelectStage(string pathId, StreamingFlowStageKind stage)
+    {
+        if (_selectedStages.TryGetValue(pathId, out var selected) && selected == stage)
+        {
+            _selectedStages.Remove(pathId);
+            return;
+        }
+        _selectedStages[pathId] = stage;
+    }
+
+    private bool IsStageSelected(string pathId, StreamingFlowStageKind stage) =>
+        _selectedStages.TryGetValue(pathId, out var selected) && selected == stage;
+
+    private StreamingFlowPathStage? GetSelectedStage(StreamingFlowPath path) =>
+        _selectedStages.TryGetValue(path.Id, out var selected)
+            ? path.Stages.SingleOrDefault(stage => stage.Kind == selected)
+            : null;
+
+    private static string GetStageDetailsId(string pathId) => $"{pathId.Replace(':', '-')}-details";
+
+    private static string FormatHostedStreamFormat(HostedStreamFormat format) => format switch
+    {
+        HostedStreamFormat.MpegTs => "MPEG-TS",
+        HostedStreamFormat.Cmaf => "CMAF",
+        _ => format.ToString()
+    };
+
+    private string FormatStageKind(StreamingFlowStageKind kind) => kind switch
+    {
+        StreamingFlowStageKind.PhysicalSource => Text["Streaming_StagePhysicalSource"],
+        StreamingFlowStageKind.SourceProcessing => Text["Streaming_StageSourceProcessing"],
+        StreamingFlowStageKind.Multiplexer => Text["Streaming_StageMultiplexer"],
+        StreamingFlowStageKind.VirtualOutput => Text["Streaming_StageVirtualOutput"],
+        StreamingFlowStageKind.OutputProcessing => Text["Streaming_StageOutputProcessing"],
+        StreamingFlowStageKind.Consumer => Text["Streaming_StageConsumer"],
+        _ => kind.ToString()
+    };
+
+    private static bool ShowInputMedia(StreamingFlowStageKind kind) =>
+        kind is StreamingFlowStageKind.SourceProcessing or StreamingFlowStageKind.OutputProcessing;
+
+    private string GetInputMediaTitle(StreamingFlowStageKind kind) =>
+        kind == StreamingFlowStageKind.SourceProcessing ? Text["Streaming_RawPhysicalInput"] : Text["Streaming_SourceStreamComponents"];
+
+    private string GetOutputMediaTitle(StreamingFlowStageKind kind) => kind switch
+    {
+        StreamingFlowStageKind.PhysicalSource => Text["Streaming_RawPhysicalStreamComponents"],
+        StreamingFlowStageKind.SourceProcessing => Text["Streaming_EffectiveSourceComponents"],
+        StreamingFlowStageKind.Multiplexer => Text["Streaming_MultiplexedStreamComponents"],
+        StreamingFlowStageKind.VirtualOutput => Text["Streaming_SubscribedStreamComponents"],
+        StreamingFlowStageKind.OutputProcessing => Text["Streaming_OutputStreamComponents"],
+        StreamingFlowStageKind.Consumer => Text["Streaming_DeliveredStreamComponents"],
+        _ => Text["Streaming_StreamComponents"]
+    };
+
+    private static string FormatStreamDuration(DateTime startedAtUtc)
+    {
+        var duration = DateTime.UtcNow - startedAtUtc;
+        return duration.TotalHours >= 1
+            ? $"{(int)duration.TotalHours}h {duration.Minutes}m {duration.Seconds}s"
+            : $"{duration.Minutes}m {duration.Seconds}s";
+    }
+
+}

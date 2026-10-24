@@ -1,0 +1,42 @@
+<div id="@Id" class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);"
+     @onclick="() => CloseRequested.InvokeAsync()">
+    <div class="modal-dialog modal-dialog-centered" @onclick:stopPropagation="true">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">@Title</h5>
+                <button type="button" class="btn-close" aria-label="@Text["Settings_TypePickerCloseLabel"]" @onclick="() => CloseRequested.InvokeAsync()"></button>
+            </div>
+            <div class="modal-body">
+                @if (!string.IsNullOrWhiteSpace(Description))
+                {
+                    <p class="text-body-secondary">@Description</p>
+                }
+                <div class="list-group">
+                    @ChildContent
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>Gets or sets the modal element identifier.</summary>
+    [Parameter, EditorRequired]
+    public string Id { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the modal title.</summary>
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the optional modal description.</summary>
+    [Parameter]
+    public string? Description { get; set; }
+
+    /// <summary>Gets or sets the available type choices.</summary>
+    [Parameter, EditorRequired]
+    public RenderFragment ChildContent { get; set; } = default!;
+
+    /// <summary>Gets or sets the close callback.</summary>
+    [Parameter]
+    public EventCallback CloseRequested { get; set; }
+}

@@ -22,16 +22,28 @@ dotnet restore
 dotnet build
 ```
 
+All project build outputs and intermediate files are centralized beneath the repository-level `out` directory.
+
 ### Running Tests
 
 ```bash
 dotnet test
 ```
 
+The streaming-sweep harness is checked in as an opt-in hardware certification test:
+
+```bash
+dotnet run --project tests/Integration/Lineup.Streaming.Sweep/Lineup.Streaming.Sweep.csproj -c Release -- verify-outcome-reporting
+```
+
+It is intentionally excluded from the solution and CI/CD because the full sweep requires exclusive access to physical tuner hardware. See [`tests/Integration/Lineup.Streaming.Sweep/README.md`](tests/Integration/Lineup.Streaming.Sweep/README.md).
+The separate `Lineup.Streaming.Sweep.Tests` xunit project participates in the normal solution gate and
+exercises only deterministic policies, persistence, ownership and reports; it never launches the live harness.
+
 ### Running the Web App
 
 ```bash
-cd src/Lineup.Web
+cd src/Apps/Lineup.Web
 dotnet run
 ```
 
@@ -80,6 +92,8 @@ The app starts on `http://localhost:8080`.
 - Every test must contain explicit `// Arrange`, `// Act`, and `// Assert` sections.
 - Test the requested outcome directly, including meaningful failure and edge cases.
 - Keep tests deterministic and independent of execution order.
+- In bUnit tests, await `ClickAsync(new())` when the click handler performs asynchronous work before asserting completion. Use `Click()` only for synchronous handlers.
+- When testing an in-flight operation, retain the `ClickAsync` task, assert the pending state, release any controlled dependency, and await the task before disposing the component.
 
 #### Formatting
 
@@ -132,13 +146,46 @@ Restore dependencies first only when they are missing or dependency manifests ch
 
 ## Project Structure
 
+Production and test projects are grouped by dependency role:
+
+- `src/Apps` — executable Web and TUI hosts.
+- `src/Core` — the dependency-free shared model, stable plugin API, and provider-neutral application and streaming foundations.
+- `src/Plugins` — independently composable adapters and their support libraries, grouped by provider or product family (`SiliconDust`, `LineupLink`, and `WebPlayer`).
+- `tests` — a hierarchy that mirrors the production project roles.
+
+`Lineup.Common` has no project or package dependencies and contains only shared data types. `Lineup.Extensibility` references only `Lineup.Common` and contains plugin/runtime interfaces and boundary validation. Production plugin projects may reference it, the provider-neutral `Lineup.Streaming.FFmpeg` foundation when media processing is required, and designated support libraries in the same provider family, but must not reference `Lineup.Core`.
+Provider family folders are organizational only; every adapter and support library remains an independently referenced assembly. Support libraries may not depend on adapters or projects from another plugin family.
+
 | Project | Description |
 |---|---|
-| `Lineup.HDHomeRun.Device` | Local device communication — discovery, channel lineup, native binary protocol |
-| `Lineup.HDHomeRun.Api` | Remote API client — fetches EPG data from `api.hdhomerun.com` |
-| `Lineup.Core` | Core business logic — orchestration, XMLTV conversion, caching |
+| `Lineup.Common` | Dependency-free identifiers, configuration records, normalized guide models, streaming DTOs, and serialized metadata types |
+| `Lineup.Extensibility` | Plugin/runtime interfaces, portable validation, and narrow host capabilities built on `Lineup.Common` |
+| `Lineup.SiliconDust.HDHomeRun.Device` | Local device communication — discovery, channel lineup, native binary protocol |
+| `Lineup.SiliconDust.HDHomeRun.Api` | Remote API client — fetches EPG data from `api.hdhomerun.com` |
+| `Lineup.Core` | Provider-neutral business logic — orchestration, topology, guides, and storage |
+| `Lineup.Streaming.FFmpeg` | Shared FFmpeg and FFprobe streaming transforms |
+| `Lineup.VirtualOutputs.Protocol` | Versioned local IPC contracts and framing shared by the trusted host and workers |
+| `Lineup.VirtualOutputs.Hosting` | Worker-side bootstrap, broker client, and lease handling |
+| `Lineup.VirtualOutputs.Runtime` | Trusted package validation, process supervision, IPC server, and capability broker |
+| `Lineup.GuideOutputs.Json` | Public versioned JSON guide document and serialization/deserialization API |
+| `Lineup.GuideOutputs.Json.Plugin` | JSON Guide Output driver, publisher adapter, settings, and host registration |
+| `Lineup.GuideOutputs.Xmltv` | Public serializer for normalized Lineup guide snapshots to XMLTV |
+| `Lineup.GuideOutputs.Xmltv.Plugin` | XMLTV Guide Output driver, global-output normalization, publisher adapter, and host registration |
+| `Lineup.SiliconDust.HDHomeRun.PhysicalTuner` | Physical HDHomeRun plugin |
+| `Lineup.SiliconDust.HDHomeRun.VirtualTuner` | Virtual HDHomeRun output plugin |
+| `Lineup.SiliconDust.HDHomeRun.VirtualOutputHost` | Isolated virtual HDHomeRun listener executable |
+| `Lineup.SiliconDust.HDHomeRun.DiscoveryRuntime` | Trusted shared-discovery snapshot reconciler |
+| `Lineup.SiliconDust.HDHomeRun.DiscoveryHost` | Isolated shared UDP and SSDP discovery executable |
+| `Lineup.WebPlayer` | Built-in Web Player contracts, compatibility policy, and shared output lifecycle |
+| `Lineup.WebPlayer.FFmpeg` | FFmpeg CMAF planning, manifest processing, and browser compatibility-test generation |
+| `Lineup.WebPlayer.VirtualOutputHost` | Isolated CMAF/HLS/DASH media executable |
+| `Lineup.SiliconDust.GuideSource` | SiliconDust guide-source plugin |
+| `Lineup.LineupLink` | Cohesive remote Lineup physical, virtual, guide, and protocol plugin |
+| `Lineup.LineupLink.VirtualOutputHost` | Isolated Lineup Link listener executable |
 | `Lineup.Web` | Blazor Server web app — dashboard, EPG viewer, settings, live TV |
 | `Lineup.Tui` | Terminal UI — interactive menu using Spectre.Console |
+| `Lineup.Streaming.Sweep` | Opt-in six-matrix Docker/HDHomeRun and existing-instance streaming harness (not a solution test entry point) |
+| `Lineup.Streaming.Sweep.Tests` | Non-live deterministic sweep regression tests in the normal solution gate |
 
 ## License
 

@@ -1,0 +1,69 @@
+@page "/channels"
+@using Lineup.Core
+@using Lineup.Core.Streaming
+
+<PageTitle>@Text["Channels_PageTitle"]</PageTitle>
+
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+        <h1 class="mb-0"><span class="bi bi-list-check me-2"></span>@Text["Channels_Heading"]</h1>
+        <p class="text-muted mb-0">@Text["Channels_Description"]</p>
+    </div>
+    <button class="btn btn-primary" @onclick="RefreshChannels" disabled="@_isRefreshing">
+        @if (_isRefreshing)
+        {
+            <span class="spinner-border spinner-border-sm me-1"></span>
+        }
+        <span class="bi bi-arrow-clockwise me-1"></span>@Text["Channels_RefreshChannels"]
+    </button>
+</div>
+
+@if (_isLoading)
+{
+    <div class="text-center py-5">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">@Text["Channels_Loading"]</span>
+        </div>
+    </div>
+}
+else if (_topologyChannels.Count == 0)
+{
+    <div class="card">
+        <div class="card-body text-center text-muted py-5">
+            <span class="bi bi-broadcast display-5"></span>
+            <h5 class="mt-3">@Text["Channels_NoSavedLineup"]</h5>
+            <p class="mb-0">@Text["Channels_NoSavedLineupHelp"]</p>
+        </div>
+    </div>
+}
+else
+{
+    var visibleChannels = GetVisibleChannels();
+    <ChannelSummaryCards TotalCount="_topologyChannels.Count"
+                         EnabledCount="_topologyChannels.Count(channel => channel.IsEnabled)"
+                         DisabledCount="_topologyChannels.Count(channel => !channel.IsEnabled)"
+                         FavoriteCount="@(_topologyChannels.Count(channel => GetBooleanMetadata(channel, "favorite")))"
+                         LastUpdated="@(Tz.ConvertFromUtc(_topologyChannels.Max(channel => channel.LastSeenUtc)).ToString("yyyy-MM-dd HH:mm:ss"))" />
+
+    <ChannelFilters @bind-Search="_search"
+                    @bind-DeviceFilter="_deviceFilter"
+                    Devices="@GetDeviceFilterOptions()"
+                    @bind-StateFilter="_stateFilter"
+                    @bind-FlagFilter="_flagFilter"
+                    @bind-GuideFilter="_guideFilter"
+                    HasActiveFilters="HasActiveFilters"
+                    VisibleCount="visibleChannels.Count"
+                    TotalCount="_topologyChannels.Count"
+                    ClearRequested="ClearFilters" />
+
+    <PhysicalChannelTable Channels="visibleChannels"
+                          GuideBindings="_guideBindings"
+                          Edits="_channelEdits"
+                          UpdatingChannels="_updatingChannels"
+                          SortColumn="_sortColumn"
+                          SortDirection="_sortDirection"
+                          SortRequested="SetSort"
+                          EnabledChanged="change => SetChannelEnabled(change.ChannelId, change.Enabled)"
+                          GuideBindingChanged="change => SetGuideBinding(change.ChannelId, change.GuideIdentity)"
+                          SaveRequested="SaveIdentity" />
+}

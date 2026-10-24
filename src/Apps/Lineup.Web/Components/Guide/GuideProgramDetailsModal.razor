@@ -1,0 +1,83 @@
+@using Lineup.Core.Guides
+@inject ITimeZoneService TimeZone
+
+@if (Program is not null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);" @onclick="() => CloseRequested.InvokeAsync()">
+        <div class="modal-dialog modal-lg" @onclick:stopPropagation="true">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@Program.Title</h5>
+                    <button type="button" class="btn-close" @onclick="() => CloseRequested.InvokeAsync()"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-8">
+                            @if (!string.IsNullOrEmpty(Program.EpisodeTitle))
+                            {
+                                <h6 class="text-muted">@Program.EpisodeTitle</h6>
+                            }
+                            @if (!string.IsNullOrEmpty(Program.Synopsis))
+                            {
+                                <p>@Program.Synopsis</p>
+                            }
+                            else
+                            {
+                                <p class="text-muted">@Text["Guide_NoDescription"]</p>
+                            }
+                        </div>
+                        <div class="col-md-4">
+                            <table class="table table-sm">
+                                <tbody>
+                                    <tr><td class="fw-bold">@Text["Common_Channel"]:</td><td>@Program.GuideNumber</td></tr>
+                                    <tr><td class="fw-bold">@Text["Guide_StartLabel"]:</td><td>@FormatProgramTime(Program.StartTime)</td></tr>
+                                    <tr><td class="fw-bold">@Text["Guide_EndLabel"]:</td><td>@FormatProgramTime(Program.EndTime)</td></tr>
+                                    <tr><td class="fw-bold">@Text["Guide_DurationLabel"]:</td><td>@Text["Guide_DurationMinutes", GetDuration(Program)]</td></tr>
+                                    @if (!string.IsNullOrEmpty(Program.EpisodeNumber))
+                                    {
+                                        <tr><td class="fw-bold">@Text["Guide_EpisodeLabel"]:</td><td>@Program.EpisodeNumber</td></tr>
+                                    }
+                                    @if (Program.OriginalAirdate.HasValue)
+                                    {
+                                        <tr><td class="fw-bold">@Text["Guide_OriginalAirLabel"]:</td><td>@FormatOriginalAirdate(Program.OriginalAirdate.Value)</td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                            @if (Program.Filter?.Any() == true)
+                            {
+                                <div class="mt-2">
+                                    @foreach (var category in Program.Filter.Take(3))
+                                    {
+                                        <span class="badge bg-secondary me-1">@category</span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                    <ProgramMetadataDetails Metadata="Program.Metadata" />
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="() => CloseRequested.InvokeAsync()">@Text["Common_Close"]</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>Gets or sets the selected guide program.</summary>
+    [Parameter]
+    public GuideCacheProgram? Program { get; set; }
+
+    /// <summary>Gets or sets the callback raised when the modal should close.</summary>
+    [Parameter]
+    public EventCallback CloseRequested { get; set; }
+
+    private string FormatProgramTime(long unixTime) =>
+        TimeZone.ConvertFromUtc(DateTimeOffset.FromUnixTimeSeconds(unixTime).UtcDateTime).ToString("h:mm tt");
+
+    private string FormatOriginalAirdate(long unixTime) =>
+        TimeZone.ConvertFromUtc(DateTimeOffset.FromUnixTimeSeconds(unixTime).UtcDateTime).ToString("yyyy-MM-dd");
+
+    private static int GetDuration(GuideCacheProgram program) => (int)((program.EndTime - program.StartTime) / 60);
+}

@@ -1,0 +1,390 @@
+@using Lineup.Common.Configuration
+@using Lineup.Common.Streaming
+@using Lineup.Web.Components.Pages
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+
+<div id="guideOutputsSettingsTab" class="@CssClass" role="tabpanel" aria-labelledby="tab-guide-outputs" @onchange="Host.NotifySettingsUiChanged">
+    <div class="device-settings-workspace mb-4">
+        <div class="d-flex align-items-end gap-2 mb-3">
+            <div class="device-tab-strip flex-grow-1">
+                <ul class="nav nav-tabs flex-nowrap">
+                    @foreach (var tabOutput in Host.Topology.GuideOutputs.OrderByDescending(candidate => candidate.IsBuiltIn))
+                    {
+                        <li class="nav-item">
+                            <button type="button"
+                                    class="nav-link guide-output-tab @(Host.SelectedGuideOutputId == tabOutput.Id ? "active" : null)"
+                                    data-guide-output-id="@tabOutput.Id"
+                                    @onclick="() => Host.SelectedGuideOutputId = tabOutput.Id">
+                                @(string.IsNullOrWhiteSpace(tabOutput.Name) ? Host.GetGuideOutputTypeName(tabOutput) : tabOutput.Name)
+                                @if (!tabOutput.Enabled)
+                                {
+                                    <span class="badge text-bg-secondary ms-1">@Text["Settings_DisabledBadge"]</span>
+                                }
+                            </button>
+                        </li>
+                    }
+                </ul>
+            </div>
+            <button id="addGuideOutput" type="button" class="btn btn-sm btn-outline-primary flex-shrink-0"
+                    disabled="@(!Host.AvailableGuideOutputDrivers.Any())"
+                    @onclick="Host.ShowGuideOutputTypePicker">
+                <span class="bi bi-plus-lg me-1"></span>@Text["Settings_AddGuideOutputButton"]
+            </button>
+        </div>
+
+        @if (Host.SelectedGuideOutput is { } output)
+        {
+            var outputIndex = Host.Topology.GuideOutputs.IndexOf(output);
+            var apiEndpoint = output.IsBuiltIn ? "/api/xmltv" : $"/api/guide-outputs/{output.Key}";
+            var absoluteApiEndpoint = Navigation.ToAbsoluteUri(apiEndpoint).AbsoluteUri;
+            var viewEndpoint = $"{apiEndpoint}?download=false";
+            var downloadEndpoint = $"{apiEndpoint}?download=true";
+            <section class="card guide-output-settings" data-guide-output-id="@output.Id" data-guide-output-kind="@output.Kind">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <div>
+                        <h5 class="mb-0">@(output.IsBuiltIn && Settings.IsXmltvGuideOutput(output) ? Text["Settings_GlobalXmltvOutputHeading"] : Text["Settings_GuideOutputSettingsHeading"])</h5>
+                        <div class="small text-body-secondary">@Host.GetGuideOutputTypeName(output)</div>
+                    </div>
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="form-check form-switch mb-0">
+                            <input id="@($"guideOutputEnabled-{outputIndex}")" class="form-check-input guide-output-enabled" type="checkbox" @bind="output.Enabled" />
+                            <label class="form-check-label" for="@($"guideOutputEnabled-{outputIndex}")">@Text["Settings_EnabledLabel"]</label>
+                        </div>
+                        @if (!output.IsBuiltIn)
+                        {
+                            <button type="button" class="btn btn-sm btn-outline-danger remove-guide-output"
+                                    aria-label="@Text["Settings_RemoveGuideOutputLabel"]" @onclick="() => Host.RemoveGuideOutput(output.Id)">
+                                <span class="bi bi-trash"></span>
+                            </button>
+                        }
+                    </div>
+                </div>
+                <div class="card-body">
+                    @if (!output.IsBuiltIn)
+                    {
+                        <div class="mb-3">
+                            <label class="form-label" for="@($"guideOutputName-{outputIndex}")">@Text["Settings_NameLabel"]</label>
+                            <input id="@($"guideOutputName-{outputIndex}")" class="form-control guide-output-name" @bind="output.Name" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="@($"guideOutputKey-{outputIndex}")">@Text["Settings_GuideOutputKeyLabel"]</label>
+                            <input id="@($"guideOutputKey-{outputIndex}")" class="form-control guide-output-key"
+                                   value="@output.Key" @onchange="args => Host.UpdateGuideOutputKey(output, args.Value?.ToString() ?? string.Empty)" />
+                            <div class="form-text">@Text["Settings_GuideOutputKeyHelp"]</div>
+                            <div class="alert alert-warning py-2 mt-2 mb-0 guide-output-key-warning">
+                                @Text["Settings_GuideOutputKeyWarning"]
+                            </div>
+                        </div>
+                    }
+
+                    @if (Settings.IsXmltvGuideOutput(output))
+                    {
+                        <div class="mb-3">
+                            <label for="guideOutputDirectoryPath" class="form-label">@Text["Settings_GuideOutputDirectoryLabel"]</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="guideOutputDirectoryPath"
+                                       @bind="Host.GuideOutputDirectoryPath" placeholder="/guide" />
+                                <button id="browseXmltvDirectories" class="btn btn-outline-secondary" type="button" @onclick="Host.BrowseDirectory" title="@Text["Settings_BrowseServerDirectoriesTitle"]">
+                                    <span class="bi bi-folder2-open"></span>
+                                </button>
+                            </div>
+                            <div class="form-text">
+                                @Text["Settings_GuideOutputDirectoryHelpPrefix"]
+                                <code>@Path.GetFileName(output.OutputPath)</code>
+                                @Text["Settings_GuideOutputDirectoryHelpSuffix"]
+                            </div>
+                            @if (output.IsBuiltIn && Host.XmltvOutputPathDiffersFromConfigured())
+                            {
+                                <div id="xmltvPathMismatch" class="alert alert-info mt-2 mb-0">
+                                    <div>@Text["Settings_GuideOutputPathMismatch"] <code>@Host.ConfiguredXmltvOutputPath</code></div>
+                                    <button id="resetXmltvOutputPath" type="button" class="btn btn-sm btn-outline-primary mt-2" @onclick="Host.ResetXmltvOutputPath">
+                                        @Text["Settings_ResetConfiguredPathButton"]
+                                    </button>
+                                </div>
+                            }
+                        </div>
+
+                        @if (Host.ShowDirectoryBrowser)
+                        {
+                            <DirectoryBrowser CurrentDirectory="@Host.CurrentDirectory"
+                                              Directories="Host.Directories"
+                                              Error="@Host.DirectoryError"
+                                              CanNavigateUp="Host.CanNavigateUp"
+                                              CloseRequested="Host.CloseDirectoryBrowser"
+                                              NavigateUpRequested="Host.NavigateUp"
+                                              DirectorySelected="Host.NavigateToDirectory"
+                                              SelectRequested="Host.SelectXmltvPath" />
+                        }
+
+                        @if (Host.ResolvedXmltvOutputPath is string resolvedPath)
+                        {
+                            <div id="resolvedXmltvOutputPath" class="alert alert-info py-2 small">
+                                <strong>@Text["Settings_ResolvedPathLabel"]</strong> <code>@resolvedPath</code>
+                            </div>
+                        }
+                    }
+                    else if (output.AdapterSettingsErrors.Count > 0)
+                    {
+                        <div class="alert alert-danger guide-output-adapter-errors">
+                            @string.Join(" ", output.AdapterSettingsErrors)
+                        </div>
+                    }
+                    else
+                    {
+                        @foreach (var setting in output.AdapterSettings.Where(setting => Settings.IsGuideOutputSettingVisible(output, setting)))
+                        {
+                            var field = setting.Descriptor;
+                            var fieldId = $"guideOutputSetting-{outputIndex}-{field.Key}";
+                            <div class="mb-3 guide-output-adapter-setting" data-setting-key="@field.Key">
+                                @if (field.Kind == AdapterSettingKind.Boolean)
+                                {
+                                    <div class="form-check form-switch">
+                                        <input id="@fieldId" class="form-check-input" type="checkbox"
+                                               checked="@Settings.GetGuideOutputBooleanSettingValue(setting)"
+                                               @onchange="args => Settings.UpdateGuideOutputBooleanSetting(setting, args.Value is true)" />
+                                        <label class="form-check-label" for="@fieldId">@field.Label</label>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <label class="form-label" for="@fieldId">@field.Label</label>
+                                    @if (field.Kind == AdapterSettingKind.Choice)
+                                    {
+                                        <select id="@fieldId" class="form-select"
+                                                value="@Settings.GetGuideOutputSettingValue(setting)"
+                                                @onchange="args => Settings.UpdateGuideOutputSetting(setting, args.Value?.ToString() ?? string.Empty)">
+                                            @foreach (var choice in field.Choices)
+                                            {
+                                                <option value="@choice.Value">@choice.Label</option>
+                                            }
+                                        </select>
+                                    }
+                                    else if (field.Kind == AdapterSettingKind.GeneratedSecret)
+                                    {
+                                        <div class="d-flex align-items-center gap-2">
+                                            <button id="@fieldId" type="button" class="btn btn-outline-primary"
+                                                    @onclick="() => Settings.GenerateGuideOutputSetting(setting)">
+                                                @(setting.HasValue ? Text["Settings_GenerateNewValueButton"] : Text["Settings_GenerateValueButton"])
+                                            </button>
+                                            @if (setting.HasValue)
+                                            {
+                                                <span class="text-body-secondary">@Text["Settings_ConfiguredStatus"]</span>
+                                            }
+                                            @if (field.CanClear && setting.HasValue)
+                                            {
+                                                <button type="button" class="btn btn-outline-danger"
+                                                        @onclick="() => Settings.ClearGuideOutputSetting(setting)">@Text["Settings_ClearButton"]</button>
+                                            }
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="input-group">
+                                            <input id="@fieldId"
+                                                   class="form-control"
+                                                   type="@(field.Kind == AdapterSettingKind.Secret ? "password" : field.Kind == AdapterSettingKind.Integer ? "number" : field.Kind == AdapterSettingKind.Uri ? "url" : "text")"
+                                                   min="@field.Minimum"
+                                                   max="@field.Maximum"
+                                                   value="@Settings.GetGuideOutputSettingValue(setting)"
+                                                   placeholder="@(field.Kind == AdapterSettingKind.Secret && setting.HasValue ? Text["Settings_ConfiguredSecretPlaceholder"].Value : null)"
+                                                   @onchange="args => Settings.UpdateGuideOutputSetting(setting, args.Value?.ToString() ?? string.Empty)" />
+                                            @if (field.Kind == AdapterSettingKind.Secret && field.CanClear && setting.HasValue)
+                                            {
+                                                <button type="button" class="btn btn-outline-danger"
+                                                        @onclick="() => Settings.ClearGuideOutputSetting(setting)">@Text["Settings_ClearButton"]</button>
+                                            }
+                                        </div>
+                                    }
+                                }
+                                @if (!string.IsNullOrWhiteSpace(field.Description))
+                                {
+                                    <div class="form-text">@field.Description</div>
+                                }
+                            </div>
+                        }
+                    }
+
+                    <div class="mb-3 guide-output-api-access">
+                        <label class="form-label">@Text["Settings_ApiEndpointLabel"]</label>
+                        <div class="guide-output-endpoints">
+                            <div class="guide-output-endpoint-row">
+                                <div class="guide-output-endpoint-description">
+                                    <span class="fw-semibold">@Text["Settings_PrimaryEndpointLabel"]</span>
+                                </div>
+                                <code class="guide-output-endpoint-path guide-output-api-endpoint" title="@absoluteApiEndpoint">@absoluteApiEndpoint</code>
+                                <div class="btn-group guide-output-endpoint-actions" role="group" aria-label="@Text["Settings_PrimaryEndpointActionsLabel"]">
+                                    <button type="button"
+                                            class="btn btn-sm btn-outline-secondary guide-output-copy-link"
+                                            title="@Text["Settings_CopyGuideOutputLabel"]"
+                                            aria-label="@Text["Settings_CopyGuideOutputLabel"]"
+                                            @onclick="() => CopyEndpoint(absoluteApiEndpoint)">
+                                        <span class="bi bi-clipboard" aria-hidden="true"></span>
+                                    </button>
+                                    <a class="btn btn-sm btn-outline-secondary guide-output-view-link"
+                                       href="@viewEndpoint"
+                                       target="_blank"
+                                       rel="noopener noreferrer"
+                                       title="@Text["Settings_ViewGuideOutputLabel"]"
+                                       aria-label="@Text["Settings_ViewGuideOutputLabel"]">
+                                        <span class="bi bi-eye" aria-hidden="true"></span>
+                                    </a>
+                                    <a class="btn btn-sm btn-outline-secondary guide-output-download-link"
+                                       href="@downloadEndpoint"
+                                       title="@Text["Settings_DownloadGuideOutputLabel"]"
+                                       aria-label="@Text["Settings_DownloadGuideOutputLabel"]">
+                                        <span class="bi bi-download" aria-hidden="true"></span>
+                                    </a>
+                                </div>
+                            </div>
+                            @if (output.IsBuiltIn && Settings.IsXmltvGuideOutput(output))
+                            {
+                                <div class="guide-output-endpoint-help">@Text["Settings_GlobalXmltvEndpointHelp"]</div>
+                            }
+                            else
+                            {
+                                var stableIdEndpoint = $"/api/guide-outputs/{output.Id}";
+                                var absoluteStableIdEndpoint = Navigation.ToAbsoluteUri(stableIdEndpoint).AbsoluteUri;
+                                var stableIdViewEndpoint = $"{stableIdEndpoint}?download=false";
+                                var stableIdDownloadEndpoint = $"{stableIdEndpoint}?download=true";
+                                <div class="guide-output-endpoint-row">
+                                    <div class="guide-output-endpoint-description">
+                                        <span class="fw-semibold">@Text["Settings_StableIdEndpointLabel"]</span>
+                                        <span class="small text-body-secondary">@Text["Settings_StableIdEndpointHelp"]</span>
+                                    </div>
+                                    <code class="guide-output-endpoint-path guide-output-stable-id-endpoint" title="@absoluteStableIdEndpoint">@absoluteStableIdEndpoint</code>
+                                    <div class="btn-group guide-output-endpoint-actions" role="group" aria-label="@Text["Settings_StableIdEndpointActionsLabel"]">
+                                        <button type="button"
+                                                class="btn btn-sm btn-outline-secondary guide-output-stable-id-copy-link"
+                                                title="@Text["Settings_CopyStableGuideOutputLabel"]"
+                                                aria-label="@Text["Settings_CopyStableGuideOutputLabel"]"
+                                                @onclick="() => CopyEndpoint(absoluteStableIdEndpoint)">
+                                            <span class="bi bi-clipboard" aria-hidden="true"></span>
+                                        </button>
+                                        <a class="btn btn-sm btn-outline-secondary guide-output-stable-id-view-link"
+                                           href="@stableIdViewEndpoint"
+                                           target="_blank"
+                                           rel="noopener noreferrer"
+                                           title="@Text["Settings_ViewStableGuideOutputLabel"]"
+                                           aria-label="@Text["Settings_ViewStableGuideOutputLabel"]">
+                                            <span class="bi bi-eye" aria-hidden="true"></span>
+                                        </a>
+                                        <a class="btn btn-sm btn-outline-secondary guide-output-stable-id-download-link"
+                                           href="@stableIdDownloadEndpoint"
+                                           title="@Text["Settings_DownloadStableGuideOutputLabel"]"
+                                           aria-label="@Text["Settings_DownloadStableGuideOutputLabel"]">
+                                            <span class="bi bi-download" aria-hidden="true"></span>
+                                        </a>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <fieldset class="mb-3">
+                        <legend class="fs-6">@Text["Settings_VirtualDevicesHeading"]</legend>
+                        <div class="form-check">
+                            <input id="@($"guideOutputVirtualAll-{outputIndex}")" class="form-check-input" type="radio"
+                                   name="@($"guideOutputVirtualMode-{outputIndex}")"
+                                   checked="@(output.VirtualDeviceSelectionMode == GuideOutputSelectionMode.All)"
+                                   @onchange="() => output.VirtualDeviceSelectionMode = GuideOutputSelectionMode.All" />
+                            <label class="form-check-label" for="@($"guideOutputVirtualAll-{outputIndex}")">@Text["Settings_AllEnabledVirtualDevices"]</label>
+                        </div>
+                        <div class="form-check">
+                            <input id="@($"guideOutputVirtualSelected-{outputIndex}")" class="form-check-input" type="radio"
+                                   name="@($"guideOutputVirtualMode-{outputIndex}")"
+                                   checked="@(output.VirtualDeviceSelectionMode == GuideOutputSelectionMode.Selected)"
+                                   @onchange="() => output.VirtualDeviceSelectionMode = GuideOutputSelectionMode.Selected" />
+                            <label class="form-check-label" for="@($"guideOutputVirtualSelected-{outputIndex}")">@Text["Settings_SelectedVirtualDevices"]</label>
+                        </div>
+                        @if (output.VirtualDeviceSelectionMode == GuideOutputSelectionMode.Selected)
+                        {
+                            <div class="mt-2 ms-4">
+                                @foreach (var device in Host.Topology.VirtualDevices)
+                                {
+                                    <div class="form-check">
+                                        <input class="form-check-input guide-output-virtual" type="checkbox"
+                                               checked="@output.SelectedVirtualDeviceIds.Contains(device.Id)"
+                                               @onchange="args => Host.SetGuideOutputVirtualDevice(output, device.Id, args.Value is true)" />
+                                        <label class="form-check-label">@device.Name @if (!device.Enabled) { <span class="text-body-secondary">(@Text["Settings_DisabledLowercase"])</span> }</label>
+                                    </div>
+                                }
+                                <div class="form-text">@Text["Settings_EmptyVirtualDeviceSelectionHelp"]</div>
+                            </div>
+
+                            @code {
+                                private async Task CopyEndpoint(string endpoint)
+                                {
+                                    await JS.CopyTextAsync(endpoint);
+                                }
+                            }
+                        }
+                    </fieldset>
+
+                    <fieldset>
+                        <legend class="fs-6">@Text["Settings_GuideSourcesHeading"]</legend>
+                        <div class="form-check">
+                            <input id="@($"guideOutputGuideAll-{outputIndex}")" class="form-check-input" type="radio"
+                                   name="@($"guideOutputGuideMode-{outputIndex}")"
+                                   checked="@(output.GuideSourceSelectionMode == GuideOutputSelectionMode.All)"
+                                   @onchange="() => output.GuideSourceSelectionMode = GuideOutputSelectionMode.All" />
+                            <label class="form-check-label" for="@($"guideOutputGuideAll-{outputIndex}")">@Text["Settings_AllEnabledGuideSources"]</label>
+                        </div>
+                        <div class="form-check">
+                            <input id="@($"guideOutputGuideSelected-{outputIndex}")" class="form-check-input" type="radio"
+                                   name="@($"guideOutputGuideMode-{outputIndex}")"
+                                   checked="@(output.GuideSourceSelectionMode == GuideOutputSelectionMode.Selected)"
+                                   @onchange="() => output.GuideSourceSelectionMode = GuideOutputSelectionMode.Selected" />
+                            <label class="form-check-label" for="@($"guideOutputGuideSelected-{outputIndex}")">@Text["Settings_SelectedGuideSources"]</label>
+                        </div>
+                        @if (output.GuideSourceSelectionMode == GuideOutputSelectionMode.Selected)
+                        {
+                            <div class="mt-2 ms-4">
+                                @foreach (var source in Host.Topology.GuideSources)
+                                {
+                                    <div class="form-check">
+                                        <input class="form-check-input guide-output-guide" type="checkbox"
+                                               checked="@output.SelectedGuideSourceIds.Contains(source.Id)"
+                                               @onchange="args => Host.SetGuideOutputGuideSource(output, source.Id, args.Value is true)" />
+                                        <label class="form-check-label">@source.Name @if (!source.Enabled) { <span class="text-body-secondary">(@Text["Settings_DisabledLowercase"])</span> }</label>
+                                    </div>
+                                }
+                                <div class="form-text">@Text["Settings_EmptyGuideSourceSelectionHelp"]</div>
+                            </div>
+                        }
+                    </fieldset>
+                </div>
+            </section>
+
+            @if (output.IsBuiltIn)
+            {
+                <div class="form-check form-switch mt-3">
+                    <input type="checkbox" class="form-check-input" id="autoGenerateXmltv" @bind="Host.AutoGenerateXmltv" />
+                    <label class="form-check-label" for="autoGenerateXmltv">@Text["Settings_PublishGuideOutputsAfterFetchLabel"]</label>
+                </div>
+            }
+        }
+    </div>
+
+    @if (Host.ShowGuideOutputTypePickerValue)
+    {
+        <TypePickerModal Id="guideOutputTypePicker" Title="@Text["Settings_AddGuideOutputButton"]" CloseRequested="() => Host.ShowGuideOutputTypePickerValue = false">
+            @foreach (var driver in Host.AvailableGuideOutputDrivers)
+            {
+                <button type="button" class="list-group-item list-group-item-action add-guide-output-type"
+                        data-guide-output-kind="@driver.Kind" @onclick="() => Host.AddGuideOutput(driver)">
+                    <strong>@driver.DisplayName</strong>
+                    <div class="small text-body-secondary">@Text["Settings_AddGuideOutputTypeDescription", driver.DisplayName]</div>
+                </button>
+            }
+        </TypePickerModal>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public required Settings Host { get; set; }
+
+    [Parameter]
+    public string CssClass { get; set; } = string.Empty;
+}

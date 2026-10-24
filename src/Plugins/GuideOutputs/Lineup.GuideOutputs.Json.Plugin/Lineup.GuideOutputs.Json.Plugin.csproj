@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.12" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Core\Lineup.Common\Lineup.Common.csproj" />
+    <ProjectReference Include="..\..\..\Core\Lineup.Extensibility\Lineup.Extensibility.csproj" />
+    <ProjectReference Include="..\Lineup.GuideOutputs.Json\Lineup.GuideOutputs.Json.csproj" />
+  </ItemGroup>
+</Project>

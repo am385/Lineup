@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "Lineup.Streaming.Sweep.FaultSource": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:58580;http://localhost:58581"
+    }
+  }
+}

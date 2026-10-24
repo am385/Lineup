@@ -6,6 +6,7 @@ These instructions apply to the entire repository.
 
 All agent work is subject to human review and approval.
 
+- Do not perform any Git action unless the user explicitly requests that exact action. This includes staging, unstaging, committing, amending, resetting, restoring, checking out, switching or creating branches, rebasing, merging, stashing, tagging, pushing, pulling, fetching, and commands such as `git status`, `git diff`, or `git write-tree` that inspect or may refresh Git-managed state.
 - Never create, amend, or merge a commit unless the user explicitly requests that exact Git operation.
 - Never create or push a branch, tag, pull request, or release unless the user explicitly requests it.
 - Leave completed changes in the working tree so a human can inspect and approve them.

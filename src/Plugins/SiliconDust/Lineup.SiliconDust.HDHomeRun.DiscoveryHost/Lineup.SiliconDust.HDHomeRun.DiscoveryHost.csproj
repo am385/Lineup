@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Core\Lineup.VirtualOutputs.Hosting\Lineup.VirtualOutputs.Hosting.csproj" />
+    <ProjectReference Include="..\Lineup.SiliconDust.HDHomeRun.VirtualTuner\Lineup.SiliconDust.HDHomeRun.VirtualTuner.csproj" />
+  </ItemGroup>
+  <Target Name="WriteVirtualOutputManifest" AfterTargets="Build">
+    <GetFileHash Files="$(TargetPath)" Algorithm="SHA256">
+      <Output TaskParameter="Items" ItemName="_WorkerHashItem" />
+    </GetFileHash>
+    <PropertyGroup>
+      <_WorkerHash>@(_WorkerHashItem->'%(FileHash)')</_WorkerHash>
+      <_WorkerManifest>{"schemaVersion":1,"workerId":"hdhomerun-discovery","version":"$(Version)","publisher":"Lineup","executablePath":"$(TargetFileName)","executableSha256":"$(_WorkerHash)","adapterKinds":["hdhomerun-discovery"],"platforms":[],"minimumProtocolVersion":1,"maximumProtocolVersion":1,"minimumLineupVersion":"$(Version)","settingsDescriptor":{"adapterKind":"hdhomerun-discovery","fields":[]}}</_WorkerManifest>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(TargetDir)hdhomerun-discovery.virtual-output.json" Lines="$(_WorkerManifest)" Overwrite="true" />
+  </Target>
+</Project>

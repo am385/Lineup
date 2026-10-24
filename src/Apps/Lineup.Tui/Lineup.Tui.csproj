@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.12" />
+    <PackageReference Include="Serilog.Extensions.Hosting" Version="10.0.0" />
+    <PackageReference Include="Serilog.Settings.Configuration" Version="10.0.1" />
+    <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
+    <PackageReference Include="Spectre.Console" Version="0.57.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Core\Lineup.Extensibility\Lineup.Extensibility.csproj" />
+    <ProjectReference Include="..\..\Core\Lineup.Core\Lineup.Core.csproj" />
+    <ProjectReference Include="..\..\Core\Lineup.Core.Hosting\Lineup.Core.Hosting.csproj" />
+    <ProjectReference Include="..\..\Core\Lineup.Streaming.FFmpeg\Lineup.Streaming.FFmpeg.csproj" />
+    <ProjectReference Include="..\..\Core\Lineup.VirtualOutputs.Runtime\Lineup.VirtualOutputs.Runtime.csproj" />
+    <ProjectReference Include="..\..\Plugins\GuideOutputs\Lineup.GuideOutputs.Json.Plugin\Lineup.GuideOutputs.Json.Plugin.csproj" />
+    <ProjectReference Include="..\..\Plugins\GuideOutputs\Lineup.GuideOutputs.Xmltv.Plugin\Lineup.GuideOutputs.Xmltv.Plugin.csproj" />
+    <ProjectReference Include="..\..\Plugins\SiliconDust\Lineup.SiliconDust.GuideSource\Lineup.SiliconDust.GuideSource.csproj" />
+    <ProjectReference Include="..\..\Plugins\LineupLink\Lineup.LineupLink\Lineup.LineupLink.csproj" />
+    <ProjectReference Include="..\..\Plugins\SiliconDust\Lineup.SiliconDust.HDHomeRun.PhysicalTuner\Lineup.SiliconDust.HDHomeRun.PhysicalTuner.csproj" />
+    <ProjectReference Include="..\..\Plugins\SiliconDust\Lineup.SiliconDust.HDHomeRun.VirtualTuner\Lineup.SiliconDust.HDHomeRun.VirtualTuner.csproj" />
+    <ProjectReference Include="..\..\Plugins\WebPlayer\Lineup.WebPlayer\Lineup.WebPlayer.csproj" />
+    <ProjectReference Include="..\..\Plugins\SiliconDust\Lineup.SiliconDust.HDHomeRun.DiscoveryRuntime\Lineup.SiliconDust.HDHomeRun.DiscoveryRuntime.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Lineup.Tui.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="streaming.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <Import Project="..\..\..\build\Lineup.Host.VirtualOutputWorkers.targets"
+          Condition="Exists('..\..\..\build\Lineup.Host.VirtualOutputWorkers.targets')" />
+
+</Project>

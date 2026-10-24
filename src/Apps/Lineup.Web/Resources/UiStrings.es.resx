@@ -1,0 +1,1121 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="metadata">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" />
+              </xsd:sequence>
+              <xsd:attribute name="name" use="required" type="xsd:string" />
+              <xsd:attribute name="type" type="xsd:string" />
+              <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="assembly">
+            <xsd:complexType>
+              <xsd:attribute name="alias" type="xsd:string" />
+              <xsd:attribute name="name" type="xsd:string" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <data name="General_AppearanceHeading" xml:space="preserve"><value>Apariencia</value></data>
+  <data name="General_ThemeLabel" xml:space="preserve"><value>Tema</value></data>
+  <data name="General_ThemeLight" xml:space="preserve"><value>Claro</value></data>
+  <data name="General_ThemeDark" xml:space="preserve"><value>Oscuro</value></data>
+  <data name="General_ThemeAuto" xml:space="preserve"><value>Automático</value></data>
+  <data name="General_ThemeHelp" xml:space="preserve"><value>Elija Claro, Oscuro o Automático para seguir las preferencias de su sistema.</value></data>
+  <data name="General_RegionalHeading" xml:space="preserve"><value>Configuración regional</value></data>
+  <data name="General_NetworkHeading" xml:space="preserve"><value>Configuración de red</value></data>
+  <data name="General_KnownProxiesLabel" xml:space="preserve"><value>Proxies conocidos</value></data>
+  <data name="General_KnownProxiesHelp" xml:space="preserve"><value>Introduzca una dirección IP de proxy inverso de confianza o una red CIDR por línea. Déjelo vacío cuando el listener de administración no esté detrás de un proxy inverso. El proxy debe conservar Host y enviar X-Forwarded-For y X-Forwarded-Proto.</value></data>
+  <data name="General_KnownProxiesRestartHelp" xml:space="preserve"><value>Al cambiar los proxies conocidos, se guarda la configuración y Lineup se reinicia correctamente para aplicar el nuevo límite de confianza. Los listeners dedicados de salida virtual usan su propia configuración de proxies de confianza y solo reciclan el proceso de trabajo afectado.</value></data>
+  <data name="General_TimeZoneLabel" xml:space="preserve"><value>Zona horaria</value></data>
+  <data name="General_SystemDefault" xml:space="preserve"><value>Valor predeterminado del sistema</value></data>
+  <data name="General_TimeZoneHelpPrefix" xml:space="preserve"><value>Anule la zona horaria de visualización. "Valor predeterminado del sistema" usa la variable de entorno</value></data>
+  <data name="General_TimeZoneHelpSuffix" xml:space="preserve"><value>o la hora local del servidor.</value></data>
+  <data name="General_CurrentTimeZone" xml:space="preserve"><value>Actualmente:</value></data>
+  <data name="General_LanguageLabel" xml:space="preserve"><value>Idioma</value></data>
+  <data name="General_LanguageEnglish" xml:space="preserve"><value>Inglés</value></data>
+  <data name="General_LanguageSpanish" xml:space="preserve"><value>Español</value></data>
+  <data name="General_LanguageHelp" xml:space="preserve"><value>Elija el idioma utilizado por la interfaz web de Lineup.</value></data>
+  <data name="Settings_PageTitle" xml:space="preserve"><value>Configuración</value></data>
+  <data name="Settings_RestartingHeading" xml:space="preserve"><value>Reiniciando Lineup</value></data>
+  <data name="Settings_FactoryResetRestartHelp" xml:space="preserve"><value>El restablecimiento de fábrica está completo. Lineup volverá a la configuración del dispositivo automáticamente cuando esté listo.</value></data>
+  <data name="Settings_RestartHelp" xml:space="preserve"><value>Lineup volverá a esta página automáticamente cuando esté listo.</value></data>
+  <data name="Settings_RestartDelayedHeading" xml:space="preserve"><value>Lineup está tardando más de lo esperado</value></data>
+  <data name="Settings_RestartDelayedHelp" xml:space="preserve"><value>Asegúrese de que Lineup se esté ejecutando y luego intente conectarse nuevamente.</value></data>
+  <data name="Common_Retry" xml:space="preserve"><value>Reintentar</value></data>
+  <data name="Settings_FactoryResetRequiredHeading" xml:space="preserve"><value>Se requiere un restablecimiento de fábrica</value></data>
+  <data name="Settings_FactoryResetRequiredHelp" xml:space="preserve"><value>Las operaciones normales de dispositivo, guía, descubrimiento y transmisión están deshabilitadas. Utilice la pestaña Restablecer a continuación para borrar explícitamente el estado incompatible y reiniciar Lineup.</value></data>
+  <data name="Settings_WelcomeHeading" xml:space="preserve"><value>¡Bienvenido a Lineup!</value></data>
+  <data name="Settings_WelcomePrefix" xml:space="preserve"><value>Añadir un</value></data>
+  <data name="Settings_WelcomePhysicalDevice" xml:space="preserve"><value>Dispositivo físico</value></data>
+  <data name="Settings_WelcomeAnd" xml:space="preserve"><value>y</value></data>
+  <data name="Settings_WelcomeGuideSource" xml:space="preserve"><value>Fuente de la guía</value></data>
+  <data name="Settings_WelcomeOptional" xml:space="preserve"><value>opcionalmente agregue un</value></data>
+  <data name="Settings_WelcomeVirtualDevice" xml:space="preserve"><value>Dispositivo virtual</value></data>
+  <data name="Settings_WelcomeThenClick" xml:space="preserve"><value>luego haga clic</value></data>
+  <data name="Settings_SaveSettings" xml:space="preserve"><value>Guardar configuración</value></data>
+  <data name="Settings_WelcomeSuffix" xml:space="preserve"><value>para empezar.</value></data>
+  <data name="Settings_CategoriesAriaLabel" xml:space="preserve"><value>Categorías de configuración</value></data>
+  <data name="Settings_TabGeneral" xml:space="preserve"><value>General</value></data>
+  <data name="Settings_TabDashboard" xml:space="preserve"><value>Panel de control</value></data>
+  <data name="Settings_TabGuideSources" xml:space="preserve"><value>Fuentes de guía</value></data>
+  <data name="Settings_TabGuideOutputs" xml:space="preserve"><value>Salidas de la guía</value></data>
+  <data name="Settings_TabPhysicalDevices" xml:space="preserve"><value>Dispositivos físicos</value></data>
+  <data name="Settings_TabVirtualDevices" xml:space="preserve"><value>Dispositivos virtuales</value></data>
+  <data name="Settings_TabStreaming" xml:space="preserve"><value>Transmisión</value></data>
+  <data name="Settings_TabApi" xml:space="preserve"><value>API</value></data>
+  <data name="Settings_TabLogging" xml:space="preserve"><value>Registro</value></data>
+  <data name="Settings_TabReset" xml:space="preserve"><value>Restablecer</value></data>
+  <data name="Settings_SaveAndGetStarted" xml:space="preserve"><value>Guardar y comenzar</value></data>
+  <data name="Common_Undo" xml:space="preserve"><value>Deshacer</value></data>
+  <data name="Common_Skip" xml:space="preserve"><value>Saltar</value></data>
+  <data name="Common_Cancel" xml:space="preserve"><value>Cancelar</value></data>
+  <data name="Settings_AboutHeading" xml:space="preserve"><value>Acerca de la configuración</value></data>
+  <data name="Settings_AboutAppearance" xml:space="preserve"><value>Controla cómo se presenta la interfaz web sin cambiar el comportamiento de la guía o la transmisión compartida.</value></data>
+  <data name="Settings_AboutRegional" xml:space="preserve"><value>Controla cómo se muestran las fechas y horas en Lineup. No cambia las marcas de tiempo del programa almacenadas por los proveedores de guías.</value></data>
+  <data name="Settings_AboutEpgFetchTitle" xml:space="preserve"><value>Configuración de obtención de EPG</value></data>
+  <data name="Settings_AboutEpgFetch" xml:space="preserve"><value>Controla el programa de actualización de la guía compartida, si las listas de canales físicos se actualizan primero y cuánto historial de programas completos se retiene.</value></data>
+  <data name="Settings_AboutXmltvOutputTitle" xml:space="preserve"><value>Configuración de salida XMLTV</value></data>
+  <data name="Settings_AboutXmltvOutput" xml:space="preserve"><value>Publica la guía combinada para consumidores externos solo después de que se completa una actualización, por lo que los lectores nunca reciben un documento parcialmente actualizado.</value></data>
+  <data name="Settings_AboutGuideOutputs" xml:space="preserve"><value>Publica de forma predeterminada los datos de guía almacenados en caché para todos los dispositivos virtuales habilitados. Cree salidas con un alcance específico cuando un consumidor posterior solo necesite determinados dispositivos virtuales o fuentes de guía.</value></data>
+  <data name="Settings_AboutGuideSourceTitle" xml:space="preserve"><value>Configuración de fuente de guía</value></data>
+  <data name="Settings_AboutGuideSource" xml:space="preserve"><value>Configura {0}, una instancia de {1} y si contribuye con datos durante las actualizaciones de la guía.</value></data>
+  <data name="Settings_AboutPhysicalSubscriptionTitle" xml:space="preserve"><value>Suscripción de dispositivo físico</value></data>
+  <data name="Settings_AboutPhysicalSubscription" xml:space="preserve"><value>Define qué dispositivos físicos compatibles proporcionan canales y cualquier autorización de proveedor requerida por esta fuente. Seleccionar todo también incluye los dispositivos compatibles agregados más adelante.</value></data>
+  <data name="Settings_AboutRefreshTitle" xml:space="preserve"><value>Configuración de actualización</value></data>
+  <data name="Settings_AboutRefresh" xml:space="preserve"><value>Controla programas de sondeo independientes para obtener información del dispositivo relativamente estable y cambios frecuentes en el estado del sintonizador. Estos intervalos se aplican a todos los dispositivos físicos.</value></data>
+  <data name="Settings_AboutTranscoderTitle" xml:space="preserve"><value>Configuración del transcodificador</value></data>
+  <data name="Settings_AboutPhysicalTranscoder" xml:space="preserve"><value>Define los valores predeterminados de la etapa de origen que se aplican antes de que las transmisiones ingresen al multiplexor. Las pestañas del dispositivo pueden anular solo las políticas requeridas por esa fuente y heredar el resto.</value></data>
+  <data name="Settings_AboutDeviceTitle" xml:space="preserve"><value>Configuración del dispositivo</value></data>
+  <data name="Settings_AboutPhysicalDevice" xml:space="preserve"><value>Configura {0}, una instancia {1}, incluida su identidad, conexión y estado habilitado. Los dispositivos deshabilitados permanecen configurados pero no participan en las actualizaciones de canales, fuentes de guía, capacidad del sintonizador ni enrutamiento.</value></data>
+  <data name="Settings_AboutHdHomeRunConnection" xml:space="preserve"><value>La conexión se realiza directamente desde el host de Lineup, por lo que la dirección debe ser accesible desde ese host o contenedor.</value></data>
+  <data name="Settings_AboutLineupLinkPhysicalConnection" xml:space="preserve"><value>Importa canales y transmisiones desde un dispositivo virtual remoto; los paquetes de conexión contienen credenciales y deben tratarse como secretos.</value></data>
+  <data name="Settings_AboutPluginPhysicalConnection" xml:space="preserve"><value>Las opciones de conexión y origen proporcionadas por el complemento se aplican solo a esta instancia.</value></data>
+  <data name="Settings_AboutTestIdentify" xml:space="preserve"><value>Probar e identificar valida la conexión actual sin guardar y obtiene de forma segura la identidad del dispositivo sin guardarlo ni activarlo.</value></data>
+  <data name="Settings_AboutPhysicalDeviceTranscoder" xml:space="preserve"><value>Anula los valores predeterminados de la etapa de origen solo para este dispositivo. Las opciones sin una anulación habilitada continúan heredando la configuración global del dispositivo físico actual y futura.</value></data>
+  <data name="Settings_AboutVirtualTranscoder" xml:space="preserve"><value>Define los valores predeterminados de la etapa de salida utilizados para crear transmisiones específicas del consumidor después de la multiplexación. Las pestañas de dispositivos virtuales pueden anular solo las políticas requeridas por esa salida.</value></data>
+  <data name="Settings_AboutDiscoveryTitle" xml:space="preserve"><value>Descubrimiento de sintonizador virtual</value></data>
+  <data name="Settings_AboutDiscovery" xml:space="preserve"><value>Controla la publicación en la red local de dispositivos HDHomeRun virtuales habilitados. El Web Player integrado permanece disponible independientemente del descubrimiento de la red.</value></data>
+  <data name="Settings_BuiltInWebPlayerDescription" xml:space="preserve"><value>Web Player integrado</value></data>
+  <data name="Settings_AboutVirtualDevice" xml:space="preserve"><value>Configura {0}, una salida {1}, incluido su estado habilitado y la suscripción del dispositivo físico.</value></data>
+  <data name="Settings_AboutWebPlayer" xml:space="preserve"><value>La página de visualización utiliza esta salida, que se puede desactivar pero no eliminar.</value></data>
+  <data name="Settings_AboutHdHomeRunVirtual" xml:space="preserve"><value>Emula un HDHomeRun, con una capacidad de sintonizadores derivada de los dispositivos físicos suscritos, salvo que se limite explícitamente.</value></data>
+  <data name="Settings_AboutLineupLinkVirtual" xml:space="preserve"><value>Expone canales de forma segura a otro host de Lineup; los paquetes de conexión exportados contienen credenciales y deben tratarse como secretos.</value></data>
+  <data name="Settings_AboutPluginVirtual" xml:space="preserve"><value>Las opciones de identidad y salida proporcionadas por el complemento se aplican solo a esta instancia.</value></data>
+  <data name="Settings_AboutVirtualDeviceTranscoder" xml:space="preserve"><value>Anula los valores predeterminados de la etapa de salida solo para este dispositivo virtual. Las opciones sin una anulación habilitada continúan heredando la configuración global del dispositivo virtual actual y futura.</value></data>
+  <data name="Settings_AboutStreamingTitle" xml:space="preserve"><value>Políticas de transmisión</value></data>
+  <data name="Settings_AboutStreaming" xml:space="preserve"><value>Controla la admisión de transmisiones en toda la aplicación, la retención de canalizaciones compartidas y las respuestas para transmisiones que no pueden ofrecer programación normal. Los perfiles de transcodificador físico y virtual se configuran en las pestañas de sus dispositivos.</value></data>
+  <data name="Settings_AboutActiveStreamsTitle" xml:space="preserve"><value>Transmisiones activas</value></data>
+  <data name="Settings_AboutActiveStreams" xml:space="preserve"><value>Controla la frecuencia con la que el Panel actualiza su vista en caché de los consumidores, el uso del sintonizador, las adquisiciones compartidas, las transcodificaciones y el flujo de transmisión.</value></data>
+  <data name="Settings_AboutStatusApiTitle" xml:space="preserve"><value>API de estado</value></data>
+  <data name="Settings_AboutStatusApiPrefix" xml:space="preserve"><value>Controla la ocultación de datos privados en la instantánea de solo lectura</value></data>
+  <data name="Settings_AboutStatusApiSuffix" xml:space="preserve"><value>Las propiedades ocultas permanecen presentes como</value></data>
+  <data name="Settings_AboutStatusApiEnd" xml:space="preserve"><value>para conservar una estructura de respuesta estable sin activar operaciones de dispositivos ni de la guía.</value></data>
+  <data name="Settings_AboutLogFiltersTitle" xml:space="preserve"><value>Filtros de registro de aplicaciones</value></data>
+  <data name="Settings_AboutLogFilters" xml:space="preserve"><value>Controla los filtros de gravedad predeterminados y específicos de categoría administrados por web para cada salida de registro. Al desactivar las anulaciones se restaura la configuración de inicio.</value></data>
+  <data name="Settings_AboutLocalDiagnosticsTitle" xml:space="preserve"><value>Diagnóstico local</value></data>
+  <data name="Settings_AboutLocalDiagnostics" xml:space="preserve"><value>Configura archivos de registro rotativos que se conservan tras los reinicios, además de la página Registros limitada en memoria, y administra los archivos de diagnóstico conservados.</value></data>
+  <data name="Settings_AboutOutputHosting" xml:space="preserve"><value>Controla si esta salida virtual comparte el host de la interfaz de administración o se ejecuta en un servicio de escucha dedicado, incluido el modo de proceso, los enlaces, la seguridad del transporte y la política de reinicio.</value></data>
+  <data name="Settings_AboutExternalTargetsTitle" xml:space="preserve"><value>Objetivos externos</value></data>
+  <data name="Settings_AboutExternalTargets" xml:space="preserve"><value>Los destinos externos, como OTLP, se configuran al iniciar, por lo que las credenciales nunca se guardan ni se muestran en la interfaz web de configuración.</value></data>
+  <data name="Settings_AboutResetTitle" xml:space="preserve"><value>Restablecer configuración</value></data>
+  <data name="Settings_AboutReset" xml:space="preserve"><value>Organiza la configuración web y compartida predeterminada para su revisión sin cambiar inmediatamente la configuración persistente.</value></data>
+  <data name="Settings_AboutRestartTitle" xml:space="preserve"><value>Reiniciar Lineup</value></data>
+  <data name="Settings_AboutRestart" xml:space="preserve"><value>Reinicia correctamente el host sin cambiar la configuración ni eliminar datos.</value></data>
+  <data name="Settings_AboutFactoryResetTitle" xml:space="preserve"><value>Restablecimiento de fábrica</value></data>
+  <data name="Settings_AboutFactoryReset" xml:space="preserve"><value>Elimina permanentemente la configuración y los datos de propiedad de Lineup antes de reiniciar la configuración de primera ejecución. Los archivos externos XMLTV permanecen intactos.</value></data>
+  <data name="Settings_WebSettingsStorage" xml:space="preserve"><value>Estas configuraciones de host web se guardan en</value></data>
+  <data name="Settings_WebSettingsStorageSuffix" xml:space="preserve"><value>y se conservan entre reinicios.</value></data>
+  <data name="Settings_GeneralStoragePrefix" xml:space="preserve"><value>El tema y el idioma se guardan en</value></data>
+  <data name="Settings_GeneralStorageMiddle" xml:space="preserve"><value>la configuración regional compartida se guarda en</value></data>
+  <data name="Settings_ResetStoragePrefix" xml:space="preserve"><value>Las operaciones de restablecimiento pueden afectar</value></data>
+  <data name="Settings_ResetStorageSuffix" xml:space="preserve"><value>y otros datos de aplicaciones propiedad de Lineup.</value></data>
+  <data name="Settings_SharedStoragePrefix" xml:space="preserve"><value>Estas configuraciones compartidas se guardan en</value></data>
+  <data name="Settings_SharedStorageSuffix" xml:space="preserve"><value>y pueden usarse desde la Web y otros hosts de Lineup.</value></data>
+  <data name="Settings_DeviceRefreshValidation" xml:space="preserve"><value>El intervalo de actualización del dispositivo debe estar entre 0 y 60 minutos.</value></data>
+  <data name="Settings_TunerRefreshValidation" xml:space="preserve"><value>El intervalo de actualización del sintonizador debe estar entre 0 y 300 segundos.</value></data>
+  <data name="Settings_StreamRefreshValidation" xml:space="preserve"><value>El intervalo de actualización de transmisiones activas debe estar entre 0 y 300 segundos.</value></data>
+  <data name="Settings_EpgRetentionValidation" xml:space="preserve"><value>La retención del historial de EPG debe estar entre 0 y 720 horas.</value></data>
+  <data name="Settings_LogRetentionValidation" xml:space="preserve"><value>La retención de registros debe ser de 1 a 90 días y el tamaño del archivo debe ser de 1 a 500 MB.</value></data>
+  <data name="Settings_ApplicationLogApplyFailure" xml:space="preserve"><value>No se pudieron aplicar los filtros de registro de aplicaciones: {0}</value></data>
+  <data name="Settings_FileLogApplyFailure" xml:space="preserve"><value>No se pudo aplicar el registro de archivos: {0}</value></data>
+  <data name="Settings_PartialSaveFailure" xml:space="preserve"><value>La configuración se guardó, pero {0}</value></data>
+  <data name="Settings_SaveSuccess" xml:space="preserve"><value>¡La configuración se guardó correctamente!</value></data>
+  <data name="Settings_SecretShownOnce" xml:space="preserve"><value>{0} {1} (se muestra una vez): {2}</value></data>
+  <data name="Settings_SaveFailure" xml:space="preserve"><value>Error al guardar la configuración: {0}</value></data>
+  <data name="Settings_ResetDefaultsSuccess" xml:space="preserve"><value>La configuración se restablece a los valores predeterminados. Haga clic en Guardar para aplicar.</value></data>
+  <data name="Settings_LogCategoryValidation" xml:space="preserve"><value>Los prefijos de categorías de registro deben contener entre 1 y 200 caracteres y no pueden denominarse Default.</value></data>
+  <data name="Settings_LogCategoryUniqueValidation" xml:space="preserve"><value>Los prefijos de categorías de registro deben ser únicos.</value></data>
+  <data name="Settings_UndoSuccess" xml:space="preserve"><value>Se revirtieron los cambios de configuración no guardados.</value></data>
+  <data name="Settings_RestartFailure" xml:space="preserve"><value>Lineup no se pudo reiniciar: {0}</value></data>
+  <data name="Settings_FactoryResetFailure" xml:space="preserve"><value>No se pudo iniciar el restablecimiento de fábrica: {0}</value></data>
+  <data name="Settings_NoFileLogs" xml:space="preserve"><value>No se encontraron registros de archivos.</value></data>
+  <data name="Settings_DeleteFileLogSingular" xml:space="preserve"><value>Se eliminó el registro del archivo {0}.</value></data>
+  <data name="Settings_DeleteFileLogPlural" xml:space="preserve"><value>Se eliminaron {0} archivos de registro.</value></data>
+  <data name="Settings_DeleteFileLogsFailure" xml:space="preserve"><value>No se pudieron eliminar los registros de archivos: {0}</value></data>
+  <data name="Settings_GuideOutputDestinationRequired" xml:space="preserve"><value>La salida de guía {0} requiere un destino de salida.</value></data>
+  <data name="Settings_GuideOutputDestinationInvalid" xml:space="preserve"><value>La salida de la guía {0} tiene un destino de salida no válido.</value></data>
+  <data name="Settings_CurrentGuidePathInvalid" xml:space="preserve"><value>La ruta de salida de la guía actual no es válida. Seleccione un directorio de servidor.</value></data>
+  <data name="Settings_DirectoryAccessDenied" xml:space="preserve"><value>Acceso denegado a este directorio.</value></data>
+  <data name="Settings_DirectoryBrowseFailure" xml:space="preserve"><value>No se puede navegar por este directorio: {0}</value></data>
+  <data name="Settings_NoPhysicalDrivers" xml:space="preserve"><value>No se registran controladores de dispositivos físicos creados por el usuario.</value></data>
+  <data name="Settings_ConnectionTestUnsupported" xml:space="preserve"><value>{0} no admite pruebas de conexión.</value></data>
+  <data name="Settings_ConnectionTestSuccess" xml:space="preserve"><value>Conectado a {0} exitosamente.</value></data>
+  <data name="Settings_ConnectionTestFailure" xml:space="preserve"><value>La prueba de conexión falló: {0}</value></data>
+  <data name="Settings_NoVirtualDrivers" xml:space="preserve"><value>No se registran controladores de dispositivos virtuales creados por el usuario.</value></data>
+  <data name="Settings_NoGuideSourceDrivers" xml:space="preserve"><value>No se registran controladores de origen de guías creados por el usuario.</value></data>
+  <data name="Settings_NoGuideOutputDrivers" xml:space="preserve"><value>No se registran controladores de salida de guías creados por el usuario.</value></data>
+  <data name="Settings_LineupLinkBundleImported" xml:space="preserve"><value>Paquete de conexión de Lineup Link importado. Haga clic en Guardar para conectarse.</value></data>
+  <data name="Settings_LineupLinkGrantCreated" xml:space="preserve"><value>Se creó una concesión de acceso Lineup Link. Guarde la configuración, luego copie o exporte su paquete ahora; el token sin procesar no se almacena.</value></data>
+  <data name="Settings_LineupLinkGrantRotated" xml:space="preserve"><value>Se rotó la concesión de acceso Lineup Link. Guarde la configuración y luego actualice el cliente remoto con el paquete de reemplazo.</value></data>
+  <data name="Settings_LineupLinkGrantRevoked" xml:space="preserve"><value>La concesión de acceso Lineup Link fue revocada. Guarde la configuración para rechazar esa credencial.</value></data>
+  <data name="Settings_LineupLinkGrantPurged" xml:space="preserve"><value>La concesión de acceso Lineup Link revocada se eliminó permanentemente. Guarde la configuración para conservar la eliminación.</value></data>
+  <data name="Settings_LineupLinkBundleDownloaded" xml:space="preserve"><value>Se descargó el paquete de conexión Lineup Link.</value></data>
+  <data name="Settings_LineupLinkDownloadDisconnected" xml:space="preserve"><value>El paquete de conexión no se pudo descargar porque el navegador se desconectó.</value></data>
+  <data name="Settings_LineupLinkDownloadFailure" xml:space="preserve"><value>El navegador no pudo descargar el paquete de conexión Lineup Link.</value></data>
+  <data name="Settings_LineupLinkBundleCopied" xml:space="preserve"><value>El paquete de conexión Lineup Link se copió en el portapapeles.</value></data>
+  <data name="Settings_LineupLinkCopyDisconnected" xml:space="preserve"><value>El paquete de conexión no se pudo copiar porque el navegador se desconectó.</value></data>
+  <data name="Settings_LineupLinkCopyFailure" xml:space="preserve"><value>El navegador no pudo copiar el paquete de conexión Lineup Link.</value></data>
+  <data name="Settings_LineupLinkRawTokenUnavailable" xml:space="preserve"><value>El token sin formato actual no está disponible. Rote esta concesión para crear un nuevo paquete de conexión.</value></data>
+  <data name="Settings_AccessTokenHelp" xml:space="preserve"><value>Token de portador emitido por el dispositivo virtual remoto. Trátelo como una contraseña.</value></data>
+  <data name="Settings_AccessTokenLabel" xml:space="preserve"><value>token de acceso</value></data>
+  <data name="Settings_AddGuideOutputButton" xml:space="preserve"><value>Agregar salida de guía</value></data>
+  <data name="Settings_AddGuideOutputTypeDescription" xml:space="preserve"><value>Agregue una salida de guía {0}.</value></data>
+  <data name="Settings_AddGuideSourceButton" xml:space="preserve"><value>Agregar fuente de guía</value></data>
+  <data name="Settings_AddGuideSourceTypeDescription" xml:space="preserve"><value>Agregue una fuente de guía {0}.</value></data>
+  <data name="Settings_AddLogCategoryButton" xml:space="preserve"><value>Agregar categoría</value></data>
+  <data name="Settings_AddPhysicalDeviceButton" xml:space="preserve"><value>Agregar dispositivo físico</value></data>
+  <data name="Settings_AddPhysicalDeviceDescription" xml:space="preserve"><value>Seleccione el tipo de dispositivo físico a agregar.</value></data>
+  <data name="Settings_AddressLabel" xml:space="preserve"><value>Dirección</value></data>
+  <data name="Settings_AddVirtualDeviceButton" xml:space="preserve"><value>Agregar dispositivo virtual</value></data>
+  <data name="Settings_AddVirtualDeviceDescription" xml:space="preserve"><value>Seleccione el tipo de dispositivo virtual para agregar.</value></data>
+  <data name="Settings_AdvancedNetworkingHeading" xml:space="preserve"><value>Redes avanzadas</value></data>
+  <data name="Settings_AdvertisedBaseUrlHelp" xml:space="preserve"><value>URL del host de administración accesible externamente que se utiliza en las respuestas de descubrimiento y de lista de canales.</value></data>
+  <data name="Settings_AdvertisedBaseUrlLabel" xml:space="preserve"><value>URL base anunciada</value></data>
+  <data name="Settings_AdvertiseLocalNetworkHelp" xml:space="preserve"><value>Publica este dispositivo a través del descubrimiento SiliconDust UDP y SSDP cuando el descubrimiento del sintonizador virtual está habilitado.</value></data>
+  <data name="Settings_AdvertiseLocalNetworkLabel" xml:space="preserve"><value>Anunciar en la red local</value></data>
+  <data name="Settings_AllCompatibleEnabledDevices" xml:space="preserve"><value>Todos los dispositivos habilitados compatibles</value></data>
+  <data name="Settings_AllEnabledGuideSources" xml:space="preserve"><value>Todas las fuentes de guía habilitadas</value></data>
+  <data name="Settings_AllEnabledPhysicalDevices" xml:space="preserve"><value>Todos los dispositivos físicos habilitados</value></data>
+  <data name="Settings_AllEnabledVirtualDevices" xml:space="preserve"><value>Todos los dispositivos virtuales habilitados</value></data>
+  <data name="Settings_AllowedClientNetworksHelp" xml:space="preserve"><value>CIDR opcionales separados por comas. Vacío permite clientes de cualquier red permitida por el firewall.</value></data>
+  <data name="Settings_AllowedClientNetworksLabel" xml:space="preserve"><value>Redes de clientes permitidas</value></data>
+  <data name="Settings_ApiEndpointLabel" xml:space="preserve"><value>Endpoints de la API</value></data>
+  <data name="Settings_PrimaryEndpointLabel" xml:space="preserve"><value>Principal</value></data>
+  <data name="Settings_StableIdEndpointLabel" xml:space="preserve"><value>ID estable</value></data>
+  <data name="Settings_StableIdEndpointHelp" xml:space="preserve"><value>No cambia al modificar la clave</value></data>
+  <data name="Settings_PrimaryEndpointActionsLabel" xml:space="preserve"><value>Acciones del endpoint principal</value></data>
+  <data name="Settings_StableIdEndpointActionsLabel" xml:space="preserve"><value>Acciones del endpoint de ID estable</value></data>
+  <data name="Settings_CopyGuideOutputLabel" xml:space="preserve"><value>Copiar endpoint de salida de la guía</value></data>
+  <data name="Settings_CopyStableGuideOutputLabel" xml:space="preserve"><value>Copiar endpoint de ID estable de salida de la guía</value></data>
+  <data name="Settings_ViewGuideOutputLabel" xml:space="preserve"><value>Ver salida de la guía</value></data>
+  <data name="Settings_DownloadGuideOutputLabel" xml:space="preserve"><value>Descargar salida de la guía</value></data>
+  <data name="Settings_ViewStableGuideOutputLabel" xml:space="preserve"><value>Ver salida de la guía mediante el ID estable</value></data>
+  <data name="Settings_DownloadStableGuideOutputLabel" xml:space="preserve"><value>Descargar salida de la guía mediante el ID estable</value></data>
+  <data name="Settings_ApiPrivacyDescriptionPrefix" xml:space="preserve"><value>Los paneles externos pueden leer el estado actual de Lineup desde</value></data>
+  <data name="Settings_ApiPrivacyDescriptionSuffix" xml:space="preserve"><value>Este punto final de solo lectura no está autenticado y debe exponerse únicamente a redes confiables.</value></data>
+  <data name="Settings_ApiPrivacyHeading" xml:space="preserve"><value>Privacidad de la API de estado</value></data>
+  <data name="Settings_ApiDocumentationHeading" xml:space="preserve"><value>Documentación de la API</value></data>
+  <data name="Settings_ApiDocumentationDescription" xml:space="preserve"><value>Explore la referencia generada de la API de Lineup, las descripciones de los endpoints, los parámetros y los esquemas de solicitudes y respuestas.</value></data>
+  <data name="Settings_OpenApiDocumentationButton" xml:space="preserve"><value>Abrir documentación de la API</value></data>
+  <data name="Settings_ApiRedactClientAddressesHelpPrefix" xml:space="preserve"><value>Devuelve la dirección del cliente de cada transmisión como</value></data>
+  <data name="Settings_ApiRedactClientAddressesLabel" xml:space="preserve"><value>Ocultar direcciones de clientes de transmisiones activas</value></data>
+  <data name="Settings_ApiRedactDeviceAddressesHelpPrefix" xml:space="preserve"><value>Devuelve los nombres de host y las direcciones del sintonizador físico configurado como</value></data>
+  <data name="Settings_ApiRedactDeviceAddressesLabel" xml:space="preserve"><value>Ocultar direcciones de dispositivos</value></data>
+  <data name="Settings_ApiRedactUrlsHelpPrefix" xml:space="preserve"><value>Devuelve las URL del dispositivo, la lista de canales, el destino del sintonizador, las URL anunciadas y las de XMLTV como</value></data>
+  <data name="Settings_ApiRedactUrlsLabel" xml:space="preserve"><value>Ocultar URL</value></data>
+  <data name="Settings_ApplicationLogFiltersHeading" xml:space="preserve"><value>Filtros de registro de aplicaciones</value></data>
+  <data name="Settings_AutoFetchGuideHelp" xml:space="preserve"><value>Descarga la guía completa de SiliconDust en un intervalo aleatorio de entre 20 y 28 horas, según lo exige la API. La disponibilidad es de 2 días para todos o de 14 días con una suscripción de guía HDHomeRun DVR.</value></data>
+  <data name="Settings_AutoFetchGuideLabel" xml:space="preserve"><value>Actualizar automáticamente los datos de la guía</value></data>
+  <data name="Settings_BindAddressesHelp" xml:space="preserve"><value>Direcciones IP separadas por comas, localhost o * para todas las interfaces.</value></data>
+  <data name="Settings_BindAddressesLabel" xml:space="preserve"><value>Vincular direcciones</value></data>
+  <data name="Settings_BrowseServerDirectoriesTitle" xml:space="preserve"><value>Explorar directorios de servidores</value></data>
+  <data name="Settings_BuiltInWebPlayer" xml:space="preserve"><value>Web Player integrado</value></data>
+  <data name="Settings_CancelButton" xml:space="preserve"><value>Cancelar</value></data>
+  <data name="Settings_CertificateFingerprintHelp" xml:space="preserve"><value>Siempre se requiere la confianza normal del sistema operativo en el certificado; la fijación agrega una comprobación de la huella digital exacta.</value></data>
+  <data name="Settings_CertificateFingerprintLabel" xml:space="preserve"><value>Huella digital SHA-256 del certificado (opcional)</value></data>
+  <data name="Settings_CertificateReferenceHelp" xml:space="preserve"><value>Referencia de host confiable al certificado del servidor. Los hosts actuales basados ​​en archivos aceptan una ruta sin contraseña PFX.</value></data>
+  <data name="Settings_CertificateReferenceLabel" xml:space="preserve"><value>Referencia del certificado</value></data>
+  <data name="Settings_ClearButton" xml:space="preserve"><value>Borrar</value></data>
+  <data name="Settings_ClientCertificatesHelp" xml:space="preserve"><value>Controla si los clientes TLS pueden o deben presentar su propio certificado.</value></data>
+  <data name="Settings_ClientCertificatesLabel" xml:space="preserve"><value>Certificados de cliente</value></data>
+  <data name="Settings_ClientCertificatesNotRequested" xml:space="preserve"><value>No solicitado</value></data>
+  <data name="Settings_ClientCertificatesOptional" xml:space="preserve"><value>Opcional</value></data>
+  <data name="Settings_ClientCertificatesRequired" xml:space="preserve"><value>Requerido</value></data>
+  <data name="Settings_ClientFacingBaseUrlHelp" xml:space="preserve"><value>Se deriva automáticamente del transporte del servicio de escucha, la primera dirección de enlace y el puerto publicado. Esta URL se utiliza en respuestas de protocolo y paquetes de conexión.</value></data>
+  <data name="Settings_ClientFacingBaseUrlLabel" xml:space="preserve"><value>URL base para clientes</value></data>
+  <data name="Settings_ClientFacingUrlOverrideHelp" xml:space="preserve"><value>Ingrese la URL raíz HTTP o HTTPS accesible externamente. Si se configura una anulación del puerto publicado, esta seguirá reemplazando el puerto al guardar.</value></data>
+  <data name="Settings_ClientFacingUrlOverrideLabel" xml:space="preserve"><value>Anulación de la URL base para clientes</value></data>
+  <data name="Settings_ConfiguredSecretPlaceholder" xml:space="preserve"><value>Configurado; dejar en blanco para conservar</value></data>
+  <data name="Settings_ConfiguredStatus" xml:space="preserve"><value>Configurado</value></data>
+  <data name="Settings_ConnectionBundleCertificatePinHelp" xml:space="preserve"><value>Huella digital exacta SHA-256 del certificado incluida en los paquetes exportados. Es independiente de la referencia del certificado utilizada por un servicio de escucha HTTPS dedicado.</value></data>
+  <data name="Settings_ConnectionBundleCertificatePinLabel" xml:space="preserve"><value>Fijación del certificado del paquete de conexión (opcional)</value></data>
+  <data name="Settings_ConnectionBundleLabel" xml:space="preserve"><value>Paquete de conexión</value></data>
+  <data name="Settings_ConnectionFailed" xml:space="preserve"><value>La conexión falló</value></data>
+  <data name="Settings_ConnectionSuccessful" xml:space="preserve"><value>Conexión exitosa</value></data>
+  <data name="Settings_ConnectionTestUnavailable" xml:space="preserve"><value>Este complemento de dispositivo físico no proporciona una prueba de conexión.</value></data>
+  <data name="Settings_CpuLimitHelp" xml:space="preserve"><value>Límite de CPU del proceso de trabajo. Use 0 para no configurar ningún límite.</value></data>
+  <data name="Settings_CpuLimitLabel" xml:space="preserve"><value>Límite de CPU (%)</value></data>
+  <data name="Settings_DashboardActiveStreamsHeading" xml:space="preserve"><value>Transmisiones activas</value></data>
+  <data name="Settings_DashboardRefreshIntervalHelp" xml:space="preserve"><value>Con qué frecuencia actualizar las transmisiones alojadas activas en el panel. Establezca en 0 para deshabilitar la actualización automática.</value></data>
+  <data name="Settings_DashboardRefreshIntervalLabel" xml:space="preserve"><value>Intervalo de actualización de transmisión activa (segundos)</value></data>
+  <data name="Settings_DedicatedListenerHelp" xml:space="preserve"><value>Los servicios de escucha dedicados se ejecutan en un proceso de salida aislado. Cambiar esta configuración reinicia únicamente esta salida virtual.</value></data>
+  <data name="Settings_DefaultLogDirectory" xml:space="preserve"><value>el directorio de configuración de Lineup/logs</value></data>
+  <data name="Settings_DefaultLogLevelHelp" xml:space="preserve"><value>Aplica a categorías sin una regla más específica.</value></data>
+  <data name="Settings_DefaultLogLevelLabel" xml:space="preserve"><value>Nivel predeterminado</value></data>
+  <data name="Settings_DeleteLogsButton" xml:space="preserve"><value>Eliminar registros</value></data>
+  <data name="Settings_DeleteLogsDisabledHelp" xml:space="preserve"><value>Elimina todos los archivos de registro rotativos conservados.</value></data>
+  <data name="Settings_DeleteLogsEnabledHelp" xml:space="preserve"><value>Elimina todos los archivos de registro rotativos e inicia inmediatamente un nuevo archivo de registro vacío.</value></data>
+  <data name="Settings_DeviceInfoRefreshIntervalHelp" xml:space="preserve"><value>Con qué frecuencia actualizar la información del dispositivo. Establezca en 0 para deshabilitar la actualización automática.</value></data>
+  <data name="Settings_DeviceInfoRefreshIntervalLabel" xml:space="preserve"><value>Intervalo de actualización de información del dispositivo (minutos)</value></data>
+  <data name="Settings_DeviceSettingsHeading" xml:space="preserve"><value>Configuración del dispositivo</value></data>
+  <data name="Settings_DirectoryBrowserHeading" xml:space="preserve"><value>Navegador de directorio de servidores</value></data>
+  <data name="Settings_DirectoryBrowserParentDirectoryTitle" xml:space="preserve"><value>Directorio principal</value></data>
+  <data name="Settings_DirectoryBrowserSelectButton" xml:space="preserve"><value>Seleccione este directorio</value></data>
+  <data name="Settings_DisabledBadge" xml:space="preserve"><value>Deshabilitado</value></data>
+  <data name="Settings_DisabledChannelsHelp" xml:space="preserve"><value>Controla las solicitudes directas de canales deshabilitados en la página Canales. Las transmisiones deshabilitadas nunca abren un sintonizador físico.</value></data>
+  <data name="Settings_DisabledChannelsLabel" xml:space="preserve"><value>Canales deshabilitados</value></data>
+  <data name="Settings_DisabledChannelsReturnError" xml:space="preserve"><value>Devolver un error de canal deshabilitado</value></data>
+  <data name="Settings_DisabledChannelsStreamSlate" xml:space="preserve"><value>Transmitir una pantalla para canales deshabilitados</value></data>
+  <data name="Settings_DisabledLowercase" xml:space="preserve"><value>deshabilitado</value></data>
+  <data name="Settings_DrainTimeoutHelp" xml:space="preserve"><value>Tiempo máximo permitido para que finalicen las solicitudes activas durante el reinicio o el apagado.</value></data>
+  <data name="Settings_DrainTimeoutLabel" xml:space="preserve"><value>Tiempo de espera de drenaje (segundos)</value></data>
+  <data name="Settings_EmptyGuideSourceSelectionHelp" xml:space="preserve"><value>Una selección vacía incluye dinámicamente todas las fuentes de guía habilitadas.</value></data>
+  <data name="Settings_EmptyVirtualDeviceSelectionHelp" xml:space="preserve"><value>Una selección vacía incluye dinámicamente todos los dispositivos virtuales habilitados.</value></data>
+  <data name="Settings_EnabledLabel" xml:space="preserve"><value>Habilitado</value></data>
+  <data name="Settings_EnableFileLoggingLabel" xml:space="preserve"><value>Escribir registros en archivos rotativos</value></data>
+  <data name="Settings_EnableNetworkDiscoveryHelp" xml:space="preserve"><value>Los dispositivos HDHomeRun virtuales habilitados que tienen una URL anunciada se publican en la red local.</value></data>
+  <data name="Settings_EnableNetworkDiscoveryLabel" xml:space="preserve"><value>Habilitar el descubrimiento de red mediante UDP y SSDP</value></data>
+  <data name="Settings_EpgFetchHeading" xml:space="preserve"><value>Configuración de obtención de EPG</value></data>
+  <data name="Settings_EpgHistoryRetentionHelp" xml:space="preserve"><value>Conserva los programas que finalizaron dentro de esta ventana. El valor predeterminado es 24 horas; use 0 para eliminar programas finalizados después de una importación exitosa.</value></data>
+  <data name="Settings_EpgHistoryRetentionLabel" xml:space="preserve"><value>Historial de guía anterior (horas)</value></data>
+  <data name="Settings_ExecutionModeHelp" xml:space="preserve"><value>Los procesos gestionados son iniciados y supervisados por Lineup. Los procesos externos utilizan un descriptor de inscripción único y se inician por separado.</value></data>
+  <data name="Settings_ExecutionModeLabel" xml:space="preserve"><value>Modo de ejecución</value></data>
+  <data name="Settings_ExternalLogTargetsDescriptionPrefix" xml:space="preserve"><value>Los objetivos externos se configuran al inicio a través de variables de entorno o</value></data>
+  <data name="Settings_ExternalLogTargetsDescriptionSuffix" xml:space="preserve"><value>Los secretos nunca se almacenan en la configuración de Lineup ni se muestran aquí.</value></data>
+  <data name="Settings_ExternalLogTargetsHeading" xml:space="preserve"><value>Objetivos externos</value></data>
+  <data name="Settings_ExternalLogTargetStatusUnavailable" xml:space="preserve"><value>El estado del objetivo no está disponible.</value></data>
+  <data name="Settings_ExternalProcessOption" xml:space="preserve"><value>Proceso externo</value></data>
+  <data name="Settings_FactoryResetButton" xml:space="preserve"><value>Restablecer Lineup a la configuración de fábrica</value></data>
+  <data name="Settings_FactoryResetConfirmationLabel" xml:space="preserve"><value>Entiendo que esto borrará permanentemente todos los datos propiedad de Lineup.</value></data>
+  <data name="Settings_FactoryResetConfirmButton" xml:space="preserve"><value>Borrar datos y reiniciar</value></data>
+  <data name="Settings_FactoryResetDescription" xml:space="preserve"><value>Elimina permanentemente la configuración de Lineup, los datos de guía, los datos almacenados en caché XMLTV y los archivos de flujo transitorios. Lineup se reiniciará en la primera ejecución de la configuración del dispositivo. Se conservan los archivos XMLTV fuera del almacenamiento de propiedad de Lineup.</value></data>
+  <data name="Settings_FactoryResetHeading" xml:space="preserve"><value>Restablecimiento de fábrica</value></data>
+  <data name="Settings_FileLogLocationPrefix" xml:space="preserve"><value>Los archivos se almacenan en</value></data>
+  <data name="Settings_FileLogLocationSuffix" xml:space="preserve"><value>Los cambios entran en vigor inmediatamente cuando se guarda la configuración.</value></data>
+  <data name="Settings_FileLogMinimumLevelLabel" xml:space="preserve"><value>Nivel mínimo</value></data>
+  <data name="Settings_FileLogRetentionLabel" xml:space="preserve"><value>Retención (días)</value></data>
+  <data name="Settings_FileLogSizeLimitLabel" xml:space="preserve"><value>Tamaño de archivo (MB)</value></data>
+  <data name="Settings_FileSizeBytes" xml:space="preserve"><value>{0}B</value></data>
+  <data name="Settings_FileSizeKilobytes" xml:space="preserve"><value>{0:0.0} KB</value></data>
+  <data name="Settings_FileSizeMegabytes" xml:space="preserve"><value>{0:0.0} MB</value></data>
+  <data name="Settings_GenerateNewValueButton" xml:space="preserve"><value>Generar nuevo valor</value></data>
+  <data name="Settings_GenerateValueButton" xml:space="preserve"><value>Generar valor</value></data>
+  <data name="Settings_GlobalSettingsTab" xml:space="preserve"><value>Configuración global</value></data>
+  <data name="Settings_GlobalXmltvEndpointHelp" xml:space="preserve"><value>La salida global XMLTV utiliza un punto final estable sin un identificador de salida.</value></data>
+  <data name="Settings_GlobalXmltvOutputHeading" xml:space="preserve"><value>Salida global XMLTV</value></data>
+  <data name="Settings_GuideOutputDirectoryHelpPrefix" xml:space="preserve"><value>Lineup publica atómicamente en</value></data>
+  <data name="Settings_GuideOutputDirectoryHelpSuffix" xml:space="preserve"><value>en este directorio.</value></data>
+  <data name="Settings_GuideOutputDirectoryLabel" xml:space="preserve"><value>Directorio de salida</value></data>
+  <data name="Settings_GuideOutputKeyHelp" xml:space="preserve"><value>Lineup formatea esto como un identificador en minúscula que contiene solo letras, dígitos y guiones bajos.</value></data>
+  <data name="Settings_GuideOutputKeyLabel" xml:space="preserve"><value>Clave de salida</value></data>
+  <data name="Settings_GuideOutputKeyWarning" xml:space="preserve"><value>Cambiar esta clave modifica la URL descriptiva de la API y el nombre del archivo generado. Los clientes que utilicen cualquiera de las dos ubicaciones deberán actualizarse.</value></data>
+  <data name="Settings_GuideOutputPathMismatch" xml:space="preserve"><value>La ruta guardada difiere del valor configurado al inicio:</value></data>
+  <data name="Settings_GuideOutputSettingsHeading" xml:space="preserve"><value>Configuración de salida de guía</value></data>
+  <data name="Settings_GuideSourceAddDisabledTitle" xml:space="preserve"><value>Primero agregue y habilite un dispositivo físico compatible.</value></data>
+  <data name="Settings_GuideSourceAllDevicesHelp" xml:space="preserve"><value>Utiliza automáticamente todos los dispositivos físicos habilitados compatibles con este adaptador de fuente de guía, incluidos los dispositivos compatibles agregados más adelante.</value></data>
+  <data name="Settings_GuideSourceNameHelp" xml:space="preserve"><value>Una etiqueta local utilizada para identificar la fuente de esta guía en Lineup.</value></data>
+  <data name="Settings_GuideSourceSelectedDevicesHelp" xml:space="preserve"><value>Utiliza solo los dispositivos físicos compatibles seleccionados a continuación. Los dispositivos deshabilitados permanecen seleccionados pero se ignoran hasta que se vuelvan a habilitar.</value></data>
+  <data name="Settings_GuideSourceSettingsHeading" xml:space="preserve"><value>Configuración de fuente de guía</value></data>
+  <data name="Settings_GuideSourcesHeading" xml:space="preserve"><value>Fuentes de guía</value></data>
+  <data name="Settings_GuideSourceSubscriptionHelp" xml:space="preserve"><value>El complemento de fuente de guía utiliza los dispositivos suscritos para la coincidencia de canales y cualquier autorización del proveedor que requiera.</value></data>
+  <data name="Settings_HonorForwardedHeadersHelp" xml:space="preserve"><value>Utilice esquemas y direcciones de clientes reenviados solo cuando el proxy inmediato coincida con la lista de proxy confiable.</value></data>
+  <data name="Settings_HonorForwardedHeadersLabel" xml:space="preserve"><value>Respetar los encabezados reenviados de servidores proxy confiables</value></data>
+  <data name="Settings_Http" xml:space="preserve"><value>HTTP</value></data>
+  <data name="Settings_Https" xml:space="preserve"><value>HTTPS</value></data>
+  <data name="Settings_ImportBundleButton" xml:space="preserve"><value>Importar paquete</value></data>
+  <data name="Settings_ImportBundleHelp" xml:space="preserve"><value>Pegue un paquete exportado por el dispositivo virtual remoto para completar su configuración de URL, ID, token, transporte y certificado. Los paquetes contienen un token de acceso utilizable; guárdalos y compártelos como secretos.</value></data>
+  <data name="Settings_InternalListenerPortHelp" xml:space="preserve"><value>Puerto abierto por el proceso de trabajo dentro del host o contenedor.</value></data>
+  <data name="Settings_InternalListenerPortLabel" xml:space="preserve"><value>Puerto de escucha interno</value></data>
+  <data name="Settings_KeepWarmPeriodHelp" xml:space="preserve"><value>Mantiene una canalización compartida sin usar lista para reconexiones rápidas. Establezca 0 para liberarla inmediatamente. Los valores distintos de cero conservan la capacidad del sintonizador hasta que venza el período.</value></data>
+  <data name="Settings_KeepWarmPeriodLabel" xml:space="preserve"><value>Período de conservación activa (segundos)</value></data>
+  <data name="Settings_LeaseGraceHelp" xml:space="preserve"><value>Tiempo durante el cual un proceso de trabajo puede perder la concesión autenticada del host antes de finalizarse.</value></data>
+  <data name="Settings_LeaseGraceLabel" xml:space="preserve"><value>Tolerancia de pérdida de concesión (segundos)</value></data>
+  <data name="Settings_LineupLinkAccessGrantsHeading" xml:space="preserve"><value>Concesiones de acceso</value></data>
+  <data name="Settings_LineupLinkBundleJsonLabel" xml:space="preserve"><value>Paquete de conexión JSON</value></data>
+  <data name="Settings_LineupLinkConfirmPurgeButton" xml:space="preserve"><value>Confirmar purga</value></data>
+  <data name="Settings_LineupLinkConsumerNameLabel" xml:space="preserve"><value>Nombre del consumidor</value></data>
+  <data name="Settings_LineupLinkConsumerNamePlaceholder" xml:space="preserve"><value>Nombre de un amigo o familiar</value></data>
+  <data name="Settings_LineupLinkCopyButton" xml:space="preserve"><value>Copiar</value></data>
+  <data name="Settings_LineupLinkCreated" xml:space="preserve"><value>Creado</value></data>
+  <data name="Settings_LineupLinkCreateGrantButton" xml:space="preserve"><value>Crear concesión de acceso</value></data>
+  <data name="Settings_LineupLinkDedicatedTransportPrefix" xml:space="preserve"><value>Lineup Link requiere</value></data>
+  <data name="Settings_LineupLinkDedicatedTransportSuffix" xml:space="preserve"><value>según el URI base público orientado al cliente.</value></data>
+  <data name="Settings_LineupLinkExpirationLabel" xml:space="preserve"><value>Caducidad (opcional)</value></data>
+  <data name="Settings_LineupLinkExpires" xml:space="preserve"><value>Vence</value></data>
+  <data name="Settings_LineupLinkExportButton" xml:space="preserve"><value>Exportar</value></data>
+  <data name="Settings_LineupLinkGrantHelp" xml:space="preserve"><value>Las concesiones comparten los canales, la transcodificación, el servicio de escucha y la política de seguridad de esta instancia. Cree otra instancia de Lineup Link cuando esas opciones deban ser diferentes.</value></data>
+  <data name="Settings_LineupLinkHideBundleButton" xml:space="preserve"><value>Ocultar paquete</value></data>
+  <data name="Settings_LineupLinkHttpExposureWarning" xml:space="preserve"><value>HTTP expone el token de acceso y el contenido de las transmisiones en la red. Úselo solo en una red de confianza.</value></data>
+  <data name="Settings_LineupLinkHttpWarning" xml:space="preserve"><value>HTTP autentica las solicitudes pero no cifra el token ni la transmisión. Úselo solo en una red confiable.</value></data>
+  <data name="Settings_LineupLinkNoGrantsDescription" xml:space="preserve"><value>El acceso remoto está deshabilitado hasta que cree explícitamente una concesión.</value></data>
+  <data name="Settings_LineupLinkNoGrantsHeading" xml:space="preserve"><value>Sin concesiones de acceso.</value></data>
+  <data name="Settings_LineupLinkPurgeButton" xml:space="preserve"><value>Eliminar permanentemente</value></data>
+  <data name="Settings_LineupLinkPurgeConfirmation" xml:space="preserve"><value>¿Desea eliminar permanentemente esta concesión revocada y su historial de auditoría? Esta acción no se puede deshacer.</value></data>
+  <data name="Settings_LineupLinkRawTokenHelp" xml:space="preserve"><value>Copie o exporte este paquete ahora. Su token sin formato no persiste.</value></data>
+  <data name="Settings_LineupLinkRedactedTokenHelp" xml:space="preserve"><value>El token está oculto. Rote esta concesión para crear un paquete de reemplazo exportable.</value></data>
+  <data name="Settings_LineupLinkRevokeButton" xml:space="preserve"><value>Revocar</value></data>
+  <data name="Settings_LineupLinkRotateButton" xml:space="preserve"><value>Rotar</value></data>
+  <data name="Settings_LineupLinkShowBundleButton" xml:space="preserve"><value>Mostrar paquete</value></data>
+  <data name="Settings_LineupLinkStatusActive" xml:space="preserve"><value>Activo</value></data>
+  <data name="Settings_LineupLinkStatusExpired" xml:space="preserve"><value>Caducado</value></data>
+  <data name="Settings_LineupLinkStatusRevoked" xml:space="preserve"><value>Revocado</value></data>
+  <data name="Settings_LogCategoryMinimumLevelLabel" xml:space="preserve"><value>Nivel mínimo de categoría</value></data>
+  <data name="Settings_LogCategoryOverridesHeading" xml:space="preserve"><value>Anulaciones de categoría</value></data>
+  <data name="Settings_LogCategoryOverridesHelpPrefix" xml:space="preserve"><value>Las categorías de inicio se descubren a partir de</value></data>
+  <data name="Settings_LogCategoryOverridesHelpSuffix" xml:space="preserve"><value>Las categorías exactas y los descendientes con puntos coinciden, teniendo prioridad el prefijo más largo. Los cambios se aplican inmediatamente cuando se guarda la configuración. Al desactivar esta anulación se restaura el conjunto completo de filtros de inicio.</value></data>
+  <data name="Settings_LogCategoryPlaceholder" xml:space="preserve"><value>Example.Namespace</value></data>
+  <data name="Settings_LogCategoryPrefixLabel" xml:space="preserve"><value>Prefijo de categoría</value></data>
+  <data name="Settings_LogLevelCritical" xml:space="preserve"><value>Crítico</value></data>
+  <data name="Settings_LogLevelDebug" xml:space="preserve"><value>Depurar</value></data>
+  <data name="Settings_LogLevelError" xml:space="preserve"><value>error</value></data>
+  <data name="Settings_LogLevelInformation" xml:space="preserve"><value>Información</value></data>
+  <data name="Settings_LogLevelNone" xml:space="preserve"><value>Ninguno</value></data>
+  <data name="Settings_LogLevelTrace" xml:space="preserve"><value>traza</value></data>
+  <data name="Settings_LogLevelWarning" xml:space="preserve"><value>Advertencia</value></data>
+  <data name="Settings_ManagedProcessOption" xml:space="preserve"><value>Proceso gestionado</value></data>
+  <data name="Settings_ManagementHostOutputHelp" xml:space="preserve"><value>Esta salida se proporciona mediante la interfaz web del host de administración, por lo que no requiere ningún puerto de escucha adicional.</value></data>
+  <data name="Settings_MaximumBrokerCallsHelp" xml:space="preserve"><value>Máximo de solicitudes de capacidad simultáneas de este proceso de trabajo al host de confianza.</value></data>
+  <data name="Settings_MaximumBrokerCallsLabel" xml:space="preserve"><value>Máximo de llamadas al intermediario</value></data>
+  <data name="Settings_MaximumConcurrentStreamsHelp" xml:space="preserve"><value>Sesiones máximas de consumidores lógicos en todos los formatos. Los productores compartidos todavía cuentan una vez por consumidor conectado. Establezca en 0 para ilimitado.</value></data>
+  <data name="Settings_MaximumConcurrentStreamsLabel" xml:space="preserve"><value>Máximo de transmisiones simultáneas</value></data>
+  <data name="Settings_MaximumConnectionsHelp" xml:space="preserve"><value>Límite de clientes simultáneos. Utilice 0 como valor predeterminado del host.</value></data>
+  <data name="Settings_MaximumConnectionsLabel" xml:space="preserve"><value>Conexiones máximas</value></data>
+  <data name="Settings_MaximumRestartsHelp" xml:space="preserve"><value>Cantidad de reinicios fallidos permitidos del proceso de trabajo dentro del período de reinicio.</value></data>
+  <data name="Settings_MaximumRestartsLabel" xml:space="preserve"><value>Reinicios máximos</value></data>
+  <data name="Settings_MemoryLimitHelp" xml:space="preserve"><value>Límite de memoria del proceso de trabajo. Use 0 para no configurar ningún límite.</value></data>
+  <data name="Settings_MemoryLimitLabel" xml:space="preserve"><value>Límite de memoria (MiB)</value></data>
+  <data name="Settings_NameLabel" xml:space="preserve"><value>Nombre</value></data>
+  <data name="Settings_NoAdditionalVirtualDevices" xml:space="preserve"><value>No se configuran dispositivos virtuales adicionales.</value></data>
+  <data name="Settings_NoCompatiblePhysicalDevices" xml:space="preserve"><value>No hay dispositivos físicos compatibles configurados.</value></data>
+  <data name="Settings_NoGuideSourcesPrefix" xml:space="preserve"><value>No hay fuentes de guía configuradas. Agregue y habilite un dispositivo físico compatible si es necesario, luego seleccione</value></data>
+  <data name="Settings_NoLogCategoryOverrides" xml:space="preserve"><value>No se configuran filtros específicos de categoría.</value></data>
+  <data name="Settings_NoPhysicalDevicesPrefix" xml:space="preserve"><value>No hay dispositivos físicos configurados. Seleccione</value></data>
+  <data name="Settings_NoPhysicalDevicesSuffix" xml:space="preserve"><value>para que los canales estén disponibles para Lineup.</value></data>
+  <data name="Settings_NoRetainedLogFiles" xml:space="preserve"><value>Aún no hay archivos de registro rotativos disponibles.</value></data>
+  <data name="Settings_OutputHostingHeading" xml:space="preserve"><value>Alojamiento de salida</value></data>
+  <data name="Settings_OutputStageName" xml:space="preserve"><value>etapa de salida</value></data>
+  <data name="Settings_OutputTransportHelp" xml:space="preserve"><value>HTTPS cifra el tráfico de salida y requiere un certificado de servidor. HTTP debe limitarse a redes confiables.</value></data>
+  <data name="Settings_OverrideClientFacingUrlHelp" xml:space="preserve"><value>Use una anulación únicamente cuando un proxy inverso, una regla NAT, un reenvío de puertos o un nombre de host externo proporcione a los clientes una URL diferente.</value></data>
+  <data name="Settings_OverrideClientFacingUrlLabel" xml:space="preserve"><value>Anular la URL base para clientes</value></data>
+  <data name="Settings_OverrideLoggingDefaultsLabel" xml:space="preserve"><value>Anular los valores predeterminados de registro</value></data>
+  <data name="Settings_PhysicalAddressHelp" xml:space="preserve"><value>Nombre de host o dirección IP del HDHomeRun físico. Debe ser accesible desde el host o contenedor de Lineup.</value></data>
+  <data name="Settings_PhysicalBitrateHelp" xml:space="preserve"><value>Tasa de bits de etapa física predeterminada para dispositivos sin anulación.</value></data>
+  <data name="Settings_PhysicalDeinterlaceHelp" xml:space="preserve"><value>Normalización de fuente predeterminada para dispositivos físicos sin anulación.</value></data>
+  <data name="Settings_PhysicalDeviceNameHelp" xml:space="preserve"><value>Una etiqueta local que se utiliza para mostrar la propiedad del canal, las suscripciones, el enrutamiento y el estado.</value></data>
+  <data name="Settings_PhysicalDeviceSubscriptionHeading" xml:space="preserve"><value>Suscripción de dispositivo físico</value></data>
+  <data name="Settings_PhysicalHevcHelp" xml:space="preserve"><value>Normalice las fuentes HEVC una vez antes de que ingresen al multiplexor.</value></data>
+  <data name="Settings_PhysicalRefreshDescription" xml:space="preserve"><value>Estos intervalos de monitoreo se aplican a todos los dispositivos físicos.</value></data>
+  <data name="Settings_PhysicalSubscriptionHelp" xml:space="preserve"><value>Controla qué dispositivos físicos compatibles pueden suministrar canales y capacidad de sintonizador a esta salida virtual. Todo incluye automáticamente los dispositivos compatibles agregados más adelante.</value></data>
+  <data name="Settings_PhysicalSubscriptionLabel" xml:space="preserve"><value>Suscripción física</value></data>
+  <data name="Settings_PhysicalTranscoderDefaultsDescription" xml:space="preserve"><value>Cada dispositivo físico hereda esta configuración de la etapa de origen a menos que su pestaña permita una anulación.</value></data>
+  <data name="Settings_ProtectedContentHelp" xml:space="preserve"><value>Devuelve un error o una pantalla sintética de compatibilidad. La programación protegida nunca se descifra.</value></data>
+  <data name="Settings_ProtectedContentLabel" xml:space="preserve"><value>Contenido protegido por DRM</value></data>
+  <data name="Settings_ProtectedContentReturnError" xml:space="preserve"><value>Devolver un error de contenido protegido</value></data>
+  <data name="Settings_ProtectedContentStreamSlate" xml:space="preserve"><value>Transmitir una pantalla de contenido protegido</value></data>
+  <data name="Settings_PublicLineupUrlHelp" xml:space="preserve"><value>URL del host de administración accesible externamente que se escribe en los paquetes de conexión exportados. Los paquetes usan una dirección nula cuando se deja en blanco.</value></data>
+  <data name="Settings_PublicLineupUrlLabel" xml:space="preserve"><value>URL pública de Lineup (opcional)</value></data>
+  <data name="Settings_PublishedPortOverrideHelp" xml:space="preserve"><value>Déjelo en blanco cuando el puerto público coincida con el servicio de escucha interno.</value></data>
+  <data name="Settings_PublishedPortOverrideLabel" xml:space="preserve"><value>Anulación de puerto publicado</value></data>
+  <data name="Settings_PublishGuideOutputsAfterFetchLabel" xml:space="preserve"><value>Publicar las salidas de guía habilitadas después de la obtención</value></data>
+  <data name="Settings_RefreshChannelsBeforeGuideHelp" xml:space="preserve"><value>Consulta los dispositivos físicos HDHomeRun habilitados y guarda sus canales actuales antes de la actualización manual o automática de la guía.</value></data>
+  <data name="Settings_RefreshChannelsBeforeGuideLabel" xml:space="preserve"><value>Actualizar los canales disponibles antes de obtener datos de la guía</value></data>
+  <data name="Settings_RefreshSettingsHeading" xml:space="preserve"><value>Actualizar configuración</value></data>
+  <data name="Settings_RemoteLineupUrlHelp" xml:space="preserve"><value>URL base utilizada para solicitar metadatos del dispositivo, canales, estado del sintonizador y transmisiones al host remoto de Lineup.</value></data>
+  <data name="Settings_RemoteLineupUrlLabel" xml:space="preserve"><value>URL de Lineup remoto</value></data>
+  <data name="Settings_RemoteVirtualDeviceIdHelp" xml:space="preserve"><value>ID estable de la salida virtual Lineup Link exportada por el host remoto.</value></data>
+  <data name="Settings_RemoteVirtualDeviceIdLabel" xml:space="preserve"><value>ID del dispositivo virtual remoto</value></data>
+  <data name="Settings_RemoveGuideOutputLabel" xml:space="preserve"><value>Eliminar salida de guía</value></data>
+  <data name="Settings_RemoveGuideSourceLabel" xml:space="preserve"><value>Eliminar fuente de guía</value></data>
+  <data name="Settings_RemoveLogCategoryLabel" xml:space="preserve"><value>Eliminar categoría</value></data>
+  <data name="Settings_RemovePhysicalDeviceLabel" xml:space="preserve"><value>Quitar dispositivo físico</value></data>
+  <data name="Settings_RemoveVirtualDeviceLabel" xml:space="preserve"><value>Quitar dispositivo virtual</value></data>
+  <data name="Settings_RequestRateHelp" xml:space="preserve"><value>Límite de solicitudes por cliente. Utilice 0 para desactivar la limitación de tasa.</value></data>
+  <data name="Settings_RequestRateLabel" xml:space="preserve"><value>Solicitudes/minuto/cliente</value></data>
+  <data name="Settings_RequireHttpsHelp" xml:space="preserve"><value>Rechaza solicitudes Lineup Link no cifradas y anuncia un punto final HTTPS en paquetes exportados.</value></data>
+  <data name="Settings_RequireHttpsLabel" xml:space="preserve"><value>Requerir HTTPS</value></data>
+  <data name="Settings_ResetConfiguredPathButton" xml:space="preserve"><value>Restablecer la ruta configurada</value></data>
+  <data name="Settings_ResetDefaultsButton" xml:space="preserve"><value>Restablecer la configuración a los valores predeterminados</value></data>
+  <data name="Settings_ResetDefaultsDescription" xml:space="preserve"><value>Restaura cada configuración configurable a su valor predeterminado. Puede revisar los valores predeterminados antes de guardarlos.</value></data>
+  <data name="Settings_ResetDefaultsHeading" xml:space="preserve"><value>Restablecer la configuración a los valores predeterminados</value></data>
+  <data name="Settings_ResolvedPathLabel" xml:space="preserve"><value>Ruta resuelta:</value></data>
+  <data name="Settings_RestartButton" xml:space="preserve"><value>Reiniciar Lineup</value></data>
+  <data name="Settings_RestartDescription" xml:space="preserve"><value>Reinicia Lineup de forma controlada sin cambiar la configuración ni eliminar datos de la aplicación.</value></data>
+  <data name="Settings_RestartHeading" xml:space="preserve"><value>Reiniciar Lineup</value></data>
+  <data name="Settings_RestartWindowHelp" xml:space="preserve"><value>Período utilizado para contar fallos repetidos de los procesos de trabajo.</value></data>
+  <data name="Settings_RestartWindowLabel" xml:space="preserve"><value>Ventana de reinicio (segundos)</value></data>
+  <data name="Settings_RetainedLogFilesHeading" xml:space="preserve"><value>Archivos de registro retenidos</value></data>
+  <data name="Settings_RollingFileLogsHeading" xml:space="preserve"><value>Archivos de registro rotativos</value></data>
+  <data name="Settings_SelectedDevices" xml:space="preserve"><value>Dispositivos seleccionados</value></data>
+  <data name="Settings_SelectedGuideSources" xml:space="preserve"><value>Fuentes de guía seleccionadas</value></data>
+  <data name="Settings_SelectedPhysicalDevices" xml:space="preserve"><value>Dispositivos físicos seleccionados</value></data>
+  <data name="Settings_SelectedPhysicalDevicesHelp" xml:space="preserve"><value>Seleccione los dispositivos físicos a los que puede enrutarse esta salida. Los dispositivos deshabilitados permanecen seleccionados pero no pueden proporcionar canales ni capacidad hasta que se vuelvan a habilitar.</value></data>
+  <data name="Settings_SelectedVirtualDevices" xml:space="preserve"><value>Dispositivos virtuales seleccionados</value></data>
+  <data name="Settings_SourceStageName" xml:space="preserve"><value>etapa fuente</value></data>
+  <data name="Settings_StableIdEndpointPrefix" xml:space="preserve"><value>El endpoint de ID estable</value></data>
+  <data name="Settings_StableIdEndpointSuffix" xml:space="preserve"><value>también sirve para esta salida.</value></data>
+  <data name="Settings_StartupBadge" xml:space="preserve"><value>Inicio</value></data>
+  <data name="Settings_StreamingPoliciesHeading" xml:space="preserve"><value>Políticas de transmisión</value></data>
+  <data name="Settings_TestAndIdentifyButton" xml:space="preserve"><value>Probar e identificar</value></data>
+  <data name="Settings_TestAndIdentifyHelp" xml:space="preserve"><value>Prueba los valores de conexión actuales no guardados y lee la identidad del dispositivo. No guarda configuraciones, no actualiza canales ni activa el dispositivo.</value></data>
+  <data name="Settings_TestingStatus" xml:space="preserve"><value>Probando...</value></data>
+  <data name="Settings_TranscoderSettingsHeading" xml:space="preserve"><value>Configuración del transcodificador</value></data>
+  <data name="Settings_TransportLabel" xml:space="preserve"><value>Transporte</value></data>
+  <data name="Settings_TransportSecurityHelp" xml:space="preserve"><value>HTTPS cifra las credenciales y el tráfico de las transmisiones. HTTP solo debe usarse en una red privada de confianza.</value></data>
+  <data name="Settings_TransportSecurityLabel" xml:space="preserve"><value>Seguridad en el transporte</value></data>
+  <data name="Settings_TrustedProxiesHelp" xml:space="preserve"><value>Direcciones IP de proxies o CIDR, separadas por comas, que pueden proporcionar encabezados reenviados.</value></data>
+  <data name="Settings_TrustedProxiesLabel" xml:space="preserve"><value>Proxies de confianza</value></data>
+  <data name="Settings_TunerCountCapHelp" xml:space="preserve"><value>Sintonizadores máximos anunciados a los consumidores. Déjelo vacío para derivar capacidad de los dispositivos físicos suscritos.</value></data>
+  <data name="Settings_TunerCountCapLabel" xml:space="preserve"><value>Límite de recuento de sintonizadores</value></data>
+  <data name="Settings_TunerStatusRefreshIntervalHelp" xml:space="preserve"><value>Con qué frecuencia actualizar el estado del sintonizador en el tablero. Establezca en 0 para deshabilitar la actualización automática.</value></data>
+  <data name="Settings_TunerStatusRefreshIntervalLabel" xml:space="preserve"><value>Intervalo de actualización del estado del sintonizador (segundos)</value></data>
+  <data name="Settings_TypePickerCloseLabel" xml:space="preserve"><value>Cerrar</value></data>
+  <data name="Settings_UseDedicatedListenerHelp" xml:space="preserve"><value>Desactive esta opción para servir la salida mediante la interfaz web del host de administración y sus puertos HTTP/HTTPS existentes.</value></data>
+  <data name="Settings_UseDedicatedListenerLabel" xml:space="preserve"><value>Usar un servicio de escucha dedicado</value></data>
+  <data name="Settings_UseDiscoveredNameButton" xml:space="preserve"><value>Usar nombre descubierto</value></data>
+  <data name="Settings_VirtualDeviceNameHelp" xml:space="preserve"><value>Una etiqueta local que se muestra en Lineup y, cuando el adaptador lo admita, a los consumidores posteriores.</value></data>
+  <data name="Settings_VirtualDevicesEmptyWebPlayerDisabledPrefix" xml:space="preserve"><value>Habilite el Web Player integrado desde su pestaña o seleccione</value></data>
+  <data name="Settings_VirtualDevicesEmptyWebPlayerDisabledSuffix" xml:space="preserve"><value>exponer los canales a los consumidores.</value></data>
+  <data name="Settings_VirtualDevicesEmptyWebPlayerEnabledPrefix" xml:space="preserve"><value>Seleccionar</value></data>
+  <data name="Settings_VirtualDevicesEmptyWebPlayerEnabledSuffix" xml:space="preserve"><value>exponer canales a otros consumidores. El Web Player integrado permanece disponible.</value></data>
+  <data name="Settings_VirtualDevicesHeading" xml:space="preserve"><value>Dispositivos virtuales</value></data>
+  <data name="Settings_VirtualDevicesMissingWebPlayer" xml:space="preserve"><value>La topología actual no contiene el Web Player integrado requerido.</value></data>
+  <data name="Settings_VirtualHevcHelp" xml:space="preserve"><value>Conversión de salida predeterminada para consumidores que no pueden procesar HEVC.</value></data>
+  <data name="Settings_VirtualTranscoderDefaultsDescription" xml:space="preserve"><value>Cada dispositivo virtual hereda esta configuración de etapa de salida a menos que su pestaña permita una anulación.</value></data>
+  <data name="Settings_VirtualTunerDiscoveryHeading" xml:space="preserve"><value>Descubrimiento de sintonizador virtual</value></data>
+  <data name="About_Heading" xml:space="preserve"><value>Acerca de</value></data>
+  <data name="About_MountDirectoryPrefix" xml:space="preserve"><value>Monte el</value></data>
+  <data name="About_MountDirectorySuffix" xml:space="preserve"><value>directorio a un directorio de host en su</value></data>
+  <data name="About_PageTitle" xml:space="preserve"><value>Acerca de</value></data>
+  <data name="About_UseHostFilePath" xml:space="preserve"><value>Luego use la ruta del archivo en su host:</value></data>
+  <data name="About_VersionLabel" xml:space="preserve"><value>Versión</value></data>
+  <data name="About_XmltvFileAccessHeading" xml:space="preserve"><value>Acceso al archivo XMLTV</value></data>
+  <data name="About_XmltvFileAccessHelp" xml:space="preserve"><value>Si su servidor multimedia puede leer archivos directamente (por ejemplo, si se ejecuta en el mismo host), puede dirigirlo al archivo XMLTV del volumen Docker montado en lugar de usar la URL.</value></data>
+  <data name="About_XmltvGuideUrlHeading" xml:space="preserve"><value>URL de la guía XMLTV</value></data>
+  <data name="About_XmltvGuideUrlHelp" xml:space="preserve"><value>Use esta URL si su servidor multimedia admite una URL como fuente de la guía XMLTV.</value></data>
+  <data name="Channels_AllBindings" xml:space="preserve"><value>Todas las vinculaciones</value></data>
+  <data name="Channels_AllDevices" xml:space="preserve"><value>Todos los dispositivos</value></data>
+  <data name="Channels_AllFlags" xml:space="preserve"><value>Todos los indicadores</value></data>
+  <data name="Channels_AllStates" xml:space="preserve"><value>Todos los estados</value></data>
+  <data name="Channels_Ambiguous" xml:space="preserve"><value>ambiguo</value></data>
+  <data name="Channels_AmbiguousGuideMatchHelp" xml:space="preserve"><value>Coinciden varios canales de guía elegibles. Seleccione el canal autorizado.</value></data>
+  <data name="Channels_AudioColumn" xml:space="preserve"><value>Audio</value></data>
+  <data name="Channels_AuthoritativeGuideColumn" xml:space="preserve"><value>guía autorizada</value></data>
+  <data name="Channels_Bound" xml:space="preserve"><value>Vinculado</value></data>
+  <data name="Channels_ChannelsLabel" xml:space="preserve"><value>Canales</value></data>
+  <data name="Channels_ClearFilters" xml:space="preserve"><value>Borrar filtros</value></data>
+  <data name="Channels_Description" xml:space="preserve"><value>Canales actualmente disponibles desde los sintonizadores físicos habilitados.</value></data>
+  <data name="Channels_DisableChannelAria" xml:space="preserve"><value>Deshabilitar el canal {0} en {1}</value></data>
+  <data name="Channels_DrmProtected" xml:space="preserve"><value>DRM protegido</value></data>
+  <data name="Channels_DrmProtectedChannel" xml:space="preserve"><value>Canal protegido por DRM</value></data>
+  <data name="Channels_EnableChannelAria" xml:space="preserve"><value>Habilitar canal {0} en {1}</value></data>
+  <data name="Channels_EquivalenceGroupColumn" xml:space="preserve"><value>grupo de equivalencia</value></data>
+  <data name="Channels_ErrorLoadingSavedLineup" xml:space="preserve"><value>Error al cargar la lista de canales guardada: {0}</value></data>
+  <data name="Channels_ErrorRefreshingChannels" xml:space="preserve"><value>Error al actualizar canales: {0}</value></data>
+  <data name="Channels_ErrorUpdatingChannel" xml:space="preserve"><value>Error al actualizar el canal {0}: {1}</value></data>
+  <data name="Channels_ErrorUpdatingGuideBinding" xml:space="preserve"><value>Error al actualizar el enlace de la guía autorizada: {0}</value></data>
+  <data name="Channels_ErrorUpdatingIdentity" xml:space="preserve"><value>Error al actualizar la identidad del canal: {0}</value></data>
+  <data name="Channels_Favorite" xml:space="preserve"><value>Favorito</value></data>
+  <data name="Channels_FavoriteChannel" xml:space="preserve"><value>canal favorito</value></data>
+  <data name="Channels_Favorites" xml:space="preserve"><value>Favoritos</value></data>
+  <data name="Channels_FindHeading" xml:space="preserve"><value>Buscar canales</value></data>
+  <data name="Channels_FlagsLabel" xml:space="preserve"><value>Indicadores</value></data>
+  <data name="Channels_GlobalNameColumn" xml:space="preserve"><value>Nombre global</value></data>
+  <data name="Channels_GlobalNumberColumn" xml:space="preserve"><value>Número global</value></data>
+  <data name="Channels_GuideBindingLabel" xml:space="preserve"><value>Vinculación con la guía</value></data>
+  <data name="Channels_GuideMatchedAutomatically" xml:space="preserve"><value>Coincidencia automática a partir de la identidad del canal físico.</value></data>
+  <data name="Channels_GuideStateUnavailable" xml:space="preserve"><value>Estado de la guía no disponible</value></data>
+  <data name="Channels_Heading" xml:space="preserve"><value>Canales de HDHomeRun</value></data>
+  <data name="Channels_InvalidEquivalenceGroup" xml:space="preserve"><value>El grupo de equivalencia debe estar vacío o ser un GUID válido.</value></data>
+  <data name="Channels_Loading" xml:space="preserve"><value>Cargando canales...</value></data>
+  <data name="Channels_ManualOverride" xml:space="preserve"><value>Anulación manual.</value></data>
+  <data name="Channels_ManualSelectionUnavailable" xml:space="preserve"><value>La selección manual no está disponible: utilice la coincidencia automática</value></data>
+  <data name="Channels_NoAutomaticGuideMatchHelp" xml:space="preserve"><value>Ninguna identidad o número de proveedor coincide automáticamente. Seleccione el canal autorizado manualmente.</value></data>
+  <data name="Channels_NoMatch" xml:space="preserve"><value>No hay coincidencia</value></data>
+  <data name="Channels_NoMatchingChannels" xml:space="preserve"><value>Ningún canal coincide con la búsqueda y los filtros actuales.</value></data>
+  <data name="Channels_NoSavedLineup" xml:space="preserve"><value>No hay una lista de canales guardada</value></data>
+  <data name="Channels_NoSavedLineupHelp" xml:space="preserve"><value>Actualice los canales para consultar cada sintonizador físico habilitado sin descargar datos de la guía.</value></data>
+  <data name="Channels_OptionalGuid" xml:space="preserve"><value>GUID opcional</value></data>
+  <data name="Channels_PageTitle" xml:space="preserve"><value>Canales</value></data>
+  <data name="Channels_PhysicalDeviceColumn" xml:space="preserve"><value>Dispositivo físico</value></data>
+  <data name="Channels_PhysicalDeviceLabel" xml:space="preserve"><value>Dispositivo físico</value></data>
+  <data name="Channels_PhysicalSourceChannelsHeading" xml:space="preserve"><value>Canales de origen físico</value></data>
+  <data name="Channels_ProviderIdentityColumn" xml:space="preserve"><value>Identidad del proveedor</value></data>
+  <data name="Channels_QualityColumn" xml:space="preserve"><value>Calidad</value></data>
+  <data name="Channels_RefreshChannels" xml:space="preserve"><value>Actualizar canales</value></data>
+  <data name="Channels_RefreshedChannels" xml:space="preserve"><value>Canales de origen físicos {0} actualizados.</value></data>
+  <data name="Channels_RefreshedChannelsWithFailures" xml:space="preserve"><value>Canales de origen físicos {0} actualizados con {1} fallas de dispositivo; Se conservó el estado anterior.</value></data>
+  <data name="Channels_SavedButXmltvUpdateFailed" xml:space="preserve"><value>La configuración del canal se guardó, pero la guía XMLTV publicada no se pudo actualizar: {0}</value></data>
+  <data name="Channels_SavedGlobalIdentity" xml:space="preserve"><value>Identidad global guardada para el canal {0}.</value></data>
+  <data name="Channels_SavedGuideUnavailableHelp" xml:space="preserve"><value>El canal de guía manual guardado ya no está activo. Elija otro canal o vuelva a la coincidencia automática.</value></data>
+  <data name="Channels_SearchPlaceholder" xml:space="preserve"><value>Número, nombre, dispositivo, códec o clave de proveedor</value></data>
+  <data name="Channels_SelectGuideAmbiguous" xml:space="preserve"><value>Seleccionar guía autorizada (ambigua)</value></data>
+  <data name="Channels_SelectGuideNoMatch" xml:space="preserve"><value>Seleccionar guía autorizada (sin coincidencia automática)</value></data>
+  <data name="Channels_ShowingCount" xml:space="preserve"><value>Mostrando {0} de {1} canales de origen físicos.</value></data>
+  <data name="Channels_SignalColumn" xml:space="preserve"><value>señal</value></data>
+  <data name="Channels_StateLabel" xml:space="preserve"><value>Estado</value></data>
+  <data name="Channels_UnavailableGuideChannel" xml:space="preserve"><value>No disponible: {0} · {1}</value></data>
+  <data name="Channels_UnavailableGuideSource" xml:space="preserve"><value>Fuente de guía no disponible</value></data>
+  <data name="Channels_Unbound" xml:space="preserve"><value>Sin vincular</value></data>
+  <data name="Channels_UseAutomaticMatching" xml:space="preserve"><value>Usar coincidencia automática</value></data>
+  <data name="Channels_VideoColumn" xml:space="preserve"><value>Video</value></data>
+  <data name="Common_Actions" xml:space="preserve"><value>Acciones</value></data>
+  <data name="Common_AndRestartingApp" xml:space="preserve"><value>y reinicie la aplicación.</value></data>
+  <data name="Common_Channel" xml:space="preserve"><value>canal</value></data>
+  <data name="Common_Clear" xml:space="preserve"><value>Borrar</value></data>
+  <data name="Common_Close" xml:space="preserve"><value>Cerrar</value></data>
+  <data name="Common_ClosesAutomatically" xml:space="preserve"><value>Se cierra automáticamente</value></data>
+  <data name="Common_CopiedToClipboard" xml:space="preserve"><value>¡Copiado al portapapeles!</value></data>
+  <data name="Common_CopyToClipboard" xml:space="preserve"><value>Copiar al portapapeles</value></data>
+  <data name="Common_DevelopmentModeDetailsPrefix" xml:space="preserve"><value>Cambiar al entorno</value></data>
+  <data name="Common_DevelopmentModeDetailsSuffix" xml:space="preserve"><value>mostrará información más detallada sobre el error ocurrido.</value></data>
+  <data name="Common_DevelopmentModeHeading" xml:space="preserve"><value>Modo de desarrollo</value></data>
+  <data name="Common_DevelopmentModeLocalDebugMiddle" xml:space="preserve"><value>estableciendo la variable de entorno</value></data>
+  <data name="Common_DevelopmentModeLocalDebugPrefix" xml:space="preserve"><value>Para depurar localmente, habilite el entorno</value></data>
+  <data name="Common_DevelopmentModeLocalDebugSuffix" xml:space="preserve"><value>en</value></data>
+  <data name="Common_DevelopmentModeSensitiveInformation" xml:space="preserve"><value>Puede dar lugar a que se muestre información confidencial de excepciones a los usuarios finales.</value></data>
+  <data name="Common_DevelopmentModeWarning" xml:space="preserve"><value>El entorno de desarrollo no debe estar habilitado para aplicaciones implementadas.</value></data>
+  <data name="Common_Disabled" xml:space="preserve"><value>Deshabilitado</value></data>
+  <data name="Common_DismissStatusMessage" xml:space="preserve"><value>Descartar mensaje de estado</value></data>
+  <data name="Common_Enabled" xml:space="preserve"><value>Habilitado</value></data>
+  <data name="Common_ErrorHeading" xml:space="preserve"><value>Error.</value></data>
+  <data name="Common_ErrorPageTitle" xml:space="preserve"><value>error</value></data>
+  <data name="Common_ErrorProcessingRequest" xml:space="preserve"><value>Se produjo un error al procesar su solicitud.</value></data>
+  <data name="Common_FailedToRejoin" xml:space="preserve"><value>No se pudo volver a unir.</value></data>
+  <data name="Common_FailedToResume" xml:space="preserve"><value>No se pudo reanudar la sesión.</value></data>
+  <data name="Common_LastUpdated" xml:space="preserve"><value>Última actualización</value></data>
+  <data name="Common_Loading" xml:space="preserve"><value>Cargando...</value></data>
+  <data name="Common_Never" xml:space="preserve"><value>nunca</value></data>
+  <data name="Common_NotAvailable" xml:space="preserve"><value>N/A</value></data>
+  <data name="Common_NotFoundHeading" xml:space="preserve"><value>No encontrado</value></data>
+  <data name="Common_NotFoundMessage" xml:space="preserve"><value>Lo sentimos, el contenido que buscas no existe.</value></data>
+  <data name="Common_Pause" xml:space="preserve"><value>Pausar</value></data>
+  <data name="Common_Refresh" xml:space="preserve"><value>Actualizar</value></data>
+  <data name="Common_RejoinFailedRetryPrefix" xml:space="preserve"><value>No se pudo volver a unir... intentándolo de nuevo en</value></data>
+  <data name="Common_RejoiningServer" xml:space="preserve"><value>Reincorporándose al servidor...</value></data>
+  <data name="Common_Reload" xml:space="preserve"><value>Recargar</value></data>
+  <data name="Common_RequestIdLabel" xml:space="preserve"><value>ID de solicitud</value></data>
+  <data name="Common_Resume" xml:space="preserve"><value>Reanudar</value></data>
+  <data name="Common_RetryOrReload" xml:space="preserve"><value>Vuelva a intentarlo o vuelva a cargar la página.</value></data>
+  <data name="Common_Save" xml:space="preserve"><value>Guardar</value></data>
+  <data name="Common_Search" xml:space="preserve"><value>Buscar</value></data>
+  <data name="Common_SecondsAbbreviation" xml:space="preserve"><value>{0}s</value></data>
+  <data name="Common_SecondsSuffix" xml:space="preserve"><value>segundos.</value></data>
+  <data name="Common_SessionPaused" xml:space="preserve"><value>La sesión ha sido pausada por el servidor.</value></data>
+  <data name="Common_Status" xml:space="preserve"><value>Estado</value></data>
+  <data name="Common_Stop" xml:space="preserve"><value>Detener</value></data>
+  <data name="Common_UnhandledError" xml:space="preserve"><value>Se ha producido un error no controlado.</value></data>
+  <data name="Common_Unknown" xml:space="preserve"><value>Desconocido</value></data>
+  <data name="Dashboard_ActivePathsHeading" xml:space="preserve"><value>Rutas activas</value></data>
+  <data name="Dashboard_ActiveStreamsHeading" xml:space="preserve"><value>Transmisiones activas</value></data>
+  <data name="Dashboard_ActiveStreamsSummary" xml:space="preserve"><value>{0} activo · {1} · {2}</value></data>
+  <data name="Dashboard_AutoFetchDisabled" xml:space="preserve"><value>obtención automática deshabilitada</value></data>
+  <data name="Dashboard_AutoFetchHeading" xml:space="preserve"><value>Obtención automática</value></data>
+  <data name="Dashboard_AutoFetchInProgress" xml:space="preserve"><value>Obtención automática en curso</value></data>
+  <data name="Dashboard_AutoFetchInterval" xml:space="preserve"><value>20-28h (aleatorizado)</value></data>
+  <data name="Dashboard_AutoFetchPending" xml:space="preserve"><value>obtención automática pendiente</value></data>
+  <data name="Dashboard_AutoFetchRunning" xml:space="preserve"><value>obtención automática en curso</value></data>
+  <data name="Dashboard_AutoRefreshDisabled" xml:space="preserve"><value>actualización automática deshabilitada</value></data>
+  <data name="Dashboard_ChannelGapDurationFormat" xml:space="preserve"><value>h' horas 'm' min'</value></data>
+  <data name="Dashboard_ChannelGapLabel" xml:space="preserve"><value>Brecha de canales</value></data>
+  <data name="Dashboard_ChannelsHeading" xml:space="preserve"><value>Canales</value></data>
+  <data name="Dashboard_ChannelsLabel" xml:space="preserve"><value>Canales</value></data>
+  <data name="Dashboard_ChannelsSummary" xml:space="preserve"><value>{0} habilitado · {1} deshabilitado · actualizado {2}</value></data>
+  <data name="Dashboard_ChannelsSummaryNever" xml:space="preserve"><value>{0} habilitado · {1} deshabilitado · nunca actualizado</value></data>
+  <data name="Dashboard_CollapseActiveStreamsSection" xml:space="preserve"><value>Contraer la sección Transmisiones activas</value></data>
+  <data name="Dashboard_CollapseChannelsSection" xml:space="preserve"><value>Contraer sección de canales</value></data>
+  <data name="Dashboard_CollapseGuideSection" xml:space="preserve"><value>Contraer sección de la Guía</value></data>
+  <data name="Dashboard_CountdownHours" xml:space="preserve"><value>{0}h {1}m {2}s</value></data>
+  <data name="Dashboard_CountdownMinutes" xml:space="preserve"><value>{0}m {1}s</value></data>
+  <data name="Dashboard_DeviceRestartSent" xml:space="preserve"><value>Se envió el comando de reinicio del dispositivo. El dispositivo no estará disponible durante ~30 segundos.</value></data>
+  <data name="Dashboard_DeviceSummary" xml:space="preserve"><value>{0} dispositivos · {1} streaming · {2} no disponible</value></data>
+  <data name="Dashboard_DueNow" xml:space="preserve"><value>Ahora</value></data>
+  <data name="Dashboard_EarliestLabel" xml:space="preserve"><value>Más temprano</value></data>
+  <data name="Dashboard_EnableIn" xml:space="preserve"><value>Habilitar en</value></data>
+  <data name="Dashboard_ErrorFetchingData" xml:space="preserve"><value>Error al obtener datos: {0}</value></data>
+  <data name="Dashboard_ErrorGeneratingXmltv" xml:space="preserve"><value>Error al generar XMLTV: {0}</value></data>
+  <data name="Dashboard_ErrorLoadingSavedLineup" xml:space="preserve"><value>Error al cargar la lista de canales guardada: {0}</value></data>
+  <data name="Dashboard_ErrorRefreshingChannels" xml:space="preserve"><value>Error al actualizar canales: {0}</value></data>
+  <data name="Dashboard_EveryInterval" xml:space="preserve"><value>Cada {0}</value></data>
+  <data name="Dashboard_EverySeconds" xml:space="preserve"><value>cada {0} segundos</value></data>
+  <data name="Dashboard_ExpandActiveStreamsSection" xml:space="preserve"><value>Expandir la sección Transmisiones activas</value></data>
+  <data name="Dashboard_ExpandChannelsSection" xml:space="preserve"><value>Expandir la sección Canales</value></data>
+  <data name="Dashboard_ExpandGuideSection" xml:space="preserve"><value>Expandir la sección Guía</value></data>
+  <data name="Dashboard_ExportXmltv" xml:space="preserve"><value>Exportar XMLTV</value></data>
+  <data name="Dashboard_FailedToRestartDevice" xml:space="preserve"><value>No se pudo reiniciar el dispositivo: {0}</value></data>
+  <data name="Dashboard_FailedToStopReceiver" xml:space="preserve"><value>No se pudo detener el receptor {0}: {1}</value></data>
+  <data name="Dashboard_FetchGuide" xml:space="preserve"><value>Obtener guía</value></data>
+  <data name="Dashboard_FetchNumber" xml:space="preserve"><value>Obtener #</value></data>
+  <data name="Dashboard_FetchStatusCompleted" xml:space="preserve"><value>Completado</value></data>
+  <data name="Dashboard_FetchStatusFailed" xml:space="preserve"><value>Fallido</value></data>
+  <data name="Dashboard_FetchStatusFetching" xml:space="preserve"><value>Obteniendo</value></data>
+  <data name="Dashboard_FetchStatusInitializing" xml:space="preserve"><value>Inicializando</value></data>
+  <data name="Dashboard_FetchStatusStoring" xml:space="preserve"><value>Guardando</value></data>
+  <data name="Dashboard_GenerateXmltv" xml:space="preserve"><value>Generar XMLTV</value></data>
+  <data name="Dashboard_GuideFetchedSuccessfully" xml:space="preserve"><value>Datos de guía obtenidos correctamente de {0} fuente(s): {1:N0} canales y {2:N0} programas.</value></data>
+  <data name="Dashboard_GuideRefreshWithFailures" xml:space="preserve"><value>Actualización de la guía completada con {0} fuentes fallidas y {1} salidas fallidas. Se conservaron las importaciones y publicaciones exitosas.</value></data>
+  <data name="Dashboard_GuideSummary" xml:space="preserve"><value>{0} canales · {1} programas · {2} restantes · {3}</value></data>
+  <data name="Dashboard_GuideXmltvHeading" xml:space="preserve"><value>Guía &amp; XMLTV</value></data>
+  <data name="Dashboard_Heading" xml:space="preserve"><value>Panel de control</value></data>
+  <data name="Dashboard_LatestLabel" xml:space="preserve"><value>Lo último</value></data>
+  <data name="Dashboard_ManualFetchProgress" xml:space="preserve"><value>Progreso de recuperación manual</value></data>
+  <data name="Dashboard_NextFetchIn" xml:space="preserve"><value>próxima obtención en {0}</value></data>
+  <data name="Dashboard_NoActivePhysicalDevices" xml:space="preserve"><value>No hay ningún dispositivo físico habilitado activo.</value></data>
+  <data name="Dashboard_NoGuideSourcesEnabled" xml:space="preserve"><value>No hay fuentes de guía habilitadas. XMLTV se regeneró a partir de datos de guía almacenados en caché.</value></data>
+  <data name="Dashboard_NotRefreshed" xml:space="preserve"><value>no actualizado</value></data>
+  <data name="Dashboard_PageTitle" xml:space="preserve"><value>Panel de control</value></data>
+  <data name="Dashboard_Pending" xml:space="preserve"><value>Pendiente...</value></data>
+  <data name="Dashboard_PhysicalDevicesHeading" xml:space="preserve"><value>Dispositivos físicos</value></data>
+  <data name="Dashboard_ProgramsLabel" xml:space="preserve"><value>Programas</value></data>
+  <data name="Dashboard_ProjectionChannelSummary" xml:space="preserve"><value>Las proyecciones de guía y streaming utilizan {0} canales de origen físico actualizados {1}.</value></data>
+  <data name="Dashboard_PublishedOutputsSuccessfully" xml:space="preserve"><value>Se publicaron correctamente las salidas de la guía {0}.</value></data>
+  <data name="Dashboard_PublishedOutputsWithFailures" xml:space="preserve"><value>Salida(s) de guía {0} publicada(s); {1} falló: {2}</value></data>
+  <data name="Dashboard_ReceiverColumn" xml:space="preserve"><value>Receptor</value></data>
+  <data name="Dashboard_ReceiverIdle" xml:space="preserve"><value>inactivo</value></data>
+  <data name="Dashboard_ReceiverStopped" xml:space="preserve"><value>El receptor {0} se detuvo exitosamente.</value></data>
+  <data name="Dashboard_ReceiverStreaming" xml:space="preserve"><value>Transmisión</value></data>
+  <data name="Dashboard_ReceiverTuned" xml:space="preserve"><value>sintonizado</value></data>
+  <data name="Dashboard_RefreshChannels" xml:space="preserve"><value>Actualizar canales</value></data>
+  <data name="Dashboard_RefreshChannelsBeforeGuide" xml:space="preserve"><value>Actualice los canales HDHomeRun anteriores antes de obtener la guía SiliconDust.</value></data>
+  <data name="Dashboard_RefreshedAt" xml:space="preserve"><value>actualizado {0}</value></data>
+  <data name="Dashboard_RefreshedChannels" xml:space="preserve"><value>Canales de origen físicos {0} actualizados.</value></data>
+  <data name="Dashboard_RefreshedChannelsWithFailures" xml:space="preserve"><value>Canales de origen físicos {0} actualizados con {1} fallas en el dispositivo.</value></data>
+  <data name="Dashboard_RefreshingEnabledGuideSources" xml:space="preserve"><value>Actualización de fuentes de guía habilitadas</value></data>
+  <data name="Dashboard_RemainingDurationFormat" xml:space="preserve"><value>d' días 'h' horas'</value></data>
+  <data name="Dashboard_RemainingLabel" xml:space="preserve"><value>restante</value></data>
+  <data name="Dashboard_RestartDevice" xml:space="preserve"><value>Reiniciar dispositivo</value></data>
+  <data name="Dashboard_Running" xml:space="preserve"><value>En curso...</value></data>
+  <data name="Dashboard_SignalColumn" xml:space="preserve"><value>señal</value></data>
+  <data name="Dashboard_StartingSoon" xml:space="preserve"><value>Empezando pronto...</value></data>
+  <data name="Dashboard_StreamingFlowHeading" xml:space="preserve"><value>Flujo de transmisión</value></data>
+  <data name="Dashboard_TargetColumn" xml:space="preserve"><value>Objetivo</value></data>
+  <data name="Dashboard_TimeRangeHeading" xml:space="preserve"><value>Rango de tiempo</value></data>
+  <data name="Guide_DisabledChannel" xml:space="preserve"><value>Canal deshabilitado</value></data>
+  <data name="Guide_DrmProtectedChannel" xml:space="preserve"><value>Canal protegido por DRM</value></data>
+  <data name="Guide_DurationLabel" xml:space="preserve"><value>Duración</value></data>
+  <data name="Guide_DurationMinutes" xml:space="preserve"><value>{0} mín.</value></data>
+  <data name="Guide_EndLabel" xml:space="preserve"><value>Fin</value></data>
+  <data name="Guide_EpisodeLabel" xml:space="preserve"><value>Episodio</value></data>
+  <data name="Guide_FavoriteChannel" xml:space="preserve"><value>canal favorito</value></data>
+  <data name="Guide_Heading" xml:space="preserve"><value>Guía</value></data>
+  <data name="Guide_LoadingData" xml:space="preserve"><value>Cargando datos de la guía...</value></data>
+  <data name="Guide_NoDescription" xml:space="preserve"><value>No hay descripción disponible.</value></data>
+  <data name="Guide_NoEpgData" xml:space="preserve"><value>No hay datos de EPG disponibles. Primero, obtenga los datos EPG del Panel de control.</value></data>
+  <data name="Guide_Now" xml:space="preserve"><value>Ahora</value></data>
+  <data name="Guide_OriginalAirLabel" xml:space="preserve"><value>Emisión original</value></data>
+  <data name="Guide_PageTitle" xml:space="preserve"><value>Guía</value></data>
+  <data name="Guide_ProgramTooltip" xml:space="preserve"><value>{0}\n{1} - {2} ({3:0} mín.)</value></data>
+  <data name="Guide_StartLabel" xml:space="preserve"><value>Inicio</value></data>
+  <data name="Guide_Today" xml:space="preserve"><value>hoy</value></data>
+  <data name="Guide_Tomorrow" xml:space="preserve"><value>mañana</value></data>
+  <data name="Logs_AllCategories" xml:space="preserve"><value>Todas las categorías</value></data>
+  <data name="Logs_CategoryLabel" xml:space="preserve"><value>categoría</value></data>
+  <data name="Logs_CurrentProcessHeading" xml:space="preserve"><value>Proceso actual</value></data>
+  <data name="Logs_Details" xml:space="preserve"><value>Detalles</value></data>
+  <data name="Logs_EventsLabel" xml:space="preserve"><value>Eventos</value></data>
+  <data name="Logs_FileLoggingDisabledPrefix" xml:space="preserve"><value>El registro de archivos está deshabilitado. Habilítelo en</value></data>
+  <data name="Logs_FileLoggingDisabledSuffix" xml:space="preserve"><value>y reinicie Lineup para conservar los registros tras los reinicios.</value></data>
+  <data name="Logs_Heading" xml:space="preserve"><value>Registros</value></data>
+  <data name="Logs_LevelColumn" xml:space="preserve"><value>Nivel</value></data>
+  <data name="Logs_LevelDebug" xml:space="preserve"><value>Depurar</value></data>
+  <data name="Logs_LevelError" xml:space="preserve"><value>error</value></data>
+  <data name="Logs_LevelFatal" xml:space="preserve"><value>fatal</value></data>
+  <data name="Logs_LevelInformation" xml:space="preserve"><value>Información</value></data>
+  <data name="Logs_LevelTrace" xml:space="preserve"><value>traza</value></data>
+  <data name="Logs_LevelWarning" xml:space="preserve"><value>Advertencia</value></data>
+  <data name="Logs_LiveViewNotice" xml:space="preserve"><value>Esta vista en vivo se limita a los eventos recientes del proceso actual de Lineup. Los registros operativos pueden contener direcciones de dispositivos y otros detalles de diagnóstico.</value></data>
+  <data name="Logs_MessageColumn" xml:space="preserve"><value>Mensaje</value></data>
+  <data name="Logs_MinimumLevelLabel" xml:space="preserve"><value>Nivel mínimo</value></data>
+  <data name="Logs_NoMatchingEvents" xml:space="preserve"><value>Ningún evento de registro coincide con los filtros actuales.</value></data>
+  <data name="Logs_NoRollingFiles" xml:space="preserve"><value>Aún no hay archivos de registro rotativos disponibles.</value></data>
+  <data name="Logs_PageTitle" xml:space="preserve"><value>Registros</value></data>
+  <data name="Logs_RollingFilesHeading" xml:space="preserve"><value>Archivos de registro rotativos</value></data>
+  <data name="Logs_SearchPlaceholder" xml:space="preserve"><value>Mensaje, excepción o propiedad</value></data>
+  <data name="Logs_SettingsLoggingLink" xml:space="preserve"><value>Configuración &gt; Registro</value></data>
+  <data name="Logs_TimeColumn" xml:space="preserve"><value>tiempo</value></data>
+  <data name="Nav_About" xml:space="preserve"><value>Acerca de</value></data>
+  <data name="Nav_Channels" xml:space="preserve"><value>Canales</value></data>
+  <data name="Nav_Dashboard" xml:space="preserve"><value>Panel de control</value></data>
+  <data name="Nav_Guide" xml:space="preserve"><value>Guía</value></data>
+  <data name="Nav_Logs" xml:space="preserve"><value>Registros</value></data>
+  <data name="Nav_NavigationMenu" xml:space="preserve"><value>Menú de navegación</value></data>
+  <data name="Nav_Settings" xml:space="preserve"><value>Configuración</value></data>
+  <data name="Nav_ThemeAuto" xml:space="preserve"><value>Automático</value></data>
+  <data name="Nav_ThemeDark" xml:space="preserve"><value>Oscuro</value></data>
+  <data name="Nav_ThemeLight" xml:space="preserve"><value>Claro</value></data>
+  <data name="Nav_ToggleTheme" xml:space="preserve"><value>Alternar tema</value></data>
+  <data name="Nav_Watch" xml:space="preserve"><value>Ver TV</value></data>
+  <data name="Nav_WatchTest" xml:space="preserve"><value>Prueba de reproducción</value></data>
+  <data name="ProgramMetadata_AdditionalCredits" xml:space="preserve"><value>Créditos adicionales</value></data>
+  <data name="ProgramMetadata_AdditionalImages" xml:space="preserve"><value>Imágenes adicionales</value></data>
+  <data name="ProgramMetadata_AlternateDescriptions" xml:space="preserve"><value>Descripciones alternativas</value></data>
+  <data name="ProgramMetadata_AlternateEpisodeTitles" xml:space="preserve"><value>Títulos de episodios alternativos</value></data>
+  <data name="ProgramMetadata_AlternateTitles" xml:space="preserve"><value>Títulos alternativos</value></data>
+  <data name="ProgramMetadata_AriaLabel" xml:space="preserve"><value>Metadatos del programa</value></data>
+  <data name="ProgramMetadata_Aspect" xml:space="preserve"><value>Aspecto</value></data>
+  <data name="ProgramMetadata_Audio" xml:space="preserve"><value>Audio</value></data>
+  <data name="ProgramMetadata_Color" xml:space="preserve"><value>Color</value></data>
+  <data name="ProgramMetadata_Country" xml:space="preserve"><value>País</value></data>
+  <data name="ProgramMetadata_CreditAdapter" xml:space="preserve"><value>Adaptador</value></data>
+  <data name="ProgramMetadata_CreditCast" xml:space="preserve"><value>Elenco</value></data>
+  <data name="ProgramMetadata_CreditCommentator" xml:space="preserve"><value>Comentarista</value></data>
+  <data name="ProgramMetadata_CreditComposer" xml:space="preserve"><value>Compositor</value></data>
+  <data name="ProgramMetadata_CreditDirector" xml:space="preserve"><value>Director</value></data>
+  <data name="ProgramMetadata_CreditEditor" xml:space="preserve"><value>Redactor</value></data>
+  <data name="ProgramMetadata_CreditGuest" xml:space="preserve"><value>Invitado</value></data>
+  <data name="ProgramMetadata_CreditGuestSuffix" xml:space="preserve"><value>(invitado)</value></data>
+  <data name="ProgramMetadata_CreditPresenter" xml:space="preserve"><value>Presentador</value></data>
+  <data name="ProgramMetadata_CreditProducer" xml:space="preserve"><value>Productor</value></data>
+  <data name="ProgramMetadata_CreditRole" xml:space="preserve"><value>como {0}</value></data>
+  <data name="ProgramMetadata_Credits" xml:space="preserve"><value>Créditos</value></data>
+  <data name="ProgramMetadata_CreditWriter" xml:space="preserve"><value>Guionista</value></data>
+  <data name="ProgramMetadata_Description" xml:space="preserve"><value>Descripción</value></data>
+  <data name="ProgramMetadata_EpisodeIdentifiers" xml:space="preserve"><value>Identificadores de episodios</value></data>
+  <data name="ProgramMetadata_EpisodeTitle" xml:space="preserve"><value>Título del episodio</value></data>
+  <data name="ProgramMetadata_Keywords" xml:space="preserve"><value>Palabras clave</value></data>
+  <data name="ProgramMetadata_Language" xml:space="preserve"><value>Idioma</value></data>
+  <data name="ProgramMetadata_LastChance" xml:space="preserve"><value>Última oportunidad</value></data>
+  <data name="ProgramMetadata_Live" xml:space="preserve"><value>en vivo</value></data>
+  <data name="ProgramMetadata_LocalizedCategories" xml:space="preserve"><value>Categorías localizadas</value></data>
+  <data name="ProgramMetadata_MoreDetails" xml:space="preserve"><value>Más detalles</value></data>
+  <data name="ProgramMetadata_New" xml:space="preserve"><value>Nuevo</value></data>
+  <data name="ProgramMetadata_Origin" xml:space="preserve"><value>Origen</value></data>
+  <data name="ProgramMetadata_OriginalLanguage" xml:space="preserve"><value>Idioma original</value></data>
+  <data name="ProgramMetadata_Other" xml:space="preserve"><value>Otro</value></data>
+  <data name="ProgramMetadata_Premiere" xml:space="preserve"><value>estreno</value></data>
+  <data name="ProgramMetadata_Present" xml:space="preserve"><value>presente</value></data>
+  <data name="ProgramMetadata_PreviouslyShown" xml:space="preserve"><value>Mostrado anteriormente</value></data>
+  <data name="ProgramMetadata_PreviouslyShownDetails" xml:space="preserve"><value>Mostrado anteriormente: {0}</value></data>
+  <data name="ProgramMetadata_PrimaryTextLanguages" xml:space="preserve"><value>Idiomas de texto primarios</value></data>
+  <data name="ProgramMetadata_ProgramStatus" xml:space="preserve"><value>Estado del programa</value></data>
+  <data name="ProgramMetadata_Quality" xml:space="preserve"><value>Calidad</value></data>
+  <data name="ProgramMetadata_Ratings" xml:space="preserve"><value>Calificaciones</value></data>
+  <data name="ProgramMetadata_RelatedUrls" xml:space="preserve"><value>URL relacionadas</value></data>
+  <data name="ProgramMetadata_Reviews" xml:space="preserve"><value>Reseñas</value></data>
+  <data name="ProgramMetadata_SchedulingIdentifiers" xml:space="preserve"><value>Identificadores de programación</value></data>
+  <data name="ProgramMetadata_SourceRuntime" xml:space="preserve"><value>Tiempo de ejecución de origen</value></data>
+  <data name="ProgramMetadata_Stereo" xml:space="preserve"><value>estéreo</value></data>
+  <data name="ProgramMetadata_Subtitles" xml:space="preserve"><value>Subtítulos</value></data>
+  <data name="ProgramMetadata_Title" xml:space="preserve"><value>Título</value></data>
+  <data name="ProgramMetadata_Video" xml:space="preserve"><value>Video</value></data>
+  <data name="Streaming_Active" xml:space="preserve"><value>Activo</value></data>
+  <data name="Streaming_ActiveChannels" xml:space="preserve"><value>Canales activos</value></data>
+  <data name="Streaming_ActiveProducerCountMany" xml:space="preserve"><value>{0} productores activos</value></data>
+  <data name="Streaming_ActiveProducerCountOne" xml:space="preserve"><value>{0} productor activo</value></data>
+  <data name="Streaming_ActiveSessions" xml:space="preserve"><value>Sesiones activas</value></data>
+  <data name="Streaming_Channel" xml:space="preserve"><value>Canal {0}</value></data>
+  <data name="Streaming_ChannelCountAbbreviation" xml:space="preserve"><value>{0} can.</value></data>
+  <data name="Streaming_ConfigureDevicesPrompt" xml:space="preserve"><value>Configure dispositivos físicos y virtuales para construir el flujo de transmisión.</value></data>
+  <data name="Streaming_ConfiguredTopologyAriaLabel" xml:space="preserve"><value>Topología de transmisión configurada</value></data>
+  <data name="Streaming_ConsumerCountMany" xml:space="preserve"><value>{0} consumidores</value></data>
+  <data name="Streaming_ConsumerCountOne" xml:space="preserve"><value>{0} consumidor</value></data>
+  <data name="Streaming_DeliveredStreamComponents" xml:space="preserve"><value>Componentes de flujo entregados</value></data>
+  <data name="Streaming_EffectiveSourceComponents" xml:space="preserve"><value>Componentes fuente efectivos</value></data>
+  <data name="Streaming_FlowSummaryAriaLabel" xml:space="preserve"><value>Resumen del flujo de transmisión</value></data>
+  <data name="Streaming_LaneConsumers" xml:space="preserve"><value>Consumidores</value></data>
+  <data name="Streaming_LaneMultiplexer" xml:space="preserve"><value>multiplexor</value></data>
+  <data name="Streaming_LaneOutputProcessing" xml:space="preserve"><value>Procesamiento de salida</value></data>
+  <data name="Streaming_LanePhysicalSources" xml:space="preserve"><value>Fuentes físicas</value></data>
+  <data name="Streaming_LaneSourceProcessing" xml:space="preserve"><value>Procesamiento de origen</value></data>
+  <data name="Streaming_LaneVirtualOutputs" xml:space="preserve"><value>Salidas virtuales</value></data>
+  <data name="Streaming_MediaTrackAudio" xml:space="preserve"><value>Audio</value></data>
+  <data name="Streaming_MediaTrackSubtitle" xml:space="preserve"><value>Subtítulo</value></data>
+  <data name="Streaming_MediaTrackVideo" xml:space="preserve"><value>Video</value></data>
+  <data name="Streaming_MultiplexedStreamComponents" xml:space="preserve"><value>Componentes de flujo multiplexados</value></data>
+  <data name="Streaming_NoConsumersAttached" xml:space="preserve"><value>Actualmente no hay ningún consumidor adherido.</value></data>
+  <data name="Streaming_NodeAriaLabel" xml:space="preserve"><value>{0}, {1}, {2} sesiones activas</value></data>
+  <data name="Streaming_None" xml:space="preserve"><value>Ninguno</value></data>
+  <data name="Streaming_OutputStreamComponents" xml:space="preserve"><value>Componentes del flujo de salida</value></data>
+  <data name="Streaming_RawPhysicalInput" xml:space="preserve"><value>Entrada física bruta</value></data>
+  <data name="Streaming_RawPhysicalStreamComponents" xml:space="preserve"><value>Componentes de flujo físico sin procesar</value></data>
+  <data name="Streaming_Session" xml:space="preserve"><value>Sesión</value></data>
+  <data name="Streaming_SharedSessions" xml:space="preserve"><value>Sesiones compartidas · {0}</value></data>
+  <data name="Streaming_SourceStreamComponents" xml:space="preserve"><value>Componentes del flujo fuente</value></data>
+  <data name="Streaming_StageConsumer" xml:space="preserve"><value>Consumidor</value></data>
+  <data name="Streaming_StageMultiplexer" xml:space="preserve"><value>multiplexor</value></data>
+  <data name="Streaming_StageOutputProcessing" xml:space="preserve"><value>Procesamiento de salida</value></data>
+  <data name="Streaming_StagePhysicalSource" xml:space="preserve"><value>Fuente física</value></data>
+  <data name="Streaming_StagesAriaLabel" xml:space="preserve"><value>Etapas de transmisión para la sesión {0}</value></data>
+  <data name="Streaming_StageSourceProcessing" xml:space="preserve"><value>Procesamiento de origen</value></data>
+  <data name="Streaming_StageVirtualOutput" xml:space="preserve"><value>salida virtual</value></data>
+  <data name="Streaming_StateActive" xml:space="preserve"><value>Activo</value></data>
+  <data name="Streaming_StateDisabled" xml:space="preserve"><value>Deshabilitado</value></data>
+  <data name="Streaming_StateIdle" xml:space="preserve"><value>inactivo</value></data>
+  <data name="Streaming_StateLegendAriaLabel" xml:space="preserve"><value>Leyenda del estado de transmisión</value></data>
+  <data name="Streaming_StateShared" xml:space="preserve"><value>Compartido</value></data>
+  <data name="Streaming_StateTranscoding" xml:space="preserve"><value>Transcodificación</value></data>
+  <data name="Streaming_StateWarm" xml:space="preserve"><value>En espera activa</value></data>
+  <data name="Streaming_Stop" xml:space="preserve"><value>Detener</value></data>
+  <data name="Streaming_StopStreamAriaLabel" xml:space="preserve"><value>Detener transmisión {0}</value></data>
+  <data name="Streaming_StreamComponents" xml:space="preserve"><value>Componentes de transmisión</value></data>
+  <data name="Streaming_SubscribedStreamComponents" xml:space="preserve"><value>Componentes de transmisión suscritos</value></data>
+  <data name="Streaming_TotalBitRate" xml:space="preserve"><value>Total: {0}</value></data>
+  <data name="Streaming_Unavailable" xml:space="preserve"><value>No disponible</value></data>
+  <data name="Streaming_Unknown" xml:space="preserve"><value>desconocido</value></data>
+  <data name="Streaming_WarmProducerCountMany" xml:space="preserve"><value>{0} productores en espera activa</value></data>
+  <data name="Streaming_WarmProducerCountOne" xml:space="preserve"><value>{0} productor en espera activa</value></data>
+  <data name="Transcoding_Ac4Audio" xml:space="preserve"><value>Audio AC-4</value></data>
+  <data name="Transcoding_Audio" xml:space="preserve"><value>Audio</value></data>
+  <data name="Transcoding_AudioCopy" xml:space="preserve"><value>Copiar</value></data>
+  <data name="Transcoding_ConvertHevcHelp" xml:space="preserve"><value>Cuando está habilitado, el video HEVC/H.265 se codifica como H.264 para una compatibilidad de reproducción más amplia. Otros códecs de video no cambian.</value></data>
+  <data name="Transcoding_ConvertHevcToH264" xml:space="preserve"><value>Convertir HEVC a H.264</value></data>
+  <data name="Transcoding_DeinterlacePreserve" xml:space="preserve"><value>preservar</value></data>
+  <data name="Transcoding_DeinterlaceSourceFieldRate" xml:space="preserve"><value>Tasa de campo de origen</value></data>
+  <data name="Transcoding_DeinterlaceSourceFrameRate" xml:space="preserve"><value>Velocidad de fotogramas de origen</value></data>
+  <data name="Transcoding_Deinterlacing" xml:space="preserve"><value>Desentrelazado</value></data>
+  <data name="Transcoding_DeviceAc4Help" xml:space="preserve"><value>La copia requiere compatibilidad con AC-4 descendente. AC-3 proporciona la más amplia compatibilidad; E-AC-3 puede conservar más capacidad cuando sea compatible.</value></data>
+  <data name="Transcoding_DeviceAc4OverrideHelp" xml:space="preserve"><value>Habilite la anulación para manejar fuentes AC-4 independientemente de otros códecs de audio.</value></data>
+  <data name="Transcoding_DeviceAudioHelp" xml:space="preserve"><value>La copia conserva el códec fuente y la calidad. AC-3 o E-AC-3 recodifica audio para consumidores que requieren ese formato.</value></data>
+  <data name="Transcoding_DeviceAudioOverrideHelp" xml:space="preserve"><value>Habilite la anulación para copiar o volver a codificar todas las pistas de audio que no sean AC-4 para este dispositivo.</value></data>
+  <data name="Transcoding_DeviceBitrateHelp" xml:space="preserve"><value>Un límite demasiado bajo puede reducir la calidad durante escenas complejas incluso cuando CRF solicita una calidad más alta.</value></data>
+  <data name="Transcoding_DeviceBitrateOverrideHelp" xml:space="preserve"><value>Habilite la anulación para limitar la tasa de bits codificada H.264 de este dispositivo independientemente del límite global.</value></data>
+  <data name="Transcoding_DeviceDeinterlaceHelp" xml:space="preserve"><value>Preservar deja el video sin cambios. La velocidad de fotogramas de origen genera un fotograma progresivo por fotograma. La velocidad de campo de origen preserva un movimiento de velocidad de campo más suave con mayor CPU y costo de tasa de bits.</value></data>
+  <data name="Transcoding_DeviceDeinterlaceOverrideHelp" xml:space="preserve"><value>Habilite la anulación para conservar o desentrelazar el video de este dispositivo independientemente de la política global.</value></data>
+  <data name="Transcoding_DeviceHevcHelp" xml:space="preserve"><value>La conversión mejora la compatibilidad pero inicia un codificador de video H.264. Desactivado conserva el códec de video fuente.</value></data>
+  <data name="Transcoding_DeviceHevcOverrideHelp" xml:space="preserve"><value>Habilite la anulación para elegir si este dispositivo convierte el video HEVC/H.265 a H.264 en lugar de usar la política global.</value></data>
+  <data name="Transcoding_DevicePresetHelp" xml:space="preserve"><value>Los preajustes más rápidos reducen el uso de CPU. Los preajustes más lentos pueden lograr una calidad similar con una tasa de bits menor.</value></data>
+  <data name="Transcoding_DevicePresetOverrideHelp" xml:space="preserve"><value>Habilite la anulación para cambiar la velocidad del codificador H.264 de este dispositivo y la compensación entre eficiencia de compresión.</value></data>
+  <data name="Transcoding_DeviceQualityHelp" xml:space="preserve"><value>Los valores permitidos son de 16 a 30. Los valores más bajos conservan más detalles y utilizan más tasa de bits; los valores más altos reducen la tasa de bits y la calidad.</value></data>
+  <data name="Transcoding_DeviceQualityOverrideHelp" xml:space="preserve"><value>Habilite la anulación para establecer el objetivo de calidad constante H.264 de este dispositivo en lugar de heredar el CRF global.</value></data>
+  <data name="Transcoding_DeviceWarning" xml:space="preserve"><value>La configuración actual de este dispositivo dará como resultado la transcodificación {0} para transmisiones coincidentes.</value></data>
+  <data name="Transcoding_GlobalAc4Help" xml:space="preserve"><value>Controla las fuentes AC-4 por separado porque la compatibilidad con el navegador y el servidor multimedia varía. La copia requiere compatibilidad con AC-4 descendente; AC-3 es la opción de compatibilidad más amplia.</value></data>
+  <data name="Transcoding_GlobalAudioHelp" xml:space="preserve"><value>La copia conserva el códec y la calidad originales. AC-3 o E-AC-3 vuelve a codificar otro audio para los consumidores que requieren ese formato.</value></data>
+  <data name="Transcoding_GlobalBitrateHelp" xml:space="preserve"><value>Limita la velocidad de salida objetivo del codificador H.264. Un límite demasiado bajo puede reducir la calidad durante escenas complejas incluso cuando CRF solicita una calidad más alta.</value></data>
+  <data name="Transcoding_GlobalDeinterlaceHelp" xml:space="preserve"><value>Preservar deja la fuente sin cambios. La velocidad de fotogramas de origen crea un fotograma progresivo por fotograma entrelazado. La velocidad del campo de origen crea un cuadro progresivo por campo para un movimiento más suave a un mayor CPU y costo de velocidad de bits.</value></data>
+  <data name="Transcoding_GlobalPresetHelp" xml:space="preserve"><value>Controla el equilibrio entre la velocidad de codificación H.264 y la eficiencia de compresión. Los preajustes más rápidos usan menos CPU; los más lentos pueden lograr una calidad similar con una tasa de bits menor.</value></data>
+  <data name="Transcoding_GlobalQualityHelp" xml:space="preserve"><value>Establece la codificación H.264 de calidad constante de 16 a 30. Los valores más bajos conservan más detalles pero utilizan más tasa de bits; los valores más altos reducen la tasa de bits y la calidad.</value></data>
+  <data name="Transcoding_GlobalWarning" xml:space="preserve"><value>La configuración actual dará como resultado la transcodificación {0} para transmisiones coincidentes.</value></data>
+  <data name="Transcoding_Inherits" xml:space="preserve"><value>(hereda {0})</value></data>
+  <data name="Transcoding_InheritsCrf" xml:space="preserve"><value>(hereda CRF {0})</value></data>
+  <data name="Transcoding_InheritsMbps" xml:space="preserve"><value>(hereda {0} Mbps)</value></data>
+  <data name="Transcoding_MaximumVideoBitrate" xml:space="preserve"><value>Velocidad de bits máxima de video</value></data>
+  <data name="Transcoding_NonAc4Audio" xml:space="preserve"><value>Audio que no es AC-4</value></data>
+  <data name="Transcoding_OverrideAc4Audio" xml:space="preserve"><value>Anular audio AC-4</value></data>
+  <data name="Transcoding_OverrideBitrate" xml:space="preserve"><value>Anular la tasa de bits</value></data>
+  <data name="Transcoding_OverrideDeinterlacing" xml:space="preserve"><value>Anular el desentrelazado</value></data>
+  <data name="Transcoding_OverrideEncoderPreset" xml:space="preserve"><value>Anular el preajuste del codificador</value></data>
+  <data name="Transcoding_OverrideHevcConversion" xml:space="preserve"><value>Anular la conversión HEVC</value></data>
+  <data name="Transcoding_OverrideNonAc4Audio" xml:space="preserve"><value>Anular audio que no sea AC-4</value></data>
+  <data name="Transcoding_OverrideVideoQuality" xml:space="preserve"><value>Anular la calidad del video</value></data>
+  <data name="Transcoding_PresetFast" xml:space="preserve"><value>Rápido</value></data>
+  <data name="Transcoding_PresetFaster" xml:space="preserve"><value>Más rápido</value></data>
+  <data name="Transcoding_PresetMedium" xml:space="preserve"><value>Medio</value></data>
+  <data name="Transcoding_PresetVeryFast" xml:space="preserve"><value>Muy rápido</value></data>
+  <data name="Transcoding_Settings" xml:space="preserve"><value>Configuración de transcodificación</value></data>
+  <data name="Transcoding_UsesGlobalSettings" xml:space="preserve"><value>Utiliza la configuración global a menos que esté habilitada una anulación.</value></data>
+  <data name="Transcoding_Video" xml:space="preserve"><value>Video</value></data>
+  <data name="Transcoding_VideoEncoderPreset" xml:space="preserve"><value>Preajuste del codificador de video</value></data>
+  <data name="Transcoding_VideoQualityCrf" xml:space="preserve"><value>Calidad de video (CRF)</value></data>
+  <data name="Watch_AdaptivePlaybackUnsupported" xml:space="preserve"><value>Su navegador no admite la reproducción adaptativa.</value></data>
+  <data name="Watch_AudioUnavailable" xml:space="preserve"><value>{0} no está disponible</value></data>
+  <data name="Watch_AutoProtocol" xml:space="preserve"><value>{0} (Automático)</value></data>
+  <data name="Watch_BitmapSubtitles" xml:space="preserve"><value>Subtítulos de mapa de bits</value></data>
+  <data name="Watch_BrowserProfile" xml:space="preserve"><value>Perfil del navegador</value></data>
+  <data name="Watch_BurnInTrack" xml:space="preserve"><value>{0} (incrustado; mayor uso de CPU)</value></data>
+  <data name="Watch_ChannelNumberPlaceholder" xml:space="preserve"><value>número de canal</value></data>
+  <data name="Watch_Channels" xml:space="preserve"><value>Canales</value></data>
+  <data name="Watch_CompatibilityProfileCleared" xml:space="preserve"><value>El perfil de compatibilidad del navegador guardado contradecía la reproducción en tiempo de ejecución y se borró. Ejecute nuevamente la Prueba de reproducción para actualizarlo.</value></data>
+  <data name="Watch_DedicatedListenerNotConfigured" xml:space="preserve"><value>El servicio de escucha dedicado del Web Player no está configurado.</value></data>
+  <data name="Watch_DrmProtectedChannel" xml:space="preserve"><value>Canal protegido por DRM</value></data>
+  <data name="Watch_Fallback" xml:space="preserve"><value>Alternativa</value></data>
+  <data name="Watch_FallbackAudio" xml:space="preserve"><value>Audio alternativo</value></data>
+  <data name="Watch_FallbackAudioLower" xml:space="preserve"><value>audio alternativo</value></data>
+  <data name="Watch_FavoriteChannel" xml:space="preserve"><value>canal favorito</value></data>
+  <data name="Watch_FFmpegSharedSegments" xml:space="preserve"><value>FFmpeg (Segmentos compartidos)</value></data>
+  <data name="Watch_H264AndAacStereo" xml:space="preserve"><value>H.264 y AAC Estéreo</value></data>
+  <data name="Watch_H264Fallback" xml:space="preserve"><value>Alternativa H.264</value></data>
+  <data name="Watch_HostedStream" xml:space="preserve"><value>Transmisión alojada</value></data>
+  <data name="Watch_InvalidChannelNumber" xml:space="preserve"><value>Ingrese un número de canal usando dígitos, opcionalmente con un punto decimal.</value></data>
+  <data name="Watch_JsAudioFallback" xml:space="preserve"><value>El audio fuente no está disponible en este navegador. Usando la representación alternativa configurada para esta transmisión.</value></data>
+  <data name="Watch_JsAudioTrackChanged" xml:space="preserve"><value>La pista de audio cambió.</value></data>
+  <data name="Watch_JsBothManifestsLoadFailed" xml:space="preserve"><value>No se puede cargar ninguno de los manifiestos CMAF.</value></data>
+  <data name="Watch_JsInitializationSuperseded" xml:space="preserve"><value>La inicialización de la reproducción fue reemplazada.</value></data>
+  <data name="Watch_JsPlaybackFailed" xml:space="preserve"><value>La reproducción CMAF falló.</value></data>
+  <data name="Watch_JsPlayerContainerNotFound" xml:space="preserve"><value>No se encontró el contenedor del reproductor CMAF.</value></data>
+  <data name="Watch_JsPresentationLoadFailed" xml:space="preserve"><value>No se puede cargar la presentación CMAF.</value></data>
+  <data name="Watch_JsProtocolFallback" xml:space="preserve"><value>El protocolo preferido no pudo iniciarse. Reintentando con el manifiesto CMAF alternativo.</value></data>
+  <data name="Watch_JsSessionUnavailable" xml:space="preserve"><value>La sesión de transmisión ya no está disponible.</value></data>
+  <data name="Watch_JsShakaUnsupported" xml:space="preserve"><value>Este navegador no admite la reproducción de Shaka Player.</value></data>
+  <data name="Watch_JsVideoElementNotFound" xml:space="preserve"><value>No se encontró el elemento del reproductor de video.</value></data>
+  <data name="Watch_JsVideoFallback" xml:space="preserve"><value>El video fuente no está disponible en este navegador. Usando la representación alternativa H.264 para esta transmisión.</value></data>
+  <data name="Watch_JsVideoFallbackRequired" xml:space="preserve"><value>El video fuente falló en este navegador. Reiniciando esta transmisión con H.264.</value></data>
+  <data name="Watch_Lock" xml:space="preserve"><value>Bloquear</value></data>
+  <data name="Watch_ManualTune" xml:space="preserve"><value>Sintonización manual</value></data>
+  <data name="Watch_NoActiveTuner" xml:space="preserve"><value>Ningún sintonizador activo está reportando este canal actualmente.</value></data>
+  <data name="Watch_NoEnabledChannels" xml:space="preserve"><value>No hay canales habilitados disponibles.</value></data>
+  <data name="Watch_None" xml:space="preserve"><value>ninguno</value></data>
+  <data name="Watch_NoPlaybackSession" xml:space="preserve"><value>El Web Player no devolvió una sesión de reproducción.</value></data>
+  <data name="Watch_NowPlaying" xml:space="preserve"><value>Reproduciendo ahora:</value></data>
+  <data name="Watch_Off" xml:space="preserve"><value>Apagado</value></data>
+  <data name="Watch_OverrideStreamSettings" xml:space="preserve"><value>Anular la configuración de la transmisión</value></data>
+  <data name="Watch_PlaybackProtocol" xml:space="preserve"><value>Protocolo de reproducción:</value></data>
+  <data name="Watch_Player" xml:space="preserve"><value>Reproductor:</value></data>
+  <data name="Watch_PlayingAudio" xml:space="preserve"><value>Reproducción de audio:</value></data>
+  <data name="Watch_PlayingVideo" xml:space="preserve"><value>Reproduciendo video:</value></data>
+  <data name="Watch_PreferredAudio" xml:space="preserve"><value>Audio preferido</value></data>
+  <data name="Watch_PreferredVideo" xml:space="preserve"><value>Video preferido</value></data>
+  <data name="Watch_Protocol" xml:space="preserve"><value>Protocolo</value></data>
+  <data name="Watch_Quality" xml:space="preserve"><value>Calidad</value></data>
+  <data name="Watch_QualityAppDefault" xml:space="preserve"><value>Valor predeterminado de la aplicación</value></data>
+  <data name="Watch_QualityHigh" xml:space="preserve"><value>Alta</value></data>
+  <data name="Watch_QualityLow" xml:space="preserve"><value>Baja (480p)</value></data>
+  <data name="Watch_QualityMedium" xml:space="preserve"><value>Media (720p)</value></data>
+  <data name="Watch_Rate" xml:space="preserve"><value>Tasa</value></data>
+  <data name="Watch_Receiver" xml:space="preserve"><value>Receptor</value></data>
+  <data name="Watch_RetryingWithReplacement" xml:space="preserve"><value>{0} en este navegador. Reintentando esta transmisión con {1}.</value></data>
+  <data name="Watch_RunCompatibilityTests" xml:space="preserve"><value>Ejecutar pruebas de compatibilidad</value></data>
+  <data name="Watch_SelectedSubtitles" xml:space="preserve"><value>Subtítulos seleccionados</value></data>
+  <data name="Watch_SelectChannelPrompt" xml:space="preserve"><value>Seleccione un canal para comenzar a mirar</value></data>
+  <data name="Watch_Session" xml:space="preserve"><value>Sesión:</value></data>
+  <data name="Watch_SettingUpStream" xml:space="preserve"><value>Configurando transmisión...</value></data>
+  <data name="Watch_SharedFragmentsHelp" xml:space="preserve"><value>Un conjunto de fragmentos compartido sirve tanto para HLS como para DASH.</value></data>
+  <data name="Watch_Signal" xml:space="preserve"><value>señal</value></data>
+  <data name="Watch_Source" xml:space="preserve"><value>Fuente</value></data>
+  <data name="Watch_SourceAudioPackagingFallback" xml:space="preserve"><value>El audio fuente no se puede empaquetar en esta compilación FFmpeg. Usando {0} para esta transmisión.</value></data>
+  <data name="Watch_SourceTotal" xml:space="preserve"><value>Total de origen: {0}</value></data>
+  <data name="Watch_SourceVideoAndAudioUnavailable" xml:space="preserve"><value>El video fuente y {0} no están disponibles</value></data>
+  <data name="Watch_SourceVideoUnavailable" xml:space="preserve"><value>El video fuente no está disponible.</value></data>
+  <data name="Watch_Status" xml:space="preserve"><value>Estado</value></data>
+  <data name="Watch_Stop" xml:space="preserve"><value>Detener</value></data>
+  <data name="Watch_StreamError" xml:space="preserve"><value>Error de transmisión</value></data>
+  <data name="Watch_StreamInformation" xml:space="preserve"><value>Información de transmisión</value></data>
+  <data name="Watch_Streaming" xml:space="preserve"><value>Transmisión</value></data>
+  <data name="Watch_Subtitle" xml:space="preserve"><value>TV en vivo con reproducción adaptativa HLS y DASH</value></data>
+  <data name="Watch_Subtitles" xml:space="preserve"><value>Subtítulos</value></data>
+  <data name="Watch_Title" xml:space="preserve"><value>Ver TV</value></data>
+  <data name="Watch_TrackIncluded" xml:space="preserve"><value>incluido</value></data>
+  <data name="Watch_TrackNotIncluded" xml:space="preserve"><value>no incluido</value></data>
+  <data name="Watch_TrackPlaying" xml:space="preserve"><value>reproduciéndose</value></data>
+  <data name="Watch_TrackSidecar" xml:space="preserve"><value>archivo auxiliar</value></data>
+  <data name="Watch_Tune" xml:space="preserve"><value>Sintonizar</value></data>
+  <data name="Watch_Tuned" xml:space="preserve"><value>sintonizado</value></data>
+  <data name="Watch_Tuner" xml:space="preserve"><value>Sintonizador</value></data>
+  <data name="Watch_UnableToInitializePlayback" xml:space="preserve"><value>No se puede inicializar la reproducción CMAF.</value></data>
+  <data name="Watch_UnableToInitializePlaybackWithError" xml:space="preserve"><value>No se puede inicializar la reproducción de CMAF: {0}</value></data>
+  <data name="Watch_UnableToStartPlayback" xml:space="preserve"><value>No se puede iniciar la reproducción de CMAF: {0}</value></data>
+  <data name="Watch_Unknown" xml:space="preserve"><value>desconocido</value></data>
+  <data name="Watch_Waiting" xml:space="preserve"><value>esperando</value></data>
+  <data name="Watch_WaitingForHostedMetadata" xml:space="preserve"><value>Esperando metadatos de transmisión alojados.</value></data>
+  <data name="Watch_WebPlayerNotEnabled" xml:space="preserve"><value>La salida virtual Web Player no está habilitada.</value></data>
+  <data name="Watch_WebVttSidecar" xml:space="preserve"><value>Archivo auxiliar WebVTT</value></data>
+  <data name="WatchTest_Ac4ClaimOnly" xml:space="preserve"><value>AC-4 (solo declaración)</value></data>
+  <data name="WatchTest_Ac4UnavailableHelp" xml:space="preserve"><value>El FFmpeg incluido con Jellyfin puede decodificar AC-4, pero no dispone de un codificador AC-4. La declaración del navegador se muestra a continuación, pero Lineup no puede generar una prueba sintética de AC-4.</value></data>
+  <data name="WatchTest_Action" xml:space="preserve"><value>acción</value></data>
+  <data name="WatchTest_ActiveAudio" xml:space="preserve"><value>audio activo</value></data>
+  <data name="WatchTest_ActiveAudioClaim" xml:space="preserve"><value>Declaración de audio activo</value></data>
+  <data name="WatchTest_ActiveVideo" xml:space="preserve"><value>Video activo</value></data>
+  <data name="WatchTest_ActiveVideoClaim" xml:space="preserve"><value>Declaración de video activo</value></data>
+  <data name="WatchTest_AudioCodec" xml:space="preserve"><value>Códec de audio</value></data>
+  <data name="WatchTest_AudioLayout" xml:space="preserve"><value>Diseño de audio</value></data>
+  <data name="WatchTest_AutomatedCompatibilityProfile" xml:space="preserve"><value>Perfil de compatibilidad automatizado</value></data>
+  <data name="WatchTest_BrowserClaimHelp" xml:space="preserve"><value>Una declaración del navegador es una comprobación de diagnóstico, no una prueba de que la decodificación funcione. Ejecute una prueba de reproducción cuando haya un codificador disponible.</value></data>
+  <data name="WatchTest_BrowserClaims" xml:space="preserve"><value>Declaraciones del navegador</value></data>
+  <data name="WatchTest_BurnInSlate" xml:space="preserve"><value>Pantalla con subtítulos incrustados</value></data>
+  <data name="WatchTest_Cancel" xml:space="preserve"><value>Cancelar</value></data>
+  <data name="WatchTest_CaseCompleted" xml:space="preserve"><value>{0} completado. El perfil se guardará después de que cada prueba tenga un resultado.</value></data>
+  <data name="WatchTest_ChannelSequenceHelp" xml:space="preserve"><value>Un tono recorre continuamente un canal por segundo: {0}. Utilice el control de sonido del reproductor para ajustar el volumen; presione Reproducir si la reproducción automática audible está bloqueada.</value></data>
+  <data name="WatchTest_ClaimOnlySuffix" xml:space="preserve"><value>(solo declaración)</value></data>
+  <data name="WatchTest_CmafPlaybackUnsupported" xml:space="preserve"><value>Su navegador no admite la reproducción de CMAF.</value></data>
+  <data name="WatchTest_ExactTestSelection" xml:space="preserve"><value>Selección de prueba exacta</value></data>
+  <data name="WatchTest_ExpectedCodecs" xml:space="preserve"><value>Códecs esperados</value></data>
+  <data name="WatchTest_IncompleteProfile" xml:space="preserve"><value>No se puede guardar un perfil de compatibilidad del navegador hasta que cada prueba del catálogo tenga un resultado.</value></data>
+  <data name="WatchTest_InvalidProfile" xml:space="preserve"><value>El perfil de compatibilidad del navegador completado no es válido.</value></data>
+  <data name="WatchTest_JsCompatibilityPlaybackFailed" xml:space="preserve"><value>La reproducción de compatibilidad CMAF falló.</value></data>
+  <data name="WatchTest_JsCompatibilityTrackLabel" xml:space="preserve"><value>Prueba de compatibilidad WebVTT de Lineup</value></data>
+  <data name="WatchTest_JsPresentationLoadFailed" xml:space="preserve"><value>No se puede cargar la presentación de compatibilidad seleccionada.</value></data>
+  <data name="WatchTest_JsShakaUnsupported" xml:space="preserve"><value>Este navegador no admite la reproducción de Shaka Player.</value></data>
+  <data name="WatchTest_JsVideoElementNotFound" xml:space="preserve"><value>No se encontró el elemento del reproductor de video.</value></data>
+  <data name="WatchTest_LastCompleted" xml:space="preserve"><value>Última finalización: {0}</value></data>
+  <data name="WatchTest_LayoutMono" xml:space="preserve"><value>Mono (1.0)</value></data>
+  <data name="WatchTest_LayoutQuad" xml:space="preserve"><value>Cuádruple (4.0)</value></data>
+  <data name="WatchTest_LayoutStereo" xml:space="preserve"><value>Estéreo (2.0)</value></data>
+  <data name="WatchTest_Manifest" xml:space="preserve"><value>Manifiesto</value></data>
+  <data name="WatchTest_ManifestLoaded" xml:space="preserve"><value>Manifiesto cargado</value></data>
+  <data name="WatchTest_NoClaim" xml:space="preserve"><value>Sin declaración</value></data>
+  <data name="WatchTest_NoDeterministicEncoder" xml:space="preserve"><value>No hay ningún codificador determinista disponible.</value></data>
+  <data name="WatchTest_None" xml:space="preserve"><value>Ninguno</value></data>
+  <data name="WatchTest_NotReported" xml:space="preserve"><value>No reportado</value></data>
+  <data name="WatchTest_NotRun" xml:space="preserve"><value>No ejecutado</value></data>
+  <data name="WatchTest_NotSupported" xml:space="preserve"><value>No compatible</value></data>
+  <data name="WatchTest_NotYetComplete" xml:space="preserve"><value>Aún no completo</value></data>
+  <data name="WatchTest_ObservedPlayback" xml:space="preserve"><value>Reproducción observada</value></data>
+  <data name="WatchTest_PlaybackFailed" xml:space="preserve"><value>La reproducción falló.</value></data>
+  <data name="WatchTest_PlaybackStarted" xml:space="preserve"><value>La reproducción comenzó</value></data>
+  <data name="WatchTest_Preparing" xml:space="preserve"><value>preparando</value></data>
+  <data name="WatchTest_ProfileSaved" xml:space="preserve"><value>Perfil de compatibilidad del navegador guardado. La página Ver TV ahora puede optimizar las transmisiones automáticamente.</value></data>
+  <data name="WatchTest_ProfileSaveHelp" xml:space="preserve"><value>Las pruebas individuales actualizan un perfil completo inmediatamente. Antes del primer perfil completo, los resultados se guardan solo después de que cada fila tenga un resultado. Las afirmaciones del navegador por sí solas nunca autorizan la copia fuente.</value></data>
+  <data name="WatchTest_ProgressAriaLabel" xml:space="preserve"><value>Progreso de la prueba de compatibilidad</value></data>
+  <data name="WatchTest_Protocol" xml:space="preserve"><value>Protocolo</value></data>
+  <data name="WatchTest_QualityAppDefault" xml:space="preserve"><value>Valor predeterminado de la aplicación (pantalla de 1080p)</value></data>
+  <data name="WatchTest_QualityHigh" xml:space="preserve"><value>Alta (1080p)</value></data>
+  <data name="WatchTest_QualityLow" xml:space="preserve"><value>Baja (480p)</value></data>
+  <data name="WatchTest_QualityMedium" xml:space="preserve"><value>Media (720p)</value></data>
+  <data name="WatchTest_QualityProfile" xml:space="preserve"><value>Perfil de calidad</value></data>
+  <data name="WatchTest_ReadingBrowserCapabilities" xml:space="preserve"><value>Leyendo las capacidades del navegador...</value></data>
+  <data name="WatchTest_Result" xml:space="preserve"><value>Resultado</value></data>
+  <data name="WatchTest_RunAll" xml:space="preserve"><value>Ejecutar todo</value></data>
+  <data name="WatchTest_RunCanceled" xml:space="preserve"><value>Ejecución de compatibilidad cancelada. Se mantuvo el perfil completado anteriormente.</value></data>
+  <data name="WatchTest_RunTest" xml:space="preserve"><value>Ejecutar prueba</value></data>
+  <data name="WatchTest_SelectCombinationPrompt" xml:space="preserve"><value>Seleccione una combinación de códec exacta e inicie la prueba.</value></data>
+  <data name="WatchTest_StartTest" xml:space="preserve"><value>Iniciar prueba</value></data>
+  <data name="WatchTest_StatusFailed" xml:space="preserve"><value>Fallido</value></data>
+  <data name="WatchTest_StatusPassed" xml:space="preserve"><value>Aprobado</value></data>
+  <data name="WatchTest_StatusUnavailable" xml:space="preserve"><value>No disponible</value></data>
+  <data name="WatchTest_Stop" xml:space="preserve"><value>Detener</value></data>
+  <data name="WatchTest_Subtitle" xml:space="preserve"><value>Pruebe una combinación exacta de códecs CMAF sin alternativa automática.</value></data>
+  <data name="WatchTest_SubtitleBurnIn" xml:space="preserve"><value>Subtítulos incrustados</value></data>
+  <data name="WatchTest_SubtitleCue" xml:space="preserve"><value>señal de subtítulo</value></data>
+  <data name="WatchTest_Subtitles" xml:space="preserve"><value>Subtítulos</value></data>
+  <data name="WatchTest_Supported" xml:space="preserve"><value>Compatible</value></data>
+  <data name="WatchTest_SyntheticPresentationHelp" xml:space="preserve"><value>La presentación sintética contiene una variante de video y una variante de audio.</value></data>
+  <data name="WatchTest_Test" xml:space="preserve"><value>prueba</value></data>
+  <data name="WatchTest_TestError" xml:space="preserve"><value>Error de prueba</value></data>
+  <data name="WatchTest_Testing" xml:space="preserve"><value>Probando: {0}</value></data>
+  <data name="WatchTest_Title" xml:space="preserve"><value>Prueba de reproducción</value></data>
+  <data name="WatchTest_UnableToReadCapabilities" xml:space="preserve"><value>No se pueden leer las capacidades del códec del navegador: {0}</value></data>
+  <data name="WatchTest_VideoCodec" xml:space="preserve"><value>Códec de video</value></data>
+  <data name="WatchTest_VideoProfile" xml:space="preserve"><value>Perfil de video</value></data>
+  <data name="WatchTest_WebVttSidecar" xml:space="preserve"><value>Archivo auxiliar WebVTT</value></data>
+</root>

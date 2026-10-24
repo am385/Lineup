@@ -6,13 +6,16 @@ services:
       # Host-facing ports are configurable; Lineup uses fixed ports inside the container.
       - "${HTTP_PORT:-8080}:8080"
       - "${HTTPS_PORT:-8443}:8443"
+      # Publish dedicated virtual-output listeners. Override with an equal-sized mapping,
+      # for example VIRTUAL_OUTPUT_PORTS=9600-9607:8600-8607 for eight outputs.
+      - "${VIRTUAL_OUTPUT_PORTS:-8600-8615:8600-8615}"
       - "${HDHOMERUN_DISCOVERY_PORT:-65001}:65001/udp"
       - "${SSDP_PORT:-1900}:1900/udp"
     volumes:
       # Persist all Lineup-owned application data across container restarts
       - appdata:/appdata
       # Persist XMLTV output across container restarts (optional, only if you use the XMLTV output feature)
-      - xmltv:/xmltv
+      - guide:/guide
       - transient:/transient
       # Place the HTTPS certificate at ./certs/lineup.pfx.
       - ./certs:/app/certs:ro
@@ -21,7 +24,7 @@ services:
       # Clear the base image default; Lineup configures explicit Kestrel listeners.
       - ASPNETCORE_HTTP_PORTS=
       - Lineup__AppDataPath=/appdata
-      - Lineup__XmltvPath=/xmltv
+      - Lineup__GuideOutputDir=/guide
       - Lineup__TransientPath=/transient
       - Lineup__Https__CertificatePath=/app/certs/lineup.pfx
       - Lineup__Https__CertificatePassword=${CERT_PASSWORD:-}
@@ -35,5 +38,5 @@ services:
 
 volumes:
   appdata:
-  xmltv:
+  guide:
   transient:

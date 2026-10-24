@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Core\Lineup.Extensibility\Lineup.Extensibility.csproj" />
+    <ProjectReference Include="..\Lineup.SiliconDust.HDHomeRun.Device\Lineup.SiliconDust.HDHomeRun.Device.csproj" />
+  </ItemGroup>
+</Project>

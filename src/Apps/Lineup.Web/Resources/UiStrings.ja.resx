@@ -1,0 +1,1121 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="metadata">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" />
+              </xsd:sequence>
+              <xsd:attribute name="name" use="required" type="xsd:string" />
+              <xsd:attribute name="type" type="xsd:string" />
+              <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="assembly">
+            <xsd:complexType>
+              <xsd:attribute name="alias" type="xsd:string" />
+              <xsd:attribute name="name" type="xsd:string" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <data name="General_AppearanceHeading" xml:space="preserve"><value>外観</value></data>
+  <data name="General_ThemeLabel" xml:space="preserve"><value>テーマ</value></data>
+  <data name="General_ThemeLight" xml:space="preserve"><value>ライト</value></data>
+  <data name="General_ThemeDark" xml:space="preserve"><value>ダーク</value></data>
+  <data name="General_ThemeAuto" xml:space="preserve"><value>自動</value></data>
+  <data name="General_ThemeHelp" xml:space="preserve"><value>ライト、ダーク、またはシステム設定に従う「自動」を選択します。</value></data>
+  <data name="General_RegionalHeading" xml:space="preserve"><value>地域設定</value></data>
+  <data name="General_NetworkHeading" xml:space="preserve"><value>ネットワーク設定</value></data>
+  <data name="General_KnownProxiesLabel" xml:space="preserve"><value>既知のプロキシ</value></data>
+  <data name="General_KnownProxiesHelp" xml:space="preserve"><value>信頼するリバースプロキシの IP アドレスまたは CIDR ネットワークを 1 行に 1 つ入力します。管理リスナーがリバースプロキシの背後にない場合は空のままにしてください。プロキシは Host を維持し、X-Forwarded-For と X-Forwarded-Proto を送信する必要があります。</value></data>
+  <data name="General_KnownProxiesRestartHelp" xml:space="preserve"><value>既知のプロキシを変更すると、設定が保存され、管理リクエストパイプラインに新しい信頼境界を適用するため Lineup が正常に再起動します。専用の仮想出力リスナーは独自の「信頼するプロキシ」設定を使用し、影響を受けるワーカーのみを再起動します。</value></data>
+  <data name="General_TimeZoneLabel" xml:space="preserve"><value>タイムゾーン</value></data>
+  <data name="General_SystemDefault" xml:space="preserve"><value>システム既定</value></data>
+  <data name="General_TimeZoneHelpPrefix" xml:space="preserve"><value>表示タイムゾーンを上書きします。「システム既定」では</value></data>
+  <data name="General_TimeZoneHelpSuffix" xml:space="preserve"><value>環境変数またはサーバーのローカル時刻を使用します。</value></data>
+  <data name="General_CurrentTimeZone" xml:space="preserve"><value>現在:</value></data>
+  <data name="General_LanguageLabel" xml:space="preserve"><value>言語</value></data>
+  <data name="General_LanguageEnglish" xml:space="preserve"><value>英語</value></data>
+  <data name="General_LanguageSpanish" xml:space="preserve"><value>スペイン語</value></data>
+  <data name="General_LanguageHelp" xml:space="preserve"><value>Lineup Web インターフェイスで使用する言語を選択します。</value></data>
+  <data name="Settings_PageTitle" xml:space="preserve"><value>設定</value></data>
+  <data name="Settings_RestartingHeading" xml:space="preserve"><value>Lineup を再起動しています</value></data>
+  <data name="Settings_FactoryResetRestartHelp" xml:space="preserve"><value>工場出荷状態へのリセットが完了しました。準備ができると、Lineup は自動的にデバイス設定へ戻ります。</value></data>
+  <data name="Settings_RestartHelp" xml:space="preserve"><value>準備ができると、Lineup は自動的にこのページへ戻ります。</value></data>
+  <data name="Settings_RestartDelayedHeading" xml:space="preserve"><value>Lineup の起動に通常より時間がかかっています</value></data>
+  <data name="Settings_RestartDelayedHelp" xml:space="preserve"><value>Lineup が実行中であることを確認してから、もう一度接続してください。</value></data>
+  <data name="Common_Retry" xml:space="preserve"><value>再試行</value></data>
+  <data name="Settings_FactoryResetRequiredHeading" xml:space="preserve"><value>工場出荷状態へのリセットが必要です</value></data>
+  <data name="Settings_FactoryResetRequiredHelp" xml:space="preserve"><value>通常のデバイス、番組ガイド、検出、ストリーミング操作は無効です。下の「リセット」タブで、互換性のない状態を明示的に消去して Lineup を再起動してください。</value></data>
+  <data name="Settings_WelcomeHeading" xml:space="preserve"><value>Lineup へようこそ!</value></data>
+  <data name="Settings_WelcomePrefix" xml:space="preserve"><value>最初に</value></data>
+  <data name="Settings_WelcomePhysicalDevice" xml:space="preserve"><value>物理デバイス</value></data>
+  <data name="Settings_WelcomeAnd" xml:space="preserve"><value>と</value></data>
+  <data name="Settings_WelcomeGuideSource" xml:space="preserve"><value>番組ガイドソース</value></data>
+  <data name="Settings_WelcomeOptional" xml:space="preserve"><value>を追加し、必要に応じて</value></data>
+  <data name="Settings_WelcomeVirtualDevice" xml:space="preserve"><value>仮想デバイス</value></data>
+  <data name="Settings_WelcomeThenClick" xml:space="preserve"><value>を追加してから、</value></data>
+  <data name="Settings_SaveSettings" xml:space="preserve"><value>設定を保存</value></data>
+  <data name="Settings_WelcomeSuffix" xml:space="preserve"><value>をクリックしてください。</value></data>
+  <data name="Settings_CategoriesAriaLabel" xml:space="preserve"><value>設定カテゴリ</value></data>
+  <data name="Settings_TabGeneral" xml:space="preserve"><value>全般</value></data>
+  <data name="Settings_TabDashboard" xml:space="preserve"><value>ダッシュボード</value></data>
+  <data name="Settings_TabGuideSources" xml:space="preserve"><value>番組ガイドソース</value></data>
+  <data name="Settings_TabGuideOutputs" xml:space="preserve"><value>番組ガイド出力</value></data>
+  <data name="Settings_TabPhysicalDevices" xml:space="preserve"><value>物理デバイス</value></data>
+  <data name="Settings_TabVirtualDevices" xml:space="preserve"><value>仮想デバイス</value></data>
+  <data name="Settings_TabStreaming" xml:space="preserve"><value>ストリーミング</value></data>
+  <data name="Settings_TabApi" xml:space="preserve"><value>API</value></data>
+  <data name="Settings_TabLogging" xml:space="preserve"><value>ログ</value></data>
+  <data name="Settings_TabReset" xml:space="preserve"><value>リセット</value></data>
+  <data name="Settings_SaveAndGetStarted" xml:space="preserve"><value>保存して開始</value></data>
+  <data name="Common_Undo" xml:space="preserve"><value>元に戻す</value></data>
+  <data name="Common_Skip" xml:space="preserve"><value>スキップ</value></data>
+  <data name="Common_Cancel" xml:space="preserve"><value>キャンセル</value></data>
+  <data name="Settings_AboutHeading" xml:space="preserve"><value>設定について</value></data>
+  <data name="Settings_AboutAppearance" xml:space="preserve"><value>共有ストリーミングや番組ガイドの動作を変えずに、Web インターフェイスの表示方法を制御します。</value></data>
+  <data name="Settings_AboutRegional" xml:space="preserve"><value>Lineup 全体での日付と時刻の表示方法を制御します。番組ガイドプロバイダーが保存した番組のタイムスタンプは変更されません。</value></data>
+  <data name="Settings_AboutEpgFetchTitle" xml:space="preserve"><value>EPG 取得設定</value></data>
+  <data name="Settings_AboutEpgFetch" xml:space="preserve"><value>共有の番組ガイド更新スケジュール、先に物理チャンネルラインアップを更新するかどうか、および完了済み番組履歴の保持期間を制御します。</value></data>
+  <data name="Settings_AboutXmltvOutputTitle" xml:space="preserve"><value>XMLTV 出力設定</value></data>
+  <data name="Settings_AboutXmltvOutput" xml:space="preserve"><value>外部利用者向けの統合番組ガイドは、更新完了後にのみ公開されるため、更新途中のドキュメントが読み取られることはありません。</value></data>
+  <data name="Settings_AboutGuideOutputs" xml:space="preserve"><value>既定では、有効なすべての仮想デバイスについてキャッシュ済み番組ガイドデータを公開します。下流の利用者が特定の仮想デバイスまたは番組ガイドソースのみを必要とする場合は、対象を限定した出力を作成してください。</value></data>
+  <data name="Settings_AboutGuideSourceTitle" xml:space="preserve"><value>番組ガイドソース設定</value></data>
+  <data name="Settings_AboutGuideSource" xml:space="preserve"><value>{1} のインスタンスである {0} と、番組ガイド更新時にデータを提供するかどうかを設定します。</value></data>
+  <data name="Settings_AboutPhysicalSubscriptionTitle" xml:space="preserve"><value>物理デバイスの購読</value></data>
+  <data name="Settings_AboutPhysicalSubscription" xml:space="preserve"><value>チャンネルを提供する互換性のある物理デバイスと、このソースに必要なプロバイダー認証を定義します。すべてを選択すると、後から追加した互換デバイスも対象になります。</value></data>
+  <data name="Settings_AboutRefreshTitle" xml:space="preserve"><value>更新設定</value></data>
+  <data name="Settings_AboutRefresh" xml:space="preserve"><value>比較的変化の少ないデバイス情報と、頻繁に変化するチューナー状態の個別ポーリングスケジュールを制御します。これらの間隔はすべての物理デバイスに適用されます。</value></data>
+  <data name="Settings_AboutTranscoderTitle" xml:space="preserve"><value>トランスコーダー設定</value></data>
+  <data name="Settings_AboutPhysicalTranscoder" xml:space="preserve"><value>ストリームがマルチプレクサーに入る前に適用するソースステージの既定値を定義します。デバイスタブでは、残りの設定を継承しながら、そのソースに必要なポリシーのみをオーバーライドできます。</value></data>
+  <data name="Settings_AboutDeviceTitle" xml:space="preserve"><value>デバイス設定</value></data>
+  <data name="Settings_AboutPhysicalDevice" xml:space="preserve"><value>{1} のインスタンスである {0} の ID、接続、有効状態を設定します。無効なデバイスは設定に残りますが、チャンネル更新、番組ガイドソース、チューナー容量、ルーティングには使用されません。</value></data>
+  <data name="Settings_AboutHdHomeRunConnection" xml:space="preserve"><value>Lineup ホストから直接接続するため、そのホストまたはコンテナーからアドレスに到達できる必要があります。</value></data>
+  <data name="Settings_AboutLineupLinkPhysicalConnection" xml:space="preserve"><value>リモート仮想デバイスからチャンネルとストリームをインポートします。接続バンドルには資格情報が含まれるため、機密情報として取り扱ってください。</value></data>
+  <data name="Settings_AboutPluginPhysicalConnection" xml:space="preserve"><value>プラグインが提供する接続およびソースオプションは、このインスタンスにのみ適用されます。</value></data>
+  <data name="Settings_AboutTestIdentify" xml:space="preserve"><value>「テストと識別」では、現在の未保存の接続を検証し、保存または有効化せずに安全なデバイス ID を取得します。</value></data>
+  <data name="Settings_AboutPhysicalDeviceTranscoder" xml:space="preserve"><value>このデバイスについてのみソースステージの既定値をオーバーライドします。オーバーライドが有効でないオプションは、現在および将来の物理デバイスのグローバル設定を継承します。</value></data>
+  <data name="Settings_AboutVirtualTranscoder" xml:space="preserve"><value>多重化後に利用者別のストリームを作成するために使用する出力ステージの既定値を定義します。仮想デバイスタブでは、その出力に必要なポリシーのみをオーバーライドできます。</value></data>
+  <data name="Settings_AboutDiscoveryTitle" xml:space="preserve"><value>仮想チューナーの検出</value></data>
+  <data name="Settings_AboutDiscovery" xml:space="preserve"><value>有効な仮想 HDHomeRun デバイスをローカルネットワークに公開する方法を制御します。組み込み Web Player は、ネットワーク検出とは無関係に引き続き利用できます。</value></data>
+  <data name="Settings_BuiltInWebPlayerDescription" xml:space="preserve"><value>組み込み Web Player</value></data>
+  <data name="Settings_AboutVirtualDevice" xml:space="preserve"><value>{1} 出力である {0} の有効状態と物理デバイス購読を設定します。</value></data>
+  <data name="Settings_AboutWebPlayer" xml:space="preserve"><value>「視聴」ページではこの出力を使用します。この出力は無効にできますが、削除はできません。</value></data>
+  <data name="Settings_AboutHdHomeRunVirtual" xml:space="preserve"><value>HDHomeRun をエミュレートします。明示的に上限を指定しない限り、購読中の物理デバイスからチューナー容量が決まります。</value></data>
+  <data name="Settings_AboutLineupLinkVirtual" xml:space="preserve"><value>別の Lineup ホストにチャンネルを安全に公開します。エクスポートした接続バンドルには資格情報が含まれるため、機密情報として取り扱ってください。</value></data>
+  <data name="Settings_AboutPluginVirtual" xml:space="preserve"><value>プラグインが提供する ID および出力オプションは、このインスタンスにのみ適用されます。</value></data>
+  <data name="Settings_AboutVirtualDeviceTranscoder" xml:space="preserve"><value>この仮想デバイスについてのみ出力ステージの既定値をオーバーライドします。オーバーライドが有効でないオプションは、現在および将来の仮想デバイスのグローバル設定を継承します。</value></data>
+  <data name="Settings_AboutStreamingTitle" xml:space="preserve"><value>ストリーミングポリシー</value></data>
+  <data name="Settings_AboutStreaming" xml:space="preserve"><value>アプリケーション全体のストリーム受け入れ、共有パイプラインの保持、および通常の番組を配信できないストリームへの応答を制御します。物理および仮想トランスコーダープロファイルは各デバイスタブで設定します。</value></data>
+  <data name="Settings_AboutActiveStreamsTitle" xml:space="preserve"><value>アクティブなストリーム</value></data>
+  <data name="Settings_AboutActiveStreams" xml:space="preserve"><value>ダッシュボードで、コンシューマー、チューナー使用状況、共有取得、トランスコード、ストリーミングフローのキャッシュ表示を更新する頻度を制御します。</value></data>
+  <data name="Settings_AboutStatusApiTitle" xml:space="preserve"><value>ステータス API</value></data>
+  <data name="Settings_AboutStatusApiPrefix" xml:space="preserve"><value>読み取り専用の</value></data>
+  <data name="Settings_AboutStatusApiSuffix" xml:space="preserve"><value>スナップショットのプライバシー編集を制御します。編集されたプロパティは</value></data>
+  <data name="Settings_AboutStatusApiEnd" xml:space="preserve"><value>として残るため、デバイスや番組ガイドの操作を開始せず、安定したレスポンス形式が維持されます。</value></data>
+  <data name="Settings_AboutLogFiltersTitle" xml:space="preserve"><value>アプリケーションログフィルター</value></data>
+  <data name="Settings_AboutLogFilters" xml:space="preserve"><value>すべてのログ出力について、Web で管理する既定およびカテゴリ別の重大度フィルターを制御します。オーバーライドを無効にすると、起動時の設定に戻ります。</value></data>
+  <data name="Settings_AboutLocalDiagnosticsTitle" xml:space="preserve"><value>ローカル診断</value></data>
+  <data name="Settings_AboutLocalDiagnostics" xml:space="preserve"><value>件数制限のあるメモリ内ログページに加え、再起動後も保持されるローテーションファイルを設定し、保持済み診断ファイルを管理します。</value></data>
+  <data name="Settings_AboutOutputHosting" xml:space="preserve"><value>この仮想出力が管理 UI ホストを共有するか、専用リスナーで実行するかを、プロセスモード、バインド、転送セキュリティ、再起動ポリシーを含めて制御します。</value></data>
+  <data name="Settings_AboutExternalTargetsTitle" xml:space="preserve"><value>外部ターゲット</value></data>
+  <data name="Settings_AboutExternalTargets" xml:space="preserve"><value>OTLP などの外部ターゲットは起動時に設定されるため、資格情報が Web 設定 UI に保存または表示されることはありません。</value></data>
+  <data name="Settings_AboutResetTitle" xml:space="preserve"><value>設定のリセット</value></data>
+  <data name="Settings_AboutReset" xml:space="preserve"><value>永続化された設定を直ちに変更せずに、共有設定と Web 設定の既定値を確認用として準備します。</value></data>
+  <data name="Settings_AboutRestartTitle" xml:space="preserve"><value>Lineup の再起動</value></data>
+  <data name="Settings_AboutRestart" xml:space="preserve"><value>設定の変更やデータの削除を行わず、ホストを正常に再起動します。</value></data>
+  <data name="Settings_AboutFactoryResetTitle" xml:space="preserve"><value>工場出荷状態にリセット</value></data>
+  <data name="Settings_AboutFactoryReset" xml:space="preserve"><value>Lineup が所有する設定とデータを完全に削除してから、初回セットアップで再起動します。外部 XMLTV ファイルは変更されません。</value></data>
+  <data name="Settings_WebSettingsStorage" xml:space="preserve"><value>これらの Web ホスト設定は</value></data>
+  <data name="Settings_WebSettingsStorageSuffix" xml:space="preserve"><value>に保存され、再起動後も保持されます。</value></data>
+  <data name="Settings_GeneralStoragePrefix" xml:space="preserve"><value>テーマと言語は</value></data>
+  <data name="Settings_GeneralStorageMiddle" xml:space="preserve"><value>に、共有の地域設定は</value></data>
+  <data name="Settings_ResetStoragePrefix" xml:space="preserve"><value>リセット操作は</value></data>
+  <data name="Settings_ResetStorageSuffix" xml:space="preserve"><value>および Lineup が所有するその他のアプリケーションデータに影響する場合があります。</value></data>
+  <data name="Settings_SharedStoragePrefix" xml:space="preserve"><value>これらの共有設定は</value></data>
+  <data name="Settings_SharedStorageSuffix" xml:space="preserve"><value>に保存され、Web およびその他の Lineup ホストで使用できます。</value></data>
+  <data name="Settings_DeviceRefreshValidation" xml:space="preserve"><value>デバイス更新間隔は 0～60 分にしてください。</value></data>
+  <data name="Settings_TunerRefreshValidation" xml:space="preserve"><value>チューナー更新間隔は 0～300 秒にしてください。</value></data>
+  <data name="Settings_StreamRefreshValidation" xml:space="preserve"><value>アクティブストリーム更新間隔は 0～300 秒にしてください。</value></data>
+  <data name="Settings_EpgRetentionValidation" xml:space="preserve"><value>EPG 履歴の保持期間は 0～720 時間にしてください。</value></data>
+  <data name="Settings_LogRetentionValidation" xml:space="preserve"><value>ログの保持期間は 1～90 日、ファイルサイズは 1～500 MB にしてください。</value></data>
+  <data name="Settings_ApplicationLogApplyFailure" xml:space="preserve"><value>アプリケーションログフィルターを適用できませんでした: {0}</value></data>
+  <data name="Settings_FileLogApplyFailure" xml:space="preserve"><value>ファイルログを適用できませんでした: {0}</value></data>
+  <data name="Settings_PartialSaveFailure" xml:space="preserve"><value>設定は保存されましたが、{0}</value></data>
+  <data name="Settings_SaveSuccess" xml:space="preserve"><value>設定を保存しました!</value></data>
+  <data name="Settings_SecretShownOnce" xml:space="preserve"><value>{0} {1}（表示は 1 回のみ）: {2}</value></data>
+  <data name="Settings_SaveFailure" xml:space="preserve"><value>設定の保存中にエラーが発生しました: {0}</value></data>
+  <data name="Settings_ResetDefaultsSuccess" xml:space="preserve"><value>設定を既定値に戻しました。「保存」をクリックして適用してください。</value></data>
+  <data name="Settings_LogCategoryValidation" xml:space="preserve"><value>ログカテゴリのプレフィックスは 1～200 文字にし、Default という名前は使用できません。</value></data>
+  <data name="Settings_LogCategoryUniqueValidation" xml:space="preserve"><value>ログカテゴリのプレフィックスは一意である必要があります。</value></data>
+  <data name="Settings_UndoSuccess" xml:space="preserve"><value>未保存の設定変更を元に戻しました。</value></data>
+  <data name="Settings_RestartFailure" xml:space="preserve"><value>Lineup を再起動できませんでした: {0}</value></data>
+  <data name="Settings_FactoryResetFailure" xml:space="preserve"><value>工場出荷状態へのリセットを開始できませんでした: {0}</value></data>
+  <data name="Settings_NoFileLogs" xml:space="preserve"><value>ファイルログが見つかりませんでした。</value></data>
+  <data name="Settings_DeleteFileLogSingular" xml:space="preserve"><value>ファイルログ {0} 件を削除しました。</value></data>
+  <data name="Settings_DeleteFileLogPlural" xml:space="preserve"><value>ファイルログ {0} 件を削除しました。</value></data>
+  <data name="Settings_DeleteFileLogsFailure" xml:space="preserve"><value>ファイルログを削除できませんでした: {0}</value></data>
+  <data name="Settings_GuideOutputDestinationRequired" xml:space="preserve"><value>番組ガイド出力 {0} には出力先が必要です。</value></data>
+  <data name="Settings_GuideOutputDestinationInvalid" xml:space="preserve"><value>番組ガイド出力 {0} の出力先が無効です。</value></data>
+  <data name="Settings_CurrentGuidePathInvalid" xml:space="preserve"><value>現在の番組ガイド出力パスは無効です。サーバーディレクトリを選択してください。</value></data>
+  <data name="Settings_DirectoryAccessDenied" xml:space="preserve"><value>このディレクトリへのアクセスが拒否されました。</value></data>
+  <data name="Settings_DirectoryBrowseFailure" xml:space="preserve"><value>このディレクトリを参照できません: {0}</value></data>
+  <data name="Settings_NoPhysicalDrivers" xml:space="preserve"><value>ユーザーが作成可能な物理デバイスドライバーは登録されていません。</value></data>
+  <data name="Settings_ConnectionTestUnsupported" xml:space="preserve"><value>{0} は接続テストに対応していません。</value></data>
+  <data name="Settings_ConnectionTestSuccess" xml:space="preserve"><value>{0} に接続しました。</value></data>
+  <data name="Settings_ConnectionTestFailure" xml:space="preserve"><value>接続テストに失敗しました: {0}</value></data>
+  <data name="Settings_NoVirtualDrivers" xml:space="preserve"><value>ユーザーが作成可能な仮想デバイスドライバーは登録されていません。</value></data>
+  <data name="Settings_NoGuideSourceDrivers" xml:space="preserve"><value>ユーザーが作成可能な番組ガイドソースドライバーは登録されていません。</value></data>
+  <data name="Settings_NoGuideOutputDrivers" xml:space="preserve"><value>ユーザーが作成可能な番組ガイド出力ドライバーは登録されていません。</value></data>
+  <data name="Settings_LineupLinkBundleImported" xml:space="preserve"><value>Lineup Link 接続バンドルをインポートしました。「保存」をクリックして接続してください。</value></data>
+  <data name="Settings_LineupLinkGrantCreated" xml:space="preserve"><value>Lineup Link アクセス許可を作成しました。設定を保存してから、今すぐバンドルをコピーまたはエクスポートしてください。未加工トークンは保存されません。</value></data>
+  <data name="Settings_LineupLinkGrantRotated" xml:space="preserve"><value>Lineup Link アクセス許可をローテーションしました。設定を保存してから、リモートクライアントを新しいバンドルで更新してください。</value></data>
+  <data name="Settings_LineupLinkGrantRevoked" xml:space="preserve"><value>Lineup Link アクセス許可を取り消しました。その資格情報を拒否するには設定を保存してください。</value></data>
+  <data name="Settings_LineupLinkGrantPurged" xml:space="preserve"><value>取り消した Lineup Link アクセス許可を完全に消去しました。削除を永続化するには設定を保存してください。</value></data>
+  <data name="Settings_LineupLinkBundleDownloaded" xml:space="preserve"><value>Lineup Link 接続バンドルをダウンロードしました。</value></data>
+  <data name="Settings_LineupLinkDownloadDisconnected" xml:space="preserve"><value>ブラウザーの接続が切断されたため、接続バンドルをダウンロードできませんでした。</value></data>
+  <data name="Settings_LineupLinkDownloadFailure" xml:space="preserve"><value>ブラウザーで Lineup Link 接続バンドルをダウンロードできませんでした。</value></data>
+  <data name="Settings_LineupLinkBundleCopied" xml:space="preserve"><value>Lineup Link 接続バンドルをクリップボードにコピーしました。</value></data>
+  <data name="Settings_LineupLinkCopyDisconnected" xml:space="preserve"><value>ブラウザーの接続が切断されたため、接続バンドルをコピーできませんでした。</value></data>
+  <data name="Settings_LineupLinkCopyFailure" xml:space="preserve"><value>ブラウザーで Lineup Link 接続バンドルをコピーできませんでした。</value></data>
+  <data name="Settings_LineupLinkRawTokenUnavailable" xml:space="preserve"><value>現在の未加工トークンは利用できません。このアクセス許可をローテーションして、新しい接続バンドルを作成してください。</value></data>
+  <data name="Settings_AccessTokenHelp" xml:space="preserve"><value>****** リモート仮想デバイスによって発行されます。パスワードとして取り扱ってください。</value></data>
+  <data name="Settings_AccessTokenLabel" xml:space="preserve"><value>アクセストークン</value></data>
+  <data name="Settings_AddGuideOutputButton" xml:space="preserve"><value>番組ガイド出力を追加</value></data>
+  <data name="Settings_AddGuideOutputTypeDescription" xml:space="preserve"><value>{0} 番組ガイド出力を追加します。</value></data>
+  <data name="Settings_AddGuideSourceButton" xml:space="preserve"><value>番組ガイドソースを追加</value></data>
+  <data name="Settings_AddGuideSourceTypeDescription" xml:space="preserve"><value>{0} 番組ガイドソースを追加します。</value></data>
+  <data name="Settings_AddLogCategoryButton" xml:space="preserve"><value>カテゴリを追加</value></data>
+  <data name="Settings_AddPhysicalDeviceButton" xml:space="preserve"><value>物理デバイスを追加</value></data>
+  <data name="Settings_AddPhysicalDeviceDescription" xml:space="preserve"><value>追加する物理デバイスの種類を選択してください。</value></data>
+  <data name="Settings_AddressLabel" xml:space="preserve"><value>アドレス</value></data>
+  <data name="Settings_AddVirtualDeviceButton" xml:space="preserve"><value>仮想デバイスを追加</value></data>
+  <data name="Settings_AddVirtualDeviceDescription" xml:space="preserve"><value>追加する仮想デバイスの種類を選択してください。</value></data>
+  <data name="Settings_AdvancedNetworkingHeading" xml:space="preserve"><value>詳細ネットワーク設定</value></data>
+  <data name="Settings_AdvertisedBaseUrlHelp" xml:space="preserve"><value>検出およびラインアップレスポンスで使用する、外部から到達可能な管理ホスト URL です。</value></data>
+  <data name="Settings_AdvertisedBaseUrlLabel" xml:space="preserve"><value>公開ベース URL</value></data>
+  <data name="Settings_AdvertiseLocalNetworkHelp" xml:space="preserve"><value>仮想チューナー検出が有効な場合、このデバイスを SiliconDust UDP 検出と SSDP で公開します。</value></data>
+  <data name="Settings_AdvertiseLocalNetworkLabel" xml:space="preserve"><value>ローカルネットワークで公開</value></data>
+  <data name="Settings_AllCompatibleEnabledDevices" xml:space="preserve"><value>互換性のある有効なすべてのデバイス</value></data>
+  <data name="Settings_AllEnabledGuideSources" xml:space="preserve"><value>有効なすべての番組ガイドソース</value></data>
+  <data name="Settings_AllEnabledPhysicalDevices" xml:space="preserve"><value>有効なすべての物理デバイス</value></data>
+  <data name="Settings_AllEnabledVirtualDevices" xml:space="preserve"><value>有効なすべての仮想デバイス</value></data>
+  <data name="Settings_AllowedClientNetworksHelp" xml:space="preserve"><value>省略可能な、コンマ区切りの CIDR です。空の場合、ファイアウォールで許可された任意のネットワークのクライアントを受け入れます。</value></data>
+  <data name="Settings_AllowedClientNetworksLabel" xml:space="preserve"><value>許可するクライアントネットワーク</value></data>
+  <data name="Settings_ApiEndpointLabel" xml:space="preserve"><value>API エンドポイント</value></data>
+  <data name="Settings_PrimaryEndpointLabel" xml:space="preserve"><value>プライマリ</value></data>
+  <data name="Settings_StableIdEndpointLabel" xml:space="preserve"><value>安定 ID</value></data>
+  <data name="Settings_StableIdEndpointHelp" xml:space="preserve"><value>キーの変更による影響を受けません</value></data>
+  <data name="Settings_PrimaryEndpointActionsLabel" xml:space="preserve"><value>プライマリエンドポイントの操作</value></data>
+  <data name="Settings_StableIdEndpointActionsLabel" xml:space="preserve"><value>安定 ID エンドポイントの操作</value></data>
+  <data name="Settings_CopyGuideOutputLabel" xml:space="preserve"><value>番組ガイド出力エンドポイントをコピー</value></data>
+  <data name="Settings_CopyStableGuideOutputLabel" xml:space="preserve"><value>番組ガイド出力の安定 ID エンドポイントをコピー</value></data>
+  <data name="Settings_ViewGuideOutputLabel" xml:space="preserve"><value>番組ガイド出力を表示</value></data>
+  <data name="Settings_DownloadGuideOutputLabel" xml:space="preserve"><value>番組ガイド出力をダウンロード</value></data>
+  <data name="Settings_ViewStableGuideOutputLabel" xml:space="preserve"><value>安定 ID を使用して番組ガイド出力を表示</value></data>
+  <data name="Settings_DownloadStableGuideOutputLabel" xml:space="preserve"><value>安定 ID を使用して番組ガイド出力をダウンロード</value></data>
+  <data name="Settings_ApiPrivacyDescriptionPrefix" xml:space="preserve"><value>外部ダッシュボードは、現在の Lineup の状態を次の場所から読み取れます:</value></data>
+  <data name="Settings_ApiPrivacyDescriptionSuffix" xml:space="preserve"><value>この読み取り専用エンドポイントは認証されないため、信頼できるネットワークにのみ公開してください。</value></data>
+  <data name="Settings_ApiPrivacyHeading" xml:space="preserve"><value>ステータス API のプライバシー</value></data>
+  <data name="Settings_ApiDocumentationHeading" xml:space="preserve"><value>API ドキュメント</value></data>
+  <data name="Settings_ApiDocumentationDescription" xml:space="preserve"><value>Lineup が生成した API リファレンス、エンドポイントの説明、パラメーター、リクエストスキーマ、レスポンススキーマを参照します。</value></data>
+  <data name="Settings_OpenApiDocumentationButton" xml:space="preserve"><value>API ドキュメントを開く</value></data>
+  <data name="Settings_ApiRedactClientAddressesHelpPrefix" xml:space="preserve"><value>各ストリームのクライアントアドレスを次の値として返します:</value></data>
+  <data name="Settings_ApiRedactClientAddressesLabel" xml:space="preserve"><value>アクティブストリームのクライアントアドレスを編集</value></data>
+  <data name="Settings_ApiRedactDeviceAddressesHelpPrefix" xml:space="preserve"><value>設定済みの物理チューナーのホスト名とアドレスを次の値として返します:</value></data>
+  <data name="Settings_ApiRedactDeviceAddressesLabel" xml:space="preserve"><value>デバイスアドレスを編集</value></data>
+  <data name="Settings_ApiRedactUrlsHelpPrefix" xml:space="preserve"><value>デバイス、ラインアップ、チューナーターゲット、公開、および XMLTV の URL を次の値として返します:</value></data>
+  <data name="Settings_ApiRedactUrlsLabel" xml:space="preserve"><value>URL を編集</value></data>
+  <data name="Settings_ApplicationLogFiltersHeading" xml:space="preserve"><value>アプリケーションログフィルター</value></data>
+  <data name="Settings_AutoFetchGuideHelp" xml:space="preserve"><value>API の要件に従い、SiliconDust の完全な番組ガイドを 20～28 時間のランダムな間隔でダウンロードします。利用可能期間は通常 2 日間、HDHomeRun DVR 番組ガイド購読がある場合は 14 日間です。</value></data>
+  <data name="Settings_AutoFetchGuideLabel" xml:space="preserve"><value>番組ガイドデータを自動更新</value></data>
+  <data name="Settings_BindAddressesHelp" xml:space="preserve"><value>コンマ区切りの IP アドレス、localhost、またはすべてのインターフェイスを表す * を指定します。</value></data>
+  <data name="Settings_BindAddressesLabel" xml:space="preserve"><value>バインドアドレス</value></data>
+  <data name="Settings_BrowseServerDirectoriesTitle" xml:space="preserve"><value>サーバーディレクトリを参照</value></data>
+  <data name="Settings_BuiltInWebPlayer" xml:space="preserve"><value>組み込み Web Player</value></data>
+  <data name="Settings_CancelButton" xml:space="preserve"><value>キャンセル</value></data>
+  <data name="Settings_CertificateFingerprintHelp" xml:space="preserve"><value>通常のオペレーティングシステムによる証明書の信頼は常に必要です。ピン留めでは、さらにフィンガープリントの完全一致を確認します。</value></data>
+  <data name="Settings_CertificateFingerprintLabel" xml:space="preserve"><value>証明書の SHA-256 フィンガープリント（省略可）</value></data>
+  <data name="Settings_CertificateReferenceHelp" xml:space="preserve"><value>サーバー証明書を参照する信頼済みホスト上の値です。現在のファイルベースホストでは、パスワードなし PFX のパスを使用できます。</value></data>
+  <data name="Settings_CertificateReferenceLabel" xml:space="preserve"><value>証明書参照</value></data>
+  <data name="Settings_ClearButton" xml:space="preserve"><value>クリア</value></data>
+  <data name="Settings_ClientCertificatesHelp" xml:space="preserve"><value>TLS クライアントが独自の証明書を提示できるか、提示する必要があるかを制御します。</value></data>
+  <data name="Settings_ClientCertificatesLabel" xml:space="preserve"><value>クライアント証明書</value></data>
+  <data name="Settings_ClientCertificatesNotRequested" xml:space="preserve"><value>要求しない</value></data>
+  <data name="Settings_ClientCertificatesOptional" xml:space="preserve"><value>省略可</value></data>
+  <data name="Settings_ClientCertificatesRequired" xml:space="preserve"><value>必須</value></data>
+  <data name="Settings_ClientFacingBaseUrlHelp" xml:space="preserve"><value>リスナーの転送方式、最初のバインドアドレス、公開ポートから自動的に生成されます。この URL はプロトコルレスポンスと接続バンドルで使用されます。</value></data>
+  <data name="Settings_ClientFacingBaseUrlLabel" xml:space="preserve"><value>クライアント向けベース URL</value></data>
+  <data name="Settings_ClientFacingUrlOverrideHelp" xml:space="preserve"><value>外部から到達可能な HTTP または HTTPS のルート URL を入力します。公開ポートのオーバーライドを指定した場合は、保存時にそのポートへ置き換えられます。</value></data>
+  <data name="Settings_ClientFacingUrlOverrideLabel" xml:space="preserve"><value>クライアント向けベース URL のオーバーライド</value></data>
+  <data name="Settings_ConfiguredSecretPlaceholder" xml:space="preserve"><value>設定済み（維持するには空欄）</value></data>
+  <data name="Settings_ConfiguredStatus" xml:space="preserve"><value>設定済み</value></data>
+  <data name="Settings_ConnectionBundleCertificatePinHelp" xml:space="preserve"><value>エクスポートするバンドルに含める、完全一致の SHA-256 証明書フィンガープリントです。HTTPS 専用リスナーで使用する証明書参照とは別の設定です。</value></data>
+  <data name="Settings_ConnectionBundleCertificatePinLabel" xml:space="preserve"><value>接続バンドルの証明書ピン（省略可）</value></data>
+  <data name="Settings_ConnectionBundleLabel" xml:space="preserve"><value>接続バンドル</value></data>
+  <data name="Settings_ConnectionFailed" xml:space="preserve"><value>接続に失敗しました</value></data>
+  <data name="Settings_ConnectionSuccessful" xml:space="preserve"><value>接続しました</value></data>
+  <data name="Settings_ConnectionTestUnavailable" xml:space="preserve"><value>この物理デバイスプラグインは接続テストを提供していません。</value></data>
+  <data name="Settings_CpuLimitHelp" xml:space="preserve"><value>ワーカーの CPU 使用率上限です。上限を設定しない場合は 0 を指定します。</value></data>
+  <data name="Settings_CpuLimitLabel" xml:space="preserve"><value>CPU 上限（%）</value></data>
+  <data name="Settings_DashboardActiveStreamsHeading" xml:space="preserve"><value>アクティブなストリーム</value></data>
+  <data name="Settings_DashboardRefreshIntervalHelp" xml:space="preserve"><value>ダッシュボードでホスト中のアクティブストリームを更新する頻度です。自動更新を無効にするには 0 を指定します。</value></data>
+  <data name="Settings_DashboardRefreshIntervalLabel" xml:space="preserve"><value>アクティブストリーム更新間隔（秒）</value></data>
+  <data name="Settings_DedicatedListenerHelp" xml:space="preserve"><value>専用リスナーは分離された出力ワーカーで実行されます。これらの設定を変更すると、この仮想出力のみが再起動します。</value></data>
+  <data name="Settings_DefaultLogDirectory" xml:space="preserve"><value>Lineup 設定ディレクトリ/logs</value></data>
+  <data name="Settings_DefaultLogLevelHelp" xml:space="preserve"><value>より具体的な規則がないカテゴリに適用されます。</value></data>
+  <data name="Settings_DefaultLogLevelLabel" xml:space="preserve"><value>既定のレベル</value></data>
+  <data name="Settings_DeleteLogsButton" xml:space="preserve"><value>ログを削除</value></data>
+  <data name="Settings_DeleteLogsDisabledHelp" xml:space="preserve"><value>保持されているすべてのローテーションログファイルを削除します。</value></data>
+  <data name="Settings_DeleteLogsEnabledHelp" xml:space="preserve"><value>すべてのローテーションファイルログを削除し、直ちに空のログファイルを新しく作成します。</value></data>
+  <data name="Settings_DeviceInfoRefreshIntervalHelp" xml:space="preserve"><value>デバイス情報を更新する頻度です。自動更新を無効にするには 0 を指定します。</value></data>
+  <data name="Settings_DeviceInfoRefreshIntervalLabel" xml:space="preserve"><value>デバイス情報更新間隔（分）</value></data>
+  <data name="Settings_DeviceSettingsHeading" xml:space="preserve"><value>デバイス設定</value></data>
+  <data name="Settings_DirectoryBrowserHeading" xml:space="preserve"><value>サーバーディレクトリブラウザー</value></data>
+  <data name="Settings_DirectoryBrowserParentDirectoryTitle" xml:space="preserve"><value>親ディレクトリ</value></data>
+  <data name="Settings_DirectoryBrowserSelectButton" xml:space="preserve"><value>このディレクトリを選択</value></data>
+  <data name="Settings_DisabledBadge" xml:space="preserve"><value>無効</value></data>
+  <data name="Settings_DisabledChannelsHelp" xml:space="preserve"><value>「チャンネル」ページで無効にしたチャンネルへの直接リクエストを制御します。無効なストリームが物理チューナーを開くことはありません。</value></data>
+  <data name="Settings_DisabledChannelsLabel" xml:space="preserve"><value>無効なチャンネル</value></data>
+  <data name="Settings_DisabledChannelsReturnError" xml:space="preserve"><value>チャンネル無効エラーを返す</value></data>
+  <data name="Settings_DisabledChannelsStreamSlate" xml:space="preserve"><value>「無効なチャンネル」テスト映像をストリーミング</value></data>
+  <data name="Settings_DisabledLowercase" xml:space="preserve"><value>無効</value></data>
+  <data name="Settings_DrainTimeoutHelp" xml:space="preserve"><value>再起動またはシャットダウン時に、アクティブなリクエストの完了を待機する最大時間です。</value></data>
+  <data name="Settings_DrainTimeoutLabel" xml:space="preserve"><value>ドレインタイムアウト（秒）</value></data>
+  <data name="Settings_EmptyGuideSourceSelectionHelp" xml:space="preserve"><value>選択が空の場合、有効なすべての番組ガイドソースが動的に含まれます。</value></data>
+  <data name="Settings_EmptyVirtualDeviceSelectionHelp" xml:space="preserve"><value>選択が空の場合、有効なすべての仮想デバイスが動的に含まれます。</value></data>
+  <data name="Settings_EnabledLabel" xml:space="preserve"><value>有効</value></data>
+  <data name="Settings_EnableFileLoggingLabel" xml:space="preserve"><value>ローテーションファイルにログを書き込む</value></data>
+  <data name="Settings_EnableNetworkDiscoveryHelp" xml:space="preserve"><value>公開 URL が設定された有効な仮想 HDHomeRun デバイスをローカルネットワークに公開します。</value></data>
+  <data name="Settings_EnableNetworkDiscoveryLabel" xml:space="preserve"><value>UDP および SSDP ネットワーク検出を有効化</value></data>
+  <data name="Settings_EpgFetchHeading" xml:space="preserve"><value>EPG 取得設定</value></data>
+  <data name="Settings_EpgHistoryRetentionHelp" xml:space="preserve"><value>この期間内に終了した番組を保持します。既定値は 24 時間です。インポート成功後に終了済み番組を削除するには 0 を指定します。</value></data>
+  <data name="Settings_EpgHistoryRetentionLabel" xml:space="preserve"><value>過去の番組ガイド履歴（時間）</value></data>
+  <data name="Settings_ExecutionModeHelp" xml:space="preserve"><value>マネージドプロセスは Lineup が起動して監視します。外部プロセスは 1 回限りの登録記述子を使用し、別途起動します。</value></data>
+  <data name="Settings_ExecutionModeLabel" xml:space="preserve"><value>実行モード</value></data>
+  <data name="Settings_ExternalLogTargetsDescriptionPrefix" xml:space="preserve"><value>外部ターゲットは、起動時に環境変数または</value></data>
+  <data name="Settings_ExternalLogTargetsDescriptionSuffix" xml:space="preserve"><value>で設定します。シークレットが Lineup の設定に保存されたり、ここに表示されたりすることはありません。</value></data>
+  <data name="Settings_ExternalLogTargetsHeading" xml:space="preserve"><value>外部ターゲット</value></data>
+  <data name="Settings_ExternalLogTargetStatusUnavailable" xml:space="preserve"><value>ターゲットの状態を取得できません。</value></data>
+  <data name="Settings_ExternalProcessOption" xml:space="preserve"><value>外部プロセス</value></data>
+  <data name="Settings_FactoryResetButton" xml:space="preserve"><value>Lineup を工場出荷状態にリセット</value></data>
+  <data name="Settings_FactoryResetConfirmationLabel" xml:space="preserve"><value>Lineup が所有するすべてのデータが完全に消去されることを理解しました。</value></data>
+  <data name="Settings_FactoryResetConfirmButton" xml:space="preserve"><value>データを消去して再起動</value></data>
+  <data name="Settings_FactoryResetDescription" xml:space="preserve"><value>Lineup の設定、番組ガイドデータ、キャッシュ済み XMLTV データ、一時ストリームファイルを完全に削除します。Lineup は初回のデバイス設定から再起動します。Lineup が所有するストレージ外の XMLTV ファイルは維持されます。</value></data>
+  <data name="Settings_FactoryResetHeading" xml:space="preserve"><value>工場出荷状態にリセット</value></data>
+  <data name="Settings_FileLogLocationPrefix" xml:space="preserve"><value>ファイルの保存先:</value></data>
+  <data name="Settings_FileLogLocationSuffix" xml:space="preserve"><value>設定を保存すると、変更は直ちに反映されます。</value></data>
+  <data name="Settings_FileLogMinimumLevelLabel" xml:space="preserve"><value>最小レベル</value></data>
+  <data name="Settings_FileLogRetentionLabel" xml:space="preserve"><value>保持期間（日）</value></data>
+  <data name="Settings_FileLogSizeLimitLabel" xml:space="preserve"><value>ファイルサイズ（MB）</value></data>
+  <data name="Settings_FileSizeBytes" xml:space="preserve"><value>{0} B</value></data>
+  <data name="Settings_FileSizeKilobytes" xml:space="preserve"><value>{0:0.0} KB</value></data>
+  <data name="Settings_FileSizeMegabytes" xml:space="preserve"><value>{0:0.0} MB</value></data>
+  <data name="Settings_GenerateNewValueButton" xml:space="preserve"><value>新しい値を生成</value></data>
+  <data name="Settings_GenerateValueButton" xml:space="preserve"><value>値を生成</value></data>
+  <data name="Settings_GlobalSettingsTab" xml:space="preserve"><value>グローバル設定</value></data>
+  <data name="Settings_GlobalXmltvEndpointHelp" xml:space="preserve"><value>グローバル XMLTV 出力では、出力識別子のない安定したエンドポイントを使用します。</value></data>
+  <data name="Settings_GlobalXmltvOutputHeading" xml:space="preserve"><value>グローバル XMLTV 出力</value></data>
+  <data name="Settings_GuideOutputDirectoryHelpPrefix" xml:space="preserve"><value>Lineup は、このディレクトリ内の</value></data>
+  <data name="Settings_GuideOutputDirectoryHelpSuffix" xml:space="preserve"><value>へアトミックに公開します。</value></data>
+  <data name="Settings_GuideOutputDirectoryLabel" xml:space="preserve"><value>出力ディレクトリ</value></data>
+  <data name="Settings_GuideOutputKeyHelp" xml:space="preserve"><value>Lineup はこの値を、英小文字、数字、アンダースコアのみを含む識別子に整形します。</value></data>
+  <data name="Settings_GuideOutputKeyLabel" xml:space="preserve"><value>出力キー</value></data>
+  <data name="Settings_GuideOutputKeyWarning" xml:space="preserve"><value>このキーを変更すると、わかりやすい API URL と生成ファイル名が変わります。いずれかの場所を使用している既存クライアントを更新する必要があります。</value></data>
+  <data name="Settings_GuideOutputPathMismatch" xml:space="preserve"><value>保存済みパスが起動時に設定された値と異なります:</value></data>
+  <data name="Settings_GuideOutputSettingsHeading" xml:space="preserve"><value>番組ガイド出力設定</value></data>
+  <data name="Settings_GuideSourceAddDisabledTitle" xml:space="preserve"><value>先に互換性のある物理デバイスを追加して有効にしてください。</value></data>
+  <data name="Settings_GuideSourceAllDevicesHelp" xml:space="preserve"><value>後から追加した互換デバイスを含め、この番組ガイドソースアダプターが対応する有効なすべての物理デバイスを自動的に使用します。</value></data>
+  <data name="Settings_GuideSourceNameHelp" xml:space="preserve"><value>Lineup 全体でこの番組ガイドソースを識別するために使用するローカル名です。</value></data>
+  <data name="Settings_GuideSourceSelectedDevicesHelp" xml:space="preserve"><value>下で選択した互換性のある物理デバイスのみを使用します。無効なデバイスは選択状態のままですが、再び有効にするまで無視されます。</value></data>
+  <data name="Settings_GuideSourceSettingsHeading" xml:space="preserve"><value>番組ガイドソース設定</value></data>
+  <data name="Settings_GuideSourcesHeading" xml:space="preserve"><value>番組ガイドソース</value></data>
+  <data name="Settings_GuideSourceSubscriptionHelp" xml:space="preserve"><value>番組ガイドソースプラグインは、購読中のデバイスをチャンネル照合と必要なプロバイダー認証に使用します。</value></data>
+  <data name="Settings_HonorForwardedHeadersHelp" xml:space="preserve"><value>直接接続しているプロキシが信頼するプロキシ一覧に一致する場合にのみ、転送されたクライアントアドレスとスキームを使用します。</value></data>
+  <data name="Settings_HonorForwardedHeadersLabel" xml:space="preserve"><value>信頼するプロキシからの転送ヘッダーを使用</value></data>
+  <data name="Settings_Http" xml:space="preserve"><value>HTTP</value></data>
+  <data name="Settings_Https" xml:space="preserve"><value>HTTPS</value></data>
+  <data name="Settings_ImportBundleButton" xml:space="preserve"><value>バンドルをインポート</value></data>
+  <data name="Settings_ImportBundleHelp" xml:space="preserve"><value>リモート仮想デバイスからエクスポートしたバンドルを貼り付けて、その URL、ID、トークン、転送方式、証明書設定を入力します。バンドルには使用可能なアクセストークンが含まれるため、機密情報として保管および共有してください。</value></data>
+  <data name="Settings_InternalListenerPortHelp" xml:space="preserve"><value>ホストまたはコンテナー内でワーカーが開くポートです。</value></data>
+  <data name="Settings_InternalListenerPortLabel" xml:space="preserve"><value>内部リスナーポート</value></data>
+  <data name="Settings_KeepWarmPeriodHelp" xml:space="preserve"><value>使用されていない共有パイプラインを維持し、すばやく再接続できるようにします。直ちに解放するには 0 を指定します。0 以外の場合、期間が終了するまでチューナー容量が保持されます。</value></data>
+  <data name="Settings_KeepWarmPeriodLabel" xml:space="preserve"><value>ウォーム状態の保持期間（秒）</value></data>
+  <data name="Settings_LeaseGraceHelp" xml:space="preserve"><value>認証済みホストリースを失ったワーカーを終了するまでの猶予時間です。</value></data>
+  <data name="Settings_LeaseGraceLabel" xml:space="preserve"><value>リース猶予時間（秒）</value></data>
+  <data name="Settings_LineupLinkAccessGrantsHeading" xml:space="preserve"><value>アクセス許可</value></data>
+  <data name="Settings_LineupLinkBundleJsonLabel" xml:space="preserve"><value>接続バンドル JSON</value></data>
+  <data name="Settings_LineupLinkConfirmPurgeButton" xml:space="preserve"><value>完全消去を確認</value></data>
+  <data name="Settings_LineupLinkConsumerNameLabel" xml:space="preserve"><value>利用者名</value></data>
+  <data name="Settings_LineupLinkConsumerNamePlaceholder" xml:space="preserve"><value>友人名または世帯名</value></data>
+  <data name="Settings_LineupLinkCopyButton" xml:space="preserve"><value>コピー</value></data>
+  <data name="Settings_LineupLinkCreated" xml:space="preserve"><value>作成日時</value></data>
+  <data name="Settings_LineupLinkCreateGrantButton" xml:space="preserve"><value>アクセス許可を作成</value></data>
+  <data name="Settings_LineupLinkDedicatedTransportPrefix" xml:space="preserve"><value>Lineup Link には、クライアント向け公開ベース URI に基づく</value></data>
+  <data name="Settings_LineupLinkDedicatedTransportSuffix" xml:space="preserve"><value>が必要です。</value></data>
+  <data name="Settings_LineupLinkExpirationLabel" xml:space="preserve"><value>有効期限（省略可）</value></data>
+  <data name="Settings_LineupLinkExpires" xml:space="preserve"><value>有効期限</value></data>
+  <data name="Settings_LineupLinkExportButton" xml:space="preserve"><value>エクスポート</value></data>
+  <data name="Settings_LineupLinkGrantHelp" xml:space="preserve"><value>アクセス許可では、このインスタンスのチャンネル、トランスコード、リスナー、セキュリティポリシーを共有します。これらの設定を分ける必要がある場合は、別の Lineup Link インスタンスを作成してください。</value></data>
+  <data name="Settings_LineupLinkHideBundleButton" xml:space="preserve"><value>バンドルを非表示</value></data>
+  <data name="Settings_LineupLinkHttpExposureWarning" xml:space="preserve"><value>HTTP ではベアラートークンとストリームの内容がネットワークに公開されます。信頼できるネットワークでのみ使用してください。</value></data>
+  <data name="Settings_LineupLinkHttpWarning" xml:space="preserve"><value>HTTP はリクエストを認証しますが、トークンやストリームを暗号化しません。信頼できるネットワークでのみ使用してください。</value></data>
+  <data name="Settings_LineupLinkNoGrantsDescription" xml:space="preserve"><value>明示的にアクセス許可を作成するまで、リモートアクセスは無効です。</value></data>
+  <data name="Settings_LineupLinkNoGrantsHeading" xml:space="preserve"><value>アクセス許可がありません。</value></data>
+  <data name="Settings_LineupLinkPurgeButton" xml:space="preserve"><value>完全消去</value></data>
+  <data name="Settings_LineupLinkPurgeConfirmation" xml:space="preserve"><value>取り消したこのアクセス許可と監査履歴を完全に削除しますか? この操作は元に戻せません。</value></data>
+  <data name="Settings_LineupLinkRawTokenHelp" xml:space="preserve"><value>今すぐこのバンドルをコピーまたはエクスポートしてください。未加工トークンは永続化されません。</value></data>
+  <data name="Settings_LineupLinkRedactedTokenHelp" xml:space="preserve"><value>トークンは編集されています。このアクセス許可をローテーションして、エクスポート可能な新しいバンドルを作成してください。</value></data>
+  <data name="Settings_LineupLinkRevokeButton" xml:space="preserve"><value>取り消す</value></data>
+  <data name="Settings_LineupLinkRotateButton" xml:space="preserve"><value>ローテーション</value></data>
+  <data name="Settings_LineupLinkShowBundleButton" xml:space="preserve"><value>バンドルを表示</value></data>
+  <data name="Settings_LineupLinkStatusActive" xml:space="preserve"><value>有効</value></data>
+  <data name="Settings_LineupLinkStatusExpired" xml:space="preserve"><value>期限切れ</value></data>
+  <data name="Settings_LineupLinkStatusRevoked" xml:space="preserve"><value>取り消し済み</value></data>
+  <data name="Settings_LogCategoryMinimumLevelLabel" xml:space="preserve"><value>カテゴリの最小レベル</value></data>
+  <data name="Settings_LogCategoryOverridesHeading" xml:space="preserve"><value>カテゴリのオーバーライド</value></data>
+  <data name="Settings_LogCategoryOverridesHelpPrefix" xml:space="preserve"><value>起動時のカテゴリは</value></data>
+  <data name="Settings_LogCategoryOverridesHelpSuffix" xml:space="preserve"><value>から検出されます。カテゴリの完全一致とドット区切りの子孫が一致し、最も長いプレフィックスが優先されます。設定を保存すると、変更は直ちに反映されます。このオーバーライドを無効にすると、起動時の完全なフィルターセットに戻ります。</value></data>
+  <data name="Settings_LogCategoryPlaceholder" xml:space="preserve"><value>Example.Namespace</value></data>
+  <data name="Settings_LogCategoryPrefixLabel" xml:space="preserve"><value>カテゴリプレフィックス</value></data>
+  <data name="Settings_LogLevelCritical" xml:space="preserve"><value>重大</value></data>
+  <data name="Settings_LogLevelDebug" xml:space="preserve"><value>デバッグ</value></data>
+  <data name="Settings_LogLevelError" xml:space="preserve"><value>エラー</value></data>
+  <data name="Settings_LogLevelInformation" xml:space="preserve"><value>情報</value></data>
+  <data name="Settings_LogLevelNone" xml:space="preserve"><value>なし</value></data>
+  <data name="Settings_LogLevelTrace" xml:space="preserve"><value>トレース</value></data>
+  <data name="Settings_LogLevelWarning" xml:space="preserve"><value>警告</value></data>
+  <data name="Settings_ManagedProcessOption" xml:space="preserve"><value>マネージドプロセス</value></data>
+  <data name="Settings_ManagementHostOutputHelp" xml:space="preserve"><value>この出力は管理 UI ホストから提供されるため、追加のリスナーポートは必要ありません。</value></data>
+  <data name="Settings_MaximumBrokerCallsHelp" xml:space="preserve"><value>このワーカーから信頼済みホストへの同時機能リクエストの最大数です。</value></data>
+  <data name="Settings_MaximumBrokerCallsLabel" xml:space="preserve"><value>ブローカー呼び出しの最大数</value></data>
+  <data name="Settings_MaximumConcurrentStreamsHelp" xml:space="preserve"><value>すべての形式を合計した論理コンシューマーセッションの最大数です。共有プロデューサーの場合も、接続中のコンシューマーごとに 1 件として数えます。無制限にするには 0 を指定します。</value></data>
+  <data name="Settings_MaximumConcurrentStreamsLabel" xml:space="preserve"><value>最大同時ストリーム数</value></data>
+  <data name="Settings_MaximumConnectionsHelp" xml:space="preserve"><value>同時クライアント数の上限です。ホストの既定値を使用するには 0 を指定します。</value></data>
+  <data name="Settings_MaximumConnectionsLabel" xml:space="preserve"><value>最大接続数</value></data>
+  <data name="Settings_MaximumRestartsHelp" xml:space="preserve"><value>再起動ウィンドウ内で許可する、失敗したワーカーの再起動回数です。</value></data>
+  <data name="Settings_MaximumRestartsLabel" xml:space="preserve"><value>最大再起動回数</value></data>
+  <data name="Settings_MemoryLimitHelp" xml:space="preserve"><value>ワーカーのメモリ上限です。上限を設定しない場合は 0 を指定します。</value></data>
+  <data name="Settings_MemoryLimitLabel" xml:space="preserve"><value>メモリ上限（MiB）</value></data>
+  <data name="Settings_NameLabel" xml:space="preserve"><value>名前</value></data>
+  <data name="Settings_NoAdditionalVirtualDevices" xml:space="preserve"><value>追加の仮想デバイスは設定されていません。</value></data>
+  <data name="Settings_NoCompatiblePhysicalDevices" xml:space="preserve"><value>互換性のある物理デバイスは設定されていません。</value></data>
+  <data name="Settings_NoGuideSourcesPrefix" xml:space="preserve"><value>番組ガイドソースが設定されていません。必要に応じて互換性のある物理デバイスを追加して有効にしてから、</value></data>
+  <data name="Settings_NoLogCategoryOverrides" xml:space="preserve"><value>カテゴリ別フィルターは設定されていません。</value></data>
+  <data name="Settings_NoPhysicalDevicesPrefix" xml:space="preserve"><value>物理デバイスが設定されていません。</value></data>
+  <data name="Settings_NoPhysicalDevicesSuffix" xml:space="preserve"><value>を選択して Lineup でチャンネルを利用できるようにしてください。</value></data>
+  <data name="Settings_NoRetainedLogFiles" xml:space="preserve"><value>ローテーションログファイルはまだありません。</value></data>
+  <data name="Settings_OutputHostingHeading" xml:space="preserve"><value>出力ホスティング</value></data>
+  <data name="Settings_OutputStageName" xml:space="preserve"><value>出力ステージ</value></data>
+  <data name="Settings_OutputTransportHelp" xml:space="preserve"><value>HTTPS は出力トラフィックを暗号化し、サーバー証明書を必要とします。HTTP は信頼できるネットワークに限定してください。</value></data>
+  <data name="Settings_OverrideClientFacingUrlHelp" xml:space="preserve"><value>リバースプロキシ、NAT 規則、ポート転送、外部ホスト名によりクライアントから見える URL が異なる場合にのみ、オーバーライドを使用してください。</value></data>
+  <data name="Settings_OverrideClientFacingUrlLabel" xml:space="preserve"><value>クライアント向けベース URL をオーバーライド</value></data>
+  <data name="Settings_OverrideLoggingDefaultsLabel" xml:space="preserve"><value>ログの既定値をオーバーライド</value></data>
+  <data name="Settings_PhysicalAddressHelp" xml:space="preserve"><value>物理 HDHomeRun のホスト名または IP アドレスです。Lineup ホストまたはコンテナーから到達できる必要があります。</value></data>
+  <data name="Settings_PhysicalBitrateHelp" xml:space="preserve"><value>オーバーライドのないデバイスに適用する物理ステージの既定ビットレートです。</value></data>
+  <data name="Settings_PhysicalDeinterlaceHelp" xml:space="preserve"><value>オーバーライドのない物理デバイスに適用する、既定のソース正規化です。</value></data>
+  <data name="Settings_PhysicalDeviceNameHelp" xml:space="preserve"><value>チャンネル所有権、購読、ルーティング、状態表示に使用するローカル名です。</value></data>
+  <data name="Settings_PhysicalDeviceSubscriptionHeading" xml:space="preserve"><value>物理デバイスの購読</value></data>
+  <data name="Settings_PhysicalHevcHelp" xml:space="preserve"><value>HEVC ソースをマルチプレクサーに入れる前に一度だけ正規化します。</value></data>
+  <data name="Settings_PhysicalRefreshDescription" xml:space="preserve"><value>これらの監視間隔は、すべての物理デバイスに適用されます。</value></data>
+  <data name="Settings_PhysicalSubscriptionHelp" xml:space="preserve"><value>この仮想出力にチャンネルとチューナー容量を提供できる、互換性のある物理デバイスを制御します。「すべて」には、後から追加した互換デバイスも自動的に含まれます。</value></data>
+  <data name="Settings_PhysicalSubscriptionLabel" xml:space="preserve"><value>物理デバイスの購読</value></data>
+  <data name="Settings_PhysicalTranscoderDefaultsDescription" xml:space="preserve"><value>各物理デバイスは、そのタブでオーバーライドを有効にしない限り、これらのソースステージ設定を継承します。</value></data>
+  <data name="Settings_ProtectedContentHelp" xml:space="preserve"><value>エラーまたは互換性テスト用の合成映像を返します。保護された番組が復号されることはありません。</value></data>
+  <data name="Settings_ProtectedContentLabel" xml:space="preserve"><value>DRM 保護されたコンテンツ</value></data>
+  <data name="Settings_ProtectedContentReturnError" xml:space="preserve"><value>保護コンテンツエラーを返す</value></data>
+  <data name="Settings_ProtectedContentStreamSlate" xml:space="preserve"><value>「コンテンツ保護」テスト映像をストリーミング</value></data>
+  <data name="Settings_PublicLineupUrlHelp" xml:space="preserve"><value>エクスポートする接続バンドルに書き込む、外部から到達可能な管理ホスト URL です。空の場合、バンドルでは null アドレスを使用します。</value></data>
+  <data name="Settings_PublicLineupUrlLabel" xml:space="preserve"><value>公開 Lineup URL（省略可）</value></data>
+  <data name="Settings_PublishedPortOverrideHelp" xml:space="preserve"><value>公開ポートが内部リスナーと同じ場合は空のままにしてください。</value></data>
+  <data name="Settings_PublishedPortOverrideLabel" xml:space="preserve"><value>公開ポートのオーバーライド</value></data>
+  <data name="Settings_PublishGuideOutputsAfterFetchLabel" xml:space="preserve"><value>取得後に有効な番組ガイド出力を公開</value></data>
+  <data name="Settings_RefreshChannelsBeforeGuideHelp" xml:space="preserve"><value>番組ガイドを手動または自動更新する前に、有効な物理 HDHomeRun デバイスへ問い合わせて現在のチャンネルを保存します。</value></data>
+  <data name="Settings_RefreshChannelsBeforeGuideLabel" xml:space="preserve"><value>番組ガイドデータの取得前に利用可能なチャンネルを更新</value></data>
+  <data name="Settings_RefreshSettingsHeading" xml:space="preserve"><value>更新設定</value></data>
+  <data name="Settings_RemoteLineupUrlHelp" xml:space="preserve"><value>リモート Lineup ホストからデバイスメタデータ、チャンネル、チューナー状態、ストリームを要求するためのベース URL です。</value></data>
+  <data name="Settings_RemoteLineupUrlLabel" xml:space="preserve"><value>リモート Lineup URL</value></data>
+  <data name="Settings_RemoteVirtualDeviceIdHelp" xml:space="preserve"><value>リモートホストがエクスポートした仮想 Lineup Link 出力の安定 ID です。</value></data>
+  <data name="Settings_RemoteVirtualDeviceIdLabel" xml:space="preserve"><value>リモート仮想デバイス ID</value></data>
+  <data name="Settings_RemoveGuideOutputLabel" xml:space="preserve"><value>番組ガイド出力を削除</value></data>
+  <data name="Settings_RemoveGuideSourceLabel" xml:space="preserve"><value>番組ガイドソースを削除</value></data>
+  <data name="Settings_RemoveLogCategoryLabel" xml:space="preserve"><value>カテゴリを削除</value></data>
+  <data name="Settings_RemovePhysicalDeviceLabel" xml:space="preserve"><value>物理デバイスを削除</value></data>
+  <data name="Settings_RemoveVirtualDeviceLabel" xml:space="preserve"><value>仮想デバイスを削除</value></data>
+  <data name="Settings_RequestRateHelp" xml:space="preserve"><value>クライアントごとのリクエストレート上限です。レート制限を無効にするには 0 を指定します。</value></data>
+  <data name="Settings_RequestRateLabel" xml:space="preserve"><value>リクエスト数/分/クライアント</value></data>
+  <data name="Settings_RequireHttpsHelp" xml:space="preserve"><value>暗号化されていない Lineup Link リクエストを拒否し、エクスポートするバンドルで HTTPS エンドポイントを公開します。</value></data>
+  <data name="Settings_RequireHttpsLabel" xml:space="preserve"><value>HTTPS を必須にする</value></data>
+  <data name="Settings_ResetConfiguredPathButton" xml:space="preserve"><value>設定済みパスに戻す</value></data>
+  <data name="Settings_ResetDefaultsButton" xml:space="preserve"><value>設定を既定値に戻す</value></data>
+  <data name="Settings_ResetDefaultsDescription" xml:space="preserve"><value>設定可能なすべての項目を既定値に戻します。保存前に既定値を確認できます。</value></data>
+  <data name="Settings_ResetDefaultsHeading" xml:space="preserve"><value>設定を既定値に戻す</value></data>
+  <data name="Settings_ResolvedPathLabel" xml:space="preserve"><value>解決済みパス:</value></data>
+  <data name="Settings_RestartButton" xml:space="preserve"><value>Lineup を再起動</value></data>
+  <data name="Settings_RestartDescription" xml:space="preserve"><value>設定の変更やアプリケーションデータの削除を行わず、Lineup を正常に再起動します。</value></data>
+  <data name="Settings_RestartHeading" xml:space="preserve"><value>Lineup の再起動</value></data>
+  <data name="Settings_RestartWindowHelp" xml:space="preserve"><value>ワーカーで繰り返し発生した障害を数える期間です。</value></data>
+  <data name="Settings_RestartWindowLabel" xml:space="preserve"><value>再起動ウィンドウ（秒）</value></data>
+  <data name="Settings_RetainedLogFilesHeading" xml:space="preserve"><value>保持済みログファイル</value></data>
+  <data name="Settings_RollingFileLogsHeading" xml:space="preserve"><value>ローテーションファイルログ</value></data>
+  <data name="Settings_SelectedDevices" xml:space="preserve"><value>選択したデバイス</value></data>
+  <data name="Settings_SelectedGuideSources" xml:space="preserve"><value>選択した番組ガイドソース</value></data>
+  <data name="Settings_SelectedPhysicalDevices" xml:space="preserve"><value>選択した物理デバイス</value></data>
+  <data name="Settings_SelectedPhysicalDevicesHelp" xml:space="preserve"><value>この出力のルーティング先にできる物理デバイスを選択します。無効なデバイスは選択状態のままですが、再び有効にするまでチャンネルや容量を提供できません。</value></data>
+  <data name="Settings_SelectedVirtualDevices" xml:space="preserve"><value>選択した仮想デバイス</value></data>
+  <data name="Settings_SourceStageName" xml:space="preserve"><value>ソースステージ</value></data>
+  <data name="Settings_StableIdEndpointPrefix" xml:space="preserve"><value>安定 ID エンドポイント</value></data>
+  <data name="Settings_StableIdEndpointSuffix" xml:space="preserve"><value>でもこの出力を提供します。</value></data>
+  <data name="Settings_StartupBadge" xml:space="preserve"><value>起動時</value></data>
+  <data name="Settings_StreamingPoliciesHeading" xml:space="preserve"><value>ストリーミングポリシー</value></data>
+  <data name="Settings_TestAndIdentifyButton" xml:space="preserve"><value>テストと識別</value></data>
+  <data name="Settings_TestAndIdentifyHelp" xml:space="preserve"><value>現在の未保存の接続値をテストし、デバイス ID を読み取ります。設定の保存、チャンネルの更新、デバイスの有効化は行いません。</value></data>
+  <data name="Settings_TestingStatus" xml:space="preserve"><value>テスト中...</value></data>
+  <data name="Settings_TranscoderSettingsHeading" xml:space="preserve"><value>トランスコーダー設定</value></data>
+  <data name="Settings_TransportLabel" xml:space="preserve"><value>転送方式</value></data>
+  <data name="Settings_TransportSecurityHelp" xml:space="preserve"><value>HTTPS は資格情報とストリームトラフィックを暗号化します。HTTP は信頼できるプライベートネットワークでのみ使用してください。</value></data>
+  <data name="Settings_TransportSecurityLabel" xml:space="preserve"><value>転送セキュリティ</value></data>
+  <data name="Settings_TrustedProxiesHelp" xml:space="preserve"><value>転送ヘッダーの提供を許可する、コンマ区切りのプロキシ IP アドレスまたは CIDR です。</value></data>
+  <data name="Settings_TrustedProxiesLabel" xml:space="preserve"><value>信頼するプロキシ</value></data>
+  <data name="Settings_TunerCountCapHelp" xml:space="preserve"><value>利用者に公開するチューナーの最大数です。購読中の物理デバイスから容量を算出するには空のままにしてください。</value></data>
+  <data name="Settings_TunerCountCapLabel" xml:space="preserve"><value>チューナー数の上限</value></data>
+  <data name="Settings_TunerStatusRefreshIntervalHelp" xml:space="preserve"><value>ダッシュボードでチューナー状態を更新する頻度です。自動更新を無効にするには 0 を指定します。</value></data>
+  <data name="Settings_TunerStatusRefreshIntervalLabel" xml:space="preserve"><value>チューナー状態更新間隔（秒）</value></data>
+  <data name="Settings_TypePickerCloseLabel" xml:space="preserve"><value>閉じる</value></data>
+  <data name="Settings_UseDedicatedListenerHelp" xml:space="preserve"><value>この設定をオフにすると、管理 UI ホストと既存の HTTP/HTTPS ポートを使用して出力を提供します。</value></data>
+  <data name="Settings_UseDedicatedListenerLabel" xml:space="preserve"><value>専用リスナーを使用</value></data>
+  <data name="Settings_UseDiscoveredNameButton" xml:space="preserve"><value>検出された名前を使用</value></data>
+  <data name="Settings_VirtualDeviceNameHelp" xml:space="preserve"><value>Lineup 内、およびアダプターが対応している場合は下流の利用者に表示されるローカル名です。</value></data>
+  <data name="Settings_VirtualDevicesEmptyWebPlayerDisabledPrefix" xml:space="preserve"><value>組み込み Web Player をそのタブで有効にするか、</value></data>
+  <data name="Settings_VirtualDevicesEmptyWebPlayerDisabledSuffix" xml:space="preserve"><value>を選択して利用者にチャンネルを公開してください。</value></data>
+  <data name="Settings_VirtualDevicesEmptyWebPlayerEnabledPrefix" xml:space="preserve"><value>他の利用者にチャンネルを公開するには、</value></data>
+  <data name="Settings_VirtualDevicesEmptyWebPlayerEnabledSuffix" xml:space="preserve"><value>を選択してください。組み込み Web Player は引き続き利用できます。</value></data>
+  <data name="Settings_VirtualDevicesHeading" xml:space="preserve"><value>仮想デバイス</value></data>
+  <data name="Settings_VirtualDevicesMissingWebPlayer" xml:space="preserve"><value>現在のトポロジに、必須の組み込み Web Player がありません。</value></data>
+  <data name="Settings_VirtualHevcHelp" xml:space="preserve"><value>HEVC を処理できない利用者向けの既定の出力変換です。</value></data>
+  <data name="Settings_VirtualTranscoderDefaultsDescription" xml:space="preserve"><value>各仮想デバイスは、そのタブでオーバーライドを有効にしない限り、これらの出力ステージ設定を継承します。</value></data>
+  <data name="Settings_VirtualTunerDiscoveryHeading" xml:space="preserve"><value>仮想チューナーの検出</value></data>
+  <data name="About_Heading" xml:space="preserve"><value>Lineup について</value></data>
+  <data name="About_MountDirectoryPrefix" xml:space="preserve"><value>次のディレクトリを</value></data>
+  <data name="About_MountDirectorySuffix" xml:space="preserve"><value>内のホストディレクトリにマウントします:</value></data>
+  <data name="About_PageTitle" xml:space="preserve"><value>Lineup について</value></data>
+  <data name="About_UseHostFilePath" xml:space="preserve"><value>次に、ホスト上のファイルパスを使用します:</value></data>
+  <data name="About_VersionLabel" xml:space="preserve"><value>バージョン</value></data>
+  <data name="About_XmltvFileAccessHeading" xml:space="preserve"><value>XMLTV ファイルへのアクセス</value></data>
+  <data name="About_XmltvFileAccessHelp" xml:space="preserve"><value>メディアサーバーがファイルを直接読み取れる場合（同じホストで実行している場合など）、URL を使用せず、マウントした Docker ボリューム上の XMLTV ファイルを指定できます。</value></data>
+  <data name="About_XmltvGuideUrlHeading" xml:space="preserve"><value>XMLTV 番組ガイド URL</value></data>
+  <data name="About_XmltvGuideUrlHelp" xml:space="preserve"><value>メディアサーバーが XMLTV 番組ガイドソースとして URL を扱える場合は、この URL を使用します。</value></data>
+  <data name="Channels_AllBindings" xml:space="preserve"><value>すべての関連付け</value></data>
+  <data name="Channels_AllDevices" xml:space="preserve"><value>すべてのデバイス</value></data>
+  <data name="Channels_AllFlags" xml:space="preserve"><value>すべてのフラグ</value></data>
+  <data name="Channels_AllStates" xml:space="preserve"><value>すべての状態</value></data>
+  <data name="Channels_Ambiguous" xml:space="preserve"><value>候補が複数あります</value></data>
+  <data name="Channels_AmbiguousGuideMatchHelp" xml:space="preserve"><value>条件に一致する番組ガイドチャンネルが複数あります。正しいチャンネルを選択してください。</value></data>
+  <data name="Channels_AudioColumn" xml:space="preserve"><value>音声</value></data>
+  <data name="Channels_AuthoritativeGuideColumn" xml:space="preserve"><value>優先番組ガイド</value></data>
+  <data name="Channels_Bound" xml:space="preserve"><value>関連付け済み</value></data>
+  <data name="Channels_ChannelsLabel" xml:space="preserve"><value>チャンネル</value></data>
+  <data name="Channels_ClearFilters" xml:space="preserve"><value>フィルターをクリア</value></data>
+  <data name="Channels_Description" xml:space="preserve"><value>有効な物理チューナーから現在利用できるチャンネルです。</value></data>
+  <data name="Channels_DisableChannelAria" xml:space="preserve"><value>{1} のチャンネル {0} を無効化</value></data>
+  <data name="Channels_DrmProtected" xml:space="preserve"><value>DRM 保護</value></data>
+  <data name="Channels_DrmProtectedChannel" xml:space="preserve"><value>DRM 保護されたチャンネル</value></data>
+  <data name="Channels_EnableChannelAria" xml:space="preserve"><value>{1} のチャンネル {0} を有効化</value></data>
+  <data name="Channels_EquivalenceGroupColumn" xml:space="preserve"><value>同等グループ</value></data>
+  <data name="Channels_ErrorLoadingSavedLineup" xml:space="preserve"><value>保存済みチャンネルラインアップの読み込み中にエラーが発生しました: {0}</value></data>
+  <data name="Channels_ErrorRefreshingChannels" xml:space="preserve"><value>チャンネルの更新中にエラーが発生しました: {0}</value></data>
+  <data name="Channels_ErrorUpdatingChannel" xml:space="preserve"><value>チャンネル {0} の更新中にエラーが発生しました: {1}</value></data>
+  <data name="Channels_ErrorUpdatingGuideBinding" xml:space="preserve"><value>優先番組ガイドの関連付け更新中にエラーが発生しました: {0}</value></data>
+  <data name="Channels_ErrorUpdatingIdentity" xml:space="preserve"><value>チャンネル ID の更新中にエラーが発生しました: {0}</value></data>
+  <data name="Channels_Favorite" xml:space="preserve"><value>お気に入り</value></data>
+  <data name="Channels_FavoriteChannel" xml:space="preserve"><value>お気に入りチャンネル</value></data>
+  <data name="Channels_Favorites" xml:space="preserve"><value>お気に入り</value></data>
+  <data name="Channels_FindHeading" xml:space="preserve"><value>チャンネルを検索</value></data>
+  <data name="Channels_FlagsLabel" xml:space="preserve"><value>フラグ</value></data>
+  <data name="Channels_GlobalNameColumn" xml:space="preserve"><value>共通名</value></data>
+  <data name="Channels_GlobalNumberColumn" xml:space="preserve"><value>共通番号</value></data>
+  <data name="Channels_GuideBindingLabel" xml:space="preserve"><value>番組ガイドの関連付け</value></data>
+  <data name="Channels_GuideMatchedAutomatically" xml:space="preserve"><value>物理チャンネル ID から自動的に一致しました。</value></data>
+  <data name="Channels_GuideStateUnavailable" xml:space="preserve"><value>番組ガイドの状態を取得できません</value></data>
+  <data name="Channels_Heading" xml:space="preserve"><value>HDHomeRun チャンネル</value></data>
+  <data name="Channels_InvalidEquivalenceGroup" xml:space="preserve"><value>同等グループは空にするか、有効な GUID を指定してください。</value></data>
+  <data name="Channels_Loading" xml:space="preserve"><value>チャンネルを読み込んでいます...</value></data>
+  <data name="Channels_ManualOverride" xml:space="preserve"><value>手動オーバーライド。</value></data>
+  <data name="Channels_ManualSelectionUnavailable" xml:space="preserve"><value>手動選択は利用できません - 自動照合を使用してください</value></data>
+  <data name="Channels_NoAutomaticGuideMatchHelp" xml:space="preserve"><value>プロバイダー ID または番号が自動的に一致しませんでした。優先チャンネルを手動で選択してください。</value></data>
+  <data name="Channels_NoMatch" xml:space="preserve"><value>一致なし</value></data>
+  <data name="Channels_NoMatchingChannels" xml:space="preserve"><value>現在の検索条件とフィルターに一致するチャンネルはありません。</value></data>
+  <data name="Channels_NoSavedLineup" xml:space="preserve"><value>保存済みのチューナーラインアップはありません</value></data>
+  <data name="Channels_NoSavedLineupHelp" xml:space="preserve"><value>番組ガイドデータをダウンロードせずに、有効なすべての物理チューナーからチャンネルを取得するには、チャンネルを更新してください。</value></data>
+  <data name="Channels_OptionalGuid" xml:space="preserve"><value>GUID（省略可）</value></data>
+  <data name="Channels_PageTitle" xml:space="preserve"><value>チャンネル</value></data>
+  <data name="Channels_PhysicalDeviceColumn" xml:space="preserve"><value>物理デバイス</value></data>
+  <data name="Channels_PhysicalDeviceLabel" xml:space="preserve"><value>物理デバイス</value></data>
+  <data name="Channels_PhysicalSourceChannelsHeading" xml:space="preserve"><value>物理ソースチャンネル</value></data>
+  <data name="Channels_ProviderIdentityColumn" xml:space="preserve"><value>プロバイダー ID</value></data>
+  <data name="Channels_QualityColumn" xml:space="preserve"><value>品質</value></data>
+  <data name="Channels_RefreshChannels" xml:space="preserve"><value>チャンネルを更新</value></data>
+  <data name="Channels_RefreshedChannels" xml:space="preserve"><value>物理ソースチャンネル {0} 件を更新しました。</value></data>
+  <data name="Channels_RefreshedChannelsWithFailures" xml:space="preserve"><value>物理ソースチャンネル {0} 件を更新しました。{1} 台のデバイスでエラーが発生したため、以前の状態を維持しました。</value></data>
+  <data name="Channels_SavedButXmltvUpdateFailed" xml:space="preserve"><value>チャンネル設定は保存されましたが、公開済み XMLTV 番組ガイドを更新できませんでした: {0}</value></data>
+  <data name="Channels_SavedGlobalIdentity" xml:space="preserve"><value>チャンネル {0} の共通 ID を保存しました。</value></data>
+  <data name="Channels_SavedGuideUnavailableHelp" xml:space="preserve"><value>手動で指定した保存済み番組ガイドチャンネルは、現在無効です。別のチャンネルを選択するか、自動照合に戻してください。</value></data>
+  <data name="Channels_SearchPlaceholder" xml:space="preserve"><value>番号、名前、デバイス、コーデック、またはプロバイダーキー</value></data>
+  <data name="Channels_SelectGuideAmbiguous" xml:space="preserve"><value>優先番組ガイドを選択（候補が複数）</value></data>
+  <data name="Channels_SelectGuideNoMatch" xml:space="preserve"><value>優先番組ガイドを選択（自動一致なし）</value></data>
+  <data name="Channels_ShowingCount" xml:space="preserve"><value>物理ソースチャンネル {1} 件中 {0} 件を表示しています。</value></data>
+  <data name="Channels_SignalColumn" xml:space="preserve"><value>信号</value></data>
+  <data name="Channels_StateLabel" xml:space="preserve"><value>状態</value></data>
+  <data name="Channels_UnavailableGuideChannel" xml:space="preserve"><value>利用不可: {0} · {1}</value></data>
+  <data name="Channels_UnavailableGuideSource" xml:space="preserve"><value>利用できない番組ガイドソース</value></data>
+  <data name="Channels_Unbound" xml:space="preserve"><value>未関連付け</value></data>
+  <data name="Channels_UseAutomaticMatching" xml:space="preserve"><value>自動照合を使用</value></data>
+  <data name="Channels_VideoColumn" xml:space="preserve"><value>映像</value></data>
+  <data name="Common_Actions" xml:space="preserve"><value>操作</value></data>
+  <data name="Common_AndRestartingApp" xml:space="preserve"><value>してアプリを再起動します。</value></data>
+  <data name="Common_Channel" xml:space="preserve"><value>チャンネル</value></data>
+  <data name="Common_Clear" xml:space="preserve"><value>クリア</value></data>
+  <data name="Common_Close" xml:space="preserve"><value>閉じる</value></data>
+  <data name="Common_ClosesAutomatically" xml:space="preserve"><value>自動的に閉じます</value></data>
+  <data name="Common_CopiedToClipboard" xml:space="preserve"><value>クリップボードにコピーしました!</value></data>
+  <data name="Common_CopyToClipboard" xml:space="preserve"><value>クリップボードにコピー</value></data>
+  <data name="Common_DevelopmentModeDetailsPrefix" xml:space="preserve"><value>環境を</value></data>
+  <data name="Common_DevelopmentModeDetailsSuffix" xml:space="preserve"><value>に切り替えると、発生したエラーの詳細情報が表示されます。</value></data>
+  <data name="Common_DevelopmentModeHeading" xml:space="preserve"><value>開発モード</value></data>
+  <data name="Common_DevelopmentModeLocalDebugMiddle" xml:space="preserve"><value>環境を有効にするには、</value></data>
+  <data name="Common_DevelopmentModeLocalDebugPrefix" xml:space="preserve"><value>ローカルでデバッグする場合、</value></data>
+  <data name="Common_DevelopmentModeLocalDebugSuffix" xml:space="preserve"><value>環境変数を次の値に設定します:</value></data>
+  <data name="Common_DevelopmentModeSensitiveInformation" xml:space="preserve"><value>例外に含まれる機密情報がエンドユーザーに表示される可能性があります。</value></data>
+  <data name="Common_DevelopmentModeWarning" xml:space="preserve"><value>展開済みのアプリケーションで Development 環境を有効にしないでください。</value></data>
+  <data name="Common_Disabled" xml:space="preserve"><value>無効</value></data>
+  <data name="Common_DismissStatusMessage" xml:space="preserve"><value>ステータスメッセージを閉じる</value></data>
+  <data name="Common_Enabled" xml:space="preserve"><value>有効</value></data>
+  <data name="Common_ErrorHeading" xml:space="preserve"><value>エラー。</value></data>
+  <data name="Common_ErrorPageTitle" xml:space="preserve"><value>エラー</value></data>
+  <data name="Common_ErrorProcessingRequest" xml:space="preserve"><value>リクエストの処理中にエラーが発生しました。</value></data>
+  <data name="Common_FailedToRejoin" xml:space="preserve"><value>再接続できませんでした。</value></data>
+  <data name="Common_FailedToResume" xml:space="preserve"><value>セッションを再開できませんでした。</value></data>
+  <data name="Common_LastUpdated" xml:space="preserve"><value>最終更新</value></data>
+  <data name="Common_Loading" xml:space="preserve"><value>読み込み中...</value></data>
+  <data name="Common_Never" xml:space="preserve"><value>なし</value></data>
+  <data name="Common_NotAvailable" xml:space="preserve"><value>N/A</value></data>
+  <data name="Common_NotFoundHeading" xml:space="preserve"><value>見つかりません</value></data>
+  <data name="Common_NotFoundMessage" xml:space="preserve"><value>お探しのコンテンツは存在しません。</value></data>
+  <data name="Common_Pause" xml:space="preserve"><value>一時停止</value></data>
+  <data name="Common_Refresh" xml:space="preserve"><value>更新</value></data>
+  <data name="Common_RejoinFailedRetryPrefix" xml:space="preserve"><value>再接続に失敗しました... 次の時間後に再試行します:</value></data>
+  <data name="Common_RejoiningServer" xml:space="preserve"><value>サーバーに再接続しています...</value></data>
+  <data name="Common_Reload" xml:space="preserve"><value>再読み込み</value></data>
+  <data name="Common_RequestIdLabel" xml:space="preserve"><value>リクエスト ID</value></data>
+  <data name="Common_Resume" xml:space="preserve"><value>再開</value></data>
+  <data name="Common_RetryOrReload" xml:space="preserve"><value>再試行するか、ページを再読み込みしてください。</value></data>
+  <data name="Common_Save" xml:space="preserve"><value>保存</value></data>
+  <data name="Common_Search" xml:space="preserve"><value>検索</value></data>
+  <data name="Common_SecondsAbbreviation" xml:space="preserve"><value>{0}秒</value></data>
+  <data name="Common_SecondsSuffix" xml:space="preserve"><value>秒。</value></data>
+  <data name="Common_SessionPaused" xml:space="preserve"><value>サーバーによりセッションが一時停止されました。</value></data>
+  <data name="Common_Status" xml:space="preserve"><value>ステータス</value></data>
+  <data name="Common_Stop" xml:space="preserve"><value>停止</value></data>
+  <data name="Common_UnhandledError" xml:space="preserve"><value>処理されていないエラーが発生しました。</value></data>
+  <data name="Common_Unknown" xml:space="preserve"><value>不明</value></data>
+  <data name="Dashboard_ActivePathsHeading" xml:space="preserve"><value>アクティブなパス</value></data>
+  <data name="Dashboard_ActiveStreamsHeading" xml:space="preserve"><value>アクティブなストリーム</value></data>
+  <data name="Dashboard_ActiveStreamsSummary" xml:space="preserve"><value>アクティブ {0} 件 · {1} · {2}</value></data>
+  <data name="Dashboard_AutoFetchDisabled" xml:space="preserve"><value>自動取得は無効</value></data>
+  <data name="Dashboard_AutoFetchHeading" xml:space="preserve"><value>自動取得</value></data>
+  <data name="Dashboard_AutoFetchInProgress" xml:space="preserve"><value>自動取得を実行中</value></data>
+  <data name="Dashboard_AutoFetchInterval" xml:space="preserve"><value>20～28 時間（ランダム）</value></data>
+  <data name="Dashboard_AutoFetchPending" xml:space="preserve"><value>自動取得の待機中</value></data>
+  <data name="Dashboard_AutoFetchRunning" xml:space="preserve"><value>自動取得を実行中</value></data>
+  <data name="Dashboard_AutoRefreshDisabled" xml:space="preserve"><value>自動更新は無効</value></data>
+  <data name="Dashboard_ChannelGapDurationFormat" xml:space="preserve"><value>h' 時間 'm' 分'</value></data>
+  <data name="Dashboard_ChannelGapLabel" xml:space="preserve"><value>チャンネルの空白期間</value></data>
+  <data name="Dashboard_ChannelsHeading" xml:space="preserve"><value>チャンネル</value></data>
+  <data name="Dashboard_ChannelsLabel" xml:space="preserve"><value>チャンネル</value></data>
+  <data name="Dashboard_ChannelsSummary" xml:space="preserve"><value>有効 {0} 件 · 無効 {1} 件 · 更新 {2}</value></data>
+  <data name="Dashboard_ChannelsSummaryNever" xml:space="preserve"><value>有効 {0} 件 · 無効 {1} 件 · 未更新</value></data>
+  <data name="Dashboard_CollapseActiveStreamsSection" xml:space="preserve"><value>アクティブなストリームセクションを折りたたむ</value></data>
+  <data name="Dashboard_CollapseChannelsSection" xml:space="preserve"><value>チャンネルセクションを折りたたむ</value></data>
+  <data name="Dashboard_CollapseGuideSection" xml:space="preserve"><value>番組ガイドセクションを折りたたむ</value></data>
+  <data name="Dashboard_CountdownHours" xml:space="preserve"><value>{0}時間 {1}分 {2}秒</value></data>
+  <data name="Dashboard_CountdownMinutes" xml:space="preserve"><value>{0}分 {1}秒</value></data>
+  <data name="Dashboard_DeviceRestartSent" xml:space="preserve"><value>デバイスに再起動コマンドを送信しました。約 30 秒間利用できなくなります。</value></data>
+  <data name="Dashboard_DeviceSummary" xml:space="preserve"><value>デバイス {0} 台 · ストリーミング中 {1} 台 · 利用不可 {2} 台</value></data>
+  <data name="Dashboard_DueNow" xml:space="preserve"><value>実行時刻です</value></data>
+  <data name="Dashboard_EarliestLabel" xml:space="preserve"><value>最も早い番組</value></data>
+  <data name="Dashboard_EnableIn" xml:space="preserve"><value>次の設定で有効にできます:</value></data>
+  <data name="Dashboard_ErrorFetchingData" xml:space="preserve"><value>データの取得中にエラーが発生しました: {0}</value></data>
+  <data name="Dashboard_ErrorGeneratingXmltv" xml:space="preserve"><value>XMLTV の生成中にエラーが発生しました: {0}</value></data>
+  <data name="Dashboard_ErrorLoadingSavedLineup" xml:space="preserve"><value>保存済みチャンネルラインアップの読み込み中にエラーが発生しました: {0}</value></data>
+  <data name="Dashboard_ErrorRefreshingChannels" xml:space="preserve"><value>チャンネルの更新中にエラーが発生しました: {0}</value></data>
+  <data name="Dashboard_EveryInterval" xml:space="preserve"><value>{0} ごと</value></data>
+  <data name="Dashboard_EverySeconds" xml:space="preserve"><value>{0} 秒ごと</value></data>
+  <data name="Dashboard_ExpandActiveStreamsSection" xml:space="preserve"><value>アクティブなストリームセクションを展開</value></data>
+  <data name="Dashboard_ExpandChannelsSection" xml:space="preserve"><value>チャンネルセクションを展開</value></data>
+  <data name="Dashboard_ExpandGuideSection" xml:space="preserve"><value>番組ガイドセクションを展開</value></data>
+  <data name="Dashboard_ExportXmltv" xml:space="preserve"><value>XMLTV をエクスポート</value></data>
+  <data name="Dashboard_FailedToRestartDevice" xml:space="preserve"><value>デバイスを再起動できませんでした: {0}</value></data>
+  <data name="Dashboard_FailedToStopReceiver" xml:space="preserve"><value>レシーバー {0} を停止できませんでした: {1}</value></data>
+  <data name="Dashboard_FetchGuide" xml:space="preserve"><value>番組ガイドを取得</value></data>
+  <data name="Dashboard_FetchNumber" xml:space="preserve"><value>取得番号</value></data>
+  <data name="Dashboard_FetchStatusCompleted" xml:space="preserve"><value>完了</value></data>
+  <data name="Dashboard_FetchStatusFailed" xml:space="preserve"><value>失敗</value></data>
+  <data name="Dashboard_FetchStatusFetching" xml:space="preserve"><value>取得中</value></data>
+  <data name="Dashboard_FetchStatusInitializing" xml:space="preserve"><value>初期化中</value></data>
+  <data name="Dashboard_FetchStatusStoring" xml:space="preserve"><value>保存中</value></data>
+  <data name="Dashboard_GenerateXmltv" xml:space="preserve"><value>XMLTV を生成</value></data>
+  <data name="Dashboard_GuideFetchedSuccessfully" xml:space="preserve"><value>{0} 件のソースから番組ガイドデータを取得しました: チャンネル {1:N0} 件、番組 {2:N0} 件。</value></data>
+  <data name="Dashboard_GuideRefreshWithFailures" xml:space="preserve"><value>番組ガイドの更新が完了しました。{0} 件のソースと {1} 件の出力でエラーが発生しました。正常に完了したインポートと公開は維持されました。</value></data>
+  <data name="Dashboard_GuideSummary" xml:space="preserve"><value>チャンネル {0} 件 · 番組 {1} 件 · 残り {2} · {3}</value></data>
+  <data name="Dashboard_GuideXmltvHeading" xml:space="preserve"><value>番組ガイドと XMLTV</value></data>
+  <data name="Dashboard_Heading" xml:space="preserve"><value>ダッシュボード</value></data>
+  <data name="Dashboard_LatestLabel" xml:space="preserve"><value>最も遅い番組</value></data>
+  <data name="Dashboard_ManualFetchProgress" xml:space="preserve"><value>手動取得の進行状況</value></data>
+  <data name="Dashboard_NextFetchIn" xml:space="preserve"><value>次回の取得まで {0}</value></data>
+  <data name="Dashboard_NoActivePhysicalDevices" xml:space="preserve"><value>有効な物理デバイスは稼働していません。</value></data>
+  <data name="Dashboard_NoGuideSourcesEnabled" xml:space="preserve"><value>有効な番組ガイドソースがありません。キャッシュ済み番組ガイドデータから XMLTV を再生成しました。</value></data>
+  <data name="Dashboard_NotRefreshed" xml:space="preserve"><value>未更新</value></data>
+  <data name="Dashboard_PageTitle" xml:space="preserve"><value>ダッシュボード</value></data>
+  <data name="Dashboard_Pending" xml:space="preserve"><value>待機中...</value></data>
+  <data name="Dashboard_PhysicalDevicesHeading" xml:space="preserve"><value>物理デバイス</value></data>
+  <data name="Dashboard_ProgramsLabel" xml:space="preserve"><value>番組</value></data>
+  <data name="Dashboard_ProjectionChannelSummary" xml:space="preserve"><value>番組ガイドとストリーミングの予測では、{1} に更新された物理ソースチャンネル {0} 件を使用します。</value></data>
+  <data name="Dashboard_PublishedOutputsSuccessfully" xml:space="preserve"><value>番組ガイド出力 {0} 件を公開しました。</value></data>
+  <data name="Dashboard_PublishedOutputsWithFailures" xml:space="preserve"><value>番組ガイド出力 {0} 件を公開しました。{1} 件が失敗しました: {2}</value></data>
+  <data name="Dashboard_ReceiverColumn" xml:space="preserve"><value>レシーバー</value></data>
+  <data name="Dashboard_ReceiverIdle" xml:space="preserve"><value>アイドル</value></data>
+  <data name="Dashboard_ReceiverStopped" xml:space="preserve"><value>レシーバー {0} を停止しました。</value></data>
+  <data name="Dashboard_ReceiverStreaming" xml:space="preserve"><value>ストリーミング中</value></data>
+  <data name="Dashboard_ReceiverTuned" xml:space="preserve"><value>選局済み</value></data>
+  <data name="Dashboard_RefreshChannels" xml:space="preserve"><value>チャンネルを更新</value></data>
+  <data name="Dashboard_RefreshChannelsBeforeGuide" xml:space="preserve"><value>SiliconDust 番組ガイドを取得する前に、上の HDHomeRun チャンネルを更新してください。</value></data>
+  <data name="Dashboard_RefreshedAt" xml:space="preserve"><value>{0} に更新</value></data>
+  <data name="Dashboard_RefreshedChannels" xml:space="preserve"><value>物理ソースチャンネル {0} 件を更新しました。</value></data>
+  <data name="Dashboard_RefreshedChannelsWithFailures" xml:space="preserve"><value>物理ソースチャンネル {0} 件を更新しました。{1} 台のデバイスでエラーが発生しました。</value></data>
+  <data name="Dashboard_RefreshingEnabledGuideSources" xml:space="preserve"><value>有効な番組ガイドソースを更新しています</value></data>
+  <data name="Dashboard_RemainingDurationFormat" xml:space="preserve"><value>d' 日 'h' 時間'</value></data>
+  <data name="Dashboard_RemainingLabel" xml:space="preserve"><value>残り</value></data>
+  <data name="Dashboard_RestartDevice" xml:space="preserve"><value>デバイスを再起動</value></data>
+  <data name="Dashboard_Running" xml:space="preserve"><value>実行中...</value></data>
+  <data name="Dashboard_SignalColumn" xml:space="preserve"><value>信号</value></data>
+  <data name="Dashboard_StartingSoon" xml:space="preserve"><value>まもなく開始します...</value></data>
+  <data name="Dashboard_StreamingFlowHeading" xml:space="preserve"><value>ストリーミングフロー</value></data>
+  <data name="Dashboard_TargetColumn" xml:space="preserve"><value>ターゲット</value></data>
+  <data name="Dashboard_TimeRangeHeading" xml:space="preserve"><value>時間範囲</value></data>
+  <data name="Guide_DisabledChannel" xml:space="preserve"><value>無効なチャンネル</value></data>
+  <data name="Guide_DrmProtectedChannel" xml:space="preserve"><value>DRM 保護されたチャンネル</value></data>
+  <data name="Guide_DurationLabel" xml:space="preserve"><value>長さ</value></data>
+  <data name="Guide_DurationMinutes" xml:space="preserve"><value>{0} 分</value></data>
+  <data name="Guide_EndLabel" xml:space="preserve"><value>終了</value></data>
+  <data name="Guide_EpisodeLabel" xml:space="preserve"><value>エピソード</value></data>
+  <data name="Guide_FavoriteChannel" xml:space="preserve"><value>お気に入りチャンネル</value></data>
+  <data name="Guide_Heading" xml:space="preserve"><value>番組ガイド</value></data>
+  <data name="Guide_LoadingData" xml:space="preserve"><value>番組ガイドデータを読み込んでいます...</value></data>
+  <data name="Guide_NoDescription" xml:space="preserve"><value>説明はありません。</value></data>
+  <data name="Guide_NoEpgData" xml:space="preserve"><value>利用可能な EPG データがありません。先にダッシュボードから EPG データを取得してください。</value></data>
+  <data name="Guide_Now" xml:space="preserve"><value>現在</value></data>
+  <data name="Guide_OriginalAirLabel" xml:space="preserve"><value>初回放送</value></data>
+  <data name="Guide_PageTitle" xml:space="preserve"><value>番組ガイド</value></data>
+  <data name="Guide_ProgramTooltip" xml:space="preserve"><value>{0}\n{1} - {2}（{3:0} 分）</value></data>
+  <data name="Guide_StartLabel" xml:space="preserve"><value>開始</value></data>
+  <data name="Guide_Today" xml:space="preserve"><value>今日</value></data>
+  <data name="Guide_Tomorrow" xml:space="preserve"><value>明日</value></data>
+  <data name="Logs_AllCategories" xml:space="preserve"><value>すべてのカテゴリ</value></data>
+  <data name="Logs_CategoryLabel" xml:space="preserve"><value>カテゴリ</value></data>
+  <data name="Logs_CurrentProcessHeading" xml:space="preserve"><value>現在のプロセス</value></data>
+  <data name="Logs_Details" xml:space="preserve"><value>詳細</value></data>
+  <data name="Logs_EventsLabel" xml:space="preserve"><value>イベント</value></data>
+  <data name="Logs_FileLoggingDisabledPrefix" xml:space="preserve"><value>ファイルログは無効です。</value></data>
+  <data name="Logs_FileLoggingDisabledSuffix" xml:space="preserve"><value>で有効にして Lineup を再起動すると、再起動後もログが保持されます。</value></data>
+  <data name="Logs_Heading" xml:space="preserve"><value>ログ</value></data>
+  <data name="Logs_LevelColumn" xml:space="preserve"><value>レベル</value></data>
+  <data name="Logs_LevelDebug" xml:space="preserve"><value>デバッグ</value></data>
+  <data name="Logs_LevelError" xml:space="preserve"><value>エラー</value></data>
+  <data name="Logs_LevelFatal" xml:space="preserve"><value>致命的</value></data>
+  <data name="Logs_LevelInformation" xml:space="preserve"><value>情報</value></data>
+  <data name="Logs_LevelTrace" xml:space="preserve"><value>トレース</value></data>
+  <data name="Logs_LevelWarning" xml:space="preserve"><value>警告</value></data>
+  <data name="Logs_LiveViewNotice" xml:space="preserve"><value>このライブビューには、現在の Lineup プロセスの最近のイベントのみが一定数表示されます。運用ログには、デバイスアドレスなどの診断情報が含まれる場合があります。</value></data>
+  <data name="Logs_MessageColumn" xml:space="preserve"><value>メッセージ</value></data>
+  <data name="Logs_MinimumLevelLabel" xml:space="preserve"><value>最小レベル</value></data>
+  <data name="Logs_NoMatchingEvents" xml:space="preserve"><value>現在のフィルターに一致するログイベントはありません。</value></data>
+  <data name="Logs_NoRollingFiles" xml:space="preserve"><value>ローテーションログファイルはまだありません。</value></data>
+  <data name="Logs_PageTitle" xml:space="preserve"><value>ログ</value></data>
+  <data name="Logs_RollingFilesHeading" xml:space="preserve"><value>ローテーションログファイル</value></data>
+  <data name="Logs_SearchPlaceholder" xml:space="preserve"><value>メッセージ、例外、またはプロパティ</value></data>
+  <data name="Logs_SettingsLoggingLink" xml:space="preserve"><value>設定 &gt; ログ</value></data>
+  <data name="Logs_TimeColumn" xml:space="preserve"><value>時刻</value></data>
+  <data name="Nav_About" xml:space="preserve"><value>Lineup について</value></data>
+  <data name="Nav_Channels" xml:space="preserve"><value>チャンネル</value></data>
+  <data name="Nav_Dashboard" xml:space="preserve"><value>ダッシュボード</value></data>
+  <data name="Nav_Guide" xml:space="preserve"><value>番組ガイド</value></data>
+  <data name="Nav_Logs" xml:space="preserve"><value>ログ</value></data>
+  <data name="Nav_NavigationMenu" xml:space="preserve"><value>ナビゲーションメニュー</value></data>
+  <data name="Nav_Settings" xml:space="preserve"><value>設定</value></data>
+  <data name="Nav_ThemeAuto" xml:space="preserve"><value>自動</value></data>
+  <data name="Nav_ThemeDark" xml:space="preserve"><value>ダーク</value></data>
+  <data name="Nav_ThemeLight" xml:space="preserve"><value>ライト</value></data>
+  <data name="Nav_ToggleTheme" xml:space="preserve"><value>テーマを切り替え</value></data>
+  <data name="Nav_Watch" xml:space="preserve"><value>視聴</value></data>
+  <data name="Nav_WatchTest" xml:space="preserve"><value>視聴テスト</value></data>
+  <data name="ProgramMetadata_AdditionalCredits" xml:space="preserve"><value>その他のクレジット</value></data>
+  <data name="ProgramMetadata_AdditionalImages" xml:space="preserve"><value>その他の画像</value></data>
+  <data name="ProgramMetadata_AlternateDescriptions" xml:space="preserve"><value>別の説明</value></data>
+  <data name="ProgramMetadata_AlternateEpisodeTitles" xml:space="preserve"><value>別のエピソードタイトル</value></data>
+  <data name="ProgramMetadata_AlternateTitles" xml:space="preserve"><value>別のタイトル</value></data>
+  <data name="ProgramMetadata_AriaLabel" xml:space="preserve"><value>番組メタデータ</value></data>
+  <data name="ProgramMetadata_Aspect" xml:space="preserve"><value>アスペクト比</value></data>
+  <data name="ProgramMetadata_Audio" xml:space="preserve"><value>音声</value></data>
+  <data name="ProgramMetadata_Color" xml:space="preserve"><value>カラー</value></data>
+  <data name="ProgramMetadata_Country" xml:space="preserve"><value>国</value></data>
+  <data name="ProgramMetadata_CreditAdapter" xml:space="preserve"><value>脚色</value></data>
+  <data name="ProgramMetadata_CreditCast" xml:space="preserve"><value>出演</value></data>
+  <data name="ProgramMetadata_CreditCommentator" xml:space="preserve"><value>解説</value></data>
+  <data name="ProgramMetadata_CreditComposer" xml:space="preserve"><value>音楽</value></data>
+  <data name="ProgramMetadata_CreditDirector" xml:space="preserve"><value>監督</value></data>
+  <data name="ProgramMetadata_CreditEditor" xml:space="preserve"><value>編集</value></data>
+  <data name="ProgramMetadata_CreditGuest" xml:space="preserve"><value>ゲスト</value></data>
+  <data name="ProgramMetadata_CreditGuestSuffix" xml:space="preserve"><value>（ゲスト）</value></data>
+  <data name="ProgramMetadata_CreditPresenter" xml:space="preserve"><value>司会</value></data>
+  <data name="ProgramMetadata_CreditProducer" xml:space="preserve"><value>プロデューサー</value></data>
+  <data name="ProgramMetadata_CreditRole" xml:space="preserve"><value>（役名: {0}）</value></data>
+  <data name="ProgramMetadata_Credits" xml:space="preserve"><value>クレジット</value></data>
+  <data name="ProgramMetadata_CreditWriter" xml:space="preserve"><value>脚本</value></data>
+  <data name="ProgramMetadata_Description" xml:space="preserve"><value>説明</value></data>
+  <data name="ProgramMetadata_EpisodeIdentifiers" xml:space="preserve"><value>エピソード識別子</value></data>
+  <data name="ProgramMetadata_EpisodeTitle" xml:space="preserve"><value>エピソードタイトル</value></data>
+  <data name="ProgramMetadata_Keywords" xml:space="preserve"><value>キーワード</value></data>
+  <data name="ProgramMetadata_Language" xml:space="preserve"><value>言語</value></data>
+  <data name="ProgramMetadata_LastChance" xml:space="preserve"><value>最終放送</value></data>
+  <data name="ProgramMetadata_Live" xml:space="preserve"><value>ライブ</value></data>
+  <data name="ProgramMetadata_LocalizedCategories" xml:space="preserve"><value>ローカライズ済みカテゴリ</value></data>
+  <data name="ProgramMetadata_MoreDetails" xml:space="preserve"><value>詳細を表示</value></data>
+  <data name="ProgramMetadata_New" xml:space="preserve"><value>新作</value></data>
+  <data name="ProgramMetadata_Origin" xml:space="preserve"><value>制作元</value></data>
+  <data name="ProgramMetadata_OriginalLanguage" xml:space="preserve"><value>原語</value></data>
+  <data name="ProgramMetadata_Other" xml:space="preserve"><value>その他</value></data>
+  <data name="ProgramMetadata_Premiere" xml:space="preserve"><value>初回放送</value></data>
+  <data name="ProgramMetadata_Present" xml:space="preserve"><value>現在</value></data>
+  <data name="ProgramMetadata_PreviouslyShown" xml:space="preserve"><value>再放送</value></data>
+  <data name="ProgramMetadata_PreviouslyShownDetails" xml:space="preserve"><value>以前の放送: {0}</value></data>
+  <data name="ProgramMetadata_PrimaryTextLanguages" xml:space="preserve"><value>主なテキスト言語</value></data>
+  <data name="ProgramMetadata_ProgramStatus" xml:space="preserve"><value>番組ステータス</value></data>
+  <data name="ProgramMetadata_Quality" xml:space="preserve"><value>画質</value></data>
+  <data name="ProgramMetadata_Ratings" xml:space="preserve"><value>レーティング</value></data>
+  <data name="ProgramMetadata_RelatedUrls" xml:space="preserve"><value>関連 URL</value></data>
+  <data name="ProgramMetadata_Reviews" xml:space="preserve"><value>レビュー</value></data>
+  <data name="ProgramMetadata_SchedulingIdentifiers" xml:space="preserve"><value>編成識別子</value></data>
+  <data name="ProgramMetadata_SourceRuntime" xml:space="preserve"><value>元の再生時間</value></data>
+  <data name="ProgramMetadata_Stereo" xml:space="preserve"><value>ステレオ</value></data>
+  <data name="ProgramMetadata_Subtitles" xml:space="preserve"><value>字幕</value></data>
+  <data name="ProgramMetadata_Title" xml:space="preserve"><value>タイトル</value></data>
+  <data name="ProgramMetadata_Video" xml:space="preserve"><value>映像</value></data>
+  <data name="Streaming_Active" xml:space="preserve"><value>アクティブ</value></data>
+  <data name="Streaming_ActiveChannels" xml:space="preserve"><value>アクティブなチャンネル</value></data>
+  <data name="Streaming_ActiveProducerCountMany" xml:space="preserve"><value>アクティブなプロデューサー {0} 件</value></data>
+  <data name="Streaming_ActiveProducerCountOne" xml:space="preserve"><value>アクティブなプロデューサー {0} 件</value></data>
+  <data name="Streaming_ActiveSessions" xml:space="preserve"><value>アクティブなセッション</value></data>
+  <data name="Streaming_Channel" xml:space="preserve"><value>チャンネル {0}</value></data>
+  <data name="Streaming_ChannelCountAbbreviation" xml:space="preserve"><value>{0} ch</value></data>
+  <data name="Streaming_ConfigureDevicesPrompt" xml:space="preserve"><value>物理デバイスと仮想デバイスを設定して、ストリーミングフローを構築します。</value></data>
+  <data name="Streaming_ConfiguredTopologyAriaLabel" xml:space="preserve"><value>設定済みのストリーミングトポロジ</value></data>
+  <data name="Streaming_ConsumerCountMany" xml:space="preserve"><value>コンシューマー {0} 件</value></data>
+  <data name="Streaming_ConsumerCountOne" xml:space="preserve"><value>コンシューマー {0} 件</value></data>
+  <data name="Streaming_DeliveredStreamComponents" xml:space="preserve"><value>配信ストリームのコンポーネント</value></data>
+  <data name="Streaming_EffectiveSourceComponents" xml:space="preserve"><value>有効なソースコンポーネント</value></data>
+  <data name="Streaming_FlowSummaryAriaLabel" xml:space="preserve"><value>ストリーミングフローの概要</value></data>
+  <data name="Streaming_LaneConsumers" xml:space="preserve"><value>コンシューマー</value></data>
+  <data name="Streaming_LaneMultiplexer" xml:space="preserve"><value>マルチプレクサー</value></data>
+  <data name="Streaming_LaneOutputProcessing" xml:space="preserve"><value>出力処理</value></data>
+  <data name="Streaming_LanePhysicalSources" xml:space="preserve"><value>物理ソース</value></data>
+  <data name="Streaming_LaneSourceProcessing" xml:space="preserve"><value>ソース処理</value></data>
+  <data name="Streaming_LaneVirtualOutputs" xml:space="preserve"><value>仮想出力</value></data>
+  <data name="Streaming_MediaTrackAudio" xml:space="preserve"><value>音声</value></data>
+  <data name="Streaming_MediaTrackSubtitle" xml:space="preserve"><value>字幕</value></data>
+  <data name="Streaming_MediaTrackVideo" xml:space="preserve"><value>映像</value></data>
+  <data name="Streaming_MultiplexedStreamComponents" xml:space="preserve"><value>多重化ストリームのコンポーネント</value></data>
+  <data name="Streaming_NoConsumersAttached" xml:space="preserve"><value>現在接続しているコンシューマーはありません。</value></data>
+  <data name="Streaming_NodeAriaLabel" xml:space="preserve"><value>{0}、{1}、アクティブなセッション {2} 件</value></data>
+  <data name="Streaming_None" xml:space="preserve"><value>なし</value></data>
+  <data name="Streaming_OutputStreamComponents" xml:space="preserve"><value>出力ストリームのコンポーネント</value></data>
+  <data name="Streaming_RawPhysicalInput" xml:space="preserve"><value>未処理の物理入力</value></data>
+  <data name="Streaming_RawPhysicalStreamComponents" xml:space="preserve"><value>未処理の物理ストリームコンポーネント</value></data>
+  <data name="Streaming_Session" xml:space="preserve"><value>セッション</value></data>
+  <data name="Streaming_SharedSessions" xml:space="preserve"><value>共有 · {0} セッション</value></data>
+  <data name="Streaming_SourceStreamComponents" xml:space="preserve"><value>ソースストリームのコンポーネント</value></data>
+  <data name="Streaming_StageConsumer" xml:space="preserve"><value>コンシューマー</value></data>
+  <data name="Streaming_StageMultiplexer" xml:space="preserve"><value>マルチプレクサー</value></data>
+  <data name="Streaming_StageOutputProcessing" xml:space="preserve"><value>出力処理</value></data>
+  <data name="Streaming_StagePhysicalSource" xml:space="preserve"><value>物理ソース</value></data>
+  <data name="Streaming_StagesAriaLabel" xml:space="preserve"><value>セッション {0} のストリーミングステージ</value></data>
+  <data name="Streaming_StageSourceProcessing" xml:space="preserve"><value>ソース処理</value></data>
+  <data name="Streaming_StageVirtualOutput" xml:space="preserve"><value>仮想出力</value></data>
+  <data name="Streaming_StateActive" xml:space="preserve"><value>アクティブ</value></data>
+  <data name="Streaming_StateDisabled" xml:space="preserve"><value>無効</value></data>
+  <data name="Streaming_StateIdle" xml:space="preserve"><value>アイドル</value></data>
+  <data name="Streaming_StateLegendAriaLabel" xml:space="preserve"><value>ストリーミング状態の凡例</value></data>
+  <data name="Streaming_StateShared" xml:space="preserve"><value>共有</value></data>
+  <data name="Streaming_StateTranscoding" xml:space="preserve"><value>トランスコード中</value></data>
+  <data name="Streaming_StateWarm" xml:space="preserve"><value>待機中</value></data>
+  <data name="Streaming_Stop" xml:space="preserve"><value>停止</value></data>
+  <data name="Streaming_StopStreamAriaLabel" xml:space="preserve"><value>ストリーム {0} を停止</value></data>
+  <data name="Streaming_StreamComponents" xml:space="preserve"><value>ストリームコンポーネント</value></data>
+  <data name="Streaming_SubscribedStreamComponents" xml:space="preserve"><value>購読中のストリームコンポーネント</value></data>
+  <data name="Streaming_TotalBitRate" xml:space="preserve"><value>合計: {0}</value></data>
+  <data name="Streaming_Unavailable" xml:space="preserve"><value>利用不可</value></data>
+  <data name="Streaming_Unknown" xml:space="preserve"><value>不明</value></data>
+  <data name="Streaming_WarmProducerCountMany" xml:space="preserve"><value>待機中のプロデューサー {0} 件</value></data>
+  <data name="Streaming_WarmProducerCountOne" xml:space="preserve"><value>待機中のプロデューサー {0} 件</value></data>
+  <data name="Transcoding_Ac4Audio" xml:space="preserve"><value>AC-4 音声</value></data>
+  <data name="Transcoding_Audio" xml:space="preserve"><value>音声</value></data>
+  <data name="Transcoding_AudioCopy" xml:space="preserve"><value>コピー</value></data>
+  <data name="Transcoding_ConvertHevcHelp" xml:space="preserve"><value>有効にすると、再生互換性を高めるため HEVC/H.265 映像を H.264 にエンコードします。その他の映像コーデックは変更されません。</value></data>
+  <data name="Transcoding_ConvertHevcToH264" xml:space="preserve"><value>HEVC を H.264 に変換</value></data>
+  <data name="Transcoding_DeinterlacePreserve" xml:space="preserve"><value>維持</value></data>
+  <data name="Transcoding_DeinterlaceSourceFieldRate" xml:space="preserve"><value>ソースのフィールドレート</value></data>
+  <data name="Transcoding_DeinterlaceSourceFrameRate" xml:space="preserve"><value>ソースのフレームレート</value></data>
+  <data name="Transcoding_Deinterlacing" xml:space="preserve"><value>デインターレース</value></data>
+  <data name="Transcoding_DeviceAc4Help" xml:space="preserve"><value>コピーするには、配信先が AC-4 に対応している必要があります。AC-3 は最も幅広い互換性を提供し、E-AC-3 は対応環境でより多くの機能を維持できる場合があります。</value></data>
+  <data name="Transcoding_DeviceAc4OverrideHelp" xml:space="preserve"><value>オーバーライドを有効にすると、このデバイスの AC-4 ソースを他の音声コーデックとは別に処理できます。</value></data>
+  <data name="Transcoding_DeviceAudioHelp" xml:space="preserve"><value>コピーではソースのコーデックと品質を維持します。AC-3 または E-AC-3 では、その形式を必要とするコンシューマー向けに音声を再エンコードします。</value></data>
+  <data name="Transcoding_DeviceAudioOverrideHelp" xml:space="preserve"><value>オーバーライドを有効にすると、このデバイスの AC-4 以外のすべての音声トラックをコピーまたは再エンコードできます。</value></data>
+  <data name="Transcoding_DeviceBitrateHelp" xml:space="preserve"><value>上限が低すぎると、CRF で高い品質を指定していても、複雑なシーンで品質が低下する場合があります。</value></data>
+  <data name="Transcoding_DeviceBitrateOverrideHelp" xml:space="preserve"><value>オーバーライドを有効にすると、グローバル上限とは別に、このデバイスでエンコードする H.264 のビットレートを制限できます。</value></data>
+  <data name="Transcoding_DeviceDeinterlaceHelp" xml:space="preserve"><value>「維持」では映像を変更しません。ソースのフレームレートではフレームごとに 1 枚のプログレッシブフレームを出力します。ソースのフィールドレートでは、CPU とビットレートの負荷が増す代わりに、滑らかなフィールドレートの動きを維持します。</value></data>
+  <data name="Transcoding_DeviceDeinterlaceOverrideHelp" xml:space="preserve"><value>オーバーライドを有効にすると、グローバルポリシーとは別に、このデバイスの映像を維持するかデインターレースするかを選択できます。</value></data>
+  <data name="Transcoding_DeviceHevcHelp" xml:space="preserve"><value>変換すると互換性が向上しますが、H.264 映像エンコーダーが起動します。無効にするとソース映像のコーデックを維持します。</value></data>
+  <data name="Transcoding_DeviceHevcOverrideHelp" xml:space="preserve"><value>オーバーライドを有効にすると、グローバルポリシーを使用せず、このデバイスの HEVC/H.265 映像を H.264 に変換するかどうかを選択できます。</value></data>
+  <data name="Transcoding_DevicePresetHelp" xml:space="preserve"><value>高速なプリセットほど CPU 使用率が低下します。低速なプリセットでは、より少ないビットレートで同等の品質を実現できる場合があります。</value></data>
+  <data name="Transcoding_DevicePresetOverrideHelp" xml:space="preserve"><value>オーバーライドを有効にすると、このデバイスの H.264 エンコーダーについて、速度と圧縮効率のバランスを変更できます。</value></data>
+  <data name="Transcoding_DeviceQualityHelp" xml:space="preserve"><value>指定可能な値は 16～30 です。値が低いほど細部を維持してビットレートが増え、値が高いほどビットレートと品質が低下します。</value></data>
+  <data name="Transcoding_DeviceQualityOverrideHelp" xml:space="preserve"><value>オーバーライドを有効にすると、グローバル CRF を継承せず、このデバイスの固定品質 H.264 ターゲットを設定できます。</value></data>
+  <data name="Transcoding_DeviceWarning" xml:space="preserve"><value>このデバイスの現在の設定では、一致するストリームに対して {0} トランスコードが行われます。</value></data>
+  <data name="Transcoding_GlobalAc4Help" xml:space="preserve"><value>ブラウザーやメディアサーバーによって対応状況が異なるため、AC-4 ソースを個別に制御します。コピーするには配信先が AC-4 に対応している必要があります。AC-3 は最も互換性の高い選択肢です。</value></data>
+  <data name="Transcoding_GlobalAudioHelp" xml:space="preserve"><value>コピーでは元のコーデックと品質を維持します。AC-3 または E-AC-3 では、その形式を必要とするコンシューマー向けにその他の音声を再エンコードします。</value></data>
+  <data name="Transcoding_GlobalBitrateHelp" xml:space="preserve"><value>H.264 エンコーダーの目標出力レートを制限します。上限が低すぎると、CRF で高い品質を指定していても、複雑なシーンで品質が低下する場合があります。</value></data>
+  <data name="Transcoding_GlobalDeinterlaceHelp" xml:space="preserve"><value>「維持」ではソースを変更しません。ソースのフレームレートでは、インターレースフレームごとに 1 枚のプログレッシブフレームを生成します。ソースのフィールドレートでは、CPU とビットレートの負荷が増す代わりに、フィールドごとに 1 枚生成して動きを滑らかにします。</value></data>
+  <data name="Transcoding_GlobalPresetHelp" xml:space="preserve"><value>H.264 のエンコード速度と圧縮効率のバランスを制御します。高速なプリセットほど CPU 使用率が低下し、低速なプリセットでは、より少ないビットレートで同等の品質を実現できる場合があります。</value></data>
+  <data name="Transcoding_GlobalQualityHelp" xml:space="preserve"><value>16～30 の固定品質で H.264 をエンコードします。値が低いほど細部を維持してビットレートが増え、値が高いほどビットレートと品質が低下します。</value></data>
+  <data name="Transcoding_GlobalWarning" xml:space="preserve"><value>現在の設定では、一致するストリームに対して {0} トランスコードが行われます。</value></data>
+  <data name="Transcoding_Inherits" xml:space="preserve"><value>（{0} を継承）</value></data>
+  <data name="Transcoding_InheritsCrf" xml:space="preserve"><value>（CRF {0} を継承）</value></data>
+  <data name="Transcoding_InheritsMbps" xml:space="preserve"><value>（{0} Mbps を継承）</value></data>
+  <data name="Transcoding_MaximumVideoBitrate" xml:space="preserve"><value>最大映像ビットレート</value></data>
+  <data name="Transcoding_NonAc4Audio" xml:space="preserve"><value>AC-4 以外の音声</value></data>
+  <data name="Transcoding_OverrideAc4Audio" xml:space="preserve"><value>AC-4 音声をオーバーライド</value></data>
+  <data name="Transcoding_OverrideBitrate" xml:space="preserve"><value>ビットレートをオーバーライド</value></data>
+  <data name="Transcoding_OverrideDeinterlacing" xml:space="preserve"><value>デインターレースをオーバーライド</value></data>
+  <data name="Transcoding_OverrideEncoderPreset" xml:space="preserve"><value>エンコーダープリセットをオーバーライド</value></data>
+  <data name="Transcoding_OverrideHevcConversion" xml:space="preserve"><value>HEVC 変換をオーバーライド</value></data>
+  <data name="Transcoding_OverrideNonAc4Audio" xml:space="preserve"><value>AC-4 以外の音声をオーバーライド</value></data>
+  <data name="Transcoding_OverrideVideoQuality" xml:space="preserve"><value>映像品質をオーバーライド</value></data>
+  <data name="Transcoding_PresetFast" xml:space="preserve"><value>高速</value></data>
+  <data name="Transcoding_PresetFaster" xml:space="preserve"><value>より高速</value></data>
+  <data name="Transcoding_PresetMedium" xml:space="preserve"><value>中</value></data>
+  <data name="Transcoding_PresetVeryFast" xml:space="preserve"><value>非常に高速</value></data>
+  <data name="Transcoding_Settings" xml:space="preserve"><value>トランスコード設定</value></data>
+  <data name="Transcoding_UsesGlobalSettings" xml:space="preserve"><value>オーバーライドを有効にしない限り、グローバル設定を使用します。</value></data>
+  <data name="Transcoding_Video" xml:space="preserve"><value>映像</value></data>
+  <data name="Transcoding_VideoEncoderPreset" xml:space="preserve"><value>映像エンコーダープリセット</value></data>
+  <data name="Transcoding_VideoQualityCrf" xml:space="preserve"><value>映像品質（CRF）</value></data>
+  <data name="Watch_AdaptivePlaybackUnsupported" xml:space="preserve"><value>お使いのブラウザーはアダプティブ再生に対応していません。</value></data>
+  <data name="Watch_AudioUnavailable" xml:space="preserve"><value>{0} を利用できません</value></data>
+  <data name="Watch_AutoProtocol" xml:space="preserve"><value>{0}（自動）</value></data>
+  <data name="Watch_BitmapSubtitles" xml:space="preserve"><value>ビットマップ字幕</value></data>
+  <data name="Watch_BrowserProfile" xml:space="preserve"><value>ブラウザープロファイル</value></data>
+  <data name="Watch_BurnInTrack" xml:space="preserve"><value>{0}（焼き込み、CPU 負荷増）</value></data>
+  <data name="Watch_ChannelNumberPlaceholder" xml:space="preserve"><value>チャンネル番号</value></data>
+  <data name="Watch_Channels" xml:space="preserve"><value>チャンネル</value></data>
+  <data name="Watch_CompatibilityProfileCleared" xml:space="preserve"><value>保存済みのブラウザー互換性プロファイルが実際の再生結果と矛盾していたため、消去しました。もう一度視聴テストを実行して更新してください。</value></data>
+  <data name="Watch_DedicatedListenerNotConfigured" xml:space="preserve"><value>Web Player の専用リスナーが設定されていません。</value></data>
+  <data name="Watch_DrmProtectedChannel" xml:space="preserve"><value>DRM 保護されたチャンネル</value></data>
+  <data name="Watch_Fallback" xml:space="preserve"><value>フォールバック</value></data>
+  <data name="Watch_FallbackAudio" xml:space="preserve"><value>代替音声</value></data>
+  <data name="Watch_FallbackAudioLower" xml:space="preserve"><value>代替音声</value></data>
+  <data name="Watch_FavoriteChannel" xml:space="preserve"><value>お気に入りチャンネル</value></data>
+  <data name="Watch_FFmpegSharedSegments" xml:space="preserve"><value>FFmpeg（共有セグメント）</value></data>
+  <data name="Watch_H264AndAacStereo" xml:space="preserve"><value>H.264 と AAC ステレオ</value></data>
+  <data name="Watch_H264Fallback" xml:space="preserve"><value>H.264 フォールバック</value></data>
+  <data name="Watch_HostedStream" xml:space="preserve"><value>ホストされたストリーム</value></data>
+  <data name="Watch_InvalidChannelNumber" xml:space="preserve"><value>数字を使用してチャンネル番号を入力してください。小数点は 1 つまで使用できます。</value></data>
+  <data name="Watch_JsAudioFallback" xml:space="preserve"><value>このブラウザーではソース音声を利用できません。このストリームには設定済みの代替レンディションを使用します。</value></data>
+  <data name="Watch_JsAudioTrackChanged" xml:space="preserve"><value>音声トラックを変更しました。</value></data>
+  <data name="Watch_JsBothManifestsLoadFailed" xml:space="preserve"><value>どちらの CMAF マニフェストも読み込めませんでした。</value></data>
+  <data name="Watch_JsInitializationSuperseded" xml:space="preserve"><value>再生の初期化が新しい処理に置き換えられました。</value></data>
+  <data name="Watch_JsPlaybackFailed" xml:space="preserve"><value>CMAF の再生に失敗しました。</value></data>
+  <data name="Watch_JsPlayerContainerNotFound" xml:space="preserve"><value>CMAF プレーヤーのコンテナーが見つかりませんでした。</value></data>
+  <data name="Watch_JsPresentationLoadFailed" xml:space="preserve"><value>CMAF プレゼンテーションを読み込めませんでした。</value></data>
+  <data name="Watch_JsProtocolFallback" xml:space="preserve"><value>優先プロトコルを開始できませんでした。代替の CMAF マニフェストで再試行します。</value></data>
+  <data name="Watch_JsSessionUnavailable" xml:space="preserve"><value>ストリームセッションは利用できなくなりました。</value></data>
+  <data name="Watch_JsShakaUnsupported" xml:space="preserve"><value>このブラウザーは Shaka Player による再生に対応していません。</value></data>
+  <data name="Watch_JsVideoElementNotFound" xml:space="preserve"><value>ビデオプレーヤー要素が見つかりませんでした。</value></data>
+  <data name="Watch_JsVideoFallback" xml:space="preserve"><value>このブラウザーではソース映像を利用できません。このストリームには H.264 の代替レンディションを使用します。</value></data>
+  <data name="Watch_JsVideoFallbackRequired" xml:space="preserve"><value>このブラウザーでソース映像を再生できませんでした。H.264 を使用してストリームを再起動します。</value></data>
+  <data name="Watch_Lock" xml:space="preserve"><value>ロック</value></data>
+  <data name="Watch_ManualTune" xml:space="preserve"><value>手動選局</value></data>
+  <data name="Watch_NoActiveTuner" xml:space="preserve"><value>現在、このチャンネルを報告しているアクティブなチューナーはありません。</value></data>
+  <data name="Watch_NoEnabledChannels" xml:space="preserve"><value>利用可能な有効チャンネルがありません。</value></data>
+  <data name="Watch_None" xml:space="preserve"><value>なし</value></data>
+  <data name="Watch_NoPlaybackSession" xml:space="preserve"><value>Web Player から再生セッションが返されませんでした。</value></data>
+  <data name="Watch_NowPlaying" xml:space="preserve"><value>再生中:</value></data>
+  <data name="Watch_Off" xml:space="preserve"><value>オフ</value></data>
+  <data name="Watch_OverrideStreamSettings" xml:space="preserve"><value>ストリーム設定をオーバーライド</value></data>
+  <data name="Watch_PlaybackProtocol" xml:space="preserve"><value>再生プロトコル:</value></data>
+  <data name="Watch_Player" xml:space="preserve"><value>プレーヤー:</value></data>
+  <data name="Watch_PlayingAudio" xml:space="preserve"><value>再生中の音声:</value></data>
+  <data name="Watch_PlayingVideo" xml:space="preserve"><value>再生中の映像:</value></data>
+  <data name="Watch_PreferredAudio" xml:space="preserve"><value>優先音声</value></data>
+  <data name="Watch_PreferredVideo" xml:space="preserve"><value>優先映像</value></data>
+  <data name="Watch_Protocol" xml:space="preserve"><value>プロトコル</value></data>
+  <data name="Watch_Quality" xml:space="preserve"><value>品質</value></data>
+  <data name="Watch_QualityAppDefault" xml:space="preserve"><value>アプリ既定</value></data>
+  <data name="Watch_QualityHigh" xml:space="preserve"><value>高</value></data>
+  <data name="Watch_QualityLow" xml:space="preserve"><value>低（480p）</value></data>
+  <data name="Watch_QualityMedium" xml:space="preserve"><value>中（720p）</value></data>
+  <data name="Watch_Rate" xml:space="preserve"><value>レート</value></data>
+  <data name="Watch_Receiver" xml:space="preserve"><value>レシーバー</value></data>
+  <data name="Watch_RetryingWithReplacement" xml:space="preserve"><value>このブラウザーでは {0}。{1} を使用してストリームを再試行します。</value></data>
+  <data name="Watch_RunCompatibilityTests" xml:space="preserve"><value>互換性テストを実行</value></data>
+  <data name="Watch_SelectedSubtitles" xml:space="preserve"><value>選択した字幕</value></data>
+  <data name="Watch_SelectChannelPrompt" xml:space="preserve"><value>視聴を開始するチャンネルを選択してください</value></data>
+  <data name="Watch_Session" xml:space="preserve"><value>セッション:</value></data>
+  <data name="Watch_SettingUpStream" xml:space="preserve"><value>ストリームを準備しています...</value></data>
+  <data name="Watch_SharedFragmentsHelp" xml:space="preserve"><value>1 組の共有フラグメントを HLS と DASH の両方で使用します。</value></data>
+  <data name="Watch_Signal" xml:space="preserve"><value>信号</value></data>
+  <data name="Watch_Source" xml:space="preserve"><value>ソース</value></data>
+  <data name="Watch_SourceAudioPackagingFallback" xml:space="preserve"><value>この FFmpeg ビルドではソース音声をパッケージ化できません。このストリームには {0} を使用します。</value></data>
+  <data name="Watch_SourceTotal" xml:space="preserve"><value>ソース合計: {0}</value></data>
+  <data name="Watch_SourceVideoAndAudioUnavailable" xml:space="preserve"><value>ソース映像と {0} を利用できません</value></data>
+  <data name="Watch_SourceVideoUnavailable" xml:space="preserve"><value>ソース映像を利用できません</value></data>
+  <data name="Watch_Status" xml:space="preserve"><value>ステータス</value></data>
+  <data name="Watch_Stop" xml:space="preserve"><value>停止</value></data>
+  <data name="Watch_StreamError" xml:space="preserve"><value>ストリームエラー</value></data>
+  <data name="Watch_StreamInformation" xml:space="preserve"><value>ストリーム情報</value></data>
+  <data name="Watch_Streaming" xml:space="preserve"><value>ストリーミング中</value></data>
+  <data name="Watch_Subtitle" xml:space="preserve"><value>アダプティブ HLS/DASH 再生によるライブ TV</value></data>
+  <data name="Watch_Subtitles" xml:space="preserve"><value>字幕</value></data>
+  <data name="Watch_Title" xml:space="preserve"><value>テレビを視聴</value></data>
+  <data name="Watch_TrackIncluded" xml:space="preserve"><value>含まれる</value></data>
+  <data name="Watch_TrackNotIncluded" xml:space="preserve"><value>含まれない</value></data>
+  <data name="Watch_TrackPlaying" xml:space="preserve"><value>再生中</value></data>
+  <data name="Watch_TrackSidecar" xml:space="preserve"><value>サイドカー</value></data>
+  <data name="Watch_Tune" xml:space="preserve"><value>選局</value></data>
+  <data name="Watch_Tuned" xml:space="preserve"><value>選局済み</value></data>
+  <data name="Watch_Tuner" xml:space="preserve"><value>チューナー</value></data>
+  <data name="Watch_UnableToInitializePlayback" xml:space="preserve"><value>CMAF 再生を初期化できません。</value></data>
+  <data name="Watch_UnableToInitializePlaybackWithError" xml:space="preserve"><value>CMAF 再生を初期化できません: {0}</value></data>
+  <data name="Watch_UnableToStartPlayback" xml:space="preserve"><value>CMAF 再生を開始できません: {0}</value></data>
+  <data name="Watch_Unknown" xml:space="preserve"><value>不明</value></data>
+  <data name="Watch_Waiting" xml:space="preserve"><value>待機中</value></data>
+  <data name="Watch_WaitingForHostedMetadata" xml:space="preserve"><value>ホストされたストリームのメタデータを待っています。</value></data>
+  <data name="Watch_WebPlayerNotEnabled" xml:space="preserve"><value>Web Player 仮想出力が有効になっていません。</value></data>
+  <data name="Watch_WebVttSidecar" xml:space="preserve"><value>WebVTT サイドカー</value></data>
+  <data name="WatchTest_Ac4ClaimOnly" xml:space="preserve"><value>AC-4（申告のみ）</value></data>
+  <data name="WatchTest_Ac4UnavailableHelp" xml:space="preserve"><value>同梱の Jellyfin FFmpeg は AC-4 をデコードできますが、AC-4 エンコーダーはありません。ブラウザーの申告は以下に表示されますが、Lineup では合成 AC-4 テストを生成できません。</value></data>
+  <data name="WatchTest_Action" xml:space="preserve"><value>操作</value></data>
+  <data name="WatchTest_ActiveAudio" xml:space="preserve"><value>アクティブな音声</value></data>
+  <data name="WatchTest_ActiveAudioClaim" xml:space="preserve"><value>アクティブな音声の申告</value></data>
+  <data name="WatchTest_ActiveVideo" xml:space="preserve"><value>アクティブな映像</value></data>
+  <data name="WatchTest_ActiveVideoClaim" xml:space="preserve"><value>アクティブな映像の申告</value></data>
+  <data name="WatchTest_AudioCodec" xml:space="preserve"><value>音声コーデック</value></data>
+  <data name="WatchTest_AudioLayout" xml:space="preserve"><value>音声レイアウト</value></data>
+  <data name="WatchTest_AutomatedCompatibilityProfile" xml:space="preserve"><value>自動互換性プロファイル</value></data>
+  <data name="WatchTest_BrowserClaimHelp" xml:space="preserve"><value>ブラウザーの申告は診断情報であり、正常にデコードできることを保証するものではありません。エンコーダーを利用できる項目では再生テストを実行してください。</value></data>
+  <data name="WatchTest_BrowserClaims" xml:space="preserve"><value>ブラウザーの申告</value></data>
+  <data name="WatchTest_BurnInSlate" xml:space="preserve"><value>焼き込みテスト映像</value></data>
+  <data name="WatchTest_Cancel" xml:space="preserve"><value>キャンセル</value></data>
+  <data name="WatchTest_CaseCompleted" xml:space="preserve"><value>{0} が完了しました。すべてのテストで結果が得られた後、プロファイルが保存されます。</value></data>
+  <data name="WatchTest_ChannelSequenceHelp" xml:space="preserve"><value>1 秒ごとに次のチャンネルから順番に音が鳴り続けます: {0}。プレーヤーの音量コントロールで調整してください。音声の自動再生がブロックされた場合は、再生を押してください。</value></data>
+  <data name="WatchTest_ClaimOnlySuffix" xml:space="preserve"><value>（申告のみ）</value></data>
+  <data name="WatchTest_CmafPlaybackUnsupported" xml:space="preserve"><value>お使いのブラウザーは CMAF 再生に対応していません。</value></data>
+  <data name="WatchTest_ExactTestSelection" xml:space="preserve"><value>テスト内容を指定</value></data>
+  <data name="WatchTest_ExpectedCodecs" xml:space="preserve"><value>想定コーデック</value></data>
+  <data name="WatchTest_IncompleteProfile" xml:space="preserve"><value>カタログ内のすべてのテストに結果が出るまで、ブラウザー互換性プロファイルは保存できません。</value></data>
+  <data name="WatchTest_InvalidProfile" xml:space="preserve"><value>完了したブラウザー互換性プロファイルが無効です。</value></data>
+  <data name="WatchTest_JsCompatibilityPlaybackFailed" xml:space="preserve"><value>CMAF 互換性テストの再生に失敗しました。</value></data>
+  <data name="WatchTest_JsCompatibilityTrackLabel" xml:space="preserve"><value>Lineup WebVTT 互換性テスト</value></data>
+  <data name="WatchTest_JsPresentationLoadFailed" xml:space="preserve"><value>選択した互換性テストのプレゼンテーションを読み込めませんでした。</value></data>
+  <data name="WatchTest_JsShakaUnsupported" xml:space="preserve"><value>このブラウザーは Shaka Player による再生に対応していません。</value></data>
+  <data name="WatchTest_JsVideoElementNotFound" xml:space="preserve"><value>ビデオプレーヤー要素が見つかりませんでした。</value></data>
+  <data name="WatchTest_LastCompleted" xml:space="preserve"><value>最終完了: {0}</value></data>
+  <data name="WatchTest_LayoutMono" xml:space="preserve"><value>モノラル（1.0）</value></data>
+  <data name="WatchTest_LayoutQuad" xml:space="preserve"><value>4 チャンネル（4.0）</value></data>
+  <data name="WatchTest_LayoutStereo" xml:space="preserve"><value>ステレオ（2.0）</value></data>
+  <data name="WatchTest_Manifest" xml:space="preserve"><value>マニフェスト</value></data>
+  <data name="WatchTest_ManifestLoaded" xml:space="preserve"><value>マニフェストを読み込みました</value></data>
+  <data name="WatchTest_NoClaim" xml:space="preserve"><value>申告なし</value></data>
+  <data name="WatchTest_NoDeterministicEncoder" xml:space="preserve"><value>確定的なエンコーダーを利用できません。</value></data>
+  <data name="WatchTest_None" xml:space="preserve"><value>なし</value></data>
+  <data name="WatchTest_NotReported" xml:space="preserve"><value>未報告</value></data>
+  <data name="WatchTest_NotRun" xml:space="preserve"><value>未実行</value></data>
+  <data name="WatchTest_NotSupported" xml:space="preserve"><value>非対応</value></data>
+  <data name="WatchTest_NotYetComplete" xml:space="preserve"><value>未完了</value></data>
+  <data name="WatchTest_ObservedPlayback" xml:space="preserve"><value>確認された再生結果</value></data>
+  <data name="WatchTest_PlaybackFailed" xml:space="preserve"><value>再生に失敗しました。</value></data>
+  <data name="WatchTest_PlaybackStarted" xml:space="preserve"><value>再生を開始しました</value></data>
+  <data name="WatchTest_Preparing" xml:space="preserve"><value>準備中</value></data>
+  <data name="WatchTest_ProfileSaved" xml:space="preserve"><value>ブラウザー互換性プロファイルを保存しました。視聴時にストリームが自動的に最適化されます。</value></data>
+  <data name="WatchTest_ProfileSaveHelp" xml:space="preserve"><value>個別のテストは、完成済みプロファイルを直ちに更新します。最初の完全なプロファイルが作成されるまでは、すべての行で結果が得られた後にのみ保存されます。ブラウザーの申告だけでソースのコピーが許可されることはありません。</value></data>
+  <data name="WatchTest_ProgressAriaLabel" xml:space="preserve"><value>互換性テストの進行状況</value></data>
+  <data name="WatchTest_Protocol" xml:space="preserve"><value>プロトコル</value></data>
+  <data name="WatchTest_QualityAppDefault" xml:space="preserve"><value>アプリ既定（1080p テスト映像）</value></data>
+  <data name="WatchTest_QualityHigh" xml:space="preserve"><value>高（1080p）</value></data>
+  <data name="WatchTest_QualityLow" xml:space="preserve"><value>低（480p）</value></data>
+  <data name="WatchTest_QualityMedium" xml:space="preserve"><value>中（720p）</value></data>
+  <data name="WatchTest_QualityProfile" xml:space="preserve"><value>品質プロファイル</value></data>
+  <data name="WatchTest_ReadingBrowserCapabilities" xml:space="preserve"><value>ブラウザーの機能を確認しています…</value></data>
+  <data name="WatchTest_Result" xml:space="preserve"><value>結果</value></data>
+  <data name="WatchTest_RunAll" xml:space="preserve"><value>すべて実行</value></data>
+  <data name="WatchTest_RunCanceled" xml:space="preserve"><value>互換性テストをキャンセルしました。以前の完成済みプロファイルは維持されました。</value></data>
+  <data name="WatchTest_RunTest" xml:space="preserve"><value>テストを実行</value></data>
+  <data name="WatchTest_SelectCombinationPrompt" xml:space="preserve"><value>コーデックの組み合わせを指定してテストを開始してください。</value></data>
+  <data name="WatchTest_StartTest" xml:space="preserve"><value>テストを開始</value></data>
+  <data name="WatchTest_StatusFailed" xml:space="preserve"><value>失敗</value></data>
+  <data name="WatchTest_StatusPassed" xml:space="preserve"><value>合格</value></data>
+  <data name="WatchTest_StatusUnavailable" xml:space="preserve"><value>利用不可</value></data>
+  <data name="WatchTest_Stop" xml:space="preserve"><value>停止</value></data>
+  <data name="WatchTest_Subtitle" xml:space="preserve"><value>自動フォールバックを使用せず、指定した 1 つの CMAF コーデックの組み合わせをテストします。</value></data>
+  <data name="WatchTest_SubtitleBurnIn" xml:space="preserve"><value>字幕の焼き込み</value></data>
+  <data name="WatchTest_SubtitleCue" xml:space="preserve"><value>字幕キュー</value></data>
+  <data name="WatchTest_Subtitles" xml:space="preserve"><value>字幕</value></data>
+  <data name="WatchTest_Supported" xml:space="preserve"><value>対応</value></data>
+  <data name="WatchTest_SyntheticPresentationHelp" xml:space="preserve"><value>合成プレゼンテーションには、映像レンディションと音声レンディションが 1 つずつ含まれます。</value></data>
+  <data name="WatchTest_Test" xml:space="preserve"><value>テスト</value></data>
+  <data name="WatchTest_TestError" xml:space="preserve"><value>テストエラー</value></data>
+  <data name="WatchTest_Testing" xml:space="preserve"><value>テスト中: {0}</value></data>
+  <data name="WatchTest_Title" xml:space="preserve"><value>視聴テスト</value></data>
+  <data name="WatchTest_UnableToReadCapabilities" xml:space="preserve"><value>ブラウザーのコーデック機能を確認できません: {0}</value></data>
+  <data name="WatchTest_VideoCodec" xml:space="preserve"><value>映像コーデック</value></data>
+  <data name="WatchTest_VideoProfile" xml:space="preserve"><value>映像プロファイル</value></data>
+  <data name="WatchTest_WebVttSidecar" xml:space="preserve"><value>WebVTT サイドカー</value></data>
+</root>

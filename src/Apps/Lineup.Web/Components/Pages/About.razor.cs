@@ -1,0 +1,45 @@
+using Lineup.Web.Services;
+using System.Reflection;
+using Microsoft.AspNetCore.Components;
+using Microsoft.JSInterop;
+
+namespace Lineup.Web.Components.Pages;
+
+/// <summary>
+/// Represents about.
+/// </summary>
+public partial class About
+{
+    [Inject]
+    private NavigationManager Navigation { get; set; } = default!;
+
+    [Inject]
+    private IJSRuntime JS { get; set; } = default!;
+
+    private string _version = "";
+    private string _xmltvUrl = "";
+    private bool _copied;
+
+    /// <summary>
+    /// Performs the on initialized operation.
+    /// </summary>
+    protected override void OnInitialized()
+    {
+        _version = Assembly.GetExecutingAssembly()
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion ?? Text["Common_Unknown"];
+
+        _xmltvUrl = Navigation.BaseUri.TrimEnd('/') + "/api/xmltv";
+    }
+
+    private async Task CopyXmltvUrl()
+    {
+        await JS.CopyTextAsync(_xmltvUrl);
+        _copied = true;
+        StateHasChanged();
+
+        await Task.Delay(2000);
+        _copied = false;
+        StateHasChanged();
+    }
+}

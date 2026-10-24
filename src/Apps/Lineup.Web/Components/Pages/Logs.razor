@@ -1,0 +1,25 @@
+@page "/logs"
+<PageTitle>@Text["Logs_PageTitle"]</PageTitle>
+
+<h1><span class="bi bi-journal-text me-2"></span>@Text["Logs_Heading"]</h1>
+
+<div class="alert alert-info">
+    @Text["Logs_LiveViewNotice"]
+</div>
+
+<CurrentProcessLogsPanel DisplayLevels="DisplayLevels"
+                         MinimumLevel="_minimumLevel"
+                         MinimumLevelChanged="ChangeMinimumLevel"
+                         Category="@_category"
+                         CategoryChanged="ChangeCategory"
+                         Search="@_search"
+                         SearchChanged="ChangeSearch"
+                         PageSize="_pageSize"
+                         PageSizeChanged="ChangePageSize"
+                         AutoRefresh="_autoRefresh"
+                         Events="_events"
+                         ToggleRefreshRequested="ToggleAutoRefresh"
+                         RefreshRequested="Refresh"
+                         ClearRequested="ClearLogs" />
+
+<RollingLogFilesPanel Enabled="RuntimeState.FileSettings.Enabled" Files="_files" />

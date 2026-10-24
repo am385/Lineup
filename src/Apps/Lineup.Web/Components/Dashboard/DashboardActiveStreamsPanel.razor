@@ -1,0 +1,72 @@
+@using Lineup.Web.Components.Streaming
+@using Lineup.Web.Services
+
+<div class="card mb-4">
+    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div>
+            <h5 class="mb-0"><span class="bi bi-broadcast-pin me-1"></span>@Text["Dashboard_ActiveStreamsHeading"]</h5>
+            <small class="text-muted">@Summary</small>
+        </div>
+        <div class="d-flex align-items-center ms-auto">
+            <button id="refreshActiveStreams" class="btn btn-sm btn-outline-primary" @onclick="() => RefreshRequested.InvokeAsync()">
+                <span class="bi bi-arrow-clockwise me-1"></span>@Text["Common_Refresh"]
+            </button>
+            <button id="toggleActiveStreamsSection" type="button" class="btn btn-sm btn-outline-secondary ms-2"
+                    aria-expanded="@(Expanded ? "true" : "false")" aria-controls="activeStreamsSection"
+                    @onclick="() => ToggleRequested.InvokeAsync()">
+                <span class="@(Expanded ? "bi bi-chevron-up" : "bi bi-chevron-down")"></span>
+                <span class="visually-hidden">@Text[Expanded ? "Dashboard_CollapseActiveStreamsSection" : "Dashboard_ExpandActiveStreamsSection"]</span>
+            </button>
+        </div>
+    </div>
+    <div id="activeStreamsSection" class="card-body" hidden="@(!Expanded)">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h6 class="mb-0"><span class="bi bi-diagram-3 me-1"></span>@Text["Dashboard_StreamingFlowHeading"]</h6>
+            </div>
+            <div class="card-body">
+                <StreamingFlowDiagram Snapshot="Snapshot" />
+            </div>
+        </div>
+        <div class="card mb-4">
+            <div class="card-header">
+                <h6 class="mb-0"><span class="bi bi-signpost-split me-1"></span>@Text["Dashboard_ActivePathsHeading"]</h6>
+            </div>
+            <div class="card-body">
+                <StreamingFlowPaths Snapshot="Snapshot"
+                                    StoppingSessionIds="StoppingSessionIds"
+                                    StopRequested="StopRequested" />
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>Gets or sets whether the panel is expanded.</summary>
+    [Parameter]
+    public bool Expanded { get; set; }
+
+    /// <summary>Gets or sets the active-stream summary.</summary>
+    [Parameter, EditorRequired]
+    public string Summary { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the streaming-flow snapshot.</summary>
+    [Parameter, EditorRequired]
+    public StreamingFlowSnapshot Snapshot { get; set; } = new([], [], 0, 0, 0);
+
+    /// <summary>Gets or sets stream sessions processing a stop request.</summary>
+    [Parameter]
+    public IReadOnlySet<string> StoppingSessionIds { get; set; } = new HashSet<string>(StringComparer.Ordinal);
+
+    /// <summary>Gets or sets the callback raised when a stream should stop.</summary>
+    [Parameter]
+    public EventCallback<string> StopRequested { get; set; }
+
+    /// <summary>Gets or sets the callback raised when active streams should refresh.</summary>
+    [Parameter]
+    public EventCallback RefreshRequested { get; set; }
+
+    /// <summary>Gets or sets the callback raised when expansion changes.</summary>
+    [Parameter]
+    public EventCallback ToggleRequested { get; set; }
+}

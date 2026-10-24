@@ -1,0 +1,1121 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="metadata">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" />
+              </xsd:sequence>
+              <xsd:attribute name="name" use="required" type="xsd:string" />
+              <xsd:attribute name="type" type="xsd:string" />
+              <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="assembly">
+            <xsd:complexType>
+              <xsd:attribute name="alias" type="xsd:string" />
+              <xsd:attribute name="name" type="xsd:string" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <data name="General_AppearanceHeading" xml:space="preserve"><value>外观</value></data>
+  <data name="General_ThemeLabel" xml:space="preserve"><value>主题</value></data>
+  <data name="General_ThemeLight" xml:space="preserve"><value>浅色</value></data>
+  <data name="General_ThemeDark" xml:space="preserve"><value>深色</value></data>
+  <data name="General_ThemeAuto" xml:space="preserve"><value>自动</value></data>
+  <data name="General_ThemeHelp" xml:space="preserve"><value>选择浅色、深色，或选择“自动”以跟随系统偏好设置。</value></data>
+  <data name="General_RegionalHeading" xml:space="preserve"><value>区域设置</value></data>
+  <data name="General_NetworkHeading" xml:space="preserve"><value>网络设置</value></data>
+  <data name="General_KnownProxiesLabel" xml:space="preserve"><value>已知代理</value></data>
+  <data name="General_KnownProxiesHelp" xml:space="preserve"><value>每行输入一个受信任的反向代理 IP 地址或 CIDR 网络。如果管理监听器未置于反向代理之后，请留空。代理必须保留 Host，并发送 X-Forwarded-For 和 X-Forwarded-Proto。</value></data>
+  <data name="General_KnownProxiesRestartHelp" xml:space="preserve"><value>更改“已知代理”会保存设置并正常重启 Lineup，以便管理请求管道应用新的信任边界。专用虚拟输出监听器使用各自的“受信任代理”设置，并且只会重启受影响的工作进程。</value></data>
+  <data name="General_TimeZoneLabel" xml:space="preserve"><value>时区</value></data>
+  <data name="General_SystemDefault" xml:space="preserve"><value>系统默认值</value></data>
+  <data name="General_TimeZoneHelpPrefix" xml:space="preserve"><value>覆盖显示时区。“系统默认值”使用</value></data>
+  <data name="General_TimeZoneHelpSuffix" xml:space="preserve"><value>环境变量或服务器本地时间。</value></data>
+  <data name="General_CurrentTimeZone" xml:space="preserve"><value>当前：</value></data>
+  <data name="General_LanguageLabel" xml:space="preserve"><value>语言</value></data>
+  <data name="General_LanguageEnglish" xml:space="preserve"><value>英语</value></data>
+  <data name="General_LanguageSpanish" xml:space="preserve"><value>西班牙语</value></data>
+  <data name="General_LanguageHelp" xml:space="preserve"><value>选择 Lineup Web 界面使用的语言。</value></data>
+  <data name="Settings_PageTitle" xml:space="preserve"><value>设置</value></data>
+  <data name="Settings_RestartingHeading" xml:space="preserve"><value>正在重启 Lineup</value></data>
+  <data name="Settings_FactoryResetRestartHelp" xml:space="preserve"><value>恢复出厂设置已完成。Lineup 准备就绪后将自动返回设备设置。</value></data>
+  <data name="Settings_RestartHelp" xml:space="preserve"><value>Lineup 准备就绪后将自动返回此页面。</value></data>
+  <data name="Settings_RestartDelayedHeading" xml:space="preserve"><value>Lineup 所需时间超出预期</value></data>
+  <data name="Settings_RestartDelayedHelp" xml:space="preserve"><value>请确保 Lineup 正在运行，然后重试连接。</value></data>
+  <data name="Common_Retry" xml:space="preserve"><value>重试</value></data>
+  <data name="Settings_FactoryResetRequiredHeading" xml:space="preserve"><value>需要恢复出厂设置</value></data>
+  <data name="Settings_FactoryResetRequiredHelp" xml:space="preserve"><value>正常的设备、节目指南、发现和流式传输操作已禁用。请使用下方的“重置”选项卡明确清除不兼容状态并重启 Lineup。</value></data>
+  <data name="Settings_WelcomeHeading" xml:space="preserve"><value>欢迎使用 Lineup！</value></data>
+  <data name="Settings_WelcomePrefix" xml:space="preserve"><value>添加</value></data>
+  <data name="Settings_WelcomePhysicalDevice" xml:space="preserve"><value>物理设备</value></data>
+  <data name="Settings_WelcomeAnd" xml:space="preserve"><value>和</value></data>
+  <data name="Settings_WelcomeGuideSource" xml:space="preserve"><value>节目指南源</value></data>
+  <data name="Settings_WelcomeOptional" xml:space="preserve"><value>还可以选择添加</value></data>
+  <data name="Settings_WelcomeVirtualDevice" xml:space="preserve"><value>虚拟设备</value></data>
+  <data name="Settings_WelcomeThenClick" xml:space="preserve"><value>然后单击</value></data>
+  <data name="Settings_SaveSettings" xml:space="preserve"><value>保存设置</value></data>
+  <data name="Settings_WelcomeSuffix" xml:space="preserve"><value>以开始使用。</value></data>
+  <data name="Settings_CategoriesAriaLabel" xml:space="preserve"><value>设置类别</value></data>
+  <data name="Settings_TabGeneral" xml:space="preserve"><value>常规</value></data>
+  <data name="Settings_TabDashboard" xml:space="preserve"><value>仪表板</value></data>
+  <data name="Settings_TabGuideSources" xml:space="preserve"><value>节目指南源</value></data>
+  <data name="Settings_TabGuideOutputs" xml:space="preserve"><value>节目指南输出</value></data>
+  <data name="Settings_TabPhysicalDevices" xml:space="preserve"><value>物理设备</value></data>
+  <data name="Settings_TabVirtualDevices" xml:space="preserve"><value>虚拟设备</value></data>
+  <data name="Settings_TabStreaming" xml:space="preserve"><value>流式传输</value></data>
+  <data name="Settings_TabApi" xml:space="preserve"><value>选项卡API</value></data>
+  <data name="Settings_TabLogging" xml:space="preserve"><value>日志</value></data>
+  <data name="Settings_TabReset" xml:space="preserve"><value>重置</value></data>
+  <data name="Settings_SaveAndGetStarted" xml:space="preserve"><value>保存并开始使用</value></data>
+  <data name="Common_Undo" xml:space="preserve"><value>撤销</value></data>
+  <data name="Common_Skip" xml:space="preserve"><value>跳过</value></data>
+  <data name="Common_Cancel" xml:space="preserve"><value>取消</value></data>
+  <data name="Settings_AboutHeading" xml:space="preserve"><value>关于设置</value></data>
+  <data name="Settings_AboutAppearance" xml:space="preserve"><value>控制 Web 界面的显示方式，而不更改共享流式传输或节目指南行为。</value></data>
+  <data name="Settings_AboutRegional" xml:space="preserve"><value>控制整个 Lineup 中日期和时间的显示方式。不会更改节目指南提供商存储的节目时间戳。</value></data>
+  <data name="Settings_AboutEpgFetchTitle" xml:space="preserve"><value>EPG 获取设置</value></data>
+  <data name="Settings_AboutEpgFetch" xml:space="preserve"><value>控制共享节目指南刷新计划、是否先刷新物理频道阵容，以及保留多少已结束的节目历史记录。</value></data>
+  <data name="Settings_AboutXmltvOutputTitle" xml:space="preserve"><value>XMLTV 输出设置</value></data>
+  <data name="Settings_AboutXmltvOutput" xml:space="preserve"><value>仅在刷新完成后才向外部使用方发布合并的节目指南，确保读取方不会收到部分更新的文档。</value></data>
+  <data name="Settings_AboutGuideOutputs" xml:space="preserve"><value>默认发布所有已启用虚拟设备的缓存节目指南数据。当下游使用方只需要选定的虚拟设备或节目指南源时，请创建限定范围的输出。</value></data>
+  <data name="Settings_AboutGuideSourceTitle" xml:space="preserve"><value>节目指南源设置</value></data>
+  <data name="Settings_AboutGuideSource" xml:space="preserve"><value>配置 {0}（一个 {1} 实例）以及它是否在节目指南刷新期间提供数据。</value></data>
+  <data name="Settings_AboutPhysicalSubscriptionTitle" xml:space="preserve"><value>物理设备订阅</value></data>
+  <data name="Settings_AboutPhysicalSubscription" xml:space="preserve"><value>定义哪些兼容物理设备提供频道，以及此源所需的任何提供商授权。选择全部还会包括以后添加的兼容设备。</value></data>
+  <data name="Settings_AboutRefreshTitle" xml:space="preserve"><value>刷新设置</value></data>
+  <data name="Settings_AboutRefresh" xml:space="preserve"><value>控制相对稳定的设备信息和频繁变化的调谐器状态各自独立的轮询计划。这些间隔适用于所有物理设备。</value></data>
+  <data name="Settings_AboutTranscoderTitle" xml:space="preserve"><value>转码器设置</value></data>
+  <data name="Settings_AboutPhysicalTranscoder" xml:space="preserve"><value>定义流进入复用器前应用的源阶段默认值。设备选项卡可以仅覆盖该源所需的策略，同时继承其余策略。</value></data>
+  <data name="Settings_AboutDeviceTitle" xml:space="preserve"><value>设备设置</value></data>
+  <data name="Settings_AboutPhysicalDevice" xml:space="preserve"><value>配置 {0}（一个 {1} 实例），包括其标识、连接和启用状态。已禁用的设备仍会保留配置，但不参与频道刷新、节目指南源、调谐器容量或路由。</value></data>
+  <data name="Settings_AboutHdHomeRunConnection" xml:space="preserve"><value>连接直接从 Lineup 主机发起，因此该主机或容器必须能够访问此地址。</value></data>
+  <data name="Settings_AboutLineupLinkPhysicalConnection" xml:space="preserve"><value>它从远程虚拟设备导入频道和流；连接包中包含凭据，必须按机密信息处理。</value></data>
+  <data name="Settings_AboutPluginPhysicalConnection" xml:space="preserve"><value>插件提供的连接和源选项仅适用于此实例。</value></data>
+  <data name="Settings_AboutTestIdentify" xml:space="preserve"><value>“测试并识别”会验证当前未保存的连接并检索安全的设备标识，而不会保存或激活设备。</value></data>
+  <data name="Settings_AboutPhysicalDeviceTranscoder" xml:space="preserve"><value>仅为此设备覆盖源阶段默认值。未启用覆盖的选项将继续继承当前和未来的“物理设备全局设置”。</value></data>
+  <data name="Settings_AboutVirtualTranscoder" xml:space="preserve"><value>定义复用后用于创建面向特定使用方的流的输出阶段默认值。虚拟设备选项卡可以仅覆盖该输出所需的策略。</value></data>
+  <data name="Settings_AboutDiscoveryTitle" xml:space="preserve"><value>虚拟调谐器发现</value></data>
+  <data name="Settings_AboutDiscovery" xml:space="preserve"><value>控制在本地网络上发布已启用的虚拟 HDHomeRun 设备。内置 Web Player 是否可用不受网络发现影响。</value></data>
+  <data name="Settings_BuiltInWebPlayerDescription" xml:space="preserve"><value>内置 Web Player</value></data>
+  <data name="Settings_AboutVirtualDevice" xml:space="preserve"><value>配置 {0}（一个 {1} 输出），包括其启用状态和物理设备订阅。</value></data>
+  <data name="Settings_AboutWebPlayer" xml:space="preserve"><value>“观看”页面使用此输出；可以禁用但不能移除。</value></data>
+  <data name="Settings_AboutHdHomeRunVirtual" xml:space="preserve"><value>它模拟 HDHomeRun；除非明确设置上限，否则调谐器容量根据订阅的物理设备得出。</value></data>
+  <data name="Settings_AboutLineupLinkVirtual" xml:space="preserve"><value>它将频道安全地公开给另一台 Lineup 主机；导出的连接包中包含凭据，必须按机密信息处理。</value></data>
+  <data name="Settings_AboutPluginVirtual" xml:space="preserve"><value>插件提供的标识和输出选项仅适用于此实例。</value></data>
+  <data name="Settings_AboutVirtualDeviceTranscoder" xml:space="preserve"><value>仅为此虚拟设备覆盖输出阶段默认值。未启用覆盖的选项将继续继承当前和未来的“虚拟设备全局设置”。</value></data>
+  <data name="Settings_AboutStreamingTitle" xml:space="preserve"><value>流式传输策略</value></data>
+  <data name="Settings_AboutStreaming" xml:space="preserve"><value>控制应用范围内的流准入、共享管道保留，以及无法提供正常节目的流的响应。物理和虚拟转码器配置文件在各自的设备选项卡中配置。</value></data>
+  <data name="Settings_AboutActiveStreamsTitle" xml:space="preserve"><value>活动流</value></data>
+  <data name="Settings_AboutActiveStreams" xml:space="preserve"><value>控制仪表板刷新使用方、调谐器使用情况、共享采集、转码和流式传输流程缓存视图的频率。</value></data>
+  <data name="Settings_AboutStatusApiTitle" xml:space="preserve"><value>状态 API</value></data>
+  <data name="Settings_AboutStatusApiPrefix" xml:space="preserve"><value>控制只读</value></data>
+  <data name="Settings_AboutStatusApiSuffix" xml:space="preserve"><value>快照的隐私脱敏。已脱敏的属性仍会保留为</value></data>
+  <data name="Settings_AboutStatusApiEnd" xml:space="preserve"><value>从而在不触发设备或节目指南操作的情况下保持稳定的响应结构。</value></data>
+  <data name="Settings_AboutLogFiltersTitle" xml:space="preserve"><value>应用程序日志筛选器</value></data>
+  <data name="Settings_AboutLogFilters" xml:space="preserve"><value>控制所有日志输出中由 Web 管理的默认和特定类别严重性筛选器。禁用覆盖将恢复启动配置。</value></data>
+  <data name="Settings_AboutLocalDiagnosticsTitle" xml:space="preserve"><value>本地诊断</value></data>
+  <data name="Settings_AboutLocalDiagnostics" xml:space="preserve"><value>除有界的内存中“日志”页面外，还可配置重启后仍保留的滚动文件，并管理保留的诊断文件。</value></data>
+  <data name="Settings_AboutOutputHosting" xml:space="preserve"><value>控制此虚拟输出是共享管理 UI 主机还是在专用监听器上运行，包括其进程模式、绑定、传输安全和重启策略。</value></data>
+  <data name="Settings_AboutExternalTargetsTitle" xml:space="preserve"><value>外部目标</value></data>
+  <data name="Settings_AboutExternalTargets" xml:space="preserve"><value>OTLP 等外部目标在启动时配置，因此凭据绝不会由 Web 设置 UI 持久化或显示。</value></data>
+  <data name="Settings_AboutResetTitle" xml:space="preserve"><value>重置设置</value></data>
+  <data name="Settings_AboutReset" xml:space="preserve"><value>暂存默认的共享设置和 Web 设置以供检查，而不会立即更改持久化配置。</value></data>
+  <data name="Settings_AboutRestartTitle" xml:space="preserve"><value>重启 Lineup</value></data>
+  <data name="Settings_AboutRestart" xml:space="preserve"><value>正常重启主机，而不更改配置或删除数据。</value></data>
+  <data name="Settings_AboutFactoryResetTitle" xml:space="preserve"><value>恢复出厂设置</value></data>
+  <data name="Settings_AboutFactoryReset" xml:space="preserve"><value>永久移除 Lineup 拥有的配置和数据，然后重启进入首次运行设置。外部 XMLTV 文件不会受到影响。</value></data>
+  <data name="Settings_WebSettingsStorage" xml:space="preserve"><value>这些 Web 主机设置保存到</value></data>
+  <data name="Settings_WebSettingsStorageSuffix" xml:space="preserve"><value>并在重启后保留。</value></data>
+  <data name="Settings_GeneralStoragePrefix" xml:space="preserve"><value>主题和语言保存到</value></data>
+  <data name="Settings_GeneralStorageMiddle" xml:space="preserve"><value>共享区域设置保存到</value></data>
+  <data name="Settings_ResetStoragePrefix" xml:space="preserve"><value>重置操作可能会影响</value></data>
+  <data name="Settings_ResetStorageSuffix" xml:space="preserve"><value>以及 Lineup 拥有的其他应用数据。</value></data>
+  <data name="Settings_SharedStoragePrefix" xml:space="preserve"><value>这些共享设置保存到</value></data>
+  <data name="Settings_SharedStorageSuffix" xml:space="preserve"><value>并可供 Web 和其他 Lineup 主机使用。</value></data>
+  <data name="Settings_DeviceRefreshValidation" xml:space="preserve"><value>设备刷新间隔必须介于 0 到 60 分钟之间。</value></data>
+  <data name="Settings_TunerRefreshValidation" xml:space="preserve"><value>调谐器刷新间隔必须介于 0 到 300 秒之间。</value></data>
+  <data name="Settings_StreamRefreshValidation" xml:space="preserve"><value>活动流刷新间隔必须介于 0 到 300 秒之间。</value></data>
+  <data name="Settings_EpgRetentionValidation" xml:space="preserve"><value>EPG 历史记录保留时间必须介于 0 到 720 小时之间。</value></data>
+  <data name="Settings_LogRetentionValidation" xml:space="preserve"><value>日志保留时间必须为 1-90 天，文件大小必须为 1-500 MB。</value></data>
+  <data name="Settings_ApplicationLogApplyFailure" xml:space="preserve"><value>无法应用应用程序日志筛选器：{0}</value></data>
+  <data name="Settings_FileLogApplyFailure" xml:space="preserve"><value>无法应用文件日志记录：{0}</value></data>
+  <data name="Settings_PartialSaveFailure" xml:space="preserve"><value>设置已保存，但{0}</value></data>
+  <data name="Settings_SaveSuccess" xml:space="preserve"><value>设置已成功保存！</value></data>
+  <data name="Settings_SecretShownOnce" xml:space="preserve"><value>{0} {1}（仅显示一次）：{2}</value></data>
+  <data name="Settings_SaveFailure" xml:space="preserve"><value>保存设置时出错：{0}</value></data>
+  <data name="Settings_ResetDefaultsSuccess" xml:space="preserve"><value>设置已重置为默认值。单击“保存”以应用。</value></data>
+  <data name="Settings_LogCategoryValidation" xml:space="preserve"><value>日志类别前缀必须包含 1-200 个字符，并且不能命名为 Default。</value></data>
+  <data name="Settings_LogCategoryUniqueValidation" xml:space="preserve"><value>日志类别前缀必须唯一。</value></data>
+  <data name="Settings_UndoSuccess" xml:space="preserve"><value>已还原未保存的设置更改。</value></data>
+  <data name="Settings_RestartFailure" xml:space="preserve"><value>无法重启 Lineup：{0}</value></data>
+  <data name="Settings_FactoryResetFailure" xml:space="preserve"><value>无法开始恢复出厂设置：{0}</value></data>
+  <data name="Settings_NoFileLogs" xml:space="preserve"><value>未找到文件日志。</value></data>
+  <data name="Settings_DeleteFileLogSingular" xml:space="preserve"><value>已删除 {0} 个文件日志。</value></data>
+  <data name="Settings_DeleteFileLogPlural" xml:space="preserve"><value>已删除 {0} 个文件日志。</value></data>
+  <data name="Settings_DeleteFileLogsFailure" xml:space="preserve"><value>无法删除文件日志：{0}</value></data>
+  <data name="Settings_GuideOutputDestinationRequired" xml:space="preserve"><value>节目指南输出 {0} 需要输出目标位置。</value></data>
+  <data name="Settings_GuideOutputDestinationInvalid" xml:space="preserve"><value>节目指南输出 {0} 的输出目标位置无效。</value></data>
+  <data name="Settings_CurrentGuidePathInvalid" xml:space="preserve"><value>当前节目指南输出路径无效。请选择服务器目录。</value></data>
+  <data name="Settings_DirectoryAccessDenied" xml:space="preserve"><value>对此目录的访问被拒绝。</value></data>
+  <data name="Settings_DirectoryBrowseFailure" xml:space="preserve"><value>无法浏览此目录：{0}</value></data>
+  <data name="Settings_NoPhysicalDrivers" xml:space="preserve"><value>没有注册可由用户创建的物理设备驱动程序。</value></data>
+  <data name="Settings_ConnectionTestUnsupported" xml:space="preserve"><value>{0} 不支持连接测试。</value></data>
+  <data name="Settings_ConnectionTestSuccess" xml:space="preserve"><value>已成功连接到 {0}。</value></data>
+  <data name="Settings_ConnectionTestFailure" xml:space="preserve"><value>连接测试失败：{0}</value></data>
+  <data name="Settings_NoVirtualDrivers" xml:space="preserve"><value>没有注册可由用户创建的虚拟设备驱动程序。</value></data>
+  <data name="Settings_NoGuideSourceDrivers" xml:space="preserve"><value>没有注册可由用户创建的节目指南源驱动程序。</value></data>
+  <data name="Settings_NoGuideOutputDrivers" xml:space="preserve"><value>没有注册可由用户创建的节目指南输出驱动程序。</value></data>
+  <data name="Settings_LineupLinkBundleImported" xml:space="preserve"><value>已导入 Lineup Link 连接包。单击“保存”以连接。</value></data>
+  <data name="Settings_LineupLinkGrantCreated" xml:space="preserve"><value>已创建 Lineup Link 访问授权。请保存设置，然后立即复制或导出其连接包；原始令牌不会存储。</value></data>
+  <data name="Settings_LineupLinkGrantRotated" xml:space="preserve"><value>Lineup Link 访问授权已轮换。请保存设置，然后使用替换连接包更新远程客户端。</value></data>
+  <data name="Settings_LineupLinkGrantRevoked" xml:space="preserve"><value>Lineup Link 访问授权已撤销。请保存设置以拒绝该凭据。</value></data>
+  <data name="Settings_LineupLinkGrantPurged" xml:space="preserve"><value>已永久清除撤销的 Lineup Link 访问授权。请保存设置以持久化删除操作。</value></data>
+  <data name="Settings_LineupLinkBundleDownloaded" xml:space="preserve"><value>已下载 Lineup Link 连接包。</value></data>
+  <data name="Settings_LineupLinkDownloadDisconnected" xml:space="preserve"><value>由于浏览器已断开连接，无法下载连接包。</value></data>
+  <data name="Settings_LineupLinkDownloadFailure" xml:space="preserve"><value>浏览器无法下载 Lineup Link 连接包。</value></data>
+  <data name="Settings_LineupLinkBundleCopied" xml:space="preserve"><value>已将 Lineup Link 连接包复制到剪贴板。</value></data>
+  <data name="Settings_LineupLinkCopyDisconnected" xml:space="preserve"><value>由于浏览器已断开连接，无法复制连接包。</value></data>
+  <data name="Settings_LineupLinkCopyFailure" xml:space="preserve"><value>浏览器无法复制 Lineup Link 连接包。</value></data>
+  <data name="Settings_LineupLinkRawTokenUnavailable" xml:space="preserve"><value>当前原始令牌不可用。请轮换此授权以创建新的连接包。</value></data>
+  <data name="Settings_AccessTokenHelp" xml:space="preserve"><value>****** 由远程虚拟设备签发。请像密码一样妥善保管。</value></data>
+  <data name="Settings_AccessTokenLabel" xml:space="preserve"><value>访问令牌</value></data>
+  <data name="Settings_AddGuideOutputButton" xml:space="preserve"><value>添加节目指南输出</value></data>
+  <data name="Settings_AddGuideOutputTypeDescription" xml:space="preserve"><value>添加一个 {0} 节目指南输出。</value></data>
+  <data name="Settings_AddGuideSourceButton" xml:space="preserve"><value>添加节目指南源</value></data>
+  <data name="Settings_AddGuideSourceTypeDescription" xml:space="preserve"><value>添加一个 {0} 节目指南源。</value></data>
+  <data name="Settings_AddLogCategoryButton" xml:space="preserve"><value>添加日志类别</value></data>
+  <data name="Settings_AddPhysicalDeviceButton" xml:space="preserve"><value>添加物理设备</value></data>
+  <data name="Settings_AddPhysicalDeviceDescription" xml:space="preserve"><value>选择要添加的物理设备类型。</value></data>
+  <data name="Settings_AddressLabel" xml:space="preserve"><value>地址</value></data>
+  <data name="Settings_AddVirtualDeviceButton" xml:space="preserve"><value>添加虚拟设备</value></data>
+  <data name="Settings_AddVirtualDeviceDescription" xml:space="preserve"><value>选择要添加的虚拟设备类型。</value></data>
+  <data name="Settings_AdvancedNetworkingHeading" xml:space="preserve"><value>高级网络</value></data>
+  <data name="Settings_AdvertisedBaseUrlHelp" xml:space="preserve"><value>可从外部访问的管理主机 URL，用于发现和频道阵容响应。</value></data>
+  <data name="Settings_AdvertisedBaseUrlLabel" xml:space="preserve"><value>发布的基础 URL</value></data>
+  <data name="Settings_AdvertiseLocalNetworkHelp" xml:space="preserve"><value>启用“虚拟调谐器发现”后，通过 SiliconDust UDP 发现和 SSDP 发布此设备。</value></data>
+  <data name="Settings_AdvertiseLocalNetworkLabel" xml:space="preserve"><value>发布本地网络</value></data>
+  <data name="Settings_AllCompatibleEnabledDevices" xml:space="preserve"><value>全部兼容已启用设备</value></data>
+  <data name="Settings_AllEnabledGuideSources" xml:space="preserve"><value>全部已启用节目指南源</value></data>
+  <data name="Settings_AllEnabledPhysicalDevices" xml:space="preserve"><value>全部已启用物理设备</value></data>
+  <data name="Settings_AllEnabledVirtualDevices" xml:space="preserve"><value>全部已启用虚拟设备</value></data>
+  <data name="Settings_AllowedClientNetworksHelp" xml:space="preserve"><value>可选的逗号分隔 CIDR 列表。留空将允许防火墙所准许的任何网络中的客户端。</value></data>
+  <data name="Settings_AllowedClientNetworksLabel" xml:space="preserve"><value>允许客户端网络</value></data>
+  <data name="Settings_ApiEndpointLabel" xml:space="preserve"><value>API 端点</value></data>
+  <data name="Settings_PrimaryEndpointLabel" xml:space="preserve"><value>主要端点</value></data>
+  <data name="Settings_StableIdEndpointLabel" xml:space="preserve"><value>稳定 ID</value></data>
+  <data name="Settings_StableIdEndpointHelp" xml:space="preserve"><value>不受密钥更改影响</value></data>
+  <data name="Settings_PrimaryEndpointActionsLabel" xml:space="preserve"><value>主要端点操作</value></data>
+  <data name="Settings_StableIdEndpointActionsLabel" xml:space="preserve"><value>稳定 ID 端点操作</value></data>
+  <data name="Settings_CopyGuideOutputLabel" xml:space="preserve"><value>复制节目指南输出</value></data>
+  <data name="Settings_CopyStableGuideOutputLabel" xml:space="preserve"><value>复制稳定节目指南输出</value></data>
+  <data name="Settings_ViewGuideOutputLabel" xml:space="preserve"><value>查看节目指南输出</value></data>
+  <data name="Settings_DownloadGuideOutputLabel" xml:space="preserve"><value>下载节目指南输出</value></data>
+  <data name="Settings_ViewStableGuideOutputLabel" xml:space="preserve"><value>查看稳定节目指南输出</value></data>
+  <data name="Settings_DownloadStableGuideOutputLabel" xml:space="preserve"><value>下载稳定节目指南输出</value></data>
+  <data name="Settings_ApiPrivacyDescriptionPrefix" xml:space="preserve"><value>外部仪表板可以从以下位置读取当前 Lineup 状态：</value></data>
+  <data name="Settings_ApiPrivacyDescriptionSuffix" xml:space="preserve"><value>此只读端点未经身份验证，应仅向受信任的网络公开。</value></data>
+  <data name="Settings_ApiPrivacyHeading" xml:space="preserve"><value>状态 API 隐私</value></data>
+  <data name="Settings_ApiDocumentationHeading" xml:space="preserve"><value>API文档</value></data>
+  <data name="Settings_ApiDocumentationDescription" xml:space="preserve"><value>浏览 Lineup 生成的 API 参考、端点说明、参数、请求架构和响应架构。</value></data>
+  <data name="Settings_OpenApiDocumentationButton" xml:space="preserve"><value>打开API文档</value></data>
+  <data name="Settings_ApiRedactClientAddressesHelpPrefix" xml:space="preserve"><value>将每个流的客户端地址返回为</value></data>
+  <data name="Settings_ApiRedactClientAddressesLabel" xml:space="preserve"><value>对活动流客户端地址进行脱敏</value></data>
+  <data name="Settings_ApiRedactDeviceAddressesHelpPrefix" xml:space="preserve"><value>将已配置的物理调谐器主机名和地址返回为</value></data>
+  <data name="Settings_ApiRedactDeviceAddressesLabel" xml:space="preserve"><value>对设备地址进行脱敏</value></data>
+  <data name="Settings_ApiRedactUrlsHelpPrefix" xml:space="preserve"><value>将设备、频道阵容、调谐器目标、发布地址和 XMLTV URL 返回为</value></data>
+  <data name="Settings_ApiRedactUrlsLabel" xml:space="preserve"><value>对 URL 进行脱敏</value></data>
+  <data name="Settings_ApplicationLogFiltersHeading" xml:space="preserve"><value>应用程序日志筛选器</value></data>
+  <data name="Settings_AutoFetchGuideHelp" xml:space="preserve"><value>按照 API 要求，每隔 20 到 28 小时随机下载一次 SiliconDust 的完整节目指南。所有用户均可获取 2 天的数据；订阅 HDHomeRun DVR 节目指南后可获取 14 天的数据。</value></data>
+  <data name="Settings_AutoFetchGuideLabel" xml:space="preserve"><value>自动获取节目指南</value></data>
+  <data name="Settings_BindAddressesHelp" xml:space="preserve"><value>以逗号分隔的 IP 地址、localhost，或使用 * 表示所有接口。</value></data>
+  <data name="Settings_BindAddressesLabel" xml:space="preserve"><value>绑定地址</value></data>
+  <data name="Settings_BrowseServerDirectoriesTitle" xml:space="preserve"><value>浏览服务器目录</value></data>
+  <data name="Settings_BuiltInWebPlayer" xml:space="preserve"><value>内置 Web Player</value></data>
+  <data name="Settings_CancelButton" xml:space="preserve"><value>取消</value></data>
+  <data name="Settings_CertificateFingerprintHelp" xml:space="preserve"><value>始终要求操作系统正常信任证书；固定证书还会添加精确的指纹检查。</value></data>
+  <data name="Settings_CertificateFingerprintLabel" xml:space="preserve"><value>证书 SHA-256 指纹（可选）</value></data>
+  <data name="Settings_CertificateReferenceHelp" xml:space="preserve"><value>受信任主机上的服务器证书引用。当前基于文件的主机接受无密码的 PFX 路径。</value></data>
+  <data name="Settings_CertificateReferenceLabel" xml:space="preserve"><value>证书引用</value></data>
+  <data name="Settings_ClearButton" xml:space="preserve"><value>清除</value></data>
+  <data name="Settings_ClientCertificatesHelp" xml:space="preserve"><value>控制 TLS 客户端是否可以或必须提供自己的证书。</value></data>
+  <data name="Settings_ClientCertificatesLabel" xml:space="preserve"><value>客户端证书</value></data>
+  <data name="Settings_ClientCertificatesNotRequested" xml:space="preserve"><value>不请求</value></data>
+  <data name="Settings_ClientCertificatesOptional" xml:space="preserve"><value>可选</value></data>
+  <data name="Settings_ClientCertificatesRequired" xml:space="preserve"><value>必需</value></data>
+  <data name="Settings_ClientFacingBaseUrlHelp" xml:space="preserve"><value>根据监听器传输方式、第一个绑定地址和发布端口自动生成。此 URL 用于协议响应和连接包。</value></data>
+  <data name="Settings_ClientFacingBaseUrlLabel" xml:space="preserve"><value>面向客户端的基础 URL</value></data>
+  <data name="Settings_ClientFacingUrlOverrideHelp" xml:space="preserve"><value>输入可从外部访问的 HTTP 或 HTTPS 根 URL。保存时，发布端口覆盖仍会替换其端口。</value></data>
+  <data name="Settings_ClientFacingUrlOverrideLabel" xml:space="preserve"><value>面向客户端的基础 URL 覆盖</value></data>
+  <data name="Settings_ConfiguredSecretPlaceholder" xml:space="preserve"><value>已配置；留空可保留现有值</value></data>
+  <data name="Settings_ConfiguredStatus" xml:space="preserve"><value>已配置</value></data>
+  <data name="Settings_ConnectionBundleCertificatePinHelp" xml:space="preserve"><value>导出连接包中包含的精确 SHA-256 证书指纹。它与 HTTPS 专用监听器使用的证书引用彼此独立。</value></data>
+  <data name="Settings_ConnectionBundleCertificatePinLabel" xml:space="preserve"><value>连接包证书固定指纹（可选）</value></data>
+  <data name="Settings_ConnectionBundleLabel" xml:space="preserve"><value>连接包</value></data>
+  <data name="Settings_ConnectionFailed" xml:space="preserve"><value>连接失败。</value></data>
+  <data name="Settings_ConnectionSuccessful" xml:space="preserve"><value>连接成功。</value></data>
+  <data name="Settings_ConnectionTestUnavailable" xml:space="preserve"><value>此物理设备插件不提供连接测试。</value></data>
+  <data name="Settings_CpuLimitHelp" xml:space="preserve"><value>工作进程的 CPU 上限。设为 0 表示不配置限制。</value></data>
+  <data name="Settings_CpuLimitLabel" xml:space="preserve"><value>CPU 限制 (%)</value></data>
+  <data name="Settings_DashboardActiveStreamsHeading" xml:space="preserve"><value>活动流</value></data>
+  <data name="Settings_DashboardRefreshIntervalHelp" xml:space="preserve"><value>仪表板刷新活动托管流的频率。设为 0 可禁用自动刷新。</value></data>
+  <data name="Settings_DashboardRefreshIntervalLabel" xml:space="preserve"><value>活动流刷新间隔（秒）</value></data>
+  <data name="Settings_DedicatedListenerHelp" xml:space="preserve"><value>专用监听器在隔离的输出工作进程中运行。更改这些设置只会重启此虚拟输出。</value></data>
+  <data name="Settings_DefaultLogDirectory" xml:space="preserve"><value>Lineup 配置目录/logs</value></data>
+  <data name="Settings_DefaultLogLevelHelp" xml:space="preserve"><value>适用于没有更具体规则的类别。</value></data>
+  <data name="Settings_DefaultLogLevelLabel" xml:space="preserve"><value>默认级别</value></data>
+  <data name="Settings_DeleteLogsButton" xml:space="preserve"><value>删除日志</value></data>
+  <data name="Settings_DeleteLogsDisabledHelp" xml:space="preserve"><value>删除所有保留的滚动日志文件。</value></data>
+  <data name="Settings_DeleteLogsEnabledHelp" xml:space="preserve"><value>删除所有滚动文件日志，并立即创建一个新的空日志文件。</value></data>
+  <data name="Settings_DeviceInfoRefreshIntervalHelp" xml:space="preserve"><value>刷新设备信息的频率。设为 0 可禁用自动刷新。</value></data>
+  <data name="Settings_DeviceInfoRefreshIntervalLabel" xml:space="preserve"><value>设备信息刷新间隔（分钟）</value></data>
+  <data name="Settings_DeviceSettingsHeading" xml:space="preserve"><value>设备设置</value></data>
+  <data name="Settings_DirectoryBrowserHeading" xml:space="preserve"><value>服务器目录浏览器</value></data>
+  <data name="Settings_DirectoryBrowserParentDirectoryTitle" xml:space="preserve"><value>父目录</value></data>
+  <data name="Settings_DirectoryBrowserSelectButton" xml:space="preserve"><value>选择此目录</value></data>
+  <data name="Settings_DisabledBadge" xml:space="preserve"><value>已禁用</value></data>
+  <data name="Settings_DisabledChannelsHelp" xml:space="preserve"><value>控制对“频道”页面中已禁用频道的直接请求。已禁用频道的流绝不会打开物理调谐器。</value></data>
+  <data name="Settings_DisabledChannelsLabel" xml:space="preserve"><value>已禁用频道</value></data>
+  <data name="Settings_DisabledChannelsReturnError" xml:space="preserve"><value>返回“频道已禁用”错误</value></data>
+  <data name="Settings_DisabledChannelsStreamSlate" xml:space="preserve"><value>播放“频道已禁用”提示画面</value></data>
+  <data name="Settings_DisabledLowercase" xml:space="preserve"><value>已禁用</value></data>
+  <data name="Settings_DrainTimeoutHelp" xml:space="preserve"><value>重启或关闭期间允许活动请求完成的最长时间。</value></data>
+  <data name="Settings_DrainTimeoutLabel" xml:space="preserve"><value>排空超时</value></data>
+  <data name="Settings_EmptyGuideSourceSelectionHelp" xml:space="preserve"><value>选择为空时，会动态包括所有已启用的节目指南源。</value></data>
+  <data name="Settings_EmptyVirtualDeviceSelectionHelp" xml:space="preserve"><value>选择为空时，会动态包括所有已启用的虚拟设备。</value></data>
+  <data name="Settings_EnabledLabel" xml:space="preserve"><value>已启用</value></data>
+  <data name="Settings_EnableFileLoggingLabel" xml:space="preserve"><value>将日志写入滚动文件</value></data>
+  <data name="Settings_EnableNetworkDiscoveryHelp" xml:space="preserve"><value>具有已发布 URL 的已启用虚拟 HDHomeRun 设备将在本地网络上发布。</value></data>
+  <data name="Settings_EnableNetworkDiscoveryLabel" xml:space="preserve"><value>启用 UDP 和 SSDP 网络发现</value></data>
+  <data name="Settings_EpgFetchHeading" xml:space="preserve"><value>EPG 获取设置</value></data>
+  <data name="Settings_EpgHistoryRetentionHelp" xml:space="preserve"><value>保留在此时间窗口内结束的节目。默认值为 24 小时；设为 0 可在成功导入后移除已结束的节目。</value></data>
+  <data name="Settings_EpgHistoryRetentionLabel" xml:space="preserve"><value>过去的节目指南历史记录（小时）</value></data>
+  <data name="Settings_ExecutionModeHelp" xml:space="preserve"><value>托管进程由 Lineup 启动和监督。外部进程使用一次性注册描述符，并单独启动。</value></data>
+  <data name="Settings_ExecutionModeLabel" xml:space="preserve"><value>执行模式</value></data>
+  <data name="Settings_ExternalLogTargetsDescriptionPrefix" xml:space="preserve"><value>外部目标在启动时通过环境变量或</value></data>
+  <data name="Settings_ExternalLogTargetsDescriptionSuffix" xml:space="preserve"><value>进行配置。机密信息绝不会存储在 Lineup 设置中，也不会显示在此处。</value></data>
+  <data name="Settings_ExternalLogTargetsHeading" xml:space="preserve"><value>外部目标</value></data>
+  <data name="Settings_ExternalLogTargetStatusUnavailable" xml:space="preserve"><value>目标状态不可用。</value></data>
+  <data name="Settings_ExternalProcessOption" xml:space="preserve"><value>外部进程</value></data>
+  <data name="Settings_FactoryResetButton" xml:space="preserve"><value>恢复 Lineup 出厂设置</value></data>
+  <data name="Settings_FactoryResetConfirmationLabel" xml:space="preserve"><value>我了解这将永久清除 Lineup 拥有的所有数据。</value></data>
+  <data name="Settings_FactoryResetConfirmButton" xml:space="preserve"><value>清除数据并重启</value></data>
+  <data name="Settings_FactoryResetDescription" xml:space="preserve"><value>永久移除 Lineup 设置、节目指南数据、缓存的 XMLTV 数据和临时流文件。Lineup 将重启并进入首次运行的设备设置。Lineup 所有存储之外的 XMLTV 文件会保留。</value></data>
+  <data name="Settings_FactoryResetHeading" xml:space="preserve"><value>出厂重置</value></data>
+  <data name="Settings_FileLogLocationPrefix" xml:space="preserve"><value>文件存储在</value></data>
+  <data name="Settings_FileLogLocationSuffix" xml:space="preserve"><value>保存设置后，更改将立即生效。</value></data>
+  <data name="Settings_FileLogMinimumLevelLabel" xml:space="preserve"><value>最低级别</value></data>
+  <data name="Settings_FileLogRetentionLabel" xml:space="preserve"><value>保留时间（天）</value></data>
+  <data name="Settings_FileLogSizeLimitLabel" xml:space="preserve"><value>文件大小 (MB)</value></data>
+  <data name="Settings_FileSizeBytes" xml:space="preserve"><value>{0} B</value></data>
+  <data name="Settings_FileSizeKilobytes" xml:space="preserve"><value>{0:0.0} KB</value></data>
+  <data name="Settings_FileSizeMegabytes" xml:space="preserve"><value>{0:0.0} MB</value></data>
+  <data name="Settings_GenerateNewValueButton" xml:space="preserve"><value>生成新值</value></data>
+  <data name="Settings_GenerateValueButton" xml:space="preserve"><value>生成值</value></data>
+  <data name="Settings_GlobalSettingsTab" xml:space="preserve"><value>全局设置</value></data>
+  <data name="Settings_GlobalXmltvEndpointHelp" xml:space="preserve"><value>全局 XMLTV 输出使用不含输出标识符的稳定端点。</value></data>
+  <data name="Settings_GlobalXmltvOutputHeading" xml:space="preserve"><value>全局 XMLTV 输出</value></data>
+  <data name="Settings_GuideOutputDirectoryHelpPrefix" xml:space="preserve"><value>Lineup 会以原子方式发布到此目录中的</value></data>
+  <data name="Settings_GuideOutputDirectoryHelpSuffix" xml:space="preserve"><value>文件。</value></data>
+  <data name="Settings_GuideOutputDirectoryLabel" xml:space="preserve"><value>输出目录</value></data>
+  <data name="Settings_GuideOutputKeyHelp" xml:space="preserve"><value>Lineup 会将其格式化为仅含字母、数字和下划线的小写标识符。</value></data>
+  <data name="Settings_GuideOutputKeyLabel" xml:space="preserve"><value>输出密钥</value></data>
+  <data name="Settings_GuideOutputKeyWarning" xml:space="preserve"><value>更改此密钥会改变易读的 API URL 和生成的文件名。使用任一位置的现有客户端都必须更新。</value></data>
+  <data name="Settings_GuideOutputPathMismatch" xml:space="preserve"><value>已保存的路径与启动时配置的值不同：</value></data>
+  <data name="Settings_GuideOutputSettingsHeading" xml:space="preserve"><value>节目指南输出设置</value></data>
+  <data name="Settings_GuideSourceAddDisabledTitle" xml:space="preserve"><value>请先添加并启用兼容的物理设备。</value></data>
+  <data name="Settings_GuideSourceAllDevicesHelp" xml:space="preserve"><value>自动使用此节目指南源适配器支持的所有已启用物理设备，包括以后添加的兼容设备。</value></data>
+  <data name="Settings_GuideSourceNameHelp" xml:space="preserve"><value>用于在整个 Lineup 中标识此节目指南源的本地标签。</value></data>
+  <data name="Settings_GuideSourceSelectedDevicesHelp" xml:space="preserve"><value>仅使用下方选定的兼容物理设备。已禁用的设备仍会保持选中，但在重新启用前会被忽略。</value></data>
+  <data name="Settings_GuideSourceSettingsHeading" xml:space="preserve"><value>节目指南源设置</value></data>
+  <data name="Settings_GuideSourcesHeading" xml:space="preserve"><value>节目指南源</value></data>
+  <data name="Settings_GuideSourceSubscriptionHelp" xml:space="preserve"><value>节目指南源插件使用订阅的设备进行频道匹配，并获取其所需的任何提供商授权。</value></data>
+  <data name="Settings_HonorForwardedHeadersHelp" xml:space="preserve"><value>仅当直接代理与受信任代理列表匹配时，才使用转发的客户端地址和方案。</value></data>
+  <data name="Settings_HonorForwardedHeadersLabel" xml:space="preserve"><value>接受来自受信任代理的转发标头</value></data>
+  <data name="Settings_Http" xml:space="preserve"><value>HTTP</value></data>
+  <data name="Settings_Https" xml:space="preserve"><value>HTTPS</value></data>
+  <data name="Settings_ImportBundleButton" xml:space="preserve"><value>导入连接包</value></data>
+  <data name="Settings_ImportBundleHelp" xml:space="preserve"><value>粘贴远程虚拟设备导出的连接包，以填充其 URL、ID、令牌、传输和证书设置。连接包包含可用的访问令牌；请将其作为机密信息存储和共享。</value></data>
+  <data name="Settings_InternalListenerPortHelp" xml:space="preserve"><value>工作进程在主机或容器内部打开的端口。</value></data>
+  <data name="Settings_InternalListenerPortLabel" xml:space="preserve"><value>内部监听器端口</value></data>
+  <data name="Settings_KeepWarmPeriodHelp" xml:space="preserve"><value>让未使用的共享管道保持就绪，以便快速重新连接。设为 0 可立即释放。非零值会保留调谐器容量，直到该时段结束。</value></data>
+  <data name="Settings_KeepWarmPeriodLabel" xml:space="preserve"><value>保温时段（秒）</value></data>
+  <data name="Settings_LeaseGraceHelp" xml:space="preserve"><value>工作进程在终止前可以失去已验证主机租约的最长时间。</value></data>
+  <data name="Settings_LeaseGraceLabel" xml:space="preserve"><value>租约宽限期</value></data>
+  <data name="Settings_LineupLinkAccessGrantsHeading" xml:space="preserve"><value>访问授权</value></data>
+  <data name="Settings_LineupLinkBundleJsonLabel" xml:space="preserve"><value>连接包 JSON</value></data>
+  <data name="Settings_LineupLinkConfirmPurgeButton" xml:space="preserve"><value>确认清除</value></data>
+  <data name="Settings_LineupLinkConsumerNameLabel" xml:space="preserve"><value>使用方名称</value></data>
+  <data name="Settings_LineupLinkConsumerNamePlaceholder" xml:space="preserve"><value>朋友或家庭名称</value></data>
+  <data name="Settings_LineupLinkCopyButton" xml:space="preserve"><value>复制</value></data>
+  <data name="Settings_LineupLinkCreated" xml:space="preserve"><value>创建时间</value></data>
+  <data name="Settings_LineupLinkCreateGrantButton" xml:space="preserve"><value>创建访问授权</value></data>
+  <data name="Settings_LineupLinkDedicatedTransportPrefix" xml:space="preserve"><value>根据面向客户端的公共基础 URI，Lineup Link 要求使用</value></data>
+  <data name="Settings_LineupLinkDedicatedTransportSuffix" xml:space="preserve"><value>。</value></data>
+  <data name="Settings_LineupLinkExpirationLabel" xml:space="preserve"><value>到期时间（可选）</value></data>
+  <data name="Settings_LineupLinkExpires" xml:space="preserve"><value>到期时间</value></data>
+  <data name="Settings_LineupLinkExportButton" xml:space="preserve"><value>导出</value></data>
+  <data name="Settings_LineupLinkGrantHelp" xml:space="preserve"><value>授权共享此实例的频道、转码、监听器和安全策略。如果这些设置需要不同，请创建单独的 Lineup Link 实例。</value></data>
+  <data name="Settings_LineupLinkHideBundleButton" xml:space="preserve"><value>隐藏连接包</value></data>
+  <data name="Settings_LineupLinkHttpExposureWarning" xml:space="preserve"><value>HTTP 会向网络暴露不记名令牌和流内容。请仅在受信任的网络上使用。</value></data>
+  <data name="Settings_LineupLinkHttpWarning" xml:space="preserve"><value>HTTP 会验证请求，但不会加密令牌或流。请仅在受信任的网络上使用。</value></data>
+  <data name="Settings_LineupLinkNoGrantsDescription" xml:space="preserve"><value>在您明确创建授权之前，远程访问处于禁用状态。</value></data>
+  <data name="Settings_LineupLinkNoGrantsHeading" xml:space="preserve"><value>没有访问授权。</value></data>
+  <data name="Settings_LineupLinkPurgeButton" xml:space="preserve"><value>清除</value></data>
+  <data name="Settings_LineupLinkPurgeConfirmation" xml:space="preserve"><value>是否永久删除此已撤销授权及其审核历史记录？此操作无法撤销。</value></data>
+  <data name="Settings_LineupLinkRawTokenHelp" xml:space="preserve"><value>立即复制或导出此连接包。其原始令牌不会持久化。</value></data>
+  <data name="Settings_LineupLinkRedactedTokenHelp" xml:space="preserve"><value>令牌已脱敏。请轮换此授权以创建可导出的替换连接包。</value></data>
+  <data name="Settings_LineupLinkRevokeButton" xml:space="preserve"><value>撤销</value></data>
+  <data name="Settings_LineupLinkRotateButton" xml:space="preserve"><value>轮换</value></data>
+  <data name="Settings_LineupLinkShowBundleButton" xml:space="preserve"><value>显示连接包</value></data>
+  <data name="Settings_LineupLinkStatusActive" xml:space="preserve"><value>活动</value></data>
+  <data name="Settings_LineupLinkStatusExpired" xml:space="preserve"><value>已过期</value></data>
+  <data name="Settings_LineupLinkStatusRevoked" xml:space="preserve"><value>已撤销</value></data>
+  <data name="Settings_LogCategoryMinimumLevelLabel" xml:space="preserve"><value>日志类别最低级别</value></data>
+  <data name="Settings_LogCategoryOverridesHeading" xml:space="preserve"><value>类别覆盖</value></data>
+  <data name="Settings_LogCategoryOverridesHelpPrefix" xml:space="preserve"><value>启动类别发现自</value></data>
+  <data name="Settings_LogCategoryOverridesHelpSuffix" xml:space="preserve"><value>精确类别和以点分隔的子类别均会匹配，并以最长前缀为准。保存设置后，更改将立即生效。关闭此覆盖将恢复完整的启动筛选器集。</value></data>
+  <data name="Settings_LogCategoryPlaceholder" xml:space="preserve"><value>Example.Namespace</value></data>
+  <data name="Settings_LogCategoryPrefixLabel" xml:space="preserve"><value>类别前缀</value></data>
+  <data name="Settings_LogLevelCritical" xml:space="preserve"><value>严重</value></data>
+  <data name="Settings_LogLevelDebug" xml:space="preserve"><value>调试</value></data>
+  <data name="Settings_LogLevelError" xml:space="preserve"><value>错误</value></data>
+  <data name="Settings_LogLevelInformation" xml:space="preserve"><value>信息</value></data>
+  <data name="Settings_LogLevelNone" xml:space="preserve"><value>无</value></data>
+  <data name="Settings_LogLevelTrace" xml:space="preserve"><value>跟踪</value></data>
+  <data name="Settings_LogLevelWarning" xml:space="preserve"><value>警告</value></data>
+  <data name="Settings_ManagedProcessOption" xml:space="preserve"><value>托管进程</value></data>
+  <data name="Settings_ManagementHostOutputHelp" xml:space="preserve"><value>此输出由管理 UI 主机提供，因此不需要额外的监听器端口。</value></data>
+  <data name="Settings_MaximumBrokerCallsHelp" xml:space="preserve"><value>此工作进程可同时向受信任主机发出的最大功能请求数。</value></data>
+  <data name="Settings_MaximumBrokerCallsLabel" xml:space="preserve"><value>最大代理调用数</value></data>
+  <data name="Settings_MaximumConcurrentStreamsHelp" xml:space="preserve"><value>所有格式中的最大逻辑使用方会话数。共享生产者仍会为每个已连接使用方计数一次。设为 0 表示无限制。</value></data>
+  <data name="Settings_MaximumConcurrentStreamsLabel" xml:space="preserve"><value>最大并发流数</value></data>
+  <data name="Settings_MaximumConnectionsHelp" xml:space="preserve"><value>并发客户端限制。设为 0 可使用主机默认值。</value></data>
+  <data name="Settings_MaximumConnectionsLabel" xml:space="preserve"><value>最大连接数</value></data>
+  <data name="Settings_MaximumRestartsHelp" xml:space="preserve"><value>重启时间窗口内允许的工作进程失败重启次数。</value></data>
+  <data name="Settings_MaximumRestartsLabel" xml:space="preserve"><value>最大重启次数</value></data>
+  <data name="Settings_MemoryLimitHelp" xml:space="preserve"><value>工作进程的内存上限。设为 0 表示不配置限制。</value></data>
+  <data name="Settings_MemoryLimitLabel" xml:space="preserve"><value>内存限制 (MiB)</value></data>
+  <data name="Settings_NameLabel" xml:space="preserve"><value>名称</value></data>
+  <data name="Settings_NoAdditionalVirtualDevices" xml:space="preserve"><value>未配置其他虚拟设备。</value></data>
+  <data name="Settings_NoCompatiblePhysicalDevices" xml:space="preserve"><value>未配置兼容的物理设备。</value></data>
+  <data name="Settings_NoGuideSourcesPrefix" xml:space="preserve"><value>尚未配置节目指南源。如有需要，请添加并启用兼容的物理设备，然后选择</value></data>
+  <data name="Settings_NoLogCategoryOverrides" xml:space="preserve"><value>未配置特定类别的筛选器。</value></data>
+  <data name="Settings_NoPhysicalDevicesPrefix" xml:space="preserve"><value>尚未配置物理设备。请选择</value></data>
+  <data name="Settings_NoPhysicalDevicesSuffix" xml:space="preserve"><value>以使频道可供 Lineup 使用。</value></data>
+  <data name="Settings_NoRetainedLogFiles" xml:space="preserve"><value>尚无可用的滚动日志文件。</value></data>
+  <data name="Settings_OutputHostingHeading" xml:space="preserve"><value>输出托管</value></data>
+  <data name="Settings_OutputStageName" xml:space="preserve"><value>输出阶段</value></data>
+  <data name="Settings_OutputTransportHelp" xml:space="preserve"><value>HTTPS 会加密输出流量并要求服务器证书。HTTP 应仅限受信任的网络使用。</value></data>
+  <data name="Settings_OverrideClientFacingUrlHelp" xml:space="preserve"><value>仅当反向代理、NAT 规则、端口转发或外部主机名为客户端提供了不同的 URL 时，才使用覆盖值。</value></data>
+  <data name="Settings_OverrideClientFacingUrlLabel" xml:space="preserve"><value>覆盖面向客户端的基础 URL</value></data>
+  <data name="Settings_OverrideLoggingDefaultsLabel" xml:space="preserve"><value>覆盖日志记录默认值</value></data>
+  <data name="Settings_PhysicalAddressHelp" xml:space="preserve"><value>物理 HDHomeRun 的主机名或 IP 地址。Lineup 主机或容器必须能够访问该地址。</value></data>
+  <data name="Settings_PhysicalBitrateHelp" xml:space="preserve"><value>未设置覆盖的设备所使用的默认物理阶段比特率。</value></data>
+  <data name="Settings_PhysicalDeinterlaceHelp" xml:space="preserve"><value>未设置覆盖的物理设备所使用的默认源规范化方式。</value></data>
+  <data name="Settings_PhysicalDeviceNameHelp" xml:space="preserve"><value>用于频道归属、订阅、路由和状态显示的本地标签。</value></data>
+  <data name="Settings_PhysicalDeviceSubscriptionHeading" xml:space="preserve"><value>物理设备订阅</value></data>
+  <data name="Settings_PhysicalHevcHelp" xml:space="preserve"><value>在 HEVC 源进入复用器之前统一规范化一次。</value></data>
+  <data name="Settings_PhysicalRefreshDescription" xml:space="preserve"><value>这些监控间隔适用于所有物理设备。</value></data>
+  <data name="Settings_PhysicalSubscriptionHelp" xml:space="preserve"><value>控制哪些兼容物理设备可以向此虚拟输出提供频道和调谐器容量。选择“全部”还会自动包括以后添加的兼容设备。</value></data>
+  <data name="Settings_PhysicalSubscriptionLabel" xml:space="preserve"><value>物理设备订阅</value></data>
+  <data name="Settings_PhysicalTranscoderDefaultsDescription" xml:space="preserve"><value>除非在相应选项卡中启用覆盖，否则每个物理设备都会继承这些源阶段设置。</value></data>
+  <data name="Settings_ProtectedContentHelp" xml:space="preserve"><value>返回错误或合成兼容性提示画面。受保护的节目绝不会被解密。</value></data>
+  <data name="Settings_ProtectedContentLabel" xml:space="preserve"><value>受 DRM 保护的内容</value></data>
+  <data name="Settings_ProtectedContentReturnError" xml:space="preserve"><value>返回“内容受保护”错误</value></data>
+  <data name="Settings_ProtectedContentStreamSlate" xml:space="preserve"><value>播放“内容受保护”提示画面</value></data>
+  <data name="Settings_PublicLineupUrlHelp" xml:space="preserve"><value>写入导出连接包、可从外部访问的管理主机 URL。留空时，连接包使用 null 地址。</value></data>
+  <data name="Settings_PublicLineupUrlLabel" xml:space="preserve"><value>公共 Lineup URL（可选）</value></data>
+  <data name="Settings_PublishedPortOverrideHelp" xml:space="preserve"><value>当公共端口与内部监听器相同时，请留空。</value></data>
+  <data name="Settings_PublishedPortOverrideLabel" xml:space="preserve"><value>发布端口覆盖</value></data>
+  <data name="Settings_PublishGuideOutputsAfterFetchLabel" xml:space="preserve"><value>获取后发布已启用的节目指南输出</value></data>
+  <data name="Settings_RefreshChannelsBeforeGuideHelp" xml:space="preserve"><value>在手动或自动刷新节目指南之前，查询已启用的物理 HDHomeRun 设备并保存其当前频道。</value></data>
+  <data name="Settings_RefreshChannelsBeforeGuideLabel" xml:space="preserve"><value>获取节目指南数据前刷新可用频道</value></data>
+  <data name="Settings_RefreshSettingsHeading" xml:space="preserve"><value>刷新设置</value></data>
+  <data name="Settings_RemoteLineupUrlHelp" xml:space="preserve"><value>用于从远程 Lineup 主机请求设备元数据、频道、调谐器状态和流的基础 URL。</value></data>
+  <data name="Settings_RemoteLineupUrlLabel" xml:space="preserve"><value>远程 Lineup URL</value></data>
+  <data name="Settings_RemoteVirtualDeviceIdHelp" xml:space="preserve"><value>远程主机导出的虚拟 Lineup Link 输出的稳定 ID。</value></data>
+  <data name="Settings_RemoteVirtualDeviceIdLabel" xml:space="preserve"><value>远程虚拟设备 ID</value></data>
+  <data name="Settings_RemoveGuideOutputLabel" xml:space="preserve"><value>移除节目指南输出</value></data>
+  <data name="Settings_RemoveGuideSourceLabel" xml:space="preserve"><value>移除节目指南源</value></data>
+  <data name="Settings_RemoveLogCategoryLabel" xml:space="preserve"><value>移除日志类别</value></data>
+  <data name="Settings_RemovePhysicalDeviceLabel" xml:space="preserve"><value>移除物理设备</value></data>
+  <data name="Settings_RemoveVirtualDeviceLabel" xml:space="preserve"><value>移除虚拟设备</value></data>
+  <data name="Settings_RequestRateHelp" xml:space="preserve"><value>每个客户端的请求速率限制。设为 0 可禁用速率限制。</value></data>
+  <data name="Settings_RequestRateLabel" xml:space="preserve"><value>请求数/分钟/客户端</value></data>
+  <data name="Settings_RequireHttpsHelp" xml:space="preserve"><value>拒绝未加密的 Lineup Link 请求，并在导出的连接包中发布 HTTPS 端点。</value></data>
+  <data name="Settings_RequireHttpsLabel" xml:space="preserve"><value>要求使用 HTTPS</value></data>
+  <data name="Settings_ResetConfiguredPathButton" xml:space="preserve"><value>重置为配置的路径</value></data>
+  <data name="Settings_ResetDefaultsButton" xml:space="preserve"><value>将设置重置为默认值</value></data>
+  <data name="Settings_ResetDefaultsDescription" xml:space="preserve"><value>将每项可配置设置恢复为默认值。您可以在保存前检查这些默认值。</value></data>
+  <data name="Settings_ResetDefaultsHeading" xml:space="preserve"><value>将设置重置为默认值</value></data>
+  <data name="Settings_ResolvedPathLabel" xml:space="preserve"><value>解析后的路径：</value></data>
+  <data name="Settings_RestartButton" xml:space="preserve"><value>重启 Lineup</value></data>
+  <data name="Settings_RestartDescription" xml:space="preserve"><value>正常重启 Lineup，而不更改设置或删除应用数据。</value></data>
+  <data name="Settings_RestartHeading" xml:space="preserve"><value>重启 Lineup</value></data>
+  <data name="Settings_RestartWindowHelp" xml:space="preserve"><value>用于统计工作进程重复失败的时间段。</value></data>
+  <data name="Settings_RestartWindowLabel" xml:space="preserve"><value>重启时间窗口（秒）</value></data>
+  <data name="Settings_RetainedLogFilesHeading" xml:space="preserve"><value>保留日志文件</value></data>
+  <data name="Settings_RollingFileLogsHeading" xml:space="preserve"><value>滚动文件日志</value></data>
+  <data name="Settings_SelectedDevices" xml:space="preserve"><value>已选设备</value></data>
+  <data name="Settings_SelectedGuideSources" xml:space="preserve"><value>已选节目指南源</value></data>
+  <data name="Settings_SelectedPhysicalDevices" xml:space="preserve"><value>已选物理设备</value></data>
+  <data name="Settings_SelectedPhysicalDevicesHelp" xml:space="preserve"><value>选择此输出可以路由到的物理设备。已禁用的设备仍会保持选中，但在重新启用前无法提供频道或容量。</value></data>
+  <data name="Settings_SelectedVirtualDevices" xml:space="preserve"><value>已选虚拟设备</value></data>
+  <data name="Settings_SourceStageName" xml:space="preserve"><value>源阶段</value></data>
+  <data name="Settings_StableIdEndpointPrefix" xml:space="preserve"><value>稳定 ID 端点</value></data>
+  <data name="Settings_StableIdEndpointSuffix" xml:space="preserve"><value>也会提供此输出。</value></data>
+  <data name="Settings_StartupBadge" xml:space="preserve"><value>启动配置</value></data>
+  <data name="Settings_StreamingPoliciesHeading" xml:space="preserve"><value>流式传输策略</value></data>
+  <data name="Settings_TestAndIdentifyButton" xml:space="preserve"><value>测试并识别</value></data>
+  <data name="Settings_TestAndIdentifyHelp" xml:space="preserve"><value>测试当前未保存的连接值并读取设备标识。不会保存设置、刷新频道或激活设备。</value></data>
+  <data name="Settings_TestingStatus" xml:space="preserve"><value>正在测试...</value></data>
+  <data name="Settings_TranscoderSettingsHeading" xml:space="preserve"><value>转码器设置</value></data>
+  <data name="Settings_TransportLabel" xml:space="preserve"><value>传输</value></data>
+  <data name="Settings_TransportSecurityHelp" xml:space="preserve"><value>HTTPS 会加密凭据和流量。HTTP 应仅在受信任的专用网络上使用。</value></data>
+  <data name="Settings_TransportSecurityLabel" xml:space="preserve"><value>传输安全</value></data>
+  <data name="Settings_TrustedProxiesHelp" xml:space="preserve"><value>允许提供转发标头的代理 IP 地址或 CIDR，以逗号分隔。</value></data>
+  <data name="Settings_TrustedProxiesLabel" xml:space="preserve"><value>受信任代理</value></data>
+  <data name="Settings_TunerCountCapHelp" xml:space="preserve"><value>向使用方发布的最大调谐器数量。留空则根据订阅的物理设备计算容量。</value></data>
+  <data name="Settings_TunerCountCapLabel" xml:space="preserve"><value>调谐器数量上限</value></data>
+  <data name="Settings_TunerStatusRefreshIntervalHelp" xml:space="preserve"><value>仪表板刷新调谐器状态的频率。设为 0 可禁用自动刷新。</value></data>
+  <data name="Settings_TunerStatusRefreshIntervalLabel" xml:space="preserve"><value>调谐器状态刷新间隔</value></data>
+  <data name="Settings_TypePickerCloseLabel" xml:space="preserve"><value>关闭</value></data>
+  <data name="Settings_UseDedicatedListenerHelp" xml:space="preserve"><value>关闭此选项可通过管理 UI 主机及其现有 HTTP/HTTPS 端口提供输出。</value></data>
+  <data name="Settings_UseDedicatedListenerLabel" xml:space="preserve"><value>使用专用监听器</value></data>
+  <data name="Settings_UseDiscoveredNameButton" xml:space="preserve"><value>使用发现的名称</value></data>
+  <data name="Settings_VirtualDeviceNameHelp" xml:space="preserve"><value>在 Lineup 中显示的本地标签；如果适配器支持，也会向下游使用方显示。</value></data>
+  <data name="Settings_VirtualDevicesEmptyWebPlayerDisabledPrefix" xml:space="preserve"><value>请从相应选项卡启用内置 Web Player，或选择</value></data>
+  <data name="Settings_VirtualDevicesEmptyWebPlayerDisabledSuffix" xml:space="preserve"><value>以向使用方公开频道。</value></data>
+  <data name="Settings_VirtualDevicesEmptyWebPlayerEnabledPrefix" xml:space="preserve"><value>请选择</value></data>
+  <data name="Settings_VirtualDevicesEmptyWebPlayerEnabledSuffix" xml:space="preserve"><value>以向其他使用方公开频道。内置 Web Player 仍然可用。</value></data>
+  <data name="Settings_VirtualDevicesHeading" xml:space="preserve"><value>虚拟设备</value></data>
+  <data name="Settings_VirtualDevicesMissingWebPlayer" xml:space="preserve"><value>当前拓扑中缺少必需的内置 Web Player。</value></data>
+  <data name="Settings_VirtualHevcHelp" xml:space="preserve"><value>供无法处理 HEVC 的使用方使用的默认输出转换方式。</value></data>
+  <data name="Settings_VirtualTranscoderDefaultsDescription" xml:space="preserve"><value>除非在相应选项卡中启用覆盖，否则每个虚拟设备都会继承这些输出阶段设置。</value></data>
+  <data name="Settings_VirtualTunerDiscoveryHeading" xml:space="preserve"><value>虚拟调谐器发现</value></data>
+  <data name="About_Heading" xml:space="preserve"><value>关于</value></data>
+  <data name="About_MountDirectoryPrefix" xml:space="preserve"><value>将</value></data>
+  <data name="About_MountDirectorySuffix" xml:space="preserve"><value>目录挂载到您的主机目录中：</value></data>
+  <data name="About_PageTitle" xml:space="preserve"><value>关于</value></data>
+  <data name="About_UseHostFilePath" xml:space="preserve"><value>然后使用主机上的文件路径：</value></data>
+  <data name="About_VersionLabel" xml:space="preserve"><value>版本</value></data>
+  <data name="About_XmltvFileAccessHeading" xml:space="preserve"><value>XMLTV 文件访问</value></data>
+  <data name="About_XmltvFileAccessHelp" xml:space="preserve"><value>如果您的媒体服务器可以直接读取文件（例如与 Lineup 运行在同一主机上），则可以将其指向已挂载 Docker 卷中的 XMLTV 文件，而不必使用 URL。</value></data>
+  <data name="About_XmltvGuideUrlHeading" xml:space="preserve"><value>XMLTV 节目指南 URL</value></data>
+  <data name="About_XmltvGuideUrlHelp" xml:space="preserve"><value>如果您的媒体服务器支持将 URL 用作 XMLTV 节目指南源，请使用此 URL。</value></data>
+  <data name="Channels_AllBindings" xml:space="preserve"><value>所有绑定</value></data>
+  <data name="Channels_AllDevices" xml:space="preserve"><value>所有设备</value></data>
+  <data name="Channels_AllFlags" xml:space="preserve"><value>所有标记</value></data>
+  <data name="Channels_AllStates" xml:space="preserve"><value>所有状态</value></data>
+  <data name="Channels_Ambiguous" xml:space="preserve"><value>不明确</value></data>
+  <data name="Channels_AmbiguousGuideMatchHelp" xml:space="preserve"><value>有多个符合条件的节目指南频道匹配。请选择权威频道。</value></data>
+  <data name="Channels_AudioColumn" xml:space="preserve"><value>音频</value></data>
+  <data name="Channels_AuthoritativeGuideColumn" xml:space="preserve"><value>权威节目指南</value></data>
+  <data name="Channels_Bound" xml:space="preserve"><value>已绑定</value></data>
+  <data name="Channels_ChannelsLabel" xml:space="preserve"><value>频道</value></data>
+  <data name="Channels_ClearFilters" xml:space="preserve"><value>清除筛选条件</value></data>
+  <data name="Channels_Description" xml:space="preserve"><value>当前可从已启用的物理调谐器获取的频道。</value></data>
+  <data name="Channels_DisableChannelAria" xml:space="preserve"><value>在 {1} 上禁用频道 {0}</value></data>
+  <data name="Channels_DrmProtected" xml:space="preserve"><value>受 DRM 保护</value></data>
+  <data name="Channels_DrmProtectedChannel" xml:space="preserve"><value>受 DRM 保护的频道</value></data>
+  <data name="Channels_EnableChannelAria" xml:space="preserve"><value>在 {1} 上启用频道 {0}</value></data>
+  <data name="Channels_EquivalenceGroupColumn" xml:space="preserve"><value>等价组</value></data>
+  <data name="Channels_ErrorLoadingSavedLineup" xml:space="preserve"><value>加载已保存的频道阵容时出错：{0}</value></data>
+  <data name="Channels_ErrorRefreshingChannels" xml:space="preserve"><value>刷新频道时出错：{0}</value></data>
+  <data name="Channels_ErrorUpdatingChannel" xml:space="preserve"><value>更新频道 {0} 时出错：{1}</value></data>
+  <data name="Channels_ErrorUpdatingGuideBinding" xml:space="preserve"><value>更新权威节目指南绑定时出错：{0}</value></data>
+  <data name="Channels_ErrorUpdatingIdentity" xml:space="preserve"><value>更新频道标识时出错：{0}</value></data>
+  <data name="Channels_Favorite" xml:space="preserve"><value>收藏</value></data>
+  <data name="Channels_FavoriteChannel" xml:space="preserve"><value>收藏频道</value></data>
+  <data name="Channels_Favorites" xml:space="preserve"><value>收藏频道</value></data>
+  <data name="Channels_FindHeading" xml:space="preserve"><value>查找频道</value></data>
+  <data name="Channels_FlagsLabel" xml:space="preserve"><value>标记</value></data>
+  <data name="Channels_GlobalNameColumn" xml:space="preserve"><value>全局名称</value></data>
+  <data name="Channels_GlobalNumberColumn" xml:space="preserve"><value>全局编号</value></data>
+  <data name="Channels_GuideBindingLabel" xml:space="preserve"><value>节目指南绑定</value></data>
+  <data name="Channels_GuideMatchedAutomatically" xml:space="preserve"><value>已根据物理频道标识自动匹配。</value></data>
+  <data name="Channels_GuideStateUnavailable" xml:space="preserve"><value>节目指南状态不可用</value></data>
+  <data name="Channels_Heading" xml:space="preserve"><value>HDHomeRun 频道</value></data>
+  <data name="Channels_InvalidEquivalenceGroup" xml:space="preserve"><value>等价组必须为空或为有效的 GUID。</value></data>
+  <data name="Channels_Loading" xml:space="preserve"><value>正在加载频道...</value></data>
+  <data name="Channels_ManualOverride" xml:space="preserve"><value>手动覆盖。</value></data>
+  <data name="Channels_ManualSelectionUnavailable" xml:space="preserve"><value>手动选择不可用 - 请使用自动匹配</value></data>
+  <data name="Channels_NoAutomaticGuideMatchHelp" xml:space="preserve"><value>没有自动匹配的提供商标识或编号。请手动选择权威频道。</value></data>
+  <data name="Channels_NoMatch" xml:space="preserve"><value>无匹配项</value></data>
+  <data name="Channels_NoMatchingChannels" xml:space="preserve"><value>没有频道与当前搜索和筛选条件匹配。</value></data>
+  <data name="Channels_NoSavedLineup" xml:space="preserve"><value>没有已保存的调谐器频道阵容</value></data>
+  <data name="Channels_NoSavedLineupHelp" xml:space="preserve"><value>刷新频道以查询每个已启用的物理调谐器，而不下载节目指南数据。</value></data>
+  <data name="Channels_OptionalGuid" xml:space="preserve"><value>可选 GUID</value></data>
+  <data name="Channels_PageTitle" xml:space="preserve"><value>频道</value></data>
+  <data name="Channels_PhysicalDeviceColumn" xml:space="preserve"><value>物理设备</value></data>
+  <data name="Channels_PhysicalDeviceLabel" xml:space="preserve"><value>物理设备</value></data>
+  <data name="Channels_PhysicalSourceChannelsHeading" xml:space="preserve"><value>物理源频道</value></data>
+  <data name="Channels_ProviderIdentityColumn" xml:space="preserve"><value>提供商标识</value></data>
+  <data name="Channels_QualityColumn" xml:space="preserve"><value>质量</value></data>
+  <data name="Channels_RefreshChannels" xml:space="preserve"><value>刷新频道</value></data>
+  <data name="Channels_RefreshedChannels" xml:space="preserve"><value>已刷新 {0} 个物理源频道。</value></data>
+  <data name="Channels_RefreshedChannelsWithFailures" xml:space="preserve"><value>已刷新 {0} 个物理源频道，但有 {1} 个设备失败；已保留先前状态。</value></data>
+  <data name="Channels_SavedButXmltvUpdateFailed" xml:space="preserve"><value>频道设置已保存，但无法更新已发布的 XMLTV 节目指南：{0}</value></data>
+  <data name="Channels_SavedGlobalIdentity" xml:space="preserve"><value>已保存频道 {0} 的全局标识。</value></data>
+  <data name="Channels_SavedGuideUnavailableHelp" xml:space="preserve"><value>已保存的手动节目指南频道不再处于活动状态。请选择其他频道或恢复自动匹配。</value></data>
+  <data name="Channels_SearchPlaceholder" xml:space="preserve"><value>编号、名称、设备、编解码器或提供商密钥</value></data>
+  <data name="Channels_SelectGuideAmbiguous" xml:space="preserve"><value>选择权威节目指南（匹配不明确）</value></data>
+  <data name="Channels_SelectGuideNoMatch" xml:space="preserve"><value>选择权威节目指南（无自动匹配）</value></data>
+  <data name="Channels_ShowingCount" xml:space="preserve"><value>正在显示 {1} 个物理源频道中的 {0} 个。</value></data>
+  <data name="Channels_SignalColumn" xml:space="preserve"><value>信号</value></data>
+  <data name="Channels_StateLabel" xml:space="preserve"><value>状态</value></data>
+  <data name="Channels_UnavailableGuideChannel" xml:space="preserve"><value>不可用：{0} · {1}</value></data>
+  <data name="Channels_UnavailableGuideSource" xml:space="preserve"><value>节目指南源不可用</value></data>
+  <data name="Channels_Unbound" xml:space="preserve"><value>未绑定</value></data>
+  <data name="Channels_UseAutomaticMatching" xml:space="preserve"><value>使用自动匹配</value></data>
+  <data name="Channels_VideoColumn" xml:space="preserve"><value>视频</value></data>
+  <data name="Common_Actions" xml:space="preserve"><value>操作</value></data>
+  <data name="Common_AndRestartingApp" xml:space="preserve"><value>并重启应用。</value></data>
+  <data name="Common_Channel" xml:space="preserve"><value>频道</value></data>
+  <data name="Common_Clear" xml:space="preserve"><value>清除</value></data>
+  <data name="Common_Close" xml:space="preserve"><value>关闭</value></data>
+  <data name="Common_ClosesAutomatically" xml:space="preserve"><value>自动关闭</value></data>
+  <data name="Common_CopiedToClipboard" xml:space="preserve"><value>已复制到剪贴板！</value></data>
+  <data name="Common_CopyToClipboard" xml:space="preserve"><value>复制到剪贴板</value></data>
+  <data name="Common_DevelopmentModeDetailsPrefix" xml:space="preserve"><value>切换到</value></data>
+  <data name="Common_DevelopmentModeDetailsSuffix" xml:space="preserve"><value>环境将显示有关所发生错误的更多详细信息。</value></data>
+  <data name="Common_DevelopmentModeHeading" xml:space="preserve"><value>开发模式</value></data>
+  <data name="Common_DevelopmentModeLocalDebugMiddle" xml:space="preserve"><value>环境，请将</value></data>
+  <data name="Common_DevelopmentModeLocalDebugPrefix" xml:space="preserve"><value>若要进行本地调试，请启用</value></data>
+  <data name="Common_DevelopmentModeLocalDebugSuffix" xml:space="preserve"><value>环境变量设置为</value></data>
+  <data name="Common_DevelopmentModeSensitiveInformation" xml:space="preserve"><value>这可能会向最终用户显示异常中的敏感信息。</value></data>
+  <data name="Common_DevelopmentModeWarning" xml:space="preserve"><value>不应为已部署的应用程序启用 Development 环境。</value></data>
+  <data name="Common_Disabled" xml:space="preserve"><value>已禁用</value></data>
+  <data name="Common_DismissStatusMessage" xml:space="preserve"><value>关闭状态消息</value></data>
+  <data name="Common_Enabled" xml:space="preserve"><value>已启用</value></data>
+  <data name="Common_ErrorHeading" xml:space="preserve"><value>错误。</value></data>
+  <data name="Common_ErrorPageTitle" xml:space="preserve"><value>错误</value></data>
+  <data name="Common_ErrorProcessingRequest" xml:space="preserve"><value>处理您的请求时发生错误。</value></data>
+  <data name="Common_FailedToRejoin" xml:space="preserve"><value>重新加入失败。</value></data>
+  <data name="Common_FailedToResume" xml:space="preserve"><value>恢复会话失败。</value></data>
+  <data name="Common_LastUpdated" xml:space="preserve"><value>上次更新</value></data>
+  <data name="Common_Loading" xml:space="preserve"><value>正在加载...</value></data>
+  <data name="Common_Never" xml:space="preserve"><value>从不</value></data>
+  <data name="Common_NotAvailable" xml:space="preserve"><value>不适用</value></data>
+  <data name="Common_NotFoundHeading" xml:space="preserve"><value>未找到</value></data>
+  <data name="Common_NotFoundMessage" xml:space="preserve"><value>抱歉，您查找的内容不存在。</value></data>
+  <data name="Common_Pause" xml:space="preserve"><value>暂停</value></data>
+  <data name="Common_Refresh" xml:space="preserve"><value>刷新</value></data>
+  <data name="Common_RejoinFailedRetryPrefix" xml:space="preserve"><value>重新加入失败... 将在以下时间后重试：</value></data>
+  <data name="Common_RejoiningServer" xml:space="preserve"><value>正在重新加入服务器...</value></data>
+  <data name="Common_Reload" xml:space="preserve"><value>重新加载</value></data>
+  <data name="Common_RequestIdLabel" xml:space="preserve"><value>请求 ID</value></data>
+  <data name="Common_Resume" xml:space="preserve"><value>恢复</value></data>
+  <data name="Common_RetryOrReload" xml:space="preserve"><value>请重试或重新加载页面。</value></data>
+  <data name="Common_Save" xml:space="preserve"><value>保存</value></data>
+  <data name="Common_Search" xml:space="preserve"><value>搜索</value></data>
+  <data name="Common_SecondsAbbreviation" xml:space="preserve"><value>{0}秒</value></data>
+  <data name="Common_SecondsSuffix" xml:space="preserve"><value>秒。</value></data>
+  <data name="Common_SessionPaused" xml:space="preserve"><value>会话已被服务器暂停。</value></data>
+  <data name="Common_Status" xml:space="preserve"><value>状态</value></data>
+  <data name="Common_Stop" xml:space="preserve"><value>停止</value></data>
+  <data name="Common_UnhandledError" xml:space="preserve"><value>发生了未处理的错误。</value></data>
+  <data name="Common_Unknown" xml:space="preserve"><value>未知</value></data>
+  <data name="Dashboard_ActivePathsHeading" xml:space="preserve"><value>活动路径</value></data>
+  <data name="Dashboard_ActiveStreamsHeading" xml:space="preserve"><value>活动流</value></data>
+  <data name="Dashboard_ActiveStreamsSummary" xml:space="preserve"><value>{0} 个活动 · {1} · {2}</value></data>
+  <data name="Dashboard_AutoFetchDisabled" xml:space="preserve"><value>自动获取已禁用</value></data>
+  <data name="Dashboard_AutoFetchHeading" xml:space="preserve"><value>自动获取</value></data>
+  <data name="Dashboard_AutoFetchInProgress" xml:space="preserve"><value>正在自动获取</value></data>
+  <data name="Dashboard_AutoFetchInterval" xml:space="preserve"><value>20-28 小时（随机）</value></data>
+  <data name="Dashboard_AutoFetchPending" xml:space="preserve"><value>自动获取等待中</value></data>
+  <data name="Dashboard_AutoFetchRunning" xml:space="preserve"><value>正在自动获取</value></data>
+  <data name="Dashboard_AutoRefreshDisabled" xml:space="preserve"><value>自动刷新已禁用</value></data>
+  <data name="Dashboard_ChannelGapDurationFormat" xml:space="preserve"><value>h&amp;apos; 小时 &amp;apos;m&amp;apos; 分钟&amp;apos;</value></data>
+  <data name="Dashboard_ChannelGapLabel" xml:space="preserve"><value>频道间隔</value></data>
+  <data name="Dashboard_ChannelsHeading" xml:space="preserve"><value>频道</value></data>
+  <data name="Dashboard_ChannelsLabel" xml:space="preserve"><value>频道</value></data>
+  <data name="Dashboard_ChannelsSummary" xml:space="preserve"><value>{0} 个已启用 · {1} 个已禁用 · 更新于 {2}</value></data>
+  <data name="Dashboard_ChannelsSummaryNever" xml:space="preserve"><value>{0} 个已启用 · {1} 个已禁用 · 从未刷新</value></data>
+  <data name="Dashboard_CollapseActiveStreamsSection" xml:space="preserve"><value>折叠“活动流”部分</value></data>
+  <data name="Dashboard_CollapseChannelsSection" xml:space="preserve"><value>折叠“频道”部分</value></data>
+  <data name="Dashboard_CollapseGuideSection" xml:space="preserve"><value>折叠“节目指南”部分</value></data>
+  <data name="Dashboard_CountdownHours" xml:space="preserve"><value>{0}小时 {1}分 {2}秒</value></data>
+  <data name="Dashboard_CountdownMinutes" xml:space="preserve"><value>{0}分 {1}秒</value></data>
+  <data name="Dashboard_DeviceRestartSent" xml:space="preserve"><value>已发送设备重启命令。设备将在约 30 秒内不可用。</value></data>
+  <data name="Dashboard_DeviceSummary" xml:space="preserve"><value>{0} 台设备 · {1} 台正在流式传输 · {2} 台不可用</value></data>
+  <data name="Dashboard_DueNow" xml:space="preserve"><value>现已到期</value></data>
+  <data name="Dashboard_EarliestLabel" xml:space="preserve"><value>最早</value></data>
+  <data name="Dashboard_EnableIn" xml:space="preserve"><value>启用位置</value></data>
+  <data name="Dashboard_ErrorFetchingData" xml:space="preserve"><value>获取数据时出错：{0}</value></data>
+  <data name="Dashboard_ErrorGeneratingXmltv" xml:space="preserve"><value>生成 XMLTV 时出错：{0}</value></data>
+  <data name="Dashboard_ErrorLoadingSavedLineup" xml:space="preserve"><value>加载已保存的频道阵容时出错：{0}</value></data>
+  <data name="Dashboard_ErrorRefreshingChannels" xml:space="preserve"><value>刷新频道时出错：{0}</value></data>
+  <data name="Dashboard_EveryInterval" xml:space="preserve"><value>每 {0}</value></data>
+  <data name="Dashboard_EverySeconds" xml:space="preserve"><value>每 {0} 秒</value></data>
+  <data name="Dashboard_ExpandActiveStreamsSection" xml:space="preserve"><value>展开“活动流”部分</value></data>
+  <data name="Dashboard_ExpandChannelsSection" xml:space="preserve"><value>展开“频道”部分</value></data>
+  <data name="Dashboard_ExpandGuideSection" xml:space="preserve"><value>展开“节目指南”部分</value></data>
+  <data name="Dashboard_ExportXmltv" xml:space="preserve"><value>导出 XMLTV</value></data>
+  <data name="Dashboard_FailedToRestartDevice" xml:space="preserve"><value>重启设备失败：{0}</value></data>
+  <data name="Dashboard_FailedToStopReceiver" xml:space="preserve"><value>停止接收器 {0} 失败：{1}</value></data>
+  <data name="Dashboard_FetchGuide" xml:space="preserve"><value>获取节目指南</value></data>
+  <data name="Dashboard_FetchNumber" xml:space="preserve"><value>获取次数</value></data>
+  <data name="Dashboard_FetchStatusCompleted" xml:space="preserve"><value>已完成</value></data>
+  <data name="Dashboard_FetchStatusFailed" xml:space="preserve"><value>失败</value></data>
+  <data name="Dashboard_FetchStatusFetching" xml:space="preserve"><value>正在获取</value></data>
+  <data name="Dashboard_FetchStatusInitializing" xml:space="preserve"><value>正在初始化</value></data>
+  <data name="Dashboard_FetchStatusStoring" xml:space="preserve"><value>正在存储</value></data>
+  <data name="Dashboard_GenerateXmltv" xml:space="preserve"><value>生成 XMLTV</value></data>
+  <data name="Dashboard_GuideFetchedSuccessfully" xml:space="preserve"><value>已成功从 {0} 个源获取节目指南数据：{1:N0} 个频道和 {2:N0} 个节目。</value></data>
+  <data name="Dashboard_GuideRefreshWithFailures" xml:space="preserve"><value>节目指南刷新已完成，但有 {0} 个源和 {1} 个输出失败。已保留成功的导入和发布结果。</value></data>
+  <data name="Dashboard_GuideSummary" xml:space="preserve"><value>{0} 个频道 · {1} 个节目 · 剩余 {2} · {3}</value></data>
+  <data name="Dashboard_GuideXmltvHeading" xml:space="preserve"><value>节目指南和 XMLTV</value></data>
+  <data name="Dashboard_Heading" xml:space="preserve"><value>仪表板</value></data>
+  <data name="Dashboard_LatestLabel" xml:space="preserve"><value>最新</value></data>
+  <data name="Dashboard_ManualFetchProgress" xml:space="preserve"><value>手动获取进度</value></data>
+  <data name="Dashboard_NextFetchIn" xml:space="preserve"><value>将在 {0} 后进行下次获取</value></data>
+  <data name="Dashboard_NoActivePhysicalDevices" xml:space="preserve"><value>没有已启用的物理设备处于活动状态。</value></data>
+  <data name="Dashboard_NoGuideSourcesEnabled" xml:space="preserve"><value>没有启用任何节目指南源。已使用缓存的节目指南数据重新生成 XMLTV。</value></data>
+  <data name="Dashboard_NotRefreshed" xml:space="preserve"><value>未刷新</value></data>
+  <data name="Dashboard_PageTitle" xml:space="preserve"><value>仪表板</value></data>
+  <data name="Dashboard_Pending" xml:space="preserve"><value>等待中...</value></data>
+  <data name="Dashboard_PhysicalDevicesHeading" xml:space="preserve"><value>物理设备</value></data>
+  <data name="Dashboard_ProgramsLabel" xml:space="preserve"><value>节目</value></data>
+  <data name="Dashboard_ProjectionChannelSummary" xml:space="preserve"><value>节目指南和流式传输预测使用 {0} 个物理源频道，刷新于 {1}。</value></data>
+  <data name="Dashboard_PublishedOutputsSuccessfully" xml:space="preserve"><value>已成功发布 {0} 个节目指南输出。</value></data>
+  <data name="Dashboard_PublishedOutputsWithFailures" xml:space="preserve"><value>已发布 {0} 个节目指南输出；{1} 个失败：{2}</value></data>
+  <data name="Dashboard_ReceiverColumn" xml:space="preserve"><value>接收器</value></data>
+  <data name="Dashboard_ReceiverIdle" xml:space="preserve"><value>空闲</value></data>
+  <data name="Dashboard_ReceiverStopped" xml:space="preserve"><value>已成功停止接收器 {0}。</value></data>
+  <data name="Dashboard_ReceiverStreaming" xml:space="preserve"><value>正在流式传输</value></data>
+  <data name="Dashboard_ReceiverTuned" xml:space="preserve"><value>已调谐</value></data>
+  <data name="Dashboard_RefreshChannels" xml:space="preserve"><value>刷新频道</value></data>
+  <data name="Dashboard_RefreshChannelsBeforeGuide" xml:space="preserve"><value>获取 SiliconDust 节目指南前，请先刷新上方的 HDHomeRun 频道。</value></data>
+  <data name="Dashboard_RefreshedAt" xml:space="preserve"><value>刷新于 {0}</value></data>
+  <data name="Dashboard_RefreshedChannels" xml:space="preserve"><value>已刷新 {0} 个物理源频道。</value></data>
+  <data name="Dashboard_RefreshedChannelsWithFailures" xml:space="preserve"><value>已刷新 {0} 个物理源频道，但有 {1} 个设备失败。</value></data>
+  <data name="Dashboard_RefreshingEnabledGuideSources" xml:space="preserve"><value>正在刷新已启用的节目指南源</value></data>
+  <data name="Dashboard_RemainingDurationFormat" xml:space="preserve"><value>d&amp;apos; 天 &amp;apos;h&amp;apos; 小时&amp;apos;</value></data>
+  <data name="Dashboard_RemainingLabel" xml:space="preserve"><value>剩余</value></data>
+  <data name="Dashboard_RestartDevice" xml:space="preserve"><value>重启设备</value></data>
+  <data name="Dashboard_Running" xml:space="preserve"><value>正在运行...</value></data>
+  <data name="Dashboard_SignalColumn" xml:space="preserve"><value>信号</value></data>
+  <data name="Dashboard_StartingSoon" xml:space="preserve"><value>即将开始...</value></data>
+  <data name="Dashboard_StreamingFlowHeading" xml:space="preserve"><value>流式传输流程</value></data>
+  <data name="Dashboard_TargetColumn" xml:space="preserve"><value>目标</value></data>
+  <data name="Dashboard_TimeRangeHeading" xml:space="preserve"><value>时间范围</value></data>
+  <data name="Guide_DisabledChannel" xml:space="preserve"><value>已禁用的频道</value></data>
+  <data name="Guide_DrmProtectedChannel" xml:space="preserve"><value>受 DRM 保护的频道</value></data>
+  <data name="Guide_DurationLabel" xml:space="preserve"><value>时长</value></data>
+  <data name="Guide_DurationMinutes" xml:space="preserve"><value>{0} 分钟</value></data>
+  <data name="Guide_EndLabel" xml:space="preserve"><value>结束</value></data>
+  <data name="Guide_EpisodeLabel" xml:space="preserve"><value>剧集</value></data>
+  <data name="Guide_FavoriteChannel" xml:space="preserve"><value>收藏频道</value></data>
+  <data name="Guide_Heading" xml:space="preserve"><value>节目指南</value></data>
+  <data name="Guide_LoadingData" xml:space="preserve"><value>正在加载节目指南数据...</value></data>
+  <data name="Guide_NoDescription" xml:space="preserve"><value>没有可用的简介。</value></data>
+  <data name="Guide_NoEpgData" xml:space="preserve"><value>没有可用的 EPG 数据。请先从仪表板获取 EPG 数据。</value></data>
+  <data name="Guide_Now" xml:space="preserve"><value>现在</value></data>
+  <data name="Guide_OriginalAirLabel" xml:space="preserve"><value>首播</value></data>
+  <data name="Guide_PageTitle" xml:space="preserve"><value>节目指南</value></data>
+  <data name="Guide_ProgramTooltip" xml:space="preserve"><value>{0}\n{1} - {2}（{3:0} 分钟）</value></data>
+  <data name="Guide_StartLabel" xml:space="preserve"><value>开始</value></data>
+  <data name="Guide_Today" xml:space="preserve"><value>今天</value></data>
+  <data name="Guide_Tomorrow" xml:space="preserve"><value>明天</value></data>
+  <data name="Logs_AllCategories" xml:space="preserve"><value>所有类别</value></data>
+  <data name="Logs_CategoryLabel" xml:space="preserve"><value>类别</value></data>
+  <data name="Logs_CurrentProcessHeading" xml:space="preserve"><value>当前进程</value></data>
+  <data name="Logs_Details" xml:space="preserve"><value>详细信息</value></data>
+  <data name="Logs_EventsLabel" xml:space="preserve"><value>事件</value></data>
+  <data name="Logs_FileLoggingDisabledPrefix" xml:space="preserve"><value>文件日志记录已禁用。请在</value></data>
+  <data name="Logs_FileLoggingDisabledSuffix" xml:space="preserve"><value>中启用，然后重启 Lineup，以便跨重启保留日志。</value></data>
+  <data name="Logs_Heading" xml:space="preserve"><value>日志</value></data>
+  <data name="Logs_LevelColumn" xml:space="preserve"><value>级别</value></data>
+  <data name="Logs_LevelDebug" xml:space="preserve"><value>调试</value></data>
+  <data name="Logs_LevelError" xml:space="preserve"><value>错误</value></data>
+  <data name="Logs_LevelFatal" xml:space="preserve"><value>致命</value></data>
+  <data name="Logs_LevelInformation" xml:space="preserve"><value>信息</value></data>
+  <data name="Logs_LevelTrace" xml:space="preserve"><value>跟踪</value></data>
+  <data name="Logs_LevelWarning" xml:space="preserve"><value>警告</value></data>
+  <data name="Logs_LiveViewNotice" xml:space="preserve"><value>此实时视图仅保留当前 Lineup 进程中的近期事件。运行日志可能包含设备地址和其他诊断详细信息。</value></data>
+  <data name="Logs_MessageColumn" xml:space="preserve"><value>消息</value></data>
+  <data name="Logs_MinimumLevelLabel" xml:space="preserve"><value>最低级别</value></data>
+  <data name="Logs_NoMatchingEvents" xml:space="preserve"><value>没有日志事件与当前筛选条件匹配。</value></data>
+  <data name="Logs_NoRollingFiles" xml:space="preserve"><value>尚无可用的滚动日志文件。</value></data>
+  <data name="Logs_PageTitle" xml:space="preserve"><value>日志</value></data>
+  <data name="Logs_RollingFilesHeading" xml:space="preserve"><value>滚动日志文件</value></data>
+  <data name="Logs_SearchPlaceholder" xml:space="preserve"><value>消息、异常或属性</value></data>
+  <data name="Logs_SettingsLoggingLink" xml:space="preserve"><value>设置 &amp;gt; 日志</value></data>
+  <data name="Logs_TimeColumn" xml:space="preserve"><value>时间</value></data>
+  <data name="Nav_About" xml:space="preserve"><value>关于</value></data>
+  <data name="Nav_Channels" xml:space="preserve"><value>频道</value></data>
+  <data name="Nav_Dashboard" xml:space="preserve"><value>仪表板</value></data>
+  <data name="Nav_Guide" xml:space="preserve"><value>节目指南</value></data>
+  <data name="Nav_Logs" xml:space="preserve"><value>日志</value></data>
+  <data name="Nav_NavigationMenu" xml:space="preserve"><value>导航菜单</value></data>
+  <data name="Nav_Settings" xml:space="preserve"><value>设置</value></data>
+  <data name="Nav_ThemeAuto" xml:space="preserve"><value>自动</value></data>
+  <data name="Nav_ThemeDark" xml:space="preserve"><value>深色</value></data>
+  <data name="Nav_ThemeLight" xml:space="preserve"><value>浅色</value></data>
+  <data name="Nav_ToggleTheme" xml:space="preserve"><value>切换主题</value></data>
+  <data name="Nav_Watch" xml:space="preserve"><value>观看</value></data>
+  <data name="Nav_WatchTest" xml:space="preserve"><value>播放测试</value></data>
+  <data name="ProgramMetadata_AdditionalCredits" xml:space="preserve"><value>其他演职人员</value></data>
+  <data name="ProgramMetadata_AdditionalImages" xml:space="preserve"><value>其他图像</value></data>
+  <data name="ProgramMetadata_AlternateDescriptions" xml:space="preserve"><value>其他简介</value></data>
+  <data name="ProgramMetadata_AlternateEpisodeTitles" xml:space="preserve"><value>其他剧集标题</value></data>
+  <data name="ProgramMetadata_AlternateTitles" xml:space="preserve"><value>其他标题</value></data>
+  <data name="ProgramMetadata_AriaLabel" xml:space="preserve"><value>节目元数据</value></data>
+  <data name="ProgramMetadata_Aspect" xml:space="preserve"><value>宽高比</value></data>
+  <data name="ProgramMetadata_Audio" xml:space="preserve"><value>音频</value></data>
+  <data name="ProgramMetadata_Color" xml:space="preserve"><value>彩色</value></data>
+  <data name="ProgramMetadata_Country" xml:space="preserve"><value>国家/地区</value></data>
+  <data name="ProgramMetadata_CreditAdapter" xml:space="preserve"><value>改编</value></data>
+  <data name="ProgramMetadata_CreditCast" xml:space="preserve"><value>演员</value></data>
+  <data name="ProgramMetadata_CreditCommentator" xml:space="preserve"><value>解说员</value></data>
+  <data name="ProgramMetadata_CreditComposer" xml:space="preserve"><value>作曲</value></data>
+  <data name="ProgramMetadata_CreditDirector" xml:space="preserve"><value>导演</value></data>
+  <data name="ProgramMetadata_CreditEditor" xml:space="preserve"><value>剪辑</value></data>
+  <data name="ProgramMetadata_CreditGuest" xml:space="preserve"><value>嘉宾</value></data>
+  <data name="ProgramMetadata_CreditGuestSuffix" xml:space="preserve"><value>（嘉宾）</value></data>
+  <data name="ProgramMetadata_CreditPresenter" xml:space="preserve"><value>主持人</value></data>
+  <data name="ProgramMetadata_CreditProducer" xml:space="preserve"><value>制片人</value></data>
+  <data name="ProgramMetadata_CreditRole" xml:space="preserve"><value> 饰演 {0}</value></data>
+  <data name="ProgramMetadata_Credits" xml:space="preserve"><value>演职人员</value></data>
+  <data name="ProgramMetadata_CreditWriter" xml:space="preserve"><value>编剧</value></data>
+  <data name="ProgramMetadata_Description" xml:space="preserve"><value>简介</value></data>
+  <data name="ProgramMetadata_EpisodeIdentifiers" xml:space="preserve"><value>剧集标识符</value></data>
+  <data name="ProgramMetadata_EpisodeTitle" xml:space="preserve"><value>剧集标题</value></data>
+  <data name="ProgramMetadata_Keywords" xml:space="preserve"><value>关键词</value></data>
+  <data name="ProgramMetadata_Language" xml:space="preserve"><value>语言</value></data>
+  <data name="ProgramMetadata_LastChance" xml:space="preserve"><value>最后机会</value></data>
+  <data name="ProgramMetadata_Live" xml:space="preserve"><value>直播</value></data>
+  <data name="ProgramMetadata_LocalizedCategories" xml:space="preserve"><value>本地化类别</value></data>
+  <data name="ProgramMetadata_MoreDetails" xml:space="preserve"><value>更多详细信息</value></data>
+  <data name="ProgramMetadata_New" xml:space="preserve"><value>新节目</value></data>
+  <data name="ProgramMetadata_Origin" xml:space="preserve"><value>来源</value></data>
+  <data name="ProgramMetadata_OriginalLanguage" xml:space="preserve"><value>原始语言</value></data>
+  <data name="ProgramMetadata_Other" xml:space="preserve"><value>其他</value></data>
+  <data name="ProgramMetadata_Premiere" xml:space="preserve"><value>首播</value></data>
+  <data name="ProgramMetadata_Present" xml:space="preserve"><value>当前</value></data>
+  <data name="ProgramMetadata_PreviouslyShown" xml:space="preserve"><value>曾播出</value></data>
+  <data name="ProgramMetadata_PreviouslyShownDetails" xml:space="preserve"><value>曾播出：{0}</value></data>
+  <data name="ProgramMetadata_PrimaryTextLanguages" xml:space="preserve"><value>主要文本语言</value></data>
+  <data name="ProgramMetadata_ProgramStatus" xml:space="preserve"><value>节目状态</value></data>
+  <data name="ProgramMetadata_Quality" xml:space="preserve"><value>画质</value></data>
+  <data name="ProgramMetadata_Ratings" xml:space="preserve"><value>分级</value></data>
+  <data name="ProgramMetadata_RelatedUrls" xml:space="preserve"><value>相关 URL</value></data>
+  <data name="ProgramMetadata_Reviews" xml:space="preserve"><value>评论</value></data>
+  <data name="ProgramMetadata_SchedulingIdentifiers" xml:space="preserve"><value>排期标识符</value></data>
+  <data name="ProgramMetadata_SourceRuntime" xml:space="preserve"><value>源时长</value></data>
+  <data name="ProgramMetadata_Stereo" xml:space="preserve"><value>立体声</value></data>
+  <data name="ProgramMetadata_Subtitles" xml:space="preserve"><value>字幕</value></data>
+  <data name="ProgramMetadata_Title" xml:space="preserve"><value>标题</value></data>
+  <data name="ProgramMetadata_Video" xml:space="preserve"><value>视频</value></data>
+  <data name="Streaming_Active" xml:space="preserve"><value>活动</value></data>
+  <data name="Streaming_ActiveChannels" xml:space="preserve"><value>活动频道</value></data>
+  <data name="Streaming_ActiveProducerCountMany" xml:space="preserve"><value>{0} 个活动生产者</value></data>
+  <data name="Streaming_ActiveProducerCountOne" xml:space="preserve"><value>{0} 个活动生产者</value></data>
+  <data name="Streaming_ActiveSessions" xml:space="preserve"><value>活动会话</value></data>
+  <data name="Streaming_Channel" xml:space="preserve"><value>频道 {0}</value></data>
+  <data name="Streaming_ChannelCountAbbreviation" xml:space="preserve"><value>{0} 个频道</value></data>
+  <data name="Streaming_ConfigureDevicesPrompt" xml:space="preserve"><value>配置物理设备和虚拟设备以构建流式传输流程。</value></data>
+  <data name="Streaming_ConfiguredTopologyAriaLabel" xml:space="preserve"><value>已配置的流式传输拓扑</value></data>
+  <data name="Streaming_ConsumerCountMany" xml:space="preserve"><value>{0} 个使用方</value></data>
+  <data name="Streaming_ConsumerCountOne" xml:space="preserve"><value>{0} 个使用方</value></data>
+  <data name="Streaming_DeliveredStreamComponents" xml:space="preserve"><value>已交付的流组件</value></data>
+  <data name="Streaming_EffectiveSourceComponents" xml:space="preserve"><value>有效源组件</value></data>
+  <data name="Streaming_FlowSummaryAriaLabel" xml:space="preserve"><value>流式传输流程摘要</value></data>
+  <data name="Streaming_LaneConsumers" xml:space="preserve"><value>使用方</value></data>
+  <data name="Streaming_LaneMultiplexer" xml:space="preserve"><value>复用器</value></data>
+  <data name="Streaming_LaneOutputProcessing" xml:space="preserve"><value>输出处理</value></data>
+  <data name="Streaming_LanePhysicalSources" xml:space="preserve"><value>物理源</value></data>
+  <data name="Streaming_LaneSourceProcessing" xml:space="preserve"><value>源处理</value></data>
+  <data name="Streaming_LaneVirtualOutputs" xml:space="preserve"><value>虚拟输出</value></data>
+  <data name="Streaming_MediaTrackAudio" xml:space="preserve"><value>音频</value></data>
+  <data name="Streaming_MediaTrackSubtitle" xml:space="preserve"><value>字幕</value></data>
+  <data name="Streaming_MediaTrackVideo" xml:space="preserve"><value>视频</value></data>
+  <data name="Streaming_MultiplexedStreamComponents" xml:space="preserve"><value>已复用的流组件</value></data>
+  <data name="Streaming_NoConsumersAttached" xml:space="preserve"><value>当前没有连接任何使用方。</value></data>
+  <data name="Streaming_NodeAriaLabel" xml:space="preserve"><value>{0}，{1}，{2} 个活动会话</value></data>
+  <data name="Streaming_None" xml:space="preserve"><value>无</value></data>
+  <data name="Streaming_OutputStreamComponents" xml:space="preserve"><value>输出流组件</value></data>
+  <data name="Streaming_RawPhysicalInput" xml:space="preserve"><value>原始物理输入</value></data>
+  <data name="Streaming_RawPhysicalStreamComponents" xml:space="preserve"><value>原始物理流组件</value></data>
+  <data name="Streaming_Session" xml:space="preserve"><value>会话</value></data>
+  <data name="Streaming_SharedSessions" xml:space="preserve"><value>共享 · {0} 个会话</value></data>
+  <data name="Streaming_SourceStreamComponents" xml:space="preserve"><value>源流组件</value></data>
+  <data name="Streaming_StageConsumer" xml:space="preserve"><value>使用方</value></data>
+  <data name="Streaming_StageMultiplexer" xml:space="preserve"><value>复用器</value></data>
+  <data name="Streaming_StageOutputProcessing" xml:space="preserve"><value>输出处理</value></data>
+  <data name="Streaming_StagePhysicalSource" xml:space="preserve"><value>物理源</value></data>
+  <data name="Streaming_StagesAriaLabel" xml:space="preserve"><value>会话 {0} 的流式传输阶段</value></data>
+  <data name="Streaming_StageSourceProcessing" xml:space="preserve"><value>源处理</value></data>
+  <data name="Streaming_StageVirtualOutput" xml:space="preserve"><value>虚拟输出</value></data>
+  <data name="Streaming_StateActive" xml:space="preserve"><value>活动</value></data>
+  <data name="Streaming_StateDisabled" xml:space="preserve"><value>已禁用</value></data>
+  <data name="Streaming_StateIdle" xml:space="preserve"><value>空闲</value></data>
+  <data name="Streaming_StateLegendAriaLabel" xml:space="preserve"><value>流式传输状态图例</value></data>
+  <data name="Streaming_StateShared" xml:space="preserve"><value>共享</value></data>
+  <data name="Streaming_StateTranscoding" xml:space="preserve"><value>正在转码</value></data>
+  <data name="Streaming_StateWarm" xml:space="preserve"><value>预热</value></data>
+  <data name="Streaming_Stop" xml:space="preserve"><value>停止</value></data>
+  <data name="Streaming_StopStreamAriaLabel" xml:space="preserve"><value>停止流 {0}</value></data>
+  <data name="Streaming_StreamComponents" xml:space="preserve"><value>流组件</value></data>
+  <data name="Streaming_SubscribedStreamComponents" xml:space="preserve"><value>已订阅的流组件</value></data>
+  <data name="Streaming_TotalBitRate" xml:space="preserve"><value>总计：{0}</value></data>
+  <data name="Streaming_Unavailable" xml:space="preserve"><value>不可用</value></data>
+  <data name="Streaming_Unknown" xml:space="preserve"><value>未知</value></data>
+  <data name="Streaming_WarmProducerCountMany" xml:space="preserve"><value>{0} 个预热生产者</value></data>
+  <data name="Streaming_WarmProducerCountOne" xml:space="preserve"><value>{0} 个预热生产者</value></data>
+  <data name="Transcoding_Ac4Audio" xml:space="preserve"><value>AC-4 音频</value></data>
+  <data name="Transcoding_Audio" xml:space="preserve"><value>音频</value></data>
+  <data name="Transcoding_AudioCopy" xml:space="preserve"><value>复制</value></data>
+  <data name="Transcoding_ConvertHevcHelp" xml:space="preserve"><value>启用后，会将 HEVC/H.265 视频编码为 H.264，以获得更广泛的播放兼容性。其他视频编解码器保持不变。</value></data>
+  <data name="Transcoding_ConvertHevcToH264" xml:space="preserve"><value>将 HEVC 转换为 H.264</value></data>
+  <data name="Transcoding_DeinterlacePreserve" xml:space="preserve"><value>保留</value></data>
+  <data name="Transcoding_DeinterlaceSourceFieldRate" xml:space="preserve"><value>源场速率</value></data>
+  <data name="Transcoding_DeinterlaceSourceFrameRate" xml:space="preserve"><value>源帧率</value></data>
+  <data name="Transcoding_Deinterlacing" xml:space="preserve"><value>去隔行</value></data>
+  <data name="Transcoding_DeviceAc4Help" xml:space="preserve"><value>复制要求下游支持 AC-4。AC-3 的兼容性最广；在受支持时，E-AC-3 可保留更多功能。</value></data>
+  <data name="Transcoding_DeviceAc4OverrideHelp" xml:space="preserve"><value>启用覆盖，以独立于其他音频编解码器处理 AC-4 源。</value></data>
+  <data name="Transcoding_DeviceAudioHelp" xml:space="preserve"><value>复制可保留源编解码器和质量。AC-3 或 E-AC-3 会重新编码音频，以供需要相应格式的使用方使用。</value></data>
+  <data name="Transcoding_DeviceAudioOverrideHelp" xml:space="preserve"><value>启用覆盖，为此设备复制或重新编码所有非 AC-4 音轨。</value></data>
+  <data name="Transcoding_DeviceBitrateHelp" xml:space="preserve"><value>即使 CRF 请求更高质量，过低的限制也可能降低复杂场景的画质。</value></data>
+  <data name="Transcoding_DeviceBitrateOverrideHelp" xml:space="preserve"><value>启用覆盖，以独立于全局限制约束此设备的 H.264 编码比特率。</value></data>
+  <data name="Transcoding_DeviceDeinterlaceHelp" xml:space="preserve"><value>“保留”使视频保持不变。“源帧率”每帧输出一个逐行帧。“源场速率”以更高的 CPU 和比特率成本保留更流畅的场速率运动。</value></data>
+  <data name="Transcoding_DeviceDeinterlaceOverrideHelp" xml:space="preserve"><value>启用覆盖，以独立于全局策略保留此设备的视频或对其进行去隔行处理。</value></data>
+  <data name="Transcoding_DeviceHevcHelp" xml:space="preserve"><value>转换可提高兼容性，但会启动 H.264 视频编码器。禁用时保留源视频编解码器。</value></data>
+  <data name="Transcoding_DeviceHevcOverrideHelp" xml:space="preserve"><value>启用覆盖，以选择此设备是否将 HEVC/H.265 视频转换为 H.264，而不使用全局策略。</value></data>
+  <data name="Transcoding_DevicePresetHelp" xml:space="preserve"><value>更快的预设可降低 CPU 使用率。较慢的预设可以更低的比特率实现相近质量。</value></data>
+  <data name="Transcoding_DevicePresetOverrideHelp" xml:space="preserve"><value>启用覆盖，以更改此设备 H.264 编码器的速度与压缩效率权衡。</value></data>
+  <data name="Transcoding_DeviceQualityHelp" xml:space="preserve"><value>允许值为 16 到 30。较低值可保留更多细节，但使用更多比特率；较高值会降低比特率和画质。</value></data>
+  <data name="Transcoding_DeviceQualityOverrideHelp" xml:space="preserve"><value>启用覆盖，为此设备设置恒定质量 H.264 目标，而不继承全局 CRF。</value></data>
+  <data name="Transcoding_DeviceWarning" xml:space="preserve"><value>此设备的当前配置将对匹配的流执行 {0} 转码。</value></data>
+  <data name="Transcoding_GlobalAc4Help" xml:space="preserve"><value>单独控制 AC-4 源，因为浏览器和媒体服务器的支持各不相同。复制要求下游支持 AC-4；AC-3 是兼容性最广的选项。</value></data>
+  <data name="Transcoding_GlobalAudioHelp" xml:space="preserve"><value>复制可保留原始编解码器和质量。AC-3 或 E-AC-3 会为需要相应格式的使用方重新编码其他音频。</value></data>
+  <data name="Transcoding_GlobalBitrateHelp" xml:space="preserve"><value>限制 H.264 编码器的目标输出速率。即使 CRF 请求更高质量，过低的限制也可能降低复杂场景的画质。</value></data>
+  <data name="Transcoding_GlobalDeinterlaceHelp" xml:space="preserve"><value>“保留”使源保持不变。“源帧率”为每个隔行帧创建一个逐行帧。“源场速率”为每个场创建一个逐行帧，以更高的 CPU 和比特率成本获得更流畅的运动。</value></data>
+  <data name="Transcoding_GlobalPresetHelp" xml:space="preserve"><value>控制 H.264 编码速度与压缩效率之间的权衡。更快的预设使用较少 CPU；较慢的预设可以更低的比特率实现相近质量。</value></data>
+  <data name="Transcoding_GlobalQualityHelp" xml:space="preserve"><value>设置 16 到 30 的恒定质量 H.264 编码。较低值保留更多细节，但使用更多比特率；较高值会降低比特率和画质。</value></data>
+  <data name="Transcoding_GlobalWarning" xml:space="preserve"><value>当前配置将对匹配的流执行 {0} 转码。</value></data>
+  <data name="Transcoding_Inherits" xml:space="preserve"><value>（继承 {0}）</value></data>
+  <data name="Transcoding_InheritsCrf" xml:space="preserve"><value>（继承 CRF {0}）</value></data>
+  <data name="Transcoding_InheritsMbps" xml:space="preserve"><value>（继承 {0} Mbps）</value></data>
+  <data name="Transcoding_MaximumVideoBitrate" xml:space="preserve"><value>最大视频比特率</value></data>
+  <data name="Transcoding_NonAc4Audio" xml:space="preserve"><value>非 AC-4 音频</value></data>
+  <data name="Transcoding_OverrideAc4Audio" xml:space="preserve"><value>覆盖 AC-4 音频</value></data>
+  <data name="Transcoding_OverrideBitrate" xml:space="preserve"><value>覆盖比特率</value></data>
+  <data name="Transcoding_OverrideDeinterlacing" xml:space="preserve"><value>覆盖去隔行设置</value></data>
+  <data name="Transcoding_OverrideEncoderPreset" xml:space="preserve"><value>覆盖编码器预设</value></data>
+  <data name="Transcoding_OverrideHevcConversion" xml:space="preserve"><value>覆盖 HEVC 转换</value></data>
+  <data name="Transcoding_OverrideNonAc4Audio" xml:space="preserve"><value>覆盖非 AC-4 音频</value></data>
+  <data name="Transcoding_OverrideVideoQuality" xml:space="preserve"><value>覆盖视频质量</value></data>
+  <data name="Transcoding_PresetFast" xml:space="preserve"><value>快速</value></data>
+  <data name="Transcoding_PresetFaster" xml:space="preserve"><value>更快</value></data>
+  <data name="Transcoding_PresetMedium" xml:space="preserve"><value>中等</value></data>
+  <data name="Transcoding_PresetVeryFast" xml:space="preserve"><value>非常快</value></data>
+  <data name="Transcoding_Settings" xml:space="preserve"><value>转码设置</value></data>
+  <data name="Transcoding_UsesGlobalSettings" xml:space="preserve"><value>除非启用覆盖，否则使用全局设置。</value></data>
+  <data name="Transcoding_Video" xml:space="preserve"><value>视频</value></data>
+  <data name="Transcoding_VideoEncoderPreset" xml:space="preserve"><value>视频编码器预设</value></data>
+  <data name="Transcoding_VideoQualityCrf" xml:space="preserve"><value>视频质量 (CRF)</value></data>
+  <data name="Watch_AdaptivePlaybackUnsupported" xml:space="preserve"><value>您的浏览器不支持自适应播放。</value></data>
+  <data name="Watch_AudioUnavailable" xml:space="preserve"><value>{0} 不可用</value></data>
+  <data name="Watch_AutoProtocol" xml:space="preserve"><value>{0}（自动）</value></data>
+  <data name="Watch_BitmapSubtitles" xml:space="preserve"><value>位图字幕</value></data>
+  <data name="Watch_BrowserProfile" xml:space="preserve"><value>浏览器配置文件</value></data>
+  <data name="Watch_BurnInTrack" xml:space="preserve"><value>{0}（烧录；CPU 占用较高）</value></data>
+  <data name="Watch_ChannelNumberPlaceholder" xml:space="preserve"><value>频道编号</value></data>
+  <data name="Watch_Channels" xml:space="preserve"><value>频道</value></data>
+  <data name="Watch_CompatibilityProfileCleared" xml:space="preserve"><value>已保存的浏览器兼容性配置文件与运行时播放结果冲突，因此已清除。请再次运行播放测试以刷新该配置文件。</value></data>
+  <data name="Watch_DedicatedListenerNotConfigured" xml:space="preserve"><value>尚未配置 Web Player 专用监听器。</value></data>
+  <data name="Watch_DrmProtectedChannel" xml:space="preserve"><value>受 DRM 保护的频道</value></data>
+  <data name="Watch_Fallback" xml:space="preserve"><value>备用</value></data>
+  <data name="Watch_FallbackAudio" xml:space="preserve"><value>备用音频</value></data>
+  <data name="Watch_FallbackAudioLower" xml:space="preserve"><value>备用音频</value></data>
+  <data name="Watch_FavoriteChannel" xml:space="preserve"><value>收藏频道</value></data>
+  <data name="Watch_FFmpegSharedSegments" xml:space="preserve"><value>FFmpeg（共享分段）</value></data>
+  <data name="Watch_H264AndAacStereo" xml:space="preserve"><value>H.264 和 AAC 立体声</value></data>
+  <data name="Watch_H264Fallback" xml:space="preserve"><value>H.264 备用版本</value></data>
+  <data name="Watch_HostedStream" xml:space="preserve"><value>托管流</value></data>
+  <data name="Watch_InvalidChannelNumber" xml:space="preserve"><value>请输入由数字组成的频道编号，可选择包含一个小数点。</value></data>
+  <data name="Watch_JsAudioFallback" xml:space="preserve"><value>此浏览器无法使用源音频。此流将使用已配置的备用呈现版本。</value></data>
+  <data name="Watch_JsAudioTrackChanged" xml:space="preserve"><value>音轨已更改。</value></data>
+  <data name="Watch_JsBothManifestsLoadFailed" xml:space="preserve"><value>无法加载任一 CMAF 清单。</value></data>
+  <data name="Watch_JsInitializationSuperseded" xml:space="preserve"><value>播放初始化已被后续操作取代。</value></data>
+  <data name="Watch_JsPlaybackFailed" xml:space="preserve"><value>CMAF 播放失败。</value></data>
+  <data name="Watch_JsPlayerContainerNotFound" xml:space="preserve"><value>未找到 CMAF 播放器容器。</value></data>
+  <data name="Watch_JsPresentationLoadFailed" xml:space="preserve"><value>无法加载 CMAF 呈现内容。</value></data>
+  <data name="Watch_JsProtocolFallback" xml:space="preserve"><value>首选协议无法启动。正在使用备用 CMAF 清单重试。</value></data>
+  <data name="Watch_JsSessionUnavailable" xml:space="preserve"><value>流会话已不可用。</value></data>
+  <data name="Watch_JsShakaUnsupported" xml:space="preserve"><value>此浏览器不支持 Shaka Player 播放。</value></data>
+  <data name="Watch_JsVideoElementNotFound" xml:space="preserve"><value>未找到视频播放器元素。</value></data>
+  <data name="Watch_JsVideoFallback" xml:space="preserve"><value>此浏览器无法使用源视频。此流将使用 H.264 备用呈现版本。</value></data>
+  <data name="Watch_JsVideoFallbackRequired" xml:space="preserve"><value>此浏览器无法播放源视频。正在使用 H.264 重新启动此流。</value></data>
+  <data name="Watch_Lock" xml:space="preserve"><value>锁定</value></data>
+  <data name="Watch_ManualTune" xml:space="preserve"><value>手动调谐</value></data>
+  <data name="Watch_NoActiveTuner" xml:space="preserve"><value>当前没有活动调谐器报告此频道。</value></data>
+  <data name="Watch_NoEnabledChannels" xml:space="preserve"><value>没有可用的已启用频道。</value></data>
+  <data name="Watch_None" xml:space="preserve"><value>无</value></data>
+  <data name="Watch_NoPlaybackSession" xml:space="preserve"><value>Web Player 未返回播放会话。</value></data>
+  <data name="Watch_NowPlaying" xml:space="preserve"><value>正在播放：</value></data>
+  <data name="Watch_Off" xml:space="preserve"><value>关闭</value></data>
+  <data name="Watch_OverrideStreamSettings" xml:space="preserve"><value>覆盖流设置</value></data>
+  <data name="Watch_PlaybackProtocol" xml:space="preserve"><value>播放协议：</value></data>
+  <data name="Watch_Player" xml:space="preserve"><value>播放器：</value></data>
+  <data name="Watch_PlayingAudio" xml:space="preserve"><value>正在播放的音频：</value></data>
+  <data name="Watch_PlayingVideo" xml:space="preserve"><value>正在播放的视频：</value></data>
+  <data name="Watch_PreferredAudio" xml:space="preserve"><value>首选音频</value></data>
+  <data name="Watch_PreferredVideo" xml:space="preserve"><value>首选视频</value></data>
+  <data name="Watch_Protocol" xml:space="preserve"><value>协议</value></data>
+  <data name="Watch_Quality" xml:space="preserve"><value>质量</value></data>
+  <data name="Watch_QualityAppDefault" xml:space="preserve"><value>应用默认值</value></data>
+  <data name="Watch_QualityHigh" xml:space="preserve"><value>高</value></data>
+  <data name="Watch_QualityLow" xml:space="preserve"><value>低 (480p)</value></data>
+  <data name="Watch_QualityMedium" xml:space="preserve"><value>中 (720p)</value></data>
+  <data name="Watch_Rate" xml:space="preserve"><value>速率</value></data>
+  <data name="Watch_Receiver" xml:space="preserve"><value>接收器</value></data>
+  <data name="Watch_RetryingWithReplacement" xml:space="preserve"><value>此浏览器中{0}。正在使用 {1} 重试此流。</value></data>
+  <data name="Watch_RunCompatibilityTests" xml:space="preserve"><value>运行兼容性测试</value></data>
+  <data name="Watch_SelectedSubtitles" xml:space="preserve"><value>已选字幕</value></data>
+  <data name="Watch_SelectChannelPrompt" xml:space="preserve"><value>选择频道以开始观看</value></data>
+  <data name="Watch_Session" xml:space="preserve"><value>会话：</value></data>
+  <data name="Watch_SettingUpStream" xml:space="preserve"><value>正在设置流...</value></data>
+  <data name="Watch_SharedFragmentsHelp" xml:space="preserve"><value>一组共享分片同时供 HLS 和 DASH 使用。</value></data>
+  <data name="Watch_Signal" xml:space="preserve"><value>信号</value></data>
+  <data name="Watch_Source" xml:space="preserve"><value>源</value></data>
+  <data name="Watch_SourceAudioPackagingFallback" xml:space="preserve"><value>此 FFmpeg 版本无法封装源音频。此流将使用 {0}。</value></data>
+  <data name="Watch_SourceTotal" xml:space="preserve"><value>源总计：{0}</value></data>
+  <data name="Watch_SourceVideoAndAudioUnavailable" xml:space="preserve"><value>源视频和{0}不可用</value></data>
+  <data name="Watch_SourceVideoUnavailable" xml:space="preserve"><value>源视频不可用</value></data>
+  <data name="Watch_Status" xml:space="preserve"><value>状态</value></data>
+  <data name="Watch_Stop" xml:space="preserve"><value>停止</value></data>
+  <data name="Watch_StreamError" xml:space="preserve"><value>流错误</value></data>
+  <data name="Watch_StreamInformation" xml:space="preserve"><value>流信息</value></data>
+  <data name="Watch_Streaming" xml:space="preserve"><value>正在流式传输</value></data>
+  <data name="Watch_Subtitle" xml:space="preserve"><value>通过自适应 HLS 和 DASH 播放观看直播电视</value></data>
+  <data name="Watch_Subtitles" xml:space="preserve"><value>字幕</value></data>
+  <data name="Watch_Title" xml:space="preserve"><value>观看电视</value></data>
+  <data name="Watch_TrackIncluded" xml:space="preserve"><value>已包含</value></data>
+  <data name="Watch_TrackNotIncluded" xml:space="preserve"><value>未包含</value></data>
+  <data name="Watch_TrackPlaying" xml:space="preserve"><value>正在播放</value></data>
+  <data name="Watch_TrackSidecar" xml:space="preserve"><value>外挂</value></data>
+  <data name="Watch_Tune" xml:space="preserve"><value>调谐</value></data>
+  <data name="Watch_Tuned" xml:space="preserve"><value>已调谐</value></data>
+  <data name="Watch_Tuner" xml:space="preserve"><value>调谐器</value></data>
+  <data name="Watch_UnableToInitializePlayback" xml:space="preserve"><value>无法初始化 CMAF 播放。</value></data>
+  <data name="Watch_UnableToInitializePlaybackWithError" xml:space="preserve"><value>无法初始化 CMAF 播放：{0}</value></data>
+  <data name="Watch_UnableToStartPlayback" xml:space="preserve"><value>无法启动 CMAF 播放：{0}</value></data>
+  <data name="Watch_Unknown" xml:space="preserve"><value>未知</value></data>
+  <data name="Watch_Waiting" xml:space="preserve"><value>正在等待</value></data>
+  <data name="Watch_WaitingForHostedMetadata" xml:space="preserve"><value>正在等待托管流元数据。</value></data>
+  <data name="Watch_WebPlayerNotEnabled" xml:space="preserve"><value>Web Player 虚拟输出未启用。</value></data>
+  <data name="Watch_WebVttSidecar" xml:space="preserve"><value>WebVTT 外挂字幕</value></data>
+  <data name="WatchTest_Ac4ClaimOnly" xml:space="preserve"><value>AC-4（仅声明）</value></data>
+  <data name="WatchTest_Ac4UnavailableHelp" xml:space="preserve"><value>内置的 Jellyfin FFmpeg 可以解码 AC-4，但没有 AC-4 编码器。下方会显示浏览器声明，但 Lineup 无法生成合成 AC-4 测试。</value></data>
+  <data name="WatchTest_Action" xml:space="preserve"><value>操作</value></data>
+  <data name="WatchTest_ActiveAudio" xml:space="preserve"><value>活动音频</value></data>
+  <data name="WatchTest_ActiveAudioClaim" xml:space="preserve"><value>活动音频声明</value></data>
+  <data name="WatchTest_ActiveVideo" xml:space="preserve"><value>活动视频</value></data>
+  <data name="WatchTest_ActiveVideoClaim" xml:space="preserve"><value>活动视频声明</value></data>
+  <data name="WatchTest_AudioCodec" xml:space="preserve"><value>音频编解码器</value></data>
+  <data name="WatchTest_AudioLayout" xml:space="preserve"><value>音频布局</value></data>
+  <data name="WatchTest_AutomatedCompatibilityProfile" xml:space="preserve"><value>自动兼容性配置文件</value></data>
+  <data name="WatchTest_BrowserClaimHelp" xml:space="preserve"><value>浏览器声明只是诊断依据，不能证明解码成功。请在有可用编码器时运行播放测试。</value></data>
+  <data name="WatchTest_BrowserClaims" xml:space="preserve"><value>浏览器声明</value></data>
+  <data name="WatchTest_BurnInSlate" xml:space="preserve"><value>烧录测试画面</value></data>
+  <data name="WatchTest_Cancel" xml:space="preserve"><value>取消</value></data>
+  <data name="WatchTest_CaseCompleted" xml:space="preserve"><value>{0} 已完成。所有测试都有结果后将保存配置文件。</value></data>
+  <data name="WatchTest_ChannelSequenceHelp" xml:space="preserve"><value>测试音会持续每秒轮换一个声道：{0}。请使用播放器的声音控件调节音量；如果浏览器阻止有声自动播放，请按“播放”。</value></data>
+  <data name="WatchTest_ClaimOnlySuffix" xml:space="preserve"><value>（仅声明）</value></data>
+  <data name="WatchTest_CmafPlaybackUnsupported" xml:space="preserve"><value>您的浏览器不支持 CMAF 播放。</value></data>
+  <data name="WatchTest_ExactTestSelection" xml:space="preserve"><value>精确测试选择</value></data>
+  <data name="WatchTest_ExpectedCodecs" xml:space="preserve"><value>预期编解码器</value></data>
+  <data name="WatchTest_IncompleteProfile" xml:space="preserve"><value>在目录中的每项测试都有结果之前，无法保存浏览器兼容性配置文件。</value></data>
+  <data name="WatchTest_InvalidProfile" xml:space="preserve"><value>已完成的浏览器兼容性配置文件无效。</value></data>
+  <data name="WatchTest_JsCompatibilityPlaybackFailed" xml:space="preserve"><value>CMAF 兼容性播放失败。</value></data>
+  <data name="WatchTest_JsCompatibilityTrackLabel" xml:space="preserve"><value>Lineup WebVTT 兼容性测试</value></data>
+  <data name="WatchTest_JsPresentationLoadFailed" xml:space="preserve"><value>无法加载所选的兼容性呈现内容。</value></data>
+  <data name="WatchTest_JsShakaUnsupported" xml:space="preserve"><value>此浏览器不支持 Shaka Player 播放。</value></data>
+  <data name="WatchTest_JsVideoElementNotFound" xml:space="preserve"><value>未找到视频播放器元素。</value></data>
+  <data name="WatchTest_LastCompleted" xml:space="preserve"><value>上次完成：{0}</value></data>
+  <data name="WatchTest_LayoutMono" xml:space="preserve"><value>单声道 (1.0)</value></data>
+  <data name="WatchTest_LayoutQuad" xml:space="preserve"><value>四声道 (4.0)</value></data>
+  <data name="WatchTest_LayoutStereo" xml:space="preserve"><value>立体声 (2.0)</value></data>
+  <data name="WatchTest_Manifest" xml:space="preserve"><value>清单</value></data>
+  <data name="WatchTest_ManifestLoaded" xml:space="preserve"><value>清单已加载</value></data>
+  <data name="WatchTest_NoClaim" xml:space="preserve"><value>无声明</value></data>
+  <data name="WatchTest_NoDeterministicEncoder" xml:space="preserve"><value>没有可用的确定性编码器。</value></data>
+  <data name="WatchTest_None" xml:space="preserve"><value>无</value></data>
+  <data name="WatchTest_NotReported" xml:space="preserve"><value>未报告</value></data>
+  <data name="WatchTest_NotRun" xml:space="preserve"><value>未运行</value></data>
+  <data name="WatchTest_NotSupported" xml:space="preserve"><value>不支持</value></data>
+  <data name="WatchTest_NotYetComplete" xml:space="preserve"><value>尚未完成</value></data>
+  <data name="WatchTest_ObservedPlayback" xml:space="preserve"><value>观测到的播放结果</value></data>
+  <data name="WatchTest_PlaybackFailed" xml:space="preserve"><value>播放失败。</value></data>
+  <data name="WatchTest_PlaybackStarted" xml:space="preserve"><value>播放已开始</value></data>
+  <data name="WatchTest_Preparing" xml:space="preserve"><value>正在准备</value></data>
+  <data name="WatchTest_ProfileSaved" xml:space="preserve"><value>浏览器兼容性配置文件已保存。现在，“观看”可以自动优化流。</value></data>
+  <data name="WatchTest_ProfileSaveHelp" xml:space="preserve"><value>单项测试会立即更新已完成的配置文件。在首次完成配置文件之前，只有每一行都有结果后才会保存结果。仅凭浏览器声明绝不会允许直接复制源流。</value></data>
+  <data name="WatchTest_ProgressAriaLabel" xml:space="preserve"><value>兼容性测试进度</value></data>
+  <data name="WatchTest_Protocol" xml:space="preserve"><value>协议</value></data>
+  <data name="WatchTest_QualityAppDefault" xml:space="preserve"><value>应用默认值（1080p 测试画面）</value></data>
+  <data name="WatchTest_QualityHigh" xml:space="preserve"><value>高 (1080p)</value></data>
+  <data name="WatchTest_QualityLow" xml:space="preserve"><value>低 (480p)</value></data>
+  <data name="WatchTest_QualityMedium" xml:space="preserve"><value>中 (720p)</value></data>
+  <data name="WatchTest_QualityProfile" xml:space="preserve"><value>质量配置文件</value></data>
+  <data name="WatchTest_ReadingBrowserCapabilities" xml:space="preserve"><value>正在读取浏览器功能…</value></data>
+  <data name="WatchTest_Result" xml:space="preserve"><value>结果</value></data>
+  <data name="WatchTest_RunAll" xml:space="preserve"><value>全部运行</value></data>
+  <data name="WatchTest_RunCanceled" xml:space="preserve"><value>兼容性测试已取消。已保留先前完成的配置文件。</value></data>
+  <data name="WatchTest_RunTest" xml:space="preserve"><value>运行测试</value></data>
+  <data name="WatchTest_SelectCombinationPrompt" xml:space="preserve"><value>选择精确的编解码器组合并开始测试。</value></data>
+  <data name="WatchTest_StartTest" xml:space="preserve"><value>开始测试</value></data>
+  <data name="WatchTest_StatusFailed" xml:space="preserve"><value>失败</value></data>
+  <data name="WatchTest_StatusPassed" xml:space="preserve"><value>通过</value></data>
+  <data name="WatchTest_StatusUnavailable" xml:space="preserve"><value>不可用</value></data>
+  <data name="WatchTest_Stop" xml:space="preserve"><value>停止</value></data>
+  <data name="WatchTest_Subtitle" xml:space="preserve"><value>测试一个精确的 CMAF 编解码器组合，不使用自动备用方案。</value></data>
+  <data name="WatchTest_SubtitleBurnIn" xml:space="preserve"><value>字幕烧录</value></data>
+  <data name="WatchTest_SubtitleCue" xml:space="preserve"><value>字幕提示</value></data>
+  <data name="WatchTest_Subtitles" xml:space="preserve"><value>字幕</value></data>
+  <data name="WatchTest_Supported" xml:space="preserve"><value>支持</value></data>
+  <data name="WatchTest_SyntheticPresentationHelp" xml:space="preserve"><value>合成呈现内容包含一个视频呈现版本和一个音频呈现版本。</value></data>
+  <data name="WatchTest_Test" xml:space="preserve"><value>测试</value></data>
+  <data name="WatchTest_TestError" xml:space="preserve"><value>测试错误</value></data>
+  <data name="WatchTest_Testing" xml:space="preserve"><value>正在测试：{0}</value></data>
+  <data name="WatchTest_Title" xml:space="preserve"><value>播放测试</value></data>
+  <data name="WatchTest_UnableToReadCapabilities" xml:space="preserve"><value>无法读取浏览器编解码器功能：{0}</value></data>
+  <data name="WatchTest_VideoCodec" xml:space="preserve"><value>视频编解码器</value></data>
+  <data name="WatchTest_VideoProfile" xml:space="preserve"><value>视频配置文件</value></data>
+  <data name="WatchTest_WebVttSidecar" xml:space="preserve"><value>WebVTT 外挂字幕</value></data>
+</root>

@@ -1,0 +1,176 @@
+        <div id="guideSettingsTab" class="@CssClass" role="tabpanel" aria-labelledby="tab-guide" @onchange="Host.NotifySettingsUiChanged">
+        <div id="guideSourceSettings" class="device-settings-workspace mb-4">
+            <div class="d-flex align-items-end gap-2 mb-3">
+                <div class="device-tab-strip flex-grow-1">
+                    <ul class="nav nav-tabs flex-nowrap">
+                        <li class="nav-item">
+                            <button id="guideSubtabGlobal" type="button"
+                                    class="nav-link @(Host.SelectedGuideSourceId is null ? "active" : null)"
+                                    @onclick="() => Host.SelectedGuideSourceId = null">
+                                @Text["Settings_GlobalSettingsTab"]
+                            </button>
+                        </li>
+                        @foreach (var source in Host.Topology.GuideSources)
+                        {
+                            <li class="nav-item">
+                                <button type="button"
+                                        class="nav-link guide-source-tab @(Host.SelectedGuideSourceId == source.Id ? "active" : null)"
+                                        data-guide-source-id="@source.Id"
+                                        @onclick="() => Host.SelectedGuideSourceId = source.Id">
+                                    @(string.IsNullOrWhiteSpace(source.Name) ? Host.GetGuideSourceTypeName(source) : source.Name)
+                                    @if (!source.Enabled)
+                                    {
+                                        <span class="badge text-bg-secondary ms-1">@Text["Settings_DisabledBadge"]</span>
+                                    }
+                                </button>
+                            </li>
+                        }
+                    </ul>
+                </div>
+                <button id="addGuideSource" type="button" class="btn btn-sm btn-outline-primary flex-shrink-0"
+                        disabled="@(!Host.AvailableGuideSourceDrivers.Any(Host.CanAddGuideSource))"
+                        title="@(Host.AvailableGuideSourceDrivers.Any(Host.CanAddGuideSource) ? null : Text["Settings_GuideSourceAddDisabledTitle"].Value)"
+                        @onclick="Host.ShowGuideSourceTypePicker">
+                    <span class="bi bi-plus-lg me-1"></span>@Text["Settings_AddGuideSourceButton"]
+                </button>
+            </div>
+            @if (Host.Topology.GuideSources.Count == 0)
+            {
+                <div id="guideSourcesEmptyState" class="alert alert-info py-2" role="status">
+                    <span class="bi bi-info-circle me-1"></span>@Text["Settings_NoGuideSourcesPrefix"] <strong>@Text["Settings_AddGuideSourceButton"]</strong>.
+                </div>
+            }
+        @if (Host.SelectedGuideSourceId is null)
+        {
+        <div id="guideGlobalSettings">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">@Text["Settings_EpgFetchHeading"]</h5>
+            </div>
+            <div class="card-body">
+                <div class="form-check form-switch">
+                    <input type="checkbox" class="form-check-input" id="autoFetchEnabled" @bind="Host.AutoFetchEnabled" />
+                    <label class="form-check-label" for="autoFetchEnabled">@Text["Settings_AutoFetchGuideLabel"]</label>
+                    <div class="form-text">
+                        @Text["Settings_AutoFetchGuideHelp"]
+                    </div>
+                </div>
+                <div class="form-check form-switch mt-3">
+                    <input type="checkbox" class="form-check-input" id="refreshChannelsBeforeGuideFetch" @bind="Host.RefreshChannelsBeforeGuideFetch" />
+                    <label class="form-check-label" for="refreshChannelsBeforeGuideFetch">@Text["Settings_RefreshChannelsBeforeGuideLabel"]</label>
+                    <div class="form-text">
+                        @Text["Settings_RefreshChannelsBeforeGuideHelp"]
+                    </div>
+                </div>
+                <div class="mt-3">
+                    <label for="epgHistoryRetentionHours" class="form-label">@Text["Settings_EpgHistoryRetentionLabel"]</label>
+                    <input type="number" class="form-control" id="epgHistoryRetentionHours" min="0" max="720" @bind="Host.EpgHistoryRetentionHours" />
+                    <div class="form-text">
+                        @Text["Settings_EpgHistoryRetentionHelp"]
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        </div>
+        }
+        else
+        {
+            var sourceIndex = Host.Topology.GuideSources.FindIndex(source => source.Id == Host.SelectedGuideSourceId);
+            if (sourceIndex >= 0)
+            {
+                var source = Host.Topology.GuideSources[sourceIndex];
+                var compatibleDevices = Host.Topology.PhysicalDevices.Where(device => Host.IsGuideCompatible(source, device)).ToArray();
+                <div class="guide-source d-grid gap-4" data-guide-source-id="@source.Id" data-guide-source-kind="@source.Kind">
+                    <section class="card guide-source-settings">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <div>
+                                <h5 class="mb-0">@Text["Settings_GuideSourceSettingsHeading"]</h5>
+                                <div class="small text-body-secondary">@Host.GetGuideSourceTypeName(source)</div>
+                            </div>
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="form-check form-switch mb-0">
+                                    <input id="@($"guideSourceEnabled-{sourceIndex}")" class="form-check-input guide-source-enabled" type="checkbox" @bind="source.Enabled" />
+                                    <label class="form-check-label" for="@($"guideSourceEnabled-{sourceIndex}")">@Text["Settings_EnabledLabel"]</label>
+                                </div>
+                                <button type="button" class="btn btn-sm btn-outline-danger remove-guide-source"
+                                        aria-label="@Text["Settings_RemoveGuideSourceLabel"]" @onclick="() => Host.RemoveGuideSource(source.Id)">
+                                    <span class="bi bi-trash"></span>
+                                </button>
+                            </div>
+                        </div>
+                        @if (source.Enabled)
+                        {
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <label class="form-label" for="@($"guideSourceName-{sourceIndex}")">@Text["Settings_NameLabel"]</label>
+                                    <input id="@($"guideSourceName-{sourceIndex}")" class="form-control guide-source-name"
+                                           @bind="source.Name" @bind:after="Host.NotifySettingsUiChanged" />
+                                    <div class="form-text">@Text["Settings_GuideSourceNameHelp"]</div>
+                                </div>
+                                <fieldset>
+                                    <legend class="fs-6">@Text["Settings_PhysicalDeviceSubscriptionHeading"]</legend>
+                                    <div class="form-check">
+                                        <input id="@($"guideSourceAll-{sourceIndex}")" class="form-check-input guide-source-all" type="radio"
+                                               name="@($"guideSourceMode-{sourceIndex}")"
+                                               checked="@(source.SubscriptionMode == PhysicalDeviceSubscriptionMode.All)"
+                                               @onchange="() => source.SubscriptionMode = PhysicalDeviceSubscriptionMode.All" />
+                                        <label class="form-check-label" for="@($"guideSourceAll-{sourceIndex}")">@Text["Settings_AllCompatibleEnabledDevices"]</label>
+                                        <div class="form-text">@Text["Settings_GuideSourceAllDevicesHelp"]</div>
+                                    </div>
+                                    <div class="form-check">
+                                        <input id="@($"guideSourceSelected-{sourceIndex}")" class="form-check-input guide-source-selected" type="radio"
+                                               name="@($"guideSourceMode-{sourceIndex}")"
+                                               checked="@(source.SubscriptionMode == PhysicalDeviceSubscriptionMode.Selected)"
+                                               @onchange="() => source.SubscriptionMode = PhysicalDeviceSubscriptionMode.Selected" />
+                                        <label class="form-check-label" for="@($"guideSourceSelected-{sourceIndex}")">@Text["Settings_SelectedDevices"]</label>
+                                        <div class="form-text">@Text["Settings_GuideSourceSelectedDevicesHelp"]</div>
+                                    </div>
+                                    @if (source.SubscriptionMode == PhysicalDeviceSubscriptionMode.Selected)
+                                    {
+                                        <div class="mt-2 ms-4">
+                                            @if (compatibleDevices.Length == 0)
+                                            {
+                                                <div class="text-body-secondary small">@Text["Settings_NoCompatiblePhysicalDevices"]</div>
+                                            }
+                                            @foreach (var physical in compatibleDevices)
+                                            {
+                                                <div class="form-check">
+                                                    <input id="@($"guideSourcePhysical-{sourceIndex}-{physical.Id}")"
+                                                           class="form-check-input guide-source-physical"
+                                                           type="checkbox"
+                                                           checked="@source.SelectedDeviceIds.Contains(physical.Id)"
+                                                           @onchange="args => Host.SetGuideSourceSubscription(source, physical.Id, args.Value is true)" />
+                                                    <label class="form-check-label" for="@($"guideSourcePhysical-{sourceIndex}-{physical.Id}")">
+                                                        @physical.Name @if (!physical.Enabled) { <span class="text-body-secondary">(@Text["Settings_DisabledLowercase"])</span> }
+                                                    </label>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                    <div class="form-text">@Text["Settings_GuideSourceSubscriptionHelp"]</div>
+                                </fieldset>
+                            </div>
+                        }
+                    </section>
+                </div>
+            }
+        }
+        </div>
+
+        @if (Host.ShowGuideSourceTypePickerValue)
+        {
+            <TypePickerModal Id="guideSourceTypePicker" Title="@Text["Settings_AddGuideSourceButton"]" CloseRequested="() => Host.ShowGuideSourceTypePickerValue = false">
+                @foreach (var driver in Host.AvailableGuideSourceDrivers.Where(Host.CanAddGuideSource))
+                {
+                    <button type="button" class="list-group-item list-group-item-action add-guide-source-type"
+                            data-guide-source-kind="@driver.Kind" @onclick="() => Host.AddGuideSource(driver)">
+                        <strong>@driver.DisplayName</strong>
+                        <div class="small text-body-secondary">@Text["Settings_AddGuideSourceTypeDescription", driver.DisplayName]</div>
+                    </button>
+                }
+            </TypePickerModal>
+        }
+        </div>
+
+@using Lineup.Core.Streaming

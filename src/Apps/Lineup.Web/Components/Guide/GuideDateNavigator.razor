@@ -1,0 +1,75 @@
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div class="btn-group" role="group">
+        @for (var dayOffset = 0; dayOffset <= 6; dayOffset++)
+        {
+            var date = Today.AddDays(dayOffset);
+            var label = dayOffset switch
+            {
+                0 => Text["Guide_Today"].Value,
+                1 => Text["Guide_Tomorrow"].Value,
+                _ => date.ToString("ddd")
+            };
+            <button class="btn btn-outline-primary @(SelectedDate == date ? "active" : null)"
+                    @onclick="() => DateSelected.InvokeAsync(date)">
+                @label
+            </button>
+        }
+    </div>
+
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-primary" @onclick="() => JumpToNow.InvokeAsync()" disabled="@IsShowingCurrentTime">
+            <span class="bi bi-clock me-1"></span>@Text["Guide_Now"]
+        </button>
+        <div class="btn-group" role="group">
+            <button class="btn btn-outline-secondary" @onclick="() => PreviousRequested.InvokeAsync()" disabled="@(StartHour <= 0)">
+                <span class="bi bi-chevron-left"></span>
+            </button>
+            <span class="btn btn-outline-secondary disabled">@TimeRange</span>
+            <button class="btn btn-outline-secondary" @onclick="() => NextRequested.InvokeAsync()" disabled="@(StartHour + HoursToShow >= 24)">
+                <span class="bi bi-chevron-right"></span>
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>Gets or sets today's date in the configured display timezone.</summary>
+    [Parameter]
+    public DateTime Today { get; set; }
+
+    /// <summary>Gets or sets the selected guide date.</summary>
+    [Parameter]
+    public DateTime SelectedDate { get; set; }
+
+    /// <summary>Gets or sets the first displayed hour.</summary>
+    [Parameter]
+    public int StartHour { get; set; }
+
+    /// <summary>Gets or sets the number of displayed hours.</summary>
+    [Parameter]
+    public int HoursToShow { get; set; }
+
+    /// <summary>Gets or sets the formatted displayed time range.</summary>
+    [Parameter, EditorRequired]
+    public string TimeRange { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets whether the current time is already visible.</summary>
+    [Parameter]
+    public bool IsShowingCurrentTime { get; set; }
+
+    /// <summary>Gets or sets the callback raised when a date is selected.</summary>
+    [Parameter]
+    public EventCallback<DateTime> DateSelected { get; set; }
+
+    /// <summary>Gets or sets the callback raised when the current time is requested.</summary>
+    [Parameter]
+    public EventCallback JumpToNow { get; set; }
+
+    /// <summary>Gets or sets the callback raised when the previous time block is requested.</summary>
+    [Parameter]
+    public EventCallback PreviousRequested { get; set; }
+
+    /// <summary>Gets or sets the callback raised when the next time block is requested.</summary>
+    [Parameter]
+    public EventCallback NextRequested { get; set; }
+}

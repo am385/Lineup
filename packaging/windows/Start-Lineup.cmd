@@ -4,7 +4,7 @@ setlocal
 set "LINEUP_DATA_ROOT=%LOCALAPPDATA%\Lineup"
 if not exist "%LINEUP_DATA_ROOT%\data" mkdir "%LINEUP_DATA_ROOT%\data"
 if errorlevel 1 goto :error
-if not exist "%LINEUP_DATA_ROOT%\xmltv" mkdir "%LINEUP_DATA_ROOT%\xmltv"
+if not exist "%LINEUP_DATA_ROOT%\guide" mkdir "%LINEUP_DATA_ROOT%\guide"
 if errorlevel 1 goto :error
 if not exist "%LINEUP_DATA_ROOT%\transient" mkdir "%LINEUP_DATA_ROOT%\transient"
 if errorlevel 1 goto :error
@@ -12,8 +12,10 @@ if errorlevel 1 goto :error
 set "ASPNETCORE_ENVIRONMENT=Production"
 set "ASPNETCORE_HTTP_PORTS="
 set "Lineup__AppDataPath=%LINEUP_DATA_ROOT%\data"
-set "Lineup__XmltvPath=%LINEUP_DATA_ROOT%\xmltv"
+set "Lineup__GuideOutputDir=%LINEUP_DATA_ROOT%\guide"
 set "Lineup__TransientPath=%LINEUP_DATA_ROOT%\transient"
+
+if /I "%~1"=="--validate-configuration" exit /b 0
 
 if not exist "%~dp0app\Lineup.Web.exe" (
     echo Lineup.Web.exe is missing. Extract the complete ZIP before starting Lineup.

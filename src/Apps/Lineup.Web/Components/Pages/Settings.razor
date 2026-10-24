@@ -1,0 +1,406 @@
+@page "/settings"
+@using Lineup.Core.Streaming
+@using Lineup.LineupLink.Protocol
+@using Lineup.Web.Components.Transcoding
+@using Lineup.Web.Services
+
+<PageTitle>@Text["Settings_PageTitle"]</PageTitle>
+
+@if (_isRestarting || _isFactoryResetting)
+{
+    <div id="factoryResetRestartOverlay" class="position-fixed top-0 start-0 w-100 h-100 bg-body d-flex align-items-center justify-content-center p-4" style="z-index: 2000;" role="status" aria-live="assertive">
+        <div class="text-center" style="max-width: 32rem;">
+            <div id="factoryResetRestartProgress">
+                <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" aria-hidden="true"></div>
+                <h1 class="h3">@Text["Settings_RestartingHeading"]</h1>
+                @if (_isFactoryResetting)
+                {
+                    <p class="text-body-secondary mb-0">@Text["Settings_FactoryResetRestartHelp"]</p>
+                }
+                else
+                {
+                    <p class="text-body-secondary mb-0">@Text["Settings_RestartHelp"]</p>
+                }
+            </div>
+            <div id="factoryResetRestartTimeout" class="d-none">
+                <span class="bi bi-exclamation-circle text-warning fs-1" aria-hidden="true"></span>
+                <h1 class="h3 mt-3">@Text["Settings_RestartDelayedHeading"]</h1>
+                <p class="text-body-secondary">@Text["Settings_RestartDelayedHelp"]</p>
+                <button id="retryFactoryResetRestart" type="button" class="btn btn-primary" onclick="retryLineupFactoryResetWatch()">
+                    <span class="bi bi-arrow-clockwise me-1"></span>@Text["Common_Retry"]
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<h1><span class="bi bi-gear me-2"></span>@Text["Settings_PageTitle"]</h1>
+
+@if (StartupState.IsFactoryResetRequired)
+{
+    <div id="factoryResetRequired" class="alert alert-danger mb-4" role="alert">
+        <h5 class="alert-heading"><span class="bi bi-exclamation-triangle me-2"></span>@Text["Settings_FactoryResetRequiredHeading"]</h5>
+        <p>@StartupState.Reason</p>
+        <p class="mb-0">@Text["Settings_FactoryResetRequiredHelp"]</p>
+    </div>
+}
+
+@if (_isInitialSetup)
+{
+    <div class="alert alert-primary mb-4">
+        <h5 class="alert-heading"><span class="bi bi-rocket-takeoff me-2"></span>@Text["Settings_WelcomeHeading"]</h5>
+        <p class="mb-0">@Text["Settings_WelcomePrefix"] <strong>@Text["Settings_WelcomePhysicalDevice"]</strong> @Text["Settings_WelcomeAnd"] <strong>@Text["Settings_WelcomeGuideSource"]</strong>, @Text["Settings_WelcomeOptional"] <strong>@Text["Settings_WelcomeVirtualDevice"]</strong>, @Text["Settings_WelcomeThenClick"] <strong>@Text["Settings_SaveSettings"]</strong> @Text["Settings_WelcomeSuffix"]</p>
+    </div>
+}
+
+<ul id="settingsCategoryTabs" class="nav nav-tabs mb-4" role="tablist" aria-label="@Text["Settings_CategoriesAriaLabel"]">
+    <li class="nav-item" role="presentation">
+        <button id="tab-general" type="button" class="@GetTabButtonClass(SettingsTab.General)" role="tab"
+                aria-selected="@(_activeTab == SettingsTab.General)" @onclick="() => SelectTab(SettingsTab.General)">
+            <span class="bi bi-sliders me-1"></span>@Text["Settings_TabGeneral"]
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button id="tab-dashboard" type="button" class="@GetTabButtonClass(SettingsTab.Dashboard)" role="tab"
+                aria-selected="@(_activeTab == SettingsTab.Dashboard)" @onclick="() => SelectTab(SettingsTab.Dashboard)">
+            <span class="bi bi-speedometer2 me-1"></span>@Text["Settings_TabDashboard"]
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button id="tab-guide" type="button" class="@GetTabButtonClass(SettingsTab.Guide)" role="tab"
+                aria-selected="@(_activeTab == SettingsTab.Guide)" @onclick="() => SelectTab(SettingsTab.Guide)">
+            <span class="bi bi-calendar3 me-1"></span>@Text["Settings_TabGuideSources"]
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button id="tab-guide-outputs" type="button" class="@GetTabButtonClass(SettingsTab.GuideOutputs)" role="tab"
+                aria-selected="@(_activeTab == SettingsTab.GuideOutputs)" @onclick="() => SelectTab(SettingsTab.GuideOutputs)">
+            <span class="bi bi-file-earmark-code me-1"></span>@Text["Settings_TabGuideOutputs"]
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button id="tab-physical-devices" type="button" class="@GetTabButtonClass(SettingsTab.PhysicalDevices)" role="tab"
+                aria-selected="@(_activeTab == SettingsTab.PhysicalDevices)" @onclick="() => SelectTab(SettingsTab.PhysicalDevices)">
+            <span class="bi bi-broadcast-pin me-1"></span>@Text["Settings_TabPhysicalDevices"]
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button id="tab-virtual-devices" type="button" class="@GetTabButtonClass(SettingsTab.VirtualDevices)" role="tab"
+                aria-selected="@(_activeTab == SettingsTab.VirtualDevices)" @onclick="() => SelectTab(SettingsTab.VirtualDevices)">
+            <span class="bi bi-hdd-network me-1"></span>@Text["Settings_TabVirtualDevices"]
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button id="tab-streaming" type="button" class="@GetTabButtonClass(SettingsTab.Streaming)" role="tab"
+                aria-selected="@(_activeTab == SettingsTab.Streaming)" @onclick="() => SelectTab(SettingsTab.Streaming)">
+            <span class="bi bi-broadcast me-1"></span>@Text["Settings_TabStreaming"]
+        </button>
+    </li>
+    @if (!_isInitialSetup)
+    {
+        <li class="nav-item" role="presentation">
+            <button id="tab-api" type="button" class="@GetTabButtonClass(SettingsTab.Api)" role="tab"
+                    aria-selected="@(_activeTab == SettingsTab.Api)" @onclick="() => SelectTab(SettingsTab.Api)">
+                <span class="bi bi-braces me-1"></span>@Text["Settings_TabApi"]
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button id="tab-logging" type="button" class="@GetTabButtonClass(SettingsTab.Logging)" role="tab"
+                    aria-selected="@(_activeTab == SettingsTab.Logging)" @onclick="() => SelectTab(SettingsTab.Logging)">
+                <span class="bi bi-journal-text me-1"></span>@Text["Settings_TabLogging"]
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button id="tab-reset" type="button" class="@GetTabButtonClass(SettingsTab.Reset)" role="tab"
+                    aria-selected="@(_activeTab == SettingsTab.Reset)" @onclick="() => SelectTab(SettingsTab.Reset)">
+                <span class="bi bi-arrow-counterclockwise me-1"></span>@Text["Settings_TabReset"]
+            </button>
+        </li>
+    }
+</ul>
+
+<div id="settingsContent" class="row">
+    <div class="col-md-8">
+        <GeneralSettingsTab CssClass="@GetTabPaneClass(SettingsTab.General)"
+                            @bind-Theme="_theme"
+                            @bind-TimeZoneId="_timeZoneId"
+                            @bind-UiCulture="_uiCulture"
+                            @bind-KnownProxies="_knownProxies"
+                            CurrentTimeZoneDisplayName="@TimeZoneService.TimeZone.DisplayName" />
+
+        <GuideSourcesSettingsTab Host="this" CssClass="@GetTabPaneClass(SettingsTab.Guide)" />
+
+        <GuideOutputsSettingsTab Host="this" CssClass="@GetTabPaneClass(SettingsTab.GuideOutputs)" />
+
+        <PhysicalDevicesSettingsTab Host="this" CssClass="@GetTabPaneClass(SettingsTab.PhysicalDevices)" />
+
+        <VirtualDevicesSettingsTab Host="this" CssClass="@GetTabPaneClass(SettingsTab.VirtualDevices)" />
+
+                <StreamingSettingsTab CssClass="@GetTabPaneClass(SettingsTab.Streaming)"
+                              @bind-MaximumConcurrentStreams="_maximumConcurrentStreams"
+                              @bind-KeepWarmPeriodSeconds="_topology.KeepWarmPeriodSeconds"
+                              @bind-ProtectedContentMode="_protectedContentMode"
+                              @bind-DisabledChannelMode="_disabledChannelMode" />
+
+        <DashboardSettingsTab CssClass="@GetTabPaneClass(SettingsTab.Dashboard)"
+                              @bind-ActiveStreamRefreshIntervalSeconds="_activeStreamRefreshIntervalSeconds" />
+
+        @if (!_isInitialSetup)
+        {
+            <ApiSettingsTab CssClass="@GetTabPaneClass(SettingsTab.Api)"
+                            @bind-RedactClientAddresses="_redactApiClientAddresses"
+                            @bind-RedactDeviceAddresses="_redactApiDeviceAddresses"
+                            @bind-RedactUrls="_redactApiUrls" />
+
+            <LoggingSettingsTab CssClass="@GetTabPaneClass(SettingsTab.Logging)"
+                                @bind-OverrideLoggingDefaults="_overrideLoggingDefaults"
+                                @bind-ApplicationLogLevel="_applicationLogLevel"
+                                ApplicationLogLevels="ApplicationLogLevels"
+                                CategoryOverrides="_logCategoryOverrides"
+                                StartupCategories="_startupLogCategories"
+                                @bind-EnableFileLogging="_enableFileLogging"
+                                @bind-FileLogLevel="_fileLogLevel"
+                                @bind-FileLogRetentionDays="_fileLogRetentionDays"
+                                @bind-FileLogSizeLimitMb="_fileLogSizeLimitMb"
+                                Runtime="LoggingRuntime"
+                                RetainedFiles="_retainedLogFiles"
+                                IsDeletingLogs="_isDeletingLogs"
+                                AddCategoryRequested="AddLogCategoryOverride"
+                                RemoveCategoryRequested="RemoveLogCategoryOverride"
+                                DeleteLogsRequested="DeleteLogs" />
+
+            <ResetSettingsTab CssClass="@GetTabPaneClass(SettingsTab.Reset)"
+                              IsRestarting="_isRestarting"
+                              ShowFactoryResetConfirmation="_showFactoryResetConfirmation"
+                              @bind-FactoryResetConfirmed="_factoryResetConfirmed"
+                              IsFactoryResetting="_isFactoryResetting"
+                              CanFactoryReset="CanFactoryReset"
+                              ResetDefaultsRequested="ResetToDefaults"
+                              RestartRequested="RestartLineup"
+                              ShowFactoryResetRequested="ShowFactoryResetConfirmation"
+                              FactoryResetRequested="FactoryReset"
+                              CancelFactoryResetRequested="CancelFactoryReset" />
+        }
+
+        @if (_activeTab != SettingsTab.Reset)
+        {
+            <div class="d-flex gap-2">
+                <button class="btn btn-primary" @onclick="SaveSettings" disabled="@_isSaving">
+                    @if (_isSaving)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                    }
+                    <span class="bi bi-save me-1"></span>@(_isInitialSetup ? Text["Settings_SaveAndGetStarted"] : Text["Settings_SaveSettings"])
+                </button>
+                @if (!_isInitialSetup)
+                {
+                    <button id="undoSettings" class="btn btn-outline-secondary" @onclick="UndoUnsavedChanges">
+                        <span class="bi bi-arrow-counterclockwise me-1"></span>@Text["Common_Undo"]
+                    </button>
+                }
+                <button class="btn btn-outline-secondary" @onclick="Cancel">
+                    @(_isInitialSetup ? Text["Common_Skip"] : Text["Common_Cancel"])
+                </button>
+            </div>
+        }
+
+    </div>
+
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><span class="bi bi-info-circle me-1"></span>@Text["Settings_AboutHeading"]</h5>
+            </div>
+            <div id="aboutSettingsBody" class="card-body">
+                <div class="d-grid gap-3">
+                    @if (_activeTab == SettingsTab.General)
+                    {
+                        <AboutSettingsSection Title="@Text["General_AppearanceHeading"]">
+                            @Text["Settings_AboutAppearance"]
+                        </AboutSettingsSection>
+                        <AboutSettingsSection Title="@Text["General_RegionalHeading"]">
+                            @Text["Settings_AboutRegional"]
+                        </AboutSettingsSection>
+                        <AboutSettingsSection Title="@Text["General_NetworkHeading"]">
+                            @Text["General_KnownProxiesHelp"] @Text["General_KnownProxiesRestartHelp"]
+                        </AboutSettingsSection>
+                    }
+                    else if (_activeTab == SettingsTab.Guide)
+                    {
+                        @if (_selectedGuideSourceId is null)
+                        {
+                            <AboutSettingsSection Title="@Text["Settings_AboutEpgFetchTitle"]">
+                                @Text["Settings_AboutEpgFetch"]
+                            </AboutSettingsSection>
+                        }
+                        else
+                        {
+                            var source = _topology.GuideSources.FirstOrDefault(candidate => candidate.Id == _selectedGuideSourceId);
+                            if (source is not null)
+                            {
+                                var sourceName = string.IsNullOrWhiteSpace(source.Name) ? GetGuideSourceTypeName(source) : source.Name;
+                                <AboutSettingsSection Title="@Text["Settings_AboutGuideSourceTitle"]">
+                                    @Text["Settings_AboutGuideSource", sourceName, GetGuideSourceTypeName(source)]
+                                </AboutSettingsSection>
+                            }
+                        }
+                    }
+                    else if (_activeTab == SettingsTab.GuideOutputs)
+                    {
+                        <AboutSettingsSection Title="@Text["Settings_TabGuideOutputs"]">
+                            @Text["Settings_AboutGuideOutputs"]
+                        </AboutSettingsSection>
+                    }
+                    else if (_activeTab == SettingsTab.PhysicalDevices)
+                    {
+                        @if (_selectedPhysicalDeviceId is null)
+                        {
+                            <AboutSettingsSection Title="@Text["Settings_AboutRefreshTitle"]">
+                                @Text["Settings_AboutRefresh"]
+                            </AboutSettingsSection>
+                            <AboutSettingsSection Title="@Text["Settings_AboutTranscoderTitle"]">
+                                @Text["Settings_AboutPhysicalTranscoder"]
+                            </AboutSettingsSection>
+                        }
+                        else
+                        {
+                            var device = _topology.PhysicalDevices.FirstOrDefault(candidate => candidate.Id == _selectedPhysicalDeviceId);
+                            if (device is not null)
+                            {
+                                var deviceName = string.IsNullOrWhiteSpace(device.Name) ? GetPhysicalDeviceTypeName(device) : device.Name;
+                                <AboutSettingsSection Title="@Text["Settings_AboutDeviceTitle"]">
+                                    @Text["Settings_AboutPhysicalDevice", deviceName, GetPhysicalDeviceTypeName(device)]
+                                    @if (device.IsHdHomeRun)
+                                    {
+                                        <span> @Text["Settings_AboutHdHomeRunConnection"]</span>
+                                    }
+                                    else if (device.IsLineupLink)
+                                    {
+                                        <span> @Text["Settings_AboutLineupLinkPhysicalConnection"]</span>
+                                    }
+                                    else
+                                    {
+                                        <span> @Text["Settings_AboutPluginPhysicalConnection"]</span>
+                                    }
+                                    <span> @Text["Settings_AboutTestIdentify"]</span>
+                                </AboutSettingsSection>
+                                <AboutSettingsSection Title="@Text["Settings_AboutTranscoderTitle"]">
+                                    @Text["Settings_AboutPhysicalDeviceTranscoder"]
+                                </AboutSettingsSection>
+                            }
+                        }
+                    }
+                    else if (_activeTab == SettingsTab.VirtualDevices)
+                    {
+                        @if (_selectedVirtualDeviceId is null)
+                        {
+                            <AboutSettingsSection Title="@Text["Settings_AboutTranscoderTitle"]">
+                                @Text["Settings_AboutVirtualTranscoder"]
+                            </AboutSettingsSection>
+                            <AboutSettingsSection Title="@Text["Settings_AboutDiscoveryTitle"]">
+                                @Text["Settings_AboutDiscovery"]
+                            </AboutSettingsSection>
+                        }
+                        else
+                        {
+                            var device = _topology.VirtualDevices.FirstOrDefault(candidate => candidate.Id == _selectedVirtualDeviceId);
+                            if (device is not null)
+                            {
+                                var deviceName = string.IsNullOrWhiteSpace(device.Name) ? GetVirtualDeviceTypeName(device) : device.Name;
+                                <AboutSettingsSection Title="@Text["Settings_AboutDeviceTitle"]">
+                                    @Text["Settings_AboutVirtualDevice", deviceName, device.IsWebPlayer ? Text["Settings_BuiltInWebPlayerDescription"] : GetVirtualDeviceTypeName(device)]
+                                    @if (device.IsWebPlayer)
+                                    {
+                                        <span> @Text["Settings_AboutWebPlayer"]</span>
+                                    }
+                                    else if (device.IsHdHomeRun)
+                                    {
+                                        <span> @Text["Settings_AboutHdHomeRunVirtual"]</span>
+                                    }
+                                    else if (device.IsLineupLink)
+                                    {
+                                        <span> @Text["Settings_AboutLineupLinkVirtual"]</span>
+                                    }
+                                    else
+                                    {
+                                        <span> @Text["Settings_AboutPluginVirtual"]</span>
+                                    }
+                                </AboutSettingsSection>
+                                <AboutSettingsSection Title="@Text["Settings_OutputHostingHeading"]">
+                                    @Text["Settings_AboutOutputHosting"]
+                                </AboutSettingsSection>
+                                <AboutSettingsSection Title="@Text["Settings_AboutTranscoderTitle"]">
+                                    @Text["Settings_AboutVirtualDeviceTranscoder"]
+                                </AboutSettingsSection>
+                            }
+                        }
+                    }
+                    else if (_activeTab == SettingsTab.Streaming)
+                    {
+                        <AboutSettingsSection Title="@Text["Settings_AboutStreamingTitle"]">
+                            @Text["Settings_AboutStreaming"]
+                        </AboutSettingsSection>
+                    }
+                    else if (_activeTab == SettingsTab.Dashboard)
+                    {
+                        <AboutSettingsSection Title="@Text["Settings_AboutActiveStreamsTitle"]">
+                            @Text["Settings_AboutActiveStreams"]
+                        </AboutSettingsSection>
+                    }
+                    else if (_activeTab == SettingsTab.Api)
+                    {
+                        <AboutSettingsSection Title="@Text["Settings_ApiDocumentationHeading"]">
+                            @Text["Settings_ApiDocumentationDescription"]
+                        </AboutSettingsSection>
+                        <AboutSettingsSection Title="@Text["Settings_AboutStatusApiTitle"]">
+                            @Text["Settings_AboutStatusApiPrefix"] <code>GET /api/v1/status</code> @Text["Settings_AboutStatusApiSuffix"] <code>null</code>, @Text["Settings_AboutStatusApiEnd"]
+                        </AboutSettingsSection>
+                    }
+                    else if (_activeTab == SettingsTab.Logging)
+                    {
+                        <AboutSettingsSection Title="@Text["Settings_AboutLogFiltersTitle"]">
+                            @Text["Settings_AboutLogFilters"]
+                        </AboutSettingsSection>
+                        <AboutSettingsSection Title="@Text["Settings_AboutLocalDiagnosticsTitle"]">
+                            @Text["Settings_AboutLocalDiagnostics"]
+                        </AboutSettingsSection>
+                        <AboutSettingsSection Title="@Text["Settings_AboutExternalTargetsTitle"]">
+                            @Text["Settings_AboutExternalTargets"]
+                        </AboutSettingsSection>
+                    }
+                    else
+                    {
+                        <AboutSettingsSection Title="@Text["Settings_AboutResetTitle"]">
+                            @Text["Settings_AboutReset"]
+                        </AboutSettingsSection>
+                        <AboutSettingsSection Title="@Text["Settings_AboutRestartTitle"]">
+                            @Text["Settings_AboutRestart"]
+                        </AboutSettingsSection>
+                        <AboutSettingsSection Title="@Text["Settings_AboutFactoryResetTitle"]">
+                            @Text["Settings_AboutFactoryReset"]
+                        </AboutSettingsSection>
+                    }
+                </div>
+                <hr />
+                <p class="text-muted mb-0">
+                    @if (_activeTab is SettingsTab.Dashboard or SettingsTab.Api or SettingsTab.Logging)
+                    {
+                        <small>@Text["Settings_WebSettingsStorage"] <code>web-settings.json</code> @Text["Settings_WebSettingsStorageSuffix"]</small>
+                    }
+                    else if (_activeTab == SettingsTab.General)
+                    {
+                        <small>@Text["Settings_GeneralStoragePrefix"] <code>web-settings.json</code>; @Text["Settings_GeneralStorageMiddle"] <code>settings.json</code>.</small>
+                    }
+                    else if (_activeTab == SettingsTab.Reset)
+                    {
+                        <small>@Text["Settings_ResetStoragePrefix"] <code>settings.json</code>, <code>web-settings.json</code>, @Text["Settings_ResetStorageSuffix"]</small>
+                    }
+                    else
+                    {
+                        <small>@Text["Settings_SharedStoragePrefix"] <code>settings.json</code> @Text["Settings_SharedStorageSuffix"]</small>
+                    }
+                </p>
+            </div>
+        </div>
+    </div>
+</div>

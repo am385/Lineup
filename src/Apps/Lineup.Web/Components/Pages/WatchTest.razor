@@ -1,0 +1,303 @@
+@page "/watch-test"
+@using Lineup.Web.Services
+
+<PageTitle>@Text["WatchTest_Title"]</PageTitle>
+
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+    <div>
+        <h1><span class="bi bi-clipboard-pulse me-2"></span>@Text["WatchTest_Title"]</h1>
+        <p class="text-muted mb-0">@Text["WatchTest_Subtitle"]</p>
+    </div>
+    <div id="automatedCompatibilityActions" class="d-flex align-items-center gap-2">
+        @if (_isRunningAll)
+        {
+            <div style="min-width: 14rem;">
+                <div class="progress position-relative"
+                     role="progressbar"
+                     aria-label="@Text["WatchTest_ProgressAriaLabel"]"
+                     aria-valuenow="@_runResults.Count"
+                     aria-valuemin="0"
+                     aria-valuemax="@CmafCompatibilityTestCatalog.All.Count">
+                    <div class="progress-bar" style="width: @((100 * _runResults.Count) / CmafCompatibilityTestCatalog.All.Count)%"></div>
+                    <span id="compatibilityProgressText"
+                          class="position-absolute top-50 start-50 translate-middle text-body fw-semibold small"
+                          style="z-index: 1;">
+                        @_runResults.Count / @CmafCompatibilityTestCatalog.All.Count
+                    </span>
+                </div>
+                <div class="small text-muted mt-1">@Text["WatchTest_Testing", _currentCase is null ? Text["WatchTest_Preparing"] : FormatTestLabel(_currentCase)]</div>
+            </div>
+            <button id="cancelCompatibilityTests" class="btn btn-outline-danger" @onclick="CancelRun">@Text["WatchTest_Cancel"]</button>
+        }
+        else
+        {
+            <button id="runAllCompatibilityTests"
+                    class="btn btn-primary"
+                    @onclick="RunAllAsync"
+                    disabled="@(_capabilities is null || IsAnyTestBusy || _session is not null)">
+                <span class="bi bi-play-circle me-1"></span>@Text["WatchTest_RunAll"]
+            </button>
+        }
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-xl-8">
+        <div class="card">
+            <div class="card-body p-0">
+                @if (_session is not null)
+                {
+                    <CmafPlayerSurface @ref="_playerSurface"
+                                       ElementId="cmafTestVideoPlayer"
+                                       ShowControls="true"
+                                       Muted="IsAutomatedTestBusy"
+                                       FallbackText="@Text["WatchTest_CmafPlaybackUnsupported"]"
+                                       LocalizedText="@CmafPlayerText.Test(Text)" />
+                }
+                else
+                {
+                    <div class="ratio ratio-16x9 bg-dark d-flex align-items-center justify-content-center">
+                        <div class="text-center text-white-50">
+                            <span class="bi bi-badge-4k display-1"></span>
+                            <p class="mt-3 mb-1">@Text["WatchTest_SelectCombinationPrompt"]</p>
+                            <p class="small mb-0">@Text["WatchTest_SyntheticPresentationHelp"]</p>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(_errorMessage))
+        {
+            <div class="alert alert-danger mt-3" role="alert">
+                <h6 class="alert-heading"><span class="bi bi-exclamation-triangle me-2"></span>@Text["WatchTest_TestError"]</h6>
+                <pre class="mb-0 small" style="white-space: pre-wrap;">@_errorMessage</pre>
+            </div>
+        }
+
+        @if (_playerResult is not null)
+        {
+            <div id="observedPlayback" class="card mt-3">
+                <div class="card-header"><h6 class="mb-0">@Text["WatchTest_ObservedPlayback"]</h6></div>
+                <div class="card-body">
+                    <dl class="row mb-0">
+                        <dt class="col-sm-4">@Text["WatchTest_ManifestLoaded"]</dt>
+                        <dd class="col-sm-8">@FormatClaim(_playerResult.Success)</dd>
+                        <dt class="col-sm-4">@Text["WatchTest_PlaybackStarted"]</dt>
+                        <dd class="col-sm-8">@FormatClaim(_playerResult.PlaybackStarted)</dd>
+                        <dt class="col-sm-4">@Text["WatchTest_Protocol"]</dt>
+                        <dd class="col-sm-8">@_protocol</dd>
+                        <dt class="col-sm-4">@Text["WatchTest_ActiveVideoClaim"]</dt>
+                        <dd class="col-sm-8">@FormatClaim(_playerResult.VideoSupported)</dd>
+                        <dt class="col-sm-4">@Text["WatchTest_ActiveAudioClaim"]</dt>
+                        <dd class="col-sm-8">@FormatClaim(_playerResult.AudioSupported)</dd>
+                        <dt class="col-sm-4">@Text["WatchTest_ActiveVideo"]</dt>
+                        <dd class="col-sm-8">@FormatVideo(_playerResult.Video)</dd>
+                        <dt class="col-sm-4">@Text["WatchTest_ActiveAudio"]</dt>
+                        <dd class="col-sm-8">@FormatAudio(_playerResult.Audio)</dd>
+                        @if (_subtitleMode == CmafTestSubtitleMode.WebVttSidecar)
+                        {
+                            <dt class="col-sm-4">@Text["WatchTest_SubtitleCue"]</dt>
+                            <dd class="col-sm-8">@FormatClaim(_playerResult.SubtitleCueVisible)</dd>
+                        }
+                        @if (_session is not null)
+                        {
+                            <dt class="col-sm-4">@Text["WatchTest_Manifest"]</dt>
+                            <dd class="col-sm-8"><code>@_session.ManifestUrl</code></dd>
+                            <dt class="col-sm-4">@Text["WatchTest_ExpectedCodecs"]</dt>
+                            <dd class="col-sm-8"><code>@_session.VideoCodec, @_session.AudioCodec</code></dd>
+                        }
+                    </dl>
+                </div>
+            </div>
+        }
+
+        <div id="automatedCompatibilityProfile" class="card mt-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="mb-0">@Text["WatchTest_AutomatedCompatibilityProfile"]</h6>
+                @if (_storedProfile is not null)
+                {
+                    <span class="small text-muted">@Text["WatchTest_LastCompleted", _storedProfile.CompletedAtUtc.ToLocalTime().ToString("g")]</span>
+                }
+                else
+                {
+                    <span class="small text-muted">@Text["WatchTest_NotYetComplete"]</span>
+                }
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table id="compatibilityTestResults" class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>@Text["WatchTest_Test"]</th>
+                                <th>@Text["WatchTest_Result"]</th>
+                                <th class="text-end">@Text["WatchTest_Action"]</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var test in CmafCompatibilityTestCatalog.All)
+                            {
+                                var result = GetResult(test.Id);
+                                <tr data-test-case="@test.Id">
+                                    <td>@FormatTestLabel(test)</td>
+                                    <td>
+                                        @if (result is null)
+                                        {
+                                            <span class="badge bg-light text-dark border">@Text["WatchTest_NotRun"]</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge @(result.Status == CmafCapabilityStatus.Passed ? "bg-success" : result.Status == CmafCapabilityStatus.Unavailable ? "bg-secondary" : "bg-danger")">
+                                                @FormatStatus(result.Status)
+                                            </span>
+                                        }
+                                    </td>
+                                    <td class="text-end">
+                                        <button id="@($"runCompatibilityTest-{test.Id}")"
+                                                class="btn btn-outline-primary btn-sm"
+                                                @onclick="() => RunSingleCaseAsync(test)"
+                                                disabled="@(_capabilities is null || IsAnyTestBusy || _session is not null)">
+                                            @if (_isRunningCase && _currentCase?.Id == test.Id)
+                                            {
+                                                <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                            }
+                                            else
+                                            {
+                                                <span class="bi bi-play-fill me-1"></span>
+                                            }
+                                            @Text["WatchTest_RunTest"]
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <p class="small text-muted mt-2 mb-0">
+                    @Text["WatchTest_ProfileSaveHelp"]
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-4">
+        <div id="exactTestSelection" class="card mb-3">
+            <div class="card-header"><h6 class="mb-0">@Text["WatchTest_ExactTestSelection"]</h6></div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="testProtocol" class="form-label">@Text["WatchTest_Protocol"]</label>
+                    <select id="testProtocol" class="form-select" @bind="_protocol" disabled="@IsAnyTestBusy">
+                        <option value="@CmafProtocol.Dash">DASH</option>
+                        <option value="@CmafProtocol.Hls">HLS</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label for="testSubtitleMode" class="form-label">@Text["WatchTest_Subtitles"]</label>
+                    <select id="testSubtitleMode" class="form-select" @bind="_subtitleMode" disabled="@IsAnyTestBusy">
+                        <option value="@CmafTestSubtitleMode.None">@Text["WatchTest_None"]</option>
+                        <option value="@CmafTestSubtitleMode.WebVttSidecar">@Text["WatchTest_WebVttSidecar"]</option>
+                        <option value="@CmafTestSubtitleMode.BurnIn">@Text["WatchTest_BurnInSlate"]</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label for="testQuality" class="form-label">@Text["WatchTest_QualityProfile"]</label>
+                    <select id="testQuality" class="form-select" @bind="_quality" disabled="@IsAnyTestBusy">
+                        <option value="@WebPlayerQuality.AppDefault">@Text["WatchTest_QualityAppDefault"]</option>
+                        <option value="@WebPlayerQuality.High">@Text["WatchTest_QualityHigh"]</option>
+                        <option value="@WebPlayerQuality.Medium">@Text["WatchTest_QualityMedium"]</option>
+                        <option value="@WebPlayerQuality.Low">@Text["WatchTest_QualityLow"]</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label for="testVideoCodec" class="form-label">@Text["WatchTest_VideoCodec"]</label>
+                    <select id="testVideoCodec" class="form-select" value="@_videoCodec" @onchange="ChangeVideoCodec" disabled="@IsAnyTestBusy">
+                        <option value="@CmafTestVideoCodec.H264">H.264 / AVC</option>
+                        <option value="@CmafTestVideoCodec.Hevc">HEVC / H.265</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label for="testVideoProfile" class="form-label">@Text["WatchTest_VideoProfile"]</label>
+                    <select id="testVideoProfile" class="form-select" @bind="_videoProfile" disabled="@(IsAnyTestBusy || _videoCodec == CmafTestVideoCodec.H264)">
+                        <option value="@CmafTestVideoProfile.Main">Main (8-bit)</option>
+                        <option value="@CmafTestVideoProfile.Main10">Main 10 (10-bit)</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label for="testAudioCodec" class="form-label">@Text["WatchTest_AudioCodec"]</label>
+                    <select id="testAudioCodec" class="form-select" value="@_audioCodec" @onchange="ChangeAudioCodec" disabled="@IsAnyTestBusy">
+                        <option value="@CmafTestAudioCodec.Aac">AAC</option>
+                        <option value="@CmafTestAudioCodec.Ac3">AC-3</option>
+                        <option value="@CmafTestAudioCodec.Eac3">E-AC-3</option>
+                        <option value="@CmafTestAudioCodec.Ac4">AC-4 @Text["WatchTest_ClaimOnlySuffix"]</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label for="testChannelLayout" class="form-label">@Text["WatchTest_AudioLayout"]</label>
+                    <select id="testChannelLayout" class="form-select" @bind="_channelLayout" disabled="@(IsAnyTestBusy || !CanEncodeSelectedAudio)">
+                        @foreach (var layout in SupportedLayouts)
+                        {
+                            <option value="@(layout)">@FormatLayout(layout)</option>
+                        }
+                    </select>
+                    @if (CanEncodeSelectedAudio)
+                    {
+                        <div id="channelTestSequence" class="form-text">
+                            @Text["WatchTest_ChannelSequenceHelp", SelectedChannelSequence]
+                        </div>
+                    }
+                </div>
+                @if (!CanEncodeSelectedAudio)
+                {
+                    <div class="alert alert-warning small">
+                        @Text["WatchTest_Ac4UnavailableHelp"]
+                    </div>
+                }
+                <div class="d-flex gap-2">
+                    <button id="startManualCompatibilityTest" class="btn btn-primary" @onclick="StartTestAsync" disabled="@(IsAnyTestBusy || !CanEncodeSelectedAudio)">
+                        @if (_isStarting)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                        }
+                        else
+                        {
+                            <span class="bi bi-play-fill me-1"></span>
+                        }
+                        @Text["WatchTest_StartTest"]
+                    </button>
+                    @if (_session is not null && !IsAutomatedTestBusy)
+                    {
+                        <button class="btn btn-outline-danger" @onclick="StopTestAsync" disabled="@_isStarting">@Text["WatchTest_Stop"]</button>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div id="browserClaims" class="card">
+            <div class="card-header"><h6 class="mb-0">@Text["WatchTest_BrowserClaims"]</h6></div>
+            <div class="card-body">
+                @if (_capabilities is null)
+                {
+                    <p class="text-muted small mb-0">@Text["WatchTest_ReadingBrowserCapabilities"]</p>
+                }
+                else
+                {
+                    <table class="table table-sm mb-0">
+                        <tbody>
+                            <tr><th scope="row">Shaka Player</th><td>@FormatClaim(_capabilities.ShakaSupported)</td></tr>
+                            <tr><th scope="row">Media Source</th><td>@FormatClaim(_capabilities.MediaSourceAvailable)</td></tr>
+                            <tr><th scope="row">Native HLS</th><td>@(string.IsNullOrWhiteSpace(_capabilities.NativeHls) ? Text["WatchTest_NoClaim"] : _capabilities.NativeHls)</td></tr>
+                            <tr><th scope="row">H.264</th><td>@FormatClaim(_capabilities.H264)</td></tr>
+                            <tr><th scope="row">HEVC</th><td>@FormatClaim(_capabilities.Hevc)</td></tr>
+                            <tr><th scope="row">HEVC Main 10</th><td>@FormatClaim(_capabilities.HevcMain10)</td></tr>
+                            <tr><th scope="row">AAC</th><td>@FormatClaim(_capabilities.Aac)</td></tr>
+                            <tr><th scope="row">AC-3</th><td>@FormatClaim(_capabilities.Ac3)</td></tr>
+                            <tr><th scope="row">E-AC-3</th><td>@FormatClaim(_capabilities.Eac3)</td></tr>
+                            <tr><th scope="row">AC-4</th><td>@FormatClaim(_capabilities.Ac4)</td></tr>
+                        </tbody>
+                    </table>
+                    <p class="small text-muted mt-2 mb-0">@Text["WatchTest_BrowserClaimHelp"]</p>
+                }
+            </div>
+        </div>
+    </div>
+</div>

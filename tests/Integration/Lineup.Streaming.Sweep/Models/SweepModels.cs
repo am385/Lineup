@@ -1,0 +1,131 @@
+namespace Lineup.Streaming.Sweep;
+
+internal sealed record MatrixDefinition(
+    string Id,
+    int SourceManagementPort,
+    int? OutputPort,
+    int? ConsumerManagementPort,
+    int? ConsumerOutputPort,
+    HostingMode Mode,
+    bool Remote,
+    string? ExistingUrl = null)
+{
+    public string SourceUrl => ExistingUrl ?? $"http://127.0.0.1:{SourceManagementPort}";
+    public string WatchUrl => ExistingUrl ?? (Remote ? $"http://127.0.0.1:{ConsumerManagementPort}" : SourceUrl);
+}
+
+internal enum HostingMode
+{
+    Management,
+    ManagedProcess,
+    ExternalProcess
+}
+
+internal sealed record ChannelDefinition(string Number, string Name, string ProviderKey, string PhysicalDeviceId)
+{
+    /// <summary>Gets the projected Web Player identity.</summary>
+    public string VirtualDeviceId { get; init; } = string.Empty;
+    /// <summary>Gets ordered source candidates, not just the first physical source.</summary>
+    public IReadOnlyList<SourceCandidate> Sources { get; init; } = [];
+}
+/// <summary>One ordered physical source candidate in a virtual projection.</summary>
+internal sealed record SourceCandidate(string PhysicalDeviceId, string ProviderKey);
+internal sealed record ChannelAttemptResult(
+    string Matrix,
+    string Channel,
+    string Name,
+    int Attempt,
+    bool AvPassed,
+    string CaptionResult,
+    double DurationSeconds,
+    string? Failure,
+    PlayerMetrics? Metrics,
+    StartupOutcome? Startup,
+    int AttemptsExecuted,
+    string? FailurePhase,
+    string Category)
+{
+    /// <summary>Gets the immutable evidence identity used for this attempt's artifact directory.</summary>
+    public string? EvidenceId { get; init; }
+}
+internal sealed record StartupOutcome(
+    string Outcome,
+    int? HttpStatus,
+    string? Code,
+    string? Stage,
+    string? Message,
+    DateTimeOffset RequestStartedUtc,
+    DateTimeOffset ResponseReceivedUtc,
+    long DurationMilliseconds,
+    string? Endpoint,
+    bool Succeeded,
+    bool Retryable)
+{
+    /// <summary>Gets explicit product inference evidence; absent evidence is not confirmation.</summary>
+    public bool? Inferred { get; init; }
+    /// <summary>Gets the product's protection evidence source, independently of request options.</summary>
+    public string? Source { get; init; }
+}
+internal sealed record PlayerMetrics(
+    double InitialTime,
+    double FinalTime,
+    int ReadyState,
+    int VideoWidth,
+    int VideoHeight,
+    long? VideoBytesDelta,
+    long? AudioBytesDelta,
+    long? DecodedFramesDelta,
+    long? DroppedFrames,
+    int WaitingEvents,
+    int StalledEvents,
+    IReadOnlyList<string> MediaErrors,
+    int? AudioPeak,
+    int AudioSamples,
+    string? AudioError,
+    IReadOnlyList<TextTrackMetric> TextTracks);
+internal sealed record TextTrackMetric(string Kind, string Label, string Language, string Mode, int ActiveCueCount, int CueCount);
+internal sealed record DedicatedFailureResult(
+    string? Matrix,
+    bool FetchSucceeded,
+    int? Status,
+    string? CorsOrigin,
+    JsonNode? Body,
+    string? Error,
+    IReadOnlyList<string> RequestFailures);
+internal sealed record Issue4FailureCase(string Channel, int Status, string Code, string Error);
+internal sealed record Issue4FailureResult(string Matrix, string Channel, string ExpectedCode, DedicatedFailureResult Response);
+internal sealed record Issue6ErrorResult(string Matrix, double DurationSeconds, int SourceRequestCount, DedicatedFailureResult Response);
+internal sealed record Issue7TeardownResult(string Matrix, string Teardown, double CleanupSeconds, int SourceActiveStreams, int ActiveBrokerStreams);
+internal sealed record Issue8PresentationResult(
+    string Matrix,
+    string BrokerVideoCodec,
+    string BrokerAudioCodec,
+    string PresentationVideoCodec,
+    string PresentationAudioCodec,
+    string ManifestVideoCodec,
+    string ManifestAudioCodec,
+    int BrowserTextTracks,
+    int StatusTextTracks,
+    int SourceActiveStreams,
+    int ActiveBrokerStreams);
+internal sealed record Issue9IntegrationResult(
+    string Matrix,
+    bool AvPassed,
+    string CaptionResult,
+    int? FailureStatus,
+    string? FailureCode,
+    string? CorsOrigin,
+    int SourceActiveStreams,
+    int ActiveBrokerStreams);
+internal sealed record Issue10AudioPlan(string SourceCodec, string OutputCodec);
+internal sealed record Issue10IntegrationResult(
+    string Matrix,
+    int Attempt,
+    bool AvPassed,
+    long? AudioBytesDelta,
+    int? AudioPeak,
+    string SourceAudioCodec,
+    string OutputAudioCodec,
+    int SourceActiveStreams,
+    int ActiveBrokerStreams);
+internal sealed record ProcessResult(int ExitCode, string Output, string Error);

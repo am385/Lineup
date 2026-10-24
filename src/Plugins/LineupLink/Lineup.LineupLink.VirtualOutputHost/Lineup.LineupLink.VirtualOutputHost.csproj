@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Core\Lineup.VirtualOutputs.Hosting\Lineup.VirtualOutputs.Hosting.csproj" />
+    <ProjectReference Include="..\Lineup.LineupLink\Lineup.LineupLink.csproj" />
+  </ItemGroup>
+  <Target Name="WriteVirtualOutputManifest" AfterTargets="Build">
+    <GetFileHash Files="$(TargetPath)" Algorithm="SHA256">
+      <Output TaskParameter="Items" ItemName="_WorkerHashItem" />
+    </GetFileHash>
+    <PropertyGroup>
+      <_WorkerHash>@(_WorkerHashItem->'%(FileHash)')</_WorkerHash>
+      <_WorkerManifest>{"schemaVersion":1,"workerId":"lineup-link","version":"$(Version)","publisher":"Lineup","executablePath":"$(TargetFileName)","executableSha256":"$(_WorkerHash)","adapterKinds":["lineup-link"],"platforms":[],"minimumProtocolVersion":1,"maximumProtocolVersion":1,"minimumLineupVersion":"$(Version)","settingsDescriptor":{"adapterKind":"lineup-link","fields":[]}}</_WorkerManifest>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(TargetDir)lineup-link.virtual-output.json" Lines="$(_WorkerManifest)" Overwrite="true" />
+  </Target>
+</Project>

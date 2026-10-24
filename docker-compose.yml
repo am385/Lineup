@@ -10,20 +10,23 @@ services:
     ports:
       # Port variables change only host-facing ports; Lineup uses fixed ports inside the container.
       - "${HTTP_PORT:-8080}:8080"
+      # Publish dedicated virtual-output listeners. Override with an equal-sized mapping,
+      # for example VIRTUAL_OUTPUT_PORTS=9600-9607:8600-8607 for eight outputs.
+      - "${VIRTUAL_OUTPUT_PORTS:-8600-8615:8600-8615}"
       - "${HDHOMERUN_DISCOVERY_PORT:-65001}:65001/udp"
       - "${SSDP_PORT:-1900}:1900/udp"
     volumes:
       # Persist all Lineup-owned application data across container restarts
       - appdata:/appdata
       # Persist XMLTV output across container restarts (optional, only if you use the XMLTV output feature)
-      - xmltv:/xmltv
+      - guide:/guide
       - transient:/transient
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       # Clear the base image default; Lineup configures explicit Kestrel listeners.
       - ASPNETCORE_HTTP_PORTS=
       - Lineup__AppDataPath=/appdata
-      - Lineup__XmltvPath=/xmltv
+      - Lineup__GuideOutputDir=/guide
       - Lineup__TransientPath=/transient
       # Optional vendor-neutral logging target. Keep credentials in the host environment.
       - Lineup__Logging__OpenTelemetry__Endpoint=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
@@ -36,5 +39,5 @@ services:
 
 volumes:
   appdata:
-  xmltv:
+  guide:
   transient:

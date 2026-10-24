@@ -1,0 +1,133 @@
+<div class="card mb-4">
+    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <h5 class="mb-0">@Text["Channels_FindHeading"]</h5>
+        @if (HasActiveFilters)
+        {
+            <button id="clearChannelFilters" type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => ClearRequested.InvokeAsync()">
+                <span class="bi bi-x-circle me-1"></span>@Text["Channels_ClearFilters"]
+            </button>
+        }
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-lg-4">
+                <label for="channelSearch" class="form-label">@Text["Common_Search"]</label>
+                <div class="input-group">
+                    <span class="input-group-text"><span class="bi bi-search"></span></span>
+                    <input id="channelSearch" class="form-control" type="search" placeholder="@Text["Channels_SearchPlaceholder"]"
+                           value="@Search" @oninput="ChangeSearchAsync" />
+                </div>
+            </div>
+            <div class="col-sm-6 col-lg-2">
+                <label for="channelDeviceFilter" class="form-label">@Text["Channels_PhysicalDeviceLabel"]</label>
+                <select id="channelDeviceFilter" class="form-select" value="@DeviceFilter" @onchange="ChangeDeviceAsync">
+                    <option value="">@Text["Channels_AllDevices"]</option>
+                    @foreach (var option in Devices)
+                    {
+                        <option value="@option.Value">@option.Label</option>
+                    }
+                </select>
+            </div>
+            <div class="col-sm-6 col-lg-2">
+                <label for="channelStateFilter" class="form-label">@Text["Channels_StateLabel"]</label>
+                <select id="channelStateFilter" class="form-select" value="@StateFilter" @onchange="ChangeStateAsync">
+                    <option value="@ChannelStateFilter.All">@Text["Channels_AllStates"]</option>
+                    <option value="@ChannelStateFilter.Enabled">@Text["Common_Enabled"]</option>
+                    <option value="@ChannelStateFilter.Disabled">@Text["Common_Disabled"]</option>
+                </select>
+            </div>
+            <div class="col-sm-6 col-lg-2">
+                <label for="channelFlagFilter" class="form-label">@Text["Channels_FlagsLabel"]</label>
+                <select id="channelFlagFilter" class="form-select" value="@FlagFilter" @onchange="ChangeFlagAsync">
+                    <option value="@ChannelFlagFilter.All">@Text["Channels_AllFlags"]</option>
+                    <option value="@ChannelFlagFilter.Favorite">@Text["Channels_Favorites"]</option>
+                    <option value="@ChannelFlagFilter.Drm">@Text["Channels_DrmProtected"]</option>
+                    <option value="@ChannelFlagFilter.Hd">HD</option>
+                </select>
+            </div>
+            <div class="col-sm-6 col-lg-2">
+                <label for="channelGuideFilter" class="form-label">@Text["Channels_GuideBindingLabel"]</label>
+                <select id="channelGuideFilter" class="form-select" value="@GuideFilter" @onchange="ChangeGuideAsync">
+                    <option value="@GuideBindingFilter.All">@Text["Channels_AllBindings"]</option>
+                    <option value="@GuideBindingFilter.Bound">@Text["Channels_Bound"]</option>
+                    <option value="@GuideBindingFilter.Unbound">@Text["Channels_Unbound"]</option>
+                    <option value="@GuideBindingFilter.Ambiguous">@Text["Channels_Ambiguous"]</option>
+                    <option value="@GuideBindingFilter.NoMatch">@Text["Channels_NoMatch"]</option>
+                </select>
+            </div>
+        </div>
+        <div class="form-text mt-3">@Text["Channels_ShowingCount", VisibleCount, TotalCount]</div>
+    </div>
+</div>
+
+@code {
+    /// <summary>Gets or sets the search text.</summary>
+    [Parameter]
+    public string Search { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the callback raised when search text changes.</summary>
+    [Parameter]
+    public EventCallback<string> SearchChanged { get; set; }
+
+    /// <summary>Gets or sets the selected physical-device filter.</summary>
+    [Parameter]
+    public string DeviceFilter { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the callback raised when the physical-device filter changes.</summary>
+    [Parameter]
+    public EventCallback<string> DeviceFilterChanged { get; set; }
+
+    /// <summary>Gets or sets the available physical devices.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<ChannelDeviceFilterOption> Devices { get; set; } = [];
+
+    /// <summary>Gets or sets the selected channel-state filter.</summary>
+    [Parameter]
+    public ChannelStateFilter StateFilter { get; set; }
+
+    /// <summary>Gets or sets the callback raised when the channel-state filter changes.</summary>
+    [Parameter]
+    public EventCallback<ChannelStateFilter> StateFilterChanged { get; set; }
+
+    /// <summary>Gets or sets the selected provider-flag filter.</summary>
+    [Parameter]
+    public ChannelFlagFilter FlagFilter { get; set; }
+
+    /// <summary>Gets or sets the callback raised when the provider-flag filter changes.</summary>
+    [Parameter]
+    public EventCallback<ChannelFlagFilter> FlagFilterChanged { get; set; }
+
+    /// <summary>Gets or sets the selected guide-binding filter.</summary>
+    [Parameter]
+    public GuideBindingFilter GuideFilter { get; set; }
+
+    /// <summary>Gets or sets the callback raised when the guide-binding filter changes.</summary>
+    [Parameter]
+    public EventCallback<GuideBindingFilter> GuideFilterChanged { get; set; }
+
+    /// <summary>Gets or sets whether any filter is active.</summary>
+    [Parameter]
+    public bool HasActiveFilters { get; set; }
+
+    /// <summary>Gets or sets the visible result count.</summary>
+    [Parameter]
+    public int VisibleCount { get; set; }
+
+    /// <summary>Gets or sets the total channel count.</summary>
+    [Parameter]
+    public int TotalCount { get; set; }
+
+    /// <summary>Gets or sets the callback raised when filters should clear.</summary>
+    [Parameter]
+    public EventCallback ClearRequested { get; set; }
+
+    private Task ChangeSearchAsync(ChangeEventArgs args) => SearchChanged.InvokeAsync(args.Value?.ToString() ?? string.Empty);
+
+    private Task ChangeDeviceAsync(ChangeEventArgs args) => DeviceFilterChanged.InvokeAsync(args.Value?.ToString() ?? string.Empty);
+
+    private Task ChangeStateAsync(ChangeEventArgs args) => StateFilterChanged.InvokeAsync(Enum.Parse<ChannelStateFilter>(args.Value?.ToString() ?? string.Empty));
+
+    private Task ChangeFlagAsync(ChangeEventArgs args) => FlagFilterChanged.InvokeAsync(Enum.Parse<ChannelFlagFilter>(args.Value?.ToString() ?? string.Empty));
+
+    private Task ChangeGuideAsync(ChangeEventArgs args) => GuideFilterChanged.InvokeAsync(Enum.Parse<GuideBindingFilter>(args.Value?.ToString() ?? string.Empty));
+}

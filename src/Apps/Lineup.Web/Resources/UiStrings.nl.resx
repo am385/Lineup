@@ -1,0 +1,1121 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="metadata">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" />
+              </xsd:sequence>
+              <xsd:attribute name="name" use="required" type="xsd:string" />
+              <xsd:attribute name="type" type="xsd:string" />
+              <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="assembly">
+            <xsd:complexType>
+              <xsd:attribute name="alias" type="xsd:string" />
+              <xsd:attribute name="name" type="xsd:string" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <data name="General_AppearanceHeading" xml:space="preserve"><value>Weergave</value></data>
+  <data name="General_ThemeLabel" xml:space="preserve"><value>Thema</value></data>
+  <data name="General_ThemeLight" xml:space="preserve"><value>Licht</value></data>
+  <data name="General_ThemeDark" xml:space="preserve"><value>Donker</value></data>
+  <data name="General_ThemeAuto" xml:space="preserve"><value>Automatisch</value></data>
+  <data name="General_ThemeHelp" xml:space="preserve"><value>Kies Licht, Donker of Automatisch om de systeemvoorkeur te volgen.</value></data>
+  <data name="General_RegionalHeading" xml:space="preserve"><value>Regionale instellingen</value></data>
+  <data name="General_NetworkHeading" xml:space="preserve"><value>Netwerkinstellingen</value></data>
+  <data name="General_KnownProxiesLabel" xml:space="preserve"><value>Bekende proxyservers</value></data>
+  <data name="General_KnownProxiesHelp" xml:space="preserve"><value>Voer per regel één vertrouwd IP-adres van een reverse proxy of CIDR-netwerk in. Laat dit leeg als de beheerlistener zich niet achter een reverse proxy bevindt. De proxy moet Host behouden en X-Forwarded-For en X-Forwarded-Proto verzenden.</value></data>
+  <data name="General_KnownProxiesRestartHelp" xml:space="preserve"><value>Als u Bekende proxyservers wijzigt, wordt de instelling opgeslagen en Lineup gecontroleerd opnieuw gestart, zodat de pijplijn voor beheerverzoeken de nieuwe vertrouwensgrens kan toepassen. Toegewezen listeners voor virtuele uitvoer gebruiken hun eigen instellingen voor Vertrouwde proxyservers en starten alleen het betreffende werkproces opnieuw.</value></data>
+  <data name="General_TimeZoneLabel" xml:space="preserve"><value>Tijdzone</value></data>
+  <data name="General_SystemDefault" xml:space="preserve"><value>Systeemstandaard</value></data>
+  <data name="General_TimeZoneHelpPrefix" xml:space="preserve"><value>Overschrijf de tijdzone voor weergave. &quot;Systeemstandaard&quot; gebruikt de</value></data>
+  <data name="General_TimeZoneHelpSuffix" xml:space="preserve"><value>-omgevingsvariabele of de lokale tijd van de server.</value></data>
+  <data name="General_CurrentTimeZone" xml:space="preserve"><value>Momenteel:</value></data>
+  <data name="General_LanguageLabel" xml:space="preserve"><value>Taal</value></data>
+  <data name="General_LanguageEnglish" xml:space="preserve"><value>Engels</value></data>
+  <data name="General_LanguageSpanish" xml:space="preserve"><value>Spaans</value></data>
+  <data name="General_LanguageHelp" xml:space="preserve"><value>Kies de taal voor de Lineup-webinterface.</value></data>
+  <data name="Settings_PageTitle" xml:space="preserve"><value>Instellingen</value></data>
+  <data name="Settings_RestartingHeading" xml:space="preserve"><value>Lineup opnieuw starten</value></data>
+  <data name="Settings_FactoryResetRestartHelp" xml:space="preserve"><value>De fabrieksinstellingen zijn hersteld. Lineup keert automatisch terug naar Apparaatconfiguratie zodra het gereed is.</value></data>
+  <data name="Settings_RestartHelp" xml:space="preserve"><value>Lineup keert automatisch terug naar deze pagina zodra het gereed is.</value></data>
+  <data name="Settings_RestartDelayedHeading" xml:space="preserve"><value>Lineup doet er langer over dan verwacht</value></data>
+  <data name="Settings_RestartDelayedHelp" xml:space="preserve"><value>Controleer of Lineup actief is en probeer opnieuw verbinding te maken.</value></data>
+  <data name="Common_Retry" xml:space="preserve"><value>Opnieuw proberen</value></data>
+  <data name="Settings_FactoryResetRequiredHeading" xml:space="preserve"><value>Fabrieksinstellingen herstellen vereist</value></data>
+  <data name="Settings_FactoryResetRequiredHelp" xml:space="preserve"><value>Normale bewerkingen voor apparaten, gidsen, detectie en streaming zijn uitgeschakeld. Gebruik het tabblad Herstellen hieronder om de incompatibele status expliciet te wissen en Lineup opnieuw te starten.</value></data>
+  <data name="Settings_WelcomeHeading" xml:space="preserve"><value>Welkom bij Lineup!</value></data>
+  <data name="Settings_WelcomePrefix" xml:space="preserve"><value>Voeg een</value></data>
+  <data name="Settings_WelcomePhysicalDevice" xml:space="preserve"><value>Fysiek apparaat</value></data>
+  <data name="Settings_WelcomeAnd" xml:space="preserve"><value>en</value></data>
+  <data name="Settings_WelcomeGuideSource" xml:space="preserve"><value>Gidsbron</value></data>
+  <data name="Settings_WelcomeOptional" xml:space="preserve"><value>voeg eventueel een</value></data>
+  <data name="Settings_WelcomeVirtualDevice" xml:space="preserve"><value>Virtueel apparaat</value></data>
+  <data name="Settings_WelcomeThenClick" xml:space="preserve"><value>toe en klik vervolgens op</value></data>
+  <data name="Settings_SaveSettings" xml:space="preserve"><value>Instellingen opslaan</value></data>
+  <data name="Settings_WelcomeSuffix" xml:space="preserve"><value>om aan de slag te gaan.</value></data>
+  <data name="Settings_CategoriesAriaLabel" xml:space="preserve"><value>Instellingscategorieën</value></data>
+  <data name="Settings_TabGeneral" xml:space="preserve"><value>Algemeen</value></data>
+  <data name="Settings_TabDashboard" xml:space="preserve"><value>Dashboard</value></data>
+  <data name="Settings_TabGuideSources" xml:space="preserve"><value>Gidsbronnen</value></data>
+  <data name="Settings_TabGuideOutputs" xml:space="preserve"><value>Gidsuitvoer</value></data>
+  <data name="Settings_TabPhysicalDevices" xml:space="preserve"><value>Fysieke apparaten</value></data>
+  <data name="Settings_TabVirtualDevices" xml:space="preserve"><value>Virtuele apparaten</value></data>
+  <data name="Settings_TabStreaming" xml:space="preserve"><value>Streaming</value></data>
+  <data name="Settings_TabApi" xml:space="preserve"><value>API</value></data>
+  <data name="Settings_TabLogging" xml:space="preserve"><value>Logboekregistratie</value></data>
+  <data name="Settings_TabReset" xml:space="preserve"><value>Herstellen</value></data>
+  <data name="Settings_SaveAndGetStarted" xml:space="preserve"><value>Opslaan en aan de slag</value></data>
+  <data name="Common_Undo" xml:space="preserve"><value>Ongedaan maken</value></data>
+  <data name="Common_Skip" xml:space="preserve"><value>Overslaan</value></data>
+  <data name="Common_Cancel" xml:space="preserve"><value>Annuleren</value></data>
+  <data name="Settings_AboutHeading" xml:space="preserve"><value>Over instellingen</value></data>
+  <data name="Settings_AboutAppearance" xml:space="preserve"><value>Bepaalt hoe de webinterface wordt weergegeven zonder het gedrag van gedeelde streaming of de gids te wijzigen.</value></data>
+  <data name="Settings_AboutRegional" xml:space="preserve"><value>Bepaalt hoe datums en tijden in Lineup worden weergegeven. Dit wijzigt geen programmatijdstempels die door gidsproviders zijn opgeslagen.</value></data>
+  <data name="Settings_AboutEpgFetchTitle" xml:space="preserve"><value>Instellingen voor ophalen van EPG</value></data>
+  <data name="Settings_AboutEpgFetch" xml:space="preserve"><value>Bepaalt de gedeelde planning voor het vernieuwen van de gids, of fysieke kanaallijsten eerst worden vernieuwd en hoeveel geschiedenis van afgelopen programma’s wordt bewaard.</value></data>
+  <data name="Settings_AboutXmltvOutputTitle" xml:space="preserve"><value>Instellingen voor XMLTV-uitvoer</value></data>
+  <data name="Settings_AboutXmltvOutput" xml:space="preserve"><value>Publiceert de gecombineerde gids voor externe gebruikers pas nadat een vernieuwing is voltooid, zodat lezers nooit een gedeeltelijk bijgewerkt document ontvangen.</value></data>
+  <data name="Settings_AboutGuideOutputs" xml:space="preserve"><value>Publiceert standaard gidsgegevens uit de cache voor alle ingeschakelde virtuele apparaten. Maak uitvoer met een beperkt bereik wanneer een gebruiker verderop in de keten alleen geselecteerde virtuele apparaten of gidsbronnen nodig heeft.</value></data>
+  <data name="Settings_AboutGuideSourceTitle" xml:space="preserve"><value>Instellingen voor gidsbron</value></data>
+  <data name="Settings_AboutGuideSource" xml:space="preserve"><value>Configureert {0}, een exemplaar van {1}, en bepaalt of dit gegevens bijdraagt tijdens het vernieuwen van de gids.</value></data>
+  <data name="Settings_AboutPhysicalSubscriptionTitle" xml:space="preserve"><value>Abonnement op fysieke apparaten</value></data>
+  <data name="Settings_AboutPhysicalSubscription" xml:space="preserve"><value>Bepaalt welke compatibele fysieke apparaten kanalen en eventuele door deze bron vereiste providermachtiging leveren. Als u alles selecteert, worden later toegevoegde compatibele apparaten ook opgenomen.</value></data>
+  <data name="Settings_AboutRefreshTitle" xml:space="preserve"><value>Vernieuwingsinstellingen</value></data>
+  <data name="Settings_AboutRefresh" xml:space="preserve"><value>Bepaalt afzonderlijke opvraagplanningen voor relatief stabiele apparaatinformatie en vaak veranderende tunerstatus. Deze intervallen gelden voor elk fysiek apparaat.</value></data>
+  <data name="Settings_AboutTranscoderTitle" xml:space="preserve"><value>Transcoderinstellingen</value></data>
+  <data name="Settings_AboutPhysicalTranscoder" xml:space="preserve"><value>Definieert standaardwaarden voor de bronfase die worden toegepast voordat streams de multiplexer ingaan. Apparaattabbladen kunnen alleen het beleid overschrijven dat voor die bron nodig is en nemen de rest over.</value></data>
+  <data name="Settings_AboutDeviceTitle" xml:space="preserve"><value>Apparaatinstellingen</value></data>
+  <data name="Settings_AboutPhysicalDevice" xml:space="preserve"><value>Configureert {0}, een exemplaar van {1}, inclusief identiteit, verbinding en ingeschakelde status. Uitgeschakelde apparaten blijven geconfigureerd, maar nemen niet deel aan kanaalvernieuwing, gidsbronnen, tunercapaciteit of routering.</value></data>
+  <data name="Settings_AboutHdHomeRunConnection" xml:space="preserve"><value>De verbinding wordt rechtstreeks vanaf de Lineup-host gemaakt. Het adres moet daarom bereikbaar zijn vanaf die host of container.</value></data>
+  <data name="Settings_AboutLineupLinkPhysicalConnection" xml:space="preserve"><value>Importeert kanalen en streams van een extern virtueel apparaat; verbindingsbundels bevatten aanmeldgegevens en moeten als geheim worden behandeld.</value></data>
+  <data name="Settings_AboutPluginPhysicalConnection" xml:space="preserve"><value>Door de plug-in geleverde verbindings- en bronopties gelden alleen voor dit exemplaar.</value></data>
+  <data name="Settings_AboutTestIdentify" xml:space="preserve"><value>Testen en identificeren valideert de huidige niet-opgeslagen verbinding en haalt een veilige apparaatidentiteit op zonder deze op te slaan of te activeren.</value></data>
+  <data name="Settings_AboutPhysicalDeviceTranscoder" xml:space="preserve"><value>Overschrijft standaardwaarden voor de bronfase alleen voor dit apparaat. Opties zonder ingeschakelde overschrijving blijven de huidige en toekomstige algemene instellingen voor fysieke apparaten overnemen.</value></data>
+  <data name="Settings_AboutVirtualTranscoder" xml:space="preserve"><value>Definieert standaardwaarden voor de uitvoerfase die na multiplexing worden gebruikt om streams voor specifieke gebruikers te maken. Tabbladen voor virtuele apparaten kunnen alleen het beleid overschrijven dat voor die uitvoer nodig is.</value></data>
+  <data name="Settings_AboutDiscoveryTitle" xml:space="preserve"><value>Detectie van virtuele tuners</value></data>
+  <data name="Settings_AboutDiscovery" xml:space="preserve"><value>Bepaalt de publicatie van ingeschakelde virtuele HDHomeRun-apparaten op het lokale netwerk. De ingebouwde webspeler blijft onafhankelijk van netwerkdetectie beschikbaar.</value></data>
+  <data name="Settings_BuiltInWebPlayerDescription" xml:space="preserve"><value>ingebouwde webspeler</value></data>
+  <data name="Settings_AboutVirtualDevice" xml:space="preserve"><value>Configureert {0}, een {1}-uitvoer, inclusief de ingeschakelde status en het abonnement op fysieke apparaten.</value></data>
+  <data name="Settings_AboutWebPlayer" xml:space="preserve"><value>De pagina Kijken gebruikt deze uitvoer. Deze kan worden uitgeschakeld, maar niet verwijderd.</value></data>
+  <data name="Settings_AboutHdHomeRunVirtual" xml:space="preserve"><value>Emuleert een HDHomeRun, waarbij de tunercapaciteit wordt afgeleid van geabonneerde fysieke apparaten, tenzij expliciet begrensd.</value></data>
+  <data name="Settings_AboutLineupLinkVirtual" xml:space="preserve"><value>Stelt kanalen veilig beschikbaar aan een andere Lineup-host; geëxporteerde verbindingsbundels bevatten aanmeldgegevens en moeten als geheim worden behandeld.</value></data>
+  <data name="Settings_AboutPluginVirtual" xml:space="preserve"><value>Door de plug-in geleverde identiteits- en uitvoeropties gelden alleen voor dit exemplaar.</value></data>
+  <data name="Settings_AboutVirtualDeviceTranscoder" xml:space="preserve"><value>Overschrijft standaardwaarden voor de uitvoerfase alleen voor dit virtuele apparaat. Opties zonder ingeschakelde overschrijving blijven de huidige en toekomstige algemene instellingen voor virtuele apparaten overnemen.</value></data>
+  <data name="Settings_AboutStreamingTitle" xml:space="preserve"><value>Streamingbeleid</value></data>
+  <data name="Settings_AboutStreaming" xml:space="preserve"><value>Bepaalt voor de hele toepassing de toelating van streams, het behouden van gedeelde pijplijnen en reacties voor streams die geen normale programmering kunnen leveren. Profielen voor fysieke en virtuele transcoders worden op de bijbehorende apparaattabbladen geconfigureerd.</value></data>
+  <data name="Settings_AboutActiveStreamsTitle" xml:space="preserve"><value>Actieve streams</value></data>
+  <data name="Settings_AboutActiveStreams" xml:space="preserve"><value>Bepaalt hoe vaak het Dashboard de cacheweergave van gebruikers, tunergebruik, gedeelde acquisities, transcoderingen en streamingstroom vernieuwt.</value></data>
+  <data name="Settings_AboutStatusApiTitle" xml:space="preserve"><value>Status-API</value></data>
+  <data name="Settings_AboutStatusApiPrefix" xml:space="preserve"><value>Bepaalt privacyredactie voor de alleen-lezen</value></data>
+  <data name="Settings_AboutStatusApiSuffix" xml:space="preserve"><value>momentopname. Geredigeerde eigenschappen blijven aanwezig als</value></data>
+  <data name="Settings_AboutStatusApiEnd" xml:space="preserve"><value>zodat een stabiele antwoordstructuur behouden blijft zonder apparaat- of gidsbewerkingen te activeren.</value></data>
+  <data name="Settings_AboutLogFiltersTitle" xml:space="preserve"><value>Logboekfilters van toepassing</value></data>
+  <data name="Settings_AboutLogFilters" xml:space="preserve"><value>Bepaalt door Web beheerde standaardfilters en categoriespecifieke ernstfilters voor elke logboekuitvoer. Als u overschrijvingen uitschakelt, wordt de opstartconfiguratie hersteld.</value></data>
+  <data name="Settings_AboutLocalDiagnosticsTitle" xml:space="preserve"><value>Lokale diagnostiek</value></data>
+  <data name="Settings_AboutLocalDiagnostics" xml:space="preserve"><value>Configureert roterende bestanden die na een herstart behouden blijven, naast de begrensde pagina Logboeken in het geheugen, en beheert bewaarde diagnostische bestanden.</value></data>
+  <data name="Settings_AboutOutputHosting" xml:space="preserve"><value>Bepaalt of deze virtuele uitvoer de beheer-UI-host deelt of op een toegewezen listener draait, inclusief procesmodus, bindingen, transportbeveiliging en herstartbeleid.</value></data>
+  <data name="Settings_AboutExternalTargetsTitle" xml:space="preserve"><value>Externe doelen</value></data>
+  <data name="Settings_AboutExternalTargets" xml:space="preserve"><value>Externe doelen zoals OTLP worden bij het opstarten geconfigureerd, zodat aanmeldgegevens nooit door de Web-instellingen-UI worden bewaard of weergegeven.</value></data>
+  <data name="Settings_AboutResetTitle" xml:space="preserve"><value>Instellingen herstellen</value></data>
+  <data name="Settings_AboutReset" xml:space="preserve"><value>Zet standaard gedeelde en webinstellingen klaar voor controle zonder de opgeslagen configuratie direct te wijzigen.</value></data>
+  <data name="Settings_AboutRestartTitle" xml:space="preserve"><value>Lineup opnieuw starten</value></data>
+  <data name="Settings_AboutRestart" xml:space="preserve"><value>Start de host gecontroleerd opnieuw zonder de configuratie te wijzigen of gegevens te verwijderen.</value></data>
+  <data name="Settings_AboutFactoryResetTitle" xml:space="preserve"><value>Fabrieksinstellingen herstellen</value></data>
+  <data name="Settings_AboutFactoryReset" xml:space="preserve"><value>Verwijdert permanent configuratie en gegevens van Lineup voordat opnieuw wordt gestart met de eerste configuratie. Externe XMLTV-bestanden blijven ongewijzigd.</value></data>
+  <data name="Settings_WebSettingsStorage" xml:space="preserve"><value>Deze instellingen van de webhost worden opgeslagen in</value></data>
+  <data name="Settings_WebSettingsStorageSuffix" xml:space="preserve"><value>en blijven behouden na herstarts.</value></data>
+  <data name="Settings_GeneralStoragePrefix" xml:space="preserve"><value>Thema en taal worden opgeslagen in</value></data>
+  <data name="Settings_GeneralStorageMiddle" xml:space="preserve"><value>gedeelde regionale instellingen worden opgeslagen in</value></data>
+  <data name="Settings_ResetStoragePrefix" xml:space="preserve"><value>Herstelbewerkingen kunnen gevolgen hebben voor</value></data>
+  <data name="Settings_ResetStorageSuffix" xml:space="preserve"><value>en andere toepassingsgegevens van Lineup.</value></data>
+  <data name="Settings_SharedStoragePrefix" xml:space="preserve"><value>Deze gedeelde instellingen worden opgeslagen in</value></data>
+  <data name="Settings_SharedStorageSuffix" xml:space="preserve"><value>en kunnen door Web en andere Lineup-hosts worden gebruikt.</value></data>
+  <data name="Settings_DeviceRefreshValidation" xml:space="preserve"><value>Het vernieuwingsinterval voor apparaten moet tussen 0 en 60 minuten liggen.</value></data>
+  <data name="Settings_TunerRefreshValidation" xml:space="preserve"><value>Het vernieuwingsinterval voor tuners moet tussen 0 en 300 seconden liggen.</value></data>
+  <data name="Settings_StreamRefreshValidation" xml:space="preserve"><value>Het vernieuwingsinterval voor actieve streams moet tussen 0 en 300 seconden liggen.</value></data>
+  <data name="Settings_EpgRetentionValidation" xml:space="preserve"><value>De bewaartermijn van EPG-geschiedenis moet tussen 0 en 720 uur liggen.</value></data>
+  <data name="Settings_LogRetentionValidation" xml:space="preserve"><value>De bewaartermijn voor logboeken moet 1-90 dagen zijn en de bestandsgrootte 1-500 MB.</value></data>
+  <data name="Settings_ApplicationLogApplyFailure" xml:space="preserve"><value>filters voor toepassingslogboeken konden niet worden toegepast: {0}</value></data>
+  <data name="Settings_FileLogApplyFailure" xml:space="preserve"><value>bestandsregistratie kon niet worden toegepast: {0}</value></data>
+  <data name="Settings_PartialSaveFailure" xml:space="preserve"><value>Instellingen zijn opgeslagen, maar {0}</value></data>
+  <data name="Settings_SaveSuccess" xml:space="preserve"><value>Instellingen zijn opgeslagen!</value></data>
+  <data name="Settings_SecretShownOnce" xml:space="preserve"><value>{0} {1} (eenmalig weergegeven): {2}</value></data>
+  <data name="Settings_SaveFailure" xml:space="preserve"><value>Fout bij het opslaan van instellingen: {0}</value></data>
+  <data name="Settings_ResetDefaultsSuccess" xml:space="preserve"><value>Instellingen zijn teruggezet naar de standaardwaarden. Klik op Opslaan om deze toe te passen.</value></data>
+  <data name="Settings_LogCategoryValidation" xml:space="preserve"><value>Voorvoegsels van logboekcategorieën moeten 1-200 tekens bevatten en mogen niet Default heten.</value></data>
+  <data name="Settings_LogCategoryUniqueValidation" xml:space="preserve"><value>Voorvoegsels van logboekcategorieën moeten uniek zijn.</value></data>
+  <data name="Settings_UndoSuccess" xml:space="preserve"><value>Niet-opgeslagen wijzigingen in instellingen zijn teruggedraaid.</value></data>
+  <data name="Settings_RestartFailure" xml:space="preserve"><value>Lineup kon niet opnieuw worden gestart: {0}</value></data>
+  <data name="Settings_FactoryResetFailure" xml:space="preserve"><value>Het herstellen van de fabrieksinstellingen kon niet worden gestart: {0}</value></data>
+  <data name="Settings_NoFileLogs" xml:space="preserve"><value>Er zijn geen bestandslogboeken gevonden.</value></data>
+  <data name="Settings_DeleteFileLogSingular" xml:space="preserve"><value>{0} bestandslogboek verwijderd.</value></data>
+  <data name="Settings_DeleteFileLogPlural" xml:space="preserve"><value>{0} bestandslogboeken verwijderd.</value></data>
+  <data name="Settings_DeleteFileLogsFailure" xml:space="preserve"><value>Bestandslogboeken konden niet worden verwijderd: {0}</value></data>
+  <data name="Settings_GuideOutputDestinationRequired" xml:space="preserve"><value>Gidsuitvoer {0} vereist een uitvoerbestemming.</value></data>
+  <data name="Settings_GuideOutputDestinationInvalid" xml:space="preserve"><value>Gidsuitvoer {0} heeft een ongeldige uitvoerbestemming.</value></data>
+  <data name="Settings_CurrentGuidePathInvalid" xml:space="preserve"><value>Het huidige pad voor gidsuitvoer is ongeldig. Selecteer een servermap.</value></data>
+  <data name="Settings_DirectoryAccessDenied" xml:space="preserve"><value>Toegang tot deze map geweigerd.</value></data>
+  <data name="Settings_DirectoryBrowseFailure" xml:space="preserve"><value>Deze map kan niet worden doorzocht: {0}</value></data>
+  <data name="Settings_NoPhysicalDrivers" xml:space="preserve"><value>Er zijn geen door gebruikers aanmaakbare stuurprogramma’s voor fysieke apparaten geregistreerd.</value></data>
+  <data name="Settings_ConnectionTestUnsupported" xml:space="preserve"><value>{0} ondersteunt geen verbindingstest.</value></data>
+  <data name="Settings_ConnectionTestSuccess" xml:space="preserve"><value>Verbinding met {0} geslaagd.</value></data>
+  <data name="Settings_ConnectionTestFailure" xml:space="preserve"><value>Verbindingstest mislukt: {0}</value></data>
+  <data name="Settings_NoVirtualDrivers" xml:space="preserve"><value>Er zijn geen door gebruikers aanmaakbare stuurprogramma’s voor virtuele apparaten geregistreerd.</value></data>
+  <data name="Settings_NoGuideSourceDrivers" xml:space="preserve"><value>Er zijn geen door gebruikers aanmaakbare stuurprogramma’s voor gidsbronnen geregistreerd.</value></data>
+  <data name="Settings_NoGuideOutputDrivers" xml:space="preserve"><value>Er zijn geen door gebruikers aanmaakbare stuurprogramma’s voor gidsuitvoer geregistreerd.</value></data>
+  <data name="Settings_LineupLinkBundleImported" xml:space="preserve"><value>Lineup Link-verbindingsbundel geïmporteerd. Klik op Opslaan om verbinding te maken.</value></data>
+  <data name="Settings_LineupLinkGrantCreated" xml:space="preserve"><value>Er is een Lineup Link-toegangsmachtiging gemaakt. Sla de instellingen op en kopieer of exporteer de bundel nu; het onbewerkte token wordt niet opgeslagen.</value></data>
+  <data name="Settings_LineupLinkGrantRotated" xml:space="preserve"><value>De Lineup Link-toegangsmachtiging is vernieuwd. Sla de instellingen op en werk vervolgens de externe client bij met de vervangende bundel.</value></data>
+  <data name="Settings_LineupLinkGrantRevoked" xml:space="preserve"><value>De Lineup Link-toegangsmachtiging is ingetrokken. Sla de instellingen op om deze referentie te weigeren.</value></data>
+  <data name="Settings_LineupLinkGrantPurged" xml:space="preserve"><value>De ingetrokken Lineup Link-toegangsmachtiging is permanent gewist. Sla de instellingen op om de verwijdering te bewaren.</value></data>
+  <data name="Settings_LineupLinkBundleDownloaded" xml:space="preserve"><value>De Lineup Link-verbindingsbundel is gedownload.</value></data>
+  <data name="Settings_LineupLinkDownloadDisconnected" xml:space="preserve"><value>De verbindingsbundel kon niet worden gedownload omdat de browserverbinding is verbroken.</value></data>
+  <data name="Settings_LineupLinkDownloadFailure" xml:space="preserve"><value>De browser kon de Lineup Link-verbindingsbundel niet downloaden.</value></data>
+  <data name="Settings_LineupLinkBundleCopied" xml:space="preserve"><value>De Lineup Link-verbindingsbundel is naar het klembord gekopieerd.</value></data>
+  <data name="Settings_LineupLinkCopyDisconnected" xml:space="preserve"><value>De verbindingsbundel kon niet worden gekopieerd omdat de browserverbinding is verbroken.</value></data>
+  <data name="Settings_LineupLinkCopyFailure" xml:space="preserve"><value>De browser kon de Lineup Link-verbindingsbundel niet kopiëren.</value></data>
+  <data name="Settings_LineupLinkRawTokenUnavailable" xml:space="preserve"><value>Het huidige onbewerkte token is niet beschikbaar. Vernieuw deze machtiging om een nieuwe verbindingsbundel te maken.</value></data>
+  <data name="Settings_AccessTokenHelp" xml:space="preserve"><value>****** uitgegeven door het externe virtuele apparaat. Behandel dit als een wachtwoord.</value></data>
+  <data name="Settings_AccessTokenLabel" xml:space="preserve"><value>Toegangstoken</value></data>
+  <data name="Settings_AddGuideOutputButton" xml:space="preserve"><value>Gidsuitvoer toevoegen</value></data>
+  <data name="Settings_AddGuideOutputTypeDescription" xml:space="preserve"><value>Een {0}-gidsuitvoer toevoegen.</value></data>
+  <data name="Settings_AddGuideSourceButton" xml:space="preserve"><value>Gidsbron toevoegen</value></data>
+  <data name="Settings_AddGuideSourceTypeDescription" xml:space="preserve"><value>Een {0}-gidsbron toevoegen.</value></data>
+  <data name="Settings_AddLogCategoryButton" xml:space="preserve"><value>Categorie toevoegen</value></data>
+  <data name="Settings_AddPhysicalDeviceButton" xml:space="preserve"><value>Fysiek apparaat toevoegen</value></data>
+  <data name="Settings_AddPhysicalDeviceDescription" xml:space="preserve"><value>Selecteer het type fysiek apparaat dat u wilt toevoegen.</value></data>
+  <data name="Settings_AddressLabel" xml:space="preserve"><value>Adres</value></data>
+  <data name="Settings_AddVirtualDeviceButton" xml:space="preserve"><value>Virtueel apparaat toevoegen</value></data>
+  <data name="Settings_AddVirtualDeviceDescription" xml:space="preserve"><value>Selecteer het type virtueel apparaat dat u wilt toevoegen.</value></data>
+  <data name="Settings_AdvancedNetworkingHeading" xml:space="preserve"><value>Geavanceerd netwerk</value></data>
+  <data name="Settings_AdvertisedBaseUrlHelp" xml:space="preserve"><value>Extern bereikbare URL van de beheerhost die wordt gebruikt in detectie- en kanaallijstantwoorden.</value></data>
+  <data name="Settings_AdvertisedBaseUrlLabel" xml:space="preserve"><value>Gepubliceerde basis-URL</value></data>
+  <data name="Settings_AdvertiseLocalNetworkHelp" xml:space="preserve"><value>Publiceert dit apparaat via SiliconDust UDP-detectie en SSDP wanneer Detectie van virtuele tuners is ingeschakeld.</value></data>
+  <data name="Settings_AdvertiseLocalNetworkLabel" xml:space="preserve"><value>Publiceren op het lokale netwerk</value></data>
+  <data name="Settings_AllCompatibleEnabledDevices" xml:space="preserve"><value>Alle compatibele ingeschakelde apparaten</value></data>
+  <data name="Settings_AllEnabledGuideSources" xml:space="preserve"><value>Alle ingeschakelde gidsbronnen</value></data>
+  <data name="Settings_AllEnabledPhysicalDevices" xml:space="preserve"><value>Alle ingeschakelde fysieke apparaten</value></data>
+  <data name="Settings_AllEnabledVirtualDevices" xml:space="preserve"><value>Alle ingeschakelde virtuele apparaten</value></data>
+  <data name="Settings_AllowedClientNetworksHelp" xml:space="preserve"><value>Optionele, door komma’s gescheiden CIDR’s. Leeg staat clients toe uit elk netwerk dat door de firewall is toegestaan.</value></data>
+  <data name="Settings_AllowedClientNetworksLabel" xml:space="preserve"><value>Toegestane clientnetwerken</value></data>
+  <data name="Settings_ApiEndpointLabel" xml:space="preserve"><value>API-eindpunten</value></data>
+  <data name="Settings_PrimaryEndpointLabel" xml:space="preserve"><value>Primair</value></data>
+  <data name="Settings_StableIdEndpointLabel" xml:space="preserve"><value>Stabiele ID</value></data>
+  <data name="Settings_StableIdEndpointHelp" xml:space="preserve"><value>Niet beïnvloed door sleutelwijzigingen</value></data>
+  <data name="Settings_PrimaryEndpointActionsLabel" xml:space="preserve"><value>Acties voor primair eindpunt</value></data>
+  <data name="Settings_StableIdEndpointActionsLabel" xml:space="preserve"><value>Acties voor eindpunt met stabiele ID</value></data>
+  <data name="Settings_CopyGuideOutputLabel" xml:space="preserve"><value>Eindpunt voor gidsuitvoer kopiëren</value></data>
+  <data name="Settings_CopyStableGuideOutputLabel" xml:space="preserve"><value>Eindpunt met stabiele ID voor gidsuitvoer kopiëren</value></data>
+  <data name="Settings_ViewGuideOutputLabel" xml:space="preserve"><value>Gidsuitvoer bekijken</value></data>
+  <data name="Settings_DownloadGuideOutputLabel" xml:space="preserve"><value>Gidsuitvoer downloaden</value></data>
+  <data name="Settings_ViewStableGuideOutputLabel" xml:space="preserve"><value>Gidsuitvoer bekijken met stabiele ID</value></data>
+  <data name="Settings_DownloadStableGuideOutputLabel" xml:space="preserve"><value>Gidsuitvoer downloaden met stabiele ID</value></data>
+  <data name="Settings_ApiPrivacyDescriptionPrefix" xml:space="preserve"><value>Externe dashboards kunnen de huidige Lineup-status lezen via</value></data>
+  <data name="Settings_ApiPrivacyDescriptionSuffix" xml:space="preserve"><value>Dit alleen-lezen eindpunt heeft geen verificatie en mag alleen beschikbaar worden gesteld aan vertrouwde netwerken.</value></data>
+  <data name="Settings_ApiPrivacyHeading" xml:space="preserve"><value>Privacy van status-API</value></data>
+  <data name="Settings_ApiDocumentationHeading" xml:space="preserve"><value>API-documentatie</value></data>
+  <data name="Settings_ApiDocumentationDescription" xml:space="preserve"><value>Bekijk de gegenereerde API-referentie van Lineup, beschrijvingen van eindpunten, parameters, aanvraagschema’s en antwoordschema’s.</value></data>
+  <data name="Settings_OpenApiDocumentationButton" xml:space="preserve"><value>API-documentatie openen</value></data>
+  <data name="Settings_ApiRedactClientAddressesHelpPrefix" xml:space="preserve"><value>Retourneert het clientadres van elke stream als</value></data>
+  <data name="Settings_ApiRedactClientAddressesLabel" xml:space="preserve"><value>Clientadressen van actieve streams redigeren</value></data>
+  <data name="Settings_ApiRedactDeviceAddressesHelpPrefix" xml:space="preserve"><value>Retourneert geconfigureerde hostnamen en adressen van fysieke tuners als</value></data>
+  <data name="Settings_ApiRedactDeviceAddressesLabel" xml:space="preserve"><value>Apparaatadressen redigeren</value></data>
+  <data name="Settings_ApiRedactUrlsHelpPrefix" xml:space="preserve"><value>Retourneert URL’s van apparaten, kanaallijsten, tunerdoelen, publicaties en XMLTV als</value></data>
+  <data name="Settings_ApiRedactUrlsLabel" xml:space="preserve"><value>URL’s redigeren</value></data>
+  <data name="Settings_ApplicationLogFiltersHeading" xml:space="preserve"><value>Filters voor toepassingslogboeken</value></data>
+  <data name="Settings_AutoFetchGuideHelp" xml:space="preserve"><value>Downloadt de volledige SiliconDust-gids met een willekeurig interval tussen 20 en 28 uur, zoals vereist door de API. De beschikbaarheid is 2 dagen voor iedereen of 14 dagen met een HDHomeRun DVR-gidsabonnement.</value></data>
+  <data name="Settings_AutoFetchGuideLabel" xml:space="preserve"><value>Gidsgegevens automatisch vernieuwen</value></data>
+  <data name="Settings_BindAddressesHelp" xml:space="preserve"><value>Door komma’s gescheiden IP-adressen, localhost of * voor alle interfaces.</value></data>
+  <data name="Settings_BindAddressesLabel" xml:space="preserve"><value>Bindingsadressen</value></data>
+  <data name="Settings_BrowseServerDirectoriesTitle" xml:space="preserve"><value>Servermappen doorzoeken</value></data>
+  <data name="Settings_BuiltInWebPlayer" xml:space="preserve"><value>Ingebouwde webspeler</value></data>
+  <data name="Settings_CancelButton" xml:space="preserve"><value>Annuleren</value></data>
+  <data name="Settings_CertificateFingerprintHelp" xml:space="preserve"><value>Normaal certificaatvertrouwen van het besturingssysteem is altijd vereist; vastzetten voegt een exacte controle van de vingerafdruk toe.</value></data>
+  <data name="Settings_CertificateFingerprintLabel" xml:space="preserve"><value>SHA-256-vingerafdruk van certificaat (optioneel)</value></data>
+  <data name="Settings_CertificateReferenceHelp" xml:space="preserve"><value>Verwijzing van de vertrouwde host naar het servercertificaat. Huidige bestandsgebaseerde hosts accepteren een PFX-pad zonder wachtwoord.</value></data>
+  <data name="Settings_CertificateReferenceLabel" xml:space="preserve"><value>Certificaatverwijzing</value></data>
+  <data name="Settings_ClearButton" xml:space="preserve"><value>Wissen</value></data>
+  <data name="Settings_ClientCertificatesHelp" xml:space="preserve"><value>Bepaalt of TLS-clients hun eigen certificaat mogen of moeten aanbieden.</value></data>
+  <data name="Settings_ClientCertificatesLabel" xml:space="preserve"><value>Clientcertificaten</value></data>
+  <data name="Settings_ClientCertificatesNotRequested" xml:space="preserve"><value>Niet aangevraagd</value></data>
+  <data name="Settings_ClientCertificatesOptional" xml:space="preserve"><value>Optioneel</value></data>
+  <data name="Settings_ClientCertificatesRequired" xml:space="preserve"><value>Vereist</value></data>
+  <data name="Settings_ClientFacingBaseUrlHelp" xml:space="preserve"><value>Automatisch afgeleid van het listenertransport, het eerste bindingsadres en de gepubliceerde poort. Deze URL wordt gebruikt in protocolantwoorden en verbindingsbundels.</value></data>
+  <data name="Settings_ClientFacingBaseUrlLabel" xml:space="preserve"><value>Basis-URL voor clients</value></data>
+  <data name="Settings_ClientFacingUrlOverrideHelp" xml:space="preserve"><value>Voer de extern bereikbare HTTP- of HTTPS-hoofd-URL in. Een overschrijving van de gepubliceerde poort vervangt bij opslaan nog steeds de poort.</value></data>
+  <data name="Settings_ClientFacingUrlOverrideLabel" xml:space="preserve"><value>Overschrijving basis-URL voor clients</value></data>
+  <data name="Settings_ConfiguredSecretPlaceholder" xml:space="preserve"><value>Geconfigureerd; laat leeg om te behouden</value></data>
+  <data name="Settings_ConfiguredStatus" xml:space="preserve"><value>Geconfigureerd</value></data>
+  <data name="Settings_ConnectionBundleCertificatePinHelp" xml:space="preserve"><value>Exacte SHA-256-certificaatvingerafdruk die in geëxporteerde bundels wordt opgenomen. Dit staat los van de certificaatverwijzing die door een toegewezen HTTPS-listener wordt gebruikt.</value></data>
+  <data name="Settings_ConnectionBundleCertificatePinLabel" xml:space="preserve"><value>Vastgezet certificaat voor verbindingsbundel (optioneel)</value></data>
+  <data name="Settings_ConnectionBundleLabel" xml:space="preserve"><value>Verbindingsbundel</value></data>
+  <data name="Settings_ConnectionFailed" xml:space="preserve"><value>Verbinding mislukt</value></data>
+  <data name="Settings_ConnectionSuccessful" xml:space="preserve"><value>Verbinding geslaagd</value></data>
+  <data name="Settings_ConnectionTestUnavailable" xml:space="preserve"><value>Deze plug-in voor fysieke apparaten biedt geen verbindingstest.</value></data>
+  <data name="Settings_CpuLimitHelp" xml:space="preserve"><value>CPU-limiet voor werkproces. Gebruik 0 voor geen geconfigureerde limiet.</value></data>
+  <data name="Settings_CpuLimitLabel" xml:space="preserve"><value>CPU-limiet (%)</value></data>
+  <data name="Settings_DashboardActiveStreamsHeading" xml:space="preserve"><value>Actieve streams</value></data>
+  <data name="Settings_DashboardRefreshIntervalHelp" xml:space="preserve"><value>Hoe vaak actieve gehoste streams op het dashboard worden vernieuwd. Stel in op 0 om automatisch vernieuwen uit te schakelen.</value></data>
+  <data name="Settings_DashboardRefreshIntervalLabel" xml:space="preserve"><value>Vernieuwingsinterval actieve streams (seconden)</value></data>
+  <data name="Settings_DedicatedListenerHelp" xml:space="preserve"><value>Toegewezen listeners draaien in een geïsoleerd uitvoerwerkproces. Als u deze instellingen wijzigt, wordt alleen deze virtuele uitvoer opnieuw gestart.</value></data>
+  <data name="Settings_DefaultLogDirectory" xml:space="preserve"><value>de Lineup-configuratiemap/logs</value></data>
+  <data name="Settings_DefaultLogLevelHelp" xml:space="preserve"><value>Van toepassing op categorieën zonder een specifiekere regel.</value></data>
+  <data name="Settings_DefaultLogLevelLabel" xml:space="preserve"><value>Standaardniveau</value></data>
+  <data name="Settings_DeleteLogsButton" xml:space="preserve"><value>Logboeken verwijderen</value></data>
+  <data name="Settings_DeleteLogsDisabledHelp" xml:space="preserve"><value>Verwijdert alle bewaarde roterende logbestanden.</value></data>
+  <data name="Settings_DeleteLogsEnabledHelp" xml:space="preserve"><value>Verwijdert alle roterende logbestanden en start direct een nieuw leeg logbestand.</value></data>
+  <data name="Settings_DeviceInfoRefreshIntervalHelp" xml:space="preserve"><value>Hoe vaak apparaatinformatie wordt vernieuwd. Stel in op 0 om automatisch vernieuwen uit te schakelen.</value></data>
+  <data name="Settings_DeviceInfoRefreshIntervalLabel" xml:space="preserve"><value>Vernieuwingsinterval apparaatinformatie (minuten)</value></data>
+  <data name="Settings_DeviceSettingsHeading" xml:space="preserve"><value>Apparaatinstellingen</value></data>
+  <data name="Settings_DirectoryBrowserHeading" xml:space="preserve"><value>Servermappen verkennen</value></data>
+  <data name="Settings_DirectoryBrowserParentDirectoryTitle" xml:space="preserve"><value>Bovenliggende map</value></data>
+  <data name="Settings_DirectoryBrowserSelectButton" xml:space="preserve"><value>Deze map selecteren</value></data>
+  <data name="Settings_DisabledBadge" xml:space="preserve"><value>Uitgeschakeld</value></data>
+  <data name="Settings_DisabledChannelsHelp" xml:space="preserve"><value>Bepaalt rechtstreekse aanvragen voor kanalen die op de pagina Kanalen zijn uitgeschakeld. Uitgeschakelde streams openen nooit een fysieke tuner.</value></data>
+  <data name="Settings_DisabledChannelsLabel" xml:space="preserve"><value>Uitgeschakelde kanalen</value></data>
+  <data name="Settings_DisabledChannelsReturnError" xml:space="preserve"><value>Een fout voor uitgeschakeld kanaal retourneren</value></data>
+  <data name="Settings_DisabledChannelsStreamSlate" xml:space="preserve"><value>Een testkaart voor een uitgeschakeld kanaal streamen</value></data>
+  <data name="Settings_DisabledLowercase" xml:space="preserve"><value>uitgeschakeld</value></data>
+  <data name="Settings_DrainTimeoutHelp" xml:space="preserve"><value>Maximale tijd waarin actieve aanvragen tijdens opnieuw starten of afsluiten mogen worden voltooid.</value></data>
+  <data name="Settings_DrainTimeoutLabel" xml:space="preserve"><value>Wachttijd voor afhandeling (seconden)</value></data>
+  <data name="Settings_EmptyGuideSourceSelectionHelp" xml:space="preserve"><value>Een lege selectie neemt dynamisch alle ingeschakelde gidsbronnen op.</value></data>
+  <data name="Settings_EmptyVirtualDeviceSelectionHelp" xml:space="preserve"><value>Een lege selectie neemt dynamisch alle ingeschakelde virtuele apparaten op.</value></data>
+  <data name="Settings_EnabledLabel" xml:space="preserve"><value>Ingeschakeld</value></data>
+  <data name="Settings_EnableFileLoggingLabel" xml:space="preserve"><value>Logboeken naar roterende bestanden schrijven</value></data>
+  <data name="Settings_EnableNetworkDiscoveryHelp" xml:space="preserve"><value>Ingeschakelde virtuele HDHomeRun-apparaten met een gepubliceerde URL worden op het lokale netwerk gepubliceerd.</value></data>
+  <data name="Settings_EnableNetworkDiscoveryLabel" xml:space="preserve"><value>UDP- en SSDP-netwerkdetectie inschakelen</value></data>
+  <data name="Settings_EpgFetchHeading" xml:space="preserve"><value>Instellingen voor ophalen van EPG</value></data>
+  <data name="Settings_EpgHistoryRetentionHelp" xml:space="preserve"><value>Bewaart programma’s die binnen dit tijdvenster zijn geëindigd. De standaardwaarde is 24 uur; gebruik 0 om afgelopen programma’s na een geslaagde import te verwijderen.</value></data>
+  <data name="Settings_EpgHistoryRetentionLabel" xml:space="preserve"><value>Geschiedenis van afgelopen gidsgegevens (uren)</value></data>
+  <data name="Settings_ExecutionModeHelp" xml:space="preserve"><value>Beheerde processen worden door Lineup gestart en bewaakt. Externe processen gebruiken een eenmalige registratiedescriptor en worden afzonderlijk gestart.</value></data>
+  <data name="Settings_ExecutionModeLabel" xml:space="preserve"><value>Uitvoeringsmodus</value></data>
+  <data name="Settings_ExternalLogTargetsDescriptionPrefix" xml:space="preserve"><value>Externe doelen worden bij het opstarten geconfigureerd via omgevingsvariabelen of</value></data>
+  <data name="Settings_ExternalLogTargetsDescriptionSuffix" xml:space="preserve"><value>Geheimen worden nooit in Lineup-instellingen opgeslagen of hier weergegeven.</value></data>
+  <data name="Settings_ExternalLogTargetsHeading" xml:space="preserve"><value>Externe doelen</value></data>
+  <data name="Settings_ExternalLogTargetStatusUnavailable" xml:space="preserve"><value>Doelstatus is niet beschikbaar.</value></data>
+  <data name="Settings_ExternalProcessOption" xml:space="preserve"><value>Extern proces</value></data>
+  <data name="Settings_FactoryResetButton" xml:space="preserve"><value>Fabrieksinstellingen van Lineup herstellen</value></data>
+  <data name="Settings_FactoryResetConfirmationLabel" xml:space="preserve"><value>Ik begrijp dat hierdoor alle gegevens van Lineup permanent worden gewist.</value></data>
+  <data name="Settings_FactoryResetConfirmButton" xml:space="preserve"><value>Gegevens wissen en opnieuw starten</value></data>
+  <data name="Settings_FactoryResetDescription" xml:space="preserve"><value>Verwijdert permanent Lineup-instellingen, gidsgegevens, XMLTV-gegevens in de cache en tijdelijke streambestanden. Lineup wordt opnieuw gestart bij de eerste Apparaatconfiguratie. XMLTV-bestanden buiten door Lineup beheerde opslag blijven behouden.</value></data>
+  <data name="Settings_FactoryResetHeading" xml:space="preserve"><value>Fabrieksinstellingen herstellen</value></data>
+  <data name="Settings_FileLogLocationPrefix" xml:space="preserve"><value>Bestanden worden opgeslagen in</value></data>
+  <data name="Settings_FileLogLocationSuffix" xml:space="preserve"><value>Wijzigingen worden direct van kracht wanneer de instellingen worden opgeslagen.</value></data>
+  <data name="Settings_FileLogMinimumLevelLabel" xml:space="preserve"><value>Minimumniveau</value></data>
+  <data name="Settings_FileLogRetentionLabel" xml:space="preserve"><value>Bewaartermijn (dagen)</value></data>
+  <data name="Settings_FileLogSizeLimitLabel" xml:space="preserve"><value>Bestandsgrootte (MB)</value></data>
+  <data name="Settings_FileSizeBytes" xml:space="preserve"><value>{0} B</value></data>
+  <data name="Settings_FileSizeKilobytes" xml:space="preserve"><value>{0:0.0} KB</value></data>
+  <data name="Settings_FileSizeMegabytes" xml:space="preserve"><value>{0:0.0} MB</value></data>
+  <data name="Settings_GenerateNewValueButton" xml:space="preserve"><value>Nieuwe waarde genereren</value></data>
+  <data name="Settings_GenerateValueButton" xml:space="preserve"><value>Waarde genereren</value></data>
+  <data name="Settings_GlobalSettingsTab" xml:space="preserve"><value>Algemene instellingen</value></data>
+  <data name="Settings_GlobalXmltvEndpointHelp" xml:space="preserve"><value>De algemene XMLTV-uitvoer gebruikt een stabiel eindpunt zonder uitvoer-ID.</value></data>
+  <data name="Settings_GlobalXmltvOutputHeading" xml:space="preserve"><value>Algemene XMLTV-uitvoer</value></data>
+  <data name="Settings_GuideOutputDirectoryHelpPrefix" xml:space="preserve"><value>Lineup publiceert atomair naar</value></data>
+  <data name="Settings_GuideOutputDirectoryHelpSuffix" xml:space="preserve"><value>in deze map.</value></data>
+  <data name="Settings_GuideOutputDirectoryLabel" xml:space="preserve"><value>Uitvoermap</value></data>
+  <data name="Settings_GuideOutputKeyHelp" xml:space="preserve"><value>Lineup maakt hiervan een ID in kleine letters die alleen letters, cijfers en onderstrepingstekens bevat.</value></data>
+  <data name="Settings_GuideOutputKeyLabel" xml:space="preserve"><value>Uitvoersleutel</value></data>
+  <data name="Settings_GuideOutputKeyWarning" xml:space="preserve"><value>Als u deze sleutel wijzigt, veranderen de gebruiksvriendelijke API-URL en de gegenereerde bestandsnaam. Bestaande clients die een van deze locaties gebruiken, moeten worden bijgewerkt.</value></data>
+  <data name="Settings_GuideOutputPathMismatch" xml:space="preserve"><value>Het opgeslagen pad wijkt af van de bij het opstarten geconfigureerde waarde:</value></data>
+  <data name="Settings_GuideOutputSettingsHeading" xml:space="preserve"><value>Instellingen voor gidsuitvoer</value></data>
+  <data name="Settings_GuideSourceAddDisabledTitle" xml:space="preserve"><value>Voeg eerst een compatibel fysiek apparaat toe en schakel dit in.</value></data>
+  <data name="Settings_GuideSourceAllDevicesHelp" xml:space="preserve"><value>Gebruikt automatisch elk ingeschakeld fysiek apparaat dat door deze gidsbronadapter wordt ondersteund, inclusief later toegevoegde compatibele apparaten.</value></data>
+  <data name="Settings_GuideSourceNameHelp" xml:space="preserve"><value>Een lokaal label waarmee deze gidsbron in Lineup wordt aangeduid.</value></data>
+  <data name="Settings_GuideSourceSelectedDevicesHelp" xml:space="preserve"><value>Gebruikt alleen de hieronder geselecteerde compatibele fysieke apparaten. Uitgeschakelde apparaten blijven geselecteerd, maar worden genegeerd totdat ze weer worden ingeschakeld.</value></data>
+  <data name="Settings_GuideSourceSettingsHeading" xml:space="preserve"><value>Instellingen voor gidsbron</value></data>
+  <data name="Settings_GuideSourcesHeading" xml:space="preserve"><value>Gidsbronnen</value></data>
+  <data name="Settings_GuideSourceSubscriptionHelp" xml:space="preserve"><value>De plug-in voor gidsbronnen gebruikt de geabonneerde apparaten voor kanaalkoppeling en eventuele vereiste providermachtiging.</value></data>
+  <data name="Settings_HonorForwardedHeadersHelp" xml:space="preserve"><value>Gebruik doorgestuurde clientadressen en schema’s alleen wanneer de directe proxy overeenkomt met de lijst met vertrouwde proxyservers.</value></data>
+  <data name="Settings_HonorForwardedHeadersLabel" xml:space="preserve"><value>Doorgestuurde headers van vertrouwde proxyservers respecteren</value></data>
+  <data name="Settings_Http" xml:space="preserve"><value>HTTP</value></data>
+  <data name="Settings_Https" xml:space="preserve"><value>HTTPS</value></data>
+  <data name="Settings_ImportBundleButton" xml:space="preserve"><value>Bundel importeren</value></data>
+  <data name="Settings_ImportBundleHelp" xml:space="preserve"><value>Plak een door het externe virtuele apparaat geëxporteerde bundel om de instellingen voor URL, ID, token, transport en certificaat in te vullen. Bundels bevatten een bruikbaar toegangstoken; bewaar en deel ze als geheimen.</value></data>
+  <data name="Settings_InternalListenerPortHelp" xml:space="preserve"><value>Poort die door het werkproces binnen de host of container wordt geopend.</value></data>
+  <data name="Settings_InternalListenerPortLabel" xml:space="preserve"><value>Interne listenerpoort</value></data>
+  <data name="Settings_KeepWarmPeriodHelp" xml:space="preserve"><value>Houd een ongebruikte gedeelde pijplijn gereed om snel opnieuw verbinding te maken. Stel in op 0 om deze direct vrij te geven. Waarden boven nul houden tunercapaciteit vast totdat de periode verloopt.</value></data>
+  <data name="Settings_KeepWarmPeriodLabel" xml:space="preserve"><value>Warmhoudperiode (seconden)</value></data>
+  <data name="Settings_LeaseGraceHelp" xml:space="preserve"><value>Hoe lang een werkproces zijn geverifieerde hostlease mag verliezen voordat het wordt beëindigd.</value></data>
+  <data name="Settings_LeaseGraceLabel" xml:space="preserve"><value>Respijtperiode lease (seconden)</value></data>
+  <data name="Settings_LineupLinkAccessGrantsHeading" xml:space="preserve"><value>Toegangsmachtigingen</value></data>
+  <data name="Settings_LineupLinkBundleJsonLabel" xml:space="preserve"><value>JSON van verbindingsbundel</value></data>
+  <data name="Settings_LineupLinkConfirmPurgeButton" xml:space="preserve"><value>Wissen bevestigen</value></data>
+  <data name="Settings_LineupLinkConsumerNameLabel" xml:space="preserve"><value>Naam gebruiker</value></data>
+  <data name="Settings_LineupLinkConsumerNamePlaceholder" xml:space="preserve"><value>Naam van vriend of huishouden</value></data>
+  <data name="Settings_LineupLinkCopyButton" xml:space="preserve"><value>Kopiëren</value></data>
+  <data name="Settings_LineupLinkCreated" xml:space="preserve"><value>Gemaakt</value></data>
+  <data name="Settings_LineupLinkCreateGrantButton" xml:space="preserve"><value>Toegangsmachtiging maken</value></data>
+  <data name="Settings_LineupLinkDedicatedTransportPrefix" xml:space="preserve"><value>Lineup Link vereist</value></data>
+  <data name="Settings_LineupLinkDedicatedTransportSuffix" xml:space="preserve"><value>op basis van de openbare basis-URI voor clients.</value></data>
+  <data name="Settings_LineupLinkExpirationLabel" xml:space="preserve"><value>Vervaldatum (optioneel)</value></data>
+  <data name="Settings_LineupLinkExpires" xml:space="preserve"><value>Verloopt</value></data>
+  <data name="Settings_LineupLinkExportButton" xml:space="preserve"><value>Exporteren</value></data>
+  <data name="Settings_LineupLinkGrantHelp" xml:space="preserve"><value>Machtigingen delen de kanalen, transcodering, listener en het beveiligingsbeleid van dit exemplaar. Maak een afzonderlijk Lineup Link-exemplaar wanneer die instellingen moeten verschillen.</value></data>
+  <data name="Settings_LineupLinkHideBundleButton" xml:space="preserve"><value>Bundel verbergen</value></data>
+  <data name="Settings_LineupLinkHttpExposureWarning" xml:space="preserve"><value>HTTP stelt het bearer-token en de streaminhoud bloot aan het netwerk. Gebruik dit alleen op een vertrouwd netwerk.</value></data>
+  <data name="Settings_LineupLinkHttpWarning" xml:space="preserve"><value>HTTP verifieert aanvragen, maar versleutelt het token of de stream niet. Gebruik dit alleen op een vertrouwd netwerk.</value></data>
+  <data name="Settings_LineupLinkNoGrantsDescription" xml:space="preserve"><value>Externe toegang is uitgeschakeld totdat u expliciet een machtiging maakt.</value></data>
+  <data name="Settings_LineupLinkNoGrantsHeading" xml:space="preserve"><value>Geen toegangsmachtigingen.</value></data>
+  <data name="Settings_LineupLinkPurgeButton" xml:space="preserve"><value>Wissen</value></data>
+  <data name="Settings_LineupLinkPurgeConfirmation" xml:space="preserve"><value>Deze ingetrokken machtiging en de controlegeschiedenis permanent verwijderen? Dit kan niet ongedaan worden gemaakt.</value></data>
+  <data name="Settings_LineupLinkRawTokenHelp" xml:space="preserve"><value>Kopieer of exporteer deze bundel nu. Het onbewerkte token wordt niet bewaard.</value></data>
+  <data name="Settings_LineupLinkRedactedTokenHelp" xml:space="preserve"><value>Het token is geredigeerd. Vernieuw deze machtiging om een exporteerbare vervangende bundel te maken.</value></data>
+  <data name="Settings_LineupLinkRevokeButton" xml:space="preserve"><value>Intrekken</value></data>
+  <data name="Settings_LineupLinkRotateButton" xml:space="preserve"><value>Vernieuwen</value></data>
+  <data name="Settings_LineupLinkShowBundleButton" xml:space="preserve"><value>Bundel weergeven</value></data>
+  <data name="Settings_LineupLinkStatusActive" xml:space="preserve"><value>Actief</value></data>
+  <data name="Settings_LineupLinkStatusExpired" xml:space="preserve"><value>Verlopen</value></data>
+  <data name="Settings_LineupLinkStatusRevoked" xml:space="preserve"><value>Ingetrokken</value></data>
+  <data name="Settings_LogCategoryMinimumLevelLabel" xml:space="preserve"><value>Minimumniveau categorie</value></data>
+  <data name="Settings_LogCategoryOverridesHeading" xml:space="preserve"><value>Categorieoverschrijvingen</value></data>
+  <data name="Settings_LogCategoryOverridesHelpPrefix" xml:space="preserve"><value>Opstartcategorieën worden gevonden in</value></data>
+  <data name="Settings_LogCategoryOverridesHelpSuffix" xml:space="preserve"><value>Exacte categorieën en onderliggende namen met punten komen overeen, waarbij het langste voorvoegsel voorrang heeft. Wijzigingen worden direct toegepast wanneer de instellingen worden opgeslagen. Als u deze overschrijving uitschakelt, wordt de volledige set opstartfilters hersteld.</value></data>
+  <data name="Settings_LogCategoryPlaceholder" xml:space="preserve"><value>Example.Namespace</value></data>
+  <data name="Settings_LogCategoryPrefixLabel" xml:space="preserve"><value>Categorievoorvoegsel</value></data>
+  <data name="Settings_LogLevelCritical" xml:space="preserve"><value>Kritiek</value></data>
+  <data name="Settings_LogLevelDebug" xml:space="preserve"><value>Debug</value></data>
+  <data name="Settings_LogLevelError" xml:space="preserve"><value>Fout</value></data>
+  <data name="Settings_LogLevelInformation" xml:space="preserve"><value>Informatie</value></data>
+  <data name="Settings_LogLevelNone" xml:space="preserve"><value>Geen</value></data>
+  <data name="Settings_LogLevelTrace" xml:space="preserve"><value>Trace</value></data>
+  <data name="Settings_LogLevelWarning" xml:space="preserve"><value>Waarschuwing</value></data>
+  <data name="Settings_ManagedProcessOption" xml:space="preserve"><value>Beheerd proces</value></data>
+  <data name="Settings_ManagementHostOutputHelp" xml:space="preserve"><value>Deze uitvoer wordt door de beheer-UI-host aangeboden, zodat geen extra listenerpoort nodig is.</value></data>
+  <data name="Settings_MaximumBrokerCallsHelp" xml:space="preserve"><value>Maximaal aantal gelijktijdige capaciteitsaanvragen van dit werkproces aan de vertrouwde host.</value></data>
+  <data name="Settings_MaximumBrokerCallsLabel" xml:space="preserve"><value>Maximaal aantal brokeroproepen</value></data>
+  <data name="Settings_MaximumConcurrentStreamsHelp" xml:space="preserve"><value>Maximaal aantal logische gebruikerssessies voor alle indelingen. Gedeelde producenten tellen nog steeds eenmaal per verbonden gebruiker. Stel in op 0 voor onbeperkt.</value></data>
+  <data name="Settings_MaximumConcurrentStreamsLabel" xml:space="preserve"><value>Maximaal aantal gelijktijdige streams</value></data>
+  <data name="Settings_MaximumConnectionsHelp" xml:space="preserve"><value>Limiet voor gelijktijdige clients. Gebruik 0 voor de standaardwaarde van de host.</value></data>
+  <data name="Settings_MaximumConnectionsLabel" xml:space="preserve"><value>Maximaal aantal verbindingen</value></data>
+  <data name="Settings_MaximumRestartsHelp" xml:space="preserve"><value>Toegestaan aantal mislukte herstarts van werkprocessen binnen het herstartvenster.</value></data>
+  <data name="Settings_MaximumRestartsLabel" xml:space="preserve"><value>Maximaal aantal herstarts</value></data>
+  <data name="Settings_MemoryLimitHelp" xml:space="preserve"><value>Geheugenlimiet voor werkproces. Gebruik 0 voor geen geconfigureerde limiet.</value></data>
+  <data name="Settings_MemoryLimitLabel" xml:space="preserve"><value>Geheugenlimiet (MiB)</value></data>
+  <data name="Settings_NameLabel" xml:space="preserve"><value>Naam</value></data>
+  <data name="Settings_NoAdditionalVirtualDevices" xml:space="preserve"><value>Er zijn geen aanvullende virtuele apparaten geconfigureerd.</value></data>
+  <data name="Settings_NoCompatiblePhysicalDevices" xml:space="preserve"><value>Er zijn geen compatibele fysieke apparaten geconfigureerd.</value></data>
+  <data name="Settings_NoGuideSourcesPrefix" xml:space="preserve"><value>Er zijn geen gidsbronnen geconfigureerd. Voeg indien nodig een compatibel fysiek apparaat toe en schakel dit in. Selecteer vervolgens</value></data>
+  <data name="Settings_NoLogCategoryOverrides" xml:space="preserve"><value>Er zijn geen categoriespecifieke filters geconfigureerd.</value></data>
+  <data name="Settings_NoPhysicalDevicesPrefix" xml:space="preserve"><value>Er zijn geen fysieke apparaten geconfigureerd. Selecteer</value></data>
+  <data name="Settings_NoPhysicalDevicesSuffix" xml:space="preserve"><value>om kanalen beschikbaar te maken voor Lineup.</value></data>
+  <data name="Settings_NoRetainedLogFiles" xml:space="preserve"><value>Er zijn nog geen roterende logbestanden beschikbaar.</value></data>
+  <data name="Settings_OutputHostingHeading" xml:space="preserve"><value>Hosting van uitvoer</value></data>
+  <data name="Settings_OutputStageName" xml:space="preserve"><value>uitvoerfase</value></data>
+  <data name="Settings_OutputTransportHelp" xml:space="preserve"><value>HTTPS versleutelt uitvoerverkeer en vereist een servercertificaat. HTTP moet worden beperkt tot vertrouwde netwerken.</value></data>
+  <data name="Settings_OverrideClientFacingUrlHelp" xml:space="preserve"><value>Gebruik alleen een overschrijving wanneer een reverse proxy, NAT-regel, portforwarding of externe hostnaam clients een andere URL geeft.</value></data>
+  <data name="Settings_OverrideClientFacingUrlLabel" xml:space="preserve"><value>Basis-URL voor clients overschrijven</value></data>
+  <data name="Settings_OverrideLoggingDefaultsLabel" xml:space="preserve"><value>Standaardwaarden voor logboekregistratie overschrijven</value></data>
+  <data name="Settings_PhysicalAddressHelp" xml:space="preserve"><value>Hostnaam of IP-adres van de fysieke HDHomeRun. Dit moet bereikbaar zijn vanaf de Lineup-host of -container.</value></data>
+  <data name="Settings_PhysicalBitrateHelp" xml:space="preserve"><value>Standaardbitsnelheid van de fysieke fase voor apparaten zonder overschrijving.</value></data>
+  <data name="Settings_PhysicalDeinterlaceHelp" xml:space="preserve"><value>Standaardnormalisatie van de bron voor fysieke apparaten zonder overschrijving.</value></data>
+  <data name="Settings_PhysicalDeviceNameHelp" xml:space="preserve"><value>Een lokaal label dat wordt gebruikt voor kanaaleigendom, abonnementen, routering en statusweergaven.</value></data>
+  <data name="Settings_PhysicalDeviceSubscriptionHeading" xml:space="preserve"><value>Abonnement op fysieke apparaten</value></data>
+  <data name="Settings_PhysicalHevcHelp" xml:space="preserve"><value>Normaliseer HEVC-bronnen eenmaal voordat ze de multiplexer ingaan.</value></data>
+  <data name="Settings_PhysicalRefreshDescription" xml:space="preserve"><value>Deze bewakingsintervallen gelden voor elk fysiek apparaat.</value></data>
+  <data name="Settings_PhysicalSubscriptionHelp" xml:space="preserve"><value>Bepaalt welke compatibele fysieke apparaten kanalen en tunercapaciteit aan deze virtuele uitvoer kunnen leveren. Alles neemt automatisch ook later toegevoegde compatibele apparaten op.</value></data>
+  <data name="Settings_PhysicalSubscriptionLabel" xml:space="preserve"><value>Fysiek abonnement</value></data>
+  <data name="Settings_PhysicalTranscoderDefaultsDescription" xml:space="preserve"><value>Elk fysiek apparaat neemt deze instellingen voor de bronfase over, tenzij op het tabblad een overschrijving wordt ingeschakeld.</value></data>
+  <data name="Settings_ProtectedContentHelp" xml:space="preserve"><value>Retourneer een fout of een synthetische compatibiliteitstestkaart. Beveiligde programma’s worden nooit ontsleuteld.</value></data>
+  <data name="Settings_ProtectedContentLabel" xml:space="preserve"><value>DRM-beveiligde inhoud</value></data>
+  <data name="Settings_ProtectedContentReturnError" xml:space="preserve"><value>Een fout voor beveiligde inhoud retourneren</value></data>
+  <data name="Settings_ProtectedContentStreamSlate" xml:space="preserve"><value>Een testkaart voor beveiligde inhoud streamen</value></data>
+  <data name="Settings_PublicLineupUrlHelp" xml:space="preserve"><value>Extern bereikbare URL van de beheerhost die in geëxporteerde verbindingsbundels wordt geschreven. Bundels gebruiken een null-adres wanneer dit leeg blijft.</value></data>
+  <data name="Settings_PublicLineupUrlLabel" xml:space="preserve"><value>Openbare Lineup-URL (optioneel)</value></data>
+  <data name="Settings_PublishedPortOverrideHelp" xml:space="preserve"><value>Laat leeg wanneer de openbare poort overeenkomt met de interne listener.</value></data>
+  <data name="Settings_PublishedPortOverrideLabel" xml:space="preserve"><value>Overschrijving gepubliceerde poort</value></data>
+  <data name="Settings_PublishGuideOutputsAfterFetchLabel" xml:space="preserve"><value>Ingeschakelde gidsuitvoer na ophalen publiceren</value></data>
+  <data name="Settings_RefreshChannelsBeforeGuideHelp" xml:space="preserve"><value>Vraagt ingeschakelde fysieke HDHomeRun-apparaten op en slaat hun huidige kanalen op vóór handmatige of automatische vernieuwing van de gids.</value></data>
+  <data name="Settings_RefreshChannelsBeforeGuideLabel" xml:space="preserve"><value>Beschikbare kanalen vernieuwen voordat gidsgegevens worden opgehaald</value></data>
+  <data name="Settings_RefreshSettingsHeading" xml:space="preserve"><value>Vernieuwingsinstellingen</value></data>
+  <data name="Settings_RemoteLineupUrlHelp" xml:space="preserve"><value>Basis-URL die wordt gebruikt om apparaatmetadata, kanalen, tunerstatus en streams bij de externe Lineup-host op te vragen.</value></data>
+  <data name="Settings_RemoteLineupUrlLabel" xml:space="preserve"><value>URL van externe Lineup</value></data>
+  <data name="Settings_RemoteVirtualDeviceIdHelp" xml:space="preserve"><value>Stabiele ID van de virtuele Lineup Link-uitvoer die door de externe host is geëxporteerd.</value></data>
+  <data name="Settings_RemoteVirtualDeviceIdLabel" xml:space="preserve"><value>ID van extern virtueel apparaat</value></data>
+  <data name="Settings_RemoveGuideOutputLabel" xml:space="preserve"><value>Gidsuitvoer verwijderen</value></data>
+  <data name="Settings_RemoveGuideSourceLabel" xml:space="preserve"><value>Gidsbron verwijderen</value></data>
+  <data name="Settings_RemoveLogCategoryLabel" xml:space="preserve"><value>Categorie verwijderen</value></data>
+  <data name="Settings_RemovePhysicalDeviceLabel" xml:space="preserve"><value>Fysiek apparaat verwijderen</value></data>
+  <data name="Settings_RemoveVirtualDeviceLabel" xml:space="preserve"><value>Virtueel apparaat verwijderen</value></data>
+  <data name="Settings_RequestRateHelp" xml:space="preserve"><value>Limiet voor het aantal aanvragen per client. Gebruik 0 om snelheidsbeperking uit te schakelen.</value></data>
+  <data name="Settings_RequestRateLabel" xml:space="preserve"><value>Aanvragen/minuut/client</value></data>
+  <data name="Settings_RequireHttpsHelp" xml:space="preserve"><value>Weigert niet-versleutelde Lineup Link-aanvragen en publiceert een HTTPS-eindpunt in geëxporteerde bundels.</value></data>
+  <data name="Settings_RequireHttpsLabel" xml:space="preserve"><value>HTTPS vereisen</value></data>
+  <data name="Settings_ResetConfiguredPathButton" xml:space="preserve"><value>Terugzetten naar geconfigureerd pad</value></data>
+  <data name="Settings_ResetDefaultsButton" xml:space="preserve"><value>Instellingen terugzetten naar standaardwaarden</value></data>
+  <data name="Settings_ResetDefaultsDescription" xml:space="preserve"><value>Zet elke configureerbare instelling terug naar de standaardwaarde. U kunt de standaardwaarden controleren voordat u ze opslaat.</value></data>
+  <data name="Settings_ResetDefaultsHeading" xml:space="preserve"><value>Instellingen terugzetten naar standaardwaarden</value></data>
+  <data name="Settings_ResolvedPathLabel" xml:space="preserve"><value>Bepaald pad:</value></data>
+  <data name="Settings_RestartButton" xml:space="preserve"><value>Lineup opnieuw starten</value></data>
+  <data name="Settings_RestartDescription" xml:space="preserve"><value>Start Lineup gecontroleerd opnieuw zonder instellingen te wijzigen of toepassingsgegevens te verwijderen.</value></data>
+  <data name="Settings_RestartHeading" xml:space="preserve"><value>Lineup opnieuw starten</value></data>
+  <data name="Settings_RestartWindowHelp" xml:space="preserve"><value>Periode waarin herhaalde fouten van werkprocessen worden geteld.</value></data>
+  <data name="Settings_RestartWindowLabel" xml:space="preserve"><value>Herstartvenster (seconden)</value></data>
+  <data name="Settings_RetainedLogFilesHeading" xml:space="preserve"><value>Bewaarde logbestanden</value></data>
+  <data name="Settings_RollingFileLogsHeading" xml:space="preserve"><value>Roterende bestandslogboeken</value></data>
+  <data name="Settings_SelectedDevices" xml:space="preserve"><value>Geselecteerde apparaten</value></data>
+  <data name="Settings_SelectedGuideSources" xml:space="preserve"><value>Geselecteerde gidsbronnen</value></data>
+  <data name="Settings_SelectedPhysicalDevices" xml:space="preserve"><value>Geselecteerde fysieke apparaten</value></data>
+  <data name="Settings_SelectedPhysicalDevicesHelp" xml:space="preserve"><value>Selecteer de fysieke apparaten waarnaar deze uitvoer mag routeren. Uitgeschakelde apparaten blijven geselecteerd, maar kunnen pas weer kanalen of capaciteit leveren nadat ze opnieuw zijn ingeschakeld.</value></data>
+  <data name="Settings_SelectedVirtualDevices" xml:space="preserve"><value>Geselecteerde virtuele apparaten</value></data>
+  <data name="Settings_SourceStageName" xml:space="preserve"><value>bronfase</value></data>
+  <data name="Settings_StableIdEndpointPrefix" xml:space="preserve"><value>Het eindpunt met stabiele ID</value></data>
+  <data name="Settings_StableIdEndpointSuffix" xml:space="preserve"><value>biedt deze uitvoer ook aan.</value></data>
+  <data name="Settings_StartupBadge" xml:space="preserve"><value>Opstarten</value></data>
+  <data name="Settings_StreamingPoliciesHeading" xml:space="preserve"><value>Streamingbeleid</value></data>
+  <data name="Settings_TestAndIdentifyButton" xml:space="preserve"><value>Testen en identificeren</value></data>
+  <data name="Settings_TestAndIdentifyHelp" xml:space="preserve"><value>Test de huidige niet-opgeslagen verbindingswaarden en leest de apparaatidentiteit. Er worden geen instellingen opgeslagen, kanalen vernieuwd of apparaten geactiveerd.</value></data>
+  <data name="Settings_TestingStatus" xml:space="preserve"><value>Testen...</value></data>
+  <data name="Settings_TranscoderSettingsHeading" xml:space="preserve"><value>Transcoderinstellingen</value></data>
+  <data name="Settings_TransportLabel" xml:space="preserve"><value>Transport</value></data>
+  <data name="Settings_TransportSecurityHelp" xml:space="preserve"><value>HTTPS versleutelt aanmeldgegevens en streamverkeer. HTTP mag alleen op een vertrouwd privénetwerk worden gebruikt.</value></data>
+  <data name="Settings_TransportSecurityLabel" xml:space="preserve"><value>Transportbeveiliging</value></data>
+  <data name="Settings_TrustedProxiesHelp" xml:space="preserve"><value>Door komma’s gescheiden IP-adressen of CIDR’s van proxyservers die doorgestuurde headers mogen leveren.</value></data>
+  <data name="Settings_TrustedProxiesLabel" xml:space="preserve"><value>Vertrouwde proxyservers</value></data>
+  <data name="Settings_TunerCountCapHelp" xml:space="preserve"><value>Maximaal aantal tuners dat aan gebruikers wordt gepubliceerd. Laat leeg om de capaciteit af te leiden van de geabonneerde fysieke apparaten.</value></data>
+  <data name="Settings_TunerCountCapLabel" xml:space="preserve"><value>Limiet voor aantal tuners</value></data>
+  <data name="Settings_TunerStatusRefreshIntervalHelp" xml:space="preserve"><value>Hoe vaak de tunerstatus op het dashboard wordt vernieuwd. Stel in op 0 om automatisch vernieuwen uit te schakelen.</value></data>
+  <data name="Settings_TunerStatusRefreshIntervalLabel" xml:space="preserve"><value>Vernieuwingsinterval tunerstatus (seconden)</value></data>
+  <data name="Settings_TypePickerCloseLabel" xml:space="preserve"><value>Sluiten</value></data>
+  <data name="Settings_UseDedicatedListenerHelp" xml:space="preserve"><value>Schakel dit uit om de uitvoer aan te bieden via de beheer-UI-host en de bestaande HTTP/HTTPS-poorten.</value></data>
+  <data name="Settings_UseDedicatedListenerLabel" xml:space="preserve"><value>Een toegewezen listener gebruiken</value></data>
+  <data name="Settings_UseDiscoveredNameButton" xml:space="preserve"><value>Gedetecteerde naam gebruiken</value></data>
+  <data name="Settings_VirtualDeviceNameHelp" xml:space="preserve"><value>Een lokaal label dat in Lineup en, wanneer ondersteund door de adapter, aan gebruikers verderop in de keten wordt weergegeven.</value></data>
+  <data name="Settings_VirtualDevicesEmptyWebPlayerDisabledPrefix" xml:space="preserve"><value>Schakel de ingebouwde webspeler in via het bijbehorende tabblad of selecteer</value></data>
+  <data name="Settings_VirtualDevicesEmptyWebPlayerDisabledSuffix" xml:space="preserve"><value>om kanalen beschikbaar te stellen aan gebruikers.</value></data>
+  <data name="Settings_VirtualDevicesEmptyWebPlayerEnabledPrefix" xml:space="preserve"><value>Selecteer</value></data>
+  <data name="Settings_VirtualDevicesEmptyWebPlayerEnabledSuffix" xml:space="preserve"><value>om kanalen beschikbaar te stellen aan andere gebruikers. De ingebouwde webspeler blijft beschikbaar.</value></data>
+  <data name="Settings_VirtualDevicesHeading" xml:space="preserve"><value>Virtuele apparaten</value></data>
+  <data name="Settings_VirtualDevicesMissingWebPlayer" xml:space="preserve"><value>De huidige topologie bevat niet de vereiste ingebouwde webspeler.</value></data>
+  <data name="Settings_VirtualHevcHelp" xml:space="preserve"><value>Standaarduitvoerconversie voor gebruikers die HEVC niet kunnen verwerken.</value></data>
+  <data name="Settings_VirtualTranscoderDefaultsDescription" xml:space="preserve"><value>Elk virtueel apparaat neemt deze instellingen voor de uitvoerfase over, tenzij op het tabblad een overschrijving wordt ingeschakeld.</value></data>
+  <data name="Settings_VirtualTunerDiscoveryHeading" xml:space="preserve"><value>Detectie van virtuele tuners</value></data>
+  <data name="About_Heading" xml:space="preserve"><value>Over</value></data>
+  <data name="About_MountDirectoryPrefix" xml:space="preserve"><value>Koppel de map</value></data>
+  <data name="About_MountDirectorySuffix" xml:space="preserve"><value>aan een hostmap in uw</value></data>
+  <data name="About_PageTitle" xml:space="preserve"><value>Over</value></data>
+  <data name="About_UseHostFilePath" xml:space="preserve"><value>Gebruik vervolgens het bestandspad op uw host:</value></data>
+  <data name="About_VersionLabel" xml:space="preserve"><value>Versie</value></data>
+  <data name="About_XmltvFileAccessHeading" xml:space="preserve"><value>Toegang tot XMLTV-bestand</value></data>
+  <data name="About_XmltvFileAccessHelp" xml:space="preserve"><value>Als uw mediaserver bestanden rechtstreeks kan lezen (bijvoorbeeld omdat deze op dezelfde host draait), kunt u deze naar het XMLTV-bestand op het gekoppelde Docker-volume verwijzen in plaats van de URL te gebruiken.</value></data>
+  <data name="About_XmltvGuideUrlHeading" xml:space="preserve"><value>URL van XMLTV-gids</value></data>
+  <data name="About_XmltvGuideUrlHelp" xml:space="preserve"><value>Gebruik deze URL als uw mediaserver een URL voor de XMLTV-gidsbron ondersteunt.</value></data>
+  <data name="Channels_AllBindings" xml:space="preserve"><value>Alle koppelingen</value></data>
+  <data name="Channels_AllDevices" xml:space="preserve"><value>Alle apparaten</value></data>
+  <data name="Channels_AllFlags" xml:space="preserve"><value>Alle markeringen</value></data>
+  <data name="Channels_AllStates" xml:space="preserve"><value>Alle statussen</value></data>
+  <data name="Channels_Ambiguous" xml:space="preserve"><value>Niet eenduidig</value></data>
+  <data name="Channels_AmbiguousGuideMatchHelp" xml:space="preserve"><value>Meerdere geschikte gidskanalen komen overeen. Selecteer het gezaghebbende kanaal.</value></data>
+  <data name="Channels_AudioColumn" xml:space="preserve"><value>Audio</value></data>
+  <data name="Channels_AuthoritativeGuideColumn" xml:space="preserve"><value>Gezaghebbende gids</value></data>
+  <data name="Channels_Bound" xml:space="preserve"><value>Gekoppeld</value></data>
+  <data name="Channels_ChannelsLabel" xml:space="preserve"><value>Kanalen</value></data>
+  <data name="Channels_ClearFilters" xml:space="preserve"><value>Filters wissen</value></data>
+  <data name="Channels_Description" xml:space="preserve"><value>Kanalen die momenteel beschikbaar zijn via de ingeschakelde fysieke tuners.</value></data>
+  <data name="Channels_DisableChannelAria" xml:space="preserve"><value>Kanaal {0} op {1} uitschakelen</value></data>
+  <data name="Channels_DrmProtected" xml:space="preserve"><value>DRM-beveiligd</value></data>
+  <data name="Channels_DrmProtectedChannel" xml:space="preserve"><value>DRM-beveiligd kanaal</value></data>
+  <data name="Channels_EnableChannelAria" xml:space="preserve"><value>Kanaal {0} op {1} inschakelen</value></data>
+  <data name="Channels_EquivalenceGroupColumn" xml:space="preserve"><value>Equivalentiegroep</value></data>
+  <data name="Channels_ErrorLoadingSavedLineup" xml:space="preserve"><value>Fout bij het laden van de opgeslagen kanaallijst: {0}</value></data>
+  <data name="Channels_ErrorRefreshingChannels" xml:space="preserve"><value>Fout bij het vernieuwen van kanalen: {0}</value></data>
+  <data name="Channels_ErrorUpdatingChannel" xml:space="preserve"><value>Fout bij het bijwerken van kanaal {0}: {1}</value></data>
+  <data name="Channels_ErrorUpdatingGuideBinding" xml:space="preserve"><value>Fout bij het bijwerken van de gezaghebbende gidskoppeling: {0}</value></data>
+  <data name="Channels_ErrorUpdatingIdentity" xml:space="preserve"><value>Fout bij het bijwerken van de kanaalidentiteit: {0}</value></data>
+  <data name="Channels_Favorite" xml:space="preserve"><value>Favoriet</value></data>
+  <data name="Channels_FavoriteChannel" xml:space="preserve"><value>Favoriet kanaal</value></data>
+  <data name="Channels_Favorites" xml:space="preserve"><value>Favorieten</value></data>
+  <data name="Channels_FindHeading" xml:space="preserve"><value>Kanalen zoeken</value></data>
+  <data name="Channels_FlagsLabel" xml:space="preserve"><value>Markeringen</value></data>
+  <data name="Channels_GlobalNameColumn" xml:space="preserve"><value>Algemene naam</value></data>
+  <data name="Channels_GlobalNumberColumn" xml:space="preserve"><value>Algemeen nummer</value></data>
+  <data name="Channels_GuideBindingLabel" xml:space="preserve"><value>Gidskoppeling</value></data>
+  <data name="Channels_GuideMatchedAutomatically" xml:space="preserve"><value>Automatisch gekoppeld op basis van de fysieke kanaalidentiteit.</value></data>
+  <data name="Channels_GuideStateUnavailable" xml:space="preserve"><value>Gidsstatus niet beschikbaar</value></data>
+  <data name="Channels_Heading" xml:space="preserve"><value>HDHomeRun-kanalen</value></data>
+  <data name="Channels_InvalidEquivalenceGroup" xml:space="preserve"><value>De equivalentiegroep moet leeg zijn of een geldige GUID bevatten.</value></data>
+  <data name="Channels_Loading" xml:space="preserve"><value>Kanalen laden...</value></data>
+  <data name="Channels_ManualOverride" xml:space="preserve"><value>Handmatige overschrijving.</value></data>
+  <data name="Channels_ManualSelectionUnavailable" xml:space="preserve"><value>Handmatige selectie niet beschikbaar - gebruik automatische koppeling</value></data>
+  <data name="Channels_NoAutomaticGuideMatchHelp" xml:space="preserve"><value>Geen provideridentiteit of nummer is automatisch gekoppeld. Selecteer het gezaghebbende kanaal handmatig.</value></data>
+  <data name="Channels_NoMatch" xml:space="preserve"><value>Geen overeenkomst</value></data>
+  <data name="Channels_NoMatchingChannels" xml:space="preserve"><value>Geen kanalen komen overeen met de huidige zoekopdracht en filters.</value></data>
+  <data name="Channels_NoSavedLineup" xml:space="preserve"><value>Geen opgeslagen tuner-kanaallijst</value></data>
+  <data name="Channels_NoSavedLineupHelp" xml:space="preserve"><value>Vernieuw de kanalen om elke ingeschakelde fysieke tuner te raadplegen zonder gidsgegevens te downloaden.</value></data>
+  <data name="Channels_OptionalGuid" xml:space="preserve"><value>Optionele GUID</value></data>
+  <data name="Channels_PageTitle" xml:space="preserve"><value>Kanalen</value></data>
+  <data name="Channels_PhysicalDeviceColumn" xml:space="preserve"><value>Fysiek apparaat</value></data>
+  <data name="Channels_PhysicalDeviceLabel" xml:space="preserve"><value>Fysiek apparaat</value></data>
+  <data name="Channels_PhysicalSourceChannelsHeading" xml:space="preserve"><value>Fysieke bronkanalen</value></data>
+  <data name="Channels_ProviderIdentityColumn" xml:space="preserve"><value>Provideridentiteit</value></data>
+  <data name="Channels_QualityColumn" xml:space="preserve"><value>Kwaliteit</value></data>
+  <data name="Channels_RefreshChannels" xml:space="preserve"><value>Kanalen vernieuwen</value></data>
+  <data name="Channels_RefreshedChannels" xml:space="preserve"><value>{0} fysieke bronkanalen vernieuwd.</value></data>
+  <data name="Channels_RefreshedChannelsWithFailures" xml:space="preserve"><value>{0} fysieke bronkanalen vernieuwd met {1} apparaatfout(en); de vorige status is behouden.</value></data>
+  <data name="Channels_SavedButXmltvUpdateFailed" xml:space="preserve"><value>De kanaalinstelling is opgeslagen, maar de gepubliceerde XMLTV-gids kon niet worden bijgewerkt: {0}</value></data>
+  <data name="Channels_SavedGlobalIdentity" xml:space="preserve"><value>Algemene identiteit voor kanaal {0} opgeslagen.</value></data>
+  <data name="Channels_SavedGuideUnavailableHelp" xml:space="preserve"><value>Het opgeslagen handmatige gidskanaal is niet meer actief. Kies een ander kanaal of gebruik weer automatische koppeling.</value></data>
+  <data name="Channels_SearchPlaceholder" xml:space="preserve"><value>Nummer, naam, apparaat, codec of providersleutel</value></data>
+  <data name="Channels_SelectGuideAmbiguous" xml:space="preserve"><value>Gezaghebbende gids selecteren (niet eenduidig)</value></data>
+  <data name="Channels_SelectGuideNoMatch" xml:space="preserve"><value>Gezaghebbende gids selecteren (geen automatische overeenkomst)</value></data>
+  <data name="Channels_ShowingCount" xml:space="preserve"><value>{0} van {1} fysieke bronkanalen weergegeven.</value></data>
+  <data name="Channels_SignalColumn" xml:space="preserve"><value>Signaal</value></data>
+  <data name="Channels_StateLabel" xml:space="preserve"><value>Status</value></data>
+  <data name="Channels_UnavailableGuideChannel" xml:space="preserve"><value>Niet beschikbaar: {0} · {1}</value></data>
+  <data name="Channels_UnavailableGuideSource" xml:space="preserve"><value>Niet-beschikbare gidsbron</value></data>
+  <data name="Channels_Unbound" xml:space="preserve"><value>Niet gekoppeld</value></data>
+  <data name="Channels_UseAutomaticMatching" xml:space="preserve"><value>Automatische koppeling gebruiken</value></data>
+  <data name="Channels_VideoColumn" xml:space="preserve"><value>Video</value></data>
+  <data name="Common_Actions" xml:space="preserve"><value>Acties</value></data>
+  <data name="Common_AndRestartingApp" xml:space="preserve"><value>en de app opnieuw gestart.</value></data>
+  <data name="Common_Channel" xml:space="preserve"><value>Kanaal</value></data>
+  <data name="Common_Clear" xml:space="preserve"><value>Wissen</value></data>
+  <data name="Common_Close" xml:space="preserve"><value>Sluiten</value></data>
+  <data name="Common_ClosesAutomatically" xml:space="preserve"><value>Wordt automatisch gesloten</value></data>
+  <data name="Common_CopiedToClipboard" xml:space="preserve"><value>Naar het klembord gekopieerd!</value></data>
+  <data name="Common_CopyToClipboard" xml:space="preserve"><value>Naar klembord kopiëren</value></data>
+  <data name="Common_DevelopmentModeDetailsPrefix" xml:space="preserve"><value>Als u overschakelt naar de</value></data>
+  <data name="Common_DevelopmentModeDetailsSuffix" xml:space="preserve"><value>-omgeving, wordt meer gedetailleerde informatie over de opgetreden fout weergegeven.</value></data>
+  <data name="Common_DevelopmentModeHeading" xml:space="preserve"><value>Ontwikkelmodus</value></data>
+  <data name="Common_DevelopmentModeLocalDebugMiddle" xml:space="preserve"><value>-omgeving in door de omgevingsvariabele</value></data>
+  <data name="Common_DevelopmentModeLocalDebugPrefix" xml:space="preserve"><value>Schakel voor lokale foutopsporing de</value></data>
+  <data name="Common_DevelopmentModeLocalDebugSuffix" xml:space="preserve"><value>in te stellen op</value></data>
+  <data name="Common_DevelopmentModeSensitiveInformation" xml:space="preserve"><value>Hierdoor kan gevoelige informatie uit uitzonderingen aan eindgebruikers worden getoond.</value></data>
+  <data name="Common_DevelopmentModeWarning" xml:space="preserve"><value>De Development-omgeving mag niet worden ingeschakeld voor geïmplementeerde toepassingen.</value></data>
+  <data name="Common_Disabled" xml:space="preserve"><value>Uitgeschakeld</value></data>
+  <data name="Common_DismissStatusMessage" xml:space="preserve"><value>Statusbericht sluiten</value></data>
+  <data name="Common_Enabled" xml:space="preserve"><value>Ingeschakeld</value></data>
+  <data name="Common_ErrorHeading" xml:space="preserve"><value>Fout.</value></data>
+  <data name="Common_ErrorPageTitle" xml:space="preserve"><value>Fout</value></data>
+  <data name="Common_ErrorProcessingRequest" xml:space="preserve"><value>Er is een fout opgetreden bij het verwerken van uw verzoek.</value></data>
+  <data name="Common_FailedToRejoin" xml:space="preserve"><value>Opnieuw deelnemen mislukt.</value></data>
+  <data name="Common_FailedToResume" xml:space="preserve"><value>De sessie kon niet worden hervat.</value></data>
+  <data name="Common_LastUpdated" xml:space="preserve"><value>Laatst bijgewerkt</value></data>
+  <data name="Common_Loading" xml:space="preserve"><value>Laden...</value></data>
+  <data name="Common_Never" xml:space="preserve"><value>Nooit</value></data>
+  <data name="Common_NotAvailable" xml:space="preserve"><value>N/A</value></data>
+  <data name="Common_NotFoundHeading" xml:space="preserve"><value>Niet gevonden</value></data>
+  <data name="Common_NotFoundMessage" xml:space="preserve"><value>De gezochte inhoud bestaat helaas niet.</value></data>
+  <data name="Common_Pause" xml:space="preserve"><value>Pauzeren</value></data>
+  <data name="Common_Refresh" xml:space="preserve"><value>Vernieuwen</value></data>
+  <data name="Common_RejoinFailedRetryPrefix" xml:space="preserve"><value>Opnieuw deelnemen mislukt... nieuwe poging over</value></data>
+  <data name="Common_RejoiningServer" xml:space="preserve"><value>Opnieuw verbinding maken met de server...</value></data>
+  <data name="Common_Reload" xml:space="preserve"><value>Opnieuw laden</value></data>
+  <data name="Common_RequestIdLabel" xml:space="preserve"><value>Aanvraag-ID</value></data>
+  <data name="Common_Resume" xml:space="preserve"><value>Hervatten</value></data>
+  <data name="Common_RetryOrReload" xml:space="preserve"><value>Probeer het opnieuw of laad de pagina opnieuw.</value></data>
+  <data name="Common_Save" xml:space="preserve"><value>Opslaan</value></data>
+  <data name="Common_Search" xml:space="preserve"><value>Zoeken</value></data>
+  <data name="Common_SecondsAbbreviation" xml:space="preserve"><value>{0}s</value></data>
+  <data name="Common_SecondsSuffix" xml:space="preserve"><value>seconden.</value></data>
+  <data name="Common_SessionPaused" xml:space="preserve"><value>De sessie is door de server gepauzeerd.</value></data>
+  <data name="Common_Status" xml:space="preserve"><value>Status</value></data>
+  <data name="Common_Stop" xml:space="preserve"><value>Stoppen</value></data>
+  <data name="Common_UnhandledError" xml:space="preserve"><value>Er is een niet-afgehandelde fout opgetreden.</value></data>
+  <data name="Common_Unknown" xml:space="preserve"><value>Onbekend</value></data>
+  <data name="Dashboard_ActivePathsHeading" xml:space="preserve"><value>Actieve paden</value></data>
+  <data name="Dashboard_ActiveStreamsHeading" xml:space="preserve"><value>Actieve streams</value></data>
+  <data name="Dashboard_ActiveStreamsSummary" xml:space="preserve"><value>{0} actief · {1} · {2}</value></data>
+  <data name="Dashboard_AutoFetchDisabled" xml:space="preserve"><value>automatisch ophalen uitgeschakeld</value></data>
+  <data name="Dashboard_AutoFetchHeading" xml:space="preserve"><value>Automatisch ophalen</value></data>
+  <data name="Dashboard_AutoFetchInProgress" xml:space="preserve"><value>Automatisch ophalen wordt uitgevoerd</value></data>
+  <data name="Dashboard_AutoFetchInterval" xml:space="preserve"><value>20-28 u (willekeurig)</value></data>
+  <data name="Dashboard_AutoFetchPending" xml:space="preserve"><value>automatisch ophalen in behandeling</value></data>
+  <data name="Dashboard_AutoFetchRunning" xml:space="preserve"><value>automatisch ophalen actief</value></data>
+  <data name="Dashboard_AutoRefreshDisabled" xml:space="preserve"><value>automatisch vernieuwen uitgeschakeld</value></data>
+  <data name="Dashboard_ChannelGapDurationFormat" xml:space="preserve"><value>h&apos; uur &apos;m&apos; min&apos;</value></data>
+  <data name="Dashboard_ChannelGapLabel" xml:space="preserve"><value>Kanaalhiaat</value></data>
+  <data name="Dashboard_ChannelsHeading" xml:space="preserve"><value>Kanalen</value></data>
+  <data name="Dashboard_ChannelsLabel" xml:space="preserve"><value>Kanalen</value></data>
+  <data name="Dashboard_ChannelsSummary" xml:space="preserve"><value>{0} ingeschakeld · {1} uitgeschakeld · bijgewerkt {2}</value></data>
+  <data name="Dashboard_ChannelsSummaryNever" xml:space="preserve"><value>{0} ingeschakeld · {1} uitgeschakeld · nooit vernieuwd</value></data>
+  <data name="Dashboard_CollapseActiveStreamsSection" xml:space="preserve"><value>Sectie Actieve streams inklappen</value></data>
+  <data name="Dashboard_CollapseChannelsSection" xml:space="preserve"><value>Sectie Kanalen inklappen</value></data>
+  <data name="Dashboard_CollapseGuideSection" xml:space="preserve"><value>Sectie Gids inklappen</value></data>
+  <data name="Dashboard_CountdownHours" xml:space="preserve"><value>{0}u {1}m {2}s</value></data>
+  <data name="Dashboard_CountdownMinutes" xml:space="preserve"><value>{0}m {1}s</value></data>
+  <data name="Dashboard_DeviceRestartSent" xml:space="preserve"><value>Opdracht om apparaat opnieuw te starten verzonden. Het apparaat is ongeveer 30 seconden niet beschikbaar.</value></data>
+  <data name="Dashboard_DeviceSummary" xml:space="preserve"><value>{0} apparaten · {1} streamen · {2} niet beschikbaar</value></data>
+  <data name="Dashboard_DueNow" xml:space="preserve"><value>Nu uitvoeren</value></data>
+  <data name="Dashboard_EarliestLabel" xml:space="preserve"><value>Vroegste</value></data>
+  <data name="Dashboard_EnableIn" xml:space="preserve"><value>Inschakelen over</value></data>
+  <data name="Dashboard_ErrorFetchingData" xml:space="preserve"><value>Fout bij het ophalen van gegevens: {0}</value></data>
+  <data name="Dashboard_ErrorGeneratingXmltv" xml:space="preserve"><value>Fout bij het genereren van XMLTV: {0}</value></data>
+  <data name="Dashboard_ErrorLoadingSavedLineup" xml:space="preserve"><value>Fout bij het laden van de opgeslagen kanaallijst: {0}</value></data>
+  <data name="Dashboard_ErrorRefreshingChannels" xml:space="preserve"><value>Fout bij het vernieuwen van kanalen: {0}</value></data>
+  <data name="Dashboard_EveryInterval" xml:space="preserve"><value>Elke {0}</value></data>
+  <data name="Dashboard_EverySeconds" xml:space="preserve"><value>elke {0} seconden</value></data>
+  <data name="Dashboard_ExpandActiveStreamsSection" xml:space="preserve"><value>Sectie Actieve streams uitklappen</value></data>
+  <data name="Dashboard_ExpandChannelsSection" xml:space="preserve"><value>Sectie Kanalen uitklappen</value></data>
+  <data name="Dashboard_ExpandGuideSection" xml:space="preserve"><value>Sectie Gids uitklappen</value></data>
+  <data name="Dashboard_ExportXmltv" xml:space="preserve"><value>XMLTV exporteren</value></data>
+  <data name="Dashboard_FailedToRestartDevice" xml:space="preserve"><value>Apparaat opnieuw starten mislukt: {0}</value></data>
+  <data name="Dashboard_FailedToStopReceiver" xml:space="preserve"><value>Ontvanger {0} stoppen mislukt: {1}</value></data>
+  <data name="Dashboard_FetchGuide" xml:space="preserve"><value>Gids ophalen</value></data>
+  <data name="Dashboard_FetchNumber" xml:space="preserve"><value>Ophaalbewerking nr.</value></data>
+  <data name="Dashboard_FetchStatusCompleted" xml:space="preserve"><value>Voltooid</value></data>
+  <data name="Dashboard_FetchStatusFailed" xml:space="preserve"><value>Mislukt</value></data>
+  <data name="Dashboard_FetchStatusFetching" xml:space="preserve"><value>Ophalen</value></data>
+  <data name="Dashboard_FetchStatusInitializing" xml:space="preserve"><value>Initialiseren</value></data>
+  <data name="Dashboard_FetchStatusStoring" xml:space="preserve"><value>Opslaan</value></data>
+  <data name="Dashboard_GenerateXmltv" xml:space="preserve"><value>XMLTV genereren</value></data>
+  <data name="Dashboard_GuideFetchedSuccessfully" xml:space="preserve"><value>Gidsgegevens opgehaald uit {0} bron(nen): {1:N0} kanalen en {2:N0} programma’s.</value></data>
+  <data name="Dashboard_GuideRefreshWithFailures" xml:space="preserve"><value>Het vernieuwen van de gids is voltooid met {0} mislukte bron(nen) en {1} mislukte uitvoer(en). Geslaagde import- en publicatiebewerkingen zijn behouden.</value></data>
+  <data name="Dashboard_GuideSummary" xml:space="preserve"><value>{0} kanalen · {1} programma’s · {2} resterend · {3}</value></data>
+  <data name="Dashboard_GuideXmltvHeading" xml:space="preserve"><value>Gids en XMLTV</value></data>
+  <data name="Dashboard_Heading" xml:space="preserve"><value>Dashboard</value></data>
+  <data name="Dashboard_LatestLabel" xml:space="preserve"><value>Meest recent</value></data>
+  <data name="Dashboard_ManualFetchProgress" xml:space="preserve"><value>Voortgang handmatig ophalen</value></data>
+  <data name="Dashboard_NextFetchIn" xml:space="preserve"><value>volgende ophaalbewerking over {0}</value></data>
+  <data name="Dashboard_NoActivePhysicalDevices" xml:space="preserve"><value>Er zijn geen ingeschakelde fysieke apparaten actief.</value></data>
+  <data name="Dashboard_NoGuideSourcesEnabled" xml:space="preserve"><value>Er zijn geen gidsbronnen ingeschakeld. XMLTV is opnieuw gegenereerd uit gidsgegevens in de cache.</value></data>
+  <data name="Dashboard_NotRefreshed" xml:space="preserve"><value>niet vernieuwd</value></data>
+  <data name="Dashboard_PageTitle" xml:space="preserve"><value>Dashboard</value></data>
+  <data name="Dashboard_Pending" xml:space="preserve"><value>In behandeling...</value></data>
+  <data name="Dashboard_PhysicalDevicesHeading" xml:space="preserve"><value>Fysieke apparaten</value></data>
+  <data name="Dashboard_ProgramsLabel" xml:space="preserve"><value>Programma’s</value></data>
+  <data name="Dashboard_ProjectionChannelSummary" xml:space="preserve"><value>Voor gids- en streamingprognoses worden {0} fysieke bronkanalen gebruikt die {1} zijn vernieuwd.</value></data>
+  <data name="Dashboard_PublishedOutputsSuccessfully" xml:space="preserve"><value>{0} gidsuitvoer(en) gepubliceerd.</value></data>
+  <data name="Dashboard_PublishedOutputsWithFailures" xml:space="preserve"><value>{0} gidsuitvoer(en) gepubliceerd; {1} mislukt: {2}</value></data>
+  <data name="Dashboard_ReceiverColumn" xml:space="preserve"><value>Ontvanger</value></data>
+  <data name="Dashboard_ReceiverIdle" xml:space="preserve"><value>Inactief</value></data>
+  <data name="Dashboard_ReceiverStopped" xml:space="preserve"><value>Ontvanger {0} is gestopt.</value></data>
+  <data name="Dashboard_ReceiverStreaming" xml:space="preserve"><value>Streamt</value></data>
+  <data name="Dashboard_ReceiverTuned" xml:space="preserve"><value>Afgestemd</value></data>
+  <data name="Dashboard_RefreshChannels" xml:space="preserve"><value>Kanalen vernieuwen</value></data>
+  <data name="Dashboard_RefreshChannelsBeforeGuide" xml:space="preserve"><value>Vernieuw hierboven de HDHomeRun-kanalen voordat u de SiliconDust-gids ophaalt.</value></data>
+  <data name="Dashboard_RefreshedAt" xml:space="preserve"><value>vernieuwd {0}</value></data>
+  <data name="Dashboard_RefreshedChannels" xml:space="preserve"><value>{0} fysieke bronkanalen vernieuwd.</value></data>
+  <data name="Dashboard_RefreshedChannelsWithFailures" xml:space="preserve"><value>{0} fysieke bronkanalen vernieuwd met {1} apparaatfout(en).</value></data>
+  <data name="Dashboard_RefreshingEnabledGuideSources" xml:space="preserve"><value>Ingeschakelde gidsbronnen vernieuwen</value></data>
+  <data name="Dashboard_RemainingDurationFormat" xml:space="preserve"><value>d&apos; dagen &apos;h&apos; uur&apos;</value></data>
+  <data name="Dashboard_RemainingLabel" xml:space="preserve"><value>Resterend</value></data>
+  <data name="Dashboard_RestartDevice" xml:space="preserve"><value>Apparaat opnieuw starten</value></data>
+  <data name="Dashboard_Running" xml:space="preserve"><value>Bezig...</value></data>
+  <data name="Dashboard_SignalColumn" xml:space="preserve"><value>Signaal</value></data>
+  <data name="Dashboard_StartingSoon" xml:space="preserve"><value>Begint binnenkort...</value></data>
+  <data name="Dashboard_StreamingFlowHeading" xml:space="preserve"><value>Streamingstroom</value></data>
+  <data name="Dashboard_TargetColumn" xml:space="preserve"><value>Doel</value></data>
+  <data name="Dashboard_TimeRangeHeading" xml:space="preserve"><value>Tijdsbereik</value></data>
+  <data name="Guide_DisabledChannel" xml:space="preserve"><value>Uitgeschakeld kanaal</value></data>
+  <data name="Guide_DrmProtectedChannel" xml:space="preserve"><value>DRM-beveiligd kanaal</value></data>
+  <data name="Guide_DurationLabel" xml:space="preserve"><value>Duur</value></data>
+  <data name="Guide_DurationMinutes" xml:space="preserve"><value>{0} min</value></data>
+  <data name="Guide_EndLabel" xml:space="preserve"><value>Einde</value></data>
+  <data name="Guide_EpisodeLabel" xml:space="preserve"><value>Aflevering</value></data>
+  <data name="Guide_FavoriteChannel" xml:space="preserve"><value>Favoriet kanaal</value></data>
+  <data name="Guide_Heading" xml:space="preserve"><value>Gids</value></data>
+  <data name="Guide_LoadingData" xml:space="preserve"><value>Gidsgegevens laden...</value></data>
+  <data name="Guide_NoDescription" xml:space="preserve"><value>Geen beschrijving beschikbaar.</value></data>
+  <data name="Guide_NoEpgData" xml:space="preserve"><value>Geen EPG-gegevens beschikbaar. Haal eerst EPG-gegevens op via het Dashboard.</value></data>
+  <data name="Guide_Now" xml:space="preserve"><value>Nu</value></data>
+  <data name="Guide_OriginalAirLabel" xml:space="preserve"><value>Oorspronkelijke uitzending</value></data>
+  <data name="Guide_PageTitle" xml:space="preserve"><value>Gids</value></data>
+  <data name="Guide_ProgramTooltip" xml:space="preserve"><value>{0}\n{1} - {2} ({3:0} min)</value></data>
+  <data name="Guide_StartLabel" xml:space="preserve"><value>Begin</value></data>
+  <data name="Guide_Today" xml:space="preserve"><value>Vandaag</value></data>
+  <data name="Guide_Tomorrow" xml:space="preserve"><value>Morgen</value></data>
+  <data name="Logs_AllCategories" xml:space="preserve"><value>Alle categorieën</value></data>
+  <data name="Logs_CategoryLabel" xml:space="preserve"><value>Categorie</value></data>
+  <data name="Logs_CurrentProcessHeading" xml:space="preserve"><value>Huidig proces</value></data>
+  <data name="Logs_Details" xml:space="preserve"><value>Details</value></data>
+  <data name="Logs_EventsLabel" xml:space="preserve"><value>Gebeurtenissen</value></data>
+  <data name="Logs_FileLoggingDisabledPrefix" xml:space="preserve"><value>Bestandsregistratie is uitgeschakeld. Schakel deze in onder</value></data>
+  <data name="Logs_FileLoggingDisabledSuffix" xml:space="preserve"><value>en start Lineup opnieuw om logboeken na een herstart te behouden.</value></data>
+  <data name="Logs_Heading" xml:space="preserve"><value>Logboeken</value></data>
+  <data name="Logs_LevelColumn" xml:space="preserve"><value>Niveau</value></data>
+  <data name="Logs_LevelDebug" xml:space="preserve"><value>Debug</value></data>
+  <data name="Logs_LevelError" xml:space="preserve"><value>Fout</value></data>
+  <data name="Logs_LevelFatal" xml:space="preserve"><value>Fataal</value></data>
+  <data name="Logs_LevelInformation" xml:space="preserve"><value>Informatie</value></data>
+  <data name="Logs_LevelTrace" xml:space="preserve"><value>Trace</value></data>
+  <data name="Logs_LevelWarning" xml:space="preserve"><value>Waarschuwing</value></data>
+  <data name="Logs_LiveViewNotice" xml:space="preserve"><value>Deze liveweergave is beperkt tot recente gebeurtenissen van het huidige Lineup-proces. Operationele logboeken kunnen apparaatadressen en andere diagnostische details bevatten.</value></data>
+  <data name="Logs_MessageColumn" xml:space="preserve"><value>Bericht</value></data>
+  <data name="Logs_MinimumLevelLabel" xml:space="preserve"><value>Minimumniveau</value></data>
+  <data name="Logs_NoMatchingEvents" xml:space="preserve"><value>Geen logboekgebeurtenissen komen overeen met de huidige filters.</value></data>
+  <data name="Logs_NoRollingFiles" xml:space="preserve"><value>Er zijn nog geen roterende logbestanden beschikbaar.</value></data>
+  <data name="Logs_PageTitle" xml:space="preserve"><value>Logboeken</value></data>
+  <data name="Logs_RollingFilesHeading" xml:space="preserve"><value>Roterende logbestanden</value></data>
+  <data name="Logs_SearchPlaceholder" xml:space="preserve"><value>Bericht, uitzondering of eigenschap</value></data>
+  <data name="Logs_SettingsLoggingLink" xml:space="preserve"><value>Instellingen &gt; Logboekregistratie</value></data>
+  <data name="Logs_TimeColumn" xml:space="preserve"><value>Tijd</value></data>
+  <data name="Nav_About" xml:space="preserve"><value>Over</value></data>
+  <data name="Nav_Channels" xml:space="preserve"><value>Kanalen</value></data>
+  <data name="Nav_Dashboard" xml:space="preserve"><value>Dashboard</value></data>
+  <data name="Nav_Guide" xml:space="preserve"><value>Gids</value></data>
+  <data name="Nav_Logs" xml:space="preserve"><value>Logboeken</value></data>
+  <data name="Nav_NavigationMenu" xml:space="preserve"><value>Navigatiemenu</value></data>
+  <data name="Nav_Settings" xml:space="preserve"><value>Instellingen</value></data>
+  <data name="Nav_ThemeAuto" xml:space="preserve"><value>Automatisch</value></data>
+  <data name="Nav_ThemeDark" xml:space="preserve"><value>Donker</value></data>
+  <data name="Nav_ThemeLight" xml:space="preserve"><value>Licht</value></data>
+  <data name="Nav_ToggleTheme" xml:space="preserve"><value>Thema wisselen</value></data>
+  <data name="Nav_Watch" xml:space="preserve"><value>Kijken</value></data>
+  <data name="Nav_WatchTest" xml:space="preserve"><value>Kijktest</value></data>
+  <data name="ProgramMetadata_AdditionalCredits" xml:space="preserve"><value>Aanvullende medewerkers</value></data>
+  <data name="ProgramMetadata_AdditionalImages" xml:space="preserve"><value>Aanvullende afbeeldingen</value></data>
+  <data name="ProgramMetadata_AlternateDescriptions" xml:space="preserve"><value>Alternatieve beschrijvingen</value></data>
+  <data name="ProgramMetadata_AlternateEpisodeTitles" xml:space="preserve"><value>Alternatieve afleveringstitels</value></data>
+  <data name="ProgramMetadata_AlternateTitles" xml:space="preserve"><value>Alternatieve titels</value></data>
+  <data name="ProgramMetadata_AriaLabel" xml:space="preserve"><value>Programmametadata</value></data>
+  <data name="ProgramMetadata_Aspect" xml:space="preserve"><value>Beeldverhouding</value></data>
+  <data name="ProgramMetadata_Audio" xml:space="preserve"><value>Audio</value></data>
+  <data name="ProgramMetadata_Color" xml:space="preserve"><value>Kleur</value></data>
+  <data name="ProgramMetadata_Country" xml:space="preserve"><value>Land</value></data>
+  <data name="ProgramMetadata_CreditAdapter" xml:space="preserve"><value>Bewerker</value></data>
+  <data name="ProgramMetadata_CreditCast" xml:space="preserve"><value>Cast</value></data>
+  <data name="ProgramMetadata_CreditCommentator" xml:space="preserve"><value>Commentator</value></data>
+  <data name="ProgramMetadata_CreditComposer" xml:space="preserve"><value>Componist</value></data>
+  <data name="ProgramMetadata_CreditDirector" xml:space="preserve"><value>Regisseur</value></data>
+  <data name="ProgramMetadata_CreditEditor" xml:space="preserve"><value>Editor</value></data>
+  <data name="ProgramMetadata_CreditGuest" xml:space="preserve"><value>Gast</value></data>
+  <data name="ProgramMetadata_CreditGuestSuffix" xml:space="preserve"><value> (gast)</value></data>
+  <data name="ProgramMetadata_CreditPresenter" xml:space="preserve"><value>Presentator</value></data>
+  <data name="ProgramMetadata_CreditProducer" xml:space="preserve"><value>Producent</value></data>
+  <data name="ProgramMetadata_CreditRole" xml:space="preserve"><value> als {0}</value></data>
+  <data name="ProgramMetadata_Credits" xml:space="preserve"><value>Medewerkers</value></data>
+  <data name="ProgramMetadata_CreditWriter" xml:space="preserve"><value>Schrijver</value></data>
+  <data name="ProgramMetadata_Description" xml:space="preserve"><value>Beschrijving</value></data>
+  <data name="ProgramMetadata_EpisodeIdentifiers" xml:space="preserve"><value>Afleverings-ID’s</value></data>
+  <data name="ProgramMetadata_EpisodeTitle" xml:space="preserve"><value>Afleveringstitel</value></data>
+  <data name="ProgramMetadata_Keywords" xml:space="preserve"><value>Trefwoorden</value></data>
+  <data name="ProgramMetadata_Language" xml:space="preserve"><value>Taal</value></data>
+  <data name="ProgramMetadata_LastChance" xml:space="preserve"><value>Laatste kans</value></data>
+  <data name="ProgramMetadata_Live" xml:space="preserve"><value>Live</value></data>
+  <data name="ProgramMetadata_LocalizedCategories" xml:space="preserve"><value>Gelokaliseerde categorieën</value></data>
+  <data name="ProgramMetadata_MoreDetails" xml:space="preserve"><value>Meer details</value></data>
+  <data name="ProgramMetadata_New" xml:space="preserve"><value>Nieuw</value></data>
+  <data name="ProgramMetadata_Origin" xml:space="preserve"><value>Herkomst</value></data>
+  <data name="ProgramMetadata_OriginalLanguage" xml:space="preserve"><value>Oorspronkelijke taal</value></data>
+  <data name="ProgramMetadata_Other" xml:space="preserve"><value>Overig</value></data>
+  <data name="ProgramMetadata_Premiere" xml:space="preserve"><value>Première</value></data>
+  <data name="ProgramMetadata_Present" xml:space="preserve"><value>Aanwezig</value></data>
+  <data name="ProgramMetadata_PreviouslyShown" xml:space="preserve"><value>Eerder uitgezonden</value></data>
+  <data name="ProgramMetadata_PreviouslyShownDetails" xml:space="preserve"><value>Eerder uitgezonden: {0}</value></data>
+  <data name="ProgramMetadata_PrimaryTextLanguages" xml:space="preserve"><value>Primaire teksttalen</value></data>
+  <data name="ProgramMetadata_ProgramStatus" xml:space="preserve"><value>Programmastatus</value></data>
+  <data name="ProgramMetadata_Quality" xml:space="preserve"><value>Kwaliteit</value></data>
+  <data name="ProgramMetadata_Ratings" xml:space="preserve"><value>Beoordelingen</value></data>
+  <data name="ProgramMetadata_RelatedUrls" xml:space="preserve"><value>Gerelateerde URL’s</value></data>
+  <data name="ProgramMetadata_Reviews" xml:space="preserve"><value>Recensies</value></data>
+  <data name="ProgramMetadata_SchedulingIdentifiers" xml:space="preserve"><value>Plannings-ID’s</value></data>
+  <data name="ProgramMetadata_SourceRuntime" xml:space="preserve"><value>Bronduur</value></data>
+  <data name="ProgramMetadata_Stereo" xml:space="preserve"><value>Stereo</value></data>
+  <data name="ProgramMetadata_Subtitles" xml:space="preserve"><value>Ondertiteling</value></data>
+  <data name="ProgramMetadata_Title" xml:space="preserve"><value>Titel</value></data>
+  <data name="ProgramMetadata_Video" xml:space="preserve"><value>Video</value></data>
+  <data name="Streaming_Active" xml:space="preserve"><value>Actief</value></data>
+  <data name="Streaming_ActiveChannels" xml:space="preserve"><value>Actieve kanalen</value></data>
+  <data name="Streaming_ActiveProducerCountMany" xml:space="preserve"><value>{0} actieve producenten</value></data>
+  <data name="Streaming_ActiveProducerCountOne" xml:space="preserve"><value>{0} actieve producent</value></data>
+  <data name="Streaming_ActiveSessions" xml:space="preserve"><value>Actieve sessies</value></data>
+  <data name="Streaming_Channel" xml:space="preserve"><value>Kanaal {0}</value></data>
+  <data name="Streaming_ChannelCountAbbreviation" xml:space="preserve"><value>{0} kan.</value></data>
+  <data name="Streaming_ConfigureDevicesPrompt" xml:space="preserve"><value>Configureer fysieke en virtuele apparaten om de streamingstroom op te bouwen.</value></data>
+  <data name="Streaming_ConfiguredTopologyAriaLabel" xml:space="preserve"><value>Geconfigureerde streamingtopologie</value></data>
+  <data name="Streaming_ConsumerCountMany" xml:space="preserve"><value>{0} gebruikers</value></data>
+  <data name="Streaming_ConsumerCountOne" xml:space="preserve"><value>{0} gebruiker</value></data>
+  <data name="Streaming_DeliveredStreamComponents" xml:space="preserve"><value>Geleverde streamonderdelen</value></data>
+  <data name="Streaming_EffectiveSourceComponents" xml:space="preserve"><value>Effectieve brononderdelen</value></data>
+  <data name="Streaming_FlowSummaryAriaLabel" xml:space="preserve"><value>Samenvatting van streamingstroom</value></data>
+  <data name="Streaming_LaneConsumers" xml:space="preserve"><value>Gebruikers</value></data>
+  <data name="Streaming_LaneMultiplexer" xml:space="preserve"><value>Multiplexer</value></data>
+  <data name="Streaming_LaneOutputProcessing" xml:space="preserve"><value>Uitvoerverwerking</value></data>
+  <data name="Streaming_LanePhysicalSources" xml:space="preserve"><value>Fysieke bronnen</value></data>
+  <data name="Streaming_LaneSourceProcessing" xml:space="preserve"><value>Bronverwerking</value></data>
+  <data name="Streaming_LaneVirtualOutputs" xml:space="preserve"><value>Virtuele uitvoer</value></data>
+  <data name="Streaming_MediaTrackAudio" xml:space="preserve"><value>Audio</value></data>
+  <data name="Streaming_MediaTrackSubtitle" xml:space="preserve"><value>Ondertiteling</value></data>
+  <data name="Streaming_MediaTrackVideo" xml:space="preserve"><value>Video</value></data>
+  <data name="Streaming_MultiplexedStreamComponents" xml:space="preserve"><value>Gemultiplexte streamonderdelen</value></data>
+  <data name="Streaming_NoConsumersAttached" xml:space="preserve"><value>Er zijn momenteel geen gebruikers verbonden.</value></data>
+  <data name="Streaming_NodeAriaLabel" xml:space="preserve"><value>{0}, {1}, {2} actieve sessies</value></data>
+  <data name="Streaming_None" xml:space="preserve"><value>Geen</value></data>
+  <data name="Streaming_OutputStreamComponents" xml:space="preserve"><value>Uitvoerstreamonderdelen</value></data>
+  <data name="Streaming_RawPhysicalInput" xml:space="preserve"><value>Onbewerkte fysieke invoer</value></data>
+  <data name="Streaming_RawPhysicalStreamComponents" xml:space="preserve"><value>Onbewerkte fysieke streamonderdelen</value></data>
+  <data name="Streaming_Session" xml:space="preserve"><value>Sessie</value></data>
+  <data name="Streaming_SharedSessions" xml:space="preserve"><value>Gedeeld · {0} sessies</value></data>
+  <data name="Streaming_SourceStreamComponents" xml:space="preserve"><value>Bronstreamonderdelen</value></data>
+  <data name="Streaming_StageConsumer" xml:space="preserve"><value>Gebruiker</value></data>
+  <data name="Streaming_StageMultiplexer" xml:space="preserve"><value>Multiplexer</value></data>
+  <data name="Streaming_StageOutputProcessing" xml:space="preserve"><value>Uitvoerverwerking</value></data>
+  <data name="Streaming_StagePhysicalSource" xml:space="preserve"><value>Fysieke bron</value></data>
+  <data name="Streaming_StagesAriaLabel" xml:space="preserve"><value>Streamingfasen voor sessie {0}</value></data>
+  <data name="Streaming_StageSourceProcessing" xml:space="preserve"><value>Bronverwerking</value></data>
+  <data name="Streaming_StageVirtualOutput" xml:space="preserve"><value>Virtuele uitvoer</value></data>
+  <data name="Streaming_StateActive" xml:space="preserve"><value>Actief</value></data>
+  <data name="Streaming_StateDisabled" xml:space="preserve"><value>Uitgeschakeld</value></data>
+  <data name="Streaming_StateIdle" xml:space="preserve"><value>Inactief</value></data>
+  <data name="Streaming_StateLegendAriaLabel" xml:space="preserve"><value>Legenda streamingstatus</value></data>
+  <data name="Streaming_StateShared" xml:space="preserve"><value>Gedeeld</value></data>
+  <data name="Streaming_StateTranscoding" xml:space="preserve"><value>Transcoderen</value></data>
+  <data name="Streaming_StateWarm" xml:space="preserve"><value>Warm</value></data>
+  <data name="Streaming_Stop" xml:space="preserve"><value>Stoppen</value></data>
+  <data name="Streaming_StopStreamAriaLabel" xml:space="preserve"><value>Stream {0} stoppen</value></data>
+  <data name="Streaming_StreamComponents" xml:space="preserve"><value>Streamonderdelen</value></data>
+  <data name="Streaming_SubscribedStreamComponents" xml:space="preserve"><value>Geabonneerde streamonderdelen</value></data>
+  <data name="Streaming_TotalBitRate" xml:space="preserve"><value>Totaal: {0}</value></data>
+  <data name="Streaming_Unavailable" xml:space="preserve"><value>Niet beschikbaar</value></data>
+  <data name="Streaming_Unknown" xml:space="preserve"><value>onbekend</value></data>
+  <data name="Streaming_WarmProducerCountMany" xml:space="preserve"><value>{0} warme producenten</value></data>
+  <data name="Streaming_WarmProducerCountOne" xml:space="preserve"><value>{0} warme producent</value></data>
+  <data name="Transcoding_Ac4Audio" xml:space="preserve"><value>AC-4-audio</value></data>
+  <data name="Transcoding_Audio" xml:space="preserve"><value>Audio</value></data>
+  <data name="Transcoding_AudioCopy" xml:space="preserve"><value>Kopiëren</value></data>
+  <data name="Transcoding_ConvertHevcHelp" xml:space="preserve"><value>Wanneer dit is ingeschakeld, wordt HEVC/H.265-video gecodeerd als H.264 voor bredere afspeelcompatibiliteit. Andere videocodecs blijven ongewijzigd.</value></data>
+  <data name="Transcoding_ConvertHevcToH264" xml:space="preserve"><value>HEVC converteren naar H.264</value></data>
+  <data name="Transcoding_DeinterlacePreserve" xml:space="preserve"><value>Behouden</value></data>
+  <data name="Transcoding_DeinterlaceSourceFieldRate" xml:space="preserve"><value>Veldfrequentie van bron</value></data>
+  <data name="Transcoding_DeinterlaceSourceFrameRate" xml:space="preserve"><value>Beeldfrequentie van bron</value></data>
+  <data name="Transcoding_Deinterlacing" xml:space="preserve"><value>De-interlacing</value></data>
+  <data name="Transcoding_DeviceAc4Help" xml:space="preserve"><value>Kopiëren vereist ondersteuning voor AC-4 verderop in de keten. AC-3 biedt de breedste compatibiliteit; E-AC-3 kan meer mogelijkheden behouden waar dit wordt ondersteund.</value></data>
+  <data name="Transcoding_DeviceAc4OverrideHelp" xml:space="preserve"><value>Schakel de overschrijving in om AC-4-bronnen onafhankelijk van andere audiocodecs te verwerken.</value></data>
+  <data name="Transcoding_DeviceAudioHelp" xml:space="preserve"><value>Kopiëren behoudt de broncodec en kwaliteit. AC-3 of E-AC-3 codeert audio opnieuw voor gebruikers die deze indeling nodig hebben.</value></data>
+  <data name="Transcoding_DeviceAudioOverrideHelp" xml:space="preserve"><value>Schakel de overschrijving in om elk niet-AC-4-audiospoor voor dit apparaat te kopiëren of opnieuw te coderen.</value></data>
+  <data name="Transcoding_DeviceBitrateHelp" xml:space="preserve"><value>Een te lage limiet kan de kwaliteit tijdens complexe scènes verminderen, zelfs wanneer CRF een hogere kwaliteit vraagt.</value></data>
+  <data name="Transcoding_DeviceBitrateOverrideHelp" xml:space="preserve"><value>Schakel de overschrijving in om de gecodeerde H.264-bitsnelheid van dit apparaat onafhankelijk van de algemene limiet te begrenzen.</value></data>
+  <data name="Transcoding_DeviceDeinterlaceHelp" xml:space="preserve"><value>Behouden laat video ongewijzigd. Beeldfrequentie van bron voert één progressief beeld per beeld uit. Veldfrequentie van bron behoudt vloeiendere beweging op veldfrequentie, ten koste van meer CPU en bitsnelheid.</value></data>
+  <data name="Transcoding_DeviceDeinterlaceOverrideHelp" xml:space="preserve"><value>Schakel de overschrijving in om video van dit apparaat onafhankelijk van het algemene beleid te behouden of te de-interlacen.</value></data>
+  <data name="Transcoding_DeviceHevcHelp" xml:space="preserve"><value>Conversie verbetert de compatibiliteit, maar start een H.264-video-encoder. Uitgeschakeld behoudt de videocodec van de bron.</value></data>
+  <data name="Transcoding_DeviceHevcOverrideHelp" xml:space="preserve"><value>Schakel de overschrijving in om te kiezen of dit apparaat HEVC/H.265-video naar H.264 converteert in plaats van het algemene beleid te gebruiken.</value></data>
+  <data name="Transcoding_DevicePresetHelp" xml:space="preserve"><value>Snellere voorinstellingen verlagen het CPU-gebruik. Langzamere voorinstellingen kunnen met minder bitsnelheid een vergelijkbare kwaliteit bereiken.</value></data>
+  <data name="Transcoding_DevicePresetOverrideHelp" xml:space="preserve"><value>Schakel de overschrijving in om de afweging tussen snelheid en compressie-efficiëntie van de H.264-encoder voor dit apparaat te wijzigen.</value></data>
+  <data name="Transcoding_DeviceQualityHelp" xml:space="preserve"><value>Toegestane waarden zijn 16 tot en met 30. Lagere waarden behouden meer detail en gebruiken een hogere bitsnelheid; hogere waarden verlagen de bitsnelheid en kwaliteit.</value></data>
+  <data name="Transcoding_DeviceQualityOverrideHelp" xml:space="preserve"><value>Schakel de overschrijving in om voor dit apparaat een H.264-doelwaarde met constante kwaliteit in te stellen in plaats van de algemene CRF over te nemen.</value></data>
+  <data name="Transcoding_DeviceWarning" xml:space="preserve"><value>De huidige configuratie van dit apparaat leidt tot {0} transcodering voor overeenkomende streams.</value></data>
+  <data name="Transcoding_GlobalAc4Help" xml:space="preserve"><value>Regelt AC-4-bronnen afzonderlijk, omdat de ondersteuning door browsers en mediaservers varieert. Kopiëren vereist ondersteuning voor AC-4 verderop in de keten; AC-3 biedt de breedste compatibiliteit.</value></data>
+  <data name="Transcoding_GlobalAudioHelp" xml:space="preserve"><value>Kopiëren behoudt de oorspronkelijke codec en kwaliteit. AC-3 of E-AC-3 codeert andere audio opnieuw voor gebruikers die deze indeling nodig hebben.</value></data>
+  <data name="Transcoding_GlobalBitrateHelp" xml:space="preserve"><value>Begrenst de doeluitvoersnelheid van de H.264-encoder. Een te lage limiet kan de kwaliteit tijdens complexe scènes verminderen, zelfs wanneer CRF een hogere kwaliteit vraagt.</value></data>
+  <data name="Transcoding_GlobalDeinterlaceHelp" xml:space="preserve"><value>Behouden laat de bron ongewijzigd. Beeldfrequentie van bron maakt één progressief beeld per geïnterlacet beeld. Veldfrequentie van bron maakt één progressief beeld per veld voor vloeiendere beweging, ten koste van meer CPU en bitsnelheid.</value></data>
+  <data name="Transcoding_GlobalPresetHelp" xml:space="preserve"><value>Regelt de H.264-codeersnelheid ten opzichte van de compressie-efficiëntie. Snellere voorinstellingen gebruiken minder CPU; langzamere voorinstellingen kunnen met minder bitsnelheid een vergelijkbare kwaliteit bereiken.</value></data>
+  <data name="Transcoding_GlobalQualityHelp" xml:space="preserve"><value>Stelt H.264-codering met constante kwaliteit in van 16 tot en met 30. Lagere waarden behouden meer detail maar gebruiken een hogere bitsnelheid; hogere waarden verlagen de bitsnelheid en kwaliteit.</value></data>
+  <data name="Transcoding_GlobalWarning" xml:space="preserve"><value>De huidige configuratie leidt tot {0} transcodering voor overeenkomende streams.</value></data>
+  <data name="Transcoding_Inherits" xml:space="preserve"><value>(neemt {0} over)</value></data>
+  <data name="Transcoding_InheritsCrf" xml:space="preserve"><value>(neemt CRF {0} over)</value></data>
+  <data name="Transcoding_InheritsMbps" xml:space="preserve"><value>(neemt {0} Mbps over)</value></data>
+  <data name="Transcoding_MaximumVideoBitrate" xml:space="preserve"><value>Maximale videobitsnelheid</value></data>
+  <data name="Transcoding_NonAc4Audio" xml:space="preserve"><value>Niet-AC-4-audio</value></data>
+  <data name="Transcoding_OverrideAc4Audio" xml:space="preserve"><value>AC-4-audio overschrijven</value></data>
+  <data name="Transcoding_OverrideBitrate" xml:space="preserve"><value>Bitsnelheid overschrijven</value></data>
+  <data name="Transcoding_OverrideDeinterlacing" xml:space="preserve"><value>De-interlacing overschrijven</value></data>
+  <data name="Transcoding_OverrideEncoderPreset" xml:space="preserve"><value>Encoder-voorinstelling overschrijven</value></data>
+  <data name="Transcoding_OverrideHevcConversion" xml:space="preserve"><value>HEVC-conversie overschrijven</value></data>
+  <data name="Transcoding_OverrideNonAc4Audio" xml:space="preserve"><value>Niet-AC-4-audio overschrijven</value></data>
+  <data name="Transcoding_OverrideVideoQuality" xml:space="preserve"><value>Videokwaliteit overschrijven</value></data>
+  <data name="Transcoding_PresetFast" xml:space="preserve"><value>Snel</value></data>
+  <data name="Transcoding_PresetFaster" xml:space="preserve"><value>Sneller</value></data>
+  <data name="Transcoding_PresetMedium" xml:space="preserve"><value>Gemiddeld</value></data>
+  <data name="Transcoding_PresetVeryFast" xml:space="preserve"><value>Zeer snel</value></data>
+  <data name="Transcoding_Settings" xml:space="preserve"><value>Transcoderingsinstellingen</value></data>
+  <data name="Transcoding_UsesGlobalSettings" xml:space="preserve"><value>Gebruikt Algemene instellingen, tenzij een overschrijving is ingeschakeld.</value></data>
+  <data name="Transcoding_Video" xml:space="preserve"><value>Video</value></data>
+  <data name="Transcoding_VideoEncoderPreset" xml:space="preserve"><value>Voorinstelling video-encoder</value></data>
+  <data name="Transcoding_VideoQualityCrf" xml:space="preserve"><value>Videokwaliteit (CRF)</value></data>
+  <data name="Watch_AdaptivePlaybackUnsupported" xml:space="preserve"><value>Uw browser ondersteunt adaptief afspelen niet.</value></data>
+  <data name="Watch_AudioUnavailable" xml:space="preserve"><value>{0} is niet beschikbaar</value></data>
+  <data name="Watch_AutoProtocol" xml:space="preserve"><value>{0} (Automatisch)</value></data>
+  <data name="Watch_BitmapSubtitles" xml:space="preserve"><value>Bitmapondertiteling</value></data>
+  <data name="Watch_BrowserProfile" xml:space="preserve"><value>Browserprofiel</value></data>
+  <data name="Watch_BurnInTrack" xml:space="preserve"><value>{0} (ingebrand; hoger CPU-gebruik)</value></data>
+  <data name="Watch_ChannelNumberPlaceholder" xml:space="preserve"><value>Kanaalnummer</value></data>
+  <data name="Watch_Channels" xml:space="preserve"><value>Kanalen</value></data>
+  <data name="Watch_CompatibilityProfileCleared" xml:space="preserve"><value>Het opgeslagen browsercompatibiliteitsprofiel was in strijd met de afspeelresultaten en is gewist. Voer Kijktest opnieuw uit om het profiel te vernieuwen.</value></data>
+  <data name="Watch_DedicatedListenerNotConfigured" xml:space="preserve"><value>De toegewezen listener van de webspeler is niet geconfigureerd.</value></data>
+  <data name="Watch_DrmProtectedChannel" xml:space="preserve"><value>DRM-beveiligd kanaal</value></data>
+  <data name="Watch_Fallback" xml:space="preserve"><value>Terugvaloptie</value></data>
+  <data name="Watch_FallbackAudio" xml:space="preserve"><value>Terugvalaudio</value></data>
+  <data name="Watch_FallbackAudioLower" xml:space="preserve"><value>terugvalaudio</value></data>
+  <data name="Watch_FavoriteChannel" xml:space="preserve"><value>Favoriet kanaal</value></data>
+  <data name="Watch_FFmpegSharedSegments" xml:space="preserve"><value>FFmpeg (gedeelde segmenten)</value></data>
+  <data name="Watch_H264AndAacStereo" xml:space="preserve"><value>H.264 en AAC-stereo</value></data>
+  <data name="Watch_H264Fallback" xml:space="preserve"><value>H.264-terugvaloptie</value></data>
+  <data name="Watch_HostedStream" xml:space="preserve"><value>Gehoste stream</value></data>
+  <data name="Watch_InvalidChannelNumber" xml:space="preserve"><value>Voer een kanaalnummer in met cijfers en eventueel één decimaalteken.</value></data>
+  <data name="Watch_JsAudioFallback" xml:space="preserve"><value>Brongeluid is niet beschikbaar in deze browser. De geconfigureerde terugvalweergave wordt voor deze stream gebruikt.</value></data>
+  <data name="Watch_JsAudioTrackChanged" xml:space="preserve"><value>Audiospoor gewijzigd.</value></data>
+  <data name="Watch_JsBothManifestsLoadFailed" xml:space="preserve"><value>Geen van beide CMAF-manifesten kon worden geladen.</value></data>
+  <data name="Watch_JsInitializationSuperseded" xml:space="preserve"><value>De initialisatie van het afspelen is vervangen door een nieuwere aanvraag.</value></data>
+  <data name="Watch_JsPlaybackFailed" xml:space="preserve"><value>CMAF afspelen mislukt.</value></data>
+  <data name="Watch_JsPlayerContainerNotFound" xml:space="preserve"><value>De container van de CMAF-speler is niet gevonden.</value></data>
+  <data name="Watch_JsPresentationLoadFailed" xml:space="preserve"><value>De CMAF-presentatie kon niet worden geladen.</value></data>
+  <data name="Watch_JsProtocolFallback" xml:space="preserve"><value>Het voorkeursprotocol kon niet worden gestart. Er wordt opnieuw geprobeerd met het alternatieve CMAF-manifest.</value></data>
+  <data name="Watch_JsSessionUnavailable" xml:space="preserve"><value>De streamsessie is niet meer beschikbaar.</value></data>
+  <data name="Watch_JsShakaUnsupported" xml:space="preserve"><value>Deze browser ondersteunt afspelen met Shaka Player niet.</value></data>
+  <data name="Watch_JsVideoElementNotFound" xml:space="preserve"><value>Het videospelerelement is niet gevonden.</value></data>
+  <data name="Watch_JsVideoFallback" xml:space="preserve"><value>Bronvideo is niet beschikbaar in deze browser. De H.264-terugvalweergave wordt voor deze stream gebruikt.</value></data>
+  <data name="Watch_JsVideoFallbackRequired" xml:space="preserve"><value>Bronvideo is mislukt in deze browser. Deze stream wordt opnieuw gestart met H.264.</value></data>
+  <data name="Watch_Lock" xml:space="preserve"><value>Vergrendelen</value></data>
+  <data name="Watch_ManualTune" xml:space="preserve"><value>Handmatig afstemmen</value></data>
+  <data name="Watch_NoActiveTuner" xml:space="preserve"><value>Er is momenteel geen actieve tuner die dit kanaal meldt.</value></data>
+  <data name="Watch_NoEnabledChannels" xml:space="preserve"><value>Geen ingeschakelde kanalen beschikbaar.</value></data>
+  <data name="Watch_None" xml:space="preserve"><value>geen</value></data>
+  <data name="Watch_NoPlaybackSession" xml:space="preserve"><value>De webspeler heeft geen afspeelsessie geretourneerd.</value></data>
+  <data name="Watch_NowPlaying" xml:space="preserve"><value>Nu afgespeeld:</value></data>
+  <data name="Watch_Off" xml:space="preserve"><value>Uit</value></data>
+  <data name="Watch_OverrideStreamSettings" xml:space="preserve"><value>Streaminstellingen overschrijven</value></data>
+  <data name="Watch_PlaybackProtocol" xml:space="preserve"><value>Afspeelprotocol:</value></data>
+  <data name="Watch_Player" xml:space="preserve"><value>Speler:</value></data>
+  <data name="Watch_PlayingAudio" xml:space="preserve"><value>Afgespeelde audio:</value></data>
+  <data name="Watch_PlayingVideo" xml:space="preserve"><value>Afgespeelde video:</value></data>
+  <data name="Watch_PreferredAudio" xml:space="preserve"><value>Voorkeursaudio</value></data>
+  <data name="Watch_PreferredVideo" xml:space="preserve"><value>Voorkeursvideo</value></data>
+  <data name="Watch_Protocol" xml:space="preserve"><value>Protocol</value></data>
+  <data name="Watch_Quality" xml:space="preserve"><value>Kwaliteit</value></data>
+  <data name="Watch_QualityAppDefault" xml:space="preserve"><value>App-standaard</value></data>
+  <data name="Watch_QualityHigh" xml:space="preserve"><value>Hoog</value></data>
+  <data name="Watch_QualityLow" xml:space="preserve"><value>Laag (480p)</value></data>
+  <data name="Watch_QualityMedium" xml:space="preserve"><value>Gemiddeld (720p)</value></data>
+  <data name="Watch_Rate" xml:space="preserve"><value>Snelheid</value></data>
+  <data name="Watch_Receiver" xml:space="preserve"><value>Ontvanger</value></data>
+  <data name="Watch_RetryingWithReplacement" xml:space="preserve"><value>{0} in deze browser. Deze stream wordt opnieuw geprobeerd met {1}.</value></data>
+  <data name="Watch_RunCompatibilityTests" xml:space="preserve"><value>Compatibiliteitstests uitvoeren</value></data>
+  <data name="Watch_SelectedSubtitles" xml:space="preserve"><value>Geselecteerde ondertiteling</value></data>
+  <data name="Watch_SelectChannelPrompt" xml:space="preserve"><value>Selecteer een kanaal om te beginnen met kijken</value></data>
+  <data name="Watch_Session" xml:space="preserve"><value>Sessie:</value></data>
+  <data name="Watch_SettingUpStream" xml:space="preserve"><value>Stream instellen...</value></data>
+  <data name="Watch_SharedFragmentsHelp" xml:space="preserve"><value>Eén gedeelde fragmentenset bedient zowel HLS als DASH.</value></data>
+  <data name="Watch_Signal" xml:space="preserve"><value>Signaal</value></data>
+  <data name="Watch_Source" xml:space="preserve"><value>Bron</value></data>
+  <data name="Watch_SourceAudioPackagingFallback" xml:space="preserve"><value>Brongeluid kan niet door deze FFmpeg-build worden verpakt. {0} wordt voor deze stream gebruikt.</value></data>
+  <data name="Watch_SourceTotal" xml:space="preserve"><value>Brontotaal: {0}</value></data>
+  <data name="Watch_SourceVideoAndAudioUnavailable" xml:space="preserve"><value>Bronvideo en {0} zijn niet beschikbaar</value></data>
+  <data name="Watch_SourceVideoUnavailable" xml:space="preserve"><value>Bronvideo is niet beschikbaar</value></data>
+  <data name="Watch_Status" xml:space="preserve"><value>Status</value></data>
+  <data name="Watch_Stop" xml:space="preserve"><value>Stoppen</value></data>
+  <data name="Watch_StreamError" xml:space="preserve"><value>Streamfout</value></data>
+  <data name="Watch_StreamInformation" xml:space="preserve"><value>Streaminformatie</value></data>
+  <data name="Watch_Streaming" xml:space="preserve"><value>Streamen</value></data>
+  <data name="Watch_Subtitle" xml:space="preserve"><value>Live-TV met adaptief afspelen via HLS en DASH</value></data>
+  <data name="Watch_Subtitles" xml:space="preserve"><value>Ondertiteling</value></data>
+  <data name="Watch_Title" xml:space="preserve"><value>TV-kijken</value></data>
+  <data name="Watch_TrackIncluded" xml:space="preserve"><value>opgenomen</value></data>
+  <data name="Watch_TrackNotIncluded" xml:space="preserve"><value>niet opgenomen</value></data>
+  <data name="Watch_TrackPlaying" xml:space="preserve"><value>wordt afgespeeld</value></data>
+  <data name="Watch_TrackSidecar" xml:space="preserve"><value>sidecar</value></data>
+  <data name="Watch_Tune" xml:space="preserve"><value>Afstemmen</value></data>
+  <data name="Watch_Tuned" xml:space="preserve"><value>Afgestemd</value></data>
+  <data name="Watch_Tuner" xml:space="preserve"><value>Tuner</value></data>
+  <data name="Watch_UnableToInitializePlayback" xml:space="preserve"><value>CMAF afspelen kon niet worden geïnitialiseerd.</value></data>
+  <data name="Watch_UnableToInitializePlaybackWithError" xml:space="preserve"><value>CMAF afspelen kon niet worden geïnitialiseerd: {0}</value></data>
+  <data name="Watch_UnableToStartPlayback" xml:space="preserve"><value>CMAF afspelen kon niet worden gestart: {0}</value></data>
+  <data name="Watch_Unknown" xml:space="preserve"><value>onbekend</value></data>
+  <data name="Watch_Waiting" xml:space="preserve"><value>Wachten</value></data>
+  <data name="Watch_WaitingForHostedMetadata" xml:space="preserve"><value>Wachten op metadata van de gehoste stream.</value></data>
+  <data name="Watch_WebPlayerNotEnabled" xml:space="preserve"><value>De virtuele uitvoer van de webspeler is niet ingeschakeld.</value></data>
+  <data name="Watch_WebVttSidecar" xml:space="preserve"><value>WebVTT-sidecar</value></data>
+  <data name="WatchTest_Ac4ClaimOnly" xml:space="preserve"><value>AC-4 (alleen claim)</value></data>
+  <data name="WatchTest_Ac4UnavailableHelp" xml:space="preserve"><value>De meegeleverde Jellyfin FFmpeg kan AC-4 decoderen, maar bevat geen AC-4-encoder. De browserclaim wordt hieronder weergegeven, maar Lineup kan geen synthetische AC-4-test genereren.</value></data>
+  <data name="WatchTest_Action" xml:space="preserve"><value>Actie</value></data>
+  <data name="WatchTest_ActiveAudio" xml:space="preserve"><value>Actieve audio</value></data>
+  <data name="WatchTest_ActiveAudioClaim" xml:space="preserve"><value>Claim actieve audio</value></data>
+  <data name="WatchTest_ActiveVideo" xml:space="preserve"><value>Actieve video</value></data>
+  <data name="WatchTest_ActiveVideoClaim" xml:space="preserve"><value>Claim actieve video</value></data>
+  <data name="WatchTest_AudioCodec" xml:space="preserve"><value>Audiocodec</value></data>
+  <data name="WatchTest_AudioLayout" xml:space="preserve"><value>Audio-indeling</value></data>
+  <data name="WatchTest_AutomatedCompatibilityProfile" xml:space="preserve"><value>Automatisch compatibiliteitsprofiel</value></data>
+  <data name="WatchTest_BrowserClaimHelp" xml:space="preserve"><value>Een browserclaim is diagnostisch bewijs, geen garantie voor geslaagde decodering. Voer een afspeeltest uit waar een encoder beschikbaar is.</value></data>
+  <data name="WatchTest_BrowserClaims" xml:space="preserve"><value>Browserclaims</value></data>
+  <data name="WatchTest_BurnInSlate" xml:space="preserve"><value>Ingebrande testkaart</value></data>
+  <data name="WatchTest_Cancel" xml:space="preserve"><value>Annuleren</value></data>
+  <data name="WatchTest_CaseCompleted" xml:space="preserve"><value>{0} voltooid. Het profiel wordt opgeslagen nadat elke test een resultaat heeft.</value></data>
+  <data name="WatchTest_ChannelSequenceHelp" xml:space="preserve"><value>Een toon doorloopt voortdurend één kanaal per seconde: {0}. Pas het volume aan met de geluidsregeling van de speler; druk op Afspelen als automatisch afspelen met geluid wordt geblokkeerd.</value></data>
+  <data name="WatchTest_ClaimOnlySuffix" xml:space="preserve"><value>(alleen claim)</value></data>
+  <data name="WatchTest_CmafPlaybackUnsupported" xml:space="preserve"><value>Uw browser ondersteunt CMAF afspelen niet.</value></data>
+  <data name="WatchTest_ExactTestSelection" xml:space="preserve"><value>Exacte testselectie</value></data>
+  <data name="WatchTest_ExpectedCodecs" xml:space="preserve"><value>Verwachte codecs</value></data>
+  <data name="WatchTest_IncompleteProfile" xml:space="preserve"><value>Een browsercompatibiliteitsprofiel kan pas worden opgeslagen als elke catalogustest een resultaat heeft.</value></data>
+  <data name="WatchTest_InvalidProfile" xml:space="preserve"><value>Het voltooide browsercompatibiliteitsprofiel is ongeldig.</value></data>
+  <data name="WatchTest_JsCompatibilityPlaybackFailed" xml:space="preserve"><value>Afspelen van de CMAF-compatibiliteitstest is mislukt.</value></data>
+  <data name="WatchTest_JsCompatibilityTrackLabel" xml:space="preserve"><value>Lineup WebVTT-compatibiliteitstest</value></data>
+  <data name="WatchTest_JsPresentationLoadFailed" xml:space="preserve"><value>De geselecteerde compatibiliteitspresentatie kon niet worden geladen.</value></data>
+  <data name="WatchTest_JsShakaUnsupported" xml:space="preserve"><value>Deze browser ondersteunt afspelen met Shaka Player niet.</value></data>
+  <data name="WatchTest_JsVideoElementNotFound" xml:space="preserve"><value>Het videospelerelement is niet gevonden.</value></data>
+  <data name="WatchTest_LastCompleted" xml:space="preserve"><value>Laatst voltooid: {0}</value></data>
+  <data name="WatchTest_LayoutMono" xml:space="preserve"><value>Mono (1.0)</value></data>
+  <data name="WatchTest_LayoutQuad" xml:space="preserve"><value>Quad (4.0)</value></data>
+  <data name="WatchTest_LayoutStereo" xml:space="preserve"><value>Stereo (2.0)</value></data>
+  <data name="WatchTest_Manifest" xml:space="preserve"><value>Manifest</value></data>
+  <data name="WatchTest_ManifestLoaded" xml:space="preserve"><value>Manifest geladen</value></data>
+  <data name="WatchTest_NoClaim" xml:space="preserve"><value>Geen claim</value></data>
+  <data name="WatchTest_NoDeterministicEncoder" xml:space="preserve"><value>Er is geen deterministische encoder beschikbaar.</value></data>
+  <data name="WatchTest_None" xml:space="preserve"><value>Geen</value></data>
+  <data name="WatchTest_NotReported" xml:space="preserve"><value>Niet gemeld</value></data>
+  <data name="WatchTest_NotRun" xml:space="preserve"><value>Niet uitgevoerd</value></data>
+  <data name="WatchTest_NotSupported" xml:space="preserve"><value>Niet ondersteund</value></data>
+  <data name="WatchTest_NotYetComplete" xml:space="preserve"><value>Nog niet voltooid</value></data>
+  <data name="WatchTest_ObservedPlayback" xml:space="preserve"><value>Waargenomen afspelen</value></data>
+  <data name="WatchTest_PlaybackFailed" xml:space="preserve"><value>Afspelen mislukt.</value></data>
+  <data name="WatchTest_PlaybackStarted" xml:space="preserve"><value>Afspelen gestart</value></data>
+  <data name="WatchTest_Preparing" xml:space="preserve"><value>Voorbereiden</value></data>
+  <data name="WatchTest_ProfileSaved" xml:space="preserve"><value>Browsercompatibiliteitsprofiel opgeslagen. Kijken kan streams nu automatisch optimaliseren.</value></data>
+  <data name="WatchTest_ProfileSaveHelp" xml:space="preserve"><value>Afzonderlijke tests werken een voltooid profiel direct bij. Vóór het eerste volledige profiel worden resultaten pas opgeslagen nadat elke rij een resultaat heeft. Alleen browserclaims staan het kopiëren van de bron nooit toe.</value></data>
+  <data name="WatchTest_ProgressAriaLabel" xml:space="preserve"><value>Voortgang compatibiliteitstest</value></data>
+  <data name="WatchTest_Protocol" xml:space="preserve"><value>Protocol</value></data>
+  <data name="WatchTest_QualityAppDefault" xml:space="preserve"><value>App-standaard (1080p-testkaart)</value></data>
+  <data name="WatchTest_QualityHigh" xml:space="preserve"><value>Hoog (1080p)</value></data>
+  <data name="WatchTest_QualityLow" xml:space="preserve"><value>Laag (480p)</value></data>
+  <data name="WatchTest_QualityMedium" xml:space="preserve"><value>Gemiddeld (720p)</value></data>
+  <data name="WatchTest_QualityProfile" xml:space="preserve"><value>Kwaliteitsprofiel</value></data>
+  <data name="WatchTest_ReadingBrowserCapabilities" xml:space="preserve"><value>Browsermogelijkheden lezen…</value></data>
+  <data name="WatchTest_Result" xml:space="preserve"><value>Resultaat</value></data>
+  <data name="WatchTest_RunAll" xml:space="preserve"><value>Alles uitvoeren</value></data>
+  <data name="WatchTest_RunCanceled" xml:space="preserve"><value>Compatibiliteitstest geannuleerd. Het vorige voltooide profiel is behouden.</value></data>
+  <data name="WatchTest_RunTest" xml:space="preserve"><value>Test uitvoeren</value></data>
+  <data name="WatchTest_SelectCombinationPrompt" xml:space="preserve"><value>Selecteer een exacte codeccombinatie en start de test.</value></data>
+  <data name="WatchTest_StartTest" xml:space="preserve"><value>Test starten</value></data>
+  <data name="WatchTest_StatusFailed" xml:space="preserve"><value>Mislukt</value></data>
+  <data name="WatchTest_StatusPassed" xml:space="preserve"><value>Geslaagd</value></data>
+  <data name="WatchTest_StatusUnavailable" xml:space="preserve"><value>Niet beschikbaar</value></data>
+  <data name="WatchTest_Stop" xml:space="preserve"><value>Stoppen</value></data>
+  <data name="WatchTest_Subtitle" xml:space="preserve"><value>Test één exacte CMAF-codeccombinatie zonder automatische terugvaloptie.</value></data>
+  <data name="WatchTest_SubtitleBurnIn" xml:space="preserve"><value>Ondertiteling inbranden</value></data>
+  <data name="WatchTest_SubtitleCue" xml:space="preserve"><value>Ondertitelingscue</value></data>
+  <data name="WatchTest_Subtitles" xml:space="preserve"><value>Ondertiteling</value></data>
+  <data name="WatchTest_Supported" xml:space="preserve"><value>Ondersteund</value></data>
+  <data name="WatchTest_SyntheticPresentationHelp" xml:space="preserve"><value>De synthetische presentatie bevat één video- en één audioweergave.</value></data>
+  <data name="WatchTest_Test" xml:space="preserve"><value>Test</value></data>
+  <data name="WatchTest_TestError" xml:space="preserve"><value>Testfout</value></data>
+  <data name="WatchTest_Testing" xml:space="preserve"><value>Testen: {0}</value></data>
+  <data name="WatchTest_Title" xml:space="preserve"><value>Kijktest</value></data>
+  <data name="WatchTest_UnableToReadCapabilities" xml:space="preserve"><value>Browsermogelijkheden voor codecs konden niet worden gelezen: {0}</value></data>
+  <data name="WatchTest_VideoCodec" xml:space="preserve"><value>Videocodec</value></data>
+  <data name="WatchTest_VideoProfile" xml:space="preserve"><value>Videoprofiel</value></data>
+  <data name="WatchTest_WebVttSidecar" xml:space="preserve"><value>WebVTT-sidecar</value></data>
+</root>

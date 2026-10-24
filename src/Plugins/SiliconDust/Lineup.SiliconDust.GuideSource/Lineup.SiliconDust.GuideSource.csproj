@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.12" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Core\Lineup.Extensibility\Lineup.Extensibility.csproj" />
+    <ProjectReference Include="..\Lineup.SiliconDust.HDHomeRun.Api\Lineup.SiliconDust.HDHomeRun.Api.csproj" />
+    <ProjectReference Include="..\Lineup.SiliconDust.HDHomeRun.Device\Lineup.SiliconDust.HDHomeRun.Device.csproj" />
+  </ItemGroup>
+</Project>

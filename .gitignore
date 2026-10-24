@@ -370,4 +370,4 @@ FodyWeavers.xsd
 # Runtime settings (per-deployment)
 /.lineup/
 /.ffmpeg/
-/tests/Lineup.Web.Tests/Components/Pages/SettingsTests.cs
+/tests/Apps/Lineup.Web.Tests/Components/Pages/SettingsTests.cs

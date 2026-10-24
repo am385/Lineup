@@ -1,0 +1,213 @@
+@using Lineup.Core.Streaming
+@inject ILineupSettingsService SettingsService
+
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">@Text["Channels_PhysicalSourceChannelsHeading"]</h5>
+        <span class="badge text-bg-secondary">@Channels.Count</span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        @Header(ChannelSortColumn.Enabled, Text["Common_Enabled"])
+                        @Header(ChannelSortColumn.Device, Text["Channels_PhysicalDeviceColumn"])
+                        @Header(ChannelSortColumn.ProviderIdentity, Text["Channels_ProviderIdentityColumn"])
+                        @Header(ChannelSortColumn.GlobalNumber, Text["Channels_GlobalNumberColumn"])
+                        @Header(ChannelSortColumn.GlobalName, Text["Channels_GlobalNameColumn"])
+                        @Header(ChannelSortColumn.EquivalenceGroup, Text["Channels_EquivalenceGroupColumn"])
+                        @Header(ChannelSortColumn.Guide, Text["Channels_AuthoritativeGuideColumn"])
+                        @Header(ChannelSortColumn.Flags, Text["Channels_FlagsLabel"])
+                        @Header(ChannelSortColumn.Video, Text["Channels_VideoColumn"])
+                        @Header(ChannelSortColumn.Audio, Text["Channels_AudioColumn"])
+                        @Header(ChannelSortColumn.Signal, Text["Channels_SignalColumn"])
+                        @Header(ChannelSortColumn.Quality, Text["Channels_QualityColumn"])
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (Channels.Count == 0)
+                    {
+                        <tr><td colspan="13" class="text-center text-body-secondary py-5">@Text["Channels_NoMatchingChannels"]</td></tr>
+                    }
+                    @foreach (var channel in Channels)
+                    {
+                        var edit = Edits[channel.Source.Id];
+                        GuideBindings.TryGetValue(channel.Source.Id, out var binding);
+                        <tr class="topology-channel @(!channel.IsEnabled ? "channel-row-disabled" : null)" data-provider-key="@channel.Source.Id.ProviderKey">
+                            <td>
+                                <div class="form-check form-switch mb-0">
+                                    <input class="form-check-input"
+                                           type="checkbox"
+                                           role="switch"
+                                           aria-label="@Text[channel.IsEnabled ? "Channels_DisableChannelAria" : "Channels_EnableChannelAria", channel.EffectiveNumber, GetDeviceName(channel.Source.Id.PhysicalDeviceId)]"
+                                           checked="@channel.IsEnabled"
+                                           disabled="@UpdatingChannels.Contains(channel.Source.Id)"
+                                           @onchange="eventArgs => EnabledChanged.InvokeAsync(new ChannelEnabledChange(channel.Source.Id, eventArgs.Value is true))" />
+                                </div>
+                            </td>
+                            <td>@GetDeviceName(channel.Source.Id.PhysicalDeviceId)</td>
+                            <td>@channel.Source.ProviderNumber · @channel.Source.ProviderName</td>
+                            <td><input class="form-control form-control-sm channel-number-override" placeholder="@channel.Source.ProviderNumber" @bind="edit.NumberOverride" /></td>
+                            <td><input class="form-control form-control-sm channel-name-override" placeholder="@channel.Source.ProviderName" @bind="edit.NameOverride" /></td>
+                            <td><input class="form-control form-control-sm channel-equivalence-group" placeholder="@Text["Channels_OptionalGuid"]" @bind="edit.EquivalenceGroup" /></td>
+                            <td>
+                                @if (binding is null)
+                                {
+                                    <span class="text-body-secondary">@Text["Channels_GuideStateUnavailable"]</span>
+                                }
+                                else
+                                {
+                                    <select class="form-select form-select-sm guide-binding @(binding.IsAmbiguous ? "is-invalid" : null)"
+                                            value="@(binding.SelectedGuideChannelId is { } selectedGuideChannelId ? GetGuideIdentity(selectedGuideChannelId) : string.Empty)"
+                                            @onchange="args => GuideBindingChanged.InvokeAsync(new ChannelGuideBindingChange(channel.Source.Id, args.Value?.ToString() ?? string.Empty))">
+                                        <option value="">@GetGuidePlaceholder(binding)</option>
+                                        @if (binding.State == GuideBindingState.ManualUnavailable && binding.SelectedGuideChannel is not null)
+                                        {
+                                            <option value="@GetGuideIdentity(binding.SelectedGuideChannel.Id)" disabled>
+                                                @Text["Channels_UnavailableGuideChannel", binding.SelectedGuideChannel.Number, binding.SelectedGuideChannel.Name]
+                                            </option>
+                                        }
+                                        @foreach (var candidate in binding.MatchingCandidates)
+                                        {
+                                            <option value="@GetGuideIdentity(candidate.Id)">
+                                                @GetGuideSourceLabel(candidate.Id) · @candidate.Number · @candidate.Name
+                                            </option>
+                                        }
+                                    </select>
+                                    <div class="form-text">@GetGuideHelp(binding)</div>
+                                }
+                            </td>
+                            <td>
+                                @if (GetBooleanMetadata(channel, "favorite"))
+                                {
+                                    <span class="badge text-bg-warning me-1" aria-label="@Text["Channels_FavoriteChannel"]"><span class="bi bi-star-fill me-1"></span>@Text["Channels_Favorite"]</span>
+                                }
+                                @if (GetBooleanMetadata(channel, "drm"))
+                                {
+                                    <span class="badge text-bg-danger me-1" aria-label="@Text["Channels_DrmProtectedChannel"]"><span class="bi bi-shield-lock-fill me-1"></span>DRM</span>
+                                }
+                                @if (GetBooleanMetadata(channel, "hd"))
+                                {
+                                    <span class="badge text-bg-info">HD</span>
+                                }
+                                @if (!GetBooleanMetadata(channel, "favorite") && !GetBooleanMetadata(channel, "drm") && !GetBooleanMetadata(channel, "hd"))
+                                {
+                                    <span class="text-muted">—</span>
+                                }
+                            </td>
+                            <td>@FormatValue(GetMetadata(channel, "videoCodec"))</td>
+                            <td>@FormatValue(GetMetadata(channel, "audioCodec"))</td>
+                            <td>@FormatPercentage(GetIntegerMetadata(channel, "signalStrength"))</td>
+                            <td>@FormatPercentage(GetIntegerMetadata(channel, "signalQuality"))</td>
+                            <td><button type="button" class="btn btn-sm btn-outline-primary save-channel-identity" @onclick="() => SaveRequested.InvokeAsync(channel)">@Text["Common_Save"]</button></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>Gets or sets visible physical channels.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<PhysicalChannelIdentity> Channels { get; set; } = [];
+
+    /// <summary>Gets or sets authoritative guide binding state.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyDictionary<SourceChannelId, SourceGuideBindingState> GuideBindings { get; set; } = new Dictionary<SourceChannelId, SourceGuideBindingState>();
+
+    /// <summary>Gets or sets editable channel identity values.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyDictionary<SourceChannelId, ChannelIdentityEdit> Edits { get; set; } = new Dictionary<SourceChannelId, ChannelIdentityEdit>();
+
+    /// <summary>Gets or sets channels with active enabled-state updates.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlySet<SourceChannelId> UpdatingChannels { get; set; } = new HashSet<SourceChannelId>();
+
+    /// <summary>Gets or sets the active sort column.</summary>
+    [Parameter]
+    public ChannelSortColumn SortColumn { get; set; }
+
+    /// <summary>Gets or sets the active sort direction.</summary>
+    [Parameter]
+    public ChannelSortDirection SortDirection { get; set; }
+
+    /// <summary>Gets or sets the sort callback.</summary>
+    [Parameter]
+    public EventCallback<ChannelSortColumn> SortRequested { get; set; }
+
+    /// <summary>Gets or sets the enabled-state callback.</summary>
+    [Parameter]
+    public EventCallback<ChannelEnabledChange> EnabledChanged { get; set; }
+
+    /// <summary>Gets or sets the guide-binding callback.</summary>
+    [Parameter]
+    public EventCallback<ChannelGuideBindingChange> GuideBindingChanged { get; set; }
+
+    /// <summary>Gets or sets the save-identity callback.</summary>
+    [Parameter]
+    public EventCallback<PhysicalChannelIdentity> SaveRequested { get; set; }
+
+    private RenderFragment Header(ChannelSortColumn column, string label) => builder =>
+    {
+        builder.OpenElement(0, "th");
+        builder.AddAttribute(1, "aria-sort", GetAriaSort(column));
+        builder.OpenElement(2, "button");
+        builder.AddAttribute(3, "class", "btn btn-sm btn-link text-body text-decoration-none p-0 text-nowrap");
+        builder.AddAttribute(4, "onclick", EventCallback.Factory.Create(this, () => SortRequested.InvokeAsync(column)));
+        builder.AddContent(5, $"{label} ");
+        builder.OpenElement(6, "span");
+        builder.AddAttribute(7, "class", $"bi {GetSortIcon(column)}");
+        builder.CloseElement();
+        builder.CloseElement();
+        builder.CloseElement();
+    };
+
+    private string GetDeviceName(PhysicalDeviceId deviceId) =>
+        SettingsService.Settings.Streaming.PhysicalDevices.SingleOrDefault(device => device.Id == deviceId)?.Name ?? deviceId.ToString();
+
+    private string GetGuideSourceLabel(GuideChannelId channelId) =>
+        SettingsService.Settings.Streaming.GuideSources.SingleOrDefault(source => source.Id == channelId.GuideSourceId)?.Name ?? Text["Channels_UnavailableGuideSource"];
+
+    private static string GetGuideIdentity(GuideChannelId channelId) => $"{channelId.GuideSourceId.Value:D}|{channelId.ProviderKey}";
+
+    private string GetGuidePlaceholder(SourceGuideBindingState binding) => binding.State switch
+    {
+        GuideBindingState.Automatic => Text["Channels_UseAutomaticMatching"],
+        GuideBindingState.Manual => Text["Channels_UseAutomaticMatching"],
+        GuideBindingState.ManualUnavailable => Text["Channels_ManualSelectionUnavailable"],
+        GuideBindingState.Unmatched => Text["Channels_SelectGuideNoMatch"],
+        _ => Text["Channels_SelectGuideAmbiguous"]
+    };
+
+    private string GetGuideHelp(SourceGuideBindingState binding) => binding.State switch
+    {
+        GuideBindingState.Automatic => Text["Channels_GuideMatchedAutomatically"],
+        GuideBindingState.Manual => Text["Channels_ManualOverride"],
+        GuideBindingState.ManualUnavailable => Text["Channels_SavedGuideUnavailableHelp"],
+        GuideBindingState.Unmatched => Text["Channels_NoAutomaticGuideMatchHelp"],
+        _ => Text["Channels_AmbiguousGuideMatchHelp"]
+    };
+
+    private string GetSortIcon(ChannelSortColumn column) =>
+        SortColumn != column ? "bi-arrow-down-up" : SortDirection == ChannelSortDirection.Ascending ? "bi-sort-up" : "bi-sort-down";
+
+    private string GetAriaSort(ChannelSortColumn column) =>
+        SortColumn != column ? "none" : SortDirection == ChannelSortDirection.Ascending ? "ascending" : "descending";
+
+    private static bool GetBooleanMetadata(PhysicalChannelIdentity channel, string key) =>
+        channel.Source.Metadata.TryGetValue(key, out var value) && bool.TryParse(value, out var parsed) && parsed;
+
+    private static string? GetMetadata(PhysicalChannelIdentity channel, string key) =>
+        channel.Source.Metadata.TryGetValue(key, out var value) ? value : null;
+
+    private static int? GetIntegerMetadata(PhysicalChannelIdentity channel, string key) =>
+        channel.Source.Metadata.TryGetValue(key, out var value) && int.TryParse(value, out var parsed) ? parsed : null;
+
+    private static string FormatValue(string? value) => string.IsNullOrWhiteSpace(value) ? "—" : value;
+
+    private static string FormatPercentage(int? value) => value is null ? "—" : $"{value}%";
+}

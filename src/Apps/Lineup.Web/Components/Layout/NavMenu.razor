@@ -1,0 +1,98 @@
+@using Lineup.Web.Services
+@using Lineup.WebPlayer
+@implements IDisposable
+@inject ILineupSettingsService SettingsService
+@inject IServiceProvider Services
+
+<div class="top-row ps-3 navbar navbar-dark">
+    <div class="container-fluid">
+        <a class="navbar-brand" href=""><img src="favicon.svg" alt="Lineup" width="24" height="24" class="me-2" />Lineup</a>
+    </div>
+</div>
+
+<input type="checkbox" title="@Text["Nav_NavigationMenu"]" class="navbar-toggler" />
+
+<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
+    <nav class="nav flex-column">
+        @if (WebSettingsService.Settings.IsSetupComplete)
+        {
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                    <span class="bi bi-tv-fill" aria-hidden="true"></span> @Text["Nav_Dashboard"]
+                </NavLink>
+            </div>
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="channels">
+                    <span class="bi bi-list-check" aria-hidden="true"></span> @Text["Nav_Channels"]
+                </NavLink>
+            </div>
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="guide">
+                    <span class="bi bi-grid-3x3" aria-hidden="true"></span> @Text["Nav_Guide"]
+                </NavLink>
+            </div>
+            @if (IsWebPlayerEnabled)
+            {
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="watch">
+                        <span class="bi bi-play-circle" aria-hidden="true"></span> @Text["Nav_Watch"]
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="watch-test">
+                        <span class="bi bi-clipboard-pulse" aria-hidden="true"></span> @Text["Nav_WatchTest"]
+                    </NavLink>
+                </div>
+            }
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="logs">
+                    <span class="bi bi-journal-text" aria-hidden="true"></span> @Text["Nav_Logs"]
+                </NavLink>
+            </div>
+        }
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="settings">
+                <span class="bi bi-gear-fill" aria-hidden="true"></span> @Text["Nav_Settings"]
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="about">
+                <span class="bi bi-info-circle" aria-hidden="true"></span> @Text["Nav_About"]
+            </NavLink>
+        </div>
+    </nav>
+</div>
+
+@code {
+    private IWebSettingsService? _webSettingsService;
+
+    private IWebSettingsService WebSettingsService => _webSettingsService
+        ?? throw new InvalidOperationException("The navigation menu has not been initialized.");
+
+    private bool IsWebPlayerEnabled => SettingsService.Settings.Streaming.VirtualDevices.Any(
+        device => device.Enabled && string.Equals(device.Adapter.Kind, WebPlayerVirtualTunerDriver.AdapterKind, StringComparison.OrdinalIgnoreCase));
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        _webSettingsService = Services.GetService<IWebSettingsService>() ??
+            WebSettingsServiceFallback.Get(SettingsService);
+        SettingsService.OnSettingsChanged += OnSettingsChanged;
+        WebSettingsService.OnSettingsChanged += OnSettingsChanged;
+    }
+
+    private void OnSettingsChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        SettingsService.OnSettingsChanged -= OnSettingsChanged;
+        if (_webSettingsService is not null)
+        {
+            _webSettingsService.OnSettingsChanged -= OnSettingsChanged;
+        }
+    }
+}

@@ -1,0 +1,53 @@
+<div id="generalSettingsTab" class="@CssClass" role="tabpanel" aria-labelledby="tab-general">
+    <GeneralSettingsPanel Theme="@Theme"
+                          ThemeChanged="ThemeChanged"
+                          TimeZoneId="@TimeZoneId"
+                          TimeZoneIdChanged="TimeZoneIdChanged"
+                          UiCulture="@UiCulture"
+                          UiCultureChanged="UiCultureChanged"
+                          KnownProxies="@KnownProxies"
+                          KnownProxiesChanged="KnownProxiesChanged"
+                          CurrentTimeZoneDisplayName="@CurrentTimeZoneDisplayName" />
+</div>
+
+@code {
+    /// <summary>Gets or sets the tab visibility class.</summary>
+    [Parameter]
+    public string CssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the selected theme.</summary>
+    [Parameter]
+    public string Theme { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the theme change callback.</summary>
+    [Parameter]
+    public EventCallback<string> ThemeChanged { get; set; }
+
+    /// <summary>Gets or sets the selected timezone identifier.</summary>
+    [Parameter]
+    public string TimeZoneId { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the timezone change callback.</summary>
+    [Parameter]
+    public EventCallback<string> TimeZoneIdChanged { get; set; }
+
+    /// <summary>Gets or sets the selected Web UI culture.</summary>
+    [Parameter, EditorRequired]
+    public string UiCulture { get; set; } = UiLocalization.DefaultCulture;
+
+    /// <summary>Gets or sets the Web UI culture change callback.</summary>
+    [Parameter]
+    public EventCallback<string> UiCultureChanged { get; set; }
+
+    /// <summary>Gets or sets trusted management-listener proxy addresses and networks.</summary>
+    [Parameter]
+    public string KnownProxies { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the trusted proxy change callback.</summary>
+    [Parameter]
+    public EventCallback<string> KnownProxiesChanged { get; set; }
+
+    /// <summary>Gets or sets the current timezone display name.</summary>
+    [Parameter, EditorRequired]
+    public string CurrentTimeZoneDisplayName { get; set; } = string.Empty;
+}

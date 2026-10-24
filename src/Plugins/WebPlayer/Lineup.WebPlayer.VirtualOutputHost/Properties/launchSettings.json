@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "Lineup.WebPlayer.VirtualOutputHost": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:51537;http://localhost:51540"
+    }
+  }
+}
