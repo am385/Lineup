@@ -43,6 +43,26 @@ internal sealed record DedicatedCmafSessionPlan
     /// <summary>Gets the copied HEVC codec string when one is required for manifest signaling.</summary>
     internal string? SourceVideoCodec { get; init; }
 
+    /// <summary>Gets whether a recognized source-audio muxer failure required a fallback-only restart.</summary>
+    internal bool SourceAudioFallbackApplied { get; init; }
+
+    /// <summary>Creates a fallback-only plan without reapplying a source-audio browser override.</summary>
+    internal DedicatedCmafSessionPlan CreateFallback(string directory)
+    {
+        var fallbackRequest = Request with
+        {
+            PreferredAudio = CmafPreferredAudio.Fallback,
+            Overrides = Request.Overrides with { Audio = CmafPreferredAudio.Fallback }
+        };
+        return this with
+        {
+            Request = fallbackRequest,
+            AudioRenditions = CmafStreamPlanner.CreatePresentationAudioRenditions(Source, Selection.Audio, fallbackRequest, Profile),
+            Arguments = CmafStreamPlanner.CreateArguments(Profile, Source, Selection, fallbackRequest, Path.Combine(directory, CmafStreamPlanner.DashManifestName), SubtitlePaths),
+            SourceAudioFallbackApplied = true
+        };
+    }
+
     /// <summary>Creates a plan from the trusted broker response and browser request.</summary>
     internal static DedicatedCmafSessionPlan Create(VirtualOutputOpenStreamResponse response, CmafStreamRequest request, string directory)
     {
@@ -118,6 +138,7 @@ internal sealed record DedicatedCmafSessionPlan
             new Uri(mediaRoot, CmafStreamPlanner.HlsManifestName).AbsoluteUri,
             new Uri(mediaRoot, CmafStreamPlanner.DashManifestName).AbsoluteUri)
         {
+            SourceAudioFallbackApplied = SourceAudioFallbackApplied,
             FallbackAudioTitle = fallback?.Title,
             FallbackAudioCodec = fallback?.Codec,
             Subtitles = Subtitles.Select(subtitle => new CmafSubtitleRendition(

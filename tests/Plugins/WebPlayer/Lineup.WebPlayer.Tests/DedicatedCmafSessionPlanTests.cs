@@ -8,6 +8,59 @@ namespace Lineup.WebPlayer.Tests;
 /// <summary>Verifies dedicated workers build browser presentations with the shared CMAF planner.</summary>
 public sealed class DedicatedCmafSessionPlanTests
 {
+    /// <summary>Verifies retry planning preserves video and track selection while converting every copied audio track with the configured fallback.</summary>
+    [Theory]
+    [InlineData(false, CmafFallbackAudio.AacStereo, "aac")]
+    [InlineData(false, CmafFallbackAudio.Eac3, "eac3")]
+    [InlineData(true, CmafFallbackAudio.AacStereo, "aac")]
+    [InlineData(true, CmafFallbackAudio.Eac3, "eac3")]
+    public void CreateFallback_PreservesPresentationAndConfiguredCodec(bool explicitOverride, CmafFallbackAudio fallbackAudio, string codec)
+    {
+        // Arrange
+        var response = CreateMixedAudioResponse(OutputAudioPolicy.Copy, OutputAudioPolicy.Copy);
+        var directory = Path.Combine(Path.GetTempPath(), "fallback-plan");
+        var original = DedicatedCmafSessionPlan.Create(response, new CmafStreamRequest
+        {
+            PreferredAudio = CmafPreferredAudio.Source,
+            FallbackAudio = fallbackAudio,
+            AudioTrack = 4,
+            Overrides = new CmafStreamOverrides
+            {
+                Enabled = explicitOverride,
+                Audio = CmafPreferredAudio.Source,
+                Video = CmafPreferredVideo.Source,
+                FallbackAudio = fallbackAudio
+            }
+        }, directory);
+
+        // Act
+        var fallback = original.CreateFallback(directory);
+        var started = fallback.CreateResponse("session", new Uri("http://localhost:18082/"));
+        var snapshot = fallback.CreateActiveStreamSnapshot("broker", "2.1", DateTime.UnixEpoch);
+
+        // Assert
+        Assert.False(original.SourceAudioFallbackApplied);
+        Assert.All(original.AudioRenditions, rendition => Assert.True(rendition.Plan.CopySource));
+        Assert.True(started.SourceAudioFallbackApplied);
+        Assert.Equal(codec, started.FallbackAudioCodec);
+        Assert.Same(original.Selection, fallback.Selection);
+        Assert.Same(original.Source, fallback.Source);
+        Assert.Same(original.RawSource, fallback.RawSource);
+        Assert.Same(original.Profile, fallback.Profile);
+        Assert.Same(original.SubtitlePaths, fallback.SubtitlePaths);
+        Assert.Equal(original.Request.PreferredVideo, fallback.Request.PreferredVideo);
+        Assert.Equal(original.Request.Quality, fallback.Request.Quality);
+        Assert.Equal(original.HasSourceVideoRendition, fallback.HasSourceVideoRendition);
+        AssertOption(fallback.Arguments, "-c:v:0", "copy");
+        Assert.Equal([4, 1], fallback.AudioRenditions.Select(rendition => rendition.Source.Index));
+        Assert.All(fallback.AudioRenditions, rendition =>
+        {
+            Assert.False(rendition.Plan.CopySource);
+            Assert.Equal(codec, rendition.Plan.Codec);
+        });
+        Assert.All(snapshot.VirtualOutput!.Tracks.Where(track => track.Type == MediaTrackType.Audio), track => Assert.Equal(codec, track.Codec));
+    }
+
     /// <summary>Verifies request overrides, track selection, output settings, and captions are included in one dedicated plan.</summary>
     [Fact]
     public void Create_BrokerMetadata_UsesSharedCmafPlanning()

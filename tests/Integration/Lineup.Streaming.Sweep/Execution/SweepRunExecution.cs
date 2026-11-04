@@ -8,7 +8,8 @@ internal sealed partial class SweepHarness
         options.Validate();
         _options = options with
         {
-            BrowserExecutable = options.BrowserExecutable ?? Environment.GetEnvironmentVariable("LINEUP_SWEEP_BROWSER_EXECUTABLE")?.Trim()
+            BrowserExecutable = options.BrowserExecutable ?? Environment.GetEnvironmentVariable("LINEUP_SWEEP_BROWSER_EXECUTABLE")?.Trim(),
+            TimestampEvidenceVersion = 1
         };
         _cancellation = cancellationToken;
     }

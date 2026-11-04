@@ -57,7 +57,38 @@ internal sealed record OwnedSession(string Origin, string Generation, string Ses
 internal sealed record CleanupEvidence(bool NormalStopAttempted, bool Forced, bool VerifiedAbsent, IReadOnlyList<OwnedSession> Sessions, IReadOnlyList<string> Errors);
 
 /// <summary>Fresh synchronization evidence; this is not an audible lip-sync measurement.</summary>
-internal sealed record SynchronizationEvidence(string State, string? VideoRepresentation, string? AudioRepresentation, long? VideoHead, long? AudioHead, long? Delta, string Detail);
+internal sealed record SynchronizationEvidence(string State, string? VideoRepresentation, string? AudioRepresentation, long? VideoHead, long? AudioHead, long? Delta, string Detail)
+{
+    /// <summary>Gets actual media timestamp evidence; absent on historical sequence-only observations.</summary>
+    public TimestampEvidence? Timestamps { get; init; }
+    /// <summary>Gets whether the diagnostic sequence difference exceeded the legacy threshold; it never determines timestamp integrity.</summary>
+    public bool? SequenceDiagnosticExceeded { get; init; }
+}
+
+/// <summary>Owned transport timeline evidence, explicitly independent of perceptual or rendered audio/video synchronization.</summary>
+internal sealed record TimestampEvidence(string Session, string State, IReadOnlyList<TrackTimestampEvidence> Tracks, IReadOnlyList<string> Errors)
+{
+    /// <summary>Gets the measurement contract, including its normalization and one-tick precision.</summary>
+    public string Measurement => "media-timeline-v1";
+    /// <summary>Gets the explicit absence of a rendered/audible lip-sync measurement.</summary>
+    public string LipSync => "not-measured";
+}
+
+/// <summary>Per-track presentation coverage and timestamp-integrity measurements, never a cross-track lip-sync offset.</summary>
+internal sealed record TrackTimestampEvidence(
+    string Representation,
+    int Fragments,
+    int ConsecutivePairs,
+    int ManifestMatches,
+    double PresentationStartSeconds,
+    double PresentationEndSeconds,
+    double MaximumDecodeGapMilliseconds,
+    double MaximumManifestDifferenceMilliseconds,
+    IReadOnlyList<string> Findings)
+{
+    /// <summary>Gets the longest observed fragment's presentation duration, independently of numbering or cross-track coverage.</summary>
+    public double MaximumFragmentDurationSeconds { get; init; }
+}
 
 /// <summary>Immutable identity and evidence for one attempt, including unfinished work.</summary>
 internal sealed record SweepAttempt

@@ -30,6 +30,18 @@ All project build outputs and intermediate files are centralized beneath the rep
 dotnet test
 ```
 
+The browser subtitle poller's deterministic JavaScript regressions use Node.js's built-in test runner, with no npm dependencies:
+
+```powershell
+node --test tests\Apps\Lineup.Web.Tests\Browser\subtitle-polling.test.cjs
+node --test tests\Apps\Lineup.Web.Tests\Browser\shutdown.test.cjs
+```
+
+Run these tests when changing incremental caption delivery. They execute the production player script with controlled responses and timers;
+they do not launch a browser or require tuner hardware. The dedicated worker's CORS response-header regressions also run in the normal .NET gate.
+The shutdown regressions exercise owned stop routing, repeated-stop HTTP 404 handling, explicit HTTP/network failures,
+player destruction failures and isolation from replacement players.
+
 The streaming-sweep harness is checked in as an opt-in hardware certification test:
 
 ```bash

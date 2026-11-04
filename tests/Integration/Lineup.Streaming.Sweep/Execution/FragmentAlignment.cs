@@ -7,7 +7,7 @@ namespace Lineup.Streaming.Sweep;
 internal sealed record FragmentSample(string Session, string Representation, long Sequence, DateTimeOffset ReceivedUtc);
 
 /// <summary>Representation metadata qualified by the currently owned startup and public manifest.</summary>
-internal sealed record FragmentMetadata(string Session, string ManifestUrl, IReadOnlyDictionary<string, string> Representations);
+internal sealed record FragmentMetadata(string Session, string ManifestUrl, IReadOnlyDictionary<string, string> Representations, string Manifest);
 
 /// <summary>Parses actual representation identifiers, never assumes that stream 0 is video.</summary>
 internal static partial class FragmentAlignment
@@ -66,7 +66,8 @@ internal static partial class FragmentAlignment
         }
         try
         {
-            return new(owner.SessionId, manifest.AbsoluteUri, Representations(await readManifest(manifest.AbsoluteUri)));
+            var content = await readManifest(manifest.AbsoluteUri);
+            return new(owner.SessionId, manifest.AbsoluteUri, Representations(content), content);
         }
         catch (System.Xml.XmlException ex)
         {
@@ -74,8 +75,8 @@ internal static partial class FragmentAlignment
         }
     }
 
-    /// <summary>Requires one active representation per media type and two distinct fragments in comparable windows.</summary>
-    public static SynchronizationEvidence Evaluate(IReadOnlyList<FragmentSample> samples, IReadOnlyDictionary<string, string> representations, int maximumDelta)
+    /// <summary>Requires actual media timestamp integrity; track-local sequence heads are diagnostics only and are not clipped by response order.</summary>
+    public static SynchronizationEvidence Evaluate(IReadOnlyList<FragmentSample> samples, IReadOnlyDictionary<string, string> representations, int maximumDelta, TimestampEvidence? timestamps = null)
     {
         var groups = samples.GroupBy(sample => (sample.Session, sample.Representation))
             .Where(group => representations.ContainsKey(group.Key.Representation)).ToArray();
@@ -91,19 +92,20 @@ internal static partial class FragmentAlignment
         }
         var v = video[0].ToArray();
         var a = audio[0].ToArray();
-        var start = v.Min(sample => sample.ReceivedUtc) > a.Min(sample => sample.ReceivedUtc) ? v.Min(sample => sample.ReceivedUtc) : a.Min(sample => sample.ReceivedUtc);
-        var end = v.Max(sample => sample.ReceivedUtc) < a.Max(sample => sample.ReceivedUtc) ? v.Max(sample => sample.ReceivedUtc) : a.Max(sample => sample.ReceivedUtc);
-        var comparable = end >= start;
-        var comparableVideo = v.Where(sample => sample.ReceivedUtc >= start && sample.ReceivedUtc <= end).ToArray();
-        var comparableAudio = a.Where(sample => sample.ReceivedUtc >= start && sample.ReceivedUtc <= end).ToArray();
-        var vh = comparableVideo.Select(sample => sample.Sequence).DefaultIfEmpty().Max();
-        var ah = comparableAudio.Select(sample => sample.Sequence).DefaultIfEmpty().Max();
+        var vh = v.Max(sample => sample.Sequence);
+        var ah = a.Max(sample => sample.Sequence);
         var delta = Math.Abs(vh - ah);
-        if (!comparable || comparableVideo.Select(sample => sample.Sequence).Distinct().Count() < 2 || comparableAudio.Select(sample => sample.Sequence).Distinct().Count() < 2)
+        var measurable = v.Select(sample => sample.Sequence).Distinct().Count() >= 2 && a.Select(sample => sample.Sequence).Distinct().Count() >= 2
+            && timestamps?.Session == video[0].Key.Session
+            && timestamps.Tracks.Any(track => track.Representation == video[0].Key.Representation)
+            && timestamps.Tracks.Any(track => track.Representation == audio[0].Key.Representation);
+        return new(measurable ? timestamps!.State : "insufficient-samples", video[0].Key.Representation, audio[0].Key.Representation, vh, ah, delta,
+            measurable ? "Owned MP4 timestamps and DASH timelines; sequence difference is diagnostic only. Rendered/audible lip-sync was not measured."
+                : "Two distinct fragments per active track and owned initialization, media timestamps and manifest evidence are required.")
         {
-            return new("insufficient-samples", video[0].Key.Representation, audio[0].Key.Representation, vh, ah, null, "Two distinct successful fragments per active stream in overlapping windows are required.");
-        }
-        return new(delta <= maximumDelta ? "aligned" : "misaligned", video[0].Key.Representation, audio[0].Key.Representation, vh, ah, delta, "Fresh transport sequence heads; not audible lip-sync.");
+            Timestamps = timestamps,
+            SequenceDiagnosticExceeded = delta > maximumDelta
+        };
     }
 
     /// <summary>Retains media alignment independently of cleanup and distinguishes post-start failures from failed startup.</summary>
@@ -113,13 +115,14 @@ internal static partial class FragmentAlignment
         string? metadataExchange,
         IReadOnlyList<FragmentSample> samples,
         IReadOnlyDictionary<string, string> representations,
-        int maximumDelta)
+        int maximumDelta,
+        TimestampEvidence? timestamps = null)
     {
         if (result.Failure is null)
         {
             return metadataExchange is null || metadataExchange != attempt.Starts.LastOrDefault()?.Id
                 ? new("insufficient-samples", null, null, null, null, null, "Startup changed after metadata capture; stale/fallback metadata is not synchronization evidence.")
-                : Evaluate(samples, representations, maximumDelta);
+                : Evaluate(samples, representations, maximumDelta, timestamps);
         }
         var startup = attempt.Starts.LastOrDefault()?.Outcome ?? result.Startup;
         var state = startup?.Outcome switch

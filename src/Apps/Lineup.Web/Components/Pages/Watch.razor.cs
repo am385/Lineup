@@ -49,6 +49,7 @@ public partial class Watch : IAsyncDisposable
 
     private readonly string _clientId = Guid.NewGuid().ToString("N");
     private readonly SemaphoreSlim _stopGate = new(1, 1);
+    private readonly HashSet<CmafStartResponse> _pendingStops = [];
     private List<GuideChannelSegment> _channels = [];
     private List<GuideCacheProgram> _programs = [];
     private GuideChannelSegment? _selectedChannel;
@@ -627,7 +628,18 @@ public partial class Watch : IAsyncDisposable
             ? TuneChannelAsync(channelNumber, _selectedChannel)
             : Task.CompletedTask;
 
-    private Task StopStreamAsync() => StopStreamAsync(preserveLoadingIndicator: false);
+    private async Task StopStreamAsync()
+    {
+        try
+        {
+            await StopStreamAsync(preserveLoadingIndicator: false);
+        }
+        catch (JSException ex)
+        {
+            _errorMessage = ex.Message;
+            Notifications.ShowError(ex.Message);
+        }
+    }
 
     private async Task StopStreamAsync(bool preserveLoadingIndicator)
     {
@@ -653,26 +665,50 @@ public partial class Watch : IAsyncDisposable
         _isStopping = true;
         try
         {
-            if (_isJsInteropReady)
+            try
             {
-                try
+                if (_isJsInteropReady)
                 {
-                    if (startupId is not null)
+                    if (session is not null)
                     {
-                        await JS.CancelCmafStartAsync(startupId);
+                        _pendingStops.Add(session);
                     }
-                    if (_playerSurface is not null)
+                    foreach (var pending in _pendingStops.ToArray())
                     {
-                        await _playerSurface.StopAsync();
+                        await StopCmafSessionAsync(pending);
                     }
-                    await StopCmafSessionAsync(session);
-                }
-                catch (Exception ex) when (ex is JSDisconnectedException or ObjectDisposedException)
-                {
-                    Logger.LogDebug(ex, "Browser disconnected while stopping CMAF playback");
                 }
             }
-            ActiveStreamRegistry.RequestStopByClientId(_clientId);
+            finally
+            {
+                ActiveStreamRegistry.RequestStopByClientId(_clientId);
+                if (_isJsInteropReady)
+                {
+                    try
+                    {
+                        if (startupId is not null)
+                        {
+                            await JS.CancelCmafStartAsync(startupId);
+                        }
+                    }
+                    finally
+                    {
+                        if (_playerSurface is not null)
+                        {
+                            await _playerSurface.StopAsync();
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or ObjectDisposedException)
+        {
+            Logger.LogWarning(ex, "Browser disconnected before CMAF shutdown completed; {PendingStops} owned server stops remain pending", _pendingStops.Count);
+        }
+        catch (JSException ex)
+        {
+            Logger.LogWarning(ex, "Unable to complete CMAF shutdown");
+            throw;
         }
         finally
         {
@@ -685,7 +721,17 @@ public partial class Watch : IAsyncDisposable
     {
         if (_isJsInteropReady && session is not null)
         {
-            await JS.StopCmafSessionAsync(session.SessionId, session.StopUrl);
+            _pendingStops.Add(session);
+            try
+            {
+                await JS.StopCmafSessionAsync(session.SessionId, session.StopUrl);
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or ObjectDisposedException)
+            {
+                Logger.LogWarning(ex, "Unable to stop owned CMAF session {SessionId}; retaining ownership for retry", session.SessionId);
+                throw;
+            }
+            _pendingStops.Remove(session);
         }
     }
 
@@ -1007,9 +1053,15 @@ public partial class Watch : IAsyncDisposable
         _disposed = true;
         _locationChangingRegistration?.Dispose();
         ActiveStreamRegistry.StopRequested -= OnActiveStreamStopRequested;
-        await StopStreamAsync();
-        _dotNetReference?.Dispose();
-        _streamInfoTimer?.Dispose();
+        try
+        {
+            await StopStreamAsync();
+        }
+        finally
+        {
+            _dotNetReference?.Dispose();
+            _streamInfoTimer?.Dispose();
+        }
     }
 
     /// <summary>Describes a started shared CMAF presentation returned by the streaming API.</summary>

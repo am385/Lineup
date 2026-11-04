@@ -24,7 +24,8 @@ internal static class SweepPolicy
             var sync = FreshSynchronization(run, playback);
             return sync is null || HasIncompleteEvidence(sync) || IsProductFailure(sync.Verdict)
                 || sync.Verdict is SweepVerdict.InfrastructureFailure or SweepVerdict.CapacityContamination
-                || sync.Synchronization?.State is "misaligned" or "insufficient-samples";
+                || sync.Synchronization?.State is "misaligned" or "timeline-discontinuity" or "insufficient-samples"
+                || (run.Options.TimestampEvidenceVersion == 1 && sync.Verdict == SweepVerdict.StablePlayback && sync.Synchronization?.Timestamps?.State != "timeline-continuous");
         })
         .Select(row => row.Channel.Number)
         .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -93,6 +94,10 @@ internal static class SweepPolicy
         if (last?.Outcome is "protected-content" or "inferred-protected-content" or "unconfirmed-protected-content")
         {
             return ProtectionVerdict(last);
+        }
+        if (result.FailurePhase == "synchronization-metadata")
+        {
+            return SweepVerdict.InfrastructureFailure;
         }
         if (result.AvPassed)
         {
@@ -228,7 +233,7 @@ internal static class SweepPolicy
         var productFailures = run.Accepted.Values.Select(id => run.Attempts.FirstOrDefault(attempt => attempt.Id == id)).OfType<SweepAttempt>()
             .Count(attempt => IsProductFailure(attempt.Verdict)
                 || FreshSynchronization(run, attempt) is { } sync && IsProductFailure(sync.Verdict)
-                || (FreshSynchronization(run, attempt)?.Synchronization ?? attempt.Synchronization)?.State == "misaligned");
+                || (FreshSynchronization(run, attempt)?.Synchronization ?? attempt.Synchronization)?.State is "misaligned" or "timeline-discontinuity");
         if (run.Options.MaximumProductFailures is int limit && productFailures > limit)
         {
             violations.Add($"Product failures {productFailures} exceeded configured maximum {limit}.");
@@ -245,6 +250,16 @@ internal static class SweepPolicy
                 if ((synchronization?.Synchronization ?? attempt.Synchronization)?.State == "insufficient-samples")
                 {
                     violations.Add($"Mandatory synchronization evidence is insufficient for {attempt.Key}.");
+                }
+                if ((synchronization?.Synchronization ?? attempt.Synchronization)?.State == "timeline-discontinuity")
+                {
+                    violations.Add($"Media timestamp integrity failed for {attempt.Key}; this is not a measured lip-sync offset.");
+                }
+                if (run.Options.TimestampEvidenceVersion == 1 && synchronization is { Verdict: SweepVerdict.StablePlayback }
+                    && (synchronization.Synchronization?.Timestamps is not { } timing || timing.Measurement != "media-timeline-v1"
+                        || synchronization.Synchronization.State != timing.State))
+                {
+                    violations.Add($"Current media timestamp evidence is missing for {attempt.Key}; sequence-only observations cannot certify this run.");
                 }
             }
         }

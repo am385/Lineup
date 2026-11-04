@@ -3,13 +3,13 @@ using Xunit;
 
 namespace Lineup.Streaming.Sweep.Tests;
 
-/// <summary>Fresh fragment parsing, representation mapping and alignment thresholds.</summary>
+/// <summary>Fresh fragment parsing, representation mapping and timestamp-qualified transport evidence.</summary>
 public sealed class FragmentAlignmentTests
 {
     /// <summary>Emergency cleanup does not replace valid alignment or successful startup with a fabricated media failure.</summary>
     [Theory]
-    [InlineData(0, "aligned")]
-    [InlineData(3, "misaligned")]
+    [InlineData(0, "timeline-continuous")]
+    [InlineData(3, "timeline-continuous")]
     public void CleanupFailurePreservesSynchronizationEvidence(int delta, string expected)
     {
         // Arrange
@@ -29,7 +29,8 @@ public sealed class FragmentAlignmentTests
             new("current", "a", 10 + delta, now), new("current", "a", 11 + delta, now.AddSeconds(2))];
 
         // Act
-        var sync = FragmentAlignment.EvaluateObservation(attempt, result, start.Id, samples, new Dictionary<string, string> { ["v"] = "video", ["a"] = "audio" }, 1);
+        var sync = FragmentAlignment.EvaluateObservation(attempt, result, start.Id, samples,
+            new Dictionary<string, string> { ["v"] = "video", ["a"] = "audio" }, 1, Timing("current", "v", "a"));
         var verdict = SweepPolicy.Classify(result, attempt.Starts, attempt);
 
         // Assert
@@ -82,6 +83,10 @@ public sealed class FragmentAlignmentTests
         // Assert
         Assert.Equal(expected, sync.State);
         Assert.Equal("failed", sync.Detail);
+        if (phase == "synchronization-metadata")
+        {
+            Assert.Equal(SweepVerdict.InfrastructureFailure, SweepPolicy.Classify(result, attempt.Starts, attempt));
+        }
     }
 
     /// <summary>Queries do not affect current representation/sequence parsing.</summary>
@@ -112,12 +117,12 @@ public sealed class FragmentAlignmentTests
         Assert.Equal("insufficient-samples", result.State);
     }
 
-    /// <summary>Actual active representation types come from the manifest, not numeric assumptions.</summary>
+    /// <summary>Actual active representation types come from the manifest; the sequence threshold is diagnostic only.</summary>
     [Theory]
-    [InlineData(0, "aligned")]
-    [InlineData(1, "aligned")]
-    [InlineData(2, "misaligned")]
-    public void DeltaUsesConfiguredInclusiveThreshold(int delta, string expected)
+    [InlineData(0, false)]
+    [InlineData(1, false)]
+    [InlineData(2, true)]
+    public void DeltaUsesConfiguredInclusiveDiagnosticThreshold(int delta, bool exceeded)
     {
         // Arrange
         var manifest = "<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\"><Period><AdaptationSet contentType=\"video\"><Representation id=\"7\"/></AdaptationSet>"
@@ -126,10 +131,12 @@ public sealed class FragmentAlignmentTests
         FragmentSample[] samples = [new("s", "7", 10, now), new("s", "7", 11, now.AddSeconds(2)),
             new("s", "2", 10 + delta, now), new("s", "2", 11 + delta, now.AddSeconds(2))];
         // Act
-        var result = FragmentAlignment.Evaluate(samples, FragmentAlignment.Representations(manifest), 1);
+        var result = FragmentAlignment.Evaluate(samples, FragmentAlignment.Representations(manifest), 1, Timing("s", "7", "2"));
         // Assert
-        Assert.Equal(expected, result.State);
+        Assert.Equal("timeline-continuous", result.State);
         Assert.Equal(delta, result.Delta);
+        Assert.Equal(exceeded, result.SequenceDiagnosticExceeded);
+        Assert.Equal("not-measured", result.Timestamps?.LipSync);
     }
 
     /// <summary>Old sessions and rendition switches cannot be combined as fresh A/V evidence.</summary>
@@ -161,12 +168,12 @@ public sealed class FragmentAlignmentTests
             new("current", "audio-main", 10, now), new("current", "audio-main", 11, now.AddSeconds(2))];
         // Act
         var metadata = await FragmentAlignment.ReadOwnedMetadataAsync(start, [owner], url => { fetched = url; return Task.FromResult(manifest); });
-        var result = FragmentAlignment.Evaluate(samples, metadata.Representations, 1);
+        var result = FragmentAlignment.Evaluate(samples, metadata.Representations, 1, Timing("current", "video-main", "audio-main"));
         // Assert
         Assert.EndsWith(".m3u8", start.HlsUrl);
         Assert.Equal(start.DashUrl, fetched);
         Assert.Equal("current", metadata.Session);
-        Assert.Equal("aligned", result.State);
+        Assert.Equal("timeline-continuous", result.State);
         Assert.Equal("audio-main", result.AudioRepresentation);
         Assert.Equal("video-main", result.VideoRepresentation);
     }
@@ -228,6 +235,47 @@ public sealed class FragmentAlignmentTests
         // Assert
         Assert.Equal("insufficient-samples", result.State);
     }
+
+    /// <summary>Response endpoint order cannot discard the final fragment or convert independent numbering into a timing failure.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ResponseOrderDoesNotClipIndependentTrackHeads(bool reversed)
+    {
+        // Arrange
+        var now = DateTimeOffset.UnixEpoch;
+        FragmentSample[] samples = [new("s", "v", 32, now), new("s", "a", 34, now),
+            new("s", "a", 35, now.AddSeconds(2)), new("s", "v", 33, now.AddSeconds(reversed ? 1.9 : 2.111))];
+
+        // Act
+        var result = FragmentAlignment.Evaluate(samples, new Dictionary<string, string> { ["v"] = "video", ["a"] = "audio" }, 1, Timing("s", "v", "a"));
+
+        // Assert
+        Assert.Equal("timeline-continuous", result.State);
+        Assert.Equal(33, result.VideoHead);
+        Assert.Equal(35, result.AudioHead);
+        Assert.Equal(2, result.Delta);
+        Assert.True(result.SequenceDiagnosticExceeded);
+    }
+
+    /// <summary>Even matching sequence numbers cannot certify transport timestamps without media evidence.</summary>
+    [Fact]
+    public void SequenceEqualityWithoutTimestampsIsInconclusive()
+    {
+        // Arrange
+        var now = DateTimeOffset.UnixEpoch;
+        FragmentSample[] samples = [new("s", "v", 1, now), new("s", "v", 2, now), new("s", "a", 1, now), new("s", "a", 2, now)];
+
+        // Act
+        var result = FragmentAlignment.Evaluate(samples, new Dictionary<string, string> { ["v"] = "video", ["a"] = "audio" }, 1);
+
+        // Assert
+        Assert.Equal("insufficient-samples", result.State);
+        Assert.Null(result.Timestamps);
+    }
+
+    private static TimestampEvidence Timing(string session, string video, string audio) => new(session, "timeline-continuous",
+        [new(video, 2, 1, 2, 0, 4, 0, 0, []), new(audio, 2, 1, 2, 0, 4, 0, 0, [])], []);
 
     private static (StartupExchange Start, OwnedSession Owner) CurrentStartup(bool dedicated)
     {

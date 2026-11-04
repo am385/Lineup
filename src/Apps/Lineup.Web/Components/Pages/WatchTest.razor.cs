@@ -38,6 +38,8 @@ public partial class WatchTest : IAsyncDisposable
     private CmafTestChannelLayout _channelLayout = CmafTestChannelLayout.Stereo;
     private CmafTestSubtitleMode _subtitleMode;
     private CmafCompatibilityTestResponse? _session;
+    private readonly HashSet<CmafCompatibilityTestResponse> _pendingStops = [];
+    private readonly SemaphoreSlim _stopGate = new(1, 1);
     private CmafTestPlayerResult? _playerResult;
     private CmafTestRuntimeError? _runtimeError;
     private CmafTestCapabilities? _capabilities;
@@ -151,9 +153,9 @@ public partial class WatchTest : IAsyncDisposable
         _errorMessage = null;
         _playerResult = null;
         _runtimeError = null;
-        await StopSessionAsync();
         try
         {
+            await StopSessionAsync();
             var startUrl = BuildStartUrl(new CmafCompatibilityTestRequest
             {
                 Protocol = _protocol,
@@ -185,7 +187,16 @@ public partial class WatchTest : IAsyncDisposable
 
     private async Task StopTestAsync()
     {
-        await StopSessionAsync();
+        try
+        {
+            await StopSessionAsync();
+        }
+        catch (JSException ex)
+        {
+            _errorMessage = ex.Message;
+            Logger.LogWarning(ex, "Unable to complete Watch Test shutdown");
+            Notifications.ShowError(ex.Message);
+        }
         StateHasChanged();
     }
 
@@ -507,22 +518,36 @@ public partial class WatchTest : IAsyncDisposable
         _pendingStartId = null;
         var session = _session;
         _session = null;
+        await _stopGate.WaitAsync();
         try
         {
-            if (startupId is not null)
+            if (session is not null)
             {
-                await JS.CancelCmafStartAsync(startupId);
+                _pendingStops.Add(session);
             }
-            if (_playerSurface is not null)
+            foreach (var pending in _pendingStops.ToArray())
             {
-                await _playerSurface.StopAsync();
+                await StopCmafSessionAsync(pending);
             }
         }
         finally
         {
             try
             {
-                await StopCmafSessionAsync(session);
+                try
+                {
+                    if (startupId is not null)
+                    {
+                        await JS.CancelCmafStartAsync(startupId);
+                    }
+                }
+                finally
+                {
+                    if (_playerSurface is not null)
+                    {
+                        await _playerSurface.StopAsync();
+                    }
+                }
             }
             finally
             {
@@ -531,6 +556,7 @@ public partial class WatchTest : IAsyncDisposable
                     _playerResult = null;
                 }
                 _needsPlayerInit = false;
+                _stopGate.Release();
             }
         }
     }
@@ -539,7 +565,17 @@ public partial class WatchTest : IAsyncDisposable
     {
         if (session is not null)
         {
-            await JS.StopCmafSessionAsync(session.SessionId, $"/api/stream/watch-test/stop/{Uri.EscapeDataString(session.SessionId)}");
+            _pendingStops.Add(session);
+            try
+            {
+                await JS.StopCmafSessionAsync(session.SessionId, $"/api/stream/watch-test/stop/{Uri.EscapeDataString(session.SessionId)}");
+            }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or ObjectDisposedException)
+            {
+                Logger.LogWarning(ex, "Unable to stop owned Watch Test session {SessionId}; retaining ownership for retry", session.SessionId);
+                throw;
+            }
+            _pendingStops.Remove(session);
         }
     }
 
@@ -673,12 +709,15 @@ public partial class WatchTest : IAsyncDisposable
         {
             await StopSessionAsync();
         }
-        catch (Exception ex) when (ex is JSDisconnectedException or InvalidOperationException)
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException or InvalidOperationException or ObjectDisposedException)
         {
-            Logger.LogDebug(ex, "Watch Test browser session was already disconnected during disposal");
+            Logger.LogWarning(ex, "Watch Test shutdown did not complete; {PendingStops} owned server stops remain pending", _pendingStops.Count);
         }
-        _lifetimeCancellation.Dispose();
-        _dotNetReference?.Dispose();
+        finally
+        {
+            _lifetimeCancellation.Dispose();
+            _dotNetReference?.Dispose();
+        }
     }
 
     /// <summary>Describes browser-reported support before a playback test.</summary>

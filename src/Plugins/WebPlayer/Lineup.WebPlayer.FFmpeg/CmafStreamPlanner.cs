@@ -795,7 +795,8 @@ public static class CmafStreamPlanner
             $"-maxrate{streamSpecifier}", $"{maximumBitRate}M", $"-bufsize{streamSpecifier}", $"{maximumBitRate * 2}M",
             $"-profile{streamSpecifier}", "high", $"-level{streamSpecifier}", "4.2", $"-pix_fmt{streamSpecifier}", "yuv420p",
             "-flags", "+cgop", "-g", "120", "-keyint_min", "60", "-sc_threshold", "0",
-            $"-force_key_frames{streamSpecifier}", "expr:gte(t,n_forced*2)",
+            // Absolute two-second targets can land less than two seconds apart at fractional frame rates, causing DASH to skip a cut.
+            $"-force_key_frames{streamSpecifier}", "expr:if(isnan(prev_forced_t),1,gte(t,prev_forced_t+2))",
             $"-metadata:s{streamSpecifier}", $"title={plan.Title}"
         ]);
         if (burnIn)

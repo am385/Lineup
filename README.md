@@ -406,6 +406,9 @@ using the configured fallback. Fallback Audio choices are ordered from highest
 quality/lower browser support to broadest browser support: EAC3 up to 5.1, AC3 up to 5.1, AAC up to 7.1, AAC up to 5.1, and
 AAC Stereo. AAC Stereo is the default. FFmpeg encodes channel-based E-AC-3 but cannot create E-AC-3 JOC/Atmos; existing
 E-AC-3 Atmos metadata can be retained only when the Source rendition is copied successfully.
+Dedicated Web Player hosting also retries a recognized source-audio MP4 muxer failure once with fallback audio, within the original
+20-second media-readiness budget. The retry retains the brokered source, clears partial media/caption output, and reports the final audio
+plan; unrelated failures and cancellation do not trigger recovery.
 
 Management-hosted Watch viewers with identical playback requests (apart from client ID), effective profiles, and exact physical
 sources share one CMAF producer. Each viewer retains its own manifest/subtitle URLs, client diagnostics,
@@ -422,8 +425,23 @@ captions menu can offer all of them without restarting the shared session. The p
 subtitle selector lists only bitmap burn-in choices. Text conversion is inexpensive; embedded-caption extraction adds one moderate
 fixed decode/demux workload per session. Bitmap subtitles remain explicit burn-in choices because each simultaneous bitmap rendition
 would require another video encode.
+Dedicated Web Player listeners expose the incremental subtitle offset header to cross-origin Watch clients, so captions continue beyond
+the first 64 KiB. Each subtitle track advances by the received byte count; a missing or inconsistent offset header produces one browser
+console warning per track without resetting its read position.
 Captions that the tuner and FFmpeg do not expose or detect remain unavailable. Shared DASH and HLS presentations are served through the
 canonical `/api/stream/cmaf` API.
+
+Encoded video schedules keyframes relative to the preceding forced keyframe, keeping segment cuts at least
+two seconds apart even at fractional frame rates such as 29.97 fps. This avoids skipped DASH cut points and
+unexpected roughly four-second segments; source-copy renditions retain their original keyframes.
+The opt-in streaming sweep verifies retained MP4 timestamps against DASH timelines for both DASH and HLS.
+Independent audio/video segment numbers and buffered endpoints are diagnostics, not lip-sync measurements.
+
+Watch and Watch Test stop their owned server viewer before awaiting browser-player destruction, so a delayed
+or failed Shaka teardown cannot skip the server stop. Stop requests retain `keepalive` for navigation and
+check HTTP responses; HTTP 404 means the viewer is already absent, while other failures are surfaced.
+Failed server stops retain their captured ownership for a subsequent stop/disposal attempt. Cleanup remains
+viewer-scoped and does not stop another browser's shared-output viewer.
 
 ### Watch Test
 

@@ -11,5 +11,6 @@ internal static class DedicatedWorkerCorsPolicy
             .AllowAnyOrigin()
             .AllowAnyMethod()
             .AllowAnyHeader()
+            .WithExposedHeaders("X-Lineup-Subtitle-Offset")
             .Build();
 }

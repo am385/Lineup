@@ -29,8 +29,10 @@ internal sealed record SweepOptions
     public int MaximumAttempts { get; init; } = 3;
     /// <summary>Gets the delay between attempts.</summary>
     public double RetryDelaySeconds { get; init; } = 2;
-    /// <summary>Gets the maximum aligned transport sequence difference.</summary>
+    /// <summary>Gets the legacy sequence diagnostic threshold; it does not determine timestamp integrity or lip-sync.</summary>
     public int MaximumSequenceDelta { get; init; } = 1;
+    /// <summary>Gets the execution measurement version; zero identifies historical sequence-only checkpoints.</summary>
+    public int TimestampEvidenceVersion { get; init; }
     /// <summary>Gets whether synthetic compatibility setup was explicitly requested.</summary>
     public bool SetupCompatibility { get; init; }
     /// <summary>Gets whether owned Compose recovery was explicitly permitted.</summary>
@@ -54,7 +56,7 @@ internal sealed record SweepOptions
         {
             throw new ArgumentException("Base URL must be an HTTP(S) origin without credentials, path, query or fragment.");
         }
-        if (MaximumChannels < 1 || MaximumAttempts < 1 || MaximumAttempts > 20 || MaximumSequenceDelta < 0 || MaximumProductFailures < 0)
+        if (MaximumChannels < 1 || MaximumAttempts < 1 || MaximumAttempts > 20 || MaximumSequenceDelta < 0 || MaximumProductFailures < 0 || TimestampEvidenceVersion is < 0 or > 1)
         {
             throw new ArgumentException("Channel/attempt counts and thresholds are out of bounds.");
         }

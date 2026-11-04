@@ -10,6 +10,41 @@ namespace Lineup.WebPlayer.Tests;
 /// </summary>
 public class CmafStreamPlannerTests
 {
+    /// <summary>Encoded renditions use preceding-keyframe-relative targets; source copies never receive forced keyframes.</summary>
+    [Theory]
+    [InlineData(CmafPreferredVideo.Source)]
+    [InlineData(CmafPreferredVideo.Fallback)]
+    public void CreateArguments_KeyframeCadence_PreservesCopiesAndAvoidsAbsoluteRounding(CmafPreferredVideo preferred)
+    {
+        // Arrange
+        var source = Source("aac");
+        var request = new CmafStreamRequest { PreferredVideo = preferred };
+        var selection = CmafStreamPlanner.SelectTracks(source, request);
+
+        // Act
+        var arguments = CmafStreamPlanner.CreateArguments(new VirtualTranscodeProfile(), source, selection, request, "manifest.mpd");
+
+        // Assert
+        Assert.DoesNotContain("expr:gte(t,n_forced*2)", arguments);
+        var forced = arguments.Select((argument, index) => (argument, index))
+            .Where(item => item.argument.StartsWith("-force_key_frames", StringComparison.Ordinal)).ToArray();
+        if (preferred == CmafPreferredVideo.Fallback)
+        {
+            Assert.NotEmpty(forced);
+        }
+        foreach (var item in forced)
+        {
+            Assert.Equal("expr:if(isnan(prev_forced_t),1,gte(t,prev_forced_t+2))", arguments[item.index + 1]);
+            var codecOption = "-c" + item.argument["-force_key_frames".Length..];
+            AssertOption(arguments, codecOption, "libx264");
+        }
+        if (preferred == CmafPreferredVideo.Source)
+        {
+            AssertOption(arguments, "-c:v:0", "copy");
+            Assert.DoesNotContain("-force_key_frames:v:0", arguments);
+        }
+    }
+
     /// <summary>Verifies viewer identity does not split otherwise identical output plans or mutate the original request.</summary>
     [Theory]
     [InlineData("viewer-a", "viewer-b")]

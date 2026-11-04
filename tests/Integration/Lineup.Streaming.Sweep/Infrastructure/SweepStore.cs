@@ -93,7 +93,7 @@ internal static class SweepStore
     /// <summary>Rejects resume policy changes instead of mixing incompatible evidence.</summary>
     public static void ValidateResume(SweepRun run, SweepOptions options, string target, string fingerprint)
     {
-        if (JsonSerializer.Serialize(run.Options, Json) != JsonSerializer.Serialize(options, Json)
+        if (run.Options.TimestampEvidenceVersion != 1 || JsonSerializer.Serialize(run.Options, Json) != JsonSerializer.Serialize(options, Json)
             || (run.Provenance.TryGetValue(target, out var previous) && previous != fingerprint))
         {
             throw new InvalidDataException($"Resume provenance/options changed for '{target}'. Use an explicit new run.");
@@ -175,13 +175,33 @@ internal static class SweepStore
             }
             text.AppendLine($"  Stable interval: {attempt.StableDurationSeconds:F1}s / media {attempt.StableMediaAdvanceSeconds:F1}s. "
                 + $"Caption provenance: `{run.CaptionAccepted.GetValueOrDefault(attempt.Key) ?? "unavailable"}`. "
-                + $"Sync delta: {attempt.Synchronization?.Delta?.ToString(CultureInfo.InvariantCulture) ?? "unavailable"}. "
+                + $"Sequence delta (diagnostic only): {attempt.Synchronization?.Delta?.ToString(CultureInfo.InvariantCulture) ?? "unavailable"}. "
                 + $"Media: {Escape(attempt.ActiveStatus?["virtualOutput"]?.ToJsonString() ?? "unavailable")}.");
             text.AppendLine($"  Protection inferred: {attempt.Result?.Startup?.Inferred?.ToString() ?? "unknown"}; "
                 + $"source: {Escape(attempt.Result?.Startup?.Source ?? "unknown")}; metadata manifest: `{Escape(attempt.SynchronizationManifestUrl ?? "unavailable")}`.");
+            if (attempt.Synchronization?.Timestamps is { } timestamps)
+            {
+                text.AppendLine($"  Measurement: {timestamps.Measurement}; rendered/audible lip-sync: {timestamps.LipSync}.");
+                foreach (var track in timestamps.Tracks)
+                {
+                    text.AppendLine($"  Track `{Escape(track.Representation)}`: {track.Fragments} fragments; {track.ManifestMatches} manifest matches; "
+                        + FormattableString.Invariant($"presentation coverage {track.PresentationStartSeconds:F6}-{track.PresentationEndSeconds:F6}s (not lip-sync); ")
+                        + FormattableString.Invariant($"maximum decode gap {track.MaximumDecodeGapMilliseconds:F3}ms; maximum manifest difference {track.MaximumManifestDifferenceMilliseconds:F3}ms; ")
+                        + FormattableString.Invariant($"maximum fragment duration {track.MaximumFragmentDurationSeconds:F6}s."));
+                    foreach (var finding in track.Findings)
+                    {
+                        text.AppendLine($"  Timestamp finding: {Escape(finding)}");
+                    }
+                }
+                foreach (var error in timestamps.Errors)
+                {
+                    text.AppendLine($"  Timestamp evidence unavailable: {Escape(error)}");
+                }
+            }
         }
         text.AppendLine("\n## Evidence limitations\n");
-        text.AppendLine("Fragment sequence alignment is transport evidence, not a human audible lip-sync assessment. Missing optional counters are unavailable measurements.");
+        text.AppendLine("Media timeline integrity and presentation coverage are not rendered/audible lip-sync measurements. Sequence delta is diagnostic only, never a cross-track timing offset.");
+        text.AppendLine("Historical aligned/misaligned labels used sequence numbers only; they do not establish lip-sync. Missing optional counters are unavailable measurements.");
         text.AppendLine("Codec and track details, network activity and media progression are retained in attempt artifacts and canonical metrics. Protected/disabled synthetic playback is not broadcast success.");
         foreach (var limitation in run.Limitations.Distinct(StringComparer.Ordinal))
         {
@@ -195,14 +215,14 @@ internal static class SweepStore
         static string Quote(string? value) => $"\"{(value ?? string.Empty).Replace("\"", "\"\"")}\"";
         var text = new StringBuilder("Matrix,Channel,Name,Attempts,AV,Caption,Category,StartupOutcome,HttpStatus,Code,Stage,StartupDurationMilliseconds,"
             + "FailurePhase,DurationSeconds,Failure,Key,Disposition,AttemptId,Purpose,Verdict,ForcedCleanup,VerifiedAbsent,Sync,Inferred,ProtectionSource,Synthetic,SyntheticReason,"
-            + "CleanupContinuationVerified,CleanupErrors\n");
+            + "CleanupContinuationVerified,CleanupErrors,TimingMeasurement,LipSync,SequenceDelta,SequenceDiagnosticExceeded,TimestampEvidence\n");
         foreach (var row in run.Selected)
         {
             var attempts = run.Attempts.Where(attempt => attempt.Key == row.Key).ToArray();
             if (attempts.Length == 0)
             {
                 text.AppendLine(string.Join(",", Quote(row.Target), Quote(row.Channel.Number), Quote(row.Channel.Name),
-                    "0", "", "", "", "", "", "", "", "", "", "", "", Quote(row.Key), "pending", "", "", "", "", "", "", "", "", "", "", "", ""));
+                    "0", "", "", "", "", "", "", "", "", "", "", "", Quote(row.Key), "pending", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""));
             }
             foreach (var attempt in attempts)
             {
@@ -214,7 +234,10 @@ internal static class SweepStore
                     result?.DurationSeconds.ToString("F1", CultureInfo.InvariantCulture), Quote(result?.Failure), Quote(row.Key), accepted ? "accepted" : "retained",
                     Quote(attempt.Id), attempt.Purpose, attempt.Verdict, attempt.Cleanup?.Forced, attempt.Cleanup?.VerifiedAbsent, Quote(attempt.Synchronization?.State),
                     attempt.Result?.Startup?.Inferred, Quote(attempt.Result?.Startup?.Source), attempt.SyntheticPlayback, Quote(attempt.SyntheticReason),
-                    attempt.CleanupContinuationVerified, Quote(attempt.Cleanup is { } cleanup ? string.Join("; ", cleanup.Errors) : null)));
+                    attempt.CleanupContinuationVerified, Quote(attempt.Cleanup is { } cleanup ? string.Join("; ", cleanup.Errors) : null),
+                    Quote(attempt.Synchronization?.Timestamps?.Measurement), Quote(attempt.Synchronization?.Timestamps?.LipSync ?? "not-measured"),
+                    attempt.Synchronization?.Delta, attempt.Synchronization?.SequenceDiagnosticExceeded,
+                    Quote(attempt.Synchronization?.Timestamps is { } timing ? JsonSerializer.Serialize(timing, new JsonSerializerOptions(Json) { WriteIndented = false }) : null)));
             }
         }
         return text.ToString();

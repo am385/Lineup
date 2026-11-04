@@ -6,9 +6,36 @@ namespace Lineup.Streaming.Sweep.Tests;
 /// <summary>Verifies post-fix retries include fresh synchronization and mandatory-evidence failures.</summary>
 public sealed class RecheckSelectionTests
 {
+    /// <summary>A current-policy run requires actual consistent timestamp evidence rather than a passing state label alone.</summary>
+    [Fact]
+    public void CurrentPolicyRequiresTimestampEvidenceBeforeCertifyingOrSkippingRecheck()
+    {
+        // Arrange
+        var run = CompletedRun("timeline-continuous") with { Options = new() { TimestampEvidenceVersion = 1 } };
+        var sync = run.Attempts[1];
+
+        // Act
+        var missing = SweepPolicy.RecheckChannels(run);
+        var missingExit = SweepPolicy.ExitCode(run);
+        sync.Synchronization = sync.Synchronization! with
+        {
+            Timestamps = new("s", "timeline-continuous", [new("v", 2, 1, 2, 0, 4, 0, 0, []), new("a", 2, 1, 2, 0, 4, 0, 0, [])], [])
+        };
+        var observed = SweepPolicy.RecheckChannels(run);
+        var observedExit = SweepPolicy.ExitCode(run);
+
+        // Assert
+        Assert.Contains("1", missing);
+        Assert.Equal(2, missingExit);
+        Assert.Empty(observed);
+        Assert.Equal(0, observedExit);
+    }
+
     /// <summary>Certification findings on the fresh observation cannot hide behind an earlier playback pass.</summary>
     [Theory]
     [InlineData("aligned", false)]
+    [InlineData("timeline-continuous", false)]
+    [InlineData("timeline-discontinuity", true)]
     [InlineData("source-unavailable", false)]
     [InlineData("misaligned", true)]
     [InlineData("insufficient-samples", true)]
@@ -127,6 +154,8 @@ public sealed class RecheckSelectionTests
     [Theory]
     [InlineData("aligned", false)]
     [InlineData("misaligned", true)]
+    [InlineData("timeline-continuous", false)]
+    [InlineData("timeline-discontinuity", true)]
     public void RecheckChannels_SyncOnly_UsesAcceptedSynchronization(string state, bool expected)
     {
         // Arrange
@@ -223,6 +252,8 @@ public sealed class RecheckSelectionTests
         var state = scenario switch
         {
             "misaligned" => "misaligned",
+            "timeline-continuous" => "timeline-continuous",
+            "timeline-discontinuity" => "timeline-discontinuity",
             "insufficient-samples" => "insufficient-samples",
             "source-unavailable" => "unavailable-on-retest",
             _ => verdict == SweepVerdict.StablePlayback ? "aligned" : "startup-failure"

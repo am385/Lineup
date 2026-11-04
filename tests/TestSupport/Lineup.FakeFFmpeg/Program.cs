@@ -66,6 +66,37 @@ if (fail)
 var output = args.LastOrDefault();
 if (output?.EndsWith(".mpd", StringComparison.OrdinalIgnoreCase) == true)
 {
+    var mode = Environment.GetEnvironmentVariable("LINEUP_FAKE_FFMPEG_STARTUP_MODE");
+    var codecIndex = Array.IndexOf(args, "-c:a:0");
+    var codec = codecIndex < 0 ? string.Empty : args[codecIndex + 1];
+    var startLog = Environment.GetEnvironmentVariable("LINEUP_FAKE_FFMPEG_START_LOG");
+    if (!string.IsNullOrEmpty(startLog))
+    {
+        await File.AppendAllTextAsync(startLog, $"{Environment.ProcessId}|{Path.GetDirectoryName(output)}|{codec}{Environment.NewLine}");
+    }
+    if (mode is "unrelated" or "both-fail" || (codec == "copy" && mode is "copy-fails" or "fallback-holds"))
+    {
+        await File.WriteAllTextAsync(output, "stale failed-attempt manifest");
+        await File.WriteAllTextAsync(Path.Combine(Path.GetDirectoryName(output)!, "chunk-0-stale.m4s"), "partial media");
+        await File.WriteAllTextAsync(Path.Combine(Path.GetDirectoryName(output)!, "captions-999.vtt"), "stale captions");
+        await Console.Error.WriteLineAsync(mode == "unrelated" ? "Synthetic unrelated failure." : "codec ac3 is not currently supported in container");
+        return 1;
+    }
+    if (mode == "fallback-holds")
+    {
+        await Console.OpenStandardInput().CopyToAsync(Stream.Null);
+        return 0;
+    }
+    if (mode == "copy-fails" && (File.Exists(output) ||
+        File.Exists(Path.Combine(Path.GetDirectoryName(output)!, "chunk-0-stale.m4s")) ||
+        File.Exists(Path.Combine(Path.GetDirectoryName(output)!, "captions-999.vtt"))))
+    {
+        await Console.Error.WriteLineAsync("Stale output was not removed before fallback.");
+        return 1;
+    }
+}
+if (output?.EndsWith(".mpd", StringComparison.OrdinalIgnoreCase) == true)
+{
     var directory = Path.GetDirectoryName(output) ?? Environment.CurrentDirectory;
     await File.WriteAllTextAsync(
         output,

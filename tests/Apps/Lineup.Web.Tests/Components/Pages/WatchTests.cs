@@ -2,6 +2,7 @@ using Bunit;
 using Bunit.JSInterop;
 using Lineup.Web.Components.Pages;
 using Lineup.Web.Services;
+using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.JSInterop;
 using NSubstitute;
@@ -897,6 +898,131 @@ public class WatchTests
         Assert.Contains(
             context.JSInterop.Invocations,
             invocation => invocation.Identifier == "stopCmafSession" && Equals(invocation.Arguments[0], "session-1"));
+    }
+
+    /// <summary>Server shutdown and client-scoped registry cleanup precede delayed browser destruction.</summary>
+    [Fact]
+    public async Task Stop_DelayedPlayerDestruction_ReleasesOwnedServerBeforePlayerCompletes()
+    {
+        // Arrange
+        var registry = Substitute.For<IActiveStreamRegistry>();
+        registry.GetActiveStreams().Returns([]);
+        using var context = CreateContext(registry: registry);
+        ConfigureSuccessfulSession(context);
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer"));
+        var stopPlayer = context.JSInterop.SetupVoid("stopMediaPlayer", _ => true);
+        var clientId = Assert.IsType<string>(typeof(Watch).GetField("_clientId", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(component.Instance));
+        registry.ClearReceivedCalls();
+
+        // Act
+        var stopping = component.InvokeAsync(() => component.Instance.OnCmafPlayerEvent(new("error", "Playback failed.", null, "session-1")));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopMediaPlayer"));
+        var serverStoppedBeforePlayer = context.JSInterop.Invocations.Any(invocation => invocation.Identifier == "stopCmafSession");
+        var registryStoppedBeforePlayer = registry.ReceivedCalls().Any(call => call.GetMethodInfo().Name == nameof(IActiveStreamRegistry.RequestStopByClientId));
+        var pending = !stopping.IsCompleted;
+        var disposing = component.InvokeAsync(() => component.Instance.DisposeAsync().AsTask());
+        stopPlayer.SetVoidResult();
+        await Task.WhenAll(stopping, disposing);
+
+        // Assert
+        Assert.True(serverStoppedBeforePlayer);
+        Assert.True(registryStoppedBeforePlayer);
+        Assert.True(pending);
+        Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopCmafSession" && Equals(invocation.Arguments[0], "session-1"));
+        registry.Received().RequestStopByClientId(clientId);
+        Assert.All(registry.ReceivedCalls().Where(call => call.GetMethodInfo().Name == nameof(IActiveStreamRegistry.RequestStopByClientId)),
+            call => Assert.Equal(clientId, call.GetArguments()[0]));
+    }
+
+    /// <summary>Player teardown failure cannot prevent stopping the captured server session.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Stop_PlayerDestructionFails_StillStopsServer(bool disconnected)
+    {
+        // Arrange
+        using var context = CreateContext();
+        ConfigureSuccessfulSession(context);
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer"));
+        var stopPlayer = context.JSInterop.SetupVoid("stopMediaPlayer", _ => true);
+        if (disconnected)
+        {
+            stopPlayer.SetException(new JSDisconnectedException("Disconnected"));
+        }
+        else
+        {
+            stopPlayer.SetException(new JSException("Destroy failed"));
+        }
+
+        // Act
+        var error = await Record.ExceptionAsync(() =>
+            component.InvokeAsync(() => component.Instance.OnCmafPlayerEvent(new("error", "Playback failed.", null, "session-1"))));
+        stopPlayer.SetVoidResult();
+
+        // Assert
+        Assert.Null(error);
+        if (!disconnected)
+        {
+            Assert.Contains(context.Services.GetRequiredService<IStatusNotificationService>().Notifications,
+                notification => notification.Message.Contains("Destroy failed", StringComparison.Ordinal));
+        }
+        Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopCmafSession" && Equals(invocation.Arguments[0], "session-1"));
+    }
+
+    /// <summary>A failed server stop is visible and retains ownership for a subsequent shutdown attempt.</summary>
+    [Fact]
+    public async Task Stop_ServerStopFails_RetriesCapturedSessionDuringDisposal()
+    {
+        // Arrange
+        using var context = CreateContext();
+        ConfigureSuccessfulSession(context);
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer"));
+        var stopServer = context.JSInterop.SetupVoid("stopCmafSession", "session-1");
+        stopServer.SetException(new JSException("CMAF session stop failed: HTTP 503."));
+
+        // Act
+        var error = await Record.ExceptionAsync(() =>
+            component.InvokeAsync(() => component.Instance.OnCmafPlayerEvent(new("error", "Playback failed.", null, "session-1"))));
+        var playerStopped = context.JSInterop.Invocations.Any(invocation => invocation.Identifier == "stopMediaPlayer");
+        stopServer.SetVoidResult();
+        await component.InvokeAsync(() => component.Instance.DisposeAsync().AsTask());
+
+        // Assert
+        Assert.Null(error);
+        Assert.Contains(context.Services.GetRequiredService<IStatusNotificationService>().Notifications,
+            notification => notification.Message.Contains("HTTP 503", StringComparison.Ordinal));
+        Assert.True(playerStopped);
+        Assert.Equal(2, context.JSInterop.Invocations.Count(invocation => invocation.Identifier == "stopCmafSession" && Equals(invocation.Arguments[0], "session-1")));
+    }
+
+    /// <summary>Navigation stops the owned server session before awaiting browser destruction.</summary>
+    [Fact]
+    public async Task Navigation_DelayedPlayerDestruction_StopsServerBeforeLeaving()
+    {
+        // Arrange
+        using var context = CreateContext();
+        ConfigureSuccessfulSession(context);
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer"));
+        var stopPlayer = context.JSInterop.SetupVoid("stopMediaPlayer", _ => true);
+        var navigation = context.Services.GetRequiredService<NavigationManager>();
+        var arrived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        navigation.LocationChanged += (_, _) => arrived.TrySetResult();
+
+        // Act
+        await component.InvokeAsync(() => navigation.NavigateTo("/next"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopCmafSession"));
+        var pendingUri = navigation.Uri;
+        stopPlayer.SetVoidResult();
+        await arrived.Task.WaitAsync(TimeSpan.FromSeconds(5), Xunit.TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.DoesNotContain("/next", pendingUri, StringComparison.Ordinal);
+        Assert.EndsWith("/next", navigation.Uri, StringComparison.Ordinal);
+        Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopCmafSession" && Equals(invocation.Arguments[0], "session-1"));
     }
 
     /// <summary>

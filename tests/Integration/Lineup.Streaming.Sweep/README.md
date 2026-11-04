@@ -162,7 +162,7 @@ Missing requested channels, duplicate keys, conflicts and zero filter matches fa
 | `--cleanup-seconds <n>` | 120; includes nested warm expiry; increase for longer configured warm periods |
 | `--attempts <n>` | 3 maximum attempts, bounded to 1-20 |
 | `--retry-delay-seconds <n>` | 2 |
-| `--max-sequence-delta <n>` | 1 inclusive transport-fragment sequence difference |
+| `--max-sequence-delta <n>` | 1 inclusive legacy sequence diagnostic threshold; does not determine timestamp integrity or lip-sync |
 | `--max-product-failures <n>` | Unset: product findings reported without a hard failure threshold |
 | `--browser <path>` / `--profile <directory>` | Browser executable / persistent profile; use an output directory under `out` |
 | `--output <directory>` | `LINEUP_SWEEP_OUTPUT_ROOT` or `out\integration\streaming-sweep` |
@@ -213,6 +213,11 @@ older run whose options did not request it.
 The normal Watch-stop grace interval remains at most 10 seconds (or one third of a shorter cleanup
 deadline). `--cleanup-seconds` controls the overall cleanup/baseline deadline, not an unlimited
 normal-stop grace interval.
+The Watch page remains open after clicking Stop while ownership-qualified passive inventory and
+the resource baseline are checked; a completed browser click is not a completed Blazor handler.
+The page is closed only after the cleanup attempt and evidence capture. `console.json` records
+whether the Stop button was found and the cleanup duration, and `network.json` retains browser stop requests and responses,
+including successful responses. Emergency cleanup remains separate and never counts as normal shutdown.
 
 ### Interruption, retry and offline reports
 
@@ -279,15 +284,41 @@ analyser peak. Missing, zero, or negative counters alone do not establish an aud
 video-only observations retain their existing exemption.
 
 For every accepted playback pass a separate fresh tune observes successful fragments with
-`chunk-<representation>-<sequence>.m4s` names. Current DASH manifests map the observed audio/video
-representations. For both DASH and HLS playback, the current owned startup's public DASH manifest is
-read solely for representation metadata; the browser need not request DASH. Origin/session validation
-and final-startup correlation reject stale or fallback metadata. Two distinct fragments per active
-stream, one session/rendition pair and overlapping observation windows are required. Unmappable or
-changing pairs report insufficient samples, not an invented alignment. Video-only content has no measurable A/V pair.
+`chunk-<representation>-<sequence>.m4s` names. Sequence numbers are track-local diagnostics:
+different segment durations and numbering origins are valid, and HTTP response order never clips a track's head.
+`--max-sequence-delta` only sets `SequenceDiagnosticExceeded`; it cannot certify or fail media timing.
+
+Every fresh observation retains `trace.zip`, `synchronization-manifest.mpd` and `synchronization.json`,
+including successful playback. The trace supplies initialization and completed media response bodies and
+browser-requested DASH snapshots. For both DASH and HLS, the current owned startup's public DASH manifest
+is also fetched and saved explicitly; browser DASH requests are not required. Origin/session validation
+and final-startup correlation reject stale/fallback evidence.
+
+`media-timeline-v1` checks actual MP4 decode times, sample durations, composition offsets and edit lists,
+normalizing DASH timescale, Period start and presentation-time offset. Each active track requires two
+distinct fragments, an adjacent numbered pair and two manifest matches; the two tracks need overlapping
+presentation coverage. The tolerance is one clock tick (the coarser of media and manifest clocks), not a
+perceptual millisecond threshold. Gaps/overlaps between observed adjacent decode intervals or disagreement
+with the manifest produce `timeline-discontinuity`. Unsupported/missing timing, ambiguous active tracks,
+or insufficient coverage produce `insufficient-samples`; neither can manufacture a pass.
+Fragments outside retained rolling manifest windows still contribute decode continuity but not manifest-match counts.
+Video-only content has no measurable A/V pair. Timestamp-integrity failures fail the completed run's integrity gate.
+
+Historical schema-one runs remain readable and retain their original sequence-only `aligned`/`misaligned`
+labels. New execution records `TimestampEvidenceVersion=1`; old measurement-policy checkpoints cannot
+resume under the new policy. Use an explicit new targeted run instead.
 Fresh-sync product startup, timeout and decoder findings count toward configured product-failure
 limits once per channel; an unavailable source on the retest remains availability.
-Transport alignment is **not human audible lip-sync assessment**.
+Transport integrity and buffered presentation endpoints are **not rendered/audible lip-sync measurements**.
+`LipSync=not-measured` remains explicit even when the timelines are continuous. Perceptual certification
+requires a known synchronized flash/beep source and correlated audiovisual output, not sequence numbers,
+audio peaks, `currentTime`, or comparing the last buffered timestamps.
+
+Encoded video forces each keyframe at least two seconds after the preceding forced keyframe. Absolute
+two-second targets can round to a shorter interval at fractional frame rates, making the DASH muxer
+skip a boundary and emit a roughly four-second segment. Source-copy renditions are unchanged.
+Player timestamp mode is intentionally unchanged; continuous packaged timestamps do not establish that
+changing the existing browser workaround is safe.
 
 Watch stop/navigation is attempted first. Only still-owned viewers may receive an emergency POST at
 the validated returned stop URL (management responses without a stop URL use Watch's management route).

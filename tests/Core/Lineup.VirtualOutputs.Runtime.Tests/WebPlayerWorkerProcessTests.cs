@@ -20,9 +20,116 @@ namespace Lineup.VirtualOutputs.Runtime.Tests;
 /// <summary>Verifies the real dedicated Web Player executable across its HTTP, IPC, FFmpeg, and cleanup boundaries.</summary>
 public sealed class WebPlayerWorkerProcessTests
 {
-    /// <summary>Verifies the real worker starts CMAF media, reports final presentation status, exposes captions, and stops cleanly.</summary>
+    /// <summary>Verifies a recognized copy failure retries once and reports the actual fallback presentation.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Worker_SourceMuxerFailure_RetriesFallback(bool explicitOverride)
+    {
+        // Arrange
+        await using var harness = await WebPlayerWorkerHarness.StartAsync(
+            (request, _) => Task.FromResult(CreateBrokeredStream(request, new PacedPatternStream())),
+            TestContext.Current.CancellationToken,
+            startupMode: "copy-fails");
+        var json = explicitOverride
+            ? """{"preferredAudio":0,"fallbackAudio":0,"overrides":{"enabled":true,"audio":0}}"""
+            : """{"preferredAudio":0,"fallbackAudio":0}""";
+        using var request = harness.CreateRequest(HttpMethod.Post, "/media/start/2.1", json);
+
+        // Act
+        using var response = await harness.Client.SendAsync(request, TestContext.Current.CancellationToken);
+        var payload = await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(payload!["sourceAudioFallbackApplied"]!.GetValue<bool>());
+        Assert.Equal("aac", payload["fallbackAudioCodec"]!.GetValue<string>());
+        Assert.Equal(["copy", "aac"], harness.MediaStarts.Select(start => start[2]));
+        var stream = Assert.Single(harness.ReportedStreams);
+        Assert.Equal(nameof(VirtualOutputStreamStartupStage.Ready), stream.WorkerStartupStage);
+        Assert.Contains(stream.VirtualOutput!.Tracks, track => track.Type == MediaTrackType.Audio && track.Codec == "aac");
+        Assert.DoesNotContain(stream.VirtualOutput.Tracks, track => track.Type == MediaTrackType.Audio && track.Codec == "ac3");
+        using var stop = await harness.Client.PostAsync(new Uri(payload["stopUrl"]!.GetValue<string>()), null, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.NoContent, stop.StatusCode);
+        await harness.AssertMediaReleasedAsync();
+    }
+
+    /// <summary>Verifies unrelated failures never retry and a failed fallback cannot trigger a third attempt.</summary>
+    [Theory]
+    [InlineData("unrelated", 1, 0)]
+    [InlineData("both-fail", 2, 0)]
+    [InlineData("both-fail", 1, 1)]
+    public async Task Worker_StartupFailure_BoundsRetriesAndReleasesMedia(string mode, int expectedStarts, int preferredAudio)
+    {
+        // Arrange
+        await using var harness = await WebPlayerWorkerHarness.StartAsync(
+            (request, _) => Task.FromResult(CreateBrokeredStream(request, new PacedPatternStream())),
+            TestContext.Current.CancellationToken,
+            startupMode: mode);
+        using var request = harness.CreateRequest(HttpMethod.Post, "/media/start/2.1", $$"""{"preferredAudio":{{preferredAudio}}}""");
+
+        // Act
+        using var response = await harness.Client.SendAsync(request, TestContext.Current.CancellationToken);
+        var payload = await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
+        Assert.Equal("media_startup_failed", payload!["code"]!.GetValue<string>());
+        Assert.Equal(expectedStarts, harness.MediaStarts.Count);
+        await harness.AssertMediaReleasedAsync();
+    }
+
+    /// <summary>Verifies cancellation during fallback readiness releases both attempts and the broker source.</summary>
     [Fact]
-    public async Task Worker_StartAndStop_ReportsFinalPresentationAndCaptions()
+    public async Task Worker_DisconnectDuringFallback_ReleasesMedia()
+    {
+        // Arrange
+        await using var harness = await WebPlayerWorkerHarness.StartAsync(
+            (request, _) => Task.FromResult(CreateBrokeredStream(request, new PacedPatternStream())),
+            TestContext.Current.CancellationToken,
+            startupMode: "fallback-holds");
+        using var request = harness.CreateRequest(HttpMethod.Post, "/media/start/2.1", """{"preferredAudio":0}""");
+        using var disconnect = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var pending = harness.Client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, disconnect.Token);
+        await WaitUntilAsync(() => harness.MediaStarts.Count == 2, TimeSpan.FromSeconds(10));
+
+        // Act
+        disconnect.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await pending);
+
+        // Assert
+        Assert.Equal(["copy", "aac"], harness.MediaStarts.Select(start => start[2]));
+        await harness.AssertMediaReleasedAsync();
+    }
+
+    /// <summary>Verifies fallback readiness expires with a structured timeout and releases both media attempts.</summary>
+    [Fact]
+    public async Task Worker_FallbackReadinessTimeout_ReleasesMedia()
+    {
+        // Arrange
+        await using var harness = await WebPlayerWorkerHarness.StartAsync(
+            (request, _) => Task.FromResult(CreateBrokeredStream(request, new PacedPatternStream())),
+            TestContext.Current.CancellationToken,
+            startupMode: "fallback-holds");
+        using var request = harness.CreateRequest(HttpMethod.Post, "/media/start/2.1", """{"preferredAudio":0}""");
+
+        // Act
+        using var response = await harness.Client.SendAsync(request, TestContext.Current.CancellationToken);
+        var payload = await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.GatewayTimeout, response.StatusCode);
+        Assert.Equal("media_startup_timeout", payload!["code"]!.GetValue<string>());
+        Assert.Equal("readiness", payload["stage"]!.GetValue<string>());
+        Assert.Equal(["copy", "aac"], harness.MediaStarts.Select(start => start[2]));
+        await harness.AssertMediaReleasedAsync();
+    }
+
+    /// <summary>Verifies the real worker starts CMAF media, reports final presentation status, exposes captions, and stops cleanly.</summary>
+    [Theory]
+    [InlineData(0, "ac3")]
+    [InlineData(1, "aac")]
+    public async Task Worker_StartAndStop_ReportsFinalPresentationAndCaptions(int preferredAudio, string audioCodec)
     {
         // Arrange
         await using var harness = await WebPlayerWorkerHarness.StartAsync(
@@ -31,7 +138,7 @@ public sealed class WebPlayerWorkerProcessTests
         using var request = harness.CreateRequest(
             HttpMethod.Post,
             "/media/start/2.1",
-            """{"preferredVideo":1,"preferredAudio":1,"fallbackAudio":0,"subtitleTrack":2}""");
+            $$"""{"preferredVideo":1,"preferredAudio":{{preferredAudio}},"fallbackAudio":0,"subtitleTrack":2}""");
 
         // Act
         using var response = await harness.Client.SendAsync(request, TestContext.Current.CancellationToken);
@@ -43,13 +150,15 @@ public sealed class WebPlayerWorkerProcessTests
 
         // Assert
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.False(payload["sourceAudioFallbackApplied"]!.GetValue<bool>());
         Assert.Equal("*", response.Headers.GetValues("Access-Control-Allow-Origin").Single());
         Assert.Single(payload["subtitles"]!.AsArray());
         Assert.Contains("avc1", manifest, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("mp4a", manifest, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(HostedStreamFormat.Cmaf, stream.Format);
         Assert.Equal(nameof(VirtualOutputStreamStartupStage.Ready), stream.WorkerStartupStage);
-        Assert.Equal(["h264", "aac", "webvtt"], stream.VirtualOutput!.Tracks.Select(track => track.Codec));
+        Assert.Equal(["h264", audioCodec, "webvtt"], stream.VirtualOutput!.Tracks.Select(track => track.Codec));
+        Assert.Single(harness.MediaStarts);
         Assert.Equal(HttpStatusCode.NoContent, stopResponse.StatusCode);
         Assert.Empty(harness.ActiveStreams.GetActiveStreams());
     }
@@ -212,19 +321,22 @@ public sealed class WebPlayerWorkerProcessTests
         private readonly Process _worker;
         private readonly Task<string> _workerOutput;
         private readonly Task<string> _workerError;
+        private readonly string _startLog;
 
         private WebPlayerWorkerHarness(
             VirtualOutputIpcServer server,
             VirtualOutputSessionAuthority authority,
             Process worker,
             HttpClient client,
-            IActiveStreamRegistry activeStreams)
+            IActiveStreamRegistry activeStreams,
+            string startLog)
         {
             _server = server;
             _authority = authority;
             _worker = worker;
             Client = client;
             ActiveStreams = activeStreams;
+            _startLog = startLog;
             _workerOutput = worker.StandardOutput.ReadToEndAsync();
             _workerError = worker.StandardError.ReadToEndAsync();
         }
@@ -237,11 +349,38 @@ public sealed class WebPlayerWorkerProcessTests
 
         internal IReadOnlyList<ActiveStreamSnapshot> ReportedStreams => ActiveStreams.GetActiveStreams();
 
+        /// <summary>Gets each main media attempt's process ID, output directory and first audio codec.</summary>
+        internal IReadOnlyList<string[]> MediaStarts => File.Exists(_startLog)
+            ? File.ReadAllLines(_startLog).Select(line => line.Split('|')).ToArray()
+            : [];
+
+        /// <summary>Verifies that startup or explicit stop released every media attempt and its broker stream.</summary>
+        internal async Task AssertMediaReleasedAsync()
+        {
+            await WaitUntilAsync(() => ActiveStreams.GetActiveStreams().Count == 0 &&
+                MediaStarts.All(start => !Directory.Exists(start[1]) && HasExited(int.Parse(start[0], System.Globalization.CultureInfo.InvariantCulture))), TimeSpan.FromSeconds(10));
+            Assert.Empty(ActiveStreams.GetActiveStreams());
+        }
+
+        private static bool HasExited(int processId)
+        {
+            try
+            {
+                using var process = Process.GetProcessById(processId);
+                return process.HasExited;
+            }
+            catch (ArgumentException)
+            {
+                return true;
+            }
+        }
+
         internal static async Task<WebPlayerWorkerHarness> StartAsync(
             Func<VirtualOutputOpenStreamRequest, CancellationToken, Task<VirtualOutputBrokeredStream>> openStream,
             CancellationToken cancellationToken,
             TimeSpan? leaseLifetime = null,
-            bool mediaProcessorFails = false)
+            bool mediaProcessorFails = false,
+            string? startupMode = null)
         {
             var endpoint = CreateEndpoint();
             var authority = new VirtualOutputSessionAuthority();
@@ -305,13 +444,14 @@ public sealed class WebPlayerWorkerProcessTests
                 BootstrapToken = ticket.BootstrapToken,
                 BootstrapExpiresUtc = ticket.ExpiresUtc
             };
-            var worker = StartWorker(bootstrap, mediaProcessorFails);
+            var startLog = Path.Combine(Path.GetTempPath(), $"lineup-media-starts-{Guid.NewGuid():N}.txt");
+            var worker = StartWorker(bootstrap, mediaProcessorFails, startupMode, startLog);
             var client = new HttpClient
             {
                 BaseAddress = new Uri($"http://127.0.0.1:{port}"),
                 Timeout = TimeSpan.FromSeconds(35)
             };
-            var harness = new WebPlayerWorkerHarness(server, authority, worker, client, activeStreams);
+            var harness = new WebPlayerWorkerHarness(server, authority, worker, client, activeStreams, startLog);
             try
             {
                 await harness.WaitForReadyAsync(cancellationToken);
@@ -352,6 +492,7 @@ public sealed class WebPlayerWorkerProcessTests
             _server.Dispose();
             _authority.Dispose();
             _worker.Dispose();
+            File.Delete(_startLog);
             ActiveStreamsContext.Value = null;
         }
 
@@ -378,7 +519,7 @@ public sealed class WebPlayerWorkerProcessTests
             throw new TimeoutException("The Web Player worker did not open its HTTP listener.");
         }
 
-        private static Process StartWorker(VirtualOutputWorkerBootstrap bootstrap, bool mediaProcessorFails)
+        private static Process StartWorker(VirtualOutputWorkerBootstrap bootstrap, bool mediaProcessorFails, string? startupMode, string startLog)
         {
             var workerPath = Path.Combine(AppContext.BaseDirectory, "Lineup.WebPlayer.VirtualOutputHost.dll");
             if (!File.Exists(workerPath))
@@ -397,6 +538,8 @@ public sealed class WebPlayerWorkerProcessTests
             };
             startInfo.ArgumentList.Add(workerPath);
             startInfo.Environment["LINEUP_FFMPEG_EXECUTABLE"] = ResolveFakeMediaProcessorPath();
+            startInfo.Environment["LINEUP_FAKE_FFMPEG_START_LOG"] = startLog;
+            startInfo.Environment["LINEUP_FAKE_FFMPEG_STARTUP_MODE"] = startupMode;
             if (mediaProcessorFails)
             {
                 startInfo.Environment["LINEUP_FAKE_FFMPEG_FAIL"] = "1";

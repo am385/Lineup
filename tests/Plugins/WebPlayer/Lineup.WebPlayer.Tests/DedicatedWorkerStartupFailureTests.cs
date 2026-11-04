@@ -155,4 +155,31 @@ public sealed class DedicatedWorkerStartupFailureTests
         Assert.Equal("*", context.Response.Headers.AccessControlAllowOrigin);
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, context.Response.StatusCode);
     }
+
+    /// <summary>Verifies cross-origin caption clients can read incremental offsets on successful and error responses.</summary>
+    [Theory]
+    [InlineData(StatusCodes.Status200OK)]
+    [InlineData(StatusCodes.Status503ServiceUnavailable)]
+    public void ApplyCorsPolicy_SubtitleResponse_ExposesOnlySubtitleOffset(int statusCode)
+    {
+        // Arrange
+        var policy = DedicatedWorkerCorsPolicy.Create();
+        var options = new CorsOptions();
+        options.AddDefaultPolicy(policy);
+        var service = new CorsService(Options.Create(options), NullLoggerFactory.Instance);
+        var context = new DefaultHttpContext();
+        context.Request.Headers.Origin = "http://lineup.test:8080";
+        context.Response.StatusCode = statusCode;
+        context.Response.Headers["X-Lineup-Subtitle-Offset"] = "65536";
+
+        // Act
+        var result = service.EvaluatePolicy(context, policy);
+        service.ApplyResult(result, context.Response);
+
+        // Assert
+        Assert.Equal("*", context.Response.Headers.AccessControlAllowOrigin);
+        Assert.Equal("X-Lineup-Subtitle-Offset", context.Response.Headers.AccessControlExposeHeaders);
+        Assert.Equal("65536", context.Response.Headers["X-Lineup-Subtitle-Offset"]);
+        Assert.Equal(statusCode, context.Response.StatusCode);
+    }
 }

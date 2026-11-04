@@ -3,6 +3,7 @@ using Lineup.Web.Components.Pages;
 using Lineup.Web.Services;
 using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.JSInterop;
 using System.Reflection;
 using System.Text.Json;
 using Xunit;
@@ -14,6 +15,83 @@ namespace Lineup.Web.Tests.Components.Pages;
 /// </summary>
 public class WatchTestTests
 {
+    /// <summary>Compatibility shutdown releases its server session before waiting for browser teardown.</summary>
+    [Fact]
+    public async Task StopTest_DelayedPlayerDestruction_StopsServerFirst()
+    {
+        // Arrange
+        using var context = CreateContext();
+        context.JSInterop.Setup<CmafCompatibilityTestResponse>("startCmafSession", _ => true)
+            .SetResult(new("test-1", "/api/stream/cmaf/test-1/manifest.mpd", "avc1.64002a", "mp4a.40.2", 2, 1920, 1080));
+        context.JSInterop.Setup<WatchTest.CmafTestPlayerResult>("initCmafTestPlayer", _ => true).SetResult(new(true, true));
+        var component = context.Render<WatchTest>();
+        await component.Find("#startManualCompatibilityTest").ClickAsync(new());
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafTestPlayer"));
+        var stopPlayer = context.JSInterop.SetupVoid("stopMediaPlayer", _ => true);
+
+        // Act
+        var stopping = component.Find("button.btn-outline-danger").ClickAsync(new());
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopMediaPlayer"));
+        var serverStopped = context.JSInterop.Invocations.Any(invocation => invocation.Identifier == "stopCmafSession");
+        var pending = !stopping.IsCompleted;
+        stopPlayer.SetVoidResult();
+        await stopping;
+
+        // Assert
+        Assert.True(serverStopped);
+        Assert.True(pending);
+        Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopCmafSession");
+    }
+
+    /// <summary>Failed compatibility teardown cannot prevent releasing the owned synthetic session.</summary>
+    [Fact]
+    public async Task StopTest_PlayerDestructionFails_StillStopsServer()
+    {
+        // Arrange
+        using var context = CreateContext();
+        context.JSInterop.Setup<CmafCompatibilityTestResponse>("startCmafSession", _ => true)
+            .SetResult(new("test-1", "/api/stream/cmaf/test-1/manifest.mpd", "avc1.64002a", "mp4a.40.2", 2, 1920, 1080));
+        context.JSInterop.Setup<WatchTest.CmafTestPlayerResult>("initCmafTestPlayer", _ => true).SetResult(new(true, true));
+        var component = context.Render<WatchTest>();
+        await component.Find("#startManualCompatibilityTest").ClickAsync(new());
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafTestPlayer"));
+        var stopPlayer = context.JSInterop.SetupVoid("stopMediaPlayer", _ => true);
+        stopPlayer.SetException(new JSException("Destroy failed"));
+        var stop = typeof(WatchTest).GetMethod("StopSessionAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+        // Act
+        var error = await Record.ExceptionAsync(() => component.InvokeAsync(() => Assert.IsAssignableFrom<Task>(stop.Invoke(component.Instance, [true]))));
+        stopPlayer.SetVoidResult();
+
+        // Assert
+        Assert.IsType<JSException>(error);
+        Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopCmafSession");
+    }
+
+    /// <summary>A failed compatibility server stop preserves ownership for the next stop attempt.</summary>
+    [Fact]
+    public async Task StopTest_ServerStopFails_RetainsOwnershipForRetry()
+    {
+        // Arrange
+        using var context = CreateContext();
+        var component = context.Render<WatchTest>();
+        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal));
+        var session = new CmafCompatibilityTestResponse("test-1", "/api/stream/cmaf/test-1/manifest.mpd", "avc1.64002a", "mp4a.40.2", 2, 1920, 1080);
+        typeof(WatchTest).GetField("_session", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(component.Instance, session);
+        var stop = typeof(WatchTest).GetMethod("StopSessionAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var stopServer = context.JSInterop.SetupVoid("stopCmafSession", "test-1", "/api/stream/watch-test/stop/test-1");
+        stopServer.SetException(new JSException("HTTP 503"));
+
+        // Act
+        var error = await Record.ExceptionAsync(() => component.InvokeAsync(() => Assert.IsAssignableFrom<Task>(stop.Invoke(component.Instance, [true]))));
+        stopServer.SetVoidResult();
+        await component.InvokeAsync(() => Assert.IsAssignableFrom<Task>(stop.Invoke(component.Instance, [true])));
+
+        // Assert
+        Assert.IsType<JSException>(error);
+        Assert.Equal(2, context.JSInterop.Invocations.Count(invocation => invocation.Identifier == "stopCmafSession"));
+    }
+
     /// <summary>
     /// Verifies a playback error completes a pending compatibility case as failed before its result can be persisted.
     /// </summary>

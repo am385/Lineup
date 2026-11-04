@@ -7,6 +7,36 @@ namespace Lineup.Streaming.Sweep.Tests;
 /// <summary>Fake HTTP coverage of ownership isolation, stop routing and independent cleanup cancellation.</summary>
 public sealed class OwnedPlaybackTests
 {
+    /// <summary>A completed click keeps normal cleanup polling until asynchronous viewer shutdown finishes.</summary>
+    [Fact]
+    public async Task NormalStop_AsyncViewerRelease_DoesNotRequireEmergencyStop()
+    {
+        // Arrange
+        var reads = 0;
+        var posts = 0;
+        var clicked = false;
+        using var http = new HttpClient(new Handler(request =>
+        {
+            posts += request.Method == HttpMethod.Post ? 1 : 0;
+            Assert.True(clicked);
+            return new(HttpStatusCode.OK) { Content = new StringContent(++reads >= 3 ? "[]" : "[{\"sessionId\":\"owned\"},{\"sessionId\":\"unrelated\"}]") };
+        }));
+        var owner = OwnedPlayback.CreateOwner("http://localhost/api/stream/cmaf/start/1", "owned", null, "app");
+
+        // Act
+        var evidence = await new OwnedPlayback(http).CleanupAsync([owner], () =>
+        {
+            clicked = true;
+            return Task.CompletedTask;
+        }, TimeSpan.FromSeconds(3));
+
+        // Assert
+        Assert.True(evidence.VerifiedAbsent);
+        Assert.False(evidence.Forced);
+        Assert.Equal(3, reads);
+        Assert.Equal(0, posts);
+    }
+
     /// <summary>Continuation verification reads ownership-qualified inventory without sending stop requests.</summary>
     [Theory]
     [InlineData("owned", false)]

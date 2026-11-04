@@ -141,29 +141,55 @@ app.MapPost("/media/start/{channel}", async (
             null,
             cancellationToken);
         stage = DedicatedWorkerStartupStage.Process;
-        var process = StartMediaProcess(directory, plan.Arguments);
-        startupGuard.RegisterProcess(process);
-        Process? captionProcess = null;
-        if (plan.EmbeddedCaptions is not null)
-        {
-            IReadOnlyList<string> captionArguments = WebPlayerTrackPlanner.CreateEmbeddedCaptionArguments(plan.SubtitlePaths[plan.EmbeddedCaptions.Index]);
-            captionProcess = StartMediaProcess(directory, captionArguments);
-            startupGuard.RegisterProcess(captionProcess);
-        }
-        var session = new MediaSession(id, directory, process, captionProcess, source, plan, new CancellationTokenSource(), app.Logger);
         startupGuard.TransferOwnership();
-        if (!sessions.TryAdd(id, session))
-        {
-            await session.DisposeAsync();
-            return Results.Conflict();
-        }
-        session.PumpTask = PumpInputAsync(session);
+        MediaSession? session = null;
         var dashPath = Path.Combine(directory, CmafStreamPlanner.DashManifestName);
         var hlsPath = Path.Combine(directory, CmafStreamPlanner.HlsManifestName);
-        stage = DedicatedWorkerStartupStage.Readiness;
         try
         {
-            await WaitForOutputAsync(process, session.ErrorTask, dashPath, hlsPath, plan.AudioRenditions.Count + 1, cancellationToken);
+            session = await StartMediaSessionAsync(id, directory, source, plan, app.Logger);
+            var readiness = Stopwatch.StartNew();
+            stage = DedicatedWorkerStartupStage.Readiness;
+            try
+            {
+                await WaitForOutputAsync(session.Process, session.ErrorTask, dashPath, hlsPath, plan.AudioRenditions.Count + 1, TimeSpan.FromSeconds(20), cancellationToken);
+            }
+            catch (InvalidOperationException) when (!cancellationToken.IsCancellationRequested && session.Process.HasExited)
+            {
+                var diagnostics = await session.ErrorTask.WaitAsync(cancellationToken);
+                if (!CmafStreamPlanner.ShouldRetryWithFallback(plan.Request, plan.Source.Tracks.Where(track => track.Type == MediaTrackType.Audio), [diagnostics]))
+                {
+                    throw;
+                }
+                app.Logger.LogInformation("Dedicated Web Player session {MediaSessionId} is retrying a source-audio muxer failure with fallback audio.", id);
+                await session.StopMediaAsync();
+                await MediaSessionStartupGuard.DeleteDirectoryAsync(directory);
+                Directory.CreateDirectory(directory);
+                cancellationToken.ThrowIfCancellationRequested();
+                plan = plan.CreateFallback(directory);
+                stage = DedicatedWorkerStartupStage.Process;
+                session = await StartMediaSessionAsync(id, directory, source, plan, app.Logger);
+                stage = DedicatedWorkerStartupStage.Readiness;
+                var remaining = TimeSpan.FromSeconds(20) - readiness.Elapsed;
+                await WaitForOutputAsync(
+                    session.Process, session.ErrorTask, dashPath, hlsPath, plan.AudioRenditions.Count + 1, remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, cancellationToken);
+            }
+            await ReportStreamStatusAsync(
+                workerSession,
+                source,
+                plan,
+                id,
+                channel,
+                streamSessionId,
+                streamStartedAtUtc,
+                VirtualOutputStreamStartupStage.Ready,
+                null,
+                cancellationToken);
+            if (!sessions.TryAdd(id, session))
+            {
+                await session.DisposeAsync();
+                return Results.Conflict();
+            }
         }
         catch (Exception exception)
         {
@@ -178,20 +204,12 @@ app.MapPost("/media/start/{channel}", async (
                 streamStartedAtUtc,
                 $"{failure.Code}: {failure.Error}",
                 app.Logger);
-            await sessions.RemoveAndDisposeAsync(id);
+            if (session is not null)
+            {
+                await session.DisposeAsync();
+            }
             throw;
         }
-        await ReportStreamStatusAsync(
-            workerSession,
-            source,
-            plan,
-            id,
-            channel,
-            streamSessionId,
-            streamStartedAtUtc,
-            VirtualOutputStreamStartupStage.Ready,
-            null,
-            cancellationToken);
         session.ObserveTask = ObserveProcessAsync(session, sessions);
         var publicBaseUri = VirtualOutputBindingResolver.ResolvePublicBaseUri(bindingsByPort, context.Connection.LocalPort);
         return Results.Ok(plan.CreateResponse(id, publicBaseUri));
@@ -412,6 +430,23 @@ static Process StartMediaProcess(string directory, IReadOnlyList<string> argumen
     return Process.Start(startInfo) ?? throw new InvalidOperationException("Unable to start FFmpeg for the Web Player output.");
 }
 
+static async Task<MediaSession> StartMediaSessionAsync(string id, string directory, VirtualOutputClientStream source, DedicatedCmafSessionPlan plan, ILogger logger)
+{
+    await using var guard = new MediaSessionStartupGuard(directory, source);
+    var process = StartMediaProcess(directory, plan.Arguments);
+    guard.RegisterProcess(process);
+    Process? captionProcess = null;
+    if (plan.EmbeddedCaptions is not null)
+    {
+        captionProcess = StartMediaProcess(directory, WebPlayerTrackPlanner.CreateEmbeddedCaptionArguments(plan.SubtitlePaths[plan.EmbeddedCaptions.Index]));
+        guard.RegisterProcess(captionProcess);
+    }
+    var session = new MediaSession(id, directory, process, captionProcess, source, plan, new CancellationTokenSource(), logger);
+    guard.TransferOwnership();
+    session.PumpTask = PumpInputAsync(session);
+    return session;
+}
+
 static async Task PumpInputAsync(MediaSession session)
 {
     var buffer = new byte[64 * 1024];
@@ -465,9 +500,10 @@ static async Task WaitForOutputAsync(
     string dashPath,
     string hlsPath,
     int representationCount,
+    TimeSpan timeout,
     CancellationToken cancellationToken)
 {
-    using var readinessTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+    using var readinessTimeout = new CancellationTokenSource(timeout);
     using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, readinessTimeout.Token);
     int[] representationFragmentCounts = [];
     try
@@ -475,6 +511,7 @@ static async Task WaitForOutputAsync(
         var directory = Path.GetDirectoryName(dashPath)!;
         while (true)
         {
+            linkedCancellation.Token.ThrowIfCancellationRequested();
             representationFragmentCounts = Enumerable.Range(0, representationCount)
                 .Select(index => Directory.EnumerateFiles(directory, $"chunk-{index}-*.m4s").Take(2).Count())
                 .ToArray();
@@ -622,6 +659,7 @@ static VirtualOutputSecurityPolicyDefinition ResolveSecurityPolicy(
 internal sealed class MediaSession : IAsyncDisposable
 {
     private int _disposed;
+    private bool _mediaStopped;
 
     public MediaSession(
         string id,
@@ -678,10 +716,35 @@ internal sealed class MediaSession : IAsyncDisposable
         {
             return;
         }
+        try
+        {
+            await StopMediaAsync();
+            await CloseBrokerStreamAsync();
+        }
+        finally
+        {
+            try
+            {
+                await Source.DisposeAsync();
+            }
+            finally
+            {
+                await MediaSessionStartupGuard.DeleteDirectoryAsync(Directory);
+            }
+        }
+    }
+
+    /// <summary>Stops and releases this media attempt without closing its reusable broker source or deleting output.</summary>
+    internal async Task StopMediaAsync()
+    {
+        if (_mediaStopped)
+        {
+            return;
+        }
+        _mediaStopped = true;
         Lifetime.Cancel();
         try
         {
-            await CloseBrokerStreamAsync();
             if (!Process.HasExited)
             {
                 Process.Kill(entireProcessTree: true);
@@ -690,22 +753,10 @@ internal sealed class MediaSession : IAsyncDisposable
             {
                 CaptionProcess.Kill(entireProcessTree: true);
             }
-            try
-            {
-                await Process.WaitForExitAsync();
-            }
-            catch (InvalidOperationException)
-            {
-            }
+            await Process.WaitForExitAsync();
             if (CaptionProcess is not null)
             {
-                try
-                {
-                    await CaptionProcess.WaitForExitAsync();
-                }
-                catch (InvalidOperationException)
-                {
-                }
+                await CaptionProcess.WaitForExitAsync();
             }
             if (PumpTask is not null)
             {
@@ -725,17 +776,9 @@ internal sealed class MediaSession : IAsyncDisposable
         }
         finally
         {
-            try
-            {
-                await Source.DisposeAsync();
-            }
-            finally
-            {
-                Process.Dispose();
-                CaptionProcess?.Dispose();
-                Lifetime.Dispose();
-                await MediaSessionStartupGuard.DeleteDirectoryAsync(Directory);
-            }
+            Process.Dispose();
+            CaptionProcess?.Dispose();
+            Lifetime.Dispose();
         }
     }
 

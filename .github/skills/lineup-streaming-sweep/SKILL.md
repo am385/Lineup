@@ -118,10 +118,13 @@ Startup, decoded playback, synchronization and cleanup are independent evidence:
 Canonical typed verdicts additionally distinguish fallback-start failures, confirmed/inferred/unconfirmed
 protection, disabled/unknown generated slates, decoder failures and observation expiry. HTTP `inferred`
 and `source` and the current owned synthetic-flow reason are retained; generated transport is never a
-broadcast playback pass. Fresh sync requires two distinct successful fragments per active audio/video
-representation, with default absolute sequence delta <= 1. DASH and HLS playback both use the current
-owned startup's public DASH manifest solely for metadata, rejecting stale/fallback session mappings.
-Insufficient samples are not alignment evidence; transport alignment is not audible lip-sync certification.
+broadcast playback pass. Fresh observations retain traces and the owned public DASH manifest, including during HLS playback,
+and verify actual MP4 sample timing against DASH presentation timelines with one-clock-tick precision.
+Each active track requires two distinct fragments, an adjacent pair and two manifest matches.
+Sequence delta is diagnostic only; independent track numbering and response order cannot establish misalignment.
+Missing or unsupported timing remains insufficient evidence. Historical sequence-only reports remain
+readable but cannot resume under the new measurement policy. Timestamp integrity and buffered coverage
+are not rendered/audible lip-sync certification.
 
 ## Report progress and completion
 

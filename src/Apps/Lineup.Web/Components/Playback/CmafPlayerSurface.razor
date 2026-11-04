@@ -1,7 +1,6 @@
-@using Lineup.Web.Services
-@using Lineup.Web.Components.Playback
 @implements IAsyncDisposable
 @inject IJSRuntime JS
+@inject ILogger<CmafPlayerSurface> Logger
 
 <div class="ratio ratio-16x9 bg-dark @(UseShakaUi ? "shaka-video-container" : null)" data-lineup-cmaf-container="@UseShakaUi">
     <video id="@ElementId"
@@ -125,6 +124,11 @@
         }
         catch (Exception ex) when (ex is JSDisconnectedException or InvalidOperationException or ObjectDisposedException)
         {
+            Logger.LogDebug(ex, "Browser player {ElementId} was unavailable during disposal", ElementId);
+        }
+        catch (JSException ex)
+        {
+            Logger.LogWarning(ex, "Unable to dispose browser player {ElementId}", ElementId);
         }
     }
 }

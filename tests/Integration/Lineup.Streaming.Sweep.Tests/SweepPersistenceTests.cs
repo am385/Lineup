@@ -8,6 +8,80 @@ namespace Lineup.Streaming.Sweep.Tests;
 /// <summary>Atomic, versioned and interruption-safe offline artifact coverage.</summary>
 public sealed class SweepPersistenceTests
 {
+    /// <summary>Identical current-policy provenance remains resumable rather than rejecting every measurement generation.</summary>
+    [Fact]
+    public void CurrentTimestampPolicyCanResumeWithIdenticalProvenance()
+    {
+        // Arrange
+        var run = SweepPolicyTests.CreateRun() with { Options = new() { TimestampEvidenceVersion = 1 } };
+        run.Provenance["target"] = "identity";
+
+        // Act
+        var error = Record.Exception(() => SweepStore.ValidateResume(run, run.Options, "target", "identity"));
+
+        // Assert
+        Assert.Null(error);
+    }
+
+    /// <summary>Historical reports stay readable without silently resuming their sequence-only measurement policy.</summary>
+    [Fact]
+    public async Task LegacySequenceRunCannotResumeAsTimestampCertification()
+    {
+        // Arrange
+        using var directory = new TemporaryDirectory();
+        var run = SweepPolicyTests.CreateRun();
+        var document = JsonSerializer.SerializeToNode(run, SweepStore.Json)!;
+        document["Options"]!.AsObject().Remove("TimestampEvidenceVersion");
+        var path = System.IO.Path.Combine(directory.Path, "sweep-run.json");
+        await File.WriteAllTextAsync(path, document.ToJsonString(), TestContext.Current.CancellationToken);
+
+        // Act
+        var loaded = await SweepStore.LoadAsync(path);
+        var error = Record.Exception(() => SweepStore.ValidateResume(loaded, loaded.Options, "target", "identity"));
+
+        // Assert
+        Assert.Equal(0, loaded.Options.TimestampEvidenceVersion);
+        Assert.IsType<InvalidDataException>(error);
+        Assert.Contains("Canonical JSON", SweepStore.Markdown(loaded));
+    }
+
+    /// <summary>Timestamp measurements, diagnostics and the absence of lip-sync certification survive canonical and tabular export.</summary>
+    [Fact]
+    public async Task TimestampEvidenceIsRetainedInAllReports()
+    {
+        // Arrange
+        using var directory = new TemporaryDirectory();
+        var run = SweepPolicyTests.CreateRun();
+        var timestamps = new TimestampEvidence("s", "timeline-continuous",
+            [new("v", 2, 1, 2, 2, 6, 0, 0, []), new("a", 3, 2, 3, 1.99, 6.01, 0, 0, [])], []);
+        run.Attempts.Add(new()
+        {
+            Id = "timing",
+            Key = run.Selected[0].Key,
+            Purpose = "sync",
+            Synchronization = new("timeline-continuous", "v", "a", 2, 50, 48, "fixture") { Timestamps = timestamps, SequenceDiagnosticExceeded = true }
+        });
+
+        // Act
+        await SweepStore.ReportsAsync(directory.Path, run);
+        var loaded = await SweepStore.LoadAsync(System.IO.Path.Combine(directory.Path, "sweep-run.json"));
+        var markdown = await File.ReadAllTextAsync(System.IO.Path.Combine(directory.Path, "summary.md"), TestContext.Current.CancellationToken);
+        using var parser = new Microsoft.VisualBasic.FileIO.TextFieldParser(System.IO.Path.Combine(directory.Path, "results.csv"));
+        parser.SetDelimiters(",");
+        var header = parser.ReadFields()!;
+        var row = parser.ReadFields()!;
+
+        // Assert
+        Assert.Equal("timeline-continuous", loaded.Attempts[0].Synchronization?.State);
+        Assert.Equal(2, loaded.Attempts[0].Synchronization?.Timestamps?.Tracks.Count);
+        Assert.Contains("rendered/audible lip-sync: not-measured", markdown);
+        Assert.Contains("Sequence delta (diagnostic only): 48", markdown);
+        Assert.Equal(header.Length, row.Length);
+        Assert.Equal("media-timeline-v1", row[Array.IndexOf(header, "TimingMeasurement")]);
+        Assert.Equal("not-measured", row[Array.IndexOf(header, "LipSync")]);
+        Assert.Equal("True", row[Array.IndexOf(header, "SequenceDiagnosticExceeded")]);
+    }
+
     /// <summary>Canonical reports keep startup/media/sync evidence separate from permanent cleanup failure and never emit a success marker.</summary>
     [Fact]
     public async Task ContinuedCleanupFailureIsPersistedAndReportedSeparately()

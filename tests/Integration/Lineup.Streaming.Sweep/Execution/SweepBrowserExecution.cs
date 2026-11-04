@@ -176,6 +176,10 @@ internal sealed partial class SweepHarness
         var pendingStarts = new System.Collections.Concurrent.ConcurrentDictionary<IRequest, StartupRequestEvidence>();
         page.Request += (_, request) =>
         {
+            if (Uri.TryCreate(request.Url, UriKind.Absolute, out var requestUri) && requestUri.AbsolutePath.Contains("/stop/", StringComparison.Ordinal))
+            {
+                network.Add(new { utc = DateTimeOffset.UtcNow, type = "stop-request", request.Url, request.Method });
+            }
             if (IsCmafStartUrl(request.Url))
             {
                 var requestEvidence = new StartupRequestEvidence(Guid.NewGuid().ToString("N"), request.Url, DateTimeOffset.UtcNow,
@@ -205,7 +209,7 @@ internal sealed partial class SweepHarness
         };
         page.Response += (_, response) =>
         {
-            if (response.Status >= 400)
+            if (response.Status >= 400 || (Uri.TryCreate(response.Url, UriKind.Absolute, out var responseUri) && responseUri.AbsolutePath.Contains("/stop/", StringComparison.Ordinal)))
             {
                 network.Add(new { utc = DateTimeOffset.UtcNow, type = "response", response.Url, response.Status });
             }
@@ -233,6 +237,7 @@ internal sealed partial class SweepHarness
         StartupOutcome? startupOutcome = null;
         byte[]? failureScreenshot = null;
         string? synchronizationExchange = null;
+        FragmentMetadata? synchronizationMetadata = null;
         string captionResult = "not-applicable";
         try
         {
@@ -444,13 +449,15 @@ internal sealed partial class SweepHarness
                 {
                     var metadata = await FragmentAlignment.ReadOwnedMetadataAsync(
                         current, evidence.Ownership, url => _http.GetStringAsync(url, metadataDeadline.Token));
+                    synchronizationMetadata = metadata;
+                    await File.WriteAllTextAsync(Path.Combine(attemptRoot, "synchronization-manifest.mpd"), metadata.Manifest, metadataDeadline.Token);
                     evidence.SynchronizationManifestUrl = metadata.ManifestUrl;
                     foreach (var pair in metadata.Representations)
                     {
                         representations[pair.Key] = pair.Value;
                     }
                 }
-                catch (Exception metadataError) when (metadataError is IOException or HttpRequestException or OperationCanceledException)
+                catch (Exception metadataError) when (metadataError is IOException or InvalidDataException or HttpRequestException or OperationCanceledException)
                 {
                     evidence.EvidenceFailures.Add($"Current-session synchronization metadata failed: {metadataError.Message}");
                     throw;
@@ -461,7 +468,8 @@ internal sealed partial class SweepHarness
                 failureScreenshot = await page.ScreenshotAsync(new() { FullPage = true, Timeout = 5_000 });
             }
         }
-        catch (Exception ex) when (ex is PlaywrightException or InvalidOperationException or TimeoutException or HttpRequestException or OperationCanceledException or JsonException)
+        catch (Exception ex) when (ex is PlaywrightException or InvalidOperationException or InvalidDataException or IOException
+            or TimeoutException or HttpRequestException or OperationCanceledException or JsonException)
         {
             failurePhase ??= startupOutcome is null ? "navigation" : startupOutcome.Succeeded ? "playback" : "startup";
             failure = startupOutcome is { Succeeded: false }
@@ -481,6 +489,7 @@ internal sealed partial class SweepHarness
             // Cleanup is deliberately outside diagnostics. No screenshot, trace or filesystem error can skip stop.
             try
             {
+                var cleanupStarted = Stopwatch.StartNew();
                 evidence.Cleanup = await new OwnedPlayback(_http).CleanupAsync(
                     evidence.Ownership,
                     async () =>
@@ -488,25 +497,28 @@ internal sealed partial class SweepHarness
                         try
                         {
                             var stop = page.Locator("button.btn-danger");
-                            if (await stop.CountAsync() > 0)
+                            var stopButtonFound = await stop.CountAsync() > 0;
+                            console.Add(new { utc = DateTimeOffset.UtcNow, type = "normal-stop", stopButtonFound });
+                            if (stopButtonFound)
                             {
                                 await stop.First.ClickAsync(new() { Timeout = 5_000 });
                             }
                         }
                         finally
                         {
-                            try
-                            {
-                                await page.GotoAsync("about:blank", new() { Timeout = 5_000 });
-                            }
-                            finally
-                            {
-                                await Task.WhenAll(captureTasks.ToArray()).WaitAsync(TimeSpan.FromSeconds(_options.StartupSeconds));
-                            }
+                            await Task.WhenAll(captureTasks.ToArray()).WaitAsync(TimeSpan.FromSeconds(_options.StartupSeconds));
                         }
                     },
                     TimeSpan.FromSeconds(_options.CleanupSeconds),
                     token => VerifyBaselineAsync(matrix, baseline, pendingStarts, token));
+                console.Add(new
+                {
+                    utc = DateTimeOffset.UtcNow,
+                    type = "cleanup-complete",
+                    elapsedSeconds = cleanupStarted.Elapsed.TotalSeconds,
+                    evidence.Cleanup.Forced,
+                    evidence.Cleanup.VerifiedAbsent
+                });
                 await CheckpointAsync();
             }
             finally
@@ -526,7 +538,7 @@ internal sealed partial class SweepHarness
                     {
                         await File.WriteAllTextAsync(Path.Combine(attemptRoot, "player-metrics.json"), JsonSerializer.Serialize(metrics, _json));
                     }
-                    if (failure is not null || captionResult == "source-caption-not-exposed" || evidence.Cleanup is not { VerifiedAbsent: true, Forced: false })
+                    if (evidence.Purpose == "sync" || failure is not null || captionResult == "source-caption-not-exposed" || evidence.Cleanup is not { VerifiedAbsent: true, Forced: false })
                     {
                         if (failureScreenshot is not null)
                         {
@@ -573,7 +585,11 @@ internal sealed partial class SweepHarness
         };
         if (evidence.Purpose == "sync")
         {
-            evidence.Synchronization = FragmentAlignment.EvaluateObservation(evidence, result, synchronizationExchange, fragments.ToArray(), representations, _options.MaximumSequenceDelta);
+            var timestamps = synchronizationMetadata is null ? null : FragmentTimeline.ReadTrace(tracePath, synchronizationMetadata,
+                fragments.Where(sample => sample.Session == synchronizationMetadata.Session).Select(sample => sample.Representation).ToHashSet(StringComparer.Ordinal));
+            evidence.Synchronization = FragmentAlignment.EvaluateObservation(
+                evidence, result, synchronizationExchange, fragments.ToArray(), representations, _options.MaximumSequenceDelta, timestamps);
+            await File.WriteAllTextAsync(Path.Combine(attemptRoot, "synchronization.json"), JsonSerializer.Serialize(evidence.Synchronization, _json));
         }
         await File.WriteAllTextAsync(Path.Combine(attemptRoot, "result.json"), JsonSerializer.Serialize(result, _json));
         await journal.WriteEventAsync("channel-attempt", result);

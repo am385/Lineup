@@ -672,13 +672,16 @@ function registerLineupShakaUiElements(localizedText) {
             return;
         }
         if (!stopUrl) {
-            return;
+            throw new Error('CMAF session stop URL is missing.');
         }
-        await fetch(stopUrl, {
+        const response = await fetch(stopUrl, {
             method: 'POST',
             cache: 'no-store',
             keepalive: true
         });
+        if (!response.ok && response.status !== 404) {
+            throw new Error(`CMAF session stop failed: HTTP ${response.status}.`);
+        }
     }
 
     function stopLineupSubtitlePolling(video) {
@@ -725,28 +728,32 @@ function registerLineupShakaUiElements(localizedText) {
 
         const cmafUi = window.lineupCmafUis?.get(videoElementId);
         const cmafPlayer = window.lineupCmafPlayers?.get(videoElementId);
-        if (cmafUi) {
-            await Promise.allSettled([cmafUi.destroy()]);
-            if (window.lineupCmafUis.get(videoElementId) === cmafUi) {
-                window.lineupCmafUis.delete(videoElementId);
+        const stoppingOwner = window.lineupMediaPlayerOwners?.get(videoElementId);
+        try {
+            if (cmafUi) {
+                await cmafUi.destroy();
+            } else if (cmafPlayer) {
+                await cmafPlayer.destroy();
             }
-            if (window.lineupCmafPlayers.get(videoElementId) === cmafPlayer) {
-                window.lineupCmafPlayers.delete(videoElementId);
+        } finally {
+            if (window.lineupCmafUis?.get(videoElementId) === cmafUi) {
+                window.lineupCmafUis?.delete(videoElementId);
             }
-        } else if (cmafPlayer) {
-            await Promise.allSettled([cmafPlayer.destroy()]);
-            if (window.lineupCmafPlayers.get(videoElementId) === cmafPlayer) {
-                window.lineupCmafPlayers.delete(videoElementId);
+            if (window.lineupCmafPlayers?.get(videoElementId) === cmafPlayer) {
+                window.lineupCmafPlayers?.delete(videoElementId);
             }
-        }
-
-        for (const video of videos) {
-            video.removeAttribute('src');
-            video.load();
-        }
-        window.lineupMediaPlayers?.delete(videoElementId);
-        if (!playerOwnerId || window.lineupMediaPlayerOwners?.get(videoElementId) === playerOwnerId) {
-            window.lineupMediaPlayerOwners?.delete(videoElementId);
+            for (const video of videos) {
+                if (video._lineupPlayerToken === null) {
+                    video.removeAttribute('src');
+                    video.load();
+                }
+            }
+            if (window.lineupMediaPlayers?.get(videoElementId) === registeredVideo && registeredVideo?._lineupPlayerToken == null) {
+                window.lineupMediaPlayers?.delete(videoElementId);
+            }
+            if (window.lineupMediaPlayerOwners?.get(videoElementId) === stoppingOwner && videos.every(video => video._lineupPlayerToken === null)) {
+                window.lineupMediaPlayerOwners?.delete(videoElementId);
+            }
         }
     }
 
@@ -781,6 +788,7 @@ function registerLineupShakaUiElements(localizedText) {
         let offset = 0;
         let pendingText = '';
         let refreshPending = false;
+        let offsetWarningReported = false;
         const parseTime = value => {
             const parts = value.trim().replace(',', '.').split(':').map(Number);
             return parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2] : parts[0] * 60 + parts[1];
@@ -810,11 +818,16 @@ function registerLineupShakaUiElements(localizedText) {
                 if (!response.ok) {
                     return;
                 }
-                const nextOffset = Number(response.headers.get('X-Lineup-Subtitle-Offset'));
-                if (Number.isFinite(nextOffset)) {
-                    offset = nextOffset;
+                const data = await response.arrayBuffer();
+                const offsetHeader = response.headers.get('X-Lineup-Subtitle-Offset');
+                const nextOffset = offsetHeader?.trim() ? Number(offsetHeader) : NaN;
+                const expectedOffset = offset + data.byteLength;
+                if ((!Number.isSafeInteger(nextOffset) || nextOffset !== expectedOffset) && !offsetWarningReported) {
+                    console.warn('Subtitle offset header is missing or invalid; advancing by received byte count.');
+                    offsetWarningReported = true;
                 }
-                pendingText += decoder.decode(await response.arrayBuffer(), { stream: true }).replace(/\r/g, '');
+                offset = expectedOffset;
+                pendingText += decoder.decode(data, { stream: true }).replace(/\r/g, '');
                 const blocks = pendingText.split(/\n\n+/);
                 pendingText = blocks.pop() || '';
                 const parsedCues = [];
