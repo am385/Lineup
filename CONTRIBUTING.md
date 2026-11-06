@@ -33,8 +33,8 @@ dotnet test
 The browser subtitle poller's deterministic JavaScript regressions use Node.js's built-in test runner, with no npm dependencies:
 
 ```powershell
-node --test tests\Apps\Lineup.Web.Tests\Browser\subtitle-polling.test.cjs
-node --test tests\Apps\Lineup.Web.Tests\Browser\shutdown.test.cjs
+node --test tests\Apps\Lineup.App.Web.Tests\Browser\subtitle-polling.test.cjs
+node --test tests\Apps\Lineup.App.Web.Tests\Browser\shutdown.test.cjs
 ```
 
 Run these tests when changing incremental caption delivery. They execute the production player script with controlled responses and timers;
@@ -45,17 +45,17 @@ player destruction failures and isolation from replacement players.
 The streaming-sweep harness is checked in as an opt-in hardware certification test:
 
 ```bash
-dotnet run --project tests/Integration/Lineup.Streaming.Sweep/Lineup.Streaming.Sweep.csproj -c Release -- verify-outcome-reporting
+dotnet run --project tests/Integration/Lineup.Integration.Streaming.Sweep/Lineup.Integration.Streaming.Sweep.csproj -c Release -- verify-outcome-reporting
 ```
 
-It is intentionally excluded from the solution and CI/CD because the full sweep requires exclusive access to physical tuner hardware. See [`tests/Integration/Lineup.Streaming.Sweep/README.md`](tests/Integration/Lineup.Streaming.Sweep/README.md).
-The separate `Lineup.Streaming.Sweep.Tests` xunit project participates in the normal solution gate and
+It is intentionally excluded from the solution and CI/CD because the full sweep requires exclusive access to physical tuner hardware. See [`tests/Integration/Lineup.Integration.Streaming.Sweep/README.md`](tests/Integration/Lineup.Integration.Streaming.Sweep/README.md).
+The separate `Lineup.Integration.Streaming.Sweep.Tests` xunit project participates in the normal solution gate and
 exercises only deterministic policies, persistence, ownership and reports; it never launches the live harness.
 
 ### Running the Web App
 
 ```bash
-cd src/Apps/Lineup.Web
+cd src/Apps/Lineup.App.Web
 dotnet run
 ```
 
@@ -165,39 +165,42 @@ Production and test projects are grouped by dependency role:
 - `src/Plugins` — independently composable adapters and their support libraries, grouped by provider or product family (`SiliconDust`, `LineupLink`, and `WebPlayer`).
 - `tests` — a hierarchy that mirrors the production project roles.
 
-`Lineup.Common` has no project or package dependencies and contains only shared data types. `Lineup.Extensibility` references only `Lineup.Common` and contains plugin/runtime interfaces and boundary validation. Production plugin projects may reference it, the provider-neutral `Lineup.Streaming.FFmpeg` foundation when media processing is required, and designated support libraries in the same provider family, but must not reference `Lineup.Core`.
+Project directories, `.csproj` filenames, root namespaces, and assembly names must agree. Use `Lineup.App.*` for application hosts, `Lineup.Core` or `Lineup.Core.*` for foundations, and `Lineup.Plugin.*` for plugin families and their support libraries.
+Use `Lineup.Integration.*` for integration harnesses, `Lineup.TestSupport.*` for test helpers, and `Lineup.Tools.*` for build tools. Automated test projects use their subject project's name followed by `.Tests`, with the same root namespace.
+
+`Lineup.Core.Common` has no project or package dependencies and contains only shared data types. `Lineup.Core.Extensibility` references only `Lineup.Core.Common` and contains plugin/runtime interfaces and boundary validation. Production plugin projects may reference it, the provider-neutral `Lineup.Core.Streaming.FFmpeg` foundation when media processing is required, and designated support libraries in the same provider family, but must not reference `Lineup.Core`.
 Provider family folders are organizational only; every adapter and support library remains an independently referenced assembly. Support libraries may not depend on adapters or projects from another plugin family.
 
 | Project | Description |
 |---|---|
-| `Lineup.Common` | Dependency-free identifiers, configuration records, normalized guide models, streaming DTOs, and serialized metadata types |
-| `Lineup.Extensibility` | Plugin/runtime interfaces, portable validation, and narrow host capabilities built on `Lineup.Common` |
-| `Lineup.SiliconDust.HDHomeRun.Device` | Local device communication — discovery, channel lineup, native binary protocol |
-| `Lineup.SiliconDust.HDHomeRun.Api` | Remote API client — fetches EPG data from `api.hdhomerun.com` |
+| `Lineup.Core.Common` | Dependency-free identifiers, configuration records, normalized guide models, streaming DTOs, and serialized metadata types |
+| `Lineup.Core.Extensibility` | Plugin/runtime interfaces, portable validation, and narrow host capabilities built on `Lineup.Core.Common` |
+| `Lineup.Plugin.SiliconDust.HDHomeRun.Device` | Local device communication — discovery, channel lineup, native binary protocol |
+| `Lineup.Plugin.SiliconDust.HDHomeRun.Api` | Remote API client — fetches EPG data from `api.hdhomerun.com` |
 | `Lineup.Core` | Provider-neutral business logic — orchestration, topology, guides, and storage |
-| `Lineup.Streaming.FFmpeg` | Shared FFmpeg and FFprobe streaming transforms |
-| `Lineup.VirtualOutputs.Protocol` | Versioned local IPC contracts and framing shared by the trusted host and workers |
-| `Lineup.VirtualOutputs.Hosting` | Worker-side bootstrap, broker client, and lease handling |
-| `Lineup.VirtualOutputs.Runtime` | Trusted package validation, process supervision, IPC server, and capability broker |
-| `Lineup.GuideOutputs.Json` | Public versioned JSON guide document and serialization/deserialization API |
-| `Lineup.GuideOutputs.Json.Plugin` | JSON Guide Output driver, publisher adapter, settings, and host registration |
-| `Lineup.GuideOutputs.Xmltv` | Public serializer for normalized Lineup guide snapshots to XMLTV |
-| `Lineup.GuideOutputs.Xmltv.Plugin` | XMLTV Guide Output driver, global-output normalization, publisher adapter, and host registration |
-| `Lineup.SiliconDust.HDHomeRun.PhysicalTuner` | Physical HDHomeRun plugin |
-| `Lineup.SiliconDust.HDHomeRun.VirtualTuner` | Virtual HDHomeRun output plugin |
-| `Lineup.SiliconDust.HDHomeRun.VirtualOutputHost` | Isolated virtual HDHomeRun listener executable |
-| `Lineup.SiliconDust.HDHomeRun.DiscoveryRuntime` | Trusted shared-discovery snapshot reconciler |
-| `Lineup.SiliconDust.HDHomeRun.DiscoveryHost` | Isolated shared UDP and SSDP discovery executable |
-| `Lineup.WebPlayer` | Built-in Web Player contracts, compatibility policy, and shared output lifecycle |
-| `Lineup.WebPlayer.FFmpeg` | FFmpeg CMAF planning, manifest processing, and browser compatibility-test generation |
-| `Lineup.WebPlayer.VirtualOutputHost` | Isolated CMAF/HLS/DASH media executable |
-| `Lineup.SiliconDust.GuideSource` | SiliconDust guide-source plugin |
-| `Lineup.LineupLink` | Cohesive remote Lineup physical, virtual, guide, and protocol plugin |
-| `Lineup.LineupLink.VirtualOutputHost` | Isolated Lineup Link listener executable |
-| `Lineup.Web` | Blazor Server web app — dashboard, EPG viewer, settings, live TV |
-| `Lineup.Tui` | Terminal UI — interactive menu using Spectre.Console |
-| `Lineup.Streaming.Sweep` | Opt-in six-matrix Docker/HDHomeRun and existing-instance streaming harness (not a solution test entry point) |
-| `Lineup.Streaming.Sweep.Tests` | Non-live deterministic sweep regression tests in the normal solution gate |
+| `Lineup.Core.Streaming.FFmpeg` | Shared FFmpeg and FFprobe streaming transforms |
+| `Lineup.Core.VirtualOutputs.Protocol` | Versioned local IPC contracts and framing shared by the trusted host and workers |
+| `Lineup.Core.VirtualOutputs.Hosting` | Worker-side bootstrap, broker client, and lease handling |
+| `Lineup.Core.VirtualOutputs.Runtime` | Trusted package validation, process supervision, IPC server, and capability broker |
+| `Lineup.Plugin.GuideOutputs.Json` | Public versioned JSON guide document and serialization/deserialization API |
+| `Lineup.Plugin.GuideOutputs.Json.Plugin` | JSON Guide Output driver, publisher adapter, settings, and host registration |
+| `Lineup.Plugin.GuideOutputs.Xmltv` | Public serializer for normalized Lineup guide snapshots to XMLTV |
+| `Lineup.Plugin.GuideOutputs.Xmltv.Plugin` | XMLTV Guide Output driver, global-output normalization, publisher adapter, and host registration |
+| `Lineup.Plugin.SiliconDust.HDHomeRun.PhysicalTuner` | Physical HDHomeRun plugin |
+| `Lineup.Plugin.SiliconDust.HDHomeRun.VirtualTuner` | Virtual HDHomeRun output plugin |
+| `Lineup.Plugin.SiliconDust.HDHomeRun.VirtualOutputHost` | Isolated virtual HDHomeRun listener executable |
+| `Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryRuntime` | Trusted shared-discovery snapshot reconciler |
+| `Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryHost` | Isolated shared UDP and SSDP discovery executable |
+| `Lineup.Plugin.WebPlayer` | Built-in Web Player contracts, compatibility policy, and shared output lifecycle |
+| `Lineup.Plugin.WebPlayer.FFmpeg` | FFmpeg CMAF planning, manifest processing, and browser compatibility-test generation |
+| `Lineup.Plugin.WebPlayer.VirtualOutputHost` | Isolated CMAF/HLS/DASH media executable |
+| `Lineup.Plugin.SiliconDust.GuideSource` | SiliconDust guide-source plugin |
+| `Lineup.Plugin.LineupLink` | Cohesive remote Lineup physical, virtual, guide, and protocol plugin |
+| `Lineup.Plugin.LineupLink.VirtualOutputHost` | Isolated Lineup Link listener executable |
+| `Lineup.App.Web` | Blazor Server web app — dashboard, EPG viewer, settings, live TV |
+| `Lineup.App.Tui` | Terminal UI — interactive menu using Spectre.Console |
+| `Lineup.Integration.Streaming.Sweep` | Opt-in six-matrix Docker/HDHomeRun and existing-instance streaming harness (not a solution test entry point) |
+| `Lineup.Integration.Streaming.Sweep.Tests` | Non-live deterministic sweep regression tests in the normal solution gate |
 
 ## License
 

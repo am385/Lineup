@@ -1,6 +1,6 @@
 using Lineup.Core.Storage.Entities;
-using Lineup.Common.Streaming;
-using Lineup.Extensibility.Streaming;
+using Lineup.Core.Common.Streaming;
+using Lineup.Core.Extensibility.Streaming;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 

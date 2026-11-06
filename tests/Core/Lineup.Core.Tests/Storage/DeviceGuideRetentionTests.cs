@@ -1,5 +1,5 @@
-using Lineup.Common.Guides;
-using Lineup.Common.Streaming;
+using Lineup.Core.Common.Guides;
+using Lineup.Core.Common.Streaming;
 using Lineup.Core.Storage;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;

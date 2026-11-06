@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <InternalsVisibleTo Include="Lineup.Plugin.SiliconDust.HDHomeRun.VirtualTuner.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Core\Lineup.Core.VirtualOutputs.Runtime\Lineup.Core.VirtualOutputs.Runtime.csproj" />
+    <ProjectReference Include="..\Lineup.Plugin.SiliconDust.HDHomeRun.VirtualTuner\Lineup.Plugin.SiliconDust.HDHomeRun.VirtualTuner.csproj" />
+  </ItemGroup>
+</Project>

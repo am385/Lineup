@@ -9,7 +9,7 @@ START LINEUP
 4. Open http://localhost:8080 if your browser does not open automatically.
 5. Complete Settings > Device using your HDHomeRun's LAN IP address or hostname.
 
-Always use Start-Lineup.cmd. Do not launch app\Lineup.Web.exe directly because
+Always use Start-Lineup.cmd. Do not launch app\Lineup.App.Web.exe directly because
 the launcher configures the safe user-local data locations.
 
 STOP LINEUP

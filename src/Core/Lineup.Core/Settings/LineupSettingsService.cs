@@ -1,9 +1,9 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Lineup.Common.Networking;
+using Lineup.Core.Common.Networking;
 using Lineup.Core.Storage;
-using Lineup.Common.Streaming;
-using Lineup.Extensibility.Streaming;
+using Lineup.Core.Common.Streaming;
+using Lineup.Core.Extensibility.Streaming;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 

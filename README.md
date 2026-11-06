@@ -52,7 +52,7 @@ Lineup can run directly as a Windows application or inside Docker Desktop. Neith
    - Choose `Lineup-<version>-win-x64.zip` for an x64-based PC. This is the correct download for most Windows computers.
    - Choose `Lineup-<version>-win-arm64.zip` only for a Windows PC with an ARM-based processor.
 3. Right-click the downloaded ZIP, select **Extract All**, and extract it to a stable folder such as `C:\Users\YourName\Applications`. Do not run Lineup from inside the ZIP.
-4. Open the extracted `Lineup-<version>-win-<architecture>` folder and double-click `Start-Lineup.cmd`. Always use this launcher rather than opening `app\Lineup.Web.exe` directly; the launcher configures the user-local data locations.
+4. Open the extracted `Lineup-<version>-win-<architecture>` folder and double-click `Start-Lineup.cmd`. Always use this launcher rather than opening `app\Lineup.App.Web.exe` directly; the launcher configures the user-local data locations.
 5. If Microsoft Defender SmartScreen appears, confirm that the file came from the official Lineup GitHub release, select **More info**, and then select **Run anyway**. Published Windows packages are not currently code-signed.
 6. If Windows Firewall asks for access, allow Lineup on **Private networks**. Public-network access is not required.
 7. Keep the Lineup console window open. The launcher opens <http://localhost:8080>; refresh the page if the browser opens before Lineup finishes starting.
@@ -238,7 +238,7 @@ Projects are organized by dependency role:
 - `src/Plugins` contains independently composable adapters and support libraries grouped by provider or product family (`SiliconDust`, `LineupLink`, and `WebPlayer`). These plugins are statically composed today and are structured for future dynamic loading.
 - `tests` mirrors the same architecture.
 
-`Lineup.Common` is the dependency floor and contains only shared data types. `Lineup.Extensibility` references `Lineup.Common` and adds plugin/runtime interfaces and boundary validation. Adapters may consume designated support libraries from the same provider family, but they do not reference `Lineup.Core` application behavior.
+`Lineup.Core.Common` is the dependency floor and contains only shared data types. `Lineup.Core.Extensibility` references `Lineup.Core.Common` and adds plugin/runtime interfaces and boundary validation. Adapters may consume designated support libraries from the same provider family, but they do not reference `Lineup.Core` application behavior.
 Plugin family folders are organizational only; adapters and support libraries remain independently referenced assemblies.
 
 See [Project Dependency Map](docs/project-dependencies.md) for direct-reference diagrams and a purpose/usage catalog covering every production and test project in the solution.
@@ -247,43 +247,43 @@ See [Project Dependency Map](docs/project-dependencies.md) for direct-reference 
 
 | Project | Description |
 |---|---|
-| `Lineup.Web` | Blazor Server presentation and HTTP transport composition |
-| `Lineup.Tui` | Spectre.Console presentation and host composition |
+| `Lineup.App.Web` | Blazor Server presentation and HTTP transport composition |
+| `Lineup.App.Tui` | Spectre.Console presentation and host composition |
 
 ### Core
 
 | Project | Description |
 |---|---|
-| `Lineup.Common` | Dependency-free identifiers, configuration records, normalized guide models, streaming DTOs, and serialized metadata types |
+| `Lineup.Core.Common` | Dependency-free identifiers, configuration records, normalized guide models, streaming DTOs, and serialized metadata types |
 | `Lineup.Core` | Provider-neutral device, guide, topology, capacity, and shared-stream orchestration with authoritative SQLite storage |
 | `Lineup.Core.Hosting` | Reusable hosted workers for topology activation, device refresh, guide scheduling, and stream shutdown |
-| `Lineup.Extensibility` | Plugin/runtime interfaces, portable validation, and narrow host capabilities built on `Lineup.Common` |
-| `Lineup.Streaming.FFmpeg` | Reusable FFmpeg/FFprobe process and streaming transforms |
-| `Lineup.VirtualOutputs.Protocol` | Versioned dependency-light local IPC contracts and bounded framing for isolated output workers |
-| `Lineup.VirtualOutputs.Hosting` | Worker-side bootstrap, authenticated broker client, and fail-closed lease lifecycle |
-| `Lineup.VirtualOutputs.Runtime` | Trusted worker provenance, activation, supervision, local IPC, and capability broker |
+| `Lineup.Core.Extensibility` | Plugin/runtime interfaces, portable validation, and narrow host capabilities built on `Lineup.Core.Common` |
+| `Lineup.Core.Streaming.FFmpeg` | Reusable FFmpeg/FFprobe process and streaming transforms |
+| `Lineup.Core.VirtualOutputs.Protocol` | Versioned dependency-light local IPC contracts and bounded framing for isolated output workers |
+| `Lineup.Core.VirtualOutputs.Hosting` | Worker-side bootstrap, authenticated broker client, and fail-closed lease lifecycle |
+| `Lineup.Core.VirtualOutputs.Runtime` | Trusted worker provenance, activation, supervision, local IPC, and capability broker |
 
 ### Plugins
 
 | Family | Project | Description |
 |---|---|---|
-| Guide Outputs | `Lineup.GuideOutputs.Json` | Public versioned JSON guide document and serialization/deserialization API |
-| Guide Outputs | `Lineup.GuideOutputs.Json.Plugin` | JSON Guide Output driver, publisher adapter, settings, and host registration |
-| Guide Outputs | `Lineup.GuideOutputs.Xmltv` | Public serializer for normalized Lineup guide snapshots to XMLTV |
-| Guide Outputs | `Lineup.GuideOutputs.Xmltv.Plugin` | XMLTV Guide Output driver, global-output normalization, publisher adapter, and host registration |
-| Lineup Link | `Lineup.LineupLink` | Versioned remote-Lineup protocol plus physical input, virtual output, and optional guide-source adapters |
-| Lineup Link | `Lineup.LineupLink.VirtualOutputHost` | Dedicated per-device Lineup Link HTTP/HTTPS listener worker |
-| SiliconDust | `Lineup.SiliconDust.GuideSource` | Multi-device SiliconDust guide source adapter |
-| SiliconDust | `Lineup.SiliconDust.HDHomeRun.Api` | Remote API client — downloads XMLTV guide data from `api.hdhomerun.com` |
-| SiliconDust | `Lineup.SiliconDust.HDHomeRun.Device` | Local device communication — discovery, channel lineup, native binary protocol |
-| SiliconDust | `Lineup.SiliconDust.HDHomeRun.PhysicalTuner` | Multi-instance physical HDHomeRun adapter |
-| SiliconDust | `Lineup.SiliconDust.HDHomeRun.VirtualTuner` | Aggregated virtual HDHomeRun identity, discovery, lineup, and capacity behavior |
-| SiliconDust | `Lineup.SiliconDust.HDHomeRun.VirtualOutputHost` | Dedicated per-device HDHomeRun HTTP/HTTPS listener worker |
-| SiliconDust | `Lineup.SiliconDust.HDHomeRun.DiscoveryRuntime` | Trusted snapshot reconciler for the shared isolated discovery process |
-| SiliconDust | `Lineup.SiliconDust.HDHomeRun.DiscoveryHost` | Shared isolated UDP 65001 and SSDP 1900 discovery worker |
-| Web Player | `Lineup.WebPlayer` | Built-in Web Player contracts, browser capability policy, and shared CMAF output lifecycle |
-| Web Player | `Lineup.WebPlayer.FFmpeg` | FFmpeg CMAF planning, HLS/DASH manifest processing, and browser playback-test generation |
-| Web Player | `Lineup.WebPlayer.VirtualOutputHost` | Dedicated CMAF/HLS/DASH media listener and FFmpeg worker |
+| Guide Outputs | `Lineup.Plugin.GuideOutputs.Json` | Public versioned JSON guide document and serialization/deserialization API |
+| Guide Outputs | `Lineup.Plugin.GuideOutputs.Json.Plugin` | JSON Guide Output driver, publisher adapter, settings, and host registration |
+| Guide Outputs | `Lineup.Plugin.GuideOutputs.Xmltv` | Public serializer for normalized Lineup guide snapshots to XMLTV |
+| Guide Outputs | `Lineup.Plugin.GuideOutputs.Xmltv.Plugin` | XMLTV Guide Output driver, global-output normalization, publisher adapter, and host registration |
+| Lineup Link | `Lineup.Plugin.LineupLink` | Versioned remote-Lineup protocol plus physical input, virtual output, and optional guide-source adapters |
+| Lineup Link | `Lineup.Plugin.LineupLink.VirtualOutputHost` | Dedicated per-device Lineup Link HTTP/HTTPS listener worker |
+| SiliconDust | `Lineup.Plugin.SiliconDust.GuideSource` | Multi-device SiliconDust guide source adapter |
+| SiliconDust | `Lineup.Plugin.SiliconDust.HDHomeRun.Api` | Remote API client — downloads XMLTV guide data from `api.hdhomerun.com` |
+| SiliconDust | `Lineup.Plugin.SiliconDust.HDHomeRun.Device` | Local device communication — discovery, channel lineup, native binary protocol |
+| SiliconDust | `Lineup.Plugin.SiliconDust.HDHomeRun.PhysicalTuner` | Multi-instance physical HDHomeRun adapter |
+| SiliconDust | `Lineup.Plugin.SiliconDust.HDHomeRun.VirtualTuner` | Aggregated virtual HDHomeRun identity, discovery, lineup, and capacity behavior |
+| SiliconDust | `Lineup.Plugin.SiliconDust.HDHomeRun.VirtualOutputHost` | Dedicated per-device HDHomeRun HTTP/HTTPS listener worker |
+| SiliconDust | `Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryRuntime` | Trusted snapshot reconciler for the shared isolated discovery process |
+| SiliconDust | `Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryHost` | Shared isolated UDP 65001 and SSDP 1900 discovery worker |
+| Web Player | `Lineup.Plugin.WebPlayer` | Built-in Web Player contracts, browser capability policy, and shared CMAF output lifecycle |
+| Web Player | `Lineup.Plugin.WebPlayer.FFmpeg` | FFmpeg CMAF planning, HLS/DASH manifest processing, and browser playback-test generation |
+| Web Player | `Lineup.Plugin.WebPlayer.VirtualOutputHost` | Dedicated CMAF/HLS/DASH media listener and FFmpeg worker |
 
 ## Building from source
 
@@ -307,7 +307,7 @@ The script verifies the official release checksum and installs `ffmpeg.exe` and 
 ### Running the Web App
 
 ```bash
-cd src/Apps/Lineup.Web
+cd src/Apps/Lineup.App.Web
 dotnet run
 ```
 
@@ -316,7 +316,7 @@ The app starts on `http://localhost:8080` by default. Persistent application dat
 ### Running the TUI
 
 ```bash
-cd src/Apps/Lineup.Tui
+cd src/Apps/Lineup.App.Tui
 dotnet run
 ```
 

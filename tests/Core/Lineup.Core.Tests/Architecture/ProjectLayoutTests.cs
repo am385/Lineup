@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Xunit;
 
@@ -9,24 +10,24 @@ public sealed class ProjectLayoutTests
     private static readonly IReadOnlySet<string> PluginSupportProjects =
         new HashSet<string>(
         [
-            "Lineup.SiliconDust.HDHomeRun.Api",
-            "Lineup.SiliconDust.HDHomeRun.Device",
-            "Lineup.GuideOutputs.Json",
-            "Lineup.GuideOutputs.Xmltv",
-            "Lineup.WebPlayer",
-            "Lineup.WebPlayer.FFmpeg",
-            "Lineup.LineupLink",
-            "Lineup.SiliconDust.HDHomeRun.VirtualTuner"
+            "Lineup.Plugin.SiliconDust.HDHomeRun.Api",
+            "Lineup.Plugin.SiliconDust.HDHomeRun.Device",
+            "Lineup.Plugin.GuideOutputs.Json",
+            "Lineup.Plugin.GuideOutputs.Xmltv",
+            "Lineup.Plugin.WebPlayer",
+            "Lineup.Plugin.WebPlayer.FFmpeg",
+            "Lineup.Plugin.LineupLink",
+            "Lineup.Plugin.SiliconDust.HDHomeRun.VirtualTuner"
         ], StringComparer.OrdinalIgnoreCase);
 
     private static readonly IReadOnlySet<string> PluginCoreDependencies =
         new HashSet<string>(
         [
-            "Lineup.Common",
-            "Lineup.Extensibility",
-            "Lineup.Streaming.FFmpeg",
-            "Lineup.VirtualOutputs.Hosting",
-            "Lineup.VirtualOutputs.Protocol"
+            "Lineup.Core.Common",
+            "Lineup.Core.Extensibility",
+            "Lineup.Core.Streaming.FFmpeg",
+            "Lineup.Core.VirtualOutputs.Hosting",
+            "Lineup.Core.VirtualOutputs.Protocol"
         ], StringComparer.OrdinalIgnoreCase);
 
     private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> AllowedDependencies =
@@ -36,6 +37,134 @@ public sealed class ProjectLayoutTests
             ["Core"] = new HashSet<string>(["Core"], StringComparer.OrdinalIgnoreCase),
             ["Plugins"] = new HashSet<string>(["Core", "Plugins"], StringComparer.OrdinalIgnoreCase)
         };
+
+    /// <summary>Verifies project files, folders, namespaces, and output identities use matching role-based names.</summary>
+    [Fact]
+    public void ProjectIdentities_MatchRoleAndNamespace()
+    {
+        // Arrange
+        var repositoryRoot = GetRepositoryRoot();
+        var projects = new[] { "src", "tests", "scripts" }
+            .SelectMany(folder => GetProjects(Path.Combine(repositoryRoot, folder)))
+            .ToArray();
+
+        // Act
+        var violations = projects.SelectMany(project =>
+        {
+            var name = Path.GetFileNameWithoutExtension(project);
+            var directory = Path.GetDirectoryName(project)!;
+            var segments = Path.GetRelativePath(repositoryRoot, project).Split(Path.DirectorySeparatorChar);
+            var role = segments[0] == "scripts" ? "Tools" : segments[1] switch
+            {
+                "Apps" => "App",
+                "Plugins" => "Plugin",
+                var value => value
+            };
+            var errors = new List<string>();
+            if (Path.GetFileName(directory) != name || (name != $"Lineup.{role}" && !name.StartsWith($"Lineup.{role}.", StringComparison.Ordinal)))
+            {
+                errors.Add(project);
+            }
+            foreach (var property in XDocument.Load(project).Descendants().Where(element => element.Name.LocalName is "RootNamespace" or "AssemblyName"))
+            {
+                if (property.Value != name)
+                {
+                    errors.Add($"{name}: {property.Name} = {property.Value}");
+                }
+            }
+            foreach (var source in Directory.GetFiles(directory, "*.cs", SearchOption.AllDirectories)
+                .Where(path => !Path.GetRelativePath(directory, path).Split(Path.DirectorySeparatorChar).Any(segment => segment is "bin" or "obj")))
+            {
+                foreach (Match declaration in Regex.Matches(File.ReadAllText(source), @"(?m)^\s*namespace\s+([A-Za-z_][A-Za-z0-9_.]*)\s*[;{]"))
+                {
+                    var sourceNamespace = declaration.Groups[1].Value;
+                    if (sourceNamespace != name && !sourceNamespace.StartsWith($"{name}.", StringComparison.Ordinal))
+                    {
+                        errors.Add($"{source}: {sourceNamespace}");
+                    }
+                }
+            }
+            return errors;
+        }).ToArray();
+
+        // Assert
+        Assert.NotEmpty(projects);
+        Assert.Empty(violations);
+    }
+
+    /// <summary>Verifies automated tests use their referenced subject project's name followed by Tests.</summary>
+    [Fact]
+    public void TestProjectNames_MatchReferencedSubject()
+    {
+        // Arrange
+        var repositoryRoot = GetRepositoryRoot();
+        var projects = GetProjects(Path.Combine(repositoryRoot, "tests"))
+            .Where(project => XDocument.Load(project).Descendants().Any(element => element.Name.LocalName == "IsTestProject" && element.Value == "true"))
+            .ToArray();
+
+        // Act
+        var violations = projects.Where(project =>
+        {
+            var name = Path.GetFileNameWithoutExtension(project);
+            return !name.EndsWith(".Tests", StringComparison.Ordinal)
+                || !XDocument.Load(project).Descendants()
+                    .Where(element => element.Name.LocalName == "ProjectReference")
+                    .Select(element => element.Attribute("Include")?.Value)
+                    .OfType<string>()
+                    .Select(reference => Path.GetFileNameWithoutExtension(ResolveProjectReference(project, reference)))
+                    .Contains(name[..^".Tests".Length], StringComparer.Ordinal);
+        }).ToArray();
+
+        // Assert
+        Assert.NotEmpty(projects);
+        Assert.Empty(violations);
+    }
+
+    /// <summary>Verifies every project reference, including test helpers and build tools, resolves after renaming.</summary>
+    [Fact]
+    public void AllProjectReferences_ResolveToExistingProjects()
+    {
+        // Arrange
+        var repositoryRoot = GetRepositoryRoot();
+        var projects = new[] { "src", "tests", "scripts" }
+            .SelectMany(folder => GetProjects(Path.Combine(repositoryRoot, folder)))
+            .ToArray();
+
+        // Act
+        var violations = projects.SelectMany(project => XDocument.Load(project).Descendants()
+            .Where(element => element.Name.LocalName == "ProjectReference")
+            .Select(element => element.Attribute("Include")?.Value)
+            .OfType<string>()
+            .Where(reference => !File.Exists(ResolveProjectReference(project, reference)))
+            .Select(reference => $"{project} -> {reference}")).ToArray();
+
+        // Assert
+        Assert.NotEmpty(projects);
+        Assert.Empty(violations);
+    }
+
+    /// <summary>Verifies Web assets and release entrypoints use the matching stylesheet and executable identities.</summary>
+    [Fact]
+    public void WebDistributionReferences_MatchProjectIdentity()
+    {
+        // Arrange
+        var repositoryRoot = GetRepositoryRoot();
+        var webProject = Path.Combine(repositoryRoot, "src", "Apps", "Lineup.App.Web", "Lineup.App.Web.csproj");
+        var name = Path.GetFileNameWithoutExtension(webProject);
+        var app = File.ReadAllText(Path.Combine(Path.GetDirectoryName(webProject)!, "Components", "App.razor"));
+        var dockerfile = File.ReadAllText(Path.Combine(repositoryRoot, "Dockerfile"));
+        var launcher = File.ReadAllText(Path.Combine(repositoryRoot, "packaging", "windows", "Start-Lineup.cmd"));
+
+        // Act
+        var stylesheet = $"{name}.styles.css";
+        var dockerEntrypoint = $"ENTRYPOINT [\"dotnet\", \"{name}.dll\"]";
+        var executable = $"app\\{name}.exe";
+
+        // Assert
+        Assert.Contains(stylesheet, app, StringComparison.Ordinal);
+        Assert.Contains(dockerEntrypoint, dockerfile, StringComparison.Ordinal);
+        Assert.Contains(executable, launcher, StringComparison.Ordinal);
+    }
 
     /// <summary>Verifies every source project belongs to one recognized architectural layer.</summary>
     [Fact]
@@ -98,7 +227,7 @@ public sealed class ProjectLayoutTests
     {
         // Arrange
         var repositoryRoot = GetRepositoryRoot();
-        var webProject = Path.Combine(repositoryRoot, "src", "Apps", "Lineup.Web", "Lineup.Web.csproj");
+        var webProject = Path.Combine(repositoryRoot, "src", "Apps", "Lineup.App.Web", "Lineup.App.Web.csproj");
         var reference = XDocument.Load(webProject)
             .Descendants()
             .Where(element => element.Name.LocalName == "ProjectReference")
@@ -163,7 +292,7 @@ public sealed class ProjectLayoutTests
         // Assert
         Assert.NotEmpty(integrationProjects);
         Assert.All(integrationProjects, project => Assert.DoesNotContain(project, solutionProjects));
-        Assert.Contains("tests/Integration/Lineup.Streaming.Sweep.Tests/Lineup.Streaming.Sweep.Tests.csproj", solutionProjects);
+        Assert.Contains("tests/Integration/Lineup.Integration.Streaming.Sweep.Tests/Lineup.Integration.Streaming.Sweep.Tests.csproj", solutionProjects);
     }
 
     /// <summary>Verifies network-facing worker executables do not directly reference trusted implementation layers or applications.</summary>
@@ -187,7 +316,7 @@ public sealed class ProjectLayoutTests
                 .Select(element => element.Attribute("Include")?.Value)
                 .Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => Path.GetFileNameWithoutExtension(value))
-                .Where(name => name is "Lineup.Core" or "Lineup.Core.Hosting" or "Lineup.Streaming.FFmpeg" or "Lineup.Web" or "Lineup.Tui")
+                .Where(name => name is "Lineup.Core" or "Lineup.Core.Hosting" or "Lineup.Core.Streaming.FFmpeg" or "Lineup.App.Web" or "Lineup.App.Tui")
                 .Select(name => $"{Path.GetFileName(project)} -> {name}"))
             .ToArray();
 
@@ -202,7 +331,7 @@ public sealed class ProjectLayoutTests
     {
         // Arrange
         var repositoryRoot = GetRepositoryRoot();
-        var webServices = Path.Combine(repositoryRoot, "src", "Apps", "Lineup.Web", "Services");
+        var webServices = Path.Combine(repositoryRoot, "src", "Apps", "Lineup.App.Web", "Services");
 
         // Act
         var violations = new[]
@@ -223,12 +352,12 @@ public sealed class ProjectLayoutTests
         // Arrange
         var repositoryRoot = GetRepositoryRoot();
         var targetPath = Path.Combine(repositoryRoot, "build", "Lineup.Host.VirtualOutputWorkers.targets");
-        var packagerProject = Path.Combine(repositoryRoot, "scripts", "Lineup.VirtualOutputWorkerPackager", "Lineup.VirtualOutputWorkerPackager.csproj");
+        var packagerProject = Path.Combine(repositoryRoot, "scripts", "Lineup.Tools.VirtualOutputWorkerPackager", "Lineup.Tools.VirtualOutputWorkerPackager.csproj");
         var expectedImport = @"..\..\..\build\Lineup.Host.VirtualOutputWorkers.targets";
         var hostProjects = new[]
         {
-            Path.Combine(repositoryRoot, "src", "Apps", "Lineup.Web", "Lineup.Web.csproj"),
-            Path.Combine(repositoryRoot, "src", "Apps", "Lineup.Tui", "Lineup.Tui.csproj")
+            Path.Combine(repositoryRoot, "src", "Apps", "Lineup.App.Web", "Lineup.App.Web.csproj"),
+            Path.Combine(repositoryRoot, "src", "Apps", "Lineup.App.Tui", "Lineup.App.Tui.csproj")
         };
 
         // Act
@@ -308,7 +437,7 @@ public sealed class ProjectLayoutTests
     {
         // Arrange
         var repositoryRoot = GetRepositoryRoot();
-        var program = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Apps", "Lineup.Web", "Program.cs"));
+        var program = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Apps", "Lineup.App.Web", "Program.cs"));
 
         // Act
         var forwardedHeadersIndex = program.IndexOf("app.UseForwardedHeaders", StringComparison.Ordinal);
@@ -349,13 +478,13 @@ public sealed class ProjectLayoutTests
 
         var sourceProjectName = Path.GetFileNameWithoutExtension(sourceProject);
         var targetProjectName = Path.GetFileNameWithoutExtension(targetPath);
-        if (string.Equals(sourceProjectName, "Lineup.Common", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(sourceProjectName, "Lineup.Core.Common", StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
-        if (string.Equals(sourceProjectName, "Lineup.Extensibility", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(sourceProjectName, "Lineup.Core.Extensibility", StringComparison.OrdinalIgnoreCase))
         {
-            return string.Equals(targetProjectName, "Lineup.Common", StringComparison.OrdinalIgnoreCase);
+            return string.Equals(targetProjectName, "Lineup.Core.Common", StringComparison.OrdinalIgnoreCase);
         }
 
         var targetLayer = GetLayer(sourceRoot, targetPath);
@@ -371,8 +500,8 @@ public sealed class ProjectLayoutTests
 
         if (string.Equals(targetLayer, "Core", StringComparison.OrdinalIgnoreCase))
         {
-            if (string.Equals(sourceProjectName, "Lineup.SiliconDust.HDHomeRun.DiscoveryRuntime", StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(targetProjectName, "Lineup.VirtualOutputs.Runtime", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(sourceProjectName, "Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryRuntime", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(targetProjectName, "Lineup.Core.VirtualOutputs.Runtime", StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
@@ -389,7 +518,7 @@ public sealed class ProjectLayoutTests
     private static bool IsOptInHardwareIntegrationProject(string repositoryRoot, string projectPath) =>
         Normalize(Path.GetRelativePath(repositoryRoot, projectPath)).StartsWith("tests/Integration/", StringComparison.OrdinalIgnoreCase)
         && !Normalize(Path.GetRelativePath(repositoryRoot, projectPath))
-            .Equals("tests/Integration/Lineup.Streaming.Sweep.Tests/Lineup.Streaming.Sweep.Tests.csproj", StringComparison.OrdinalIgnoreCase);
+            .Equals("tests/Integration/Lineup.Integration.Streaming.Sweep.Tests/Lineup.Integration.Streaming.Sweep.Tests.csproj", StringComparison.OrdinalIgnoreCase);
 
     private static string Normalize(string path) => path.Replace('\\', '/');
 

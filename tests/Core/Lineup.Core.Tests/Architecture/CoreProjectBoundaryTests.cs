@@ -71,7 +71,7 @@ public sealed class CoreProjectBoundaryTests
     public void WebSource_DoesNotDeclareVirtualHdHomeRunProviderTypes()
     {
         // Arrange
-        var sourceDirectory = Path.Combine(GetRepositoryRoot(), "src", "Apps", "Lineup.Web");
+        var sourceDirectory = Path.Combine(GetRepositoryRoot(), "src", "Apps", "Lineup.App.Web");
         var sourceFiles = Directory.GetFiles(sourceDirectory, "*.cs", SearchOption.AllDirectories);
 
         // Act

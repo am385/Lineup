@@ -15,4 +15,4 @@ which is licensed under the MIT License:
 https://github.com/dotnet/runtime
 
 Lineup's own license is included as LICENSE.txt. Additional managed dependency
-information is recorded in app\Lineup.Web.deps.json.
+information is recorded in app\Lineup.App.Web.deps.json.

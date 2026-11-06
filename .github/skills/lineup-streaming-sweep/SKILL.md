@@ -5,11 +5,11 @@ description: Run and interpret Lineup's manually invoked Docker and HDHomeRun st
 
 # Lineup streaming sweep
 
-Use the checked-in harness at `tests/Integration/Lineup.Streaming.Sweep`. Its synthetic HDHomeRun-compatible test server is the sibling project at `tests/Integration/Lineup.Streaming.Sweep.FaultSource`; the harness publishes it automatically for fault scenarios.
+Use the checked-in harness at `tests/Integration/Lineup.Integration.Streaming.Sweep`. Its synthetic HDHomeRun-compatible test server is the sibling project at `tests/Integration/Lineup.Integration.Streaming.Sweep.FaultSource`; the harness publishes it automatically for fault scenarios.
 
 ## Safety rules
 
-- Never add the live executable or fault source as solution/CI entry points. The separate non-live `Lineup.Streaming.Sweep.Tests` project is in the normal gate.
+- Never add the live executable or fault source as solution/CI entry points. The separate non-live `Lineup.Integration.Streaming.Sweep.Tests` project is in the normal gate.
 - Never hard-code a tuner address, browser path, output path, or machine-specific repository path.
 - Do not run multiple sweeps concurrently. Each run requires exclusive access to the physical tuners.
 - Docker matrices require all discovered tuner receivers idle; no four-tuner assumption. Existing-instance mode preserves and verifies the pre-existing viewer baseline instead of requiring globally zero streams.
@@ -44,7 +44,7 @@ Use `execute-fresh` only when the user explicitly requests a new full sweep. Pre
 
 ## Prepare a live run
 
-1. Read `tests/Integration/Lineup.Streaming.Sweep/README.md` for the authoritative command/options/exit contract. Existing-instance and offline modes do not require Docker or a tuner environment variable.
+1. Read `tests/Integration/Lineup.Integration.Streaming.Sweep/README.md` for the authoritative command/options/exit contract. Existing-instance and offline modes do not require Docker or a tuner environment variable.
 2. For Docker modes, confirm Docker is available.
 3. For Docker modes, require `LINEUP_SWEEP_TUNER_ADDRESS`. If it is unset and the user has not supplied the tuner address, ask for it rather than guessing.
 4. For Docker modes, build a current image from the repository root:
@@ -60,13 +60,13 @@ Use `execute-fresh` only when the user explicitly requests a new full sweep. Pre
 6. Build the harness:
 
    ```powershell
-   dotnet build tests\Integration\Lineup.Streaming.Sweep\Lineup.Streaming.Sweep.csproj -c Release
+   dotnet build tests\Integration\Lineup.Integration.Streaming.Sweep\Lineup.Integration.Streaming.Sweep.csproj -c Release
    ```
 
    For synthetic fault scenarios, also verify the sibling source builds:
 
    ```powershell
-   dotnet build tests\Integration\Lineup.Streaming.Sweep.FaultSource\Lineup.Streaming.Sweep.FaultSource.csproj -c Release
+   dotnet build tests\Integration\Lineup.Integration.Streaming.Sweep.FaultSource\Lineup.Integration.Streaming.Sweep.FaultSource.csproj -c Release
    ```
 
 ## Execute
@@ -74,7 +74,7 @@ Use `execute-fresh` only when the user explicitly requests a new full sweep. Pre
 Run from the repository root:
 
 ```powershell
-dotnet run --project tests\Integration\Lineup.Streaming.Sweep\Lineup.Streaming.Sweep.csproj -c Release --no-build -- <command> [channels]
+dotnet run --project tests\Integration\Lineup.Integration.Streaming.Sweep\Lineup.Integration.Streaming.Sweep.csproj -c Release --no-build -- <command> [channels]
 ```
 
 Do not impose an external timeout shorter than the harness operation. A full sweep can take hours. Use the process output and generated event journal for status rather than interrupting a healthy run.

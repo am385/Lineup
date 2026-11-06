@@ -1,6 +1,6 @@
-using Lineup.Common.Guides;
-using Lineup.Common.Networking;
-using Lineup.Extensibility.Guides;
+using Lineup.Core.Common.Guides;
+using Lineup.Core.Common.Networking;
+using Lineup.Core.Extensibility.Guides;
 using System.Net;
 
 namespace Lineup.Core.Streaming;

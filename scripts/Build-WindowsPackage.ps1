@@ -56,7 +56,7 @@ New-Item -ItemType Directory -Force -Path $packageDirectory | Out-Null
 
 $publishArguments = @(
     'publish',
-    (Join-Path $repositoryRoot 'src\Apps\Lineup.Web\Lineup.Web.csproj'),
+    (Join-Path $repositoryRoot 'src\Apps\Lineup.App.Web\Lineup.App.Web.csproj'),
     '--configuration',
     'Release',
     '--runtime',

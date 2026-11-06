@@ -17,15 +17,15 @@ set "Lineup__TransientPath=%LINEUP_DATA_ROOT%\transient"
 
 if /I "%~1"=="--validate-configuration" exit /b 0
 
-if not exist "%~dp0app\Lineup.Web.exe" (
-    echo Lineup.Web.exe is missing. Extract the complete ZIP before starting Lineup.
+if not exist "%~dp0app\Lineup.App.Web.exe" (
+    echo Lineup.App.Web.exe is missing. Extract the complete ZIP before starting Lineup.
     goto :error
 )
 
 start "" /B powershell.exe -NoProfile -WindowStyle Hidden -Command "Start-Sleep -Seconds 3; Start-Process 'http://localhost:8080'"
 
 pushd "%~dp0app"
-"%~dp0app\Lineup.Web.exe"
+"%~dp0app\Lineup.App.Web.exe"
 set "LINEUP_EXIT_CODE=%ERRORLEVEL%"
 popd
 

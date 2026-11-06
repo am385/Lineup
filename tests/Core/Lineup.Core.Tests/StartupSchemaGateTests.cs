@@ -1,7 +1,7 @@
 using Lineup.Core.Settings;
 using Lineup.Core.Storage;
-using Lineup.Common.Streaming;
-using Lineup.Extensibility.Streaming;
+using Lineup.Core.Common.Streaming;
+using Lineup.Core.Extensibility.Streaming;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;

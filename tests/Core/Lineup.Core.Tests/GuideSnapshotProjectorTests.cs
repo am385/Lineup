@@ -1,5 +1,5 @@
-using Lineup.Common.Guides;
-using Lineup.Extensibility.Guides;
+using Lineup.Core.Common.Guides;
+using Lineup.Core.Extensibility.Guides;
 using Xunit;
 
 namespace Lineup.Core.Tests;

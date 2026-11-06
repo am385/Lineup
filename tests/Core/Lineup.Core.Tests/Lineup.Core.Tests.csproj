@@ -24,12 +24,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\src\Core\Lineup.Extensibility\Lineup.Extensibility.csproj" />
+    <ProjectReference Include="..\..\..\src\Core\Lineup.Core.Extensibility\Lineup.Core.Extensibility.csproj" />
     <ProjectReference Include="..\..\..\src\Core\Lineup.Core\Lineup.Core.csproj" />
-    <ProjectReference Include="..\..\..\src\Plugins\GuideOutputs\Lineup.GuideOutputs.Json\Lineup.GuideOutputs.Json.csproj" />
-    <ProjectReference Include="..\..\..\src\Plugins\GuideOutputs\Lineup.GuideOutputs.Json.Plugin\Lineup.GuideOutputs.Json.Plugin.csproj" />
-    <ProjectReference Include="..\..\..\src\Plugins\GuideOutputs\Lineup.GuideOutputs.Xmltv\Lineup.GuideOutputs.Xmltv.csproj" />
-    <ProjectReference Include="..\..\..\src\Plugins\GuideOutputs\Lineup.GuideOutputs.Xmltv.Plugin\Lineup.GuideOutputs.Xmltv.Plugin.csproj" />
+    <ProjectReference Include="..\..\..\src\Plugins\GuideOutputs\Lineup.Plugin.GuideOutputs.Json\Lineup.Plugin.GuideOutputs.Json.csproj" />
+    <ProjectReference Include="..\..\..\src\Plugins\GuideOutputs\Lineup.Plugin.GuideOutputs.Json.Plugin\Lineup.Plugin.GuideOutputs.Json.Plugin.csproj" />
+    <ProjectReference Include="..\..\..\src\Plugins\GuideOutputs\Lineup.Plugin.GuideOutputs.Xmltv\Lineup.Plugin.GuideOutputs.Xmltv.csproj" />
+    <ProjectReference Include="..\..\..\src\Plugins\GuideOutputs\Lineup.Plugin.GuideOutputs.Xmltv.Plugin\Lineup.Plugin.GuideOutputs.Xmltv.Plugin.csproj" />
   </ItemGroup>
 
 </Project>

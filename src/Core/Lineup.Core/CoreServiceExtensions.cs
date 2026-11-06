@@ -1,8 +1,8 @@
 using Lineup.Core.Storage;
-using Lineup.Common.Streaming;
-using Lineup.Extensibility.Streaming;
-using Lineup.Common.Guides;
-using Lineup.Extensibility.Guides;
+using Lineup.Core.Common.Streaming;
+using Lineup.Core.Extensibility.Streaming;
+using Lineup.Core.Common.Guides;
+using Lineup.Core.Extensibility.Guides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;

@@ -1,7 +1,7 @@
-using Lineup.Common.Configuration;
-using Lineup.Extensibility.Configuration;
-using Lineup.Common.Guides;
-using Lineup.Extensibility.Guides;
+using Lineup.Core.Common.Configuration;
+using Lineup.Core.Extensibility.Configuration;
+using Lineup.Core.Common.Guides;
+using Lineup.Core.Extensibility.Guides;
 
 namespace Lineup.Core.Streaming;
 

@@ -1,18 +1,18 @@
 <Project>
   <PropertyGroup>
     <LineupRepositoryRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</LineupRepositoryRoot>
-    <LineupVirtualOutputWorkerPackager>$([System.IO.Path]::Combine('$(LineupRepositoryRoot)', 'scripts', 'Lineup.VirtualOutputWorkerPackager', 'Lineup.VirtualOutputWorkerPackager.csproj'))</LineupVirtualOutputWorkerPackager>
+    <LineupVirtualOutputWorkerPackager>$([System.IO.Path]::Combine('$(LineupRepositoryRoot)', 'scripts', 'Lineup.Tools.VirtualOutputWorkerPackager', 'Lineup.Tools.VirtualOutputWorkerPackager.csproj'))</LineupVirtualOutputWorkerPackager>
     <LineupWorkerPackagerRuntimeArguments Condition="'$(RuntimeIdentifier)' != ''">--runtime &quot;$(RuntimeIdentifier)&quot;</LineupWorkerPackagerRuntimeArguments>
     <LineupWorkerPackagerSelfContainedArgument Condition="'$(SelfContained)' == 'true'">--self-contained</LineupWorkerPackagerSelfContainedArgument>
     <LineupWorkerPackagerSourceRevisionArgument Condition="'$(SourceRevisionId)' != ''">--source-revision &quot;$(SourceRevisionId)&quot;</LineupWorkerPackagerSourceRevisionArgument>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(SkipVirtualOutputWorkerPublish)' != 'true'">
-    <_LineupBuiltInWorker Include="lineup-link" AssemblyName="Lineup.LineupLink.VirtualOutputHost" />
-    <_LineupBuiltInWorker Include="hdhomerun" AssemblyName="Lineup.SiliconDust.HDHomeRun.VirtualOutputHost" />
-    <_LineupBuiltInWorker Include="hdhomerun-discovery" AssemblyName="Lineup.SiliconDust.HDHomeRun.DiscoveryHost" />
-    <_LineupBuiltInWorker Include="web-player" AssemblyName="Lineup.WebPlayer.VirtualOutputHost" />
-    <UpToDateCheckInput Include="$(LineupRepositoryRoot)\src\**\*;$(LineupRepositoryRoot)\build\**\*;$(LineupRepositoryRoot)\scripts\Lineup.VirtualOutputWorkerPackager\**\*;$(LineupRepositoryRoot)\*.props;$(LineupRepositoryRoot)\*.targets;$(LineupRepositoryRoot)\NuGet.Config;$(LineupRepositoryRoot)\global.json;$(LineupRepositoryRoot)\.editorconfig"
+    <_LineupBuiltInWorker Include="lineup-link" AssemblyName="Lineup.Plugin.LineupLink.VirtualOutputHost" />
+    <_LineupBuiltInWorker Include="hdhomerun" AssemblyName="Lineup.Plugin.SiliconDust.HDHomeRun.VirtualOutputHost" />
+    <_LineupBuiltInWorker Include="hdhomerun-discovery" AssemblyName="Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryHost" />
+    <_LineupBuiltInWorker Include="web-player" AssemblyName="Lineup.Plugin.WebPlayer.VirtualOutputHost" />
+    <UpToDateCheckInput Include="$(LineupRepositoryRoot)\src\**\*;$(LineupRepositoryRoot)\build\**\*;$(LineupRepositoryRoot)\scripts\Lineup.Tools.VirtualOutputWorkerPackager\**\*;$(LineupRepositoryRoot)\*.props;$(LineupRepositoryRoot)\*.targets;$(LineupRepositoryRoot)\NuGet.Config;$(LineupRepositoryRoot)\global.json;$(LineupRepositoryRoot)\.editorconfig"
                         Set="VirtualOutputPackaging"
                         Exclude="$(LineupRepositoryRoot)\**\bin\**;$(LineupRepositoryRoot)\**\obj\**" />
     <UpToDateCheckOutput Include="$(OutputPath)virtual-output-workers\packaging.stamp" Set="VirtualOutputPackaging" />

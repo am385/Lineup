@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.12" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Core\Lineup.Core.Common\Lineup.Core.Common.csproj" />
+    <ProjectReference Include="..\..\..\Core\Lineup.Core.Extensibility\Lineup.Core.Extensibility.csproj" />
+    <ProjectReference Include="..\Lineup.Plugin.GuideOutputs.Xmltv\Lineup.Plugin.GuideOutputs.Xmltv.csproj" />
+  </ItemGroup>
+</Project>

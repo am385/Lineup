@@ -1,7 +1,7 @@
-using Lineup.GuideOutputs.Json;
-using Lineup.GuideOutputs.Json.Plugin;
-using Lineup.GuideOutputs.Xmltv;
-using Lineup.GuideOutputs.Xmltv.Plugin;
+using Lineup.Plugin.GuideOutputs.Json;
+using Lineup.Plugin.GuideOutputs.Json.Plugin;
+using Lineup.Plugin.GuideOutputs.Xmltv;
+using Lineup.Plugin.GuideOutputs.Xmltv.Plugin;
 using Xunit;
 
 namespace Lineup.Core.Tests.Architecture;
@@ -28,8 +28,8 @@ public sealed class AssemblyDependencyTests
 
         // Assert
         Assert.Empty(actual["common"]);
-        Assert.Equal(["Lineup.Common"], actual["json"]);
-        Assert.Equal(["Lineup.Common"], actual["xmltv"]);
+        Assert.Equal(["Lineup.Core.Common"], actual["json"]);
+        Assert.Equal(["Lineup.Core.Common"], actual["xmltv"]);
     }
 
     /// <summary>Verifies Guide Output plugins depend on their public format library and extension boundary.</summary>
@@ -48,8 +48,8 @@ public sealed class AssemblyDependencyTests
         };
 
         // Assert
-        Assert.Equal(["Lineup.Common", "Lineup.Extensibility", "Lineup.GuideOutputs.Json"], actual["json"]);
-        Assert.Equal(["Lineup.Common", "Lineup.Extensibility", "Lineup.GuideOutputs.Xmltv"], actual["xmltv"]);
+        Assert.Equal(["Lineup.Core.Common", "Lineup.Core.Extensibility", "Lineup.Plugin.GuideOutputs.Json"], actual["json"]);
+        Assert.Equal(["Lineup.Core.Common", "Lineup.Core.Extensibility", "Lineup.Plugin.GuideOutputs.Xmltv"], actual["xmltv"]);
     }
 
     private static IReadOnlyList<string> GetLineupReferences(System.Reflection.Assembly assembly) =>

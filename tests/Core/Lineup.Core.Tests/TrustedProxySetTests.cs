@@ -1,4 +1,4 @@
-using Lineup.Common.Networking;
+using Lineup.Core.Common.Networking;
 using Xunit;
 
 namespace Lineup.Core.Tests;

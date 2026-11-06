@@ -1,7 +1,7 @@
 using System.Threading.Channels;
 using Lineup.Core.Settings;
-using Lineup.Common.Streaming;
-using Lineup.Extensibility.Streaming;
+using Lineup.Core.Common.Streaming;
+using Lineup.Core.Extensibility.Streaming;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 

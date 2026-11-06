@@ -13,7 +13,7 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Lineup.Core.Tests" />
-    <ProjectReference Include="..\Lineup.Common\Lineup.Common.csproj" />
-    <ProjectReference Include="..\Lineup.Extensibility\Lineup.Extensibility.csproj" />
+    <ProjectReference Include="..\Lineup.Core.Common\Lineup.Core.Common.csproj" />
+    <ProjectReference Include="..\Lineup.Core.Extensibility\Lineup.Core.Extensibility.csproj" />
   </ItemGroup>
 </Project>

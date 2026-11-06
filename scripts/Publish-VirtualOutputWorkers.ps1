@@ -26,7 +26,7 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
 $packagerArguments = @(
     'run',
     '--project',
-    (Join-Path $PSScriptRoot 'Lineup.VirtualOutputWorkerPackager\Lineup.VirtualOutputWorkerPackager.csproj'),
+    (Join-Path $PSScriptRoot 'Lineup.Tools.VirtualOutputWorkerPackager\Lineup.Tools.VirtualOutputWorkerPackager.csproj'),
     '--configuration',
     'Release',
     '--no-launch-profile',
