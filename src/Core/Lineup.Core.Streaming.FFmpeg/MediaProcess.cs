@@ -136,7 +136,7 @@ public static class MediaStreamPump
         {
             try
             {
-                process.StandardInput.Close();
+                process.StandardInput.BaseStream.Close();
             }
             catch (ObjectDisposedException)
             {

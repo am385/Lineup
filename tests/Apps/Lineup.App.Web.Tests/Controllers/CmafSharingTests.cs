@@ -87,6 +87,8 @@ public sealed class CmafSharingTests
         Assert.Equal(StatusCodes.Status502BadGateway, Assert.IsType<ObjectResult>(result).StatusCode);
         Assert.False(fixture.IsEncoderRunning);
         Assert.False(fixture.HasEncoderDirectory);
+        Assert.Empty(fixture.Outputs.GetDiagnostics());
+        Assert.Empty(fixture.ActiveStreams.GetActiveStreams());
     }
 
     /// <summary>Verifies distinct viewers share media but retain separate URLs, diagnostics, and stop ownership.</summary>

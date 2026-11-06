@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Lineup.Core.Streaming.FFmpeg;
 using Lineup.Plugin.WebPlayer.VirtualOutputHost;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace Lineup.Plugin.WebPlayer.Tests;
@@ -50,20 +51,26 @@ public sealed class DedicatedMediaReadinessTests
         }
     }
 
-    /// <summary>Verifies readiness preserves a failed child's exit code and bounded diagnostics rather than a generic process-exited error.</summary>
-    [Fact]
-    public async Task WaitAsync_ProcessorExits_RetainsExitDiagnostics()
+    /// <summary>Verifies readiness preserves a failed child's exit diagnostics, including when its input pipe is closed after exit.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task WaitAsync_ProcessorExits_RetainsExitDiagnostics(bool pumpInput)
     {
         // Arrange
         var root = Directory.CreateTempSubdirectory("lineup-readiness-exit-");
         using var process = StartWaitingProcess("diagnostics", "65536", "234", "exit");
         var diagnostics = MediaProcessDiagnostics.ReadTailAsync(process.StandardError, TestContext.Current.CancellationToken);
         await process.WaitForExitAsync(TestContext.Current.CancellationToken);
+        using var input = new MemoryStream(new byte[64 * 1024]);
+        var inputTask = pumpInput
+            ? MediaStreamPump.PumpAsync(input, process, NullLogger.Instance, "readiness-test", TestContext.Current.CancellationToken)
+            : null;
         try
         {
             // Act
             var exception = await Record.ExceptionAsync(() => DedicatedMediaReadiness.WaitAsync(
-                process, diagnostics, null, Path.Combine(root.FullName, "manifest.mpd"), Path.Combine(root.FullName, "master.m3u8"),
+                process, diagnostics, inputTask, Path.Combine(root.FullName, "manifest.mpd"), Path.Combine(root.FullName, "master.m3u8"),
                 2, TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
 
             // Assert
@@ -71,6 +78,10 @@ public sealed class DedicatedMediaReadinessTests
             Assert.Contains("234", failure.Message, StringComparison.Ordinal);
             Assert.Equal(234, failure.Data["ExitCode"]);
             Assert.EndsWith("final-error", Assert.IsType<string>(failure.Data["Diagnostics"]), StringComparison.Ordinal);
+            if (inputTask is not null)
+            {
+                await inputTask;
+            }
         }
         finally
         {

@@ -563,6 +563,10 @@ public class StreamController : ControllerBase
                 return new EmptyResult();
             }
             var result = await sharedOutput.Response;
+            if (result is not OkObjectResult)
+            {
+                await sharedOutput.Stopped;
+            }
             return result is OkObjectResult { Value: CmafStreamResponse response } ? Ok(RebaseCmafResponse(response, sessionId)) : result;
         }
         catch (OperationCanceledException) when (startupToken.IsCancellationRequested && ownsProducer)
@@ -1323,6 +1327,7 @@ public class StreamController : ControllerBase
             try
             {
                 process.Kill(entireProcessTree: true);
+                process.WaitForExit();
             }
             catch (Exception exception) when (exception is InvalidOperationException or NotSupportedException or System.ComponentModel.Win32Exception)
             {
@@ -1850,6 +1855,9 @@ public class StreamController : ControllerBase
 
         /// <summary>Gets the producer's terminal startup result shared by all viewers.</summary>
         public Task<IActionResult> Response => _response.Task;
+
+        /// <summary>Gets completion after the producer's processes and output artifacts have been released.</summary>
+        public Task Stopped => _stopped.Task;
 
         /// <summary>Gets cancellation when the coordinator releases the producer.</summary>
         public CancellationToken LifetimeToken => _lifetimeToken;

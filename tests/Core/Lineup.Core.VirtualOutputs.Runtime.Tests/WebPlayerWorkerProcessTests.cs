@@ -618,6 +618,8 @@ public sealed class WebPlayerWorkerProcessTests
         {
             Client.Dispose();
             await KillWorkerAsync();
+            TestContext.Current.TestOutputHelper?.WriteLine($"Worker stdout:{Environment.NewLine}{await _workerOutput}");
+            TestContext.Current.TestOutputHelper?.WriteLine($"Worker stderr:{Environment.NewLine}{await _workerError}");
             await _server.StopAsync(CancellationToken.None);
             _server.Dispose();
             _authority.Dispose();

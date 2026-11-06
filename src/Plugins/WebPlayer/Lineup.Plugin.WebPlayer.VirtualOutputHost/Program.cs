@@ -434,7 +434,7 @@ static async Task PumpInputAsync(MediaSession session)
                 catch (Exception exception) when (exception is IOException or ObjectDisposedException)
                 {
                     captionInputAvailable = false;
-                    session.CaptionProcess!.StandardInput.Close();
+                    session.CaptionProcess!.StandardInput.BaseStream.Close();
                 }
             }
         }
@@ -448,8 +448,8 @@ static async Task PumpInputAsync(MediaSession session)
     }
     finally
     {
-        session.Process.StandardInput.Close();
-        session.CaptionProcess?.StandardInput.Close();
+        session.Process.StandardInput.BaseStream.Close();
+        session.CaptionProcess?.StandardInput.BaseStream.Close();
     }
 }
 
