@@ -9,8 +9,10 @@ namespace Lineup.Web.Tests.Services;
 public sealed class StreamAcquisitionHttpMapperTests
 {
     /// <summary>Verifies temporary source unavailability maps to retryable HTTP 503 semantics.</summary>
-    [Fact]
-    public void Map_UnavailableSource_ReturnsServiceUnavailable()
+    [Theory]
+    [InlineData("source_unavailable")]
+    [InlineData("source_acquisition_timeout")]
+    public void Map_UnavailableSource_ReturnsServiceUnavailable(string candidateCode)
     {
         // Arrange
         var deviceId = PhysicalDeviceId.New();
@@ -19,7 +21,7 @@ public sealed class StreamAcquisitionHttpMapperTests
             DeviceId = deviceId,
             ChannelId = new SourceChannelId(deviceId, "2.1"),
             Category = PhysicalStreamFailureCategory.Unavailable,
-            Code = "source_unavailable",
+            Code = candidateCode,
             Message = "The physical source could not be opened.",
             Retryable = true
         };
@@ -32,6 +34,8 @@ public sealed class StreamAcquisitionHttpMapperTests
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, failure.StatusCode);
         Assert.Equal("source_unavailable", failure.Code);
         Assert.Equal("Every equivalent physical source is currently unavailable.", failure.Error);
+        Assert.Equal(candidateCode, Assert.Single(exception.CandidateFailures).Code);
+        Assert.Contains(candidateCode, StreamAcquisitionHttpMapper.FormatCandidates(exception));
     }
 
     /// <summary>Verifies a stale source-channel route maps to the stable not-found contract.</summary>

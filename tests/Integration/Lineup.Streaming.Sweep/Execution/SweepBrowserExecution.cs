@@ -172,6 +172,7 @@ internal sealed partial class SweepHarness
         var startFailureSource = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         var captureTasks = new System.Collections.Concurrent.ConcurrentQueue<Task>();
         var fragments = new System.Collections.Concurrent.ConcurrentQueue<FragmentSample>();
+        var capturedResources = new System.Collections.Concurrent.ConcurrentQueue<FragmentResponse>();
         var representations = new System.Collections.Concurrent.ConcurrentDictionary<string, string>(StringComparer.Ordinal);
         var pendingStarts = new System.Collections.Concurrent.ConcurrentDictionary<IRequest, StartupRequestEvidence>();
         page.Request += (_, request) =>
@@ -221,7 +222,11 @@ internal sealed partial class SweepHarness
             }
             if (response.Status is >= 200 and < 300)
             {
-                if (FragmentAlignment.Parse(response.Url, DateTimeOffset.UtcNow) is { } fragment)
+                if (evidence.Purpose == "sync" && response.Status == 200 && FragmentCapture.IsResource(response.Url))
+                {
+                    captureTasks.Enqueue(CaptureMediaAsync(response));
+                }
+                else if (evidence.Purpose != "sync" && FragmentAlignment.Parse(response.Url, DateTimeOffset.UtcNow) is { } fragment)
                 {
                     fragments.Enqueue(fragment);
                 }
@@ -238,10 +243,13 @@ internal sealed partial class SweepHarness
         byte[]? failureScreenshot = null;
         string? synchronizationExchange = null;
         FragmentMetadata? synchronizationMetadata = null;
+        DateTimeOffset? stableFromUtc = null;
+        DateTimeOffset? stableThroughUtc = null;
+        string? stableSession = null;
         string captionResult = "not-applicable";
         try
         {
-            await page.GotoAsync($"{matrix.WatchUrl.TrimEnd('/')}/watch", new() { WaitUntil = WaitUntilState.NetworkIdle, Timeout = 120_000 }).WaitAsync(_cancellation);
+            await page.GotoAsync($"{matrix.WatchUrl.TrimEnd('/')}/watch", new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 120_000 }).WaitAsync(_cancellation);
             var numbers = page.Locator(".cmaf-channel-number");
             await numbers.First.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 120_000 }).WaitAsync(_cancellation);
             ILocator? channelButton = null;
@@ -344,6 +352,9 @@ internal sealed partial class SweepHarness
                 stablePassed = stable.Observe(observation.Elapsed.TotalSeconds, value with { Session = identity });
                 if (stablePassed)
                 {
+                    stableThroughUtc = DateTimeOffset.UtcNow;
+                    stableFromUtc = stableThroughUtc.Value.AddSeconds(-stable.StableDurationSeconds);
+                    stableSession = identity;
                     break;
                 }
                 await Task.Delay(500, _cancellation);
@@ -440,8 +451,12 @@ internal sealed partial class SweepHarness
             if (failure is null && evidence.Purpose == "sync")
             {
                 failurePhase = "synchronization-metadata";
-                await Task.WhenAll(captureTasks.ToArray());
+                await Task.WhenAll(captureTasks.ToArray()).WaitAsync(RemainingObservation(), _cancellation);
                 var current = evidence.Starts.LastOrDefault() ?? throw new InvalidDataException("No startup evidence for synchronization metadata.");
+                if (current.SessionId != stableSession)
+                {
+                    throw new InvalidDataException("Startup changed after the measured stable interval.");
+                }
                 synchronizationExchange = current.Id;
                 using var metadataDeadline = CancellationTokenSource.CreateLinkedTokenSource(_cancellation);
                 metadataDeadline.CancelAfter(RemainingObservation());
@@ -585,11 +600,20 @@ internal sealed partial class SweepHarness
         };
         if (evidence.Purpose == "sync")
         {
-            var timestamps = synchronizationMetadata is null ? null : FragmentTimeline.ReadTrace(tracePath, synchronizationMetadata,
-                fragments.Where(sample => sample.Session == synchronizationMetadata.Session).Select(sample => sample.Representation).ToHashSet(StringComparer.Ordinal));
+            await Task.WhenAll(captureTasks.ToArray()).WaitAsync(TimeSpan.FromSeconds(_options.StartupSeconds));
+            var resourcesPath = Path.Combine(attemptRoot, "synchronization-resources.zip");
+            await FragmentCapture.SaveAsync(resourcesPath, capturedResources.ToArray());
+            var stableSamples = fragments.Where(sample => sample.Session == synchronizationMetadata?.Session
+                && stableFromUtc is not null && sample.ReceivedUtc >= stableFromUtc
+                && stableThroughUtc is not null && sample.ReceivedUtc <= stableThroughUtc).ToArray();
+            var timestamps = synchronizationMetadata is null ? null : FragmentTimeline.ReadTrace(resourcesPath, synchronizationMetadata,
+                stableSamples.Select(sample => sample.Representation).ToHashSet(StringComparer.Ordinal),
+                stableSamples.Select(sample => (sample.Representation, sample.Sequence)).ToHashSet());
             evidence.Synchronization = FragmentAlignment.EvaluateObservation(
-                evidence, result, synchronizationExchange, fragments.ToArray(), representations, _options.MaximumSequenceDelta, timestamps);
+                evidence, result, synchronizationExchange, stableSamples, representations, _options.MaximumSequenceDelta, timestamps, stableFromUtc, stableThroughUtc);
             await File.WriteAllTextAsync(Path.Combine(attemptRoot, "synchronization.json"), JsonSerializer.Serialize(evidence.Synchronization, _json));
+            await File.WriteAllTextAsync(Path.Combine(attemptRoot, "synchronization-window.json"),
+                JsonSerializer.Serialize(new { stableSession, stableFromUtc, stableThroughUtc, samples = stableSamples }, _json));
         }
         await File.WriteAllTextAsync(Path.Combine(attemptRoot, "result.json"), JsonSerializer.Serialize(result, _json));
         await journal.WriteEventAsync("channel-attempt", result);
@@ -606,6 +630,24 @@ internal sealed partial class SweepHarness
             SweepPolicy.RequireNormalCleanup(evidence, attemptRoot);
         }
         return result;
+
+        async Task CaptureMediaAsync(IResponse response)
+        {
+            var captured = await FragmentCapture.ReadAsync(response.Url, async () =>
+            {
+                var error = await response.FinishedAsync();
+                if (error is not null)
+                {
+                    throw new IOException(error);
+                }
+                return await response.BodyAsync();
+            }, TimeSpan.FromSeconds(_options.StartupSeconds));
+            capturedResources.Enqueue(captured);
+            if (captured.Body is not null && FragmentAlignment.Parse(response.Url, DateTimeOffset.UtcNow) is { } sample)
+            {
+                fragments.Enqueue(sample);
+            }
+        }
     }
 
     public async Task VerifyOutcomeReportingAsync()

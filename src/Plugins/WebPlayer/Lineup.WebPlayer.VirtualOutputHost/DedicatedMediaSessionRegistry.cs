@@ -46,7 +46,7 @@ internal sealed class DedicatedMediaSessionRegistry<TSession>
     {
         lock (_gate)
         {
-            return _sessions.TryAdd(id, new Entry(session, _timeProvider.GetUtcNow()));
+            return _sessions.TryAdd(id, new Entry(session, _timeProvider.GetTimestamp()));
         }
     }
 
@@ -59,7 +59,7 @@ internal sealed class DedicatedMediaSessionRegistry<TSession>
                 session = null;
                 return false;
             }
-            entry.LastAccessUtc = _timeProvider.GetUtcNow();
+            entry.LastAccessTimestamp = _timeProvider.GetTimestamp();
             session = entry.Session;
             return true;
         }
@@ -87,7 +87,7 @@ internal sealed class DedicatedMediaSessionRegistry<TSession>
         {
             foreach (var (id, entry) in _sessions.ToArray())
             {
-                if (_timeProvider.GetUtcNow() - entry.LastAccessUtc >= _inactivityTimeout &&
+                if (_timeProvider.GetElapsedTime(entry.LastAccessTimestamp) >= _inactivityTimeout &&
                     _sessions.Remove(id, out var removed))
                 {
                     expired.Add(removed.Session);
@@ -135,10 +135,10 @@ internal sealed class DedicatedMediaSessionRegistry<TSession>
         }
     }
 
-    private sealed class Entry(TSession session, DateTimeOffset lastAccessUtc)
+    private sealed class Entry(TSession session, long lastAccessTimestamp)
     {
         internal TSession Session { get; } = session;
 
-        internal DateTimeOffset LastAccessUtc { get; set; } = lastAccessUtc;
+        internal long LastAccessTimestamp { get; set; } = lastAccessTimestamp;
     }
 }

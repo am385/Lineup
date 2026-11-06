@@ -9,6 +9,26 @@ namespace Lineup.Web.Tests.Services;
 /// <summary>Verifies shared FFmpeg transforms and slates drain noisy children without retaining lifetime diagnostics.</summary>
 public sealed class FfmpegStreamDiagnosticsTests
 {
+    /// <summary>Verifies a real failing child retains its exit status separately from its bounded stderr tail.</summary>
+    [Fact]
+    public async Task Output_NoisyFailure_RetainsStructuredExitDiagnostics()
+    {
+        // Arrange
+        var factory = CreateFactory(2_097_152, 234, hold: false);
+        await using var input = new BlockingInput();
+        await using var lease = await OpenAsync(factory, input, slate: false, TestContext.Current.CancellationToken);
+
+        // Act
+        var exception = await Record.ExceptionAsync(() => lease.Stream.CopyToAsync(Stream.Null, TestContext.Current.CancellationToken));
+
+        // Assert
+        var failure = Assert.IsType<MediaProcessException>(exception);
+        Assert.Equal(234, failure.Data["ExitCode"]);
+        var diagnostics = Assert.IsType<string>(failure.Data["Diagnostics"]);
+        Assert.True(diagnostics.Length <= 16_384);
+        Assert.EndsWith("final-error", diagnostics, StringComparison.Ordinal);
+    }
+
     /// <summary>Verifies failures retain a bounded useful suffix even when a child emits a huge unterminated line.</summary>
     [Theory]
     [InlineData(false, 65_536)]

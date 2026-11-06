@@ -116,13 +116,18 @@ internal static partial class FragmentAlignment
         IReadOnlyList<FragmentSample> samples,
         IReadOnlyDictionary<string, string> representations,
         int maximumDelta,
-        TimestampEvidence? timestamps = null)
+        TimestampEvidence? timestamps = null,
+        DateTimeOffset? stableFromUtc = null,
+        DateTimeOffset? stableThroughUtc = null)
     {
         if (result.Failure is null)
         {
-            return metadataExchange is null || metadataExchange != attempt.Starts.LastOrDefault()?.Id
+            var current = attempt.Starts.LastOrDefault();
+            return metadataExchange is null || metadataExchange != current?.Id || timestamps?.Session != current.SessionId
                 ? new("insufficient-samples", null, null, null, null, null, "Startup changed after metadata capture; stale/fallback metadata is not synchronization evidence.")
-                : Evaluate(samples, representations, maximumDelta, timestamps);
+                : Evaluate(samples.Where(sample => sample.Session == current.SessionId
+                    && (stableFromUtc is null || sample.ReceivedUtc >= stableFromUtc)
+                    && (stableThroughUtc is null || sample.ReceivedUtc <= stableThroughUtc)).ToArray(), representations, maximumDelta, timestamps);
         }
         var startup = attempt.Starts.LastOrDefault()?.Outcome ?? result.Startup;
         var state = startup?.Outcome switch

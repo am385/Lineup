@@ -76,6 +76,37 @@ public sealed class FragmentTimelineTests
         Assert.Equal(ticks, Assert.Single(evidence.Tracks, track => track.Representation == "v").MaximumManifestDifferenceMilliseconds, 6);
     }
 
+    /// <summary>Only a contributing empty-edit clock permits movie-tick quantization; media gaps still use the media clock.</summary>
+    [Theory]
+    [InlineData(true, 32, false, "timeline-continuous")]
+    [InlineData(true, 48, false, "timeline-continuous")]
+    [InlineData(true, 49, false, "timeline-discontinuity")]
+    [InlineData(false, 32, false, "timeline-discontinuity")]
+    [InlineData(true, 32, true, "timeline-discontinuity")]
+    public void EmptyEditQuantizationDoesNotMaskMediaErrors(bool emptyEdit, int differenceTicks, bool decodeGap, string expectedState)
+    {
+        // Arrange
+        var (initialization, fragments, manifest) = Continuous();
+        var audio = FragmentTiming.ReadInitialization(Initialization(48000, 48000, emptyEdit: emptyEdit ? 10u : null));
+        initialization["a"] = audio;
+        for (var index = 0; index < 3; index++)
+        {
+            var sample = FragmentTiming.ReadFragment(Fragment(index * 96000, [0, 0], duration: 48000), audio);
+            fragments[("a", index + 50)] = decodeGap && index == 1 ? sample with { DecodeStart = sample.DecodeStart + 2 } : sample;
+            var difference = differenceTicks / 48000.0;
+            manifest[("a", index + 50)] = new(sample.PresentationStart + difference, sample.PresentationEnd + difference, 0, 1.0 / 48000);
+        }
+
+        // Act
+        var evidence = FragmentTimeline.Evaluate("s", new HashSet<string> { "v", "a" }, initialization, fragments, manifest);
+
+        // Assert
+        Assert.Equal(expectedState, evidence.State);
+        var track = Assert.Single(evidence.Tracks, track => track.Representation == "a");
+        Assert.Equal(differenceTicks / 48.0, track.MaximumManifestDifferenceMilliseconds, 6);
+        Assert.Equal(decodeGap ? 2 / 48.0 : 0, track.MaximumDecodeGapMilliseconds, 6);
+    }
+
     /// <summary>Fractional video clocks preserve actual two- and four-second cadence measurements without integer-fps rounding.</summary>
     [Theory]
     [InlineData(60, 2.002)]
@@ -313,6 +344,118 @@ public sealed class FragmentTimelineTests
         Assert.True(File.Exists(trace));
     }
 
+    /// <summary>A redundant browser manifest without a trace body cannot invalidate an explicitly retained owned manifest and complete media.</summary>
+    [Fact]
+    public void MissingRedundantManifestBodyUsesExplicitOwnedManifest()
+    {
+        // Arrange
+        using var directory = new TraceDirectory();
+        var trace = Path.Combine(directory.Path, "trace.zip");
+        const string manifest = """
+            <MPD><Period><AdaptationSet><SegmentTemplate timescale="1000"><SegmentTimeline><S d="2000" r="1"/></SegmentTimeline></SegmentTemplate>
+              <Representation id="v"/><Representation id="a"/></AdaptationSet></Period></MPD>
+            """;
+        var metadata = new FragmentMetadata("s", "http://localhost/media/s/manifest.mpd", new Dictionary<string, string> { ["v"] = "video", ["a"] = "audio" }, manifest);
+        WriteTrace(trace, false);
+        using (var archive = ZipFile.Open(trace, ZipArchiveMode.Update))
+        {
+            var entry = archive.GetEntry("trace.network")!;
+            string content;
+            using (var reader = new StreamReader(entry.Open()))
+            {
+                content = reader.ReadToEnd();
+            }
+            entry.Delete();
+            using var writer = new StreamWriter(archive.CreateEntry("trace.network").Open());
+            writer.WriteLine(content);
+            writer.WriteLine("""{"snapshot":{"request":{"url":"http://localhost/media/s/manifest.mpd"},"response":{"status":200,"content":{}}}}""");
+        }
+
+        // Act
+        var evidence = FragmentTimeline.ReadTrace(trace, metadata, new HashSet<string> { "v", "a" });
+
+        // Assert
+        Assert.Equal("timeline-continuous", evidence.State);
+        Assert.All(evidence.Tracks, track => Assert.Equal(2, track.ManifestMatches));
+        Assert.Empty(evidence.Errors);
+    }
+
+    /// <summary>Explicit capture waits for complete bodies and persists failures rather than fabricating media from trace headers.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExplicitCaptureRetainsCompletedBodiesAndFailures(bool missingAudio)
+    {
+        // Arrange
+        using var directory = new TraceDirectory();
+        var path = Path.Combine(directory.Path, "resources.zip");
+        const string prefix = "http://localhost/media/s/";
+        const string manifest = """
+            <MPD><Period><AdaptationSet><SegmentTemplate timescale="1000"><SegmentTimeline><S d="2000" r="1"/></SegmentTimeline></SegmentTemplate>
+              <Representation id="v"/><Representation id="a"/></AdaptationSet></Period></MPD>
+            """;
+        var metadata = new FragmentMetadata("s", prefix + "manifest.mpd", new Dictionary<string, string> { ["v"] = "video", ["a"] = "audio" }, manifest);
+        var completion = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pending = FragmentCapture.ReadAsync(prefix + "init-v.mp4", () => completion.Task);
+        var responses = new List<FragmentResponse>();
+
+        // Act
+        var incomplete = pending.IsCompleted;
+        completion.SetResult(Initialization(1000, 1000));
+        responses.Add(await pending);
+        responses.Add(await FragmentCapture.ReadAsync(prefix + "init-a.mp4",
+            () => missingAudio ? Task.FromException<byte[]>(new IOException("controlled body failure")) : Task.FromResult(Initialization(1000, 1000))));
+        foreach (var representation in new[] { "v", "a" })
+        {
+            responses.Add(await FragmentCapture.ReadAsync(prefix + $"chunk-{representation}-00001.m4s", () => Task.FromResult(Fragment(0, [0, 0]))));
+            responses.Add(await FragmentCapture.ReadAsync(prefix + $"chunk-{representation}-00002.m4s", () => Task.FromResult(Fragment(2000, [0, 0]))));
+        }
+        await FragmentCapture.SaveAsync(path, responses);
+        var evidence = FragmentTimeline.ReadTrace(path, metadata, new HashSet<string> { "v", "a" });
+
+        // Assert
+        Assert.False(incomplete);
+        Assert.Equal(missingAudio ? "insufficient-samples" : "timeline-continuous", evidence.State);
+        Assert.Equal(missingAudio ? "controlled body failure" : null, responses[1].Error);
+        Assert.Equal(missingAudio, responses[1].Body is null);
+        Assert.Equal(missingAudio, evidence.Errors.Count > 0);
+    }
+
+    /// <summary>A body deadline is retained as explicit missing evidence rather than escaping capture or fabricating a fragment.</summary>
+    [Fact]
+    public async Task BodyTimeoutIsExplicitCaptureFailure()
+    {
+        // Arrange
+        const string url = "http://localhost/media/s/chunk-a-00001.m4s";
+        FragmentResponse? captured = null;
+
+        // Act
+        var error = await Record.ExceptionAsync(async () => captured = await FragmentCapture.ReadAsync(
+            url, () => Task.FromException<byte[]>(new TimeoutException("controlled body deadline"))));
+
+        // Assert
+        Assert.Null(error);
+        Assert.NotNull(captured);
+        Assert.Null(captured.Body);
+        Assert.Equal("controlled body deadline", captured.Error);
+    }
+
+    /// <summary>A response that never completes cannot indefinitely hold metadata capture or sweep cleanup.</summary>
+    [Fact]
+    public async Task IncompleteBodyHasAnExplicitDeadline()
+    {
+        // Arrange
+        var body = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // Act
+        var captured = await FragmentCapture.ReadAsync("http://localhost/media/s/init-a.mp4", () => body.Task, TimeSpan.Zero);
+
+        // Assert
+        Assert.False(body.Task.IsCompleted);
+        Assert.Null(captured.Body);
+        Assert.NotEmpty(captured.Error!);
+    }
+
     private static (Dictionary<string, FragmentInitialization>, Dictionary<(string Representation, long Sequence), FragmentTimingSample>,
         Dictionary<(string Representation, long Sequence), ManifestTiming>) Continuous()
     {
@@ -329,9 +472,11 @@ public sealed class FragmentTimelineTests
         return (initialization, fragments, manifest);
     }
 
-    private static byte[] Initialization(uint timescale, uint duration, int? edit = null)
+    private static byte[] Initialization(uint timescale, uint duration, int? edit = null, uint? emptyEdit = null)
     {
-        var editBox = edit is null ? [] : Box("edts", Box("elst", Fields(0, 1, 0, (uint)edit.Value, 0x10000)));
+        var editBox = emptyEdit is { } empty
+            ? Box("edts", Box("elst", Fields(0, 2, empty, uint.MaxValue, 0x10000, 0, 0, 0x10000)))
+            : edit is null ? [] : Box("edts", Box("elst", Fields(0, 1, 0, (uint)edit.Value, 0x10000)));
         return Box("moov", Box("mvhd", Fields(0, 0, 0, 1000, 0)),
             Box("trak", Box("tkhd", Fields(0, 0, 0, 1, 0)), Box("mdia", Box("mdhd", Fields(0, 0, 0, timescale, 0))), editBox),
             Box("mvex", Box("trex", Fields(0, 1, 1, duration, 0, 0))));

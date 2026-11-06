@@ -8,6 +8,32 @@ namespace Lineup.WebPlayer.Tests;
 /// <summary>Verifies dedicated workers build browser presentations with the shared CMAF planner.</summary>
 public sealed class DedicatedCmafSessionPlanTests
 {
+    /// <summary>Verifies a physical processing stage cannot silently discard source audio and produce a successful video-only presentation.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Create_PhysicalOutputLostAudio_RejectsIncompleteMetadata(bool discoveredAudio)
+    {
+        // Arrange
+        var video = new MediaTrackMetadata(0, MediaTrackType.Video, "h264", null, 1280, 720, null, null);
+        var audio = new MediaTrackMetadata(1, MediaTrackType.Audio, "aac", null, null, null, 2, 48_000);
+        var response = new VirtualOutputOpenStreamResponse
+        {
+            Accepted = true,
+            RawSource = discoveredAudio
+                ? new MediaProbeResult([video, audio], null)
+                : new MediaProbeResult([video], null) { AudioDiscovery = AudioDiscoveryStatus.ExpectedMissing },
+            Source = new MediaProbeResult([video], null),
+            Profile = new VirtualTranscodeProfile()
+        };
+
+        // Act
+        var exception = Record.Exception(() => DedicatedCmafSessionPlan.Create(response, new CmafStreamRequest(), Path.GetTempPath()));
+
+        // Assert
+        Assert.IsAssignableFrom<Lineup.Streaming.FFmpeg.MediaInputException>(exception);
+    }
+
     /// <summary>Verifies retry planning preserves video and track selection while converting every copied audio track with the configured fallback.</summary>
     [Theory]
     [InlineData(false, CmafFallbackAudio.AacStereo, "aac")]

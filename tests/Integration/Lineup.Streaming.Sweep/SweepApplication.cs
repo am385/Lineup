@@ -219,6 +219,11 @@ internal static class SweepApplication
             }
             throw new ArgumentException($"Unknown command '{command}'.");
         }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            Console.Error.WriteLine("Sweep cancelled. Inspect the canonical checkpoint before resuming.");
+            Environment.ExitCode = 130;
+        }
         finally
         {
             Console.CancelKeyPress -= cancel;

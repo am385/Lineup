@@ -78,6 +78,22 @@ public sealed class MediaProcessFactory : IMediaProcessFactory
 /// </summary>
 public sealed class MediaProcessException : Exception
 {
+    /// <summary>Gets the terminal process exit code when the failure followed process execution.</summary>
+    public int? ExitCode { get; }
+
+    /// <summary>Gets the bounded stderr retained for a terminal process failure.</summary>
+    public string? Diagnostics { get; }
+
+    /// <summary>Initializes an executed FFmpeg failure with structured exit status and bounded stderr.</summary>
+    public MediaProcessException(int exitCode, string diagnostics)
+        : base($"FFmpeg exited with code {exitCode}: {MediaProcessDiagnostics.GetTail(diagnostics)}")
+    {
+        ExitCode = exitCode;
+        Diagnostics = MediaProcessDiagnostics.GetTail(diagnostics);
+        Data[nameof(ExitCode)] = exitCode;
+        Data[nameof(Diagnostics)] = Diagnostics;
+    }
+
     /// <summary>Initializes a media-process failure.</summary>
     public MediaProcessException(string message)
         : base(message)
@@ -104,7 +120,7 @@ public static class MediaStreamPump
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         try
         {
-            var copyTask = source.CopyToAsync(process.StandardInput.BaseStream, lifetime.Token);
+            var copyTask = CopyToProcessAsync(source, process, logger, sourceName, lifetime.Token);
             var exitTask = process.WaitForExitAsync(lifetime.Token);
             await Task.WhenAny(copyTask, exitTask);
             await lifetime.CancelAsync();
@@ -115,10 +131,6 @@ public static class MediaStreamPump
             catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
             {
             }
-            catch (IOException ex)
-            {
-                logger.LogDebug(ex, "Media input pipe closed for {SourceName}", sourceName);
-            }
         }
         finally
         {
@@ -128,6 +140,29 @@ public static class MediaStreamPump
             }
             catch (ObjectDisposedException)
             {
+            }
+        }
+    }
+
+    private static async Task CopyToProcessAsync(Stream source, Process process, ILogger logger, string sourceName, CancellationToken cancellationToken)
+    {
+        var buffer = new byte[64 * 1024];
+        while (true)
+        {
+            var count = await source.ReadAsync(buffer, cancellationToken);
+            if (count == 0)
+            {
+                return;
+            }
+            try
+            {
+                await process.StandardInput.BaseStream.WriteAsync(buffer.AsMemory(0, count), cancellationToken);
+            }
+            catch (IOException exception)
+            {
+                logger.LogDebug(exception, "Media input pipe closed for {SourceName}", sourceName);
+                await process.WaitForExitAsync(cancellationToken);
+                return;
             }
         }
     }

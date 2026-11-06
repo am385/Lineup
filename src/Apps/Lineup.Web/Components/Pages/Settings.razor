@@ -67,18 +67,6 @@
         </button>
     </li>
     <li class="nav-item" role="presentation">
-        <button id="tab-guide" type="button" class="@GetTabButtonClass(SettingsTab.Guide)" role="tab"
-                aria-selected="@(_activeTab == SettingsTab.Guide)" @onclick="() => SelectTab(SettingsTab.Guide)">
-            <span class="bi bi-calendar3 me-1"></span>@Text["Settings_TabGuideSources"]
-        </button>
-    </li>
-    <li class="nav-item" role="presentation">
-        <button id="tab-guide-outputs" type="button" class="@GetTabButtonClass(SettingsTab.GuideOutputs)" role="tab"
-                aria-selected="@(_activeTab == SettingsTab.GuideOutputs)" @onclick="() => SelectTab(SettingsTab.GuideOutputs)">
-            <span class="bi bi-file-earmark-code me-1"></span>@Text["Settings_TabGuideOutputs"]
-        </button>
-    </li>
-    <li class="nav-item" role="presentation">
         <button id="tab-physical-devices" type="button" class="@GetTabButtonClass(SettingsTab.PhysicalDevices)" role="tab"
                 aria-selected="@(_activeTab == SettingsTab.PhysicalDevices)" @onclick="() => SelectTab(SettingsTab.PhysicalDevices)">
             <span class="bi bi-broadcast-pin me-1"></span>@Text["Settings_TabPhysicalDevices"]
@@ -88,6 +76,18 @@
         <button id="tab-virtual-devices" type="button" class="@GetTabButtonClass(SettingsTab.VirtualDevices)" role="tab"
                 aria-selected="@(_activeTab == SettingsTab.VirtualDevices)" @onclick="() => SelectTab(SettingsTab.VirtualDevices)">
             <span class="bi bi-hdd-network me-1"></span>@Text["Settings_TabVirtualDevices"]
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button id="tab-guide" type="button" class="@GetTabButtonClass(SettingsTab.Guide)" role="tab"
+                aria-selected="@(_activeTab == SettingsTab.Guide)" @onclick="() => SelectTab(SettingsTab.Guide)">
+            <span class="bi bi-calendar3 me-1"></span>@Text["Settings_TabGuideSources"]
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button id="tab-guide-outputs" type="button" class="@GetTabButtonClass(SettingsTab.GuideOutputs)" role="tab"
+                aria-selected="@(_activeTab == SettingsTab.GuideOutputs)" @onclick="() => SelectTab(SettingsTab.GuideOutputs)">
+            <span class="bi bi-file-earmark-code me-1"></span>@Text["Settings_TabGuideOutputs"]
         </button>
     </li>
     <li class="nav-item" role="presentation">

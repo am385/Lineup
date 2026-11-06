@@ -3,7 +3,11 @@ using System.Buffers.Binary;
 namespace Lineup.Streaming.Sweep;
 
 /// <summary>Timing defaults and edit-list normalization for one independent MP4 track.</summary>
-internal sealed record FragmentInitialization(uint TrackId, uint Timescale, uint DefaultDuration, double EditOffsetSeconds);
+internal sealed record FragmentInitialization(uint TrackId, uint Timescale, uint DefaultDuration, double EditOffsetSeconds)
+{
+    /// <summary>Gets the precision of a movie clock contributing an empty edit to the presentation offset; zero when unused.</summary>
+    public double EditPrecisionSeconds { get; init; }
+}
 
 /// <summary>Decoded sample timing and composition-aware presentation coverage in one fragment.</summary>
 internal sealed record FragmentTimingSample(long DecodeStart, long DecodeEnd, double PresentationStart, double PresentationEnd, long MaximumDecodeGap);
@@ -42,6 +46,7 @@ internal static class FragmentTiming
             defaultDuration = U32(data, trex, 12);
         }
         double editOffset = 0;
+        double editPrecision = 0;
         var edts = Optional(data, trak.Body, trak.End, "edts");
         if (edts is not null)
         {
@@ -66,6 +71,10 @@ internal static class FragmentTiming
                     throw new InvalidDataException("Unsupported edit rate or non-linear edit list.");
                 }
                 editOffset += mediaTime == -1 ? duration / (double)movieScale : -mediaTime / (double)timescale;
+                if (mediaTime == -1 && duration > 0)
+                {
+                    editPrecision = 1.0 / movieScale;
+                }
                 offset += wide ? 20 : 12;
             }
             if (mediaEdits != 1)
@@ -73,7 +82,7 @@ internal static class FragmentTiming
                 throw new InvalidDataException("Edit list has no playable media interval.");
             }
         }
-        return new(trackId, timescale, defaultDuration, editOffset);
+        return new(trackId, timescale, defaultDuration, editOffset) { EditPrecisionSeconds = editPrecision };
     }
 
     /// <summary>Reads decode times, sample durations and signed or unsigned composition offsets with bounds checks.</summary>

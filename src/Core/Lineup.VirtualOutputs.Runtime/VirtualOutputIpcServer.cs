@@ -4,6 +4,7 @@ using System.Text.Json;
 using Lineup.Common.Streaming;
 using Lineup.Core.Settings;
 using Lineup.Core.Streaming;
+using Lineup.Streaming.FFmpeg;
 using Lineup.VirtualOutputs.Protocol;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -313,6 +314,11 @@ public sealed class VirtualOutputIpcServer : BackgroundService
         {
             await VirtualOutputWireProtocol.WriteAsync(stream, VirtualOutputIpcResponse.Success(output.Response), cancellationToken);
             await output.Stream.CopyToAsync(stream, cancellationToken);
+        }
+        catch (Exception exception) when (exception is MediaProcessException or MpegTsTranscodeException or MediaInputException)
+        {
+            MediaProcessDiagnostics.LogFailure(_logger, exception, "broker-stream", output.Response.StreamSessionId?.ToString() ?? request.RequestId.ToString(),
+                request.RequestId.ToString(), output.Response.StreamSessionId?.ToString());
         }
         finally
         {

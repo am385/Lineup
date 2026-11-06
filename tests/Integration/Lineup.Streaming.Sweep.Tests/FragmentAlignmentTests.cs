@@ -152,6 +152,66 @@ public sealed class FragmentAlignmentTests
         Assert.Equal("insufficient-samples", result.State);
     }
 
+    /// <summary>A completed replacement uses only the final owned session, never borrowing an old track to complete its pair.</summary>
+    [Theory]
+    [InlineData(true, "timeline-continuous")]
+    [InlineData(false, "insufficient-samples")]
+    public void ReplacementObservationUsesOnlyCurrentOwnedSession(bool currentAudio, string expectedState)
+    {
+        // Arrange
+        var (start, owner) = CurrentStartup(false);
+        var attempt = new SweepAttempt { Id = "sync", Key = "key", Starts = [start], Ownership = [owner] };
+        var result = new ChannelAttemptResult("target", "1", "One", 1, true, "not-applicable", 30, null, null, start.Outcome, 1, null, "pass");
+        var now = DateTimeOffset.UnixEpoch;
+        List<FragmentSample> samples = [new("old", "v", 1, now), new("old", "v", 2, now),
+            new("old", "a", 1, now), new("old", "a", 2, now),
+            new("current", "v", 10, now), new("current", "v", 11, now)];
+        if (currentAudio)
+        {
+            samples.AddRange([new("current", "a", 10, now), new("current", "a", 11, now)]);
+        }
+
+        // Act
+        var sync = FragmentAlignment.EvaluateObservation(attempt, result, start.Id, samples,
+            new Dictionary<string, string> { ["v"] = "video", ["a"] = "audio" }, 1, Timing("current", "v", "a"));
+
+        // Assert
+        Assert.Equal(expectedState, sync.State);
+        Assert.Equal(currentAudio ? 11 : null, sync.AudioHead);
+        if (currentAudio)
+        {
+            Assert.Equal("current", Assert.IsType<TimestampEvidence>(sync.Timestamps).Session);
+        }
+        else
+        {
+            Assert.Null(sync.Timestamps);
+        }
+    }
+
+    /// <summary>Renditions before the uninterrupted interval are excluded; a switch inside that interval remains ambiguous.</summary>
+    [Theory]
+    [InlineData(false, "timeline-continuous")]
+    [InlineData(true, "insufficient-samples")]
+    public void StableWindowDoesNotBorrowEarlierRenditions(bool switchWithinWindow, string expectedState)
+    {
+        // Arrange
+        var (start, owner) = CurrentStartup(false);
+        var attempt = new SweepAttempt { Id = "sync", Key = "key", Starts = [start], Ownership = [owner] };
+        var result = new ChannelAttemptResult("target", "1", "One", 1, true, "not-applicable", 30, null, null, start.Outcome, 1, null, "pass");
+        var now = DateTimeOffset.UnixEpoch;
+        FragmentSample[] samples = [new("current", "old-video", 1, now.AddSeconds(switchWithinWindow ? 3 : 0)),
+            new("current", "v", 10, now.AddSeconds(3)), new("current", "v", 11, now.AddSeconds(4)),
+            new("current", "a", 10, now.AddSeconds(3)), new("current", "a", 11, now.AddSeconds(4))];
+
+        // Act
+        var sync = FragmentAlignment.EvaluateObservation(attempt, result, start.Id, samples,
+            new Dictionary<string, string> { ["v"] = "video", ["old-video"] = "video", ["a"] = "audio" }, 1,
+            Timing("current", "v", "a"), now.AddSeconds(2), now.AddSeconds(5));
+
+        // Assert
+        Assert.Equal(expectedState, sync.State);
+    }
+
     /// <summary>HLS-only playback obtains accurate representation types from the current owned public DASH metadata.</summary>
     [Theory]
     [InlineData(false)]

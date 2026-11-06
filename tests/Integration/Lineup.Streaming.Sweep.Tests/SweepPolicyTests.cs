@@ -74,6 +74,7 @@ public sealed class SweepPolicyTests
     [Theory]
     [InlineData(503, "protected_content", "protected-content")]
     [InlineData(503, "source_no_video_data", "source-unavailable")]
+    [InlineData(503, "source_acquisition_timeout", "source-unavailable")]
     [InlineData(502, null, "server-failure")]
     [InlineData(503, null, "server-failure")]
     [InlineData(503, "805", "capacity-contamination")]

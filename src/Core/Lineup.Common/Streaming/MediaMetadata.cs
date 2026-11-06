@@ -74,4 +74,21 @@ public sealed partial record MediaTrackMetadata
 /// <summary>Describes all media tracks and the overall source bitrate reported by a source probe.</summary>
 /// <param name="Tracks">The discovered media tracks.</param>
 /// <param name="BitRate">The reported overall source bitrate in bits per second.</param>
-public sealed record MediaProbeResult(IReadOnlyList<MediaTrackMetadata> Tracks, long? BitRate);
+public sealed record MediaProbeResult(IReadOnlyList<MediaTrackMetadata> Tracks, long? BitRate)
+{
+    /// <summary>Gets whether audio was observed, declared absent, or still missing from an incomplete observation.</summary>
+    public AudioDiscoveryStatus AudioDiscovery { get; init; }
+}
+
+/// <summary>Distinguishes observed audio from source declarations and incomplete probe evidence.</summary>
+public enum AudioDiscoveryStatus
+{
+    /// <summary>Audio absence remains unconfirmed and the observation may be refreshed.</summary>
+    Unknown,
+    /// <summary>At least one audio track was discovered.</summary>
+    Detected,
+    /// <summary>The source declares no audio and the probe found none.</summary>
+    DeclaredAbsent,
+    /// <summary>The source advertises audio that bounded probing did not discover.</summary>
+    ExpectedMissing
+}

@@ -5,8 +5,11 @@ using Lineup.Extensibility.Streaming;
 using Lineup.Web.Controllers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Abstractions;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Xunit;
@@ -16,6 +19,34 @@ namespace Lineup.Web.Tests.Controllers;
 /// <summary>Verifies stream transport validation, routing, and lifecycle boundaries.</summary>
 public sealed class StreamControllerTests
 {
+    /// <summary>Verifies a partial DASH publication cannot become an invalid success or an unhandled playlist rewrite failure.</summary>
+    [Theory]
+    [InlineData("manifest.mpd")]
+    [InlineData("media_0.m3u8")]
+    public async Task GetCmafFile_DashPublicationIncomplete_ReturnsRetryableResponse(string filename)
+    {
+        // Arrange
+        var controller = CreateController();
+        var registration = await RegisterCmafSessionAsync(controller);
+        await File.WriteAllTextAsync(Path.Combine(registration.Directory, "manifest.mpd"), "<MPD", TestContext.Current.CancellationToken);
+        if (filename != "manifest.mpd")
+        {
+            await File.WriteAllTextAsync(Path.Combine(registration.Directory, filename), "#EXTM3U\nchunk-0-00001.m4s", TestContext.Current.CancellationToken);
+        }
+        try
+        {
+            // Act
+            var result = controller.GetCmafFile(registration.SessionId, filename);
+
+            // Assert
+            Assert.Equal(425, Assert.IsAssignableFrom<ObjectResult>(result).StatusCode);
+        }
+        finally
+        {
+            controller.StopCmaf(registration.SessionId);
+        }
+    }
+
     /// <summary>Verifies disconnecting before readiness terminates the unregistered encoder and removes its files.</summary>
     [Fact]
     public async Task StartCmafCompatibilityTest_RequestCanceled_CleansStartingEncoder()
@@ -277,7 +308,7 @@ public sealed class StreamControllerTests
         Assert.True(lifetimeToken.IsCancellationRequested);
     }
 
-    /// <summary>Verifies contained playlist access returns the generated physical artifact.</summary>
+    /// <summary>Verifies contained playlist access returns an opened artifact stream.</summary>
     [Fact]
     public async Task GetCmafFile_RegisteredViewer_ReturnsPlaylist()
     {
@@ -289,10 +320,45 @@ public sealed class StreamControllerTests
         var result = controller.GetCmafFile(registration.SessionId, "master.m3u8");
 
         // Assert
-        var file = Assert.IsType<PhysicalFileResult>(result);
+        var file = Assert.IsType<FileStreamResult>(result);
+        using var stream = file.FileStream;
         Assert.Equal("application/vnd.apple.mpegurl", file.ContentType);
-        Assert.Equal(registration.PlaylistPath, file.FileName);
+        using var reader = new StreamReader(stream);
+        Assert.Equal("#EXTM3U", await reader.ReadToEndAsync(TestContext.Current.CancellationToken));
         Assert.IsType<OkObjectResult>(controller.StopCmaf(registration.SessionId));
+    }
+
+    /// <summary>Verifies an in-flight artifact response survives removal of its session files before execution.</summary>
+    [Theory]
+    [InlineData("master.m3u8", "application/vnd.apple.mpegurl")]
+    [InlineData("init-0.mp4", "video/mp4")]
+    [InlineData("chunk-0-00001.m4s", "video/iso.segment")]
+    public async Task GetCmafFile_SessionStoppedBeforeResponseExecution_ServesOpenedArtifact(string filename, string contentType)
+    {
+        // Arrange
+        var controller = CreateController();
+        var registration = await RegisterCmafSessionAsync(controller);
+        byte[] expected = [0, 1, 2, 3, 255];
+        await File.WriteAllBytesAsync(Path.Combine(registration.Directory, filename), expected, TestContext.Current.CancellationToken);
+        var lastModified = File.GetLastWriteTimeUtc(Path.Combine(registration.Directory, filename)).ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+        using var services = new ServiceCollection().AddLogging().AddMvcCore().Services.BuildServiceProvider();
+        controller.HttpContext.RequestServices = services;
+        var actionContext = new ActionContext(controller.HttpContext, new RouteData(), new ActionDescriptor());
+
+        // Act
+        var result = controller.GetCmafFile(registration.SessionId, filename);
+        controller.StopCmaf(registration.SessionId);
+        await result.ExecuteResultAsync(actionContext);
+
+        // Assert
+        Assert.False(Directory.Exists(registration.Directory));
+        Assert.Equal(StatusCodes.Status200OK, controller.Response.StatusCode);
+        Assert.Equal(contentType, controller.Response.ContentType);
+        Assert.Equal(lastModified, controller.Response.Headers.LastModified.ToString());
+        Assert.Equal("*", controller.Response.Headers.AccessControlAllowOrigin.ToString());
+        Assert.Equal(filename.EndsWith(".m3u8", StringComparison.Ordinal) ? "no-cache, no-store" : "public, max-age=31536000, immutable", controller.Response.Headers.CacheControl.ToString());
+        Assert.Equal(expected, Assert.IsType<MemoryStream>(controller.Response.Body).ToArray());
+        Assert.False(Assert.IsType<FileStreamResult>(result).FileStream.CanRead);
     }
 
     /// <summary>Verifies invalid viewer identifiers cannot escape into CMAF artifact handling.</summary>

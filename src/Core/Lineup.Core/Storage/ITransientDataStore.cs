@@ -26,7 +26,10 @@ public interface ITransientDataStore
     /// <summary>Enumerates managed files matching a top-level pattern.</summary>
     IReadOnlyList<string> EnumerateFiles(string directoryPath, string pattern);
 
-    /// <summary>Opens a managed file for shared reading.</summary>
+    /// <summary>
+    /// Opens a managed file for shared reading, returning null if the file or its directory is absent at open time.
+    /// The caller owns the stream, which remains readable when cleanup deletes its path. Other storage failures propagate.
+    /// </summary>
     Stream? OpenRead(string path);
 
     /// <summary>Deletes a managed file when present.</summary>

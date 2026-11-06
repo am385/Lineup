@@ -6,6 +6,113 @@ namespace Lineup.Streaming.Sweep.Tests;
 /// <summary>Exit policy, discarded contamination, independent evidence provenance and fallback handling.</summary>
 public sealed class SweepInvariantTests
 {
+    /// <summary>A never-started attempt can wait for recreated-deployment preflight without fabricating cleanup or a completed result.</summary>
+    [Theory]
+    [InlineData("playback")]
+    [InlineData("sync")]
+    public void ResumeBeforeStartupDoesNotRequireTheRemovedRuntime(string purpose)
+    {
+        // Arrange
+        var attempt = new SweepAttempt { Id = "unfinished", Key = "target|player|1", Purpose = purpose };
+
+        // Act
+        var requiresRuntime = SweepPolicy.RequiresPreviousRuntimeForResume(attempt);
+
+        // Assert
+        Assert.False(requiresRuntime);
+        Assert.Null(attempt.FinishedUtc);
+        Assert.Null(attempt.Cleanup);
+        Assert.Null(attempt.Result);
+        Assert.False(attempt.Interrupted);
+    }
+
+    /// <summary>Any startup, ownership or runtime-bound evidence keeps unfinished attempts on the existing fail-closed reconciliation path.</summary>
+    [Theory]
+    [InlineData("request")]
+    [InlineData("failed-request")]
+    [InlineData("response")]
+    [InlineData("ownership")]
+    [InlineData("result")]
+    [InlineData("cleanup")]
+    [InlineData("continuation")]
+    [InlineData("synchronization")]
+    [InlineData("manifest")]
+    [InlineData("artifacts")]
+    [InlineData("active-status")]
+    [InlineData("baseline")]
+    [InlineData("stable-duration")]
+    [InlineData("media-advance")]
+    [InlineData("browser-failure")]
+    [InlineData("evidence-failure")]
+    [InlineData("synthetic-playback")]
+    [InlineData("synthetic-reason")]
+    [InlineData("active-flow")]
+    [InlineData("interrupted")]
+    [InlineData("verdict")]
+    public void ResumeWithRuntimeEvidenceStillRequiresThePreviousRuntime(string evidence)
+    {
+        // Arrange
+        var attempt = new SweepAttempt { Id = "unfinished", Key = "target|player|1" };
+        var now = DateTimeOffset.UnixEpoch;
+        switch (evidence)
+        {
+            case "request":
+            case "failed-request":
+                attempt.Requests.Add(new("request", "http://localhost/api/stream/cmaf/start/1", now, null)
+                {
+                    Failure = evidence == "failed-request" ? "Response was lost." : null
+                });
+                break;
+            case "response":
+                attempt.Starts.Add(new("exchange", new("success", 200, null, null, null, now, now, 0, null, true, false), null, null, null, null, null));
+                break;
+            case "ownership":
+                attempt.Ownership.Add(new("http://localhost", "generation", "session", "http://localhost/stop", "http://localhost/sessions"));
+                break;
+            case "result": attempt.Result = CompletedRun(SweepVerdict.SourceUnavailable).Attempts[0].Result; break;
+            case "cleanup": attempt.Cleanup = new(true, false, true, [], []); break;
+            case "continuation": attempt.CleanupContinuationVerified = true; break;
+            case "synchronization": attempt.Synchronization = new("insufficient-samples", null, null, null, null, null, "fixture"); break;
+            case "manifest": attempt.SynchronizationManifestUrl = "http://localhost/manifest.mpd"; break;
+            case "artifacts": attempt.Artifacts = "attempts/unfinished"; break;
+            case "active-status": attempt.ActiveStatus = new System.Text.Json.Nodes.JsonObject(); break;
+            case "baseline": attempt.Baseline = new System.Text.Json.Nodes.JsonObject(); break;
+            case "stable-duration": attempt.StableDurationSeconds = 1; break;
+            case "media-advance": attempt.StableMediaAdvanceSeconds = 1; break;
+            case "browser-failure": attempt.BrowserFailures.Add("Page crashed."); break;
+            case "evidence-failure": attempt.EvidenceFailures.Add("Ownership could not be collected."); break;
+            case "synthetic-playback": attempt.SyntheticPlayback = false; break;
+            case "synthetic-reason": attempt.SyntheticReason = "fixture"; break;
+            case "active-flow": attempt.ActiveFlow = new System.Text.Json.Nodes.JsonObject(); break;
+            case "interrupted": attempt.Interrupted = true; break;
+            case "verdict": attempt.Verdict = SweepVerdict.StablePlayback; break;
+            default: throw new ArgumentOutOfRangeException(nameof(evidence));
+        }
+
+        // Act
+        var requiresRuntime = SweepPolicy.RequiresPreviousRuntimeForResume(attempt);
+
+        // Assert
+        Assert.True(requiresRuntime);
+        Assert.Null(attempt.FinishedUtc);
+    }
+
+    /// <summary>Completed evidence never requires another old-runtime reconciliation, even when it records prior ownership.</summary>
+    [Fact]
+    public void ResumeDoesNotReconcileCompletedAttemptsAgain()
+    {
+        // Arrange
+        var attempt = CompletedRun(SweepVerdict.SourceUnavailable).Attempts[0];
+        attempt.Ownership.Add(new("http://localhost", "generation", "session", "http://localhost/stop", "http://localhost/sessions"));
+
+        // Act
+        var requiresRuntime = SweepPolicy.RequiresPreviousRuntimeForResume(attempt);
+
+        // Assert
+        Assert.False(requiresRuntime);
+        Assert.NotNull(attempt.FinishedUtc);
+    }
+
     /// <summary>Issue regression helpers cannot bypass lifecycle failure simply because media evidence is now independent.</summary>
     [Theory]
     [InlineData(false, true, false)]

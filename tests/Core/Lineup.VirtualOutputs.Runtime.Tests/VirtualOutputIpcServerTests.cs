@@ -14,6 +14,58 @@ namespace Lineup.VirtualOutputs.Runtime.Tests;
 /// <summary>Verifies real local IPC framing, registration, authorization context, and typed broker dispatch.</summary>
 public sealed class VirtualOutputIpcServerTests
 {
+    /// <summary>Verifies a terminal upstream failure closes an accepted MPEG-TS body without appending control JSON to the media bytes.</summary>
+    [Fact]
+    public async Task Client_UpstreamFailsAfterAcceptance_ReceivesMediaThenEof()
+    {
+        // Arrange
+        var endpoint = CreateEndpoint();
+        using var authority = new VirtualOutputSessionAuthority();
+        var deviceId = VirtualDeviceId.New();
+        var ticket = authority.CreateActivation(deviceId, "test-worker", new HashSet<VirtualOutputCapability> { VirtualOutputCapability.OpenStream },
+            TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+        var activeStreams = new ActiveStreamRegistry();
+        var sessionId = StreamSessionId.New();
+        var media = new MediaProbeResult([], null);
+        var broker = Substitute.For<IVirtualOutputBroker>();
+        broker.OpenStreamAsync(Arg.Any<VirtualOutputOpenStreamRequest>(), Arg.Any<CancellationToken>()).Returns(new VirtualOutputBrokeredStream(
+            activeStreams, new VirtualMpegTsOutput(new FailingMediaStream(), media, media, new VirtualTranscodeProfile(), new ActiveStreamFlowContext()),
+            new VirtualOutputOpenStreamResponse { Accepted = true, StreamSessionId = sessionId, ContentType = "video/mp2t", Source = media }));
+        using var server = new VirtualOutputIpcServer(endpoint, authority, broker, new VirtualOutputRuntimeStatus(),
+            CreateSettings(deviceId, maximumOutstandingBrokerCalls: 1), activeStreams, NullLogger<VirtualOutputIpcServer>.Instance);
+        await server.StartAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            var client = new VirtualOutputBrokerClient(endpoint);
+            var registration = await client.RegisterAsync(new VirtualOutputWorkerRegistrationRequest
+            {
+                WorkerId = ticket.WorkerId,
+                VirtualDeviceId = ticket.VirtualDeviceId,
+                Generation = ticket.Generation,
+                BootstrapToken = ticket.BootstrapToken,
+                MinimumProtocolVersion = 1,
+                MaximumProtocolVersion = 2
+            }, TestContext.Current.CancellationToken);
+            await using var source = await client.OpenStreamAsync(new VirtualOutputOpenStreamRequest
+            {
+                Session = new VirtualOutputSessionContext { SessionId = registration.SessionId!.Value, Generation = ticket.Generation },
+                RequestId = VirtualOutputStreamRequestId.New(),
+                ChannelKey = "31.2"
+            }, TestContext.Current.CancellationToken);
+            using var received = new MemoryStream();
+
+            // Act
+            await source.Stream.CopyToAsync(received, TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.Equal(new byte[] { 0x47 }, received.ToArray());
+        }
+        finally
+        {
+            await server.StopAsync(TestContext.Current.CancellationToken);
+        }
+    }
+
     /// <summary>Verifies a worker can register and request its manifest over the platform local transport.</summary>
     [Fact]
     public async Task Client_RegisterAndGetManifest_RoundTripsOverLocalIpc()
@@ -520,6 +572,36 @@ public sealed class VirtualOutputIpcServerTests
             Language = track.Language,
             Title = track.Title
         };
+
+    private sealed class FailingMediaStream : MemoryStream
+    {
+        /// <summary>Creates a stream with a single valid transport byte before a terminal processor failure.</summary>
+        public FailingMediaStream() : base([0x47])
+        {
+        }
+
+        /// <inheritdoc />
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (Position == Length)
+            {
+                throw new MediaProcessException(234, "corrupt packet; invalid frame dimensions");
+            }
+            return base.ReadAsync(buffer, cancellationToken);
+        }
+
+        /// <inheritdoc />
+        public override Task CopyToAsync(Stream destination, int bufferSize, CancellationToken cancellationToken) => CopyCheckedAsync(destination, cancellationToken);
+
+        private async Task CopyCheckedAsync(Stream destination, CancellationToken cancellationToken)
+        {
+            var buffer = new byte[1];
+            while (await ReadAsync(buffer, cancellationToken) is var count && count > 0)
+            {
+                await destination.WriteAsync(buffer.AsMemory(0, count), cancellationToken);
+            }
+        }
+    }
 
     private sealed class BlockingReadStream : Stream
     {

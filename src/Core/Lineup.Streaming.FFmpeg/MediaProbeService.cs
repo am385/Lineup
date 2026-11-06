@@ -69,7 +69,7 @@ public sealed class MediaProbeService : IMediaProbeService
         ArgumentNullException.ThrowIfNull(sourceMetadata);
         if (_streamingGraph is not null)
         {
-            if (MediaProbeResultPolicy.ExpectsAudio(sourceMetadata))
+            if (!MediaProbeResultPolicy.IsDeclaredVideoOnly(sourceMetadata))
             {
                 var result = await GetSharedProbeAsync(
                     () => _streamingGraph.GetOrRefreshAcquisitionMetadataAsync(
@@ -87,15 +87,15 @@ public sealed class MediaProbeService : IMediaProbeService
                         },
                         cancellationToken),
                     sourceName);
-                if (!MediaProbeResultPolicy.HasAudio(result))
+                if (!MediaProbeResultPolicy.HasAudio(result) && MediaProbeResultPolicy.ExpectsAudio(sourceMetadata))
                 {
                     _logger.LogWarning(
                         "FFprobe did not discover advertised audio after a bounded refresh for {InputSource}; a later viewer will probe again",
                         sourceName);
                 }
-                return result;
+                return MediaProbeResultPolicy.Assess(result, sourceMetadata);
             }
-            return await GetSharedProbeAsync(
+            var declaredVideoOnly = await GetSharedProbeAsync(
                 () => _streamingGraph.GetOrCreateAcquisitionMetadataAsync(
                     descriptor,
                     acquisitionFactory,
@@ -103,11 +103,20 @@ public sealed class MediaProbeService : IMediaProbeService
                     (stream, token) => ProbeStreamCoreAsync(sourceName, stream, token),
                     cancellationToken),
                 sourceName);
+            return MediaProbeResultPolicy.Assess(declaredVideoOnly, sourceMetadata);
         }
-        return await ProbeCoreAsync(
+        var observation = await ProbeCoreAsync(
             sourceName,
             token => _tunerStreamMultiplexer.SubscribeAsync(descriptor, acquisitionFactory, token),
             cancellationToken);
+        if (!MediaProbeResultPolicy.IsDeclaredVideoOnly(sourceMetadata) && !MediaProbeResultPolicy.HasAudio(observation))
+        {
+            await Task.Delay(ProvisionalRetryDelay, cancellationToken);
+            var refreshed = await ProbeCoreAsync(
+                sourceName, token => _tunerStreamMultiplexer.SubscribeAsync(descriptor, acquisitionFactory, token), cancellationToken);
+            observation = MediaProbeResultPolicy.Merge(observation, refreshed);
+        }
+        return MediaProbeResultPolicy.Assess(observation, sourceMetadata);
     }
 
     private static async Task<MediaProbeResult> GetSharedProbeAsync(Func<Task<MediaProbeResult>> probeFactory, string sourceName)
@@ -244,6 +253,23 @@ public sealed class MediaProbeService : IMediaProbeService
 /// <summary>Evaluates probe completeness from normalized source hints and merges richer observations.</summary>
 public static class MediaProbeResultPolicy
 {
+    /// <summary>Gets whether the normalized source explicitly declares that it contains no audio.</summary>
+    public static bool IsDeclaredVideoOnly(IReadOnlyDictionary<string, string> sourceMetadata) =>
+        sourceMetadata.TryGetValue("audioCodec", out var audioCodec) && string.Equals(audioCodec?.Trim(), "none", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Annotates probe completeness without treating missing source hints as proof of a video-only source.</summary>
+    public static MediaProbeResult Assess(MediaProbeResult result, IReadOnlyDictionary<string, string> sourceMetadata) =>
+        result with
+        {
+            AudioDiscovery = HasAudio(result)
+                ? AudioDiscoveryStatus.Detected
+                : ExpectsAudio(sourceMetadata)
+                    ? AudioDiscoveryStatus.ExpectedMissing
+                    : IsDeclaredVideoOnly(sourceMetadata)
+                        ? AudioDiscoveryStatus.DeclaredAbsent
+                        : AudioDiscoveryStatus.Unknown
+        };
+
     /// <summary>Gets whether normalized source metadata advertises an audio stream.</summary>
     public static bool ExpectsAudio(IReadOnlyDictionary<string, string> sourceMetadata)
     {
@@ -276,7 +302,10 @@ public static class MediaProbeResultPolicy
         }
         return new MediaProbeResult(
             tracks.Values.OrderBy(track => track.Index).ThenBy(track => track.Type).ToArray(),
-            refreshed.BitRate ?? prior.BitRate);
+            refreshed.BitRate ?? prior.BitRate)
+        {
+            AudioDiscovery = tracks.Values.Any(track => track.Type == MediaTrackType.Audio) ? AudioDiscoveryStatus.Detected : prior.AudioDiscovery
+        };
     }
 }
 

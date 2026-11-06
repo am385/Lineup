@@ -11,6 +11,31 @@ namespace Lineup.WebPlayer.FFmpeg;
 /// </summary>
 public static class CmafStreamPlanner
 {
+    private const int SegmentDurationSeconds = 2;
+    private const int ManifestWindowSegments = 10;
+    private const int ExtraWindowSegments = 5;
+
+    /// <summary>Gets the minimum idle lifetime covering the advertised fragment window and retained playback grace.</summary>
+    public static TimeSpan MinimumInactivityTimeout => TimeSpan.FromSeconds(SegmentDurationSeconds * (ManifestWindowSegments + ExtraWindowSegments));
+
+    /// <summary>Checks that a DASH publication is a complete MPD before exposing or rewriting its snapshot.</summary>
+    public static bool IsDashManifestComplete(string manifest)
+    {
+        if (string.IsNullOrWhiteSpace(manifest))
+        {
+            return false;
+        }
+        try
+        {
+            var root = System.Xml.Linq.XDocument.Parse(manifest).Root;
+            return root?.Name == System.Xml.Linq.XName.Get("MPD", "urn:mpeg:dash:schema:mpd:2011");
+        }
+        catch (System.Xml.XmlException)
+        {
+            return false;
+        }
+    }
+
     private static readonly HashSet<string> CopyEligibleAudioCodecs = new(StringComparer.OrdinalIgnoreCase)
     {
         "aac", "ac3", "eac3", "ac4"
@@ -559,10 +584,10 @@ public static class CmafStreamPlanner
         }
         arguments.AddRange([
             "-f", "dash",
-            "-seg_duration", "2",
-            "-frag_duration", "2",
-            "-window_size", "10",
-            "-extra_window_size", "5",
+            "-seg_duration", SegmentDurationSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "-frag_duration", SegmentDurationSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "-window_size", ManifestWindowSegments.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "-extra_window_size", ExtraWindowSegments.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "-use_template", "1",
             "-use_timeline", "1",
             "-hls_playlist", "1",

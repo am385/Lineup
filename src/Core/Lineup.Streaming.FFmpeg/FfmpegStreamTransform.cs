@@ -191,7 +191,7 @@ public sealed class FfmpegStreamTransform : IStreamTransform
                 var error = await errorTask.WaitAsync(cancellationToken);
                 if (process.ExitCode != 0)
                 {
-                    throw new MediaProcessException($"FFmpeg exited with code {process.ExitCode}: {error.Trim()}");
+                    throw new MediaProcessException(process.ExitCode, error);
                 }
             }
 

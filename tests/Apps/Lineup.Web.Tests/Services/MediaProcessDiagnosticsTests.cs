@@ -5,6 +5,51 @@ namespace Lineup.Web.Tests.Services;
 /// <summary>Verifies the shared diagnostic reader's cancellation, ownership, and error behavior.</summary>
 public sealed class MediaProcessDiagnosticsTests
 {
+    /// <summary>Verifies retained failure events preserve correlation and upstream exit status even when the downstream processor was terminated.</summary>
+    [Fact]
+    public void LogFailure_UpstreamProcessorFailure_RetainsBoundedCorrelatedDetails()
+    {
+        // Arrange
+        var logger = new CapturingLogger();
+        var sourceFailure = new MediaProcessException(234, new string('x', 65_536) + "corrupt-packet");
+        var failure = new MediaInputException("The upstream stream failed.", sourceFailure);
+
+        // Act
+        MediaProcessDiagnostics.LogFailure(logger, failure, "source", "media-session", "broker-request", "stream-session", -1, "downstream was terminated");
+
+        // Assert
+        Assert.Equal("source", logger.Values["StartupStage"]);
+        Assert.Equal("media-session", logger.Values["MediaSessionId"]);
+        Assert.Equal("broker-request", logger.Values["BrokerRequestId"]);
+        Assert.Equal("stream-session", logger.Values["StreamSessionId"]);
+        Assert.Equal(-1, logger.Values["ProcessExitCode"]);
+        Assert.Equal(234, logger.Values["UpstreamProcessExitCode"]);
+        var sourceDiagnostics = Assert.IsType<string>(logger.Values["UpstreamDiagnosticTail"]);
+        Assert.True(sourceDiagnostics.Length <= 16_384);
+        Assert.EndsWith("corrupt-packet", sourceDiagnostics, StringComparison.Ordinal);
+        Assert.Equal("downstream was terminated", logger.Values["DiagnosticTail"]);
+    }
+
+    /// <summary>Verifies live CMAF diagnostics remain bounded even when a single log line or accumulated queue exceeds the retention limit.</summary>
+    [Fact]
+    public void AppendLine_HighVolume_BoundsCharactersAndLines()
+    {
+        // Arrange
+        var lines = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        MediaProcessDiagnostics.AppendLine(lines, new string('x', 65_536));
+
+        // Act
+        for (var index = 0; index < 1000; index++)
+        {
+            MediaProcessDiagnostics.AppendLine(lines, new string('y', 1000) + index.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        // Assert
+        Assert.InRange(lines.Count, 1, 50);
+        Assert.True(string.Join("\n", lines).Length <= 16_384);
+        Assert.EndsWith("999", lines.Last(), StringComparison.Ordinal);
+    }
+
     /// <summary>Verifies canceling an open reader interrupts drainage without disposing the process-owned reader.</summary>
     [Fact]
     public async Task ReadTailAsync_OpenReader_CancelsAfterDrainingBoundedChunks()
@@ -56,6 +101,24 @@ public sealed class MediaProcessDiagnosticsTests
 
         // Assert
         Assert.Same(failure, exception);
+    }
+
+    private sealed class CapturingLogger : Microsoft.Extensions.Logging.ILogger
+    {
+        /// <summary>Gets retained structured values from the failure event.</summary>
+        public IReadOnlyDictionary<string, object?> Values { get; private set; } = new Dictionary<string, object?>();
+
+        /// <inheritdoc />
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        /// <inheritdoc />
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+        /// <inheritdoc />
+        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            Values = Assert.IsAssignableFrom<IEnumerable<KeyValuePair<string, object?>>>(state).ToDictionary(pair => pair.Key, pair => pair.Value);
+        }
     }
 
     private sealed class OpenReader : TextReader

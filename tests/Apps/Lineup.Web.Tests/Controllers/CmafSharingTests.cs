@@ -15,6 +15,80 @@ namespace Lineup.Web.Tests.Controllers;
 /// <summary>Verifies management-hosted CMAF sharing through actual controllers, coordinator lifetimes, storage, and encoder processes.</summary>
 public sealed class CmafSharingTests
 {
+    /// <summary>Verifies advertised-but-undiscovered audio is explicit while legitimate declared video-only startup remains supported.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Start_VideoOnlyProbe_DistinguishesAdvertisedAudio(bool expectsAudio)
+    {
+        // Arrange
+        await using var fixture = new Fixture
+        {
+            AudioHint = expectsAudio ? "AC4" : "none",
+            ProbeOverride = new MediaProbeResult([new MediaTrackMetadata(0, MediaTrackType.Video, "h264", null, 1280, 720, null, null)], null)
+        };
+        var request = fixture.BeginStart("viewer");
+
+        // Act
+        var result = await request.Start;
+
+        // Assert
+        if (expectsAudio)
+        {
+            var failure = Assert.IsType<ObjectResult>(result);
+            Assert.Equal(StatusCodes.Status502BadGateway, failure.StatusCode);
+            Assert.Contains("media_audio_missing", System.Text.Json.JsonSerializer.Serialize(failure.Value), StringComparison.Ordinal);
+            Assert.Equal(0, fixture.EncoderCount);
+        }
+        else
+        {
+            Assert.IsType<OkObjectResult>(result);
+        }
+    }
+
+    /// <summary>Verifies conversion failures produce a structured gateway error without returning private processor output.</summary>
+    [Fact]
+    public async Task Start_ProcessorFails_ReturnsSanitizedStructuredFailure()
+    {
+        // Arrange
+        await using var fixture = new Fixture { ProcessFailure = new MediaProcessException("PRIVATE processor detail at http://internal.invalid/source") };
+        var request = fixture.BeginStart("viewer", startupTimeout: TimeSpan.FromSeconds(30));
+
+        // Act
+        var result = Assert.IsType<ObjectResult>(await request.Start);
+
+        // Assert
+        Assert.Equal(StatusCodes.Status502BadGateway, result.StatusCode);
+        var body = System.Text.Json.JsonSerializer.Serialize(result.Value);
+        Assert.Contains("media_process_failed", body, StringComparison.Ordinal);
+        Assert.Contains("process", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("PRIVATE", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("internal.invalid", body, StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies a terminal upstream subscription failure is returned before the unrelated presentation-readiness deadline.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Start_UpstreamFails_ReturnsTerminalFailurePromptly(bool processFailure)
+    {
+        // Arrange
+        await using var fixture = new Fixture
+        {
+            HoldReadiness = true,
+            InputFailure = processFailure ? new MediaProcessException("Upstream FFmpeg exited with code 234.") : new IOException("Upstream stream failed.")
+        };
+        var first = fixture.BeginStart("owner", startupTimeout: TimeSpan.FromSeconds(30));
+
+        // Act
+        var result = await first.Start.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(StatusCodes.Status502BadGateway, Assert.IsType<ObjectResult>(result).StatusCode);
+        Assert.False(fixture.IsEncoderRunning);
+        Assert.False(fixture.HasEncoderDirectory);
+    }
+
     /// <summary>Verifies distinct viewers share media but retain separate URLs, diagnostics, and stop ownership.</summary>
     [Theory]
     [InlineData(true)]
@@ -30,15 +104,15 @@ public sealed class CmafSharingTests
 
         // Act
         first.Cancellation.Cancel();
-        var firstFragment = Assert.IsType<PhysicalFileResult>(first.Controller.GetCmafFile(firstResponse.SessionId, "chunk-0-00001.m4s"));
-        var secondFragment = Assert.IsType<PhysicalFileResult>(second.Controller.GetCmafFile(secondResponse.SessionId, "chunk-0-00001.m4s"));
+        using var firstFragment = Assert.IsType<FileStream>(Assert.IsType<FileStreamResult>(first.Controller.GetCmafFile(firstResponse.SessionId, "chunk-0-00001.m4s")).FileStream);
+        using var secondFragment = Assert.IsType<FileStream>(Assert.IsType<FileStreamResult>(second.Controller.GetCmafFile(secondResponse.SessionId, "chunk-0-00001.m4s")).FileStream);
 
         // Assert
         Assert.Equal(1, fixture.EncoderCount);
         var output = Assert.Single(fixture.Outputs.GetDiagnostics());
         Assert.Equal(2, output.ViewerCount);
         Assert.Equal(1, fixture.ActiveInputs);
-        Assert.Equal(firstFragment.FileName, secondFragment.FileName);
+        Assert.Equal(firstFragment.Name, secondFragment.Name);
         Assert.NotEqual(firstResponse.SessionId, secondResponse.SessionId);
         Assert.Equal($"/api/stream/cmaf/{firstResponse.SessionId}/manifest.mpd", firstResponse.DashManifestUrl);
         Assert.Equal($"/api/stream/cmaf/{secondResponse.SessionId}/master.m3u8", secondResponse.HlsManifestUrl);
@@ -63,7 +137,7 @@ public sealed class CmafSharingTests
         Assert.Equal(1, Assert.Single(fixture.Outputs.GetDiagnostics()).ViewerCount);
         Assert.Single(fixture.ActiveStreams.GetActiveStreams());
         Assert.True(fixture.IsEncoderRunning);
-        Assert.True(File.Exists(firstFragment.FileName));
+        Assert.True(File.Exists(firstFragment.Name));
 
         // Act
         Assert.IsType<OkObjectResult>(survivor.Controller.StopCmaf(survivingId));
@@ -74,7 +148,7 @@ public sealed class CmafSharingTests
         Assert.Equal(0, fixture.Outputs.ActiveOutputCount);
         Assert.Empty(fixture.ActiveStreams.GetActiveStreams());
         Assert.False(fixture.IsEncoderRunning);
-        Assert.False(File.Exists(firstFragment.FileName));
+        Assert.False(File.Exists(firstFragment.Name));
     }
 
     /// <summary>Verifies expiry removes only the idle alias and the final expiry releases the producer.</summary>
@@ -327,9 +401,9 @@ public sealed class CmafSharingTests
         // Assert
         Assert.Equal(2, fixture.EncoderCount);
         Assert.Equal(2, fixture.Outputs.ActiveOutputCount);
-        var firstFile = Assert.IsType<PhysicalFileResult>(first.Controller.GetCmafFile(firstResponse.SessionId, "chunk-0-00001.m4s"));
-        var secondFile = Assert.IsType<PhysicalFileResult>(second.Controller.GetCmafFile(secondResponse.SessionId, "chunk-0-00001.m4s"));
-        Assert.NotEqual(firstFile.FileName, secondFile.FileName);
+        using var firstFile = Assert.IsType<FileStream>(Assert.IsType<FileStreamResult>(first.Controller.GetCmafFile(firstResponse.SessionId, "chunk-0-00001.m4s")).FileStream);
+        using var secondFile = Assert.IsType<FileStream>(Assert.IsType<FileStreamResult>(second.Controller.GetCmafFile(secondResponse.SessionId, "chunk-0-00001.m4s")).FileStream);
+        Assert.NotEqual(firstFile.Name, secondFile.Name);
         Assert.Equal(2, fixture.ActiveInputs);
     }
 
@@ -379,12 +453,16 @@ public sealed class CmafSharingTests
                 .Returns(call => new ResolvedTunerStream(call.Arg<ResolvedStreamingRoute>().Candidates[0], new BlockingInput()));
             _multiplexer.SubscribeAsync(Arg.Any<StreamAcquisitionDescriptor>(), Arg.Any<StreamAcquisitionFactory>(), Arg.Any<CancellationToken>()).Returns(_ =>
             {
+                if (InputFailure is not null)
+                {
+                    throw InputFailure;
+                }
                 Interlocked.Increment(ref _activeInputs);
                 return new BlockingInput(() => Interlocked.Decrement(ref _activeInputs));
             });
             _probe.ProbeAsync(
                 Arg.Any<StreamAcquisitionDescriptor>(), Arg.Any<StreamAcquisitionFactory>(), Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, string>>(), Arg.Any<CancellationToken>())
-                .Returns(new MediaProbeResult(
+                .Returns(_ => ProbeOverride ?? new MediaProbeResult(
                 [
                     new MediaTrackMetadata(0, MediaTrackType.Video, "h264", null, null, null, null, null),
                     new MediaTrackMetadata(1, MediaTrackType.Audio, "aac", null, null, null, 2, 48_000) { IsDefault = true },
@@ -419,6 +497,18 @@ public sealed class CmafSharingTests
 
         /// <summary>Gets or sets whether startup waits for explicitly published readiness artifacts.</summary>
         internal bool HoldReadiness { get; set; }
+
+        /// <summary>Gets or sets a terminal failure from the upstream producer subscription.</summary>
+        internal Exception? InputFailure { get; set; }
+
+        /// <summary>Gets or sets a terminal failure while creating the output processor.</summary>
+        internal MediaProcessException? ProcessFailure { get; set; }
+
+        /// <summary>Gets or sets deterministic probe metadata for audio-discovery regressions.</summary>
+        internal MediaProbeResult? ProbeOverride { get; set; }
+
+        /// <summary>Gets or sets the source's normalized audio declaration.</summary>
+        internal string? AudioHint { get; set; }
 
         /// <summary>Gets notification that the real encoder process has started.</summary>
         internal Task EncoderStarted => _encoderStarted.Task;
@@ -495,6 +585,7 @@ public sealed class CmafSharingTests
             File.WriteAllText(Path.Combine(directory, "captions-2.vtt"), "WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nCaption\n");
             foreach (var representation in new[] { 0, 1 })
             {
+                File.WriteAllBytes(Path.Combine(directory, $"init-{representation}.mp4"), [0]);
                 File.WriteAllBytes(Path.Combine(directory, $"chunk-{representation}-00001.m4s"), [0]);
                 File.WriteAllBytes(Path.Combine(directory, $"chunk-{representation}-00002.m4s"), [0]);
             }
@@ -502,6 +593,10 @@ public sealed class CmafSharingTests
 
         private Process StartEncoder(MediaProcessRequest request)
         {
+            if (ProcessFailure is not null)
+            {
+                throw ProcessFailure;
+            }
             var directory = request.WorkingDirectory ?? throw new InvalidOperationException("The CMAF encoder request is missing its owned output directory.");
             var configuration = new DirectoryInfo(AppContext.BaseDirectory).Name;
             var executable = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "Lineup.FakeFFmpeg", configuration, "Lineup.FakeFFmpeg.dll"));
@@ -538,6 +633,7 @@ public sealed class CmafSharingTests
                 SourceChannelId = source,
                 Acquisition = acquisition,
                 PhysicalProfile = new PhysicalTranscodeProfile(),
+                SourceMetadata = AudioHint is null ? new Dictionary<string, string>() : new Dictionary<string, string> { ["audioCodec"] = AudioHint },
                 DiagnosticUri = new Uri($"http://source.invalid/auto/v{channel}")
             };
             return new ResolvedStreamingRoute

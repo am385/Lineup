@@ -8,6 +8,25 @@ namespace Lineup.WebPlayer.Tests;
 /// <summary>Verifies active-stream media snapshots across processing stages.</summary>
 public sealed class ActiveStreamPlanFactoryTests
 {
+    /// <summary>Verifies retained stage inventories distinguish incomplete audio discovery from a declared video-only source.</summary>
+    [Theory]
+    [InlineData(AudioDiscoveryStatus.Unknown)]
+    [InlineData(AudioDiscoveryStatus.DeclaredAbsent)]
+    [InlineData(AudioDiscoveryStatus.ExpectedMissing)]
+    public void CreateMpegTs_VideoOnly_RetainsAudioDiscoveryStatus(AudioDiscoveryStatus discovery)
+    {
+        // Arrange
+        var source = new MediaProbeResult([new MediaTrackMetadata(0, MediaTrackType.Video, "h264", null, 1280, 720, null, null)], null) { AudioDiscovery = discovery };
+
+        // Act
+        var snapshot = ActiveStreamPlanFactory.CreateMpegTs("session", "140.1", DateTime.UtcNow, source, new VirtualTranscodeProfile());
+
+        // Assert
+        Assert.Equal(discovery, snapshot.PhysicalInput!.AudioDiscovery);
+        Assert.Equal(discovery, snapshot.PhysicalOutput!.AudioDiscovery);
+        Assert.Equal(discovery, snapshot.VirtualOutput!.AudioDiscovery);
+    }
+
     /// <summary>Verifies MPEG-TS planning retains raw, effective, and final media independently.</summary>
     [Fact]
     public void CreateMpegTs_ProcessedSource_RetainsEveryMediaBoundary()
@@ -25,6 +44,9 @@ public sealed class ActiveStreamPlanFactoryTests
         Assert.Equal("hevc", Assert.Single(snapshot.PhysicalOutput!.Tracks, track => track.Type == MediaTrackType.Video).Codec);
         Assert.Equal("h264", Assert.Single(snapshot.VirtualOutput!.Tracks, track => track.Type == MediaTrackType.Video).Codec);
         Assert.Equal("ac3", Assert.Single(snapshot.VirtualOutput.Tracks, track => track.Type == MediaTrackType.Audio).Codec);
+        Assert.Equal(AudioDiscoveryStatus.Detected, snapshot.PhysicalInput.AudioDiscovery);
+        Assert.Equal(AudioDiscoveryStatus.Detected, snapshot.PhysicalOutput.AudioDiscovery);
+        Assert.Equal(AudioDiscoveryStatus.Detected, snapshot.VirtualOutput.AudioDiscovery);
     }
 
     /// <summary>Verifies generated slates expose complete media at every stage.</summary>

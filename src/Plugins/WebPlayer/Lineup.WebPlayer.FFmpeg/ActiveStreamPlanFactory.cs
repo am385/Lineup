@@ -265,7 +265,7 @@ public static class ActiveStreamPlanFactory
             new(MediaTrackType.Video, sourceCodec, "h264", null, 2_500_000, 1280, 720, null, null, null),
             new(MediaTrackType.Audio, sourceCodec, "aac", null, 128_000, null, null, null, 2, 44_100)
         ];
-        var synthetic = new ActiveStreamMediaSnapshot(null, tracks.Select(ToOutputMediaTrack).ToArray());
+        var synthetic = new ActiveStreamMediaSnapshot(null, tracks.Select(ToOutputMediaTrack).ToArray()) { AudioDiscovery = AudioDiscoveryStatus.Detected };
         return new ActiveStreamSnapshot(sessionId, channel, format, startedAtUtc, null, tracks)
         {
             PhysicalInput = synthetic,
@@ -310,6 +310,9 @@ public static class ActiveStreamPlanFactory
             VirtualOutput = new ActiveStreamMediaSnapshot(
                 GetOutputBitRate(source, tracks),
                 tracks.Where(IsMappedOutput).Select(ToOutputMediaTrack).ToArray())
+            {
+                AudioDiscovery = tracks.Any(track => IsMappedOutput(track) && track.Type == MediaTrackType.Audio) ? AudioDiscoveryStatus.Detected : source.AudioDiscovery
+            }
         };
 
     private static long? GetOutputBitRate(MediaProbeResult source, IReadOnlyList<ActiveStreamTrack> tracks)
@@ -340,7 +343,10 @@ public static class ActiveStreamPlanFactory
         {
             Language = track.Language,
             Title = track.Title
-        }).ToArray());
+        }).ToArray())
+        {
+            AudioDiscovery = MediaProbeResultPolicy.HasAudio(source) ? AudioDiscoveryStatus.Detected : source.AudioDiscovery
+        };
 
     private static ActiveStreamMediaTrack ToOutputMediaTrack(ActiveStreamTrack track) =>
         new(

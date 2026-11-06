@@ -156,13 +156,22 @@ internal sealed class ContainedFileStore
             : [];
     }
 
-    /// <summary>Opens a contained file for shared reading.</summary>
+    /// <summary>Opens a contained file for shared reading, returning null if the file or its directory is absent at open time.</summary>
     public Stream? OpenRead(string path)
     {
         var filePath = EnsureContainedPath(path);
-        return File.Exists(filePath)
-            ? new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete)
-            : null;
+        try
+        {
+            return new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        }
+        catch (FileNotFoundException)
+        {
+            return null;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return null;
+        }
     }
 
     /// <summary>Stages a contained file for a later atomic commit.</summary>

@@ -32,7 +32,7 @@ internal static class StreamAcquisitionHttpMapper
         return new StreamAcquisitionHttpFailure
         {
             StatusCode = statusCode,
-            Code = exception.Code,
+            Code = exception.Category == PhysicalStreamFailureCategory.Unavailable ? "source_unavailable" : exception.Code,
             Error = exception.Message
         };
     }

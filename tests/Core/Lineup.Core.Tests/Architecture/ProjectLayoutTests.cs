@@ -247,17 +247,28 @@ public sealed class ProjectLayoutTests
                 {
                     BeforeTargets = element.Attribute("BeforeTargets")?.Value,
                     AfterTargets = element.Attribute("AfterTargets")?.Value,
+                    Condition = element.Attribute("Condition")?.Value,
                     Command = element.Descendants().Single(child => child.Name.LocalName == "Exec").Attribute("Command")?.Value
                 },
                 StringComparer.Ordinal);
 
         // Assert
         Assert.All(imports, import => Assert.Equal(expectedImport, import));
-        Assert.Equal("Run", targets["PrepareVirtualOutputWorkersForRun"].BeforeTargets);
+        Assert.Equal("Build", targets["PrepareVirtualOutputWorkersForBuild"].AfterTargets);
         Assert.Equal("Publish", targets["PublishVirtualOutputWorkersWithHost"].AfterTargets);
         var publishCommand = Assert.IsType<string>(targets["PublishVirtualOutputWorkersWithHost"].Command);
         Assert.Contains("$(LineupWorkerPackagerRuntimeArguments)", publishCommand, StringComparison.Ordinal);
         Assert.Contains("$(LineupWorkerPackagerSelfContainedArgument)", publishCommand, StringComparison.Ordinal);
+        Assert.All(targets.Values, target =>
+        {
+            Assert.Contains("$(DesignTimeBuild)", target.Condition, StringComparison.Ordinal);
+            Assert.Contains("$(SkipVirtualOutputWorkerPublish)", target.Condition, StringComparison.Ordinal);
+            Assert.Contains("--artifacts-path", target.Command, StringComparison.Ordinal);
+        });
+        var upToDateOutputs = XDocument.Load(targetPath).Descendants().Where(element => element.Name.LocalName == "UpToDateCheckOutput").ToArray();
+        Assert.Contains(upToDateOutputs, element => element.Attribute("Set")?.Value == "VirtualOutputPackaging" &&
+            element.Attribute("Include")?.Value == @"$(OutputPath)virtual-output-workers\packaging.stamp");
+        Assert.Contains(upToDateOutputs, element => element.Attribute("Set")?.Value == "VirtualOutputPackageFiles");
         Assert.True(File.Exists(packagerProject));
         Assert.True(File.Exists(Path.Combine(repositoryRoot, "scripts", "Publish-VirtualOutputWorkers.ps1")));
     }

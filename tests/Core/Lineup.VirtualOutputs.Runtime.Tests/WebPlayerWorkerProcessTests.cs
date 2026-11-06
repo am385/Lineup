@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -20,6 +21,134 @@ namespace Lineup.VirtualOutputs.Runtime.Tests;
 /// <summary>Verifies the real dedicated Web Player executable across its HTTP, IPC, FFmpeg, and cleanup boundaries.</summary>
 public sealed class WebPlayerWorkerProcessTests
 {
+    /// <summary>Verifies normal host builds install discoverable packages that can activate a dedicated Web Player listener.</summary>
+    [Theory]
+    [InlineData("Lineup.Web", "Debug")]
+    [InlineData("Lineup.Web", "Release")]
+    [InlineData("Lineup.Tui", "Debug")]
+    [InlineData("Lineup.Tui", "Release")]
+    public async Task HostBuild_CleanOutput_InstallsAndActivatesWorker(string host, string configuration)
+    {
+        // Arrange
+        var output = Directory.CreateTempSubdirectory("lineup-host-build-");
+        try
+        {
+            var startInfo = new ProcessStartInfo("dotnet")
+            {
+                WorkingDirectory = GetRepositoryRoot(),
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false
+            };
+            foreach (var argument in new[]
+            {
+                "build", Path.Combine("src", "Apps", host, $"{host}.csproj"), "--configuration", configuration,
+                "--no-restore", "--output", output.FullName, "-p:SourceRevisionId=worker-packaging-test", "--verbosity", "quiet"
+            })
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
+
+            // Act
+            await BuildHostAsync(startInfo);
+            var catalog = new VirtualOutputWorkerCatalog(Path.Combine(output.FullName, "virtual-output-workers"));
+            var package = await catalog.ResolveAsync("web-player", TestContext.Current.CancellationToken);
+            var workerPath = Path.Combine(package.PackageRoot, package.Manifest.ExecutablePath);
+            var workerModified = File.GetLastWriteTimeUtc(workerPath);
+            await BuildHostAsync(startInfo);
+            var unchangedWorkerModified = File.GetLastWriteTimeUtc(workerPath);
+            var dependencyPath = Path.Combine(package.PackageRoot, "Lineup.WebPlayer.VirtualOutputHost.deps.json");
+            File.Delete(dependencyPath);
+            await BuildHostAsync(startInfo);
+            await using var harness = await WebPlayerWorkerHarness.StartAsync(
+                (request, _) => Task.FromResult(CreateBrokeredStream(request, new PacedPatternStream())),
+                TestContext.Current.CancellationToken,
+                workerPath: workerPath);
+            using var response = await harness.Client.GetAsync("/health", TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.Equal(4, (await catalog.LoadAsync(TestContext.Current.CancellationToken)).Count);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal(package.Manifest.ExecutableSha256, Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(workerPath, TestContext.Current.CancellationToken))), ignoreCase: true);
+            Assert.Equal(workerModified, unchangedWorkerModified);
+            Assert.Equal(workerModified, File.GetLastWriteTimeUtc(workerPath));
+            Assert.True(File.Exists(dependencyPath));
+            Assert.True(File.Exists(Path.Combine(package.PackageRoot, "Lineup.WebPlayer.VirtualOutputHost.runtimeconfig.json")));
+            Assert.True(File.Exists(Path.Combine(output.FullName, "virtual-output-workers", "packaging.stamp")));
+        }
+        finally
+        {
+            output.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>Verifies design-time evaluation and the explicit packaging opt-out never publish workers.</summary>
+    [Theory]
+    [InlineData("DesignTimeBuild")]
+    [InlineData("SkipVirtualOutputWorkerPublish")]
+    public async Task HostPackagingTarget_Disabled_DoesNotInstallWorkers(string property)
+    {
+        // Arrange
+        var output = Directory.CreateTempSubdirectory("lineup-host-build-disabled-");
+        var startInfo = new ProcessStartInfo("dotnet")
+        {
+            WorkingDirectory = GetRepositoryRoot(),
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false
+        };
+        foreach (var argument in new[]
+        {
+            "msbuild", Path.Combine("src", "Apps", "Lineup.Web", "Lineup.Web.csproj"), "-target:PrepareVirtualOutputWorkersForBuild",
+            $"-p:{property}=true", $"-p:OutDir={output.FullName}{Path.DirectorySeparatorChar}", "-p:SourceRevisionId=worker-packaging-test", "-verbosity:quiet"
+        })
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+        try
+        {
+            // Act
+            await BuildHostAsync(startInfo);
+
+            // Assert
+            Assert.False(Directory.Exists(Path.Combine(output.FullName, "virtual-output-workers")));
+        }
+        finally
+        {
+            output.Delete(recursive: true);
+        }
+    }
+
+    private static string GetRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "Lineup.slnx")))
+        {
+            directory = directory.Parent;
+        }
+        return directory?.FullName ?? throw new DirectoryNotFoundException("Unable to locate the Lineup repository for the host-build regression.");
+    }
+
+    private static async Task BuildHostAsync(ProcessStartInfo startInfo)
+    {
+        using var build = Process.Start(startInfo) ?? throw new InvalidOperationException("Unable to start the clean host build.");
+        var stdout = build.StandardOutput.ReadToEndAsync(TestContext.Current.CancellationToken);
+        var stderr = build.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            await build.WaitForExitAsync(TestContext.Current.CancellationToken);
+            Assert.True(build.ExitCode == 0, $"{await stdout}{Environment.NewLine}{await stderr}");
+        }
+        finally
+        {
+            if (!build.HasExited)
+            {
+                build.Kill(entireProcessTree: true);
+                await build.WaitForExitAsync();
+            }
+        }
+    }
+
     /// <summary>Verifies a recognized copy failure retries once and reports the actual fallback presentation.</summary>
     [Theory]
     [InlineData(false)]
@@ -74,7 +203,7 @@ public sealed class WebPlayerWorkerProcessTests
 
         // Assert
         Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
-        Assert.Equal("media_startup_failed", payload!["code"]!.GetValue<string>());
+        Assert.Equal("media_process_failed", payload!["code"]!.GetValue<string>());
         Assert.Equal(expectedStarts, harness.MediaStarts.Count);
         await harness.AssertMediaReleasedAsync();
     }
@@ -204,7 +333,7 @@ public sealed class WebPlayerWorkerProcessTests
         // Assert
         Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
         Assert.Equal("*", response.Headers.GetValues("Access-Control-Allow-Origin").Single());
-        Assert.Equal("media_startup_failed", payload!["code"]!.GetValue<string>());
+        Assert.Equal("media_process_failed", payload!["code"]!.GetValue<string>());
         Assert.Equal("readiness", payload["stage"]!.GetValue<string>());
         Assert.DoesNotContain("Synthetic", payload["error"]!.GetValue<string>(), StringComparison.OrdinalIgnoreCase);
         Assert.Empty(harness.ActiveStreams.GetActiveStreams());
@@ -380,7 +509,8 @@ public sealed class WebPlayerWorkerProcessTests
             CancellationToken cancellationToken,
             TimeSpan? leaseLifetime = null,
             bool mediaProcessorFails = false,
-            string? startupMode = null)
+            string? startupMode = null,
+            string? workerPath = null)
         {
             var endpoint = CreateEndpoint();
             var authority = new VirtualOutputSessionAuthority();
@@ -445,7 +575,7 @@ public sealed class WebPlayerWorkerProcessTests
                 BootstrapExpiresUtc = ticket.ExpiresUtc
             };
             var startLog = Path.Combine(Path.GetTempPath(), $"lineup-media-starts-{Guid.NewGuid():N}.txt");
-            var worker = StartWorker(bootstrap, mediaProcessorFails, startupMode, startLog);
+            var worker = StartWorker(bootstrap, mediaProcessorFails, startupMode, startLog, workerPath);
             var client = new HttpClient
             {
                 BaseAddress = new Uri($"http://127.0.0.1:{port}"),
@@ -519,9 +649,9 @@ public sealed class WebPlayerWorkerProcessTests
             throw new TimeoutException("The Web Player worker did not open its HTTP listener.");
         }
 
-        private static Process StartWorker(VirtualOutputWorkerBootstrap bootstrap, bool mediaProcessorFails, string? startupMode, string startLog)
+        private static Process StartWorker(VirtualOutputWorkerBootstrap bootstrap, bool mediaProcessorFails, string? startupMode, string startLog, string? workerPath)
         {
-            var workerPath = Path.Combine(AppContext.BaseDirectory, "Lineup.WebPlayer.VirtualOutputHost.dll");
+            workerPath ??= Path.Combine(AppContext.BaseDirectory, "Lineup.WebPlayer.VirtualOutputHost.dll");
             if (!File.Exists(workerPath))
             {
                 throw new FileNotFoundException("The dedicated Web Player worker was not copied to the integration-test output.", workerPath);

@@ -7,15 +7,28 @@
     <LineupWorkerPackagerSourceRevisionArgument Condition="'$(SourceRevisionId)' != ''">--source-revision &quot;$(SourceRevisionId)&quot;</LineupWorkerPackagerSourceRevisionArgument>
   </PropertyGroup>
 
-  <Target Name="PrepareVirtualOutputWorkersForRun"
-          BeforeTargets="Run"
+  <ItemGroup Condition="'$(SkipVirtualOutputWorkerPublish)' != 'true'">
+    <_LineupBuiltInWorker Include="lineup-link" AssemblyName="Lineup.LineupLink.VirtualOutputHost" />
+    <_LineupBuiltInWorker Include="hdhomerun" AssemblyName="Lineup.SiliconDust.HDHomeRun.VirtualOutputHost" />
+    <_LineupBuiltInWorker Include="hdhomerun-discovery" AssemblyName="Lineup.SiliconDust.HDHomeRun.DiscoveryHost" />
+    <_LineupBuiltInWorker Include="web-player" AssemblyName="Lineup.WebPlayer.VirtualOutputHost" />
+    <UpToDateCheckInput Include="$(LineupRepositoryRoot)\src\**\*;$(LineupRepositoryRoot)\build\**\*;$(LineupRepositoryRoot)\scripts\Lineup.VirtualOutputWorkerPackager\**\*;$(LineupRepositoryRoot)\*.props;$(LineupRepositoryRoot)\*.targets;$(LineupRepositoryRoot)\NuGet.Config;$(LineupRepositoryRoot)\global.json;$(LineupRepositoryRoot)\.editorconfig"
+                        Set="VirtualOutputPackaging"
+                        Exclude="$(LineupRepositoryRoot)\**\bin\**;$(LineupRepositoryRoot)\**\obj\**" />
+    <UpToDateCheckOutput Include="$(OutputPath)virtual-output-workers\packaging.stamp" Set="VirtualOutputPackaging" />
+    <UpToDateCheckOutput Include="@(_LineupBuiltInWorker->'$(OutputPath)virtual-output-workers\%(Identity)\%(Identity).virtual-output.json');@(_LineupBuiltInWorker->'$(OutputPath)virtual-output-workers\%(Identity)\%(AssemblyName).dll');@(_LineupBuiltInWorker->'$(OutputPath)virtual-output-workers\%(Identity)\%(AssemblyName).deps.json');@(_LineupBuiltInWorker->'$(OutputPath)virtual-output-workers\%(Identity)\%(AssemblyName).runtimeconfig.json')"
+                         Set="VirtualOutputPackageFiles" />
+  </ItemGroup>
+
+  <Target Name="PrepareVirtualOutputWorkersForBuild"
+          AfterTargets="Build"
           Condition="'$(DesignTimeBuild)' != 'true' and '$(SkipVirtualOutputWorkerPublish)' != 'true'">
-    <Exec Command="dotnet run --project &quot;$(LineupVirtualOutputWorkerPackager)&quot; --configuration Release --no-launch-profile -- --repository-root &quot;$(LineupRepositoryRoot)&quot; --output &quot;$(TargetDir)virtual-output-workers&quot; --configuration &quot;$(Configuration)&quot; --version &quot;$(Version)&quot; $(LineupWorkerPackagerSourceRevisionArgument)" />
+    <Exec Command="dotnet run --project &quot;$(LineupVirtualOutputWorkerPackager)&quot; --artifacts-path &quot;$(IntermediateOutputPath)worker-packager&quot; --configuration Release --no-launch-profile -p:SourceRevisionId=&quot;$(SourceRevisionId)&quot; -- --repository-root &quot;$(LineupRepositoryRoot)&quot; --output &quot;$(TargetDir)virtual-output-workers&quot; --configuration &quot;$(Configuration)&quot; $(LineupWorkerPackagerRuntimeArguments) $(LineupWorkerPackagerSelfContainedArgument) --version &quot;$(Version)&quot; $(LineupWorkerPackagerSourceRevisionArgument)" />
   </Target>
 
   <Target Name="PublishVirtualOutputWorkersWithHost"
           AfterTargets="Publish"
           Condition="'$(DesignTimeBuild)' != 'true' and '$(SkipVirtualOutputWorkerPublish)' != 'true'">
-    <Exec Command="dotnet run --project &quot;$(LineupVirtualOutputWorkerPackager)&quot; --configuration Release --no-launch-profile -- --repository-root &quot;$(LineupRepositoryRoot)&quot; --output &quot;$(PublishDir)virtual-output-workers&quot; --configuration &quot;$(Configuration)&quot; $(LineupWorkerPackagerRuntimeArguments) $(LineupWorkerPackagerSelfContainedArgument) --version &quot;$(Version)&quot; $(LineupWorkerPackagerSourceRevisionArgument)" />
+    <Exec Command="dotnet run --project &quot;$(LineupVirtualOutputWorkerPackager)&quot; --artifacts-path &quot;$(IntermediateOutputPath)worker-packager&quot; --configuration Release --no-launch-profile -p:SourceRevisionId=&quot;$(SourceRevisionId)&quot; -- --repository-root &quot;$(LineupRepositoryRoot)&quot; --output &quot;$(PublishDir)virtual-output-workers&quot; --configuration &quot;$(Configuration)&quot; $(LineupWorkerPackagerRuntimeArguments) $(LineupWorkerPackagerSelfContainedArgument) --version &quot;$(Version)&quot; $(LineupWorkerPackagerSourceRevisionArgument)" />
   </Target>
 </Project>

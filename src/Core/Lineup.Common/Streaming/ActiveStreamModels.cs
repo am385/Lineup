@@ -105,7 +105,11 @@ public sealed record ActiveStreamMediaTrack(
 }
 
 /// <summary>Describes the complete media presented at one streaming stage.</summary>
-public sealed record ActiveStreamMediaSnapshot(long? BitRate, IReadOnlyList<ActiveStreamMediaTrack> Tracks);
+public sealed record ActiveStreamMediaSnapshot(long? BitRate, IReadOnlyList<ActiveStreamMediaTrack> Tracks)
+{
+    /// <summary>Gets audio discovery completeness independently of decoded or audible playback evidence.</summary>
+    public AudioDiscoveryStatus AudioDiscovery { get; init; }
+}
 
 /// <summary>Represents an active stream hosted by Lineup.</summary>
 public sealed record ActiveStreamSnapshot(string SessionId, string Channel, HostedStreamFormat Format, DateTime StartedAtUtc, long? SourceBitRate, IReadOnlyList<ActiveStreamTrack> Tracks)

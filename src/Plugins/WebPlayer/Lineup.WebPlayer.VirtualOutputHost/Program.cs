@@ -27,7 +27,7 @@ var allowedNetworks = securityPolicies.ToDictionary(
     StringComparer.OrdinalIgnoreCase);
 var certificates = bootstrap.CertificateMaterials.ToDictionary(material => material.Reference, StringComparer.Ordinal);
 var bindingsByPort = VirtualOutputBindingResolver.CreatePortMap(hosting);
-var sessions = new DedicatedMediaSessionRegistry<MediaSession>(TimeProvider.System, TimeSpan.FromSeconds(20));
+var sessions = new DedicatedMediaSessionRegistry<MediaSession>(TimeProvider.System, CmafStreamPlanner.MinimumInactivityTimeout);
 var builder = WebApplication.CreateSlimBuilder(args);
 builder.Logging.ClearProviders();
 builder.Logging.AddSimpleConsole(options =>
@@ -96,6 +96,7 @@ app.MapPost("/media/start/{channel}", async (
     var stopwatch = Stopwatch.StartNew();
     var stage = DedicatedWorkerStartupStage.Preparation;
     var id = Guid.NewGuid().ToString("N");
+    var brokerRequestId = VirtualOutputStreamRequestId.New();
     var directory = Path.Combine(Path.GetTempPath(), "lineup-web-player", id);
     try
     {
@@ -107,7 +108,7 @@ app.MapPost("/media/start/{channel}", async (
             source = await workerSession.Broker.OpenStreamAsync(new VirtualOutputOpenStreamRequest
             {
                 Session = workerSession.Context!,
-                RequestId = VirtualOutputStreamRequestId.New(),
+                RequestId = brokerRequestId,
                 ChannelKey = channel,
                 Stage = VirtualOutputStreamStage.PhysicalOutput,
                 Client = new VirtualOutputClientContext
@@ -143,8 +144,6 @@ app.MapPost("/media/start/{channel}", async (
         stage = DedicatedWorkerStartupStage.Process;
         startupGuard.TransferOwnership();
         MediaSession? session = null;
-        var dashPath = Path.Combine(directory, CmafStreamPlanner.DashManifestName);
-        var hlsPath = Path.Combine(directory, CmafStreamPlanner.HlsManifestName);
         try
         {
             session = await StartMediaSessionAsync(id, directory, source, plan, app.Logger);
@@ -152,9 +151,9 @@ app.MapPost("/media/start/{channel}", async (
             stage = DedicatedWorkerStartupStage.Readiness;
             try
             {
-                await WaitForOutputAsync(session.Process, session.ErrorTask, dashPath, hlsPath, plan.AudioRenditions.Count + 1, TimeSpan.FromSeconds(20), cancellationToken);
+                await WaitForOutputAsync(session, TimeSpan.FromSeconds(20), cancellationToken);
             }
-            catch (InvalidOperationException) when (!cancellationToken.IsCancellationRequested && session.Process.HasExited)
+            catch (MediaProcessException) when (!cancellationToken.IsCancellationRequested && session.Process.HasExited)
             {
                 var diagnostics = await session.ErrorTask.WaitAsync(cancellationToken);
                 if (!CmafStreamPlanner.ShouldRetryWithFallback(plan.Request, plan.Source.Tracks.Where(track => track.Type == MediaTrackType.Audio), [diagnostics]))
@@ -171,8 +170,7 @@ app.MapPost("/media/start/{channel}", async (
                 session = await StartMediaSessionAsync(id, directory, source, plan, app.Logger);
                 stage = DedicatedWorkerStartupStage.Readiness;
                 var remaining = TimeSpan.FromSeconds(20) - readiness.Elapsed;
-                await WaitForOutputAsync(
-                    session.Process, session.ErrorTask, dashPath, hlsPath, plan.AudioRenditions.Count + 1, remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, cancellationToken);
+                await WaitForOutputAsync(session, remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, cancellationToken);
             }
             await ReportStreamStatusAsync(
                 workerSession,
@@ -194,6 +192,13 @@ app.MapPost("/media/start/{channel}", async (
         catch (Exception exception)
         {
             var failure = DedicatedWorkerStartupFailureMapper.Map(exception, stage);
+            if (session is not null)
+            {
+                await session.StopMediaAsync();
+            }
+            MediaProcessDiagnostics.LogFailure(
+                app.Logger, exception, failure.Stage, id, source.RequestId.ToString(), streamSessionId.ToString(),
+                session?.ExitCode, session?.ErrorTask.IsCompletedSuccessfully == true ? session.ErrorTask.Result : null);
             await TryReportStreamFailureAsync(
                 workerSession,
                 source,
@@ -222,13 +227,16 @@ app.MapPost("/media/start/{channel}", async (
     {
         var failure = DedicatedWorkerStartupFailureMapper.Map(exception, stage);
         app.Logger.LogWarning(
-            exception,
-            "Dedicated Web Player startup failed for channel {Channel} in worker generation {Generation} with code {FailureCode} during stage {StartupStage} after {ElapsedMilliseconds} ms.",
+            "Dedicated Web Player startup failed for channel {Channel} in worker generation {Generation} with code {FailureCode} during stage {StartupStage} " +
+            "after {ElapsedMilliseconds} ms, session {MediaSessionId}, request {BrokerRequestId}.",
             channel,
             bootstrap.Generation,
             failure.Code,
             failure.Stage,
-            stopwatch.ElapsedMilliseconds);
+            stopwatch.ElapsedMilliseconds,
+            id,
+            brokerRequestId);
+        MediaProcessDiagnostics.LogFailure(app.Logger, exception, failure.Stage, id, brokerRequestId.ToString());
         return Results.Json(failure, statusCode: failure.StatusCode);
     }
 });
@@ -312,59 +320,7 @@ app.MapGet("/media/{sessionId}/{filename}", async (string sessionId, string file
     {
         return Results.NotFound();
     }
-    context.Response.Headers.CacheControl = "no-cache, no-store";
-    if (string.Equals(Path.GetExtension(filename), ".vtt", StringComparison.OrdinalIgnoreCase))
-    {
-        if (!File.Exists(path))
-        {
-            byte[] emptySubtitleBytes = [];
-            context.Response.Headers["X-Lineup-Subtitle-Offset"] = "0";
-            return Results.File(emptySubtitleBytes, "text/vtt; charset=utf-8");
-        }
-        await using var stream = OpenGrowingFile(path);
-        var effectiveOffset = Math.Clamp(offset ?? 0, 0, stream.Length);
-        stream.Position = effectiveOffset;
-        var data = new byte[(int)Math.Min(stream.Length - effectiveOffset, 64 * 1024)];
-        await stream.ReadExactlyAsync(data, context.RequestAborted);
-        context.Response.Headers["X-Lineup-Subtitle-Offset"] = (effectiveOffset + data.Length).ToString(System.Globalization.CultureInfo.InvariantCulture);
-        return Results.File(data, "text/vtt; charset=utf-8");
-    }
-    if (!File.Exists(path))
-    {
-        return Results.StatusCode(425);
-    }
-    if (string.Equals(filename, CmafStreamPlanner.DashManifestName, StringComparison.Ordinal))
-    {
-        var manifest = await ReadGrowingTextAsync(path, context.RequestAborted);
-        manifest = CmafStreamPlanner.RewriteManifestAudioLabels(manifest, session.Plan.AudioRenditions);
-        if (session.Plan.SourceVideoCodec is { } sourceVideoCodec)
-        {
-            manifest = CmafStreamPlanner.RewriteManifestCodecs(manifest, sourceVideoCodec);
-        }
-        return Results.Content(manifest, "application/dash+xml");
-    }
-    if (string.Equals(filename, CmafStreamPlanner.HlsManifestName, StringComparison.Ordinal))
-    {
-        var manifest = await ReadGrowingTextAsync(path, context.RequestAborted);
-        manifest = CmafStreamPlanner.RewriteManifestAudioLabels(manifest, session.Plan.AudioRenditions);
-        if (session.Plan.SourceVideoCodec is { } sourceVideoCodec)
-        {
-            manifest = CmafStreamPlanner.RewriteManifestCodecs(manifest, sourceVideoCodec);
-        }
-        return Results.Content(manifest, "application/vnd.apple.mpegurl");
-    }
-    if (filename.StartsWith("media_", StringComparison.Ordinal) && filename.EndsWith(".m3u8", StringComparison.Ordinal))
-    {
-        var dashPath = Path.Combine(session.Directory, CmafStreamPlanner.DashManifestName);
-        if (!File.Exists(dashPath))
-        {
-            return Results.StatusCode(425);
-        }
-        var playlist = await ReadGrowingTextAsync(path, context.RequestAborted);
-        var dashManifest = await ReadGrowingTextAsync(dashPath, context.RequestAborted);
-        return Results.Content(CmafStreamPlanner.RewriteHlsProgramDateTimes(playlist, dashManifest), "application/vnd.apple.mpegurl");
-    }
-    return Results.File(path, GetContentType(filename), enableRangeProcessing: true);
+    return await DedicatedMediaFileResponse.CreateAsync(path, filename, session.Plan, offset, context);
 });
 
 app.MapPost("/media/stop/{sessionId}", async (string sessionId) =>
@@ -460,7 +416,15 @@ static async Task PumpInputAsync(MediaSession session)
             {
                 break;
             }
-            await session.Process.StandardInput.BaseStream.WriteAsync(buffer.AsMemory(0, bytesRead), session.Lifetime.Token);
+            try
+            {
+                await session.Process.StandardInput.BaseStream.WriteAsync(buffer.AsMemory(0, bytesRead), session.Lifetime.Token);
+            }
+            catch (IOException)
+            {
+                await session.Process.WaitForExitAsync(session.Lifetime.Token);
+                break;
+            }
             if (captionInputAvailable)
             {
                 try
@@ -478,8 +442,9 @@ static async Task PumpInputAsync(MediaSession session)
     catch (OperationCanceledException) when (session.Lifetime.IsCancellationRequested)
     {
     }
-    catch (IOException)
+    catch (IOException exception)
     {
+        throw new MediaInputException("The upstream media stream failed before the presentation was ready.", exception);
     }
     finally
     {
@@ -494,70 +459,16 @@ static async Task ObserveProcessAsync(MediaSession session, DedicatedMediaSessio
     await sessions.RemoveAndDisposeAsync(session.Id);
 }
 
-static async Task WaitForOutputAsync(
-    Process process,
-    Task<string> errorTask,
-    string dashPath,
-    string hlsPath,
-    int representationCount,
-    TimeSpan timeout,
-    CancellationToken cancellationToken)
-{
-    using var readinessTimeout = new CancellationTokenSource(timeout);
-    using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, readinessTimeout.Token);
-    int[] representationFragmentCounts = [];
-    try
-    {
-        var directory = Path.GetDirectoryName(dashPath)!;
-        while (true)
-        {
-            linkedCancellation.Token.ThrowIfCancellationRequested();
-            representationFragmentCounts = Enumerable.Range(0, representationCount)
-                .Select(index => Directory.EnumerateFiles(directory, $"chunk-{index}-*.m4s").Take(2).Count())
-                .ToArray();
-            if (File.Exists(dashPath) &&
-                File.Exists(hlsPath) &&
-                representationFragmentCounts.All(count => count >= 2))
-            {
-                return;
-            }
-            if (process.HasExited)
-            {
-                var error = await errorTask.WaitAsync(linkedCancellation.Token);
-                throw new InvalidOperationException($"Web Player FFmpeg exited before producing media: {error}");
-            }
-            await Task.Delay(100, linkedCancellation.Token);
-        }
-    }
-    catch (OperationCanceledException) when (readinessTimeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-    {
-        if (!process.HasExited)
-        {
-            process.Kill(entireProcessTree: true);
-        }
-        var error = await errorTask;
-        throw new TimeoutException(
-            "The Web Player media presentation did not become ready within 20 seconds. " +
-            $"Expected {representationCount} representations with fragment counts [{string.Join(", ", representationFragmentCounts)}]. " +
-            $"FFmpeg diagnostics: {GetDiagnosticTail(error)}");
-    }
-}
-
-static string GetDiagnosticTail(string value)
-{
-    var lines = value.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-    return string.Join(" | ", lines.TakeLast(10));
-}
-
-static FileStream OpenGrowingFile(string path) =>
-    new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 64 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
-
-static async Task<string> ReadGrowingTextAsync(string path, CancellationToken cancellationToken)
-{
-    await using var stream = OpenGrowingFile(path);
-    using var reader = new StreamReader(stream);
-    return await reader.ReadToEndAsync(cancellationToken);
-}
+static Task WaitForOutputAsync(MediaSession session, TimeSpan timeout, CancellationToken cancellationToken) =>
+    DedicatedMediaReadiness.WaitAsync(
+        session.Process,
+        session.ErrorTask,
+        session.PumpTask,
+        Path.Combine(session.Directory, CmafStreamPlanner.DashManifestName),
+        Path.Combine(session.Directory, CmafStreamPlanner.HlsManifestName),
+        session.Plan.AudioRenditions.Count + 1,
+        timeout,
+        cancellationToken);
 
 static bool TryResolveMediaFile(string directory, string filename, out string path)
 {
@@ -577,16 +488,6 @@ static bool TryResolveMediaFile(string directory, string filename, out string pa
     path = candidate;
     return true;
 }
-
-static string GetContentType(string filename) =>
-    Path.GetExtension(filename).ToLowerInvariant() switch
-    {
-        ".mpd" => "application/dash+xml",
-        ".m3u8" => "application/vnd.apple.mpegurl",
-        ".m4s" or ".mp4" => "video/mp4",
-        ".vtt" => "text/vtt",
-        _ => "application/octet-stream"
-    };
 
 static void ConfigureListeners(
     KestrelServerOptions options,
@@ -707,6 +608,9 @@ internal sealed class MediaSession : IAsyncDisposable
 
     public Task<string>? CaptionErrorTask { get; }
 
+    /// <summary>Gets the final processor exit code retained after process disposal.</summary>
+    public int? ExitCode { get; private set; }
+
     /// <summary>Drains FFmpeg stderr without owning the reader, retaining at most fifty non-empty lines from the last 16,384 characters with normalized LF separators.</summary>
     internal static Task<string> ReadDiagnosticTailAsync(TextReader reader) => MediaProcessDiagnostics.ReadTailAsync(reader);
 
@@ -754,6 +658,7 @@ internal sealed class MediaSession : IAsyncDisposable
                 CaptionProcess.Kill(entireProcessTree: true);
             }
             await Process.WaitForExitAsync();
+            ExitCode = Process.ExitCode;
             if (CaptionProcess is not null)
             {
                 await CaptionProcess.WaitForExitAsync();

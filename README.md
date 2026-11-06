@@ -320,7 +320,12 @@ cd src/Apps/Lineup.Tui
 dotnet run
 ```
 
-The Web and TUI project run targets publish the shipped isolated virtual-output workers into each host's `virtual-output-workers` directory before startup. A normal `dotnet publish` of either host includes the same worker packages in the published distribution. Set the MSBuild property `SkipVirtualOutputWorkerPublish=true` only when a specialized packaging flow, such as the Docker or Windows release build, supplies those packages separately.
+Normal Web and TUI builds install the shipped isolated virtual-output workers into each host's `virtual-output-workers` directory, including Visual Studio builds and debugger launches.
+Packaging uses a shared, locked cache under `out\virtual-output-worker-packages` and separate worker compilation outputs.
+Unchanged source/build inputs reuse verified packages; missing or modified installed files are repaired on the next build without rewriting unchanged files.
+A normal `dotnet publish` of either host includes the same worker packages in the published distribution.
+Design-time builds do not package workers. Set the MSBuild property `SkipVirtualOutputWorkerPublish=true` only when a specialized packaging flow, such as the Docker or Windows release build, supplies those packages separately.
+Visual Studio's up-to-date check tracks worker source inputs, manifests, and primary runtime files so missing packages or worker changes request a real build.
 
 Configure the TUI via environment variables:
 
@@ -409,6 +414,23 @@ E-AC-3 Atmos metadata can be retained only when the Source rendition is copied s
 Dedicated Web Player hosting also retries a recognized source-audio MP4 muxer failure once with fallback audio, within the original
 20-second media-readiness budget. The retry retains the brokered source, clears partial media/caption output, and reports the final audio
 plan; unrelated failures and cancellation do not trigger recovery.
+
+Startup observes upstream input failures as well as FFmpeg readiness. Source and processor failures return sanitized
+HTTP 502 responses (`media_source_failed` or `media_process_failed`) rather than waiting for a generic startup timeout.
+Retained logs correlate the media session, broker request, stream, startup stage, exit codes, and bounded stderr tails
+(at most 50 non-empty lines and 16,384 characters per tail); these details are not included in public error responses.
+Audio probing refreshes provisional video-only observations when audio is advertised or its availability is unknown.
+Stage inventories retain `AudioDiscovery`: `Detected`, `DeclaredAbsent`, `ExpectedMissing`, or `Unknown`.
+Advertised-but-undiscovered audio, or audio lost between raw and effective metadata, fails CMAF planning explicitly with
+`media_audio_missing`; a declared video-only source remains supported. Unknown absence remains provisional, not proof of
+a video-only broadcast. Startup waits for initialization resources and two fragments for each planned representation;
+this verifies resource readiness, not audible sound, browser decoding, or lip-sync.
+
+Media responses acquire their backing file before returning it, so removal cannot invalidate an already-open response.
+Incomplete DASH publication snapshots return HTTP 425 `media_manifest_not_ready` instead of malformed successful manifests.
+Dedicated-session inactivity uses a monotonic clock and a minimum 30-second lifetime, covering the ten advertised
+two-second segments plus five extra retained segments. This does not retain closed sessions indefinitely or guarantee
+new requests after an explicit stop or terminal producer cleanup.
 
 Management-hosted Watch viewers with identical playback requests (apart from client ID), effective profiles, and exact physical
 sources share one CMAF producer. Each viewer retains its own manifest/subtitle URLs, client diagnostics,

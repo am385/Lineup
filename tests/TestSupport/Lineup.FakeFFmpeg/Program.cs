@@ -56,6 +56,12 @@ if (args is ["diagnostics", var length, var code, var hold])
     return int.Parse(code, System.Globalization.CultureInfo.InvariantCulture);
 }
 
+if (args is ["probe-json", var metadata])
+{
+    await Console.Out.WriteAsync(metadata);
+    return 0;
+}
+
 var fail = string.Equals(Environment.GetEnvironmentVariable("LINEUP_FAKE_FFMPEG_FAIL"), "1", StringComparison.Ordinal);
 if (fail)
 {
@@ -109,6 +115,8 @@ if (output?.EndsWith(".mpd", StringComparison.OrdinalIgnoreCase) == true)
         </MPD>
         """);
     await File.WriteAllTextAsync(Path.Combine(directory, "master.m3u8"), "#EXTM3U\n#EXT-X-VERSION:7\n");
+    await File.WriteAllBytesAsync(Path.Combine(directory, "init-0.mp4"), [0]);
+    await File.WriteAllBytesAsync(Path.Combine(directory, "init-1.mp4"), [0]);
     await File.WriteAllBytesAsync(Path.Combine(directory, "chunk-0-00001.m4s"), [0]);
     await File.WriteAllBytesAsync(Path.Combine(directory, "chunk-0-00002.m4s"), [0]);
     await File.WriteAllBytesAsync(Path.Combine(directory, "chunk-1-00001.m4s"), [0]);

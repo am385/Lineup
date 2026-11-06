@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using Lineup.Streaming.FFmpeg;
 using Lineup.VirtualOutputs.Hosting;
 using Lineup.VirtualOutputs.Protocol;
 
@@ -50,6 +51,21 @@ internal static class DedicatedWorkerStartupFailureMapper
         return exception switch
         {
             VirtualOutputClientException brokerException => MapBrokerFailure(brokerException, stageName),
+            MediaAudioDiscoveryException => Create(
+                StatusCodes.Status502BadGateway,
+                "media_audio_missing",
+                "The source advertises audio, but audio is missing from the discovered or processed media.",
+                stageName),
+            MediaInputException => Create(
+                StatusCodes.Status502BadGateway,
+                "media_source_failed",
+                "The upstream media stream ended or failed before the presentation was ready.",
+                "source"),
+            MediaProcessException => Create(
+                StatusCodes.Status502BadGateway,
+                "media_process_failed",
+                "The Web Player media processor failed before the presentation was ready.",
+                stageName),
             TimeoutException => Create(
                 StatusCodes.Status504GatewayTimeout,
                 "media_startup_timeout",

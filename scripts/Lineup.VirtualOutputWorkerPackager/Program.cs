@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace Lineup.VirtualOutputWorkerPackager;
@@ -39,10 +40,7 @@ internal static class Program
         try
         {
             var options = PackagerOptions.Parse(args);
-            foreach (var worker in Workers)
-            {
-                await PublishAsync(options, worker);
-            }
+            await PackageAsync(options);
             return 0;
         }
         catch (Exception exception) when (exception is ArgumentException or IOException or InvalidOperationException or JsonException)
@@ -52,9 +50,117 @@ internal static class Program
         }
     }
 
-    private static async Task PublishAsync(PackagerOptions options, WorkerDefinition worker)
+    private static async Task PackageAsync(PackagerOptions options)
     {
-        var workerOutput = Path.Combine(options.OutputDirectory, worker.Id);
+        var cacheRoot = Path.Combine(options.RepositoryRoot, "out", "virtual-output-worker-packages");
+        Directory.CreateDirectory(cacheRoot);
+        await using var cacheLock = await AcquireLockAsync(Path.Combine(cacheRoot, "packaging.lock"));
+        var configurationKey = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+            JsonSerializer.Serialize(new { options.Configuration, options.Version, options.RuntimeIdentifier, options.SelfContained, options.SourceRevisionId }))));
+        var cacheDirectory = Path.Combine(cacheRoot, configurationKey[..24]);
+        var stampPath = Path.Combine(cacheDirectory, "packages.json");
+        var fingerprint = await FingerprintAsync(options.RepositoryRoot);
+        var stamp = File.Exists(stampPath)
+            ? JsonSerializer.Deserialize<PackageStamp>(await File.ReadAllTextAsync(stampPath))
+            : null;
+        if (stamp is null || stamp.Fingerprint != fingerprint || !await VerifyFilesAsync(cacheDirectory, stamp.Files))
+        {
+            Directory.CreateDirectory(cacheDirectory);
+            foreach (var worker in Workers)
+            {
+                await PublishAsync(options, worker, cacheDirectory);
+            }
+            var files = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var worker in Workers)
+            {
+                foreach (var file in Directory.EnumerateFiles(Path.Combine(cacheDirectory, worker.Id), "*", SearchOption.AllDirectories))
+                {
+                    files.Add(Path.GetRelativePath(cacheDirectory, file), await HashFileAsync(file));
+                }
+            }
+            stamp = new PackageStamp(fingerprint, files);
+            await File.WriteAllTextAsync(stampPath, JsonSerializer.Serialize(stamp));
+        }
+        Directory.CreateDirectory(options.OutputDirectory);
+        foreach (var file in stamp.Files)
+        {
+            var destination = Path.Combine(options.OutputDirectory, file.Key);
+            if (File.Exists(destination) && await HashFileAsync(destination) == file.Value)
+            {
+                continue;
+            }
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            File.Copy(Path.Combine(cacheDirectory, file.Key), destination, overwrite: true);
+        }
+        await File.WriteAllTextAsync(Path.Combine(options.OutputDirectory, "packaging.stamp"), $"{configurationKey}:{fingerprint}");
+        Console.WriteLine($"Verified virtual-output worker packages in '{options.OutputDirectory}'.");
+    }
+
+    private static async Task<FileStream> AcquireLockAsync(string path)
+    {
+        var waiting = Stopwatch.StartNew();
+        while (true)
+        {
+            try
+            {
+                return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            }
+            catch (IOException exception) when ((exception.HResult & 0xffff) is 11 or 32 or 33)
+            {
+                if (waiting.Elapsed > TimeSpan.FromMinutes(10))
+                {
+                    throw new IOException($"Timed out waiting for the virtual-output packaging lock '{path}'.", exception);
+                }
+                await Task.Delay(100);
+            }
+        }
+    }
+
+    private static async Task<string> FingerprintAsync(string repository)
+    {
+        var inputs = Directory.EnumerateFiles(Path.Combine(repository, "src"), "*", SearchOption.AllDirectories)
+            .Concat(Directory.EnumerateFiles(Path.Combine(repository, "scripts", "Lineup.VirtualOutputWorkerPackager"), "*", SearchOption.AllDirectories))
+            .Concat(Directory.EnumerateFiles(Path.Combine(repository, "build"), "*", SearchOption.AllDirectories))
+            .Concat(Directory.EnumerateFiles(repository, "*", SearchOption.TopDirectoryOnly).Where(path =>
+                Path.GetExtension(path) is ".props" or ".targets" || Path.GetFileName(path) is "global.json" or ".editorconfig" ||
+                string.Equals(Path.GetFileName(path), "NuGet.Config", StringComparison.OrdinalIgnoreCase)))
+            .Where(path => !Path.GetRelativePath(repository, path).Split(Path.DirectorySeparatorChar).Any(part => part is "bin" or "obj"))
+            .Order(StringComparer.Ordinal);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        foreach (var input in inputs)
+        {
+            hash.AppendData(Encoding.UTF8.GetBytes(Path.GetRelativePath(repository, input)));
+            hash.AppendData(Convert.FromHexString(await HashFileAsync(input)));
+        }
+        return Convert.ToHexString(hash.GetHashAndReset());
+    }
+
+    private static async Task<bool> VerifyFilesAsync(string root, IReadOnlyDictionary<string, string> files)
+    {
+        if (files.Count == 0)
+        {
+            return false;
+        }
+        foreach (var file in files)
+        {
+            var path = Path.Combine(root, file.Key);
+            if (!File.Exists(path) || await HashFileAsync(path) != file.Value)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static async Task<string> HashFileAsync(string path)
+    {
+        await using var stream = File.OpenRead(path);
+        return Convert.ToHexString(await SHA256.HashDataAsync(stream));
+    }
+
+    private static async Task PublishAsync(PackagerOptions options, WorkerDefinition worker, string cacheDirectory)
+    {
+        var workerOutput = Path.Combine(cacheDirectory, worker.Id);
         if (Directory.Exists(workerOutput))
         {
             Directory.Delete(workerOutput, recursive: true);
@@ -67,6 +173,8 @@ internal static class Program
             Path.Combine(options.RepositoryRoot, worker.ProjectPath.Replace('/', Path.DirectorySeparatorChar)),
             "--configuration",
             options.Configuration,
+            "--artifacts-path",
+            Path.Combine(cacheDirectory, "build"),
             "--self-contained",
             options.SelfContained.ToString().ToLowerInvariant(),
             "--output",
@@ -84,7 +192,7 @@ internal static class Program
             arguments.Add($"-p:SourceRevisionId={options.SourceRevisionId}");
         }
 
-        var process = Process.Start(new ProcessStartInfo
+        using var process = Process.Start(new ProcessStartInfo
         {
             FileName = "dotnet",
             UseShellExecute = false
@@ -145,6 +253,8 @@ internal static class Program
     }
 
     private sealed record WorkerDefinition(string Id, string AdapterKind, string ProjectPath, string AssemblyName);
+
+    private sealed record PackageStamp(string Fingerprint, Dictionary<string, string> Files);
 
     private sealed record PackagerOptions(
         string RepositoryRoot,

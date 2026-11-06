@@ -1,4 +1,5 @@
 using Lineup.Common.Streaming;
+using Lineup.Streaming.FFmpeg;
 using Lineup.VirtualOutputs.Protocol;
 using Lineup.WebPlayer.FFmpeg;
 
@@ -77,6 +78,11 @@ internal sealed record DedicatedCmafSessionPlan
         var source = response.Source
             ?? throw new InvalidDataException("The capability broker did not provide media metadata for the dedicated Web Player stream.");
         var rawSource = response.RawSource ?? source;
+        if (rawSource.AudioDiscovery == AudioDiscoveryStatus.ExpectedMissing ||
+            rawSource.Tracks.Any(track => track.Type == MediaTrackType.Audio) && !source.Tracks.Any(track => track.Type == MediaTrackType.Audio))
+        {
+            throw new MediaAudioDiscoveryException();
+        }
         var profile = response.Profile
             ?? throw new InvalidDataException("The capability broker did not provide the effective virtual-device profile.");
         request = CmafStreamPlanner.ApplyOverrides(request);

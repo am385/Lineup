@@ -6,6 +6,32 @@ namespace Lineup.WebPlayer.Tests;
 /// <summary>Verifies dedicated Web Player session ownership and inactivity cleanup.</summary>
 public sealed class DedicatedMediaSessionTests
 {
+    /// <summary>Verifies wall-clock corrections cannot expire active media or indefinitely retain abandoned sessions.</summary>
+    [Theory]
+    [InlineData(3600)]
+    [InlineData(-3600)]
+    public async Task ExpireInactiveAsync_WallClockChanges_UsesElapsedLifetime(int clockCorrectionSeconds)
+    {
+        // Arrange
+        var clock = new MutableTimeProvider();
+        var registry = new DedicatedMediaSessionRegistry<TestSession>(clock, TimeSpan.FromSeconds(20));
+        var session = new TestSession();
+        registry.TryAdd("owned", session);
+        clock.Advance(TimeSpan.FromSeconds(19));
+        clock.CorrectUtc(TimeSpan.FromSeconds(clockCorrectionSeconds));
+
+        // Act
+        await registry.ExpireInactiveAsync();
+        var stillAvailable = registry.Count;
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await registry.ExpireInactiveAsync();
+
+        // Assert
+        Assert.Equal(1, stillAvailable);
+        Assert.Empty(registry.GetSessionIds());
+        Assert.True(session.IsDisposed);
+    }
+
     /// <summary>Concurrent passive snapshots cannot extend session leases.</summary>
     [Fact]
     public async Task GetSessionIds_DoesNotTouchLifetime()
@@ -87,9 +113,22 @@ public sealed class DedicatedMediaSessionTests
     private sealed class MutableTimeProvider : TimeProvider
     {
         private DateTimeOffset _utcNow = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        private long _timestamp;
 
         public override DateTimeOffset GetUtcNow() => _utcNow;
 
-        internal void Advance(TimeSpan duration) => _utcNow += duration;
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        public override long GetTimestamp() => _timestamp;
+
+        /// <summary>Advances wall time and monotonic elapsed time together.</summary>
+        internal void Advance(TimeSpan duration)
+        {
+            _utcNow += duration;
+            _timestamp += duration.Ticks;
+        }
+
+        /// <summary>Corrects wall time without changing elapsed session lifetime.</summary>
+        internal void CorrectUtc(TimeSpan duration) => _utcNow += duration;
     }
 }

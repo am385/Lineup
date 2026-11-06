@@ -11,7 +11,7 @@ internal sealed record ManifestTiming(double Start, double End, double Offset, d
 internal static class FragmentTimeline
 {
     /// <summary>Reads actual successful response bodies and the explicitly fetched owned DASH manifest, including HLS observations.</summary>
-    public static TimestampEvidence ReadTrace(string tracePath, FragmentMetadata metadata, IReadOnlySet<string> activeRepresentations)
+    public static TimestampEvidence ReadTrace(string tracePath, FragmentMetadata metadata, IReadOnlySet<string> activeRepresentations, IReadOnlySet<(string Representation, long Sequence)>? observedFragments = null)
     {
         try
         {
@@ -50,8 +50,17 @@ internal static class FragmentTimeline
                 {
                     continue;
                 }
+                if (sample is not null && observedFragments is not null && !observedFragments.Contains((sample.Representation, sample.Sequence)))
+                {
+                    continue;
+                }
                 if (!response.GetProperty("content").TryGetProperty("_sha1", out var resource) || resource.GetString() is not { } resourceName)
                 {
+                    if (isManifest)
+                    {
+                        // The separately fetched, ownership-qualified manifest is mandatory and still must match all measured media.
+                        continue;
+                    }
                     throw new InvalidDataException($"Trace omitted the completed response body for {name}.");
                 }
                 if (isManifest)
@@ -143,7 +152,8 @@ internal static class FragmentTimeline
                     last = last is null ? end : Math.Max(last.Value, end);
                     var difference = Math.Max(Math.Abs(start - expected.Start), Math.Abs(end - expected.End));
                     maximumDifference = Math.Max(maximumDifference, difference);
-                    if (difference > Math.Max(expected.Precision, 1.0 / init.Timescale) + 1e-9)
+                    var precision = Math.Max(expected.Precision, Math.Max(1.0 / init.Timescale, init.EditPrecisionSeconds));
+                    if (difference > precision + 1e-9)
                     {
                         findings.Add($"Fragment {key.Sequence} differs from its manifest by {difference * 1000:F3} ms.");
                     }

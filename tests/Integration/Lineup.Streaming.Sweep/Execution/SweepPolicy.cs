@@ -3,6 +3,31 @@ namespace Lineup.Streaming.Sweep;
 /// <summary>Shared classification and invariant policy for live execution and offline tests.</summary>
 internal static class SweepPolicy
 {
+    /// <summary>Requires the previous runtime unless an unfinished attempt has no evidence of entering playback or startup.</summary>
+    public static bool RequiresPreviousRuntimeForResume(SweepAttempt attempt) => attempt.FinishedUtc is null && attempt is not
+    {
+        Requests.Count: 0,
+        Starts.Count: 0,
+        Ownership.Count: 0,
+        Result: null,
+        Cleanup: null,
+        CleanupContinuationVerified: false,
+        Synchronization: null,
+        SynchronizationManifestUrl: null,
+        Artifacts: null,
+        ActiveStatus: null,
+        Baseline: null,
+        StableDurationSeconds: 0,
+        StableMediaAdvanceSeconds: 0,
+        BrowserFailures.Count: 0,
+        EvidenceFailures.Count: 0,
+        SyntheticPlayback: null,
+        SyntheticReason: null,
+        ActiveFlow: null,
+        Interrupted: false,
+        Verdict: SweepVerdict.InfrastructureFailure
+    };
+
     /// <summary>Determines whether browser metrics establish decoded audio rather than missing counters.</summary>
     public static bool HasAudioDecodeEvidence(PlayerMetrics metrics) =>
         metrics.AudioBytesDelta is > 0 || metrics.AudioPeak is > 0;
@@ -63,7 +88,7 @@ internal static class SweepPolicy
         {
             "protected_content" => "protected-content",
             "805" or "source_capacity_exceeded" or "all_tuners_in_use" or "tuner_capacity_exhausted" or "capacity_exhausted" => "capacity-contamination",
-            "source_no_video_data" or "source_no_data" or "source_no_signal" or "no_signal" or "source_unavailable" => "source-unavailable",
+            "source_no_video_data" or "source_no_data" or "source_no_signal" or "no_signal" or "source_unavailable" or "source_acquisition_timeout" => "source-unavailable",
             "cmaf_startup_timeout" => "startup-timeout",
             _ => status switch
             {

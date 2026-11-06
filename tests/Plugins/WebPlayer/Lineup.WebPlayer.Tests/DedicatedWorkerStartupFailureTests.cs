@@ -14,6 +14,22 @@ namespace Lineup.WebPlayer.Tests;
 /// <summary>Verifies dedicated Web Player startup failures remain actionable to browser clients.</summary>
 public sealed class DedicatedWorkerStartupFailureTests
 {
+    /// <summary>Verifies incomplete audio discovery has its own safe planning-stage failure rather than a generic readiness timeout.</summary>
+    [Fact]
+    public void Map_MissingAudio_ReturnsExplicitFailure()
+    {
+        // Arrange
+        var exception = new Lineup.Streaming.FFmpeg.MediaAudioDiscoveryException();
+
+        // Act
+        var failure = DedicatedWorkerStartupFailureMapper.Map(exception, DedicatedWorkerStartupStage.Planning);
+
+        // Assert
+        Assert.Equal(502, failure.StatusCode);
+        Assert.Equal("media_audio_missing", failure.Code);
+        Assert.Equal("planning", failure.Stage);
+    }
+
     /// <summary>Verifies structured broker failures preserve stable status and failure codes.</summary>
     [Theory]
     [InlineData(VirtualOutputFailureCode.ChannelNotFound, 404, "channel_not_found")]

@@ -422,6 +422,17 @@ public class StreamController : ControllerBase
             }
             if (!protectedContent)
             {
+                if (!MediaProbeResultPolicy.HasAudio(rawSource) &&
+                    (rawSource.AudioDiscovery == AudioDiscoveryStatus.ExpectedMissing || MediaProbeResultPolicy.ExpectsAudio(selectedCandidate!.SourceMetadata)))
+                {
+                    _logger.LogWarning("CMAF source audio discovery is incomplete for channel {Channel}, request {RequestId}.", channel, HttpContext.TraceIdentifier);
+                    return StatusCode(StatusCodes.Status502BadGateway, new
+                    {
+                        code = "media_audio_missing",
+                        error = "The source advertises audio, but bounded probing did not discover it.",
+                        stage = "probing"
+                    });
+                }
                 source = GetEffectiveSource(rawSource, selectedCandidate!.PhysicalProfile);
             }
         }
@@ -568,6 +579,7 @@ public class StreamController : ControllerBase
         async Task<IActionResult> StartProducerAsync(CancellationToken producerToken)
         {
             Process? process = null;
+            Task? inputPumpTask = null;
             Process? captionProcess = null;
             Task<string>? captionErrorTask = null;
             try
@@ -604,7 +616,7 @@ public class StreamController : ControllerBase
                 pendingOutput.Attach(process, directory);
                 if (!disabled)
                 {
-                    _ = PumpEffectiveSourceAsync(selectedCandidate!, rawSource, sourceSettings, process, pendingOutput.LifetimeToken);
+                    inputPumpTask = PumpEffectiveSourceAsync(selectedCandidate!, rawSource, sourceSettings, process, pendingOutput.LifetimeToken);
                 }
                 var embeddedCaptions = selectableSubtitles.FirstOrDefault(subtitle => subtitle.IsEmbeddedClosedCaptions);
                 if (!disabled && embeddedCaptions is not null)
@@ -652,6 +664,10 @@ public class StreamController : ControllerBase
                 for (var attempt = 0; attempt < 200; attempt++)
                 {
                     producerToken.ThrowIfCancellationRequested();
+                    if (!usingSlate && inputPumpTask?.IsFaulted == true)
+                    {
+                        await EnsureInputPumpSucceededAsync(inputPumpTask);
+                    }
                     if (process.HasExited)
                     {
                         await errorMonitorTask.WaitAsync(producerToken);
@@ -702,7 +718,7 @@ public class StreamController : ControllerBase
                             sourceSession.CaptionErrorTask = null;
                             sourceSession.IsActive = false;
                             sourceSession.Process.Dispose();
-                            _ = PumpEffectiveSourceAsync(selectedCandidate!, rawSource, sourceSettings, process, pendingOutput.LifetimeToken);
+                            inputPumpTask = PumpEffectiveSourceAsync(selectedCandidate!, rawSource, sourceSettings, process, pendingOutput.LifetimeToken);
                             UpdateCmafViewerPlans(outputLease.OutputId, ActiveStreamPlanFactory.CreateCmaf(
                                 sessionId,
                                 channel,
@@ -767,7 +783,24 @@ public class StreamController : ControllerBase
                         {
                             return CreateProtectedContentResult(protection);
                         }
-                        return StatusCode(StatusCodes.Status502BadGateway, new { error = errors.LastOrDefault() ?? "FFmpeg exited before the CMAF presentation was ready." });
+                        var failure = new MediaProcessException(process.ExitCode, string.Join("\n", errors));
+                        MediaProcessDiagnostics.LogFailure(_logger, failure, "readiness", sessionId, streamSessionId: outputLease.OutputId.ToString());
+                        return StatusCode(StatusCodes.Status502BadGateway, new
+                        {
+                            code = "media_process_failed",
+                            error = "The media processor exited before the presentation was ready.",
+                            stage = "readiness"
+                        });
+                    }
+
+                    if (!usingSlate && inputPumpTask?.IsCompleted == true)
+                    {
+                        await EnsureInputPumpSucceededAsync(inputPumpTask);
+                        if (!process.HasExited)
+                        {
+                            throw new MediaInputException("The upstream media stream ended before the presentation was ready.");
+                        }
+                        continue;
                     }
 
                     var hlsPath = _transientData.GetFilePath(directory, CmafStreamPlanner.HlsManifestName);
@@ -777,6 +810,8 @@ public class StreamController : ControllerBase
                     var fragmentsReady = usingSlate
                         ? _transientData.EnumerateFiles(directory, "*.m4s").Count >= 2
                         : representationFragmentCounts.All(count => count >= 2);
+                    fragmentsReady &= Enumerable.Range(0, usingSlate ? 1 : session.AudioRenditions.Count + 1)
+                        .All(index => _transientData.FileExists(_transientData.GetFilePath(directory, $"init-{index}.mp4")));
                     if (_transientData.FileExists(manifestPath) && _transientData.FileExists(hlsPath) && fragmentsReady)
                     {
                         Volatile.Write(ref session.IsStarting, 0);
@@ -822,6 +857,21 @@ public class StreamController : ControllerBase
             catch (OperationCanceledException) when (producerToken.IsCancellationRequested)
             {
                 return pendingOutput.LifetimeToken.IsCancellationRequested ? new EmptyResult() : CreateCmafStartupTimeoutResult();
+            }
+            catch (MediaInputException exception)
+            {
+                MediaProcessDiagnostics.LogFailure(_logger, exception, "source", sessionId, streamSessionId: outputLease.OutputId.ToString());
+                return StatusCode(StatusCodes.Status502BadGateway, new { code = "media_source_failed", error = exception.Message, stage = "source" });
+            }
+            catch (MediaProcessException exception)
+            {
+                MediaProcessDiagnostics.LogFailure(_logger, exception, "process", sessionId, streamSessionId: outputLease.OutputId.ToString());
+                return StatusCode(StatusCodes.Status502BadGateway, new
+                {
+                    code = "media_process_failed",
+                    error = "The media processor could not start the presentation.",
+                    stage = "process"
+                });
             }
             catch (Exception ex) when (ex is MediaProcessException or InvalidOperationException or IOException or StreamCapacityExceededException)
             {
@@ -874,6 +924,8 @@ public class StreamController : ControllerBase
     }
     /// <summary>
     /// Serves contained shared CMAF manifests, fragments, and subtitle artifacts.
+    /// Opens artifacts before creating responses so cleanup cannot invalidate a deferred file open.
+    /// The response executor owns binary streams; text artifacts are read and disposed within this action.
     /// </summary>
     [HttpGet("watch-test/{sessionId}/{filename}")]
     [HttpGet("cmaf/{sessionId}/{filename}")]
@@ -896,7 +948,8 @@ public class StreamController : ControllerBase
             return BadRequest(new { error = "Invalid subtitle offset." });
         }
 
-        if (!_transientData.FileExists(filePath))
+        var stream = _transientData.OpenRead(filePath);
+        if (stream is null)
         {
             if (!isSubtitle)
             {
@@ -910,79 +963,76 @@ public class StreamController : ControllerBase
 
         if (isSubtitle)
         {
-            using var stream = _transientData.OpenRead(filePath);
-            if (stream is null)
+            using (stream)
             {
+                var effectiveOffset = Math.Min(offset, stream.Length);
+                stream.Position = effectiveOffset;
+                var data = new byte[(int)Math.Min(stream.Length - effectiveOffset, 64 * 1024)];
+                stream.ReadExactly(data);
                 Response.Headers.CacheControl = "no-cache, no-store";
-                Response.Headers["X-Lineup-Subtitle-Offset"] = offset.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                return File(Array.Empty<byte>(), "text/vtt; charset=utf-8");
+                Response.Headers["X-Lineup-Subtitle-Offset"] = (effectiveOffset + data.Length).ToString(System.Globalization.CultureInfo.InvariantCulture);
+                return File(data, "text/vtt; charset=utf-8");
             }
-            var effectiveOffset = Math.Min(offset, stream.Length);
-            stream.Position = effectiveOffset;
-            var data = new byte[(int)Math.Min(stream.Length - effectiveOffset, 64 * 1024)];
-            stream.ReadExactly(data);
-            Response.Headers.CacheControl = "no-cache, no-store";
-            Response.Headers["X-Lineup-Subtitle-Offset"] = (effectiveOffset + data.Length).ToString(System.Globalization.CultureInfo.InvariantCulture);
-            return File(data, "text/vtt; charset=utf-8");
         }
 
         if (string.Equals(extension, ".mpd", StringComparison.OrdinalIgnoreCase))
         {
-            using var stream = _transientData.OpenRead(filePath);
-            if (stream is null)
+            using (stream)
             {
-                return NotFound(new { error = "File not found" });
+                using var reader = new StreamReader(stream);
+                var manifest = reader.ReadToEnd();
+                if (!CmafStreamPlanner.IsDashManifestComplete(manifest))
+                {
+                    return StatusCode(425, new { code = "media_manifest_not_ready", error = "The media manifest is being published.", stage = "delivery" });
+                }
+                manifest = CmafStreamPlanner.RewriteManifestAudioLabels(manifest, session.AudioRenditions);
+                if (session.SourceVideoCodec is { } sourceVideoCodec)
+                {
+                    manifest = CmafStreamPlanner.RewriteManifestCodecs(manifest, sourceVideoCodec);
+                }
+                Response.Headers.CacheControl = "no-cache, no-store";
+                return Content(manifest, "application/dash+xml");
             }
-
-            using var reader = new StreamReader(stream);
-            var manifest = CmafStreamPlanner.RewriteManifestAudioLabels(reader.ReadToEnd(), session.AudioRenditions);
-            if (session.SourceVideoCodec is { } sourceVideoCodec)
-            {
-                manifest = CmafStreamPlanner.RewriteManifestCodecs(manifest, sourceVideoCodec);
-            }
-            Response.Headers.CacheControl = "no-cache, no-store";
-            return Content(manifest, "application/dash+xml");
         }
 
         if ((session.SourceVideoCodec is not null || session.AudioRenditions.Count > 0) &&
             string.Equals(filename, CmafStreamPlanner.HlsManifestName, StringComparison.Ordinal))
         {
-            using var stream = _transientData.OpenRead(filePath);
-            if (stream is null)
+            using (stream)
             {
-                return NotFound(new { error = "File not found" });
+                using var reader = new StreamReader(stream);
+                var manifest = CmafStreamPlanner.RewriteManifestAudioLabels(reader.ReadToEnd(), session.AudioRenditions);
+                if (session.SourceVideoCodec is { } sourceVideoCodec)
+                {
+                    manifest = CmafStreamPlanner.RewriteManifestCodecs(manifest, sourceVideoCodec);
+                }
+                Response.Headers.CacheControl = "no-cache, no-store";
+                return Content(manifest, "application/vnd.apple.mpegurl");
             }
-
-            using var reader = new StreamReader(stream);
-            var manifest = CmafStreamPlanner.RewriteManifestAudioLabels(reader.ReadToEnd(), session.AudioRenditions);
-            if (session.SourceVideoCodec is { } sourceVideoCodec)
-            {
-                manifest = CmafStreamPlanner.RewriteManifestCodecs(manifest, sourceVideoCodec);
-            }
-            Response.Headers.CacheControl = "no-cache, no-store";
-            return Content(manifest, "application/vnd.apple.mpegurl");
         }
 
         if (IsNumberedFile(filename, "media_", ".m3u8"))
         {
-            using var playlistStream = _transientData.OpenRead(filePath);
-            if (playlistStream is null)
+            using (stream)
             {
-                return NotFound(new { error = "File not found" });
-            }
+                var dashPath = _transientData.GetFilePath(session.CmafDirectory, CmafStreamPlanner.DashManifestName);
+                using var dashStream = _transientData.OpenRead(dashPath);
+                if (dashStream is null)
+                {
+                    return NotFound(new { error = "DASH timeline not found" });
+                }
 
-            var dashPath = _transientData.GetFilePath(session.CmafDirectory, CmafStreamPlanner.DashManifestName);
-            using var dashStream = _transientData.OpenRead(dashPath);
-            if (dashStream is null)
-            {
-                return NotFound(new { error = "DASH timeline not found" });
+                using var playlistReader = new StreamReader(stream);
+                using var dashReader = new StreamReader(dashStream);
+                var dashManifest = dashReader.ReadToEnd();
+                if (!CmafStreamPlanner.IsDashManifestComplete(dashManifest))
+                {
+                    return StatusCode(425, new { code = "media_manifest_not_ready", error = "The media manifest is being published.", stage = "delivery" });
+                }
+                var playlist = CmafStreamPlanner.RewriteHlsProgramDateTimes(playlistReader.ReadToEnd(), dashManifest);
+                Response.Headers.CacheControl = "no-cache, no-store";
+                return Content(playlist, "application/vnd.apple.mpegurl");
             }
-
-            using var playlistReader = new StreamReader(playlistStream);
-            using var dashReader = new StreamReader(dashStream);
-            var playlist = CmafStreamPlanner.RewriteHlsProgramDateTimes(playlistReader.ReadToEnd(), dashReader.ReadToEnd());
-            Response.Headers.CacheControl = "no-cache, no-store";
-            return Content(playlist, "application/vnd.apple.mpegurl");
         }
 
         var contentType = extension switch
@@ -1001,7 +1051,24 @@ public class StreamController : ControllerBase
             ? "public, max-age=31536000, immutable"
             : "no-cache, no-store";
 
-        return PhysicalFile(filePath, contentType);
+        var transferred = false;
+        try
+        {
+            var result = File(stream, contentType);
+            if (stream is FileStream fileStream)
+            {
+                result.LastModified = System.IO.File.GetLastWriteTimeUtc(fileStream.SafeFileHandle);
+            }
+            transferred = true;
+            return result;
+        }
+        finally
+        {
+            if (!transferred)
+            {
+                stream.Dispose();
+            }
+        }
     }
 
     private static ActiveStreamFlowContext CreatePhysicalFlow(ResolvedStreamingCandidate candidate, VirtualDeviceId virtualDeviceId, string? producerNodeId = null) =>
@@ -1427,6 +1494,18 @@ public class StreamController : ControllerBase
                 cancellationToken)
             : _tunerStreamMultiplexer.SubscribeAsync(candidate.Acquisition, candidate.OpenAsync, cancellationToken);
 
+    private static async Task EnsureInputPumpSucceededAsync(Task inputPumpTask)
+    {
+        try
+        {
+            await inputPumpTask;
+        }
+        catch (Exception exception) when (exception is IOException or MediaProcessException)
+        {
+            throw new MediaInputException("The upstream media stream failed before the presentation was ready.", exception);
+        }
+    }
+
     private async Task PumpEffectiveSourceAsync(
         ResolvedStreamingCandidate candidate,
         MediaProbeResult source,
@@ -1653,12 +1732,8 @@ public class StreamController : ControllerBase
                         }
                     }
 
-                    errors.Enqueue(line);
-                    while (errors.Count > 50)
-                    {
-                        errors.TryDequeue(out _);
-                    }
-                    _logger.LogDebug("FFmpeg CMAF [{SessionId}]: {Line}", session.SessionId, line);
+                    MediaProcessDiagnostics.AppendLine(errors, line);
+                    _logger.LogDebug("FFmpeg CMAF [{SessionId}]: {Line}", session.SessionId, MediaProcessDiagnostics.GetTail(line));
                 }
             }
             catch (InvalidOperationException)

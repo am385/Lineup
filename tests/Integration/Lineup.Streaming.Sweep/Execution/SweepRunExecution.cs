@@ -79,7 +79,7 @@ internal sealed partial class SweepHarness
             throw new ArgumentException("Unknown or empty matrix selection.");
         }
         await CheckpointAsync();
-        try
+        Environment.ExitCode = await SweepRunLifecycle.RunAsync(_run, async () =>
         {
             // Browser dependencies are checked before Docker or physical tuner work.
             await using (var probe = await OpenBrowserAsync(Path.Combine(root, "browser-preflight")))
@@ -107,7 +107,7 @@ internal sealed partial class SweepHarness
                 var matrixRoot = Path.Combine(root, matrix.Id);
                 Directory.CreateDirectory(matrixRoot);
                 var project = $"lineup-sweep-{matrix.Id}";
-                if (!_options.ExistingInstance && _run.Attempts.Concat(_run.Compatibility).Any(attempt => attempt.FinishedUtc is null
+                if (!_options.ExistingInstance && _run.Attempts.Concat(_run.Compatibility).Any(attempt => SweepPolicy.RequiresPreviousRuntimeForResume(attempt)
                     && (attempt.Key.StartsWith(matrix.Id + "|", StringComparison.Ordinal) || attempt.Key == matrix.WatchUrl)))
                 {
                     var previousStatus = await GetStatusAsync(matrix.WatchUrl);
@@ -188,25 +188,8 @@ internal sealed partial class SweepHarness
                     }
                 }
             }
-            _run.State = "complete";
-        }
-        catch (OperationCanceledException) when (_cancellation.IsCancellationRequested)
-        {
-            _run.State = "cancelled";
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or IOException or HttpRequestException or PlaywrightException or JsonException or TimeoutException)
-        {
-            _run.State = "inconclusive";
-            _run.Violations.Add($"{ex.GetType().Name}: {ex.Message}");
-            Console.Error.WriteLine(ex);
-        }
-        finally
-        {
-            _run.FinishedUtc = DateTimeOffset.UtcNow;
-            await SweepStore.ReportsAsync(root, _run);
-            Environment.ExitCode = SweepPolicy.ExitCode(_run);
-            Console.WriteLine($"Run state: {_run.State}; exit: {Environment.ExitCode}; canonical results: {Path.Combine(root, "sweep-run.json")}");
-        }
+        }, () => SweepStore.ReportsAsync(root, _run), _cancellation);
+        Console.WriteLine($"Run state: {_run.State}; exit: {Environment.ExitCode}; canonical results: {Path.Combine(root, "sweep-run.json")}");
     }
 
     private Task<SweepAttempt> ObserveWithLifecycleAsync(IBrowserContext context, MatrixDefinition matrix, SelectedChannel row, string matrixRoot, RunJournal journal, string purpose, SweepAttempt? previous = null)

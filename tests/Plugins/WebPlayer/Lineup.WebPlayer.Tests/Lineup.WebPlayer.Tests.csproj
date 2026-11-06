@@ -7,6 +7,7 @@
     <IsTestProject>true</IsTestProject>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\..\TestSupport\Lineup.FakeFFmpeg\Lineup.FakeFFmpeg.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\..\..\src\Core\Lineup.Extensibility\Lineup.Extensibility.csproj" />
     <ProjectReference Include="..\..\..\..\src\Plugins\WebPlayer\Lineup.WebPlayer\Lineup.WebPlayer.csproj" />
     <ProjectReference Include="..\..\..\..\src\Plugins\WebPlayer\Lineup.WebPlayer.FFmpeg\Lineup.WebPlayer.FFmpeg.csproj" />

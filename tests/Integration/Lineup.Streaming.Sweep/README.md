@@ -15,6 +15,32 @@ dotnet run --project tests\Integration\Lineup.Streaming.Sweep\Lineup.Streaming.S
 It verifies terminal protected-content handling, retryable source-availability handling, and aggregation of the strongest AV and caption evidence.
 This is also the default command when no command argument is supplied.
 
+Physical acquisition timeouts use the same public `source_unavailable` code in management and broker
+hosting; candidate-specific timeout codes remain in server diagnostics. The harness also recognizes
+the historical `source_acquisition_timeout` code as source availability, without treating generic
+HTTP 502/503 failures as source outages.
+
+Timestamp/manifest agreement uses one tick of the coarsest contributing clock: DASH, MP4 media,
+and the movie clock only when a nonzero empty edit contributes to presentation timing.
+Decode continuity always retains media-clock precision. This is quantization handling, not a
+subjective lip-sync allowance; differences beyond that precision remain failures.
+
+Fresh synchronization explicitly retains completed browser response bodies in
+`synchronization-resources.zip`, independently of the diagnostic Playwright trace. The separately
+fetched owned DASH manifest remains mandatory; a redundant trace manifest without a body does not
+invalidate complete owned media. Missing initialization or selected media is still inconclusive.
+Each body capture is bounded by the startup deadline, and metadata collection also respects the
+remaining observation budget; a stalled response is retained as a capture failure, not a fragment.
+`synchronization-window.json` records the final uninterrupted interval and its completed fragments.
+Only that interval's final owned session and observed representations are evaluated; earlier sessions
+cannot fill in missing tracks, and switches within the interval remain ambiguous. Watch navigation
+waits for DOM readiness and the channel control, not a network-idle condition on a live application.
+
+Exit 130 is reserved for an actual cancellation request. HTTP/dependency timeouts, including
+`TaskCanceledException` without user cancellation, finish as infrastructure failure (exit 3).
+Canonical execution persists `inconclusive` and `FinishedUtc` after a teardown timeout instead
+of leaving a finished checkpoint marked `running`; cleanup failures are never waived by this classification.
+
 The live executable and fault source are intentionally excluded from `Lineup.slnx` and CI/CD.
 The separate `Lineup.Streaming.Sweep.Tests` xunit project is in the solution; it references the executable
 for deterministic policies only. Building that reference does not execute it or install/launch a browser.
@@ -231,8 +257,11 @@ Ctrl+C requests graceful cancellation: new observations stop, independent bounde
 partial canonical reports are written. Do not force-kill a healthy cleanup. Resume uses persisted
 effective options, verifies inventory, image/application/topology/profile/preference provenance,
 reconciles unfinished ownership and assigns new immutable attempt IDs. It refuses to send emergency
-stops to another runtime generation. If a crashed deployment is no longer reachable, ownership
-cannot be proven absent: retain the evidence and explicitly start a new run after human reconciliation.
+stops to another runtime generation. An unfinished attempt with no startup requests, responses, ownership,
+baseline, artifacts or other runtime evidence can wait for owned-deployment recreation and preflight before
+being marked interrupted; its channel still requires a fresh attempt. Recorded runtime-bound evidence
+continues to require the previous runtime before recreation. If that deployment is no longer reachable,
+ownership cannot be proven absent: retain the evidence and explicitly start a new run after human reconciliation.
 Owned matrix generations are recorded separately when normally recreated; existing-instance runtime
 changes require a new run.
 
