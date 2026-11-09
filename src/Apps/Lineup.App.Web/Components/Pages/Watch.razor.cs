@@ -385,15 +385,16 @@ public partial class Watch : IAsyncDisposable
                 return;
             }
             var managementHosted = player.Hosting is null;
+            var requiresHttpsMedia = new Uri(NavigationManager.Uri).Scheme == Uri.UriSchemeHttps;
             var startUrl = managementHosted
                 ? $"/api/stream/cmaf/start/{Uri.EscapeDataString(normalized)}"
-                : GetDedicatedMediaUri(player) is { } dedicatedMediaUri
+                : GetDedicatedMediaUri(player, requiresHttpsMedia) is { } dedicatedMediaUri
                     ? new Uri(dedicatedMediaUri, $"media/start/{Uri.EscapeDataString(normalized)}").AbsoluteUri
                     : null;
             if (startUrl is null)
             {
                 _isPlayerLoading = false;
-                _errorMessage = Text["Watch_DedicatedListenerNotConfigured"];
+                _errorMessage = Text[requiresHttpsMedia ? "Watch_DedicatedHttpsListenerRequired" : "Watch_DedicatedListenerNotConfigured"];
                 Notifications.ShowError(_errorMessage);
                 return;
             }
@@ -681,6 +682,13 @@ public partial class Watch : IAsyncDisposable
             }
             finally
             {
+                if (session is not null)
+                {
+                    foreach (var stream in ActiveStreamRegistry.GetActiveStreams().Where(stream => MatchesWorkerSession(stream, session.SessionId)))
+                    {
+                        ActiveStreamRegistry.RequestStop(stream.SessionId);
+                    }
+                }
                 ActiveStreamRegistry.RequestStopByClientId(_clientId);
                 if (_isJsInteropReady)
                 {
@@ -740,14 +748,23 @@ public partial class Watch : IAsyncDisposable
             device.Enabled &&
             string.Equals(device.Adapter.Kind, WebPlayerVirtualTunerDriver.AdapterKind, StringComparison.OrdinalIgnoreCase));
 
-    private static Uri? GetDedicatedMediaUri(VirtualDeviceDefinition player)
+    private static Uri? GetDedicatedMediaUri(VirtualDeviceDefinition player, bool requiresHttps)
     {
-        var publicBaseUri = player.Hosting is { } hosting
-            ? hosting.Bindings.Select(binding => binding.PublicBaseUri).FirstOrDefault()
-            : null;
-        return Uri.TryCreate(publicBaseUri, UriKind.Absolute, out var uri)
-            ? new Uri(uri.AbsoluteUri.EndsWith('/') ? uri.AbsoluteUri : $"{uri.AbsoluteUri}/")
-            : null;
+        if (player.Hosting is not { } hosting)
+        {
+            return null;
+        }
+        foreach (var binding in hosting.Bindings)
+        {
+            if (!Uri.TryCreate(binding.PublicBaseUri, UriKind.Absolute, out var uri) ||
+                uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps ||
+                requiresHttps && uri.Scheme != Uri.UriSchemeHttps)
+            {
+                continue;
+            }
+            return new Uri(uri.AbsoluteUri.EndsWith('/') ? uri.AbsoluteUri : $"{uri.AbsoluteUri}/");
+        }
+        return null;
     }
 
     private void StartStreamInfoRefresh()
@@ -776,7 +793,7 @@ public partial class Watch : IAsyncDisposable
     private void RefreshStreamInfo()
     {
         _activeStream = ActiveStreamRegistry.GetActiveStreams()
-            .Where(stream => string.Equals(stream.ClientId, _clientId, StringComparison.Ordinal))
+            .Where(MatchesActiveStream)
             .OrderByDescending(stream => stream.StartedAtUtc)
             .FirstOrDefault();
         var selectedAudio = _activeStream?.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Audio && track.IsSelected);
@@ -791,6 +808,14 @@ public partial class Watch : IAsyncDisposable
                 ?.IsEmbeddedClosedCaptions == true;
         }
     }
+
+    private bool MatchesActiveStream(ActiveStreamSnapshot stream) =>
+        !string.IsNullOrEmpty(stream.WorkerMediaSessionId)
+            ? MatchesWorkerSession(stream, _session?.SessionId)
+            : string.Equals(stream.ClientId, _clientId, StringComparison.Ordinal);
+
+    private static bool MatchesWorkerSession(ActiveStreamSnapshot stream, string? sessionId) =>
+        !string.IsNullOrEmpty(sessionId) && string.Equals(stream.WorkerMediaSessionId, sessionId, StringComparison.Ordinal);
 
     private async Task RestorePreferencesAsync()
     {
@@ -1037,10 +1062,14 @@ public partial class Watch : IAsyncDisposable
 
     private void OnActiveStreamStopRequested(ActiveStreamSnapshot stream)
     {
-        if (!_disposed && !_isStopping && string.Equals(stream.ClientId, _clientId, StringComparison.Ordinal))
+        if (!_disposed && !_isStopping && MatchesActiveStream(stream))
         {
             _ = InvokeAsync(async () =>
             {
+                if (_disposed || _isStopping || !MatchesActiveStream(stream))
+                {
+                    return;
+                }
                 await StopStreamAsync();
                 StateHasChanged();
             });

@@ -134,7 +134,7 @@ function registerLineupShakaUiElements(localizedText) {
     });
     window.lineupShakaUiElementsRegistered = true;
 }
-    
+
     async function initCmafPlayer(
         videoElementId,
         manifestUrl,

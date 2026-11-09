@@ -12,8 +12,10 @@ public sealed class TopologyGuideServiceTests
     /// <summary>
     /// Verifies refresh applies the current topology so disabled guide sources cannot be bypassed by Web entry points.
     /// </summary>
-    [Fact]
-    public async Task RefreshAndPublishAsync_AppliesCurrentTopologyBeforeRefreshing()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RefreshAndPublishAsync_AppliesCurrentTopologyBeforeRefreshing(bool partial)
     {
         // Arrange
         var physicalDeviceId = PhysicalDeviceId.New();
@@ -54,13 +56,25 @@ public sealed class TopologyGuideServiceTests
         var guides = Substitute.For<IGuideOrchestrator>();
         guides.RefreshAllAsync(Arg.Any<CancellationToken>()).Returns([]);
         var guideQueries = Substitute.For<IGuideQueryService>();
+        IReadOnlyList<GuideSourceDiagnostic> diagnostics = partial
+            ?
+            [
+                new GuideSourceDiagnostic
+                {
+                    SourceId = GuideSourceId.New(),
+                    SourceName = "Missing source",
+                    Code = GuideSourceDiagnosticCode.AdapterUnavailable,
+                    Message = "Install the source plugin."
+                }
+            ]
+            : [];
         guideQueries.BuildOutputSnapshotAsync(
                 configuration,
                 configuration.GuideOutputs[0],
                 Arg.Any<DateTimeOffset?>(),
                 Arg.Any<DateTimeOffset?>(),
                 Arg.Any<CancellationToken>())
-            .Returns(new VirtualGuideSnapshot { VirtualDeviceId = virtualDeviceId, Channels = [] });
+            .Returns(new VirtualGuideSnapshot { VirtualDeviceId = virtualDeviceId, Channels = [], SourceDiagnostics = diagnostics });
         var publisher = Substitute.For<IGuidePublisher>();
         publisher.Kind.Returns("xmltv");
         var outputDriver = Substitute.For<IGuideOutputDriver>();
@@ -86,6 +100,13 @@ public sealed class TopologyGuideServiceTests
 
         // Assert
         Assert.Empty(result.Sources);
+        var publication = Assert.Single(result.Outputs);
+        Assert.True(publication.Succeeded);
+        Assert.Equal(partial, publication.IsPartial);
+        Assert.Equal(diagnostics, publication.SourceDiagnostics);
+        await publisher.Received(1).PublishAsync(
+            Arg.Is<VirtualGuideSnapshot>(snapshot => snapshot.IsPartial == partial && snapshot.SourceDiagnostics == diagnostics),
+            Arg.Any<Stream>(), Arg.Any<CancellationToken>());
         await guides.Received(1).ApplyAsync(
             Arg.Is<StreamingConfiguration>(current => current.GuideSources.Count == 0),
             Arg.Any<CancellationToken>());
@@ -122,6 +143,13 @@ public sealed class TopologyGuideServiceTests
         settings.Settings.Returns(new LineupSettings { Streaming = configuration });
         var guides = Substitute.For<IGuideOrchestrator>();
         var guideQueries = Substitute.For<IGuideQueryService>();
+        var diagnostic = new GuideSourceDiagnostic
+        {
+            SourceId = GuideSourceId.New(),
+            SourceName = "Missing source",
+            Code = GuideSourceDiagnosticCode.AdapterUnavailable,
+            Message = "Install the source plugin."
+        };
         guideQueries.BuildOutputSnapshotAsync(
                 configuration,
                 Arg.Any<GuideOutputDefinition>(),
@@ -131,7 +159,8 @@ public sealed class TopologyGuideServiceTests
             .Returns(call => new VirtualGuideSnapshot
             {
                 VirtualDeviceId = new VirtualDeviceId(call.ArgAt<GuideOutputDefinition>(1).Id.Value),
-                Channels = []
+                Channels = [],
+                SourceDiagnostics = [diagnostic]
             });
         var publisher = Substitute.For<IGuidePublisher>();
         publisher.Kind.Returns("xmltv");
@@ -171,12 +200,16 @@ public sealed class TopologyGuideServiceTests
             {
                 Assert.Equal(firstId, result.OutputId);
                 Assert.False(result.Succeeded);
+                Assert.True(result.IsPartial);
+                Assert.Equal(diagnostic, Assert.Single(result.SourceDiagnostics));
                 Assert.Contains("Disk unavailable", result.Error, StringComparison.Ordinal);
             },
             result =>
             {
                 Assert.Equal(secondId, result.OutputId);
                 Assert.True(result.Succeeded);
+                Assert.True(result.IsPartial);
+                Assert.Equal(diagnostic, Assert.Single(result.SourceDiagnostics));
             });
         await publications.Received(1).PublishAsync(
             "working.xml",

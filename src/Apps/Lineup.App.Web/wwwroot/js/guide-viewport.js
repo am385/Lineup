@@ -6,13 +6,13 @@ window.guideDotNetRef = null;
 function setupGuideResizeObserver(dotNetRef) {
     // Clean up any existing observer
     disposeGuideResizeObserver();
-    
+
     window.guideDotNetRef = dotNetRef;
-    
+
     // Observe the main content area, not the guide container itself
     // The guide container can grow, but we want to know the available space
     const mainContent = document.querySelector('main') || document.querySelector('article') || document.body;
-    
+
     window.guideResizeObserver = new ResizeObserver(entries => {
         for (let entry of entries) {
             // Calculate available width (main content width minus some padding)
@@ -22,7 +22,7 @@ function setupGuideResizeObserver(dotNetRef) {
             }
         }
     });
-    
+
     window.guideResizeObserver.observe(mainContent);
 }
 

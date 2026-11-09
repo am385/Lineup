@@ -415,6 +415,15 @@ Dedicated Web Player hosting also retries a recognized source-audio MP4 muxer fa
 20-second media-readiness budget. The retry retains the brokered source, clears partial media/caption output, and reports the final audio
 plan; unrelated failures and cancellation do not trigger recovery.
 
+The HEVC-to-H.264 topology default applies only when the effective video entering the CMAF output stage is HEVC.
+Progressive H.264, including video already converted by the physical stage, remains copy-first unless another output policy
+requires encoding. Explicit video overrides retain precedence in both management and dedicated hosting.
+
+HTTPS Watch selects the first dedicated binding with an HTTPS public URL, even when an HTTP binding appears first.
+This uses the public URL rather than internal listener transport, supporting HTTPS reverse-proxy termination.
+If no HTTPS public URL is configured, startup reports a configuration error without issuing a media request; HTTP loopback is
+not an exception. HTTP Watch retains the first valid HTTP(S) public binding in configuration order.
+
 Startup observes upstream input failures as well as FFmpeg readiness. Source and processor failures return sanitized
 HTTP 502 responses (`media_source_failed` or `media_process_failed`) rather than waiting for a generic startup timeout.
 Retained logs correlate the media session, broker request, stream, startup stage, exit codes, and bounded stderr tails
@@ -447,6 +456,9 @@ captions menu can offer all of them without restarting the shared session. The p
 subtitle selector lists only bitmap burn-in choices. Text conversion is inexpensive; embedded-caption extraction adds one moderate
 fixed decode/demux workload per session. Bitmap subtitles remain explicit burn-in choices because each simultaneous bitmap rendition
 would require another video encode.
+Dedicated Watch metadata and remote stop notifications are associated with the returned worker media-session ID, not the broker stream ID.
+Management-hosted playback retains client-ID association. Old or unrelated worker sessions cannot displace current track information or
+stop replacement playback; dedicated broker ownership is also released if browser-side server shutdown fails.
 Dedicated Web Player listeners expose the incremental subtitle offset header to cross-origin Watch clients, so captions continue beyond
 the first 64 KiB. Each subtitle track advances by the received byte count; a missing or inconsistent offset header produces one browser
 console warning per track without resetting its read position.
@@ -555,9 +567,18 @@ Network-facing Lineup Link, virtual HDHomeRun, and Web Player media outputs can 
 
 Managed workers receive a unique temporary directory beneath the trusted host's operating-system temporary path through their sanitized environment. This keeps dedicated Web Player media artifacts writable for ordinary Windows users without inheriting the host's user profile or unrelated environment variables. The launcher removes the directory after terminating and disposing the worker, including failed launches, and logs cleanup failures with the affected path. These worker directories are separate from the management host's `Lineup:TransientPath` setting.
 
+Worker resolution isolates malformed, invalid, unreadable, or version-incompatible package manifests and logs each rejection with
+the manifest path and failure reason, allowing independent healthy workers to start. An unresolved adapter reports the rejected-package
+diagnostics explicitly; duplicate valid matches and unsupported platforms remain errors. Strict full-catalog validation still fails
+on any invalid package. Repair or remove rejected packages rather than treating a healthy worker's startup as proof that every package is valid.
+
 Output reconciliation cleans up only identities owned by the configured-output supervisor, including failed activations and externally supervised outputs. Removing, disabling, or returning an output to management-hosted mode revokes that output's credentials and removes its enrollment and status without revoking the independent shared HDHomeRun discovery worker.
 
 Managed child disposal remains mandatory when host shutdown cancels an in-progress drain or forced termination reports a failure. Cleanup terminates any remaining child before the interrupted stop finishes, without relying on later worker lease expiry; caller cancellation and stop failures still propagate after cleanup.
+
+Worker lease renewal holds the session-authority lock from authorization through lease mutation, so concurrent revocation or
+replacement cannot update another activation or cause a missing-activation lookup. Old, expired, stale-generation, or
+capability-denied requests retain the explicit rejection/drain response; accepted renewals extend only their owning policy lease.
 
 Management-hosted Watch Test startup owns its encoder and transient files until the manifests, fragments, and codec metadata are ready and its viewer is registered. Cancellation, readiness timeout, encoder exit, and startup errors terminate the encoder and remove its files even before registration. Successful presentations remain available until their viewer stops or expires.
 
@@ -737,8 +758,16 @@ An enabled guide source that cannot activate still contributes its committed cac
 The refresh reports the activation failure; disabling or removing the source, or changing its subscription, immediately restricts that cached projection.
 Recovering the source updates its committed cache on the next successful refresh.
 
+Guide queries isolate sources with unavailable adapters, invalid physical-device subscriptions, or no compatible enabled devices.
+They return the remaining eligible data with structured source diagnostics (`AdapterUnavailable`, `InvalidSubscription`, or `NoCompatibleDevices`),
+including when every source is excluded. Ineligible cached imports remain stored but are not projected. Disabled and unselected sources do not degrade an output.
+The Guide and Dashboard display excluded sources and actionable warnings; `/api/status` reports the guide as `degraded` with `sourceDiagnostics`
+alongside the remaining counts and coverage. Publication results distinguish successfully written partial guides from complete guides, and the TUI warns accordingly.
+XMLTV and JSON guide document formats are unchanged. Cancellation, storage failures, and unexpected provider errors remain failures rather than partial-query success.
+
 Automatic guide refresh treats a failed source refresh or guide-output publication as a failure, preserving the last successful fetch timestamp and
-using the existing one-hour retry schedule. Only a fully successful operation records completion and selects the normal randomized 20-28-hour interval.
+using the existing one-hour retry schedule. A successfully published partial guide also requires that retry; it is not recorded as full success.
+Only a fully successful operation records completion and selects the normal randomized 20-28-hour interval.
 
 ### Lineup Link
 
@@ -750,6 +779,12 @@ Management and dedicated Lineup Link guide exports use the same mapping and merg
 
 Lineup Link virtual devices cannot subscribe to Lineup Link physical devices, preventing recursive links. Under the Web host, each output can reuse the management host's ports or run in its own dedicated worker. The TUI can configure and supervise dedicated output workers but does not expose the Web management routes. New outputs start with no access grants, so every remote request is denied until a user explicitly creates one named grant per remote consumer and copies or exports its one-time connection bundle. Rotate only the affected grant when its raw token is unavailable or may have been exposed, or revoke it without interrupting other consumers on the same virtual device. Revoked grants may be permanently purged after confirmation when their retained identity and lifecycle history are no longer needed, including the final grant to return the output to its deny-all state.
 
+Managed dedicated-output workers must complete bootstrap delivery and register before their one-time credential expires (one minute by default).
+The supervisor checks managed-worker liveness every second. A missed registration deadline or an inactive/expired worker session revokes the
+worker's access and forcibly stops the process, even when it has not exited on its own. Recovery uses the configured restart window, backoff,
+and maximum restart count; an exhausted worker remains failed until its configuration changes or it is disabled and re-enabled.
+Healthy lease renewals do not recycle the worker. External-process outputs remain the responsibility of their external process supervisor.
+
 Lineup stores the fields it queries as normalized SQLite values and preserves additional root, channel, and program XMLTV metadata alongside them.
 Published XMLTV retains provider source provenance, localized and repeated values, official optional fields, and provider extensions while identifying
 Lineup as the document generator. The Guide program-details dialog projects recognized official program metadata into typed ratings, credits,
@@ -760,6 +795,10 @@ tuner slot; equivalent physical and virtual transforms are also reference-counte
 independent aliases to a shared output, so stopping one browser releases only its reference and final release stops the process and removes artifacts.
 The host-wide stream limit also applies to synthetic DRM and disabled-channel slates even though those slates do not consume physical tuner capacity.
 
+A reconnect to a draining shared stream waits for its physical and transform cleanup before creating a replacement; canceling that wait
+does not interrupt the owned cleanup. Draining acquisitions retain their tuner slots until source disposal completes, so rapid stop/reconnect
+cannot overlap same-channel physical opens or bypass capacity limits.
+
 Shared FFmpeg transforms, MPEG-TS slates, and management/dedicated caption processes continuously drain diagnostics while retaining only the last 16,384 characters and at most fifty non-empty lines. Long warning lines cannot accumulate lifetime stderr in the trusted host; nonzero exits retain their exit code and recent diagnostic tail.
 
 Network discovery is disabled by default to avoid UDP port conflicts. To enable it, turn on **Enable UDP and SSDP network discovery**. A management-hosted
@@ -767,13 +806,26 @@ virtual HDHomeRun requires an absolute HTTP or HTTPS **Advertised base URL** rea
 **Client-facing base URL**, which Lineup derives from transport, bind address, listener port, and optional published-port mapping unless an advanced manual
 override is configured. Request-derived and container-internal addresses are not substituted automatically.
 
+The first enabled management-hosted virtual HDHomeRun owns the management listener's root protocol URLs. Other management-hosted devices
+advertise `hdhomerun/{DeviceID}/` beneath their configured public root, so UDP discovery, SSDP device descriptions, and HTTP lineups identify
+the same device. Dedicated outputs advertise their own listener base URLs and do not change which management-hosted device owns the root.
+
 Jellyfin commonly identifies auto-discovered tuners by the source network address. Advertising several virtual devices from one process may therefore
 require a distinct host IP for each advertised device; otherwise add the displayed tuner URLs manually. Docker bridge networks frequently do not pass
 UDP broadcast or multicast traffic. Use host networking where the platform supports it, or use manual setup.
 
-On Windows, Lineup requires exclusive ownership of UDP port 1900 because Winsock does not reliably duplicate SSDP datagrams across shared bindings.
-If the Windows **SSDP Discovery** service (`SSDPSRV`) already owns the port, Lineup logs an explicit error and disables only SSDP; SiliconDust UDP
-discovery on port 65001 continues running. Stop and disable `SSDPSRV` before starting Lineup, or use the manual profile URLs shown in Settings.
+SSDP uses a shared IPv4 binding on UDP port 1900 and joins the default interface's SSDP multicast group, permitting coexistence with other shared
+listeners such as the Windows **SSDP Discovery** service (`SSDPSRV`); disabling that service is not required by Lineup's policy. On Windows,
+multicast loopback is enabled so clients on the same machine can discover Lineup. Notifications, responses, malformed searches, and unsupported
+search targets are ignored before consuming the response-rate budget. Shared binding does not guarantee delivery of unicast searches to every
+listener, and a successful bind alone does not certify remote-LAN delivery, firewall rules, or all network interfaces. Use multicast discovery or
+the manual profile URLs shown in Settings. Startup logs identify the bound SSDP socket and multicast-loopback policy; socket failures identify
+UDP port 1900, the socket error, and relevant ownership, permissions, or multicast-interface checks.
+
+An SSDP socket failure during binding, multicast setup, notification delivery, or receive processing disables SSDP for that discovery-worker
+generation, reports degraded readiness, and logs the unavailable protocol. SiliconDust UDP discovery and control-plane lease renewal continue.
+If UDP discovery or the lease ends, the worker cancels and cleans up all remaining discovery tasks. SSDP receive and alive-notification loops
+also cancel and observe one another before their shared socket is disposed.
 
 ## Tech Stack
 

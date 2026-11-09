@@ -214,6 +214,45 @@ public class StatusApiServiceTests
         Assert.DoesNotContain("physical-secret", json, StringComparison.Ordinal);
     }
 
+    /// <summary>Verifies partial guides retain healthy counts while reporting safe structured source exclusions.</summary>
+    [Fact]
+    public async Task GetStatusAsync_PartialGuide_ReportsDegradedSourcesAlongsideCounts()
+    {
+        // Arrange
+        using var fixture = CreateFixture();
+        var sourceId = GuideSourceId.New();
+        fixture.GuideReader.GetStatisticsAsync(Arg.Any<CancellationToken>()).Returns(new GuideStatistics(7, 123, null, null, null)
+        {
+            SourceDiagnostics =
+            [
+                new GuideSourceDiagnostic
+                {
+                    SourceId = sourceId,
+                    SourceName = "Missing source",
+                    Code = GuideSourceDiagnosticCode.AdapterUnavailable,
+                    Message = "Install the source plugin."
+                }
+            ]
+        });
+
+        // Act
+        var result = await fixture.Service.GetStatusAsync(TestContext.Current.CancellationToken);
+        var json = JsonSerializer.Serialize(result, WebJsonOptions);
+
+        // Assert
+        Assert.Equal("degraded", result.Guide.Status);
+        Assert.Contains("partial", result.Guide.Error, StringComparison.Ordinal);
+        Assert.Equal(7, result.Guide.ChannelCount);
+        Assert.Equal(123, result.Guide.ProgramCount);
+        var diagnostic = Assert.Single(result.Guide.SourceDiagnostics);
+        Assert.Equal(sourceId.ToString(), diagnostic.SourceId);
+        Assert.Equal("Missing source", diagnostic.SourceName);
+        Assert.Equal("AdapterUnavailable", diagnostic.Code);
+        Assert.Contains("\"sourceDiagnostics\":[", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("physical-secret", json, StringComparison.Ordinal);
+        Assert.Equal("available", result.PhysicalDevices[0].Status);
+    }
+
     /// <summary>
     /// Verifies each privacy category independently nulls stable response properties.
     /// </summary>

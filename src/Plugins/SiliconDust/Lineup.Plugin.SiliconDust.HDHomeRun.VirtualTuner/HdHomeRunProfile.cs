@@ -41,7 +41,7 @@ public sealed record HdHomeRunProxyProfileSnapshot
         var root = HdHomeRunProxyProfileResolver.TryGetHttpRoot(AdvertisedBaseUrl, out var configuredRoot)
             ? configuredRoot!
             : requestRoot;
-        return IsPrimary ? root : new Uri(root, $"hdhomerun/{DeviceIdText}/");
+        return HdHomeRunProxyProfileResolver.GetProfileBaseUri(root, DeviceId, IsPrimary);
     }
 
     /// <summary>Tries to resolve the explicitly configured discovery base URI.</summary>
@@ -53,7 +53,7 @@ public sealed record HdHomeRunProxyProfileSnapshot
             return false;
         }
 
-        baseUri = IsPrimary ? root : new Uri(root!, $"hdhomerun/{DeviceIdText}/");
+        baseUri = HdHomeRunProxyProfileResolver.GetProfileBaseUri(root!, DeviceId, IsPrimary);
         return true;
     }
 }
@@ -74,6 +74,13 @@ public interface IHdHomeRunProxyProfileProvider
 /// <summary>Resolves HDHomeRun-specific network addresses.</summary>
 public static class HdHomeRunProxyProfileResolver
 {
+    /// <summary>Resolves the root or DeviceID-scoped base URI for a virtual HDHomeRun profile.</summary>
+    public static Uri GetProfileBaseUri(Uri root, uint deviceId, bool isPrimary)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+        return isPrimary ? root : new Uri(root, $"hdhomerun/{deviceId.ToString("X8", CultureInfo.InvariantCulture)}/");
+    }
+
     /// <summary>Tries to normalize an explicitly configured HTTP root.</summary>
     public static bool TryGetHttpRoot(string? value, out Uri? root)
     {

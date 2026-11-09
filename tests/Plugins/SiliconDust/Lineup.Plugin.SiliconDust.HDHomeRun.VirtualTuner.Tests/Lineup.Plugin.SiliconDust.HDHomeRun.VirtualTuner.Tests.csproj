@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\..\..\src\Core\Lineup.Core.VirtualOutputs.Protocol\Lineup.Core.VirtualOutputs.Protocol.csproj" />
     <ProjectReference Include="..\..\..\..\src\Plugins\SiliconDust\Lineup.Plugin.SiliconDust.HDHomeRun.Device\Lineup.Plugin.SiliconDust.HDHomeRun.Device.csproj" />
     <ProjectReference Include="..\..\..\..\src\Plugins\SiliconDust\Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryRuntime\Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryRuntime.csproj" />
+    <ProjectReference Include="..\..\..\..\src\Plugins\SiliconDust\Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryHost\Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryHost.csproj" />
     <ProjectReference Include="..\..\..\..\src\Plugins\SiliconDust\Lineup.Plugin.SiliconDust.HDHomeRun.VirtualTuner\Lineup.Plugin.SiliconDust.HDHomeRun.VirtualTuner.csproj" />
   </ItemGroup>
 </Project>

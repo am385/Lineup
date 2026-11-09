@@ -53,7 +53,7 @@ public interface IVirtualOutputSessionAuthority
     /// <summary>Authenticates a worker using one activation ticket.</summary>
     VirtualOutputWorkerRegistrationResponse Register(VirtualOutputWorkerRegistrationRequest request);
 
-    /// <summary>Renews an authenticated worker lease.</summary>
+    /// <summary>Atomically authorizes and renews an authenticated worker lease without changing another activation.</summary>
     VirtualOutputLeaseRenewalResponse Renew(VirtualOutputLeaseRenewalRequest request);
 
     /// <summary>Authorizes one capability against the authenticated session identity.</summary>
@@ -211,19 +211,19 @@ public sealed class VirtualOutputSessionAuthority : IVirtualOutputSessionAuthori
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(request);
-        var authorization = Authorize(request.Session, VirtualOutputCapability.ReportHealth);
-        if (!authorization.Authorized)
-        {
-            return new VirtualOutputLeaseRenewalResponse
-            {
-                Accepted = false,
-                Drain = true,
-                Reason = authorization.Failure
-            };
-        }
-
         lock (_gate)
         {
+            var authorization = Authorize(request.Session, VirtualOutputCapability.ReportHealth);
+            if (!authorization.Authorized)
+            {
+                return new VirtualOutputLeaseRenewalResponse
+                {
+                    Accepted = false,
+                    Drain = true,
+                    Reason = authorization.Failure
+                };
+            }
+
             var deviceId = authorization.VirtualDeviceId!.Value;
             var activation = _activations[deviceId];
             var leaseExpiresUtc = _timeProvider.GetUtcNow().Add(activation.LeaseLifetime);

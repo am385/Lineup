@@ -11,6 +11,47 @@ namespace Lineup.App.Web.Tests.Services;
 /// </summary>
 public class EpgAutoFetchServiceTests
 {
+    /// <summary>Verifies successfully written partial guides do not advance the last fully successful automatic refresh.</summary>
+    [Fact]
+    public async Task FetchEpgDataAsync_PartialPublication_DoesNotRecordSuccess()
+    {
+        // Arrange
+        using var fixture = new FetchFixture();
+        fixture.Result = Result(sourceFails: false, outputFails: false) with
+        {
+            Outputs =
+            [
+                new GuideOutputPublicationResult
+                {
+                    OutputId = GuideOutputId.New(),
+                    Name = "Partial output",
+                    Succeeded = true,
+                    SourceDiagnostics =
+                    [
+                        new GuideSourceDiagnostic
+                        {
+                            SourceId = GuideSourceId.New(),
+                            SourceName = "Missing source",
+                            Code = GuideSourceDiagnosticCode.AdapterUnavailable,
+                            Message = "Install the source plugin."
+                        }
+                    ]
+                }
+            ]
+        };
+        var previous = fixture.Settings.LastAutoFetchTime;
+
+        // Act
+        var exception = await Record.ExceptionAsync(() => fixture.FetchAsync(TestContext.Current.CancellationToken));
+
+        // Assert
+        var failure = Assert.IsType<InvalidOperationException>(exception);
+        Assert.Contains("1 published partial guides", failure.Message, StringComparison.Ordinal);
+        Assert.Equal(previous, fixture.Settings.LastAutoFetchTime);
+        Assert.Null(fixture.State.LastFetchTime);
+        await fixture.SettingsService.DidNotReceive().UpdateAsync(Arg.Any<Action<LineupSettings>>());
+    }
+
     /// <summary>Verifies failed publication is not recorded as a successful automatic fetch.</summary>
     [Theory]
     [InlineData(false)]

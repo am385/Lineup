@@ -217,10 +217,11 @@ public class EpgAutoFetchService : BackgroundService
             ? await guides.RefreshAndPublishAsync(stoppingToken)
             : await guides.RefreshAsync(stoppingToken);
         var failedOutputs = result.Outputs.Count(output => !output.Succeeded);
-        if (result.FailedSourceCount > 0 || failedOutputs > 0)
+        var partialOutputs = result.Outputs.Count(output => output.Succeeded && output.IsPartial);
+        if (result.FailedSourceCount > 0 || failedOutputs > 0 || partialOutputs > 0)
         {
             throw new InvalidOperationException(
-                $"{result.FailedSourceCount} configured guide source(s) failed to refresh; {failedOutputs} configured guide output(s) failed to publish.");
+                $"{result.FailedSourceCount} configured guide source(s) failed to refresh; {failedOutputs} configured guide output(s) failed to publish; {partialOutputs} published partial guides.");
         }
 
         var nextInterval = CreateRandomizedFetchInterval();

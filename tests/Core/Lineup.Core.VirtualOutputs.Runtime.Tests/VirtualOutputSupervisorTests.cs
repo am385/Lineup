@@ -12,6 +12,252 @@ namespace Lineup.Core.VirtualOutputs.Runtime.Tests;
 /// <summary>Verifies desired-versus-applied virtual-output worker supervision.</summary>
 public sealed class VirtualOutputSupervisorTests
 {
+    /// <summary>Verifies missed registration is recovered without settings changes and cannot exceed the restart budget.</summary>
+    [Fact]
+    public async Task StartAsync_UnregisteredWorker_StopsRetriesAndQuarantines()
+    {
+        // Arrange
+        var time = new ManualTimeProvider();
+        await using var fixture = new OwnershipFixture(time, TimeSpan.FromSeconds(10));
+        var device = fixture.CreateDevice(VirtualOutputExecutionMode.ManagedProcess);
+        fixture.Configuration = fixture.Configuration with
+        {
+            VirtualDevices = [device],
+            VirtualOutputWorkerPolicies = [Assert.Single(fixture.Configuration.VirtualOutputWorkerPolicies) with { MaximumRestarts = 1, DrainTimeoutSeconds = 60 }]
+        };
+        await fixture.StartAsync();
+        await time.WaitForTimerAsync(TimeSpan.FromSeconds(1));
+        var first = Assert.Single(fixture.Processes);
+
+        // Act
+        time.Advance(TimeSpan.FromSeconds(10));
+        await time.WaitForTimerAsync(TimeSpan.FromSeconds(1));
+        var atDeadline = Assert.Single(fixture.Status.GetSnapshots());
+        var aliveAtDeadline = !first.Completion.IsCompleted;
+        time.Advance(TimeSpan.FromSeconds(1));
+        await WaitUntilAsync(() => first.Completion.IsCompleted && fixture.Status.GetSnapshots().Single().RestartCount == 1,
+            TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        var retrying = Assert.Single(fixture.Status.GetSnapshots());
+        await time.WaitForTimerAsync(TimeSpan.FromSeconds(1));
+        time.Advance(TimeSpan.FromSeconds(1));
+        await WaitUntilAsync(() => fixture.Processes.Count == 2 && fixture.Status.GetSnapshots().Single().State == VirtualOutputRuntimeState.Starting,
+            TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        await time.WaitForTimerAsync(TimeSpan.FromSeconds(1));
+        var second = fixture.Processes[1];
+        time.Advance(TimeSpan.FromSeconds(11));
+        await WaitUntilAsync(() => second.Completion.IsCompleted && fixture.Status.GetSnapshots().Single().RestartCount == 2,
+            TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        await time.WaitForTimerAsync(TimeSpan.FromSeconds(1));
+        time.Advance(TimeSpan.FromSeconds(30));
+        await time.WaitForTimerAsync(TimeSpan.FromSeconds(1));
+
+        // Assert
+        Assert.True(aliveAtDeadline);
+        Assert.Equal(VirtualOutputRuntimeState.Starting, atDeadline.State);
+        Assert.Equal(VirtualOutputRuntimeState.Failed, retrying.State);
+        Assert.Contains("did not register", retrying.LastFailure, StringComparison.Ordinal);
+        Assert.Contains("Retrying in 1 seconds", retrying.LastFailure, StringComparison.Ordinal);
+        var quarantined = Assert.Single(fixture.Status.GetSnapshots());
+        Assert.Equal(VirtualOutputRuntimeState.Failed, quarantined.State);
+        Assert.Equal(2, quarantined.RestartCount);
+        Assert.Contains("exceeded its restart budget", quarantined.LastFailure, StringComparison.Ordinal);
+        Assert.Equal(2, fixture.ActivationAttempts);
+        await first.Received(1).StopAsync(TimeSpan.Zero, Arg.Any<CancellationToken>());
+        await second.Received(1).StopAsync(TimeSpan.Zero, Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>Verifies an expired registered worker is stopped even if the supervisor did not observe its live lease.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task StartAsync_ExpiredWorkerLease_RevokesStopsAndFails(bool observeLiveLease)
+    {
+        // Arrange
+        var time = new ManualTimeProvider();
+        await using var fixture = new OwnershipFixture(time);
+        var device = fixture.CreateDevice(VirtualOutputExecutionMode.ManagedProcess);
+        fixture.Configuration = fixture.Configuration with { VirtualDevices = [device] };
+        await fixture.StartAsync();
+        await time.WaitForTimerAsync(TimeSpan.FromSeconds(1));
+        var process = Assert.Single(fixture.Processes);
+        var context = fixture.Register(fixture.GetBootstrap(VirtualOutputExecutionMode.ManagedProcess, device.Id));
+        fixture.Status.Update(device.Id, current => current! with
+        {
+            State = VirtualOutputRuntimeState.Healthy,
+            ProtocolVersion = VirtualOutputProtocol.MaximumVersion
+        });
+        if (observeLiveLease)
+        {
+            time.Advance(TimeSpan.FromSeconds(1));
+            await time.WaitForTimerAsync(TimeSpan.FromSeconds(1));
+        }
+
+        // Act
+        time.Advance(TimeSpan.FromSeconds(16));
+        await WaitUntilAsync(() => process.Completion.IsCompleted && fixture.Status.GetSnapshots().Single().State == VirtualOutputRuntimeState.Failed,
+            TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+
+        // Assert
+        var snapshot = Assert.Single(fixture.Status.GetSnapshots());
+        Assert.Equal(1, snapshot.RestartCount);
+        Assert.Contains("lease has expired", snapshot.LastFailure, StringComparison.Ordinal);
+        Assert.False(fixture.Authority.Authorize(context, VirtualOutputCapability.ReportHealth).Authorized);
+        Assert.Single(fixture.Processes);
+        await process.Received(1).StopAsync(TimeSpan.Zero, Arg.Any<CancellationToken>());
+        await process.Received().DisposeAsync();
+    }
+
+    /// <summary>Verifies healthy renewal preserves a managed worker after its bootstrap deadline has passed.</summary>
+    [Fact]
+    public async Task StartAsync_RenewingWorker_PreservesProcessBeyondBootstrapDeadline()
+    {
+        // Arrange
+        var time = new ManualTimeProvider();
+        await using var fixture = new OwnershipFixture(time);
+        var device = fixture.CreateDevice(VirtualOutputExecutionMode.ManagedProcess);
+        fixture.Configuration = fixture.Configuration with { VirtualDevices = [device] };
+        await fixture.StartAsync();
+        await time.WaitForTimerAsync(TimeSpan.FromSeconds(1));
+        var process = Assert.Single(fixture.Processes);
+        var context = fixture.Register(fixture.GetBootstrap(VirtualOutputExecutionMode.ManagedProcess, device.Id));
+        fixture.Status.Update(device.Id, current => current! with { State = VirtualOutputRuntimeState.Healthy, ProtocolVersion = VirtualOutputProtocol.MaximumVersion });
+
+        // Act
+        for (var renewal = 0; renewal < 7; renewal++)
+        {
+            time.Advance(TimeSpan.FromSeconds(10));
+            Assert.True(fixture.Authority.Renew(new VirtualOutputLeaseRenewalRequest { Session = context, Ready = true }).Accepted);
+            await time.WaitForTimerAsync(TimeSpan.FromSeconds(1));
+        }
+
+        // Assert
+        Assert.Equal(1, fixture.ActivationAttempts);
+        Assert.False(process.Completion.IsCompleted);
+        Assert.Equal(VirtualOutputRuntimeState.Healthy, Assert.Single(fixture.Status.GetSnapshots()).State);
+        Assert.Equal(0, Assert.Single(fixture.Status.GetSnapshots()).RestartCount);
+        await process.DidNotReceive().StopAsync(Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>());
+        await process.DidNotReceive().DisposeAsync();
+    }
+
+    /// <summary>Verifies worker registration status reported during launch is not overwritten by process ownership.</summary>
+    [Fact]
+    public async Task StartAsync_RegistersDuringLaunch_PreservesHealthyStatus()
+    {
+        // Arrange
+        await using var fixture = new OwnershipFixture { RegisterDuringLaunch = true };
+        var device = fixture.CreateDevice(VirtualOutputExecutionMode.ManagedProcess);
+        fixture.Configuration = fixture.Configuration with { VirtualDevices = [device] };
+
+        // Act
+        await fixture.ReconcileAsync();
+
+        // Assert
+        var snapshot = Assert.Single(fixture.Status.GetSnapshots());
+        Assert.Equal(VirtualOutputRuntimeState.Healthy, snapshot.State);
+        Assert.Equal(VirtualOutputProtocol.MaximumVersion, snapshot.ProtocolVersion);
+        Assert.NotNull(snapshot.ProcessId);
+    }
+
+    /// <summary>Verifies stalled bootstrap delivery is canceled by its deadline and shutdown still cleans the launched child.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StartAsync_BlockedBootstrap_DeadlineOrShutdownCancelsLaunch(bool stopHost)
+    {
+        // Arrange
+        var time = new ManualTimeProvider();
+        await using var fixture = new OwnershipFixture(time, TimeSpan.FromSeconds(10)) { BlockLaunch = true };
+        var device = fixture.CreateDevice(VirtualOutputExecutionMode.ManagedProcess);
+        fixture.Configuration = fixture.Configuration with { VirtualDevices = [device] };
+        await fixture.StartAsync();
+        await time.WaitForTimerAsync(TimeSpan.FromSeconds(10));
+        var process = Assert.Single(fixture.Processes);
+        var bootstrap = fixture.GetBootstrap(VirtualOutputExecutionMode.ManagedProcess, device.Id);
+
+        // Act
+        if (stopHost)
+        {
+            await fixture.StopAsync().WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        }
+        else
+        {
+            time.Advance(TimeSpan.FromSeconds(10));
+            await WaitUntilAsync(() => process.Completion.IsCompleted && fixture.Status.GetSnapshots().Single().State == VirtualOutputRuntimeState.Failed,
+                TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        }
+
+        // Assert
+        Assert.True(process.Completion.IsCompleted);
+        await process.Received().DisposeAsync();
+        Assert.False(fixture.Authority.Register(new VirtualOutputWorkerRegistrationRequest
+        {
+            VirtualDeviceId = device.Id,
+            WorkerId = bootstrap.WorkerId,
+            Generation = bootstrap.Generation,
+            BootstrapToken = bootstrap.BootstrapToken,
+            MinimumProtocolVersion = VirtualOutputProtocol.MinimumVersion,
+            MaximumProtocolVersion = VirtualOutputProtocol.MaximumVersion
+        }).Accepted);
+        if (!stopHost)
+        {
+            Assert.Contains("bootstrap delivery", Assert.Single(fixture.Status.GetSnapshots()).LastFailure, StringComparison.Ordinal);
+            Assert.Equal(1, Assert.Single(fixture.Status.GetSnapshots()).RestartCount);
+        }
+    }
+
+    /// <summary>Verifies externally supervised workers retain enrollment renewal instead of managed recovery.</summary>
+    [Fact]
+    public async Task StartAsync_ExternalWorkerLeaseExpires_PreservesExternalOwnership()
+    {
+        // Arrange
+        var time = new ManualTimeProvider();
+        await using var fixture = new OwnershipFixture(time);
+        var device = fixture.CreateDevice(VirtualOutputExecutionMode.ExternalProcess);
+        fixture.Configuration = fixture.Configuration with { VirtualDevices = [device] };
+        await fixture.StartAsync();
+        await time.WaitForTimerAsync(TimeSpan.FromSeconds(1));
+        var bootstrap = fixture.GetBootstrap(VirtualOutputExecutionMode.ExternalProcess, device.Id);
+        fixture.Register(bootstrap);
+
+        // Act
+        time.Advance(TimeSpan.FromSeconds(61));
+        await time.WaitForTimerAsync(TimeSpan.FromSeconds(1));
+        var renewed = fixture.Enrollments.Take(device.Id);
+
+        // Assert
+        Assert.Empty(fixture.Processes);
+        Assert.Equal(1, fixture.ActivationAttempts);
+        Assert.NotNull(renewed);
+        Assert.True(renewed.Bootstrap.Generation > bootstrap.Generation);
+        Assert.Equal(VirtualOutputRuntimeState.Starting, Assert.Single(fixture.Status.GetSnapshots()).State);
+        Assert.Equal(0, Assert.Single(fixture.Status.GetSnapshots()).RestartCount);
+    }
+
+    /// <summary>Verifies shutdown cancels liveness timers and prevents later recovery of a stopped managed worker.</summary>
+    [Fact]
+    public async Task StopAsync_LivenessWait_CancelsTimerWithoutRestarting()
+    {
+        // Arrange
+        var time = new ManualTimeProvider();
+        await using var fixture = new OwnershipFixture(time);
+        var device = fixture.CreateDevice(VirtualOutputExecutionMode.ManagedProcess);
+        fixture.Configuration = fixture.Configuration with { VirtualDevices = [device] };
+        await fixture.StartAsync();
+        await time.WaitForTimerAsync(TimeSpan.FromSeconds(1));
+        var process = Assert.Single(fixture.Processes);
+
+        // Act
+        await fixture.StopAsync().WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        time.Advance(TimeSpan.FromMinutes(2));
+
+        // Assert
+        Assert.Equal(0, time.TimerCount);
+        Assert.True(process.Completion.IsCompleted);
+        Assert.Single(fixture.Processes);
+        Assert.Equal(1, fixture.ActivationAttempts);
+        Assert.DoesNotContain(fixture.Status.GetSnapshots(), snapshot => snapshot.State == VirtualOutputRuntimeState.Failed);
+    }
+
     /// <summary>Verifies cancellation of reconciliation cannot strand a managed child removed from active ownership.</summary>
     [Theory]
     [InlineData("remove")]
@@ -28,7 +274,7 @@ public sealed class VirtualOutputSupervisorTests
             VirtualOutputWorkerPolicies = [Assert.Single(fixture.Configuration.VirtualOutputWorkerPolicies) with { DrainTimeoutSeconds = 60 }]
         };
         await fixture.StartAsync();
-        await WaitUntilAsync(() => fixture.Status.GetSnapshots().Any(snapshot => snapshot.State == VirtualOutputRuntimeState.Starting),
+        await WaitUntilAsync(() => fixture.Status.GetSnapshots().Any(snapshot => snapshot.State == VirtualOutputRuntimeState.Starting && snapshot.ProcessId is not null),
             TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
         var process = Assert.Single(fixture.Processes);
         fixture.Register(fixture.GetBootstrap(VirtualOutputExecutionMode.ManagedProcess, device.Id));
@@ -319,8 +565,10 @@ public sealed class VirtualOutputSupervisorTests
         private readonly Dictionary<IVirtualOutputWorkerProcess, TaskCompletionSource<int>> _completions = [];
         private VirtualOutputWorkerBootstrap? _bootstrap;
 
-        internal OwnershipFixture()
+        internal OwnershipFixture(TimeProvider? timeProvider = null, TimeSpan? bootstrapLifetime = null)
         {
+            Authority = new VirtualOutputSessionAuthority(timeProvider);
+            Enrollments = new VirtualOutputExternalEnrollmentStore(timeProvider);
             var settings = Substitute.For<ILineupSettingsService>();
             _settings = settings;
             settings.Settings.Returns(_ => new LineupSettings { Streaming = Configuration });
@@ -346,7 +594,7 @@ public sealed class VirtualOutputSupervisorTests
                     });
             });
             var launcher = Substitute.For<IVirtualOutputWorkerLauncher>();
-            launcher.StartAsync(Arg.Any<VirtualOutputWorkerPackage>(), Arg.Any<VirtualOutputWorkerBootstrap>(), Arg.Any<CancellationToken>()).Returns(call =>
+            launcher.StartAsync(Arg.Any<VirtualOutputWorkerPackage>(), Arg.Any<VirtualOutputWorkerBootstrap>(), Arg.Any<CancellationToken>()).Returns(async call =>
             {
                 _bootstrap = call.Arg<VirtualOutputWorkerBootstrap>();
                 var completion = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -364,6 +612,22 @@ public sealed class VirtualOutputSupervisorTests
                     return ValueTask.CompletedTask;
                 });
                 Processes.Add(process);
+                if (RegisterDuringLaunch)
+                {
+                    Register(_bootstrap);
+                    Status.Update(_bootstrap.VirtualDevice.Id, current => current! with { State = VirtualOutputRuntimeState.Healthy, ProtocolVersion = VirtualOutputProtocol.MaximumVersion });
+                }
+                if (BlockLaunch)
+                {
+                    try
+                    {
+                        await Task.Delay(Timeout.InfiniteTimeSpan, call.Arg<CancellationToken>());
+                    }
+                    finally
+                    {
+                        await process.DisposeAsync();
+                    }
+                }
                 return process;
             });
             _supervisor = new VirtualOutputSupervisor(
@@ -371,7 +635,8 @@ public sealed class VirtualOutputSupervisorTests
                 new VirtualOutputRuntimeOptions
                 {
                     WorkerPackageRoot = "unused",
-                    IpcEndpoint = new VirtualOutputIpcEndpoint { Transport = VirtualOutputIpcTransport.NamedPipe, Address = "unused" }
+                    IpcEndpoint = new VirtualOutputIpcEndpoint { Transport = VirtualOutputIpcTransport.NamedPipe, Address = "unused" },
+                    BootstrapLifetime = bootstrapLifetime ?? TimeSpan.FromMinutes(1)
                 },
                 catalog,
                 launcher,
@@ -379,7 +644,8 @@ public sealed class VirtualOutputSupervisorTests
                 Authority,
                 Status,
                 Enrollments,
-                NullLogger<VirtualOutputSupervisor>.Instance);
+                NullLogger<VirtualOutputSupervisor>.Instance,
+                timeProvider);
         }
 
         internal StreamingConfiguration Configuration { get; set; } = new()
@@ -387,15 +653,21 @@ public sealed class VirtualOutputSupervisorTests
             VirtualOutputWorkerPolicies = [new VirtualOutputWorkerPolicyDefinition { Key = "ownership", Name = "Ownership", MaximumRestarts = 0, DrainTimeoutSeconds = 0 }]
         };
 
-        internal VirtualOutputSessionAuthority Authority { get; } = new();
+        internal VirtualOutputSessionAuthority Authority { get; }
 
         internal VirtualOutputRuntimeStatus Status { get; } = new();
 
-        internal VirtualOutputExternalEnrollmentStore Enrollments { get; } = new();
+        internal VirtualOutputExternalEnrollmentStore Enrollments { get; }
 
         internal List<IVirtualOutputWorkerProcess> Processes { get; } = [];
 
         internal bool FailActivation { get; set; }
+
+        /// <summary>Gets or sets whether the controlled launcher stalls until cancellation.</summary>
+        internal bool BlockLaunch { get; set; }
+
+        /// <summary>Gets or sets whether the controlled worker reports readiness before the launcher returns.</summary>
+        internal bool RegisterDuringLaunch { get; set; }
 
         internal int ActivationAttempts { get; private set; }
 
@@ -494,6 +766,113 @@ public sealed class VirtualOutputSupervisorTests
             }
             _supervisor.Dispose();
             Authority.Dispose();
+        }
+    }
+
+    private sealed class ManualTimeProvider : TimeProvider
+    {
+        private readonly List<ManualTimer> _timers = [];
+        private DateTimeOffset _utcNow = new(2026, 11, 6, 0, 0, 0, TimeSpan.Zero);
+
+        /// <summary>Gets the number of pending one-shot timers.</summary>
+        public int TimerCount
+        {
+            get
+            {
+                lock (_timers)
+                {
+                    return _timers.Count;
+                }
+            }
+        }
+
+        /// <inheritdoc />
+        public override DateTimeOffset GetUtcNow()
+        {
+            lock (_timers)
+            {
+                return _utcNow;
+            }
+        }
+
+        /// <inheritdoc />
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            var timer = new ManualTimer(this, callback, state);
+            timer.Change(dueTime, period);
+            return timer;
+        }
+
+        /// <summary>Advances the clock and fires elapsed one-shot timers.</summary>
+        public void Advance(TimeSpan duration)
+        {
+            ManualTimer[] elapsed;
+            lock (_timers)
+            {
+                _utcNow += duration;
+                elapsed = _timers.Where(timer => timer.DueUtc <= _utcNow).ToArray();
+                foreach (var timer in elapsed)
+                {
+                    _timers.Remove(timer);
+                }
+            }
+            foreach (var timer in elapsed)
+            {
+                timer.Callback(timer.State);
+            }
+        }
+
+        /// <summary>Waits until the supervisor has installed a timer at the expected deadline.</summary>
+        public Task WaitForTimerAsync(TimeSpan dueTime) => WaitUntilAsync(() =>
+        {
+            lock (_timers)
+            {
+                return _timers.Any(timer => timer.DueUtc == _utcNow + dueTime);
+            }
+        }, TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+
+        private sealed class ManualTimer(ManualTimeProvider owner, TimerCallback callback, object? state) : ITimer
+        {
+            /// <summary>Gets the scheduled callback.</summary>
+            public TimerCallback Callback { get; } = callback;
+
+            /// <summary>Gets the callback state.</summary>
+            public object? State { get; } = state;
+
+            /// <summary>Gets the scheduled expiration.</summary>
+            public DateTimeOffset DueUtc { get; private set; }
+
+            /// <inheritdoc />
+            public bool Change(TimeSpan dueTime, TimeSpan period)
+            {
+                Assert.Equal(Timeout.InfiniteTimeSpan, period);
+                lock (owner._timers)
+                {
+                    owner._timers.Remove(this);
+                    if (dueTime != Timeout.InfiniteTimeSpan)
+                    {
+                        DueUtc = owner._utcNow + dueTime;
+                        owner._timers.Add(this);
+                    }
+                    return true;
+                }
+            }
+
+            /// <inheritdoc />
+            public void Dispose()
+            {
+                lock (owner._timers)
+                {
+                    owner._timers.Remove(this);
+                }
+            }
+
+            /// <inheritdoc />
+            public ValueTask DisposeAsync()
+            {
+                Dispose();
+                return ValueTask.CompletedTask;
+            }
         }
     }
 

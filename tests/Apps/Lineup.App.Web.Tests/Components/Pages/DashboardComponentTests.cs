@@ -18,6 +18,41 @@ public class DashboardComponentTests
 {
     private const string StorageKey = "lineup-dashboard-sections-v1";
 
+    /// <summary>Verifies source warnings are visible even when the guide panel is collapsed and do not replace healthy statistics.</summary>
+    [Fact]
+    public async Task GuidePanel_PartialResults_ShowsWarningOutsideCollapsedContent()
+    {
+        // Arrange
+        using var context = CreateContext();
+        context.JSInterop.Setup<string?>("localStorage.getItem", StorageKey).SetResult(null);
+        context.JSInterop.SetupVoid("localStorage.setItem", _ => true).SetVoidResult();
+        context.Services.GetRequiredService<ILineupGuideReader>().GetStatisticsAsync(Arg.Any<CancellationToken>()).Returns(new GuideStatistics(12, 345, null, null, null)
+        {
+            SourceDiagnostics =
+            [
+                new GuideSourceDiagnostic
+                {
+                    SourceId = GuideSourceId.New(),
+                    SourceName = "Missing source",
+                    Code = GuideSourceDiagnosticCode.AdapterUnavailable,
+                    Message = "Install the source plugin."
+                }
+            ]
+        });
+
+        // Act
+        var component = context.Render<Dashboard>();
+        await component.Find("#toggleGuideSection").ClickAsync(new());
+
+        // Assert
+        Assert.True(component.Find("#guideSection").HasAttribute("hidden"));
+        Assert.Contains("12", component.Find("#guideSection").TextContent, StringComparison.Ordinal);
+        Assert.Contains("345", component.Find("#guideSection").TextContent, StringComparison.Ordinal);
+        var warning = component.Find("[data-guide-source-warnings]");
+        Assert.Contains("Missing source: Install the source plugin.", warning.TextContent, StringComparison.Ordinal);
+        Assert.Null(warning.Closest("[hidden]"));
+    }
+
     /// <summary>Verifies failed activation remains visible in the device panel and increases the unavailable summary count.</summary>
     [Fact]
     public async Task PhysicalDevices_ActivationFailure_ShowsUnavailableDeviceAndCount()
@@ -238,6 +273,47 @@ public class DashboardComponentTests
             guides.Received(1).RefreshAndPublishAsync(Arg.Any<CancellationToken>());
             Assert.Contains("No guide sources are enabled", Assert.Single(notifications.Notifications).Message, StringComparison.Ordinal);
         });
+    }
+
+    /// <summary>Verifies manual refresh and generation never announce full success for partial publications.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GuidePublication_PartialResults_ReportsWarning(bool refresh)
+    {
+        // Arrange
+        var guides = Substitute.For<ITopologyGuideService>();
+        IReadOnlyList<GuideOutputPublicationResult> outputs =
+        [
+            new GuideOutputPublicationResult
+            {
+                OutputId = GuideOutputId.New(),
+                Name = "Partial output",
+                Succeeded = true,
+                SourceDiagnostics =
+                [
+                    new GuideSourceDiagnostic
+                    {
+                        SourceId = GuideSourceId.New(),
+                        SourceName = "Missing source",
+                        Code = GuideSourceDiagnosticCode.AdapterUnavailable,
+                        Message = "Install the source plugin."
+                    }
+                ]
+            }
+        ];
+        guides.RefreshAndPublishAsync(Arg.Any<CancellationToken>()).Returns(new TopologyGuideRefreshResult { Sources = [], Outputs = outputs });
+        guides.PublishAsync(Arg.Any<CancellationToken>()).Returns(outputs);
+        using var context = CreateContext(guides: guides);
+        context.JSInterop.Setup<string?>("localStorage.getItem", StorageKey).SetResult(null);
+        var component = context.Render<Dashboard>();
+        var notifications = context.Services.GetRequiredService<IStatusNotificationService>();
+
+        // Act
+        await component.Find(refresh ? "#fetchGuide" : "#generateXmltv").ClickAsync(new());
+
+        // Assert
+        Assert.Contains("Partial guide results", Assert.Single(notifications.Notifications).Message, StringComparison.Ordinal);
     }
 
     /// <summary>

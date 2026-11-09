@@ -44,6 +44,7 @@ public static class VirtualOutputWorkerManifestValidator
             errors.Add("Worker manifest requires at least one valid adapter kind.");
         }
         if (manifest.Platforms.Any(platform =>
+            platform is null ||
             !IsIdentifierValid(platform.OperatingSystem) ||
             !IsIdentifierValid(platform.Architecture)))
         {
@@ -107,7 +108,7 @@ public static class VirtualOutputWorkerManifestValidator
              normalizedLineupVersion <= NormalizeVersion(maximum!));
     }
 
-    private static bool IsIdentifierValid(string value) =>
+    private static bool IsIdentifierValid(string? value) =>
         !string.IsNullOrEmpty(value) &&
         value[0] is >= 'a' and <= 'z' &&
         value.All(character => character is >= 'a' and <= 'z' or >= '0' and <= '9' or '-' or '.');

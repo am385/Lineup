@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Lineup.Core.Common.Streaming;
 using Lineup.Core.Settings;
@@ -290,24 +291,30 @@ public sealed class HdHomeRunDiscoveryWorkerSupervisor : BackgroundService
     {
         var snapshots = _physicalDevices.Devices.Select(device => device.Snapshot).ToArray();
         var advertisements = new List<VirtualOutputAdvertisementSnapshot>();
-        foreach (var device in configuration.VirtualDevices.Where(device =>
-                     device.Enabled &&
-                     string.Equals(device.Adapter.Kind, HdHomeRunVirtualTunerDriver.AdapterKind, StringComparison.OrdinalIgnoreCase)))
+        var devices = configuration.VirtualDevices
+            .Where(device => device.Enabled && string.Equals(device.Adapter.Kind, HdHomeRunVirtualTunerDriver.AdapterKind, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        var primaryManagementDevice = devices.FirstOrDefault(device => device.Hosting is null);
+        foreach (var device in devices)
         {
             var adapter = device.Adapter.Configuration.Deserialize<HdHomeRunVirtualTunerConfiguration>(
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            if (adapter?.EnableNetworkAdvertisement != true)
+            {
+                continue;
+            }
             var publicUri = device.Hosting?.Bindings
-                .Select(binding => Uri.TryCreate(binding.PublicBaseUri, UriKind.Absolute, out var uri) ? uri : null)
+                .Select(binding => HdHomeRunProxyProfileResolver.TryGetHttpRoot(binding.PublicBaseUri, out var uri) ? uri : null)
                 .OfType<Uri>()
                 .FirstOrDefault();
-            if (publicUri is null &&
-                Uri.TryCreate(adapter?.AdvertisedBaseUrl, UriKind.Absolute, out var managementUri) &&
-                (managementUri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
-                 managementUri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
+            if (device.Hosting is null && HdHomeRunProxyProfileResolver.TryGetHttpRoot(adapter?.AdvertisedBaseUrl, out var managementUri))
             {
-                publicUri = managementUri;
+                publicUri = HdHomeRunProxyProfileResolver.GetProfileBaseUri(
+                    managementUri!,
+                    uint.Parse(_driver.GetDeviceId(device), NumberStyles.HexNumber, CultureInfo.InvariantCulture),
+                    device == primaryManagementDevice);
             }
-            if (adapter?.EnableNetworkAdvertisement != true || publicUri is null)
+            if (publicUri is null)
             {
                 continue;
             }

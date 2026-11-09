@@ -200,8 +200,10 @@ public class WatchTests
     }
 
     /// <summary>Verifies the Web Player can use the management host without a dedicated listener.</summary>
-    [Fact]
-    public void ManagementHostedPlayer_StartsSessionOnManagementApi()
+    [Theory]
+    [InlineData("http")]
+    [InlineData("https")]
+    public void ManagementHostedPlayer_StartsSessionOnManagementApi(string pageScheme)
     {
         // Arrange
         var settings = Substitute.For<ILineupSettingsService>();
@@ -213,6 +215,7 @@ public class WatchTests
             }
         });
         using var context = CreateContext(settingsService: settings);
+        context.Services.GetRequiredService<NavigationManager>().NavigateTo($"{pageScheme}://localhost/watch");
         ConfigureSuccessfulSession(context);
 
         // Act
@@ -223,6 +226,91 @@ public class WatchTests
         {
             var start = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession");
             Assert.Equal("/api/stream/cmaf/start/42.1", start.Arguments[0]);
+        });
+    }
+
+    /// <summary>Verifies dedicated media selection uses public transport, preserves compatible binding order and normalizes prefixes.</summary>
+    [Theory]
+    [InlineData("https", "https://media.example/secure/media/start/42.1", "http://media.example/plain", "https://media.example/secure")]
+    [InlineData("http", "http://media.example/plain/media/start/42.1", "http://media.example/plain/", "https://media.example/secure/")]
+    [InlineData("http", "https://media.example/secure/media/start/42.1", "https://media.example/secure/", "http://media.example/plain/")]
+    [InlineData("https", "https://media.example/media/start/42.1", "https://media.example/")]
+    [InlineData("http", "http://media.example/media/start/42.1", "http://media.example/")]
+    [InlineData("http", "http://media.example/media/start/42.1", "not-a-uri", "http://media.example/")]
+    [InlineData("https", "https://media.example/media/start/42.1", "ftp://media.example/", "https://media.example/")]
+    public void DedicatedPlayer_CompatiblePublicBindings_StartsExpectedMediaUrl(string pageScheme, string expectedStartUrl, params string[] publicUris)
+    {
+        // Arrange
+        var configuration = CreateHostedWebPlayerSettings();
+        configuration.Streaming = configuration.Streaming with
+        {
+            VirtualDevices =
+            [
+                configuration.Streaming.VirtualDevices[0] with
+                {
+                    Hosting = new VirtualOutputHostingDefinition
+                    {
+                        Bindings = publicUris.Select(uri => new VirtualOutputBindingDefinition { PublicBaseUri = uri }).ToArray()
+                    }
+                }
+            ]
+        };
+        var settings = Substitute.For<ILineupSettingsService>();
+        settings.Settings.Returns(configuration);
+        using var context = CreateContext(settingsService: settings);
+        context.Services.GetRequiredService<NavigationManager>().NavigateTo($"{pageScheme}://localhost/watch");
+        ConfigureSuccessfulSession(context);
+
+        // Act
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            var start = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession");
+            Assert.Equal(expectedStartUrl, start.Arguments[0]);
+            Assert.NotNull(component.Find("#cmafVideoPlayer"));
+        });
+    }
+
+    /// <summary>Verifies incompatible dedicated transport fails before issuing a browser media request, including HTTP loopback on HTTPS pages.</summary>
+    [Theory]
+    [InlineData("https", "http://media.example/")]
+    [InlineData("https", "http://localhost:8600/")]
+    [InlineData("https", "")]
+    [InlineData("http", "ftp://media.example/")]
+    [InlineData("http", "not-a-uri")]
+    public void DedicatedPlayer_NoCompatiblePublicBinding_ShowsConfigurationError(string pageScheme, string publicUri)
+    {
+        // Arrange
+        var configuration = CreateHostedWebPlayerSettings();
+        configuration.Streaming = configuration.Streaming with
+        {
+            VirtualDevices =
+            [
+                configuration.Streaming.VirtualDevices[0] with
+                {
+                    Hosting = new VirtualOutputHostingDefinition { Bindings = [new VirtualOutputBindingDefinition { PublicBaseUri = publicUri }] }
+                }
+            ]
+        };
+        var settings = Substitute.For<ILineupSettingsService>();
+        settings.Settings.Returns(configuration);
+        using var context = CreateContext(settingsService: settings);
+        context.Services.GetRequiredService<NavigationManager>().NavigateTo($"{pageScheme}://localhost/watch");
+
+        // Act
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            Assert.Contains(pageScheme == "https"
+                ? "Configure an HTTPS listener or an HTTPS reverse-proxy URL."
+                : "The Web Player dedicated listener is not configured.", component.Markup, StringComparison.Ordinal);
+            Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession");
+            Assert.Empty(component.FindAll("#cmafVideoPlayer"));
+            Assert.Empty(component.FindAll("#cmafStreamLoading"));
         });
     }
 
@@ -1200,11 +1288,15 @@ public class WatchTests
     /// <summary>
     /// Verifies all prepared text and caption sidecars are supplied to the player and omitted from the burn-in selector.
     /// </summary>
-    [Fact]
-    public void PreparedSubtitles_ArePlayerControlledAndAbsentFromBurnInSelector()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void PreparedSubtitles_ArePlayerControlledAndAbsentFromBurnInSelector(bool dedicated)
     {
         // Arrange
-        using var context = CreateContext();
+        var settings = Substitute.For<ILineupSettingsService>();
+        settings.Settings.Returns(CreateHostedWebPlayerSettings(dedicated));
+        using var context = CreateContext(settingsService: settings);
         ConfigureSuccessfulSession(context);
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
         component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
@@ -1236,7 +1328,8 @@ public class WatchTests
                 }
             ])
         {
-            ClientId = clientId
+            ClientId = dedicated ? null : clientId,
+            WorkerMediaSessionId = dedicated ? "session-1" : null
         });
 
         // Assert
@@ -1256,11 +1349,15 @@ public class WatchTests
     /// <summary>
     /// Verifies bitmap subtitles retain the explicit restart-and-burn-in path.
     /// </summary>
-    [Fact]
-    public void BitmapSubtitles_RestartsWithBurnInSelection()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task BitmapSubtitles_RestartsWithBurnInSelection(bool dedicated)
     {
         // Arrange
-        using var context = CreateContext();
+        var settings = Substitute.For<ILineupSettingsService>();
+        settings.Settings.Returns(CreateHostedWebPlayerSettings(dedicated));
+        using var context = CreateContext(settingsService: settings);
         ConfigureSuccessfulSession(context);
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
         component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
@@ -1282,7 +1379,8 @@ public class WatchTests
                 }
             ])
         {
-            ClientId = clientId
+            ClientId = dedicated ? null : clientId,
+            WorkerMediaSessionId = dedicated ? "session-1" : null
         });
         component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafSubtitleTrack")));
         component.WaitForAssertion(() =>
@@ -1292,7 +1390,7 @@ public class WatchTests
         });
 
         // Act
-        component.Find("#cmafSubtitleTrack").Change("4");
+        await component.Find("#cmafSubtitleTrack").ChangeAsync(new ChangeEventArgs { Value = "4" });
 
         // Assert
         component.WaitForAssertion(() =>
@@ -1303,6 +1401,148 @@ public class WatchTests
             Assert.Equal(4, request.SubtitleTrack);
             Assert.Equal(SubtitlePresentation.BurnIn, request.SubtitlePresentation);
         });
+    }
+
+    /// <summary>Verifies dedicated metadata matches the media ID rather than a broker ID, foreign viewer, or absent identity.</summary>
+    [Fact]
+    public async Task DedicatedMetadata_ForeignAndMissingMediaIds_DoNotDisplaceOwnedStream()
+    {
+        // Arrange
+        using var context = CreateContext();
+        ConfigureSuccessfulSession(context);
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
+        var registry = context.Services.GetRequiredService<IActiveStreamRegistry>();
+        var owned = new ActiveStreamSnapshot("broker-owned", "42.1", HostedStreamFormat.Cmaf, DateTime.UtcNow, null,
+        [
+            new ActiveStreamTrack(MediaTrackType.Subtitle, "dvb_subtitle", "not-mapped", null, null, null, null, null, null, null)
+            {
+                SourceIndex = 4,
+                Title = "Owned bitmap",
+                SubtitlePresentation = SubtitlePresentation.BurnIn
+            }
+        ])
+        { WorkerMediaSessionId = "session-1" };
+        var foreign = owned with
+        {
+            SessionId = "broker-foreign",
+            ClientId = Assert.IsType<string>(typeof(Watch).GetField("_clientId", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(component.Instance)),
+            WorkerMediaSessionId = "different-media-session",
+            StartedAtUtc = owned.StartedAtUtc.AddSeconds(1),
+            Tracks = [owned.Tracks[0] with { SourceIndex = 8, Title = "Foreign bitmap" }]
+        };
+
+        // Act
+        registry.Register(owned);
+        registry.Register(foreign);
+        registry.Register(foreign with { SessionId = "broker-unidentified", ClientId = null, WorkerMediaSessionId = null, StartedAtUtc = owned.StartedAtUtc.AddSeconds(2) });
+        await RefreshStreamInfoAsync(component);
+
+        // Assert
+        Assert.Contains("Owned bitmap", component.Find("#cmafSubtitleTrack option[value='4']").TextContent, StringComparison.Ordinal);
+        Assert.DoesNotContain("Foreign bitmap", component.Markup, StringComparison.Ordinal);
+        Assert.Empty(component.FindAll("#cmafSubtitleTrack option[value='8']"));
+    }
+
+    /// <summary>Verifies remote stop notifications stop only the owned dedicated or management playback.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ActiveStreamStopRequested_MatchingOwner_StopsPlayback(bool dedicated)
+    {
+        // Arrange
+        var settings = Substitute.For<ILineupSettingsService>();
+        settings.Settings.Returns(CreateHostedWebPlayerSettings(dedicated));
+        using var context = CreateContext(settingsService: settings);
+        ConfigureSuccessfulSession(context);
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
+        var clientId = Assert.IsType<string>(typeof(Watch).GetField("_clientId", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(component.Instance));
+        var registry = context.Services.GetRequiredService<IActiveStreamRegistry>();
+        var stopped = 0;
+        var owned = new ActiveStreamSnapshot("broker-owned", "42.1", HostedStreamFormat.Cmaf, DateTime.UtcNow, null, [])
+        {
+            ClientId = dedicated ? null : clientId,
+            WorkerMediaSessionId = dedicated ? "session-1" : null
+        };
+        registry.Register(owned, () => stopped++);
+        registry.Register(owned with { SessionId = "broker-foreign", ClientId = clientId, WorkerMediaSessionId = "other-session" }, () => { });
+
+        // Act
+        await component.InvokeAsync(() => Assert.True(registry.RequestStop("broker-foreign")));
+        Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopCmafSession");
+        Assert.NotNull(component.Find("#cmafVideoPlayer"));
+        await component.InvokeAsync(() => Assert.True(registry.RequestStop("broker-owned")));
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            Assert.Equal(1, stopped);
+            Assert.Empty(component.FindAll("#cmafVideoPlayer"));
+            var serverStop = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopCmafSession");
+            Assert.Equal("session-1", serverStop.Arguments[0]);
+        });
+    }
+
+    /// <summary>Verifies an old worker notification cannot stop replacement playback.</summary>
+    [Fact]
+    public async Task ActiveStreamStopRequested_PreviousMediaSession_IgnoresStaleNotification()
+    {
+        // Arrange
+        using var context = CreateContext();
+        ConfigureSuccessfulSession(context);
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
+        ConfigureSuccessfulSession(context, sessionId: "session-2");
+        component.Render(parameters => parameters.Add(page => page.ChannelNumber, "43.1"));
+        component.WaitForAssertion(() => Assert.Equal(2, context.JSInterop.Invocations.Count(invocation => invocation.Identifier == "startCmafSession")));
+        var registry = context.Services.GetRequiredService<IActiveStreamRegistry>();
+        registry.Register(new ActiveStreamSnapshot("stale-broker", "42.1", HostedStreamFormat.Cmaf, DateTime.UtcNow, null, [])
+        {
+            WorkerMediaSessionId = "session-1",
+            ClientId = Assert.IsType<string>(typeof(Watch).GetField("_clientId", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(component.Instance))
+        }, () => { });
+
+        // Act
+        await component.InvokeAsync(() => Assert.True(registry.RequestStop("stale-broker")));
+        await RefreshStreamInfoAsync(component);
+
+        // Assert
+        Assert.NotNull(component.Find("#cmafVideoPlayer"));
+        var serverStop = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopCmafSession");
+        Assert.Equal("session-1", serverStop.Arguments[0]);
+        Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopCmafSession" && Equals(invocation.Arguments[0], "session-2"));
+    }
+
+    /// <summary>Verifies dedicated broker ownership is released even when browser-side server shutdown fails.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Dispose_DedicatedServerStopFails_ReleasesOnlyOwnedBroker(bool disconnected)
+    {
+        // Arrange
+        using var context = CreateContext();
+        ConfigureSuccessfulSession(context);
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
+        var registry = context.Services.GetRequiredService<IActiveStreamRegistry>();
+        var ownedStops = 0;
+        var foreignStops = 0;
+        var owned = new ActiveStreamSnapshot("broker-owned", "42.1", HostedStreamFormat.Cmaf, DateTime.UtcNow, null, []) { WorkerMediaSessionId = "session-1" };
+        registry.Register(owned, () => ownedStops++);
+        registry.Register(owned with { SessionId = "broker-foreign", WorkerMediaSessionId = "other-session" }, () => foreignStops++);
+        Exception failure = disconnected ? new JSDisconnectedException("Browser disconnected.") : new JSException("Server stop failed.");
+        context.JSInterop.SetupVoid("stopCmafSession", "session-1").SetException(failure);
+
+        // Act
+        await component.InvokeAsync(() => component.Instance.DisposeAsync().AsTask());
+
+        // Assert
+        Assert.Equal(1, ownedStops);
+        Assert.Equal(0, foreignStops);
+        Assert.False(registry.RequestStop("broker-owned"));
+        Assert.True(registry.RequestStop("broker-foreign"));
+        Assert.Equal(1, foreignStops);
     }
 
     /// <summary>
@@ -1470,19 +1710,19 @@ public class WatchTests
         return context;
     }
 
-    private static void ConfigureSuccessfulSession(BunitContext context, bool sourceAudioFallbackApplied = false)
+    private static void ConfigureSuccessfulSession(BunitContext context, bool sourceAudioFallbackApplied = false, string sessionId = "session-1")
     {
         context.JSInterop
             .Setup<Watch.CmafStartResponse>("startCmafSession", _ => true)
             .SetResult(new(
-                "session-1",
-                "/api/stream/cmaf/session-1/master.m3u8",
-                "/api/stream/cmaf/session-1/manifest.mpd",
+                sessionId,
+                $"/api/stream/cmaf/{sessionId}/master.m3u8",
+                $"/api/stream/cmaf/{sessionId}/manifest.mpd",
                 sourceAudioFallbackApplied,
                 "Fallback AAC Stereo",
                 [
-                    new(2, "English", "eng", "/api/stream/cmaf/session-1/captions-2.vtt", false),
-                    new(3, "Closed Captions", "eng", "/api/stream/cmaf/session-1/captions-3.vtt", true)
+                    new(2, "English", "eng", $"/api/stream/cmaf/{sessionId}/captions-2.vtt", false),
+                    new(3, "Closed Captions", "eng", $"/api/stream/cmaf/{sessionId}/captions-3.vtt", true)
                 ],
                 FallbackAudioCodec: "aac"));
         context.JSInterop
@@ -1490,15 +1730,24 @@ public class WatchTests
             .SetResult(new(
                 true,
                 null,
-                "/api/stream/cmaf/session-1/manifest.mpd",
+                $"/api/stream/cmaf/{sessionId}/manifest.mpd",
                 Audio: new("Fallback AAC Stereo", "mp4a.40.2", 2),
                 Video: new("avc1.64002a", 1920, 1080)));
+        context.JSInterop.SetupVoid("stopCmafSession", sessionId).SetVoidResult();
+        context.JSInterop.SetupVoid("stopCmafSession", sessionId, $"/api/stream/cmaf/stop/{sessionId}").SetVoidResult();
     }
 
     private static CmafStreamRequest GetStartRequest(JSRuntimeInvocation invocation) =>
         Assert.IsType<CmafStreamRequest>(invocation.Arguments[1]);
 
-    private static LineupSettings CreateHostedWebPlayerSettings() =>
+    private static Task RefreshStreamInfoAsync(IRenderedComponent<Watch> component) => component.InvokeAsync(() =>
+    {
+        var refresh = typeof(Watch).GetMethod("RefreshStreamInfoAsync", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(refresh);
+        return Assert.IsAssignableFrom<Task>(refresh.Invoke(component.Instance, null));
+    });
+
+    private static LineupSettings CreateHostedWebPlayerSettings(bool dedicated = true) =>
         new()
         {
             Streaming = new StreamingConfiguration
@@ -1507,7 +1756,7 @@ public class WatchTests
                 [
                     WebPlayerVirtualTunerDriver.CreateBuiltIn() with
                     {
-                        Hosting = new VirtualOutputHostingDefinition
+                        Hosting = dedicated ? new VirtualOutputHostingDefinition
                         {
                             Bindings =
                             [
@@ -1516,7 +1765,7 @@ public class WatchTests
                                     PublicBaseUri = "http://localhost:8600/"
                                 }
                             ]
-                        }
+                        } : null
                     }
                 ]
             }

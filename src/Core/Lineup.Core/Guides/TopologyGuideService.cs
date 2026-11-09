@@ -54,6 +54,12 @@ public sealed record TopologyGuideRefreshResult
 /// </summary>
 public sealed record GuideOutputPublicationResult
 {
+    /// <summary>Gets excluded sources affecting the attempted guide publication.</summary>
+    public IReadOnlyList<GuideSourceDiagnostic> SourceDiagnostics { get; init; } = [];
+
+    /// <summary>Gets whether configured source exclusions made the attempted guide partial.</summary>
+    public bool IsPartial => SourceDiagnostics.Count > 0;
+
     /// <summary>Gets the configured output identity.</summary>
     public required GuideOutputId OutputId { get; init; }
 
@@ -193,6 +199,7 @@ public sealed class TopologyGuideService : ITopologyGuideService
         CancellationToken cancellationToken)
     {
         string? path = null;
+        IReadOnlyList<GuideSourceDiagnostic> diagnostics = [];
         try
         {
             var driver = _adapters.GetGuideOutput(output.Adapter.Kind);
@@ -205,6 +212,7 @@ public sealed class TopologyGuideService : ITopologyGuideService
             }
 
             var snapshot = await _guideQueries.BuildOutputSnapshotAsync(configuration, output, cancellationToken: cancellationToken);
+            diagnostics = snapshot.SourceDiagnostics;
             await _publications.PublishAsync(
                 destination.Path,
                 (stream, token) => publisher.PublishAsync(snapshot, stream, token),
@@ -216,7 +224,8 @@ public sealed class TopologyGuideService : ITopologyGuideService
                 Succeeded = true,
                 Path = destination.Path,
                 ChannelCount = snapshot.Channels.Count,
-                ProgramCount = snapshot.Channels.Sum(channel => channel.Programs.Count)
+                ProgramCount = snapshot.Channels.Sum(channel => channel.Programs.Count),
+                SourceDiagnostics = diagnostics
             };
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -231,7 +240,8 @@ public sealed class TopologyGuideService : ITopologyGuideService
                 Name = output.Name,
                 Succeeded = false,
                 Path = path,
-                Error = exception.Message
+                Error = exception.Message,
+                SourceDiagnostics = diagnostics
             };
         }
     }

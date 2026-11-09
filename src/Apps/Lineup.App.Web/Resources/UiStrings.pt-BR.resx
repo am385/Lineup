@@ -746,6 +746,7 @@
   <data name="Guide_Now" xml:space="preserve"><value>Agora</value></data>
   <data name="Guide_OriginalAirLabel" xml:space="preserve"><value>Emisión original</value></data>
   <data name="Guide_PageTitle" xml:space="preserve"><value>Guia</value></data>
+  <data name="Guide_PartialResults" xml:space="preserve"><value>Resultados parciais do guia: algumas fontes configuradas foram excluídas.</value></data>
   <data name="Guide_ProgramTooltip" xml:space="preserve"><value>{0}\n{1} - {2} ({3:0} mín.)</value></data>
   <data name="Guide_StartLabel" xml:space="preserve"><value>Início</value></data>
   <data name="Guide_Today" xml:space="preserve"><value>hoje</value></data>
@@ -958,6 +959,7 @@
   <data name="Watch_Channels" xml:space="preserve"><value>Canais</value></data>
   <data name="Watch_CompatibilityProfileCleared" xml:space="preserve"><value>O perfil de compatibilidade do navegador salvo entrou em conflito com a reprodução em tempo de execução e foi removido. Execute novamente o Teste de Reprodução para atualizá-lo.</value></data>
   <data name="Watch_DedicatedListenerNotConfigured" xml:space="preserve"><value>O serviço de listener dedicado do Web Player não está configurado.</value></data>
+  <data name="Watch_DedicatedHttpsListenerRequired" xml:space="preserve"><value>O Watch via HTTPS requer um listener dedicado do Web Player com uma URL pública HTTPS. Configure um listener HTTPS ou uma URL HTTPS de proxy reverso.</value></data>
   <data name="Watch_DrmProtectedChannel" xml:space="preserve"><value>Canal protegido por DRM</value></data>
   <data name="Watch_Fallback" xml:space="preserve"><value>Alternativa</value></data>
   <data name="Watch_FallbackAudio" xml:space="preserve"><value>Áudio alternativo</value></data>

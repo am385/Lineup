@@ -41,7 +41,7 @@ function updateThemeToggleUI(theme, resolved) {
     if (icon) {
         icon.className = resolved === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
     }
-    
+
     // Update active state on dropdown items
     ['light', 'dark', 'auto'].forEach(function(t) {
         var item = document.getElementById('theme-opt-' + t);

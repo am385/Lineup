@@ -746,6 +746,7 @@
   <data name="Guide_Now" xml:space="preserve"><value>Now</value></data>
   <data name="Guide_OriginalAirLabel" xml:space="preserve"><value>Original Air</value></data>
   <data name="Guide_PageTitle" xml:space="preserve"><value>Guide</value></data>
+  <data name="Guide_PartialResults" xml:space="preserve"><value>Partial guide results: some configured sources were excluded.</value></data>
   <data name="Guide_ProgramTooltip" xml:space="preserve"><value>{0}\n{1} - {2} ({3:0} min)</value></data>
   <data name="Guide_StartLabel" xml:space="preserve"><value>Start</value></data>
   <data name="Guide_Today" xml:space="preserve"><value>Today</value></data>
@@ -958,6 +959,7 @@
   <data name="Watch_Channels" xml:space="preserve"><value>Channels</value></data>
   <data name="Watch_CompatibilityProfileCleared" xml:space="preserve"><value>The saved browser compatibility profile contradicted runtime playback and was cleared. Run Watch Test again to refresh it.</value></data>
   <data name="Watch_DedicatedListenerNotConfigured" xml:space="preserve"><value>The Web Player dedicated listener is not configured.</value></data>
+  <data name="Watch_DedicatedHttpsListenerRequired" xml:space="preserve"><value>HTTPS Watch requires a dedicated Web Player listener with an HTTPS public URL. Configure an HTTPS listener or an HTTPS reverse-proxy URL.</value></data>
   <data name="Watch_DrmProtectedChannel" xml:space="preserve"><value>DRM-protected channel</value></data>
   <data name="Watch_Fallback" xml:space="preserve"><value>Fallback</value></data>
   <data name="Watch_FallbackAudio" xml:space="preserve"><value>Fallback Audio</value></data>

@@ -16,6 +16,7 @@
             <span class="visually-hidden">@Text[Expanded ? "Dashboard_CollapseGuideSection" : "Dashboard_ExpandGuideSection"]</span>
         </button>
     </div>
+    <GuideSourceWarnings Diagnostics="Statistics.SourceDiagnostics" />
     <div id="guideSection" class="card-body" hidden="@(!Expanded)">
         <div class="row mb-4">
             <div class="col-md-3">

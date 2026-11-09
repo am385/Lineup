@@ -10,6 +10,57 @@ namespace Lineup.Plugin.WebPlayer.Tests;
 /// </summary>
 public class CmafStreamPlannerTests
 {
+    /// <summary>Verifies the HEVC default applies only to effective HEVC video and never overrides an explicit video choice.</summary>
+    [Theory]
+    [InlineData("h264", true, null, "copy")]
+    [InlineData("hevc", true, null, "libx264")]
+    [InlineData("HEVC", true, null, "libx264")]
+    [InlineData("hevc", false, null, "copy")]
+    [InlineData("h264", true, CmafPreferredVideo.Fallback, "libx264")]
+    [InlineData("hevc", true, CmafPreferredVideo.Source, "copy")]
+    [InlineData("h264", true, CmafPreferredVideo.Source, "copy")]
+    public void ApplyTopologyProfile_EffectiveCodec_PreservesVideoPolicy(string codec, bool convertHevc, CmafPreferredVideo? videoOverride, string encoder)
+    {
+        // Arrange
+        var source = Source("aac") with
+        {
+            Tracks = [Track(0, MediaTrackType.Video, codec) with { ScanType = VideoScanType.Progressive, Profile = "Main 10", Level = 123 }, Source("aac").Tracks[1]]
+        };
+        var profile = new VirtualTranscodeProfile { ConvertHevcToH264 = convertHevc };
+        var request = CmafStreamPlanner.ApplyOverrides(new CmafStreamRequest
+        {
+            PreferredVideo = CmafPreferredVideo.Source,
+            Overrides = new CmafStreamOverrides { Enabled = videoOverride.HasValue, Video = videoOverride }
+        });
+
+        // Act
+        var effective = CmafStreamPlanner.ApplyTopologyProfile(request, profile, source);
+        var arguments = CmafStreamPlanner.CreateArguments(profile, source, CmafStreamPlanner.SelectTracks(source, effective), effective, "manifest.mpd");
+
+        // Assert
+        AssertOption(arguments, "-c:v:0", encoder);
+        Assert.Equal(videoOverride ?? (convertHevc && string.Equals(codec, "hevc", StringComparison.OrdinalIgnoreCase) ? CmafPreferredVideo.Fallback : CmafPreferredVideo.Source),
+            effective.PreferredVideo);
+        Assert.Equal(videoOverride ?? CmafPreferredVideo.Source, request.PreferredVideo);
+    }
+
+    /// <summary>Verifies unknown and absent video do not trigger an HEVC-specific presentation default.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ApplyTopologyProfile_UnknownOrAbsentVideo_PreservesRequest(bool hasVideo)
+    {
+        // Arrange
+        var source = new MediaProbeResult(hasVideo ? [Track(0, MediaTrackType.Video, "unknown")] : [], null);
+        var request = new CmafStreamRequest();
+
+        // Act
+        var effective = CmafStreamPlanner.ApplyTopologyProfile(request, new VirtualTranscodeProfile { ConvertHevcToH264 = true }, source);
+
+        // Assert
+        Assert.Same(request, effective);
+    }
+
     /// <summary>Encoded renditions use preceding-keyframe-relative targets; source copies never receive forced keyframes.</summary>
     [Theory]
     [InlineData(CmafPreferredVideo.Source)]
@@ -292,7 +343,7 @@ public class CmafStreamPlannerTests
         };
 
         // Act
-        var request = CmafStreamPlanner.ApplyTopologyProfile(new CmafStreamRequest(), profile, audio);
+        var request = CmafStreamPlanner.ApplyTopologyProfile(new CmafStreamRequest(), profile, Source("ac4"), audio);
 
         // Assert
         Assert.Equal(CmafPreferredAudio.Fallback, request.PreferredAudio);
@@ -314,7 +365,7 @@ public class CmafStreamPlannerTests
         };
 
         // Act
-        var effective = CmafStreamPlanner.ApplyTopologyProfile(request, profile, Source("ac4").Tracks[1]);
+        var effective = CmafStreamPlanner.ApplyTopologyProfile(request, profile, Source("ac4"), Source("ac4").Tracks[1]);
 
         // Assert
         Assert.Equal(CmafPreferredAudio.Source, effective.PreferredAudio);
@@ -340,7 +391,7 @@ public class CmafStreamPlannerTests
         var profile = new VirtualTranscodeProfile { Ac4Audio = OutputAudioPolicy.Ac3 };
 
         // Act
-        var effective = CmafStreamPlanner.ApplyTopologyProfile(request, profile, Source("ac4").Tracks[1]);
+        var effective = CmafStreamPlanner.ApplyTopologyProfile(request, profile, Source("ac4"), Source("ac4").Tracks[1]);
 
         // Assert
         Assert.Equal(CmafPreferredAudio.Source, effective.PreferredAudio);
@@ -364,7 +415,7 @@ public class CmafStreamPlannerTests
         };
         var selection = WebPlayerTrackPlanner.SelectTracks(source, 1, null);
         var profile = new VirtualTranscodeProfile { Ac4Audio = OutputAudioPolicy.Ac3 };
-        var request = CmafStreamPlanner.ApplyTopologyProfile(new CmafStreamRequest(), profile, selection.Audio);
+        var request = CmafStreamPlanner.ApplyTopologyProfile(new CmafStreamRequest(), profile, source, selection.Audio);
 
         // Act
         var arguments = CmafStreamPlanner.CreateArguments(profile, source, selection, request, "manifest.mpd");

@@ -8,6 +8,49 @@ namespace Lineup.Plugin.WebPlayer.Tests;
 /// <summary>Verifies dedicated workers build browser presentations with the shared CMAF planner.</summary>
 public sealed class DedicatedCmafSessionPlanTests
 {
+    /// <summary>Verifies dedicated planning uses effective physical video rather than raw codec to apply the HEVC default.</summary>
+    [Theory]
+    [InlineData("h264", false, null, "copy")]
+    [InlineData("hevc", false, null, "libx264")]
+    [InlineData("HEVC", false, null, "libx264")]
+    [InlineData("hevc", true, null, "copy")]
+    [InlineData("hevc", false, CmafPreferredVideo.Source, "copy")]
+    [InlineData("h264", false, CmafPreferredVideo.Fallback, "libx264")]
+    public void Create_HevcDefault_UsesEffectiveCodecAndOverrides(string rawCodec, bool physicallyConverted, CmafPreferredVideo? videoOverride, string encoder)
+    {
+        // Arrange
+        var raw = new MediaProbeResult(
+        [
+            new MediaTrackMetadata(0, MediaTrackType.Video, rawCodec, null, 1280, 720, null, null) { ScanType = VideoScanType.Progressive, Profile = "Main 10", Level = 123 },
+            new MediaTrackMetadata(1, MediaTrackType.Audio, "aac", null, null, null, 2, 48_000)
+        ], null);
+        var source = physicallyConverted
+            ? raw with { Tracks = raw.Tracks.Select(track => track.Type == MediaTrackType.Video ? track with { Codec = "h264" } : track).ToArray() }
+            : raw;
+        var response = new VirtualOutputOpenStreamResponse
+        {
+            Accepted = true,
+            RawSource = raw,
+            Source = source,
+            Profile = new VirtualTranscodeProfile { ConvertHevcToH264 = true }
+        };
+        var request = new CmafStreamRequest
+        {
+            PreferredVideo = CmafPreferredVideo.Source,
+            Overrides = new CmafStreamOverrides { Enabled = videoOverride.HasValue, Video = videoOverride }
+        };
+
+        // Act
+        var plan = DedicatedCmafSessionPlan.Create(response, request, Path.GetTempPath());
+
+        // Assert
+        AssertOption(plan.Arguments, "-c:v:0", encoder);
+        Assert.Equal(encoder == "copy", plan.HasSourceVideoRendition);
+        Assert.Same(source, plan.Source);
+        Assert.Same(raw, plan.RawSource);
+        Assert.Equal(CmafPreferredVideo.Source, request.PreferredVideo);
+    }
+
     /// <summary>Verifies a physical processing stage cannot silently discard source audio and produce a successful video-only presentation.</summary>
     [Theory]
     [InlineData(true)]

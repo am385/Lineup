@@ -746,6 +746,7 @@
   <data name="Guide_Now" xml:space="preserve"><value>現在</value></data>
   <data name="Guide_OriginalAirLabel" xml:space="preserve"><value>初回放送</value></data>
   <data name="Guide_PageTitle" xml:space="preserve"><value>番組ガイド</value></data>
+  <data name="Guide_PartialResults" xml:space="preserve"><value>番組表は一部の結果です。設定された一部のソースが除外されました。</value></data>
   <data name="Guide_ProgramTooltip" xml:space="preserve"><value>{0}\n{1} - {2}（{3:0} 分）</value></data>
   <data name="Guide_StartLabel" xml:space="preserve"><value>開始</value></data>
   <data name="Guide_Today" xml:space="preserve"><value>今日</value></data>
@@ -958,6 +959,7 @@
   <data name="Watch_Channels" xml:space="preserve"><value>チャンネル</value></data>
   <data name="Watch_CompatibilityProfileCleared" xml:space="preserve"><value>保存済みのブラウザー互換性プロファイルが実際の再生結果と矛盾していたため、消去しました。もう一度視聴テストを実行して更新してください。</value></data>
   <data name="Watch_DedicatedListenerNotConfigured" xml:space="preserve"><value>Web Player の専用リスナーが設定されていません。</value></data>
+  <data name="Watch_DedicatedHttpsListenerRequired" xml:space="preserve"><value>HTTPS の Watch には、HTTPS の公開 URL を持つ Web Player 専用リスナーが必要です。HTTPS リスナーまたは HTTPS リバースプロキシ URL を設定してください。</value></data>
   <data name="Watch_DrmProtectedChannel" xml:space="preserve"><value>DRM 保護されたチャンネル</value></data>
   <data name="Watch_Fallback" xml:space="preserve"><value>フォールバック</value></data>
   <data name="Watch_FallbackAudio" xml:space="preserve"><value>代替音声</value></data>

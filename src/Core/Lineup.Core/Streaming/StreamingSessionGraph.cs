@@ -276,11 +276,12 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
             }
         }
 
-        cancellationToken.ThrowIfCancellationRequested();
         while (true)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             SharedNode node;
-            IStreamSessionLease createdLease;
+            IStreamSessionLease? createdLease = null;
+            Task? cleanup = null;
             lock (_lifecycleGate)
             {
                 ThrowIfStopping();
@@ -288,20 +289,38 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                 node = GetOrCreateAcquisitionNode(descriptor, acquisitionFactory);
                 foreach (var stage in stages)
                 {
+                    if (!node.CanSubscribe)
+                    {
+                        cleanup = node.Completion;
+                        break;
+                    }
                     var transformKey = new TransformNodeKey(key, stage.Key);
                     node = GetOrCreateTransformNode(node, transformKey, stage.Transform);
                     key = transformKey;
                 }
-                if (!node.TrySubscribe(keepWarmPeriod, out createdLease))
+                if (cleanup is null && !node.TrySubscribe(keepWarmPeriod, out createdLease))
                 {
-                    RemoveNode(key, node);
-                    continue;
+                    cleanup = node.Completion;
                 }
+            }
+            if (cleanup is not null)
+            {
+                await cleanup.WaitAsync(cancellationToken);
+                continue;
+            }
+            if (createdLease is null)
+            {
+                throw new InvalidOperationException("The shared stream did not create a subscription.");
             }
             try
             {
                 await node.Started.WaitAsync(cancellationToken);
                 return createdLease;
+            }
+            catch (SharedParentStoppedException)
+            {
+                await createdLease.DisposeAsync();
+                cancellationToken.ThrowIfCancellationRequested();
             }
             catch
             {
@@ -371,11 +390,20 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
 
         SharedNode node;
         AcquisitionNodeKey acquisitionKey;
-        lock (_lifecycleGate)
+        while (true)
         {
-            ThrowIfStopping();
-            acquisitionKey = AcquisitionNodeKey.Create(descriptor);
-            node = GetOrCreateAcquisitionNode(descriptor, acquisitionFactory);
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (_lifecycleGate)
+            {
+                ThrowIfStopping();
+                acquisitionKey = AcquisitionNodeKey.Create(descriptor);
+                node = GetOrCreateAcquisitionNode(descriptor, acquisitionFactory);
+                if (node.CanSubscribe)
+                {
+                    break;
+                }
+            }
+            await node.Completion.WaitAsync(cancellationToken);
         }
 
         var key = new AcquisitionMetadataKey(acquisitionKey, metadataKey);
@@ -599,7 +627,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         cancellationToken.ThrowIfCancellationRequested();
         if (!node.TrySubscribe(TimeSpan.Zero, out var lease))
         {
-            throw new IOException("The shared parent stream stopped before the transform could subscribe.");
+            throw new SharedParentStoppedException();
         }
         try
         {
@@ -611,16 +639,6 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
             await lease.DisposeAsync();
             throw;
         }
-    }
-
-    private void RemoveNode(GraphNodeKey key, SharedNode node)
-    {
-        if (key is AcquisitionNodeKey acquisition)
-        {
-            _acquisitions.TryRemove(new KeyValuePair<AcquisitionNodeKey, SharedNode>(acquisition, node));
-            return;
-        }
-        _transforms.TryRemove(new KeyValuePair<TransformNodeKey, SharedNode>((TransformNodeKey)key, node));
     }
 
     private void RemoveAcquisitionNode(AcquisitionNodeKey key, SharedNode node)
@@ -679,6 +697,8 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
 
     private sealed record AcquisitionMetadataValue<T>(T Value, DateTimeOffset ObservedAtUtc, bool RefreshAttempted);
 
+    private sealed class SharedParentStoppedException() : IOException("The shared parent stream stopped before the transform could subscribe.");
+
     private sealed class SharedNode
     {
         private readonly string _kind;
@@ -709,6 +729,18 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         public Task Completion => _runTask ?? Task.CompletedTask;
 
         public Task Started => _started.Task;
+
+        /// <summary>Gets whether a new consumer can join this node before cleanup starts.</summary>
+        public bool CanSubscribe
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return !_completed;
+                }
+            }
+        }
 
         public bool TrySubscribe(TimeSpan keepWarmPeriod, out IStreamSessionLease lease)
         {

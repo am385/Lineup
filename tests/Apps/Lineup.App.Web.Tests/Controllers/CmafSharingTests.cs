@@ -15,6 +15,48 @@ namespace Lineup.App.Web.Tests.Controllers;
 /// <summary>Verifies management-hosted CMAF sharing through actual controllers, coordinator lifetimes, storage, and encoder processes.</summary>
 public sealed class CmafSharingTests
 {
+    /// <summary>Verifies actual management startup copies H.264 and already-normalized HEVC while preserving conversion and overrides.</summary>
+    [Theory]
+    [InlineData("h264", false, null, "copy")]
+    [InlineData("hevc", false, null, "libx264")]
+    [InlineData("HEVC", false, null, "libx264")]
+    [InlineData("hevc", true, null, "copy")]
+    [InlineData("hevc", false, CmafPreferredVideo.Source, "copy")]
+    [InlineData("h264", false, CmafPreferredVideo.Fallback, "libx264")]
+    public async Task Start_HevcDefault_UsesEffectiveCodecAndOverrides(string rawCodec, bool physicallyConverted, CmafPreferredVideo? videoOverride, string encoder)
+    {
+        // Arrange
+        await using var fixture = new Fixture
+        {
+            ProbeOverride = new MediaProbeResult(
+            [
+                new MediaTrackMetadata(0, MediaTrackType.Video, rawCodec, null, 1280, 720, null, null) { ScanType = VideoScanType.Progressive, Profile = "Main 10", Level = 123 },
+                new MediaTrackMetadata(1, MediaTrackType.Audio, "aac", null, null, null, 2, 48_000)
+            ], null)
+        };
+        fixture.Settings.Streaming = fixture.Settings.Streaming with
+        {
+            PhysicalDefaults = new PhysicalTranscodeProfile { ConvertHevcToH264 = physicallyConverted },
+            VirtualDefaults = new VirtualTranscodeProfile { ConvertHevcToH264 = true }
+        };
+
+        // Act
+        var started = fixture.BeginStart("viewer", new CmafStreamRequest
+        {
+            PreferredVideo = CmafPreferredVideo.Source,
+            Overrides = new CmafStreamOverrides { Enabled = videoOverride.HasValue, Video = videoOverride }
+        });
+        Assert.IsType<OkObjectResult>(await started.Start);
+
+        // Assert
+        var arguments = Assert.Single(fixture.EncoderRequests).Arguments;
+        var index = arguments.ToList().IndexOf("-c:v:0");
+        Assert.True(index >= 0);
+        Assert.Equal(encoder, arguments[index + 1]);
+        Assert.Equal(physicallyConverted ? "h264" : rawCodec,
+            Assert.Single(fixture.ActiveStreams.GetActiveStreams()).PhysicalOutput!.Tracks.Single(track => track.Type == MediaTrackType.Video).Codec);
+    }
+
     /// <summary>Verifies advertised-but-undiscovered audio is explicit while legitimate declared video-only startup remains supported.</summary>
     [Theory]
     [InlineData(true)]
@@ -429,11 +471,12 @@ public sealed class CmafSharingTests
     {
         private readonly DirectoryInfo _root = Directory.CreateTempSubdirectory("lineup-cmaf-sharing-");
         private readonly ConcurrentQueue<(Process Observer, string Directory)> _encoders = new();
+        private readonly ConcurrentQueue<MediaProcessRequest> _encoderRequests = new();
         private readonly TaskCompletionSource _encoderStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly List<CancellationTokenSource> _cancellations = [];
         private readonly List<Task<IActionResult>> _starts = [];
         private readonly ILineupSettingsService _settings = Substitute.For<ILineupSettingsService>();
-        private readonly ITunerStreamMultiplexer _multiplexer = Substitute.For<ITunerStreamMultiplexer>();
+        private readonly ITunerStreamMultiplexer _multiplexer = Substitute.For<ITunerStreamMultiplexer, IEffectiveTunerStreamMultiplexer>();
         private readonly IMediaProbeService _probe = Substitute.For<IMediaProbeService>();
         private readonly IMediaProcessFactory _processes = Substitute.For<IMediaProcessFactory>();
         private readonly IStreamingRouteResolver _routes = Substitute.For<IStreamingRouteResolver>();
@@ -462,6 +505,13 @@ public sealed class CmafSharingTests
                 Interlocked.Increment(ref _activeInputs);
                 return new BlockingInput(() => Interlocked.Decrement(ref _activeInputs));
             });
+            var effective = (IEffectiveTunerStreamMultiplexer)_multiplexer;
+            effective.GetEffectiveSource(Arg.Any<MediaProbeResult>(), Arg.Any<PhysicalTranscodeProfile>())
+                .Returns(call => SourceDeinterlacePlanner.CreateEffectiveSource(call.Arg<MediaProbeResult>(), call.Arg<PhysicalTranscodeProfile>()));
+            effective.SubscribeEffectiveAsync(
+                Arg.Any<StreamAcquisitionDescriptor>(), Arg.Any<StreamAcquisitionFactory>(), Arg.Any<string>(), Arg.Any<MediaProbeResult>(),
+                Arg.Any<PhysicalTranscodeProfile>(), Arg.Any<LineupSettings>(), Arg.Any<CancellationToken>())
+                .Returns(call => _multiplexer.SubscribeAsync(call.Arg<StreamAcquisitionDescriptor>(), call.Arg<StreamAcquisitionFactory>(), call.Arg<CancellationToken>()));
             _probe.ProbeAsync(
                 Arg.Any<StreamAcquisitionDescriptor>(), Arg.Any<StreamAcquisitionFactory>(), Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, string>>(), Arg.Any<CancellationToken>())
                 .Returns(_ => ProbeOverride ?? new MediaProbeResult(
@@ -517,6 +567,9 @@ public sealed class CmafSharingTests
 
         /// <summary>Gets the number of actual encoder processes started.</summary>
         internal int EncoderCount => _encoders.Count;
+
+        /// <summary>Gets the exact FFmpeg requests issued by the management controller.</summary>
+        internal IReadOnlyList<MediaProcessRequest> EncoderRequests => _encoderRequests.ToArray();
 
         /// <summary>Gets whether any owned encoder process remains alive.</summary>
         internal bool IsEncoderRunning => _encoders.Any(encoder => !encoder.Observer.HasExited);
@@ -600,6 +653,7 @@ public sealed class CmafSharingTests
                 throw ProcessFailure;
             }
             var directory = request.WorkingDirectory ?? throw new InvalidOperationException("The CMAF encoder request is missing its owned output directory.");
+            _encoderRequests.Enqueue(request);
             var configuration = new DirectoryInfo(AppContext.BaseDirectory).Name;
             var executable = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "Lineup.TestSupport.FakeFFmpeg", configuration, "Lineup.TestSupport.FakeFFmpeg.dll"));
             var start = new ProcessStartInfo("dotnet")
@@ -634,7 +688,7 @@ public sealed class CmafSharingTests
                 PhysicalDevice = physical,
                 SourceChannelId = source,
                 Acquisition = acquisition,
-                PhysicalProfile = new PhysicalTranscodeProfile(),
+                PhysicalProfile = Settings.Streaming.PhysicalDefaults,
                 SourceMetadata = AudioHint is null ? new Dictionary<string, string>() : new Dictionary<string, string> { ["audioCodec"] = AudioHint },
                 DiagnosticUri = new Uri($"http://source.invalid/auto/v{channel}")
             };

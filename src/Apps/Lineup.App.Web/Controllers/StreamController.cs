@@ -443,7 +443,7 @@ public class StreamController : ControllerBase
         try
         {
             selection = CmafStreamPlanner.SelectTracks(source, request);
-            request = CmafStreamPlanner.ApplyTopologyProfile(request, virtualProfile);
+            request = CmafStreamPlanner.ApplyTopologyProfile(request, virtualProfile, source);
             fallbackAudio = CmafStreamPlanner.ResolveFallbackAudio(request);
             if (topologyRoute is not null && !protectedContent)
             {

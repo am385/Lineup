@@ -746,6 +746,7 @@
   <data name="Guide_Now" xml:space="preserve"><value>现在</value></data>
   <data name="Guide_OriginalAirLabel" xml:space="preserve"><value>首播</value></data>
   <data name="Guide_PageTitle" xml:space="preserve"><value>节目指南</value></data>
+  <data name="Guide_PartialResults" xml:space="preserve"><value>部分节目指南结果：某些已配置的来源已被排除。</value></data>
   <data name="Guide_ProgramTooltip" xml:space="preserve"><value>{0}\n{1} - {2}（{3:0} 分钟）</value></data>
   <data name="Guide_StartLabel" xml:space="preserve"><value>开始</value></data>
   <data name="Guide_Today" xml:space="preserve"><value>今天</value></data>
@@ -958,6 +959,7 @@
   <data name="Watch_Channels" xml:space="preserve"><value>频道</value></data>
   <data name="Watch_CompatibilityProfileCleared" xml:space="preserve"><value>已保存的浏览器兼容性配置文件与运行时播放结果冲突，因此已清除。请再次运行播放测试以刷新该配置文件。</value></data>
   <data name="Watch_DedicatedListenerNotConfigured" xml:space="preserve"><value>尚未配置 Web Player 专用监听器。</value></data>
+  <data name="Watch_DedicatedHttpsListenerRequired" xml:space="preserve"><value>通过 HTTPS 使用 Watch 需要具有 HTTPS 公共 URL 的 Web Player 专用监听器。请配置 HTTPS 监听器或 HTTPS 反向代理 URL。</value></data>
   <data name="Watch_DrmProtectedChannel" xml:space="preserve"><value>受 DRM 保护的频道</value></data>
   <data name="Watch_Fallback" xml:space="preserve"><value>备用</value></data>
   <data name="Watch_FallbackAudio" xml:space="preserve"><value>备用音频</value></data>

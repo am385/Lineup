@@ -1,4 +1,5 @@
 using Lineup.App.Web.Services;
+using Lineup.Core.Common.Guides;
 using Microsoft.AspNetCore.Components;
 using Microsoft.JSInterop;
 using System.Globalization;
@@ -28,6 +29,7 @@ public partial class Guide : IAsyncDisposable
 
     private List<GuideChannelSegment> _channels = [];
     private List<GuideCacheProgram> _programs = [];
+    private IReadOnlyList<GuideSourceDiagnostic> _sourceDiagnostics = [];
     private List<DateTime> _timeSlots = [];
     private DateTime _selectedDate;
     private int _startHour;
@@ -51,6 +53,7 @@ public partial class Guide : IAsyncDisposable
         _dotNetRef = DotNetObjectReference.Create(this);
         // Load channels but defer full data load until we know the container width
         _channels = SortChannels(await GuideReader.GetChannelsAsync());
+        _sourceDiagnostics = GuideReader.GetSourceDiagnostics();
     }
 
     /// <summary>
@@ -145,6 +148,7 @@ public partial class Guide : IAsyncDisposable
                 _programs = (await GuideReader.GetProgramsAsync(
                     Tz.ConvertToUtc(startTime),
                     Tz.ConvertToUtc(endTime))).ToList();
+                _sourceDiagnostics = GuideReader.GetSourceDiagnostics();
             }
         }
     }
@@ -164,6 +168,7 @@ public partial class Guide : IAsyncDisposable
             _programs = (await GuideReader.GetProgramsAsync(
                 Tz.ConvertToUtc(startTime),
                 Tz.ConvertToUtc(endTime))).ToList();
+            _sourceDiagnostics = GuideReader.GetSourceDiagnostics();
 
             // Generate time slots (every 30 minutes)
             _timeSlots = [];

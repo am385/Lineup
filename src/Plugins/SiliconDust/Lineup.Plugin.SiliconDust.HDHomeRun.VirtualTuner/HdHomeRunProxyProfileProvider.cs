@@ -27,8 +27,9 @@ public sealed class HdHomeRunProxyProfileProvider : IHdHomeRunProxyProfileProvid
     public Task<IReadOnlyList<HdHomeRunProxyProfileSnapshot>> GetProfilesAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        IReadOnlyList<HdHomeRunProxyProfileSnapshot> profiles = GetEnabledDevices()
-            .Select((device, index) => CreateSnapshot(device, index == 0))
+        var enabled = GetEnabledDevices();
+        IReadOnlyList<HdHomeRunProxyProfileSnapshot> profiles = enabled
+            .Select(device => CreateSnapshot(device, OwnsRootRoutes(device, enabled)))
             .ToArray();
         return Task.FromResult(profiles);
     }
@@ -48,8 +49,11 @@ public sealed class HdHomeRunProxyProfileProvider : IHdHomeRunProxyProfileProvid
         var enabled = GetEnabledDevices();
         var device = enabled.FirstOrDefault(candidate =>
             _driver.GetDeviceId(candidate).Equals(virtualDeviceId, StringComparison.OrdinalIgnoreCase));
-        return Task.FromResult(device is null ? null : CreateSnapshot(device, device == enabled[0]));
+        return Task.FromResult(device is null ? null : CreateSnapshot(device, OwnsRootRoutes(device, enabled)));
     }
+
+    private static bool OwnsRootRoutes(VirtualDeviceDefinition device, IReadOnlyList<VirtualDeviceDefinition> enabled) =>
+        device.Hosting is not null || device == enabled.FirstOrDefault(candidate => candidate.Hosting is null);
 
     private VirtualDeviceDefinition[] GetEnabledDevices() =>
         _virtualDevices()

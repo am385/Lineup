@@ -77,6 +77,8 @@ public sealed class GuideOrchestratorTests
             Assert.DoesNotContain("Private activation detail", failed.Error!, StringComparison.Ordinal);
             Assert.Equal("Committed", Assert.Single(Assert.Single(cached.Channels).Programs).Title);
             Assert.Equal("Committed", Assert.Single(Assert.Single(union.Channels).Programs).Title);
+            Assert.False(cached.IsPartial);
+            Assert.Empty(failed.SourceDiagnostics);
             Assert.True(recovered.Succeeded);
             Assert.Equal("Recovered", Assert.Single(Assert.Single(refreshed.Channels).Programs).Title);
         }
@@ -132,6 +134,7 @@ public sealed class GuideOrchestratorTests
 
             // Assert
             Assert.Empty(snapshot.Channels.SelectMany(channel => channel.Programs));
+            Assert.Equal(restriction is "incompatible" or "unknown-driver", snapshot.IsPartial);
             Assert.Equal(1, Assert.Single(await store.ReadImportStatesAsync(TestContext.Current.CancellationToken)).ProgramCount);
         }
         finally
@@ -279,7 +282,8 @@ public sealed class GuideOrchestratorTests
             // Assert
             Assert.False(result.Succeeded);
             Assert.Equal(sourceId, result.SourceId);
-            Assert.Contains("activation failed", result.Error, StringComparison.Ordinal);
+            Assert.Equal(GuideSourceDiagnosticCode.NoCompatibleDevices, Assert.Single(result.SourceDiagnostics).Code);
+            Assert.Contains("no compatible enabled physical devices", result.Error, StringComparison.Ordinal);
             Assert.Equal(0, driver.RefreshCount);
         }
         finally

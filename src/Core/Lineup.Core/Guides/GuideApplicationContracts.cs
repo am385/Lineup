@@ -8,6 +8,9 @@ namespace Lineup.Core.Guides;
 /// </summary>
 public sealed record GuideRefreshResult
 {
+    /// <summary>Gets eligibility diagnostics when this source was excluded rather than activated.</summary>
+    public IReadOnlyList<GuideSourceDiagnostic> SourceDiagnostics { get; init; } = [];
+
     /// <summary>Gets the configured source identity.</summary>
     public required GuideSourceId SourceId { get; init; }
 
@@ -86,6 +89,9 @@ public interface IGuideOrchestrator
 /// </summary>
 public interface IGuideQueryService
 {
+    /// <summary>Gets current source-eligibility diagnostics without reading stored guide data.</summary>
+    IReadOnlyList<GuideSourceDiagnostic> GetSourceDiagnostics(StreamingConfiguration configuration);
+
     /// <summary>Builds the union guide for every enabled physical device.</summary>
     Task<VirtualGuideSnapshot> BuildUnionSnapshotAsync(
         StreamingConfiguration configuration,
@@ -115,6 +121,12 @@ public sealed record GuideStatistics(
     DateTimeOffset? LatestProgramEndUtc,
     DateTimeOffset? SafeCoverageEndUtc)
 {
+    /// <summary>Gets enabled-source exclusions affecting these statistics.</summary>
+    public IReadOnlyList<GuideSourceDiagnostic> SourceDiagnostics { get; init; } = [];
+
+    /// <summary>Gets whether the statistics describe a partial guide.</summary>
+    public bool IsPartial => SourceDiagnostics.Count > 0;
+
     /// <summary>Gets the total program time span.</summary>
     public TimeSpan? TotalTimeSpan => EarliestProgramStartUtc.HasValue && LatestProgramEndUtc.HasValue
         ? LatestProgramEndUtc.Value - EarliestProgramStartUtc.Value

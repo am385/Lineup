@@ -5,8 +5,10 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using Lineup.Plugin.SiliconDust.HDHomeRun.Device.Protocol;
+using Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryHost;
 using Lineup.Plugin.SiliconDust.HDHomeRun.VirtualTuner;
 using Lineup.Core.VirtualOutputs.Hosting;
+using Lineup.Core.VirtualOutputs.Protocol;
 
 const int ssdpPort = 1900;
 const int maximumTrackedSources = 1024;
@@ -42,21 +44,33 @@ using var shutdown = new CancellationTokenSource();
 var session = new VirtualOutputWorkerSession(bootstrap);
 await session.RegisterAsync(shutdown.Token);
 var responseWindows = new ConcurrentDictionary<IPAddress, ResponseWindow>();
-var leaseTask = session.RunLeaseLoopAsync(
-    () => (Ready: true, ActiveConnections: 0),
-    shutdown.Cancel,
+string? ssdpFailure = null;
+await DiscoveryWorkerLifetime.RunAsync(
+    (stop, token) => session.RunLeaseLoopAsync(() => (Ready: Volatile.Read(ref ssdpFailure) is null, ActiveConnections: 0), stop, token),
+    token => RunHdHomeRunDiscoveryAsync(advertisements, responseWindows, token),
+    token => RunSsdpAsync(advertisements, responseWindows, token),
+    async (exception, token) =>
+    {
+        var failure = $"SSDP discovery on UDP port {ssdpPort} is unavailable ({exception.SocketErrorCode}); SiliconDust UDP discovery remains active. " +
+            $"Check port ownership, permissions, and multicast-interface configuration: {exception.Message}";
+        Volatile.Write(ref ssdpFailure, failure);
+        Console.Error.WriteLine(failure);
+        try
+        {
+            await session.Broker.ReportHealthAsync(new VirtualOutputWorkerHealthReport
+            {
+                Session = session.Context!,
+                Ready = false,
+                ActiveConnections = 0,
+                Failure = failure
+            }, token);
+        }
+        catch (Exception reportException) when (reportException is IOException or SocketException or VirtualOutputClientException)
+        {
+            Console.Error.WriteLine($"Could not report SSDP failure to the control plane; lease renewals will report degraded readiness: {reportException.Message}");
+        }
+    },
     shutdown.Token);
-var discoveryTask = RunHdHomeRunDiscoveryAsync(advertisements, responseWindows, shutdown.Token);
-var ssdpTask = RunSsdpAsync(advertisements, responseWindows, shutdown.Token);
-await Task.WhenAny(leaseTask, discoveryTask, ssdpTask);
-shutdown.Cancel();
-try
-{
-    await Task.WhenAll(leaseTask, discoveryTask, ssdpTask);
-}
-catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
-{
-}
 
 static async Task RunHdHomeRunDiscoveryAsync(
     IReadOnlyList<HdHomeRunAdvertisedDevice> advertisements,
@@ -95,18 +109,16 @@ static async Task RunSsdpAsync(
     ConcurrentDictionary<IPAddress, ResponseWindow> responseWindows,
     CancellationToken cancellationToken)
 {
-    using var client = new UdpClient(AddressFamily.InterNetwork);
-    client.ExclusiveAddressUse = false;
-    client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-    client.Client.Bind(new IPEndPoint(IPAddress.Any, ssdpPort));
+    using var client = SsdpDiscoverySocket.CreateBoundListener(IPAddress.Any, ssdpPort);
     client.JoinMulticastGroup(IPAddress.Parse("239.255.255.250"));
-    client.MulticastLoopback = false;
+    Console.WriteLine($"SSDP multicast listener bound to {client.Client.LocalEndPoint}; address sharing enabled, multicast loopback {client.MulticastLoopback}.");
     await SendSsdpNotificationsAsync(client, advertisements, alive: true, cancellationToken);
-    var receiveTask = ReceiveSsdpAsync(client, advertisements, responseWindows, cancellationToken);
-    var aliveTask = SendAliveLoopAsync(client, advertisements, cancellationToken);
     try
     {
-        await Task.WhenAll(receiveTask, aliveTask);
+        await DiscoveryWorkerLifetime.RunSsdpLoopsAsync(
+            token => SsdpDiscoveryListener.ReceiveAsync(client, advertisements, source => TryAcquireResponsePermit(source, responseWindows), token),
+            token => SendAliveLoopAsync(client, advertisements, token),
+            cancellationToken);
     }
     finally
     {
@@ -114,47 +126,10 @@ static async Task RunSsdpAsync(
         {
             await SendSsdpNotificationsAsync(client, advertisements, alive: false, CancellationToken.None);
         }
-        catch (SocketException)
+        catch (SocketException exception)
         {
+            Console.Error.WriteLine($"Could not send SSDP shutdown notifications: {exception.Message}");
         }
-    }
-}
-
-static async Task ReceiveSsdpAsync(
-    UdpClient client,
-    IReadOnlyList<HdHomeRunAdvertisedDevice> advertisements,
-    ConcurrentDictionary<IPAddress, ResponseWindow> responseWindows,
-    CancellationToken cancellationToken)
-{
-    while (!cancellationToken.IsCancellationRequested)
-    {
-        var request = await client.ReceiveAsync(cancellationToken);
-        if (!TryAcquireResponsePermit(request.RemoteEndPoint.Address, responseWindows))
-        {
-            continue;
-        }
-        var text = Encoding.ASCII.GetString(request.Buffer);
-        if (!SsdpDiscoveryProtocol.TryParseSearch(text, out var requestedTarget))
-        {
-            continue;
-        }
-        var responseCount = 0;
-        var respondedDeviceIds = new List<string>();
-        foreach (var advertisement in advertisements)
-        {
-            var responses = SsdpDiscoveryProtocol.CreateSearchResponses(text, advertisement);
-            foreach (var response in responses)
-            {
-                await client.SendAsync(Encoding.ASCII.GetBytes(response), request.RemoteEndPoint, cancellationToken);
-                responseCount++;
-            }
-            if (responses.Count > 0)
-            {
-                respondedDeviceIds.Add(advertisement.DeviceId.ToString("X8", CultureInfo.InvariantCulture));
-            }
-        }
-        Console.WriteLine(
-            $"SSDP discovery request received from {request.RemoteEndPoint} for '{requestedTarget}'; sent {responseCount} response(s) for device(s): {FormatDeviceIds(respondedDeviceIds)}.");
     }
 }
 

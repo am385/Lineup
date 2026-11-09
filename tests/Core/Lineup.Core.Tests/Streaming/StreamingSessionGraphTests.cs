@@ -706,6 +706,212 @@ public sealed class StreamingSessionGraphTests
         Assert.Equal(1, Assert.Single(graph.GetDiagnostics().Capacity).ActiveAcquisitions);
     }
 
+    /// <summary>Verifies reconnects wait for physical cleanup without overlapping opens or holding the graph lifecycle lock.</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task AcquirePipelineAsync_DrainingSource_WaitsThenSharesReplacement(int stageCount)
+    {
+        // Arrange
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cancellation.CancelAfter(TimeSpan.FromSeconds(10));
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance);
+        var descriptor = CreateDescriptor(PhysicalDeviceId.New(), "7.1", capacity: 1);
+        var cleanupStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseCleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var starts = 0;
+        var active = 0;
+        var maximumActive = 0;
+        var replacementSource = new ControlledSourceStream();
+        StreamTransformStage[] stages = Enumerable.Range(0, stageCount)
+            .Select(index => new StreamTransformStage(new StreamTransformKey($"stage-{index}", "copy"), new PassthroughTransform()))
+            .ToArray();
+        ValueTask<IStreamSourceLease> Open(CancellationToken _)
+        {
+            var first = ++starts == 1;
+            var currentActive = ++active;
+            maximumActive = Math.Max(maximumActive, currentActive);
+            return ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(
+                first ? new ControlledSourceStream() : replacementSource,
+                () => active--,
+                first ? async () =>
+                {
+                    cleanupStarted.TrySetResult();
+                    await releaseCleanup.Task;
+                }
+            : null));
+        }
+        var first = await graph.AcquirePipelineAsync(descriptor, Open, stages, TimeSpan.Zero, cancellation.Token);
+
+        // Act
+        var disposal = first.DisposeAsync().AsTask();
+        try
+        {
+            await cleanupStarted.Task.WaitAsync(cancellation.Token);
+            var reconnect = graph.AcquirePipelineAsync(descriptor, Open, stages, TimeSpan.Zero, cancellation.Token).AsTask();
+            var sharing = graph.AcquirePipelineAsync(descriptor, Open, stages, TimeSpan.Zero, cancellation.Token).AsTask();
+            var capacityFailure = await Assert.ThrowsAsync<StreamCapacityExceededException>(async () =>
+                await graph.AcquireAsync(
+                    CreateDescriptor(descriptor.DeviceId, "9.1", capacity: 1),
+                    _ => throw new InvalidOperationException("A draining source still occupies physical capacity."),
+                    cancellation.Token));
+            await using (var independent = await graph.AcquireAsync(
+                CreateDescriptor(PhysicalDeviceId.New(), "10.1", capacity: 1),
+                _ => ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(new ControlledSourceStream())),
+                cancellation.Token))
+            {
+                Assert.NotNull(independent.Stream);
+            }
+
+            // Assert
+            Assert.Equal(descriptor.DeviceId, capacityFailure.DeviceId);
+            Assert.False(reconnect.IsCompleted);
+            Assert.False(sharing.IsCompleted);
+            Assert.Equal(1, starts);
+            Assert.Equal(1, active);
+            Assert.Equal(1, Assert.Single(graph.GetDiagnostics().Capacity).ActiveAcquisitions);
+            Assert.Equal(1, Assert.Single(graph.GetDiagnostics().Capacity).Receivers);
+            releaseCleanup.TrySetResult();
+            await disposal.WaitAsync(cancellation.Token);
+            await using var second = await reconnect.WaitAsync(cancellation.Token);
+            await using var third = await sharing.WaitAsync(cancellation.Token);
+            await replacementSource.WaitForReadAsync(cancellation.Token);
+            replacementSource.Write([1, 2, 3]);
+            var secondPayload = new byte[3];
+            var thirdPayload = new byte[3];
+            await second.Stream.ReadExactlyAsync(secondPayload, cancellation.Token);
+            await third.Stream.ReadExactlyAsync(thirdPayload, cancellation.Token);
+            Assert.Equal(secondPayload, thirdPayload);
+            Assert.Equal(2, starts);
+            Assert.Equal(1, maximumActive);
+            Assert.Equal(second.ProducerNodeId, third.ProducerNodeId);
+            Assert.Equal(1, Assert.Single(graph.GetDiagnostics().Capacity).ActiveAcquisitions);
+        }
+        finally
+        {
+            releaseCleanup.TrySetResult();
+            await disposal;
+            await graph.StopAsync(TestContext.Current.CancellationToken);
+        }
+        Assert.Equal(0, active);
+        Assert.Empty(graph.GetDiagnostics().Nodes);
+        Assert.Empty(graph.GetDiagnostics().Capacity);
+    }
+
+    /// <summary>Verifies pipeline and metadata waits preserve cancellation and cannot restart a shutting-down graph.</summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task AcquireAsync_DrainingSource_CancellationOrShutdownPreventsReplacement(bool metadata, bool stopGraph)
+    {
+        // Arrange
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cancellation.CancelAfter(TimeSpan.FromSeconds(10));
+        using var caller = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance);
+        var descriptor = CreateDescriptor(PhysicalDeviceId.New(), "7.1", capacity: 1);
+        var cleanupStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseCleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var starts = 0;
+        ValueTask<IStreamSourceLease> Open(CancellationToken _)
+        {
+            starts++;
+            return ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(new ControlledSourceStream(), beforeDispose: async () =>
+            {
+                cleanupStarted.TrySetResult();
+                await releaseCleanup.Task;
+            }));
+        }
+        var first = await graph.AcquireAsync(descriptor, Open, cancellation.Token);
+
+        // Act
+        var disposal = first.DisposeAsync().AsTask();
+        try
+        {
+            await cleanupStarted.Task.WaitAsync(cancellation.Token);
+            Task waiting = metadata
+                ? graph.GetOrCreateAcquisitionMetadataAsync(descriptor, Open, "probe", (_, _) => Task.FromResult(42), caller.Token)
+                : graph.AcquireAsync(descriptor, Open, caller.Token).AsTask();
+
+            // Assert
+            Assert.False(waiting.IsCompleted);
+            Assert.Equal(1, starts);
+            if (stopGraph)
+            {
+                var shutdown = graph.StopAsync(cancellation.Token);
+                Assert.False(shutdown.IsCompleted);
+                releaseCleanup.TrySetResult();
+                await Assert.ThrowsAsync<ObjectDisposedException>(() => waiting);
+                await shutdown.WaitAsync(cancellation.Token);
+            }
+            else
+            {
+                caller.Cancel();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiting);
+                Assert.False(disposal.IsCompleted);
+            }
+            Assert.Equal(1, starts);
+        }
+        finally
+        {
+            releaseCleanup.TrySetResult();
+            await disposal;
+            await graph.StopAsync(TestContext.Current.CancellationToken);
+        }
+        Assert.Empty(graph.GetDiagnostics().Capacity);
+        Assert.Empty(graph.GetDiagnostics().Nodes);
+    }
+
+    /// <summary>Verifies metadata acquisition waits for a draining generation and probes only its replacement.</summary>
+    [Fact]
+    public async Task GetOrCreateAcquisitionMetadataAsync_DrainingSource_WaitsForCleanup()
+    {
+        // Arrange
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cancellation.CancelAfter(TimeSpan.FromSeconds(10));
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance);
+        var descriptor = CreateDescriptor(PhysicalDeviceId.New(), "7.1", capacity: 1);
+        var cleanupStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseCleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var starts = 0;
+        ValueTask<IStreamSourceLease> Open(CancellationToken _)
+        {
+            var first = ++starts == 1;
+            return ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(new ControlledSourceStream(), beforeDispose: first ? async () =>
+            {
+                cleanupStarted.TrySetResult();
+                await releaseCleanup.Task;
+            }
+            : null));
+        }
+        var first = await graph.AcquireAsync(descriptor, Open, cancellation.Token);
+
+        // Act
+        var disposal = first.DisposeAsync().AsTask();
+        try
+        {
+            await cleanupStarted.Task.WaitAsync(cancellation.Token);
+            var probe = graph.GetOrCreateAcquisitionMetadataAsync(descriptor, Open, "probe", (_, _) => Task.FromResult(42), cancellation.Token);
+
+            // Assert
+            Assert.False(probe.IsCompleted);
+            Assert.Equal(1, starts);
+            releaseCleanup.TrySetResult();
+            Assert.Equal(42, await probe.WaitAsync(cancellation.Token));
+            Assert.Equal(2, starts);
+        }
+        finally
+        {
+            releaseCleanup.TrySetResult();
+            await disposal;
+            await graph.StopAsync(TestContext.Current.CancellationToken);
+        }
+        Assert.Empty(graph.GetDiagnostics().Capacity);
+    }
+
     /// <summary>
     /// Verifies disposing the last consumer cancels the source and releases graph state.
     /// </summary>
@@ -1051,7 +1257,7 @@ public sealed class StreamingSessionGraphTests
         public ValueTask DisposeAsync() => ValueTask.FromException(new InvalidOperationException("Transform cleanup failed."));
     }
 
-    private sealed class TestSourceLease(Stream stream, Action? onDispose = null) : IStreamSourceLease
+    private sealed class TestSourceLease(Stream stream, Action? onDispose = null, Func<ValueTask>? beforeDispose = null) : IStreamSourceLease
     {
         public Stream Stream { get; } = stream;
 
@@ -1059,6 +1265,10 @@ public sealed class StreamingSessionGraphTests
 
         public async ValueTask DisposeAsync()
         {
+            if (beforeDispose is not null)
+            {
+                await beforeDispose();
+            }
             await Stream.DisposeAsync();
             onDispose?.Invoke();
         }

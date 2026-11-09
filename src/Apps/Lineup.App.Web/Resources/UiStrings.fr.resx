@@ -746,6 +746,7 @@
   <data name="Guide_Now" xml:space="preserve"><value>Maintenant</value></data>
   <data name="Guide_OriginalAirLabel" xml:space="preserve"><value>Première diffusion</value></data>
   <data name="Guide_PageTitle" xml:space="preserve"><value>Guide</value></data>
+  <data name="Guide_PartialResults" xml:space="preserve"><value>Résultats partiels du guide : certaines sources configurées ont été exclues.</value></data>
   <data name="Guide_ProgramTooltip" xml:space="preserve"><value>{0}\n{1} - {2} ({3:0} min)</value></data>
   <data name="Guide_StartLabel" xml:space="preserve"><value>Début</value></data>
   <data name="Guide_Today" xml:space="preserve"><value>Aujourd’hui</value></data>
@@ -958,6 +959,7 @@
   <data name="Watch_Channels" xml:space="preserve"><value>Chaînes</value></data>
   <data name="Watch_CompatibilityProfileCleared" xml:space="preserve"><value>Le profil de compatibilité du navigateur enregistré contredisait la lecture à l’exécution et a été effacé. Relancez le test de lecture pour l’actualiser.</value></data>
   <data name="Watch_DedicatedListenerNotConfigured" xml:space="preserve"><value>Le point d’écoute dédié du lecteur Web n’est pas configuré.</value></data>
+  <data name="Watch_DedicatedHttpsListenerRequired" xml:space="preserve"><value>Watch en HTTPS nécessite un point d’écoute dédié du lecteur Web avec une URL publique HTTPS. Configurez un point d’écoute HTTPS ou une URL HTTPS de proxy inverse.</value></data>
   <data name="Watch_DrmProtectedChannel" xml:space="preserve"><value>Chaîne protégée par DRM</value></data>
   <data name="Watch_Fallback" xml:space="preserve"><value>Solution de repli</value></data>
   <data name="Watch_FallbackAudio" xml:space="preserve"><value>Audio de repli</value></data>

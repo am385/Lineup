@@ -389,11 +389,15 @@ class Program
 
         foreach (var result in results!)
         {
-            var color = result.Succeeded ? "green" : "red";
+            var color = !result.Succeeded ? "red" : result.IsPartial ? "yellow" : "green";
             var message = result.Succeeded
                 ? $"{result.ChannelCount} channels and {result.ProgramCount} programs published to {result.Path}"
                 : result.Error ?? "Publication failed";
             AnsiConsole.MarkupLine($"[{color}]{Markup.Escape(result.Name)}: {Markup.Escape(message)}[/]");
+            foreach (var diagnostic in result.SourceDiagnostics)
+            {
+                AnsiConsole.MarkupLine($"[yellow]Partial guide - {Markup.Escape(diagnostic.SourceName)} ({diagnostic.Code}): {Markup.Escape(diagnostic.Message)}[/]");
+            }
         }
         WaitForKey();
     }

@@ -116,6 +116,7 @@ public sealed class VirtualOutputExternalEnrollmentStore : IVirtualOutputExterna
 /// <summary>Reconciles configured virtual outputs with isolated managed or external workers.</summary>
 public sealed class VirtualOutputSupervisor : BackgroundService
 {
+    private static readonly TimeSpan LivenessCheckInterval = TimeSpan.FromSeconds(1);
     private static readonly IReadOnlySet<VirtualOutputCapability> WorkerCapabilities = new HashSet<VirtualOutputCapability>
     {
         VirtualOutputCapability.ReadManifest,
@@ -188,6 +189,7 @@ public sealed class VirtualOutputSupervisor : BackgroundService
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        var reconcile = true;
         try
         {
             while (!stoppingToken.IsCancellationRequested)
@@ -195,13 +197,17 @@ public sealed class VirtualOutputSupervisor : BackgroundService
                 await _stateGate.WaitAsync(stoppingToken);
                 try
                 {
-                    await ReconcileAsync(stoppingToken);
+                    if (reconcile)
+                    {
+                        await ReconcileAsync(stoppingToken);
+                    }
+                    await CheckManagedWorkerLivenessAsync(stoppingToken);
                 }
                 finally
                 {
                     _stateGate.Release();
                 }
-                await _changed.WaitAsync(stoppingToken);
+                reconcile = await WaitForChangesAsync(stoppingToken);
             }
         }
         finally
@@ -214,6 +220,60 @@ public sealed class VirtualOutputSupervisor : BackgroundService
             finally
             {
                 _stateGate.Release();
+            }
+        }
+    }
+
+    private async Task<bool> WaitForChangesAsync(CancellationToken cancellationToken)
+    {
+        using var interval = new CancellationTokenSource(LivenessCheckInterval, _timeProvider);
+        using var waitCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, interval.Token);
+        try
+        {
+            await _changed.WaitAsync(waitCancellation.Token);
+            return true;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && interval.IsCancellationRequested)
+        {
+            return false;
+        }
+    }
+
+    private async Task CheckManagedWorkerLivenessAsync(CancellationToken cancellationToken)
+    {
+        var snapshots = _status.GetSnapshots();
+        foreach (var (deviceId, worker) in _active.ToArray())
+        {
+            if (worker.Process.Completion.IsCompleted)
+            {
+                continue;
+            }
+            if (_authority.HasActiveSession(deviceId, worker.Generation))
+            {
+                worker.HasRegistered = true;
+                continue;
+            }
+            worker.HasRegistered |= snapshots.Any(snapshot =>
+                snapshot.VirtualDeviceId == deviceId && snapshot.Generation == worker.Generation && snapshot.ProtocolVersion is not null);
+            if (!worker.HasRegistered && _timeProvider.GetUtcNow() <= worker.BootstrapExpiresUtc)
+            {
+                continue;
+            }
+
+            var failure = worker.HasRegistered
+                ? "The worker session is no longer active or its lease has expired."
+                : "The worker did not register before its bootstrap credential expired.";
+            _active.Remove(deviceId);
+            _authority.Revoke(deviceId, failure);
+            RecordManagedWorkerFailure(deviceId, worker, failure);
+            _logger.LogWarning("Stopping unresponsive virtual-output worker for {VirtualDeviceId}: {Failure}", deviceId, failure);
+            try
+            {
+                await worker.Process.StopAsync(TimeSpan.Zero, cancellationToken);
+            }
+            finally
+            {
+                await worker.Process.DisposeAsync();
             }
         }
     }
@@ -385,29 +445,55 @@ public sealed class VirtualOutputSupervisor : BackgroundService
                 return;
             }
 
-            var process = await _launcher.StartAsync(package, bootstrap, cancellationToken);
             var restartCount = GetRecentFailureCount(device.Id, workerPolicy);
-            var worker = new ActiveWorker(
-                fingerprint,
-                ticket.Generation,
-                workerPolicy,
-                process,
-                SafeBindings(hosting),
-                restartCount);
-            _active[device.Id] = worker;
+            var managedBindings = SafeBindings(hosting);
             _status.Set(new VirtualOutputRuntimeSnapshot
             {
                 VirtualDeviceId = device.Id,
                 State = VirtualOutputRuntimeState.Starting,
                 Generation = ticket.Generation,
-                ProcessId = process.ProcessId,
-                Bindings = worker.Bindings,
+                Bindings = managedBindings,
                 RestartCount = restartCount
             });
+            var remaining = ticket.ExpiresUtc - _timeProvider.GetUtcNow();
+            if (remaining <= TimeSpan.Zero)
+            {
+                throw new TimeoutException("The worker bootstrap credential expired before process launch.");
+            }
+            using var startupDeadline = new CancellationTokenSource(remaining, _timeProvider);
+            using var startupCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, startupDeadline.Token);
+            IVirtualOutputWorkerProcess process;
+            try
+            {
+                process = await _launcher.StartAsync(package, bootstrap, startupCancellation.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && startupDeadline.IsCancellationRequested)
+            {
+                throw new TimeoutException("The worker did not complete bootstrap delivery before its credential expired.");
+            }
+            var worker = new ActiveWorker(
+                fingerprint,
+                ticket.Generation,
+                workerPolicy,
+                process,
+                managedBindings,
+                restartCount,
+                ticket.ExpiresUtc);
+            _active[device.Id] = worker;
+            _status.Update(device.Id, current => (current ?? new VirtualOutputRuntimeSnapshot
+            {
+                VirtualDeviceId = device.Id,
+                State = VirtualOutputRuntimeState.Starting,
+                Generation = ticket.Generation,
+                Bindings = worker.Bindings,
+                RestartCount = restartCount
+            }) with
+            { ProcessId = process.ProcessId });
             _ = ObserveExitAsync(device.Id, worker);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            _authority.Revoke(device.Id, "The virtual output worker activation was canceled.");
             throw;
         }
         catch (Exception exception)
@@ -489,28 +575,7 @@ public sealed class VirtualOutputSupervisor : BackgroundService
             {
                 _active.Remove(deviceId);
                 _authority.Revoke(deviceId, "The virtual output worker exited.");
-                var decision = RecordFailure(deviceId, worker.Policy);
-                var quarantined = decision.Exhausted;
-                if (quarantined)
-                {
-                    _quarantinedFingerprints[deviceId] = worker.Fingerprint;
-                }
-                else
-                {
-                    ScheduleRetry(deviceId, worker.Fingerprint, decision.RetryDelay);
-                }
-                _status.Set(new VirtualOutputRuntimeSnapshot
-                {
-                    VirtualDeviceId = deviceId,
-                    State = VirtualOutputRuntimeState.Failed,
-                    Generation = worker.Generation,
-                    ProcessId = worker.Process.ProcessId,
-                    Bindings = worker.Bindings,
-                    RestartCount = decision.FailureCount,
-                    LastFailure = quarantined
-                        ? $"The worker exited with code {exitCode} and exceeded its restart budget."
-                        : $"The worker exited with code {exitCode}. Retrying in {decision.RetryDelay.TotalSeconds:0} seconds."
-                });
+                RecordManagedWorkerFailure(deviceId, worker, $"The worker exited with code {exitCode}.");
                 _logger.LogWarning("Virtual-output worker for {VirtualDeviceId} exited with code {ExitCode}", deviceId, exitCode);
             }
         }
@@ -519,6 +584,31 @@ public sealed class VirtualOutputSupervisor : BackgroundService
             _stateGate.Release();
         }
         await worker.Process.DisposeAsync();
+    }
+
+    private void RecordManagedWorkerFailure(VirtualDeviceId deviceId, ActiveWorker worker, string failure)
+    {
+        var decision = RecordFailure(deviceId, worker.Policy);
+        if (decision.Exhausted)
+        {
+            _quarantinedFingerprints[deviceId] = worker.Fingerprint;
+        }
+        else
+        {
+            ScheduleRetry(deviceId, worker.Fingerprint, decision.RetryDelay);
+        }
+        _status.Set(new VirtualOutputRuntimeSnapshot
+        {
+            VirtualDeviceId = deviceId,
+            State = VirtualOutputRuntimeState.Failed,
+            Generation = worker.Generation,
+            ProcessId = worker.Process.ProcessId,
+            Bindings = worker.Bindings,
+            RestartCount = decision.FailureCount,
+            LastFailure = decision.Exhausted
+                ? $"{failure} The worker exceeded its restart budget."
+                : $"{failure} Retrying in {decision.RetryDelay.TotalSeconds:0} seconds."
+        });
     }
 
     private async Task StopAllAsync(CancellationToken cancellationToken)
@@ -628,7 +718,12 @@ public sealed class VirtualOutputSupervisor : BackgroundService
         VirtualOutputWorkerPolicyDefinition Policy,
         IVirtualOutputWorkerProcess Process,
         IReadOnlyList<string> Bindings,
-        int RestartCount);
+        int RestartCount,
+        DateTimeOffset BootstrapExpiresUtc)
+    {
+        /// <summary>Gets or sets whether this generation has registered with the authority.</summary>
+        public bool HasRegistered { get; set; }
+    }
 
     private sealed record ExternalWorker(string Fingerprint, long Generation);
 

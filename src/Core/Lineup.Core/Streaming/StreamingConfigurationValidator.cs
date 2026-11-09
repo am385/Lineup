@@ -13,7 +13,12 @@ public static class StreamingConfigurationValidator
     /// <summary>
     /// Returns every configuration error without mutating the supplied configuration, including binding diagnostics for all policies with a duplicate key.
     /// </summary>
-    public static IReadOnlyList<string> Validate(StreamingConfiguration configuration)
+    public static IReadOnlyList<string> Validate(StreamingConfiguration configuration) => Validate(configuration, validateGuideSubscriptions: true);
+
+    /// <summary>Validates structural topology while leaving guide-source subscription eligibility to the guide orchestrator.</summary>
+    internal static IReadOnlyList<string> ValidateForGuideActivation(StreamingConfiguration configuration) => Validate(configuration, validateGuideSubscriptions: false);
+
+    private static IReadOnlyList<string> Validate(StreamingConfiguration configuration, bool validateGuideSubscriptions)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         var errors = new List<string>();
@@ -75,7 +80,7 @@ public static class StreamingConfigurationValidator
             {
                 errors.Add($"Guide source {guide.Id} requires an adapter kind.");
             }
-            if (guide.Subscription.Mode == PhysicalDeviceSubscriptionMode.Selected)
+            if (validateGuideSubscriptions && guide.Subscription.Mode == PhysicalDeviceSubscriptionMode.Selected)
             {
                 foreach (var selectedId in guide.Subscription.SelectedDeviceIds.Where(id => !physicalIds.Contains(id)))
                 {

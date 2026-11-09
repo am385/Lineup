@@ -79,14 +79,15 @@ public static class CmafStreamPlanner
         };
     }
 
-    /// <summary>Applies presentation-wide video defaults; audio defaults are resolved separately for each rendition.</summary>
-    public static CmafStreamRequest ApplyTopologyProfile(CmafStreamRequest request, VirtualTranscodeProfile profile)
+    /// <summary>Applies HEVC video defaults to the effective source; audio defaults are resolved separately for each rendition.</summary>
+    public static CmafStreamRequest ApplyTopologyProfile(CmafStreamRequest request, VirtualTranscodeProfile profile, MediaProbeResult source)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(source);
         if (!request.Overrides.Enabled || !request.Overrides.Video.HasValue)
         {
-            if (profile.ConvertHevcToH264)
+            if (profile.ConvertHevcToH264 && string.Equals(source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video)?.Codec, "hevc", StringComparison.OrdinalIgnoreCase))
             {
                 request = request with { PreferredVideo = CmafPreferredVideo.Fallback };
             }
@@ -95,9 +96,9 @@ public static class CmafStreamPlanner
     }
 
     /// <summary>Applies the effective profile to video and one audio track, preserving explicit browser audio overrides.</summary>
-    public static CmafStreamRequest ApplyTopologyProfile(CmafStreamRequest request, VirtualTranscodeProfile profile, MediaTrackMetadata? selectedAudio)
+    public static CmafStreamRequest ApplyTopologyProfile(CmafStreamRequest request, VirtualTranscodeProfile profile, MediaProbeResult source, MediaTrackMetadata? selectedAudio)
     {
-        request = ApplyTopologyProfile(request, profile);
+        request = ApplyTopologyProfile(request, profile, source);
         if (!request.Overrides.Enabled || !request.Overrides.Audio.HasValue)
         {
             var audioPolicy = string.Equals(selectedAudio?.Codec, "ac4", StringComparison.OrdinalIgnoreCase)
@@ -369,7 +370,7 @@ public static class CmafStreamPlanner
         var renditions = new List<CmafAudioRendition>();
         foreach (var audio in source.Tracks.Where(track => track.Type == MediaTrackType.Audio).OrderByDescending(track => track.Index == preferredAudio?.Index).ThenBy(track => track.Index))
         {
-            var effective = ApplyTopologyProfile(request, profile, audio);
+            var effective = ApplyTopologyProfile(request, profile, source, audio);
             renditions.AddRange(CreatePresentationAudioRenditions(
                 source with { Tracks = [audio] },
                 audio,

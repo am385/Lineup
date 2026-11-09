@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Lineup.Core.VirtualOutputs.Runtime;
 
@@ -17,7 +18,8 @@ public static class VirtualOutputRuntimeServiceCollectionExtensions
         services.AddSingleton<IVirtualOutputSessionAuthority, VirtualOutputSessionAuthority>();
         services.AddSingleton<IVirtualOutputRuntimeStatus, VirtualOutputRuntimeStatus>();
         services.AddSingleton<IVirtualOutputExternalEnrollmentStore, VirtualOutputExternalEnrollmentStore>();
-        services.AddSingleton<IVirtualOutputWorkerCatalog>(_ => new VirtualOutputWorkerCatalog(options.WorkerPackageRoot));
+        services.AddSingleton<IVirtualOutputWorkerCatalog>(provider =>
+            new VirtualOutputWorkerCatalog(options.WorkerPackageRoot, logger: provider.GetRequiredService<ILogger<VirtualOutputWorkerCatalog>>()));
         services.AddSingleton<IVirtualOutputCertificateResolver, FileVirtualOutputCertificateResolver>();
         services.AddSingleton<IVirtualOutputWorkerLauncher, VirtualOutputWorkerLauncher>();
         services.AddSingleton<IVirtualOutputBroker, VirtualOutputBroker>();

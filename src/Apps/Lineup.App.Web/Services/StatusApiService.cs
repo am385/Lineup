@@ -52,7 +52,14 @@ internal sealed record GuideStatusResponse(
     AutoFetchStatusResponse AutoFetch,
     XmltvStatusResponse Xmltv,
     GuideSourceImportsStatusResponse SourceImports,
-    IReadOnlyList<GuideOutputStatusResponse> Outputs);
+    IReadOnlyList<GuideOutputStatusResponse> Outputs)
+{
+    /// <summary>Gets safe source exclusions affecting the returned guide counts and coverage.</summary>
+    public IReadOnlyList<GuideSourceDiagnosticStatusResponse> SourceDiagnostics { get; init; } = [];
+}
+
+/// <summary>Represents one configured guide-source exclusion without private provider details.</summary>
+internal sealed record GuideSourceDiagnosticStatusResponse(string SourceId, string SourceName, string Code, string Message);
 
 /// <summary>
 /// Represents automatic guide-fetch state.
@@ -814,8 +821,8 @@ internal sealed class StatusApiService
             var statistics = await _guideReader.GetStatisticsAsync(cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             return new GuideStatusResponse(
-                "available",
-                null,
+                statistics.IsPartial ? "degraded" : "available",
+                statistics.IsPartial ? "Guide results are partial; some configured sources were excluded." : null,
                 statistics.ChannelCount,
                 statistics.ProgramCount,
                 statistics.EarliestProgramStartUtc?.UtcDateTime,
@@ -825,7 +832,11 @@ internal sealed class StatusApiService
                 autoFetch,
                 xmltv,
                 imports,
-                outputs);
+                outputs)
+            {
+                SourceDiagnostics = statistics.SourceDiagnostics.Select(diagnostic => new GuideSourceDiagnosticStatusResponse(
+                    diagnostic.SourceId.ToString(), diagnostic.SourceName, diagnostic.Code.ToString(), diagnostic.Message)).ToArray()
+            };
         }
         catch (OperationCanceledException)
         {

@@ -7,6 +7,9 @@ namespace Lineup.Core.Guides;
 /// </summary>
 public interface ILineupGuideReader
 {
+    /// <summary>Gets current source exclusions without reading stored programs.</summary>
+    IReadOnlyList<GuideSourceDiagnostic> GetSourceDiagnostics();
+
     /// <summary>Gets active guide channels and their programs in an optional UTC window.</summary>
     Task<IReadOnlyList<GuideChannelSegment>> GetChannelsAsync(
         DateTimeOffset? startUtc = null,
@@ -37,6 +40,9 @@ public sealed class LineupGuideReader : ILineupGuideReader
         _guides = guides;
         _settings = settings;
     }
+
+    /// <inheritdoc />
+    public IReadOnlyList<GuideSourceDiagnostic> GetSourceDiagnostics() => _guides.GetSourceDiagnostics(_settings.Settings.Streaming);
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<GuideChannelSegment>> GetChannelsAsync(

@@ -746,6 +746,7 @@
   <data name="Guide_Now" xml:space="preserve"><value>Teraz</value></data>
   <data name="Guide_OriginalAirLabel" xml:space="preserve"><value>Pierwsza emisja</value></data>
   <data name="Guide_PageTitle" xml:space="preserve"><value>Przewodnik</value></data>
+  <data name="Guide_PartialResults" xml:space="preserve"><value>Częściowe wyniki przewodnika: niektóre skonfigurowane źródła zostały wykluczone.</value></data>
   <data name="Guide_ProgramTooltip" xml:space="preserve"><value>{0}
 {1}–{2} ({3:0} min)</value></data>
   <data name="Guide_StartLabel" xml:space="preserve"><value>Początek</value></data>
@@ -959,6 +960,7 @@
   <data name="Watch_Channels" xml:space="preserve"><value>Kanały</value></data>
   <data name="Watch_CompatibilityProfileCleared" xml:space="preserve"><value>Zapisany profil zgodności przeglądarki był sprzeczny z odtwarzaniem w czasie wykonywania i został wyczyszczony. Uruchom ponownie Test odtwarzania, aby go odświeżyć.</value></data>
   <data name="Watch_DedicatedListenerNotConfigured" xml:space="preserve"><value>Dedykowany interfejs odtwarzacza internetowego nie jest skonfigurowany.</value></data>
+  <data name="Watch_DedicatedHttpsListenerRequired" xml:space="preserve"><value>Watch przez HTTPS wymaga dedykowanego interfejsu odtwarzacza internetowego z publicznym adresem URL HTTPS. Skonfiguruj interfejs HTTPS lub adres URL HTTPS odwrotnego serwera proxy.</value></data>
   <data name="Watch_DrmProtectedChannel" xml:space="preserve"><value>Kanał chroniony DRM</value></data>
   <data name="Watch_Fallback" xml:space="preserve"><value>Tryb awaryjny</value></data>
   <data name="Watch_FallbackAudio" xml:space="preserve"><value>Awaryjny dźwięk</value></data>

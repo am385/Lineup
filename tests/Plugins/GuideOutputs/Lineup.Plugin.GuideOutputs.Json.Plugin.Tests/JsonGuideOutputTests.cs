@@ -51,8 +51,10 @@ public sealed class JsonGuideOutputTests
     }
 
     /// <summary>Verifies normalized guide data round-trips through the public JSON document contract.</summary>
-    [Fact]
-    public async Task PublishAsync_VirtualGuideSnapshot_WritesJsonDocument()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PublishAsync_VirtualGuideSnapshot_WritesJsonDocument(bool partial)
     {
         // Arrange
         var virtualDeviceId = VirtualDeviceId.New();
@@ -61,6 +63,18 @@ public sealed class JsonGuideOutputTests
         var snapshot = new VirtualGuideSnapshot
         {
             VirtualDeviceId = virtualDeviceId,
+            SourceDiagnostics = partial
+                ?
+                [
+                    new GuideSourceDiagnostic
+                    {
+                        SourceId = GuideSourceId.New(),
+                        SourceName = "Excluded source",
+                        Code = GuideSourceDiagnosticCode.AdapterUnavailable,
+                        Message = "Install the source plugin."
+                    }
+                ]
+                : [],
             SupplementalXml =
             [
                 "<source-info-name>Lineup</source-info-name>",
@@ -119,6 +133,9 @@ public sealed class JsonGuideOutputTests
         Assert.NotNull(document);
         Assert.Contains("\"supplemental\"", json, StringComparison.Ordinal);
         Assert.DoesNotContain("supplementalXml", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("sourceDiagnostics", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("isPartial", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Excluded source", json, StringComparison.Ordinal);
         Assert.Equal(JsonGuideDocument.CurrentSchemaVersion, document.SchemaVersion);
         Assert.Equal(virtualDeviceId.Value, document.VirtualDeviceId);
         var sourceNames = Assert.IsType<JsonArray>(document.Supplemental["source-info-name"]);

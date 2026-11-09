@@ -177,11 +177,46 @@ public sealed record GuideOutputCreationContext
 /// <param name="PhysicalDeviceIds">Compatible active physical-device identities.</param>
 public sealed record GuideSourceScope(GuideSourceId SourceId, IReadOnlyList<PhysicalDeviceId> PhysicalDeviceIds);
 
+/// <summary>Identifies why a configured guide source was excluded from a projection.</summary>
+public enum GuideSourceDiagnosticCode
+{
+    /// <summary>The source's guide adapter cannot be resolved.</summary>
+    AdapterUnavailable,
+
+    /// <summary>The source's selected physical-device subscription cannot be resolved.</summary>
+    InvalidSubscription,
+
+    /// <summary>The source has no compatible enabled physical devices.</summary>
+    NoCompatibleDevices
+}
+
+/// <summary>Reports an excluded guide source without exposing provider settings or exception details.</summary>
+public sealed record GuideSourceDiagnostic
+{
+    /// <summary>Gets the excluded source identity.</summary>
+    public required GuideSourceId SourceId { get; init; }
+
+    /// <summary>Gets the configured source display name.</summary>
+    public required string SourceName { get; init; }
+
+    /// <summary>Gets the structured exclusion reason.</summary>
+    public required GuideSourceDiagnosticCode Code { get; init; }
+
+    /// <summary>Gets a safe actionable explanation.</summary>
+    public required string Message { get; init; }
+}
+
 /// <summary>
 /// Provider-neutral guide projection for one virtual device.
 /// </summary>
 public sealed record VirtualGuideSnapshot
 {
+    /// <summary>Gets diagnostics for enabled sources excluded from this projection.</summary>
+    public IReadOnlyList<GuideSourceDiagnostic> SourceDiagnostics { get; init; } = [];
+
+    /// <summary>Gets whether configured guide sources were excluded.</summary>
+    public bool IsPartial => SourceDiagnostics.Count > 0;
+
     /// <summary>Gets the virtual device.</summary>
     public required VirtualDeviceId VirtualDeviceId { get; init; }
 

@@ -746,6 +746,7 @@
   <data name="Guide_Now" xml:space="preserve"><value>Jetzt</value></data>
   <data name="Guide_OriginalAirLabel" xml:space="preserve"><value>Erstausstrahlung</value></data>
   <data name="Guide_PageTitle" xml:space="preserve"><value>Programmführer</value></data>
+  <data name="Guide_PartialResults" xml:space="preserve"><value>Unvollständige Programmdaten: Einige konfigurierte Quellen wurden ausgeschlossen.</value></data>
   <data name="Guide_ProgramTooltip" xml:space="preserve"><value>{0}\n{1} - {2} ({3:0} Min.)</value></data>
   <data name="Guide_StartLabel" xml:space="preserve"><value>Beginn</value></data>
   <data name="Guide_Today" xml:space="preserve"><value>Heute</value></data>
@@ -958,6 +959,7 @@
   <data name="Watch_Channels" xml:space="preserve"><value>Sender</value></data>
   <data name="Watch_CompatibilityProfileCleared" xml:space="preserve"><value>Das gespeicherte Browserkompatibilitätsprofil widersprach der tatsächlichen Wiedergabe und wurde gelöscht. Führen Sie den Wiedergabetest erneut aus, um es zu aktualisieren.</value></data>
   <data name="Watch_DedicatedListenerNotConfigured" xml:space="preserve"><value>Der dedizierte Listener des Web Players ist nicht konfiguriert.</value></data>
+  <data name="Watch_DedicatedHttpsListenerRequired" xml:space="preserve"><value>HTTPS Watch benötigt einen dedizierten Web-Player-Listener mit einer öffentlichen HTTPS-URL. Konfigurieren Sie einen HTTPS-Listener oder eine HTTPS-Reverse-Proxy-URL.</value></data>
   <data name="Watch_DrmProtectedChannel" xml:space="preserve"><value>DRM-geschützter Sender</value></data>
   <data name="Watch_Fallback" xml:space="preserve"><value>Ausweichoption</value></data>
   <data name="Watch_FallbackAudio" xml:space="preserve"><value>Ausweichaudio</value></data>

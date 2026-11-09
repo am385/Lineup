@@ -87,7 +87,7 @@ internal sealed record DedicatedCmafSessionPlan
             ?? throw new InvalidDataException("The capability broker did not provide the effective virtual-device profile.");
         request = CmafStreamPlanner.ApplyOverrides(request);
         var selection = CmafStreamPlanner.SelectTracks(source, request);
-        request = CmafStreamPlanner.ApplyTopologyProfile(request, profile);
+        request = CmafStreamPlanner.ApplyTopologyProfile(request, profile, source);
         var audioRenditions = CmafStreamPlanner.CreatePresentationAudioRenditions(source, selection.Audio, request, profile);
         var subtitles = CmafStreamPlanner.GetSelectableSubtitles(source);
         var subtitlePaths = subtitles.ToDictionary(

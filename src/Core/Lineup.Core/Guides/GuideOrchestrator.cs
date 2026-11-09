@@ -16,7 +16,7 @@ public sealed class GuideOrchestrator : IGuideOrchestrator
     private readonly StreamingTopologyStore _topologyStore;
     private readonly ILogger<GuideOrchestrator> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private ActiveConfiguration _active = new(new StreamingConfiguration(), [], [], []);
+    private ActiveConfiguration _active = new(new StreamingConfiguration(), [], [], [], []);
 
     /// <summary>Initializes a guide orchestrator.</summary>
     public GuideOrchestrator(
@@ -35,7 +35,7 @@ public sealed class GuideOrchestrator : IGuideOrchestrator
     public async Task ApplyAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(configuration);
-        var errors = StreamingConfigurationValidator.Validate(configuration);
+        var errors = StreamingConfigurationValidator.ValidateForGuideActivation(configuration);
         if (errors.Count > 0)
         {
             throw new InvalidOperationException(string.Join(Environment.NewLine, errors));
@@ -43,18 +43,23 @@ public sealed class GuideOrchestrator : IGuideOrchestrator
 
         var sources = new List<ActiveGuideSource>();
         var activationFailures = new List<GuideRefreshResult>();
-        var guideScopes = new List<GuideSourceScope>();
-        foreach (var definition in configuration.GuideSources.Where(source => source.Enabled))
+        var eligibility = GuideSourceSubscriptionResolver.ResolveEligibleSources(configuration.GuideSources, configuration.PhysicalDevices, _adapters, cancellationToken);
+        foreach (var diagnostic in eligibility.Diagnostics)
         {
+            _logger.LogWarning("Guide source {GuideSourceId} was excluded: {Reason}", diagnostic.SourceId, diagnostic.Code);
+            activationFailures.Add(new GuideRefreshResult
+            {
+                SourceId = diagnostic.SourceId,
+                Succeeded = false,
+                Error = diagnostic.Message,
+                SourceDiagnostics = [diagnostic]
+            });
+        }
+        foreach (var eligible in eligibility.Sources)
+        {
+            var (definition, driver, scope) = eligible;
             try
             {
-                var driver = _adapters.GetGuide(definition.Adapter.Kind);
-                var scope = GuideSourceSubscriptionResolver.Resolve(definition, configuration.PhysicalDevices, driver);
-                if (scope.PhysicalDeviceIds.Count == 0)
-                {
-                    throw new InvalidOperationException($"Guide source '{definition.Name}' has no compatible enabled physical devices.");
-                }
-                guideScopes.Add(scope);
                 var adapterErrors = driver.Validate(definition.Adapter);
                 if (adapterErrors.Count > 0)
                 {
@@ -87,7 +92,7 @@ public sealed class GuideOrchestrator : IGuideOrchestrator
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            _active = new ActiveConfiguration(configuration, sources, activationFailures, guideScopes);
+            _active = new ActiveConfiguration(configuration, sources, activationFailures, eligibility.Sources.Select(source => source.Scope).ToArray(), eligibility.Diagnostics);
         }
         finally
         {
@@ -135,7 +140,8 @@ public sealed class GuideOrchestrator : IGuideOrchestrator
             _adapters.GetVirtual(virtualDevice.Adapter.Kind));
         var identities = await _topologyStore.ReadActiveAsync(cancellationToken);
         var resolution = ChannelTopologyResolver.Resolve(virtualDevice, physicalDevices, identities);
-        return await _guideStore.BuildSnapshotAsync(virtualDeviceId, resolution.Channels, active.GuideScopes, cancellationToken: cancellationToken);
+        var snapshot = await _guideStore.BuildSnapshotAsync(virtualDeviceId, resolution.Channels, active.GuideScopes, cancellationToken: cancellationToken);
+        return snapshot with { SourceDiagnostics = active.SourceDiagnostics };
     }
 
     private async Task<GuideRefreshResult> RefreshAsync(IGuideSource source, GuideSourceScope scope, CancellationToken cancellationToken)
@@ -176,5 +182,10 @@ public sealed class GuideOrchestrator : IGuideOrchestrator
 
     private sealed record ActiveGuideSource(IGuideSource Source, GuideSourceScope Scope);
 
-    private sealed record ActiveConfiguration(StreamingConfiguration Configuration, IReadOnlyList<ActiveGuideSource> Sources, IReadOnlyList<GuideRefreshResult> ActivationFailures, IReadOnlyList<GuideSourceScope> GuideScopes);
+    private sealed record ActiveConfiguration(
+        StreamingConfiguration Configuration,
+        IReadOnlyList<ActiveGuideSource> Sources,
+        IReadOnlyList<GuideRefreshResult> ActivationFailures,
+        IReadOnlyList<GuideSourceScope> GuideScopes,
+        IReadOnlyList<GuideSourceDiagnostic> SourceDiagnostics);
 }

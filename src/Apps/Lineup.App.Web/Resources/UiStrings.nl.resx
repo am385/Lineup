@@ -746,6 +746,7 @@
   <data name="Guide_Now" xml:space="preserve"><value>Nu</value></data>
   <data name="Guide_OriginalAirLabel" xml:space="preserve"><value>Oorspronkelijke uitzending</value></data>
   <data name="Guide_PageTitle" xml:space="preserve"><value>Gids</value></data>
+  <data name="Guide_PartialResults" xml:space="preserve"><value>Gedeeltelijke gidsresultaten: sommige geconfigureerde bronnen zijn uitgesloten.</value></data>
   <data name="Guide_ProgramTooltip" xml:space="preserve"><value>{0}\n{1} - {2} ({3:0} min)</value></data>
   <data name="Guide_StartLabel" xml:space="preserve"><value>Begin</value></data>
   <data name="Guide_Today" xml:space="preserve"><value>Vandaag</value></data>
@@ -958,6 +959,7 @@
   <data name="Watch_Channels" xml:space="preserve"><value>Kanalen</value></data>
   <data name="Watch_CompatibilityProfileCleared" xml:space="preserve"><value>Het opgeslagen browsercompatibiliteitsprofiel was in strijd met de afspeelresultaten en is gewist. Voer Kijktest opnieuw uit om het profiel te vernieuwen.</value></data>
   <data name="Watch_DedicatedListenerNotConfigured" xml:space="preserve"><value>De toegewezen listener van de webspeler is niet geconfigureerd.</value></data>
+  <data name="Watch_DedicatedHttpsListenerRequired" xml:space="preserve"><value>Watch via HTTPS vereist een toegewezen webspelerlistener met een openbare HTTPS-URL. Configureer een HTTPS-listener of een HTTPS-URL voor een reverseproxy.</value></data>
   <data name="Watch_DrmProtectedChannel" xml:space="preserve"><value>DRM-beveiligd kanaal</value></data>
   <data name="Watch_Fallback" xml:space="preserve"><value>Terugvaloptie</value></data>
   <data name="Watch_FallbackAudio" xml:space="preserve"><value>Terugvalaudio</value></data>

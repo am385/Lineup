@@ -556,6 +556,10 @@ public partial class Dashboard : IDisposable
                     Text["Dashboard_GuideRefreshWithFailures", result.FailedSourceCount, failedOutputs],
                     isError: true);
             }
+            else if (result.Outputs.Any(output => output.IsPartial))
+            {
+                SetStatus(Text["Guide_PartialResults"], isError: true);
+            }
             else if (result.Sources.Count == 0)
             {
                 SetStatus(Text["Dashboard_NoGuideSourcesEnabled"], isError: false);
@@ -599,7 +603,11 @@ public partial class Dashboard : IDisposable
             }
             else
             {
-                SetStatus(Text["Dashboard_PublishedOutputsSuccessfully", results.Count], isError: false);
+                SetStatus(
+                    results.Any(result => result.IsPartial)
+                        ? Text["Guide_PartialResults"]
+                        : Text["Dashboard_PublishedOutputsSuccessfully", results.Count],
+                    isError: results.Any(result => result.IsPartial));
             }
         }
         catch (Exception ex)
