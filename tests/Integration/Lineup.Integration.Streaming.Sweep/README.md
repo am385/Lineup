@@ -20,6 +20,11 @@ hosting; candidate-specific timeout codes remain in server diagnostics. The harn
 the historical `source_acquisition_timeout` code as source availability, without treating generic
 HTTP 502/503 failures as source outages.
 
+Structured `resource_limit`, `stream_limit` and source-capacity codes remain capacity contamination,
+including HTTP 429 responses from dedicated workers and errors propagated through Lineup Link.
+They cannot count as source availability or accepted channel passes. An unknown or malformed
+HTTP 429 body is not assumed to establish capacity; the actual structured code is authoritative.
+
 Timestamp/manifest agreement uses one tick of the coarsest contributing clock: DASH, MP4 media,
 and the movie clock only when a nonzero empty edit contributes to presentation timing.
 Decode continuity always retains media-clock precision. This is quantization handling, not a
@@ -126,6 +131,20 @@ out/integration/streaming-sweep/
 The repository's existing `[Oo]ut/` rule excludes the complete default output root. The harness rejects `LINEUP_SWEEP_OUTPUT_ROOT` values inside the repository unless they are beneath `out/`; external output directories remain supported.
 
 Browser profiles, event journals, JSON/CSV/Markdown reports, screenshots, traces, and compose logs remain inside the selected output root. Do not copy generated sweep state into a tracked source directory.
+
+Generated templates are reused only when every matrix's effective physical input matches
+`LINEUP_SWEEP_TUNER_ADDRESS`. Validation reads a standalone `streaming.json` when present,
+otherwise the embedded topology in `settings.json`, and verifies remote consumers target
+their own generated source. Incomplete, malformed or mismatched cached inputs fail offline
+before browser startup, Docker operations or tuner probes; they are never silently regenerated.
+Generation also honors the output-root sweep lock.
+
+`execute-fresh` creates a new run, not new templates. To change tuners, choose a new output root
+with `--output <new-directory>` or deliberately regenerate cached inputs only after verifying
+no sweep or matrix still owns them. Resume and failure rechecks also require recorded tuner
+provenance matching the current input. Older checkpoints without that evidence remain readable
+by `report-only`, but cannot resume or retry against an assumed tuner. Existing-instance mode
+does not require a tuner environment variable or inspect generated Docker templates.
 
 ## Executable contract
 

@@ -37,6 +37,7 @@ internal sealed partial class SweepHarness
     private async Task ExecuteRunAsync(string root, string? inputRun = null)
     {
         _options.Validate();
+        await ValidateMatrixInputsAsync(_matrices, allowMissing: false);
         Directory.CreateDirectory(root);
         // Exclusive across processes using this output root, held throughout playback and teardown.
         Directory.CreateDirectory(_root);
@@ -47,6 +48,7 @@ internal sealed partial class SweepHarness
         if (File.Exists(canonicalPath))
         {
             _run = await SweepStore.LoadAsync(canonicalPath);
+            ValidateRunTuner(_run, canonicalPath);
             if (_run.State == "complete")
             {
                 throw new InvalidOperationException("This run is already complete. Start an explicit new run.");
@@ -68,6 +70,10 @@ internal sealed partial class SweepHarness
             _run.Environment["os"] = System.Runtime.InteropServices.RuntimeInformation.OSDescription;
             _run.Environment["harness"] = typeof(SweepHarness).Assembly.GetName().Version?.ToString() ?? "unknown";
             _run.Environment["image"] = _options.ExistingInstance ? "existing deployment; image unavailable" : _image;
+            if (!_options.ExistingInstance)
+            {
+                _run.Environment["tunerAddress"] = GetTunerAddress();
+            }
         }
         var journal = new RunJournal(root, _json);
         await journal.ReadTerminalKeysAsync(requireVersion: true); // Validate/repair only a torn final journal record.
@@ -190,6 +196,16 @@ internal sealed partial class SweepHarness
             }
         }, () => SweepStore.ReportsAsync(root, _run), _cancellation);
         Console.WriteLine($"Run state: {_run.State}; exit: {Environment.ExitCode}; canonical results: {Path.Combine(root, "sweep-run.json")}");
+    }
+
+    private void ValidateRunTuner(SweepRun run, string path)
+    {
+        if (!run.Options.ExistingInstance
+            && (!run.Environment.TryGetValue("tunerAddress", out var previousTuner)
+                || !string.Equals(previousTuner, GetTunerAddress(), StringComparison.OrdinalIgnoreCase)))
+        {
+            throw InvalidMatrixInput(path, $"Checkpoint tuner '{run.Environment.GetValueOrDefault("tunerAddress") ?? "<missing>"}' does not match requested tuner '{GetTunerAddress()}'; start a new run.");
+        }
     }
 
     private Task<SweepAttempt> ObserveWithLifecycleAsync(IBrowserContext context, MatrixDefinition matrix, SelectedChannel row, string matrixRoot, RunJournal journal, string purpose, SweepAttempt? previous = null)

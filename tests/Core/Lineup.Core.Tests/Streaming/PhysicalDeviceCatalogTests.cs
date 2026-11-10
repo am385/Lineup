@@ -142,7 +142,10 @@ public sealed class PhysicalDeviceCatalogTests
         await catalog.ApplyAsync(
             new StreamingConfiguration
             {
-                PhysicalDevices = [CreateDefinition(deviceId, "Family room", 0, true)]
+                PhysicalDevices = [CreateDefinition(deviceId, "Family room", 0, true) with
+                {
+                    Adapter = new AdapterConfiguration(FakePhysicalDriver.DriverKind, JsonSerializer.SerializeToElement(new { address = "replacement" }))
+                }]
             },
             TestContext.Current.CancellationToken);
 
@@ -230,7 +233,11 @@ public sealed class PhysicalDeviceCatalogTests
         // Act
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => catalog.ApplyAsync(configuration with
         {
-            PhysicalDevices = [retained, changed with { Name = "Replacement" }, CreateDefinition(PhysicalDeviceId.New(), "Cancel", 2, true)]
+            PhysicalDevices = [retained, changed with
+            {
+                Name = "Replacement",
+                Adapter = new AdapterConfiguration(FakePhysicalDriver.DriverKind, JsonSerializer.SerializeToElement(new { address = "replacement" }))
+            }, CreateDefinition(PhysicalDeviceId.New(), "Cancel", 2, true)]
         }, cancellation.Token));
 
         // Assert

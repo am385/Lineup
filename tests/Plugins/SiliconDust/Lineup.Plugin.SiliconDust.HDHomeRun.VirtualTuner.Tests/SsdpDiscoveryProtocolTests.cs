@@ -11,6 +11,55 @@ namespace Lineup.Plugin.SiliconDust.HDHomeRun.VirtualTuner.Tests;
 /// </summary>
 public class SsdpDiscoveryProtocolTests
 {
+    /// <summary>Verifies cancellation retains its token when idle reception races with socket closure.</summary>
+    [Theory]
+    [InlineData("already-canceled")]
+    [InlineData("pending")]
+    [InlineData("socket-close")]
+    public async Task ReceiveAsync_Cancellation_ReportsOwnedCancellation(string mode)
+    {
+        // Arrange
+        using var listener = SsdpDiscoverySocket.CreateBoundListener(IPAddress.Loopback, 0);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        using var closeOnCancel = cancellation.Token.Register(() =>
+        {
+            if (mode == "socket-close")
+            {
+                listener.Client.Dispose();
+            }
+        });
+        if (mode == "already-canceled")
+        {
+            cancellation.Cancel();
+        }
+        var loop = SsdpDiscoveryListener.ReceiveAsync(listener, [], _ => throw new InvalidOperationException("No search was sent."), cancellation.Token);
+
+        // Act
+        await cancellation.CancelAsync();
+        var failure = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => loop);
+
+        // Assert
+        Assert.Equal(cancellation.Token, failure.CancellationToken);
+        Assert.True(loop.IsCanceled);
+    }
+
+    /// <summary>Verifies socket failures without requested cancellation remain failures rather than being hidden as cancellation.</summary>
+    [Fact]
+    public async Task ReceiveAsync_UncanceledSocketClose_PropagatesSocketFailure()
+    {
+        // Arrange
+        using var listener = SsdpDiscoverySocket.CreateBoundListener(IPAddress.Loopback, 0);
+        var loop = SsdpDiscoveryListener.ReceiveAsync(listener, [], _ => true, CancellationToken.None);
+
+        // Act
+        listener.Client.Dispose();
+        var failure = await Assert.ThrowsAsync<SocketException>(() => loop);
+
+        // Assert
+        Assert.Equal(SocketError.OperationAborted, failure.SocketErrorCode);
+        Assert.True(loop.IsFaulted);
+    }
+
     /// <summary>Verifies the worker socket policy permits shared binding and accepts host-local multicast on Windows.</summary>
     [Fact]
     public void BoundSocket_DefaultPolicy_UsesPlatformAppropriateMulticastLoopback()

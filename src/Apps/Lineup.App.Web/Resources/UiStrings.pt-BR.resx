@@ -421,8 +421,8 @@
   <data name="Settings_MaximumBrokerCallsLabel" xml:space="preserve"><value>Máximo de llamadas ao intermediario</value></data>
   <data name="Settings_MaximumConcurrentStreamsHelp" xml:space="preserve"><value>Sesiones máximas de consumidores lógicos em todos os formatos. Os productores compartidos ainda cuentan uma vez por consumidor conectado. Defina em 0 para ilimitado.</value></data>
   <data name="Settings_MaximumConcurrentStreamsLabel" xml:space="preserve"><value>Máximo de streams simultáneas</value></data>
-  <data name="Settings_MaximumConnectionsHelp" xml:space="preserve"><value>Limite de clientes simultáneos. Use 0 como valor padrão do host.</value></data>
-  <data name="Settings_MaximumConnectionsLabel" xml:space="preserve"><value>Conexiones máximas</value></data>
+  <data name="Settings_MaximumConnectionsHelp" xml:space="preserve"><value>Um limite TCP compartilhado por todas as saídas de plugins, inclusive na interface de gerenciamento. Conta da primeira solicitação do plugin até a desconexão. Gerenciamento e diagnóstico são isentos. 0 significa ilimitado; reduzir o limite não desconecta clientes existentes.</value></data>
+  <data name="Settings_MaximumConnectionsLabel" xml:space="preserve"><value>Conexões de plugins de toda a implantação</value></data>
   <data name="Settings_MaximumRestartsHelp" xml:space="preserve"><value>Cantidad de reinicios com falha permitidos do worker dentro do período de reinicio.</value></data>
   <data name="Settings_MaximumRestartsLabel" xml:space="preserve"><value>Reinicios máximos</value></data>
   <data name="Settings_MemoryLimitHelp" xml:space="preserve"><value>Limite de memoria do worker. Use 0 para não configurar nenhum limite.</value></data>

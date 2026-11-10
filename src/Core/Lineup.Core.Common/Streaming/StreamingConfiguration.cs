@@ -22,6 +22,9 @@ public sealed record StreamingConfiguration
     /// <summary>Gets how long an unused shared live pipeline remains available for reuse, from zero through 300 seconds.</summary>
     public int KeepWarmPeriodSeconds { get; init; }
 
+    /// <summary>Gets the deployment-wide admitted plugin TCP connection limit, or zero for unlimited connections.</summary>
+    public int MaximumPluginConnections { get; init; }
+
     /// <summary>Gets configured physical devices.</summary>
     public IReadOnlyList<PhysicalDeviceDefinition> PhysicalDevices { get; init; } = [];
 

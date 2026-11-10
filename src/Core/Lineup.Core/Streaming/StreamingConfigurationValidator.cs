@@ -15,8 +15,8 @@ public static class StreamingConfigurationValidator
     /// </summary>
     public static IReadOnlyList<string> Validate(StreamingConfiguration configuration) => Validate(configuration, validateGuideSubscriptions: true);
 
-    /// <summary>Validates structural topology while leaving guide-source subscription eligibility to the guide orchestrator.</summary>
-    internal static IReadOnlyList<string> ValidateForGuideActivation(StreamingConfiguration configuration) => Validate(configuration, validateGuideSubscriptions: false);
+    /// <summary>Validates structural topology while leaving guide-source eligibility to the shared subscription resolver.</summary>
+    internal static IReadOnlyList<string> ValidateForGuideConfiguration(StreamingConfiguration configuration) => Validate(configuration, validateGuideSubscriptions: false);
 
     private static IReadOnlyList<string> Validate(StreamingConfiguration configuration, bool validateGuideSubscriptions)
     {
@@ -34,6 +34,10 @@ public static class StreamingConfigurationValidator
         if (configuration.KeepWarmPeriodSeconds is < 0 or > 300)
         {
             errors.Add("Keep-warm period must be between 0 and 300 seconds.");
+        }
+        if (configuration.MaximumPluginConnections < 0)
+        {
+            errors.Add("The deployment-wide plugin connection limit cannot be negative.");
         }
         var physicalIds = new HashSet<PhysicalDeviceId>();
         foreach (var device in configuration.PhysicalDevices)
@@ -204,10 +208,6 @@ public static class StreamingConfigurationValidator
             if (string.IsNullOrWhiteSpace(policy.Name))
             {
                 errors.Add($"Virtual output security policy '{policy.Key}' requires a name.");
-            }
-            if (policy.MaximumConnections < 0)
-            {
-                errors.Add($"Virtual output security policy '{policy.Key}' maximum connections cannot be negative.");
             }
             if (policy.RequestsPerMinutePerClient < 0)
             {

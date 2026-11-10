@@ -74,10 +74,10 @@ public sealed record GuideBindingDiagnostic
 /// </summary>
 public interface IGuideOrchestrator
 {
-    /// <summary>Creates all enabled optional guide sources from the adapter registry.</summary>
+    /// <summary>Applies validated topology and guide eligibility without constructing source runtimes.</summary>
     Task ApplyAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default);
 
-    /// <summary>Refreshes every active source independently and returns one result per source.</summary>
+    /// <summary>Constructs and refreshes each eligible source independently, returning refresh and exclusion results.</summary>
     Task<IReadOnlyList<GuideRefreshResult>> RefreshAllAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Builds one virtual guide filtered through its physical-device subscription.</summary>

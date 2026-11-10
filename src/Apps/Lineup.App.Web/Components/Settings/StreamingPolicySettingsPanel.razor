@@ -7,6 +7,12 @@
     <div class="card-body">
         <div class="row g-3">
             <div class="col-md-6">
+                <label for="maximumPluginConnections" class="form-label">@Text["Settings_MaximumConnectionsLabel"]</label>
+                <input type="number" class="form-control" id="maximumPluginConnections"
+                       value="@MaximumPluginConnections" @onchange="ChangeMaximumPluginConnectionsAsync" min="0" />
+                <div class="form-text">@Text["Settings_MaximumConnectionsHelp"]</div>
+            </div>
+            <div class="col-md-6">
                 <label for="maximumConcurrentStreams" class="form-label">@Text["Settings_MaximumConcurrentStreamsLabel"]</label>
                 <input type="number" class="form-control" id="maximumConcurrentStreams"
                        value="@MaximumConcurrentStreams" @onchange="ChangeMaximumConcurrentStreamsAsync" min="0" max="100" />
@@ -39,6 +45,14 @@
 </div>
 
 @code {
+    /// <summary>Gets or sets the deployment-wide plugin TCP connection limit.</summary>
+    [Parameter]
+    public int MaximumPluginConnections { get; set; }
+
+    /// <summary>Gets or sets the callback raised when the deployment connection limit changes.</summary>
+    [Parameter]
+    public EventCallback<int> MaximumPluginConnectionsChanged { get; set; }
+
     /// <summary>Gets or sets the maximum logical stream count.</summary>
     [Parameter]
     public int MaximumConcurrentStreams { get; set; }
@@ -73,6 +87,9 @@
 
     private Task ChangeMaximumConcurrentStreamsAsync(ChangeEventArgs args) =>
         MaximumConcurrentStreamsChanged.InvokeAsync(ParseInteger(args.Value, MaximumConcurrentStreams));
+
+    private Task ChangeMaximumPluginConnectionsAsync(ChangeEventArgs args) =>
+        MaximumPluginConnectionsChanged.InvokeAsync(ParseInteger(args.Value, MaximumPluginConnections));
 
     private Task ChangeKeepWarmPeriodAsync(ChangeEventArgs args) =>
         KeepWarmPeriodSecondsChanged.InvokeAsync(ParseInteger(args.Value, KeepWarmPeriodSeconds));

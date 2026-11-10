@@ -12,6 +12,27 @@ namespace Lineup.Core.Tests.Streaming;
 /// </summary>
 public sealed class StreamingConfigurationValidatorTests
 {
+    /// <summary>Verifies the deployment-wide plugin connection setting accepts unlimited and finite limits but rejects negatives.</summary>
+    [Theory]
+    [InlineData(-1, false)]
+    [InlineData(0, true)]
+    [InlineData(12, true)]
+    public void Validate_GlobalPluginConnectionLimit_EnforcesRange(int maximum, bool valid)
+    {
+        // Arrange
+        var configuration = new StreamingConfiguration { MaximumPluginConnections = maximum };
+
+        // Act
+        var errors = StreamingConfigurationValidator.Validate(configuration);
+
+        // Assert
+        Assert.Equal(valid, errors.Count == 0);
+        if (!valid)
+        {
+            Assert.Contains("The deployment-wide plugin connection limit cannot be negative.", errors);
+        }
+    }
+
     /// <summary>Verifies referenced duplicate security policies return diagnostics even with case-insensitive binding references.</summary>
     [Theory]
     [InlineData("private-network")]

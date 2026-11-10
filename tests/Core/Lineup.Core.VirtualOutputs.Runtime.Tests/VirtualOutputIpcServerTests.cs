@@ -14,6 +14,200 @@ namespace Lineup.Core.VirtualOutputs.Runtime.Tests;
 /// <summary>Verifies real local IPC framing, registration, authorization context, and typed broker dispatch.</summary>
 public sealed class VirtualOutputIpcServerTests
 {
+    /// <summary>Verifies an accepted old-generation status operation cannot overwrite a concurrently enrolled replacement.</summary>
+    [Theory]
+    [InlineData(VirtualOutputIpcOperation.Register)]
+    [InlineData(VirtualOutputIpcOperation.RenewLease)]
+    [InlineData(VirtualOutputIpcOperation.ReportHealth)]
+    public async Task Client_StaleStatusOperation_PreservesReplacementGeneration(VirtualOutputIpcOperation operation)
+    {
+        // Arrange
+        using var sessions = new VirtualOutputSessionAuthority();
+        var deviceId = VirtualDeviceId.New();
+        var capabilities = new HashSet<VirtualOutputCapability> { VirtualOutputCapability.ReportHealth };
+        var ticket = sessions.CreateActivation(deviceId, "test-worker", capabilities, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+        var request = new VirtualOutputWorkerRegistrationRequest
+        {
+            WorkerId = ticket.WorkerId,
+            VirtualDeviceId = deviceId,
+            Generation = ticket.Generation,
+            BootstrapToken = ticket.BootstrapToken,
+            MinimumProtocolVersion = VirtualOutputProtocol.MinimumVersion,
+            MaximumProtocolVersion = VirtualOutputProtocol.MaximumVersion
+        };
+        var status = new VirtualOutputRuntimeStatus();
+        VirtualOutputRuntimeSnapshot? replacement = null;
+        VirtualOutputSessionContext? replacementSession = null;
+        void EnrollReplacement()
+        {
+            var next = sessions.CreateActivation(deviceId, "test-worker", capabilities, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+            var registered = sessions.Register(request with { Generation = next.Generation, BootstrapToken = next.BootstrapToken });
+            replacementSession = new VirtualOutputSessionContext { SessionId = registered.SessionId!.Value, Generation = next.Generation };
+            replacement = new VirtualOutputRuntimeSnapshot
+            {
+                VirtualDeviceId = deviceId,
+                State = VirtualOutputRuntimeState.Healthy,
+                Generation = next.Generation,
+                ProtocolVersion = VirtualOutputProtocol.MaximumVersion
+            };
+            status.Set(replacement);
+        }
+        var authority = Substitute.For<IVirtualOutputSessionAuthority>();
+        authority.Register(Arg.Any<VirtualOutputWorkerRegistrationRequest>()).Returns(call =>
+        {
+            var response = sessions.Register(call.Arg<VirtualOutputWorkerRegistrationRequest>());
+            EnrollReplacement();
+            return response;
+        });
+        authority.Renew(Arg.Any<VirtualOutputLeaseRenewalRequest>()).Returns(call => sessions.Renew(call.Arg<VirtualOutputLeaseRenewalRequest>()));
+        authority.Authorize(Arg.Any<VirtualOutputSessionContext>(), Arg.Any<VirtualOutputCapability>()).Returns(call =>
+        {
+            var response = sessions.Authorize(call.Arg<VirtualOutputSessionContext>(), call.Arg<VirtualOutputCapability>());
+            EnrollReplacement();
+            return response;
+        });
+        var endpoint = CreateEndpoint();
+        using var server = new VirtualOutputIpcServer(endpoint, authority, Substitute.For<IVirtualOutputBroker>(), status,
+            CreateSettings(deviceId, maximumOutstandingBrokerCalls: 1), new ActiveStreamRegistry(), NullLogger<VirtualOutputIpcServer>.Instance, Substitute.For<IPluginConnectionBudget>());
+        await server.StartAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            var client = new VirtualOutputBrokerClient(endpoint);
+            var registration = operation == VirtualOutputIpcOperation.Register ? null : sessions.Register(request);
+            var session = registration is null ? null : new VirtualOutputSessionContext { SessionId = registration.SessionId!.Value, Generation = ticket.Generation };
+
+            // Act
+            switch (operation)
+            {
+                case VirtualOutputIpcOperation.Register:
+                    await client.RegisterAsync(request, TestContext.Current.CancellationToken);
+                    break;
+                case VirtualOutputIpcOperation.RenewLease:
+                    await client.RenewLeaseAsync(new VirtualOutputLeaseRenewalRequest { Session = session!, Ready = false }, TestContext.Current.CancellationToken);
+                    break;
+                case VirtualOutputIpcOperation.ReportHealth:
+                    await client.ReportHealthAsync(new VirtualOutputWorkerHealthReport { Session = session!, Ready = false }, TestContext.Current.CancellationToken);
+                    break;
+            }
+
+            // Assert
+            Assert.NotNull(replacement);
+            Assert.Same(replacement, Assert.Single(status.GetSnapshots()));
+            Assert.True(sessions.Authorize(Assert.IsType<VirtualOutputSessionContext>(replacementSession), VirtualOutputCapability.ReportHealth).Authorized);
+        }
+        finally
+        {
+            await server.StopAsync(TestContext.Current.CancellationToken);
+        }
+    }
+
+    /// <summary>Verifies transport loss cancels upstream work and releases a one-call budget before or after stream acceptance.</summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task Client_DisconnectsDuringStream_ReleasesUpstreamAndCallBudget(bool accepted, bool lateAcceptance)
+    {
+        // Arrange
+        using var watchdog = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        watchdog.CancelAfter(TimeSpan.FromSeconds(10));
+        using var openCancellation = CancellationTokenSource.CreateLinkedTokenSource(watchdog.Token);
+        var endpoint = CreateEndpoint();
+        using var authority = new VirtualOutputSessionAuthority();
+        var deviceId = VirtualDeviceId.New();
+        var ticket = authority.CreateActivation(deviceId, "test-worker",
+            new HashSet<VirtualOutputCapability> { VirtualOutputCapability.OpenStream, VirtualOutputCapability.ReadManifest },
+            TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+        var registration = authority.Register(new VirtualOutputWorkerRegistrationRequest
+        {
+            WorkerId = ticket.WorkerId,
+            VirtualDeviceId = deviceId,
+            Generation = ticket.Generation,
+            BootstrapToken = ticket.BootstrapToken,
+            MinimumProtocolVersion = VirtualOutputProtocol.MinimumVersion,
+            MaximumProtocolVersion = VirtualOutputProtocol.MaximumVersion
+        });
+        var session = new VirtualOutputSessionContext { SessionId = registration.SessionId!.Value, Generation = ticket.Generation };
+        var entered = new TaskCompletionSource<CancellationToken>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var canceled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var activeStreams = new ActiveStreamRegistry();
+        var source = new BlockingReadStream();
+        var streamId = StreamSessionId.New();
+        activeStreams.Register(new ActiveStreamSnapshot(streamId.ToString(), "48.3", HostedStreamFormat.MpegTs, DateTime.UtcNow, null, []));
+        var media = new MediaProbeResult([], null);
+        var output = new VirtualOutputBrokeredStream(activeStreams,
+            new VirtualMpegTsOutput(source, media, media, new VirtualTranscodeProfile(), new ActiveStreamFlowContext()),
+            new VirtualOutputOpenStreamResponse { Accepted = true, StreamSessionId = streamId, ContentType = "video/mp2t", Source = media });
+        var broker = Substitute.For<IVirtualOutputBroker>();
+        broker.OpenStreamAsync(Arg.Any<VirtualOutputOpenStreamRequest>(), Arg.Any<CancellationToken>()).Returns(async call =>
+        {
+            var token = call.Arg<CancellationToken>();
+            entered.TrySetResult(token);
+            if (lateAcceptance)
+            {
+                await release.Task;
+            }
+            else if (!accepted)
+            {
+                try
+                {
+                    await Task.Delay(Timeout.InfiniteTimeSpan, token);
+                }
+                finally
+                {
+                    await output.DisposeAsync();
+                }
+            }
+            return output;
+        });
+        broker.GetManifestAsync(Arg.Any<VirtualOutputManifestRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new VirtualOutputManifest { VirtualDeviceId = deviceId, Name = "Replacement call" });
+        using var server = new VirtualOutputIpcServer(endpoint, authority, broker, new VirtualOutputRuntimeStatus(),
+            CreateSettings(deviceId, maximumOutstandingBrokerCalls: 1), activeStreams, NullLogger<VirtualOutputIpcServer>.Instance, Substitute.For<IPluginConnectionBudget>());
+        await server.StartAsync(watchdog.Token);
+        try
+        {
+            var client = new VirtualOutputBrokerClient(endpoint);
+            var opening = client.OpenStreamAsync(new VirtualOutputOpenStreamRequest
+            {
+                Session = session,
+                RequestId = VirtualOutputStreamRequestId.New(),
+                ChannelKey = "48.3"
+            }, openCancellation.Token);
+            var upstreamToken = await entered.Task.WaitAsync(watchdog.Token);
+            using var observer = upstreamToken.Register(() => canceled.TrySetResult());
+
+            // Act
+            if (accepted)
+            {
+                var opened = await opening;
+                await opened.Stream.DisposeAsync();
+            }
+            else
+            {
+                await openCancellation.CancelAsync();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => opening);
+            }
+            await canceled.Task.WaitAsync(TimeSpan.FromSeconds(2), watchdog.Token);
+            release.TrySetResult();
+            await source.Disposed.WaitAsync(TimeSpan.FromSeconds(2), watchdog.Token);
+            var replacement = await client.GetManifestAsync(new VirtualOutputManifestRequest { Session = session }, watchdog.Token);
+
+            // Assert
+            Assert.Equal(deviceId, replacement.VirtualDeviceId);
+            Assert.True(upstreamToken.IsCancellationRequested);
+            Assert.True(source.IsDisposed);
+            Assert.Empty(activeStreams.GetActiveStreams());
+            Assert.True(authority.Authorize(session, VirtualOutputCapability.OpenStream).Authorized);
+        }
+        finally
+        {
+            release.TrySetResult();
+            await server.StopAsync(TestContext.Current.CancellationToken);
+        }
+    }
+
     /// <summary>Verifies a terminal upstream failure closes an accepted MPEG-TS body without appending control JSON to the media bytes.</summary>
     [Fact]
     public async Task Client_UpstreamFailsAfterAcceptance_ReceivesMediaThenEof()
@@ -32,7 +226,7 @@ public sealed class VirtualOutputIpcServerTests
             activeStreams, new VirtualMpegTsOutput(new FailingMediaStream(), media, media, new VirtualTranscodeProfile(), new ActiveStreamFlowContext()),
             new VirtualOutputOpenStreamResponse { Accepted = true, StreamSessionId = sessionId, ContentType = "video/mp2t", Source = media }));
         using var server = new VirtualOutputIpcServer(endpoint, authority, broker, new VirtualOutputRuntimeStatus(),
-            CreateSettings(deviceId, maximumOutstandingBrokerCalls: 1), activeStreams, NullLogger<VirtualOutputIpcServer>.Instance);
+            CreateSettings(deviceId, maximumOutstandingBrokerCalls: 1), activeStreams, NullLogger<VirtualOutputIpcServer>.Instance, Substitute.For<IPluginConnectionBudget>());
         await server.StartAsync(TestContext.Current.CancellationToken);
         try
         {
@@ -43,8 +237,8 @@ public sealed class VirtualOutputIpcServerTests
                 VirtualDeviceId = ticket.VirtualDeviceId,
                 Generation = ticket.Generation,
                 BootstrapToken = ticket.BootstrapToken,
-                MinimumProtocolVersion = 1,
-                MaximumProtocolVersion = 2
+                MinimumProtocolVersion = VirtualOutputProtocol.MinimumVersion,
+                MaximumProtocolVersion = VirtualOutputProtocol.MaximumVersion
             }, TestContext.Current.CancellationToken);
             await using var source = await client.OpenStreamAsync(new VirtualOutputOpenStreamRequest
             {
@@ -128,7 +322,8 @@ public sealed class VirtualOutputIpcServerTests
             status,
             settings,
             new ActiveStreamRegistry(),
-            NullLogger<VirtualOutputIpcServer>.Instance);
+            NullLogger<VirtualOutputIpcServer>.Instance,
+            Substitute.For<IPluginConnectionBudget>());
         await server.StartAsync(TestContext.Current.CancellationToken);
         var client = new VirtualOutputBrokerClient(endpoint);
 
@@ -139,8 +334,8 @@ public sealed class VirtualOutputIpcServerTests
             VirtualDeviceId = ticket.VirtualDeviceId,
             Generation = ticket.Generation,
             BootstrapToken = ticket.BootstrapToken,
-            MinimumProtocolVersion = 1,
-            MaximumProtocolVersion = 2
+            MinimumProtocolVersion = VirtualOutputProtocol.MinimumVersion,
+            MaximumProtocolVersion = VirtualOutputProtocol.MaximumVersion
         }, TestContext.Current.CancellationToken);
         var manifest = await client.GetManifestAsync(new VirtualOutputManifestRequest
         {
@@ -204,7 +399,8 @@ public sealed class VirtualOutputIpcServerTests
             new VirtualOutputRuntimeStatus(),
             CreateSettings(deviceId, maximumOutstandingBrokerCalls: 1),
             activeStreams,
-            NullLogger<VirtualOutputIpcServer>.Instance);
+            NullLogger<VirtualOutputIpcServer>.Instance,
+            Substitute.For<IPluginConnectionBudget>());
         await server.StartAsync(TestContext.Current.CancellationToken);
         var client = new VirtualOutputBrokerClient(endpoint);
         var registration = await client.RegisterAsync(new VirtualOutputWorkerRegistrationRequest
@@ -213,8 +409,8 @@ public sealed class VirtualOutputIpcServerTests
             VirtualDeviceId = ticket.VirtualDeviceId,
             Generation = ticket.Generation,
             BootstrapToken = ticket.BootstrapToken,
-            MinimumProtocolVersion = 1,
-            MaximumProtocolVersion = 2
+            MinimumProtocolVersion = VirtualOutputProtocol.MinimumVersion,
+            MaximumProtocolVersion = VirtualOutputProtocol.MaximumVersion
         }, TestContext.Current.CancellationToken);
         var request = new VirtualOutputOpenStreamRequest
         {
@@ -306,7 +502,8 @@ public sealed class VirtualOutputIpcServerTests
             new VirtualOutputRuntimeStatus(),
             CreateSettings(deviceId, maximumOutstandingBrokerCalls: 1),
             activeStreams,
-            NullLogger<VirtualOutputIpcServer>.Instance);
+            NullLogger<VirtualOutputIpcServer>.Instance,
+            Substitute.For<IPluginConnectionBudget>());
         await server.StartAsync(TestContext.Current.CancellationToken);
         var client = new VirtualOutputBrokerClient(endpoint);
         var registration = await client.RegisterAsync(new VirtualOutputWorkerRegistrationRequest
@@ -315,8 +512,8 @@ public sealed class VirtualOutputIpcServerTests
             VirtualDeviceId = ticket.VirtualDeviceId,
             Generation = ticket.Generation,
             BootstrapToken = ticket.BootstrapToken,
-            MinimumProtocolVersion = 1,
-            MaximumProtocolVersion = 2
+            MinimumProtocolVersion = VirtualOutputProtocol.MinimumVersion,
+            MaximumProtocolVersion = VirtualOutputProtocol.MaximumVersion
         }, TestContext.Current.CancellationToken);
         var request = new VirtualOutputOpenStreamRequest
         {
@@ -426,7 +623,8 @@ public sealed class VirtualOutputIpcServerTests
             new VirtualOutputRuntimeStatus(),
             settings,
             new ActiveStreamRegistry(),
-            NullLogger<VirtualOutputIpcServer>.Instance);
+            NullLogger<VirtualOutputIpcServer>.Instance,
+            Substitute.For<IPluginConnectionBudget>());
         await server.StartAsync(TestContext.Current.CancellationToken);
         var client = new VirtualOutputBrokerClient(endpoint);
         var registration = await client.RegisterAsync(new VirtualOutputWorkerRegistrationRequest
@@ -435,8 +633,8 @@ public sealed class VirtualOutputIpcServerTests
             VirtualDeviceId = ticket.VirtualDeviceId,
             Generation = ticket.Generation,
             BootstrapToken = ticket.BootstrapToken,
-            MinimumProtocolVersion = 1,
-            MaximumProtocolVersion = 1
+            MinimumProtocolVersion = VirtualOutputProtocol.MinimumVersion,
+            MaximumProtocolVersion = VirtualOutputProtocol.MaximumVersion
         }, TestContext.Current.CancellationToken);
         var request = new VirtualOutputManifestRequest
         {
@@ -483,7 +681,8 @@ public sealed class VirtualOutputIpcServerTests
             status,
             CreateSettings(deviceId, maximumOutstandingBrokerCalls: 1),
             new ActiveStreamRegistry(),
-            NullLogger<VirtualOutputIpcServer>.Instance);
+            NullLogger<VirtualOutputIpcServer>.Instance,
+            Substitute.For<IPluginConnectionBudget>());
         await server.StartAsync(TestContext.Current.CancellationToken);
         var client = new VirtualOutputBrokerClient(endpoint);
 
@@ -494,8 +693,8 @@ public sealed class VirtualOutputIpcServerTests
             VirtualDeviceId = ticket.VirtualDeviceId,
             Generation = ticket.Generation,
             BootstrapToken = "invalid-token",
-            MinimumProtocolVersion = 1,
-            MaximumProtocolVersion = 1
+            MinimumProtocolVersion = VirtualOutputProtocol.MinimumVersion,
+            MaximumProtocolVersion = VirtualOutputProtocol.MaximumVersion
         }, TestContext.Current.CancellationToken);
 
         // Assert
@@ -503,6 +702,73 @@ public sealed class VirtualOutputIpcServerTests
         Assert.Empty(status.GetSnapshots());
         await server.StopAsync(TestContext.Current.CancellationToken);
         server.Dispose();
+    }
+
+    /// <summary>Verifies unexpected maintenance faults surface immediately and cannot skip the server's final stream cleanup.</summary>
+    [Fact]
+    public async Task Server_ExpirationFailure_FaultsAndCleansUpBeforeShutdown()
+    {
+        // Arrange
+        using var watchdog = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        watchdog.CancelAfter(TimeSpan.FromSeconds(15));
+        var endpoint = CreateEndpoint();
+        using var sessions = new VirtualOutputSessionAuthority();
+        var deviceId = VirtualDeviceId.New();
+        var ticket = sessions.CreateActivation(deviceId, "test-worker", new HashSet<VirtualOutputCapability> { VirtualOutputCapability.OpenStream },
+            TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+        var registration = sessions.Register(new VirtualOutputWorkerRegistrationRequest
+        {
+            WorkerId = ticket.WorkerId,
+            VirtualDeviceId = deviceId,
+            Generation = ticket.Generation,
+            BootstrapToken = ticket.BootstrapToken,
+            MinimumProtocolVersion = VirtualOutputProtocol.MinimumVersion,
+            MaximumProtocolVersion = VirtualOutputProtocol.MaximumVersion
+        });
+        var failure = new InvalidOperationException("Unexpected maintenance authorization failure.");
+        var failAuthorization = 0;
+        var authority = Substitute.For<IVirtualOutputSessionAuthority>();
+        authority.Authorize(Arg.Any<VirtualOutputSessionContext>(), Arg.Any<VirtualOutputCapability>()).Returns(call =>
+            Volatile.Read(ref failAuthorization) == 0
+                ? sessions.Authorize(call.ArgAt<VirtualOutputSessionContext>(0), call.ArgAt<VirtualOutputCapability>(1))
+                : throw failure);
+        var activeStreams = new ActiveStreamRegistry();
+        var stream = new BlockingReadStream();
+        var streamId = StreamSessionId.New();
+        activeStreams.Register(new ActiveStreamSnapshot(streamId.ToString(), "48.3", HostedStreamFormat.MpegTs, DateTime.UtcNow, null, []));
+        var media = new MediaProbeResult([], null);
+        var broker = Substitute.For<IVirtualOutputBroker>();
+        broker.OpenStreamAsync(Arg.Any<VirtualOutputOpenStreamRequest>(), Arg.Any<CancellationToken>()).Returns(new VirtualOutputBrokeredStream(
+            activeStreams, new VirtualMpegTsOutput(stream, media, media, new VirtualTranscodeProfile(), new ActiveStreamFlowContext()),
+            new VirtualOutputOpenStreamResponse { Accepted = true, StreamSessionId = streamId, ContentType = "video/mp2t", Source = media }));
+        using var server = new VirtualOutputIpcServer(endpoint, authority, broker, new VirtualOutputRuntimeStatus(),
+            CreateSettings(deviceId, maximumOutstandingBrokerCalls: 1), activeStreams, NullLogger<VirtualOutputIpcServer>.Instance, Substitute.For<IPluginConnectionBudget>());
+        await server.StartAsync(watchdog.Token);
+        try
+        {
+            var client = new VirtualOutputBrokerClient(endpoint);
+            var opened = await client.OpenStreamAsync(new VirtualOutputOpenStreamRequest
+            {
+                Session = new VirtualOutputSessionContext { SessionId = registration.SessionId!.Value, Generation = ticket.Generation },
+                RequestId = VirtualOutputStreamRequestId.New(),
+                ChannelKey = "48.3"
+            }, watchdog.Token);
+            // Release the transport directly because this test intentionally terminates the broker before client cleanup.
+            await using var connection = opened.Stream;
+
+            // Act
+            Volatile.Write(ref failAuthorization, 1);
+            var observed = await Record.ExceptionAsync(() => server.ExecuteTask!.WaitAsync(watchdog.Token));
+
+            // Assert
+            Assert.Same(failure, observed);
+            Assert.True(stream.IsDisposed);
+            Assert.Empty(activeStreams.GetActiveStreams());
+        }
+        finally
+        {
+            await server.StopAsync(TestContext.Current.CancellationToken);
+        }
     }
 
     private static ILineupSettingsService CreateSettings(
@@ -606,6 +872,9 @@ public sealed class VirtualOutputIpcServerTests
     private sealed class BlockingReadStream : Stream
     {
         private readonly TaskCompletionSource _disposed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Gets completion of owned source disposal.</summary>
+        internal Task Disposed => _disposed.Task;
 
         internal bool IsDisposed { get; private set; }
 

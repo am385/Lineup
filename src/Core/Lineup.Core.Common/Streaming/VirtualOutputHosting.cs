@@ -100,9 +100,6 @@ public sealed record VirtualOutputSecurityPolicyDefinition
     /// <summary>Gets the allowed client network CIDRs. An empty collection does not add a network restriction.</summary>
     public IReadOnlyList<string> AllowedNetworks { get; init; } = [];
 
-    /// <summary>Gets the maximum concurrent public connections, or zero to use the host default.</summary>
-    public int MaximumConnections { get; init; }
-
     /// <summary>Gets the maximum requests accepted per minute from one client, or zero to disable this limit.</summary>
     public int RequestsPerMinutePerClient { get; init; }
 

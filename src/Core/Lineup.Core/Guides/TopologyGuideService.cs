@@ -10,16 +10,16 @@ namespace Lineup.Core.Guides;
 /// </summary>
 public interface ITopologyGuideService
 {
-    /// <summary>Refreshes every enabled guide source without publishing XMLTV.</summary>
+    /// <summary>Refreshes every enabled guide source without publishing guide outputs.</summary>
     Task<TopologyGuideRefreshResult> RefreshAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>Refreshes every enabled guide source and republishes XMLTV.</summary>
+    /// <summary>Refreshes every enabled guide source and republishes enabled guide outputs.</summary>
     Task<TopologyGuideRefreshResult> RefreshAndPublishAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>Publishes XMLTV from the currently cached guide data.</summary>
+    /// <summary>Publishes enabled guide outputs from eligible cached data without activating guide-source runtimes.</summary>
     Task<IReadOnlyList<GuideOutputPublicationResult>> PublishAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>Publishes one enabled guide output from currently cached guide data.</summary>
+    /// <summary>Publishes one enabled guide output from eligible cached data without activating guide-source runtimes.</summary>
     Task<GuideOutputPublicationResult?> PublishAsync(
         GuideOutputId outputId,
         CancellationToken cancellationToken = default);

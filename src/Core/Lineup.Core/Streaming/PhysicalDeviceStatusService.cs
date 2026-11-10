@@ -94,7 +94,7 @@ public sealed class PhysicalDeviceStatusService : IPhysicalDeviceStatusService
                     var status = device is IPhysicalDeviceStatusCapability capability
                         ? await capability.RefreshStatusAsync(cancellationToken)
                         : new PhysicalDeviceStatusSnapshot { Device = device.Snapshot };
-                    statuses.Add(CreateRuntimeStatus(device, status, null));
+                    statuses.Add(CreateRuntimeStatus(device, status, null, definition.Name));
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -105,7 +105,7 @@ public sealed class PhysicalDeviceStatusService : IPhysicalDeviceStatusService
                 {
                     _logger.LogWarning(exception, "Unable to refresh status for physical device {PhysicalDeviceId}", device.Snapshot.Id);
                     var prior = Devices.SingleOrDefault(item => item.Device.Id == device.Snapshot.Id)?.Status;
-                    statuses.Add(CreateRuntimeStatus(device, prior, $"Status refresh failed ({exception.GetType().Name})."));
+                    statuses.Add(CreateRuntimeStatus(device, prior, $"Status refresh failed ({exception.GetType().Name}).", definition.Name));
                 }
             }
             Volatile.Write(ref _devices, statuses);
@@ -142,7 +142,7 @@ public sealed class PhysicalDeviceStatusService : IPhysicalDeviceStatusService
                         ? await capability.RefreshDeviceInformationAsync(cancellationToken)
                         : prior?.Status ?? new PhysicalDeviceStatusSnapshot { Device = device.Snapshot };
                     var status = refreshed with { Receivers = prior?.Status?.Receivers ?? refreshed.Receivers };
-                    statuses.Add(CreateRuntimeStatus(device, status, null));
+                    statuses.Add(CreateRuntimeStatus(device, status, null, definition.Name));
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -152,7 +152,7 @@ public sealed class PhysicalDeviceStatusService : IPhysicalDeviceStatusService
                     exception is ArgumentException or InvalidOperationException or InvalidDataException or IOException or HttpRequestException or UnauthorizedAccessException)
                 {
                     _logger.LogWarning(exception, "Unable to refresh information for physical device {PhysicalDeviceId}", device.Snapshot.Id);
-                    statuses.Add(CreateRuntimeStatus(device, prior?.Status, $"Device information refresh failed ({exception.GetType().Name})."));
+                    statuses.Add(CreateRuntimeStatus(device, prior?.Status, $"Device information refresh failed ({exception.GetType().Name}).", definition.Name));
                 }
             }
             Volatile.Write(ref _devices, statuses);
@@ -209,16 +209,24 @@ public sealed class PhysicalDeviceStatusService : IPhysicalDeviceStatusService
         };
     }
 
-    private static PhysicalDeviceRuntimeStatus CreateRuntimeStatus(
-        IPhysicalTunerDevice device,
-        PhysicalDeviceStatusSnapshot? status,
-        string? error) =>
-        new()
+    private static PhysicalDeviceRuntimeStatus CreateRuntimeStatus(IPhysicalTunerDevice device, PhysicalDeviceStatusSnapshot? status, string? error, string name)
+    {
+        var snapshot = status?.Device ?? device.Snapshot;
+        if (!string.Equals(snapshot.Name, name, StringComparison.Ordinal))
         {
-            Device = status?.Device ?? device.Snapshot,
+            snapshot = snapshot with { Name = name };
+            if (status is not null)
+            {
+                status = status with { Device = snapshot };
+            }
+        }
+        return new()
+        {
+            Device = snapshot,
             Status = status,
             Error = error,
             SupportsReceiverControl = device is IPhysicalReceiverControlCapability,
             SupportsRestart = device is IPhysicalDeviceRestartCapability
         };
+    }
 }

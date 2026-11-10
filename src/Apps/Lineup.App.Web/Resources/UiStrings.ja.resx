@@ -421,8 +421,8 @@
   <data name="Settings_MaximumBrokerCallsLabel" xml:space="preserve"><value>ブローカー呼び出しの最大数</value></data>
   <data name="Settings_MaximumConcurrentStreamsHelp" xml:space="preserve"><value>すべての形式を合計した論理コンシューマーセッションの最大数です。共有プロデューサーの場合も、接続中のコンシューマーごとに 1 件として数えます。無制限にするには 0 を指定します。</value></data>
   <data name="Settings_MaximumConcurrentStreamsLabel" xml:space="preserve"><value>最大同時ストリーム数</value></data>
-  <data name="Settings_MaximumConnectionsHelp" xml:space="preserve"><value>同時クライアント数の上限です。ホストの既定値を使用するには 0 を指定します。</value></data>
-  <data name="Settings_MaximumConnectionsLabel" xml:space="preserve"><value>最大接続数</value></data>
+  <data name="Settings_MaximumConnectionsHelp" xml:space="preserve"><value>管理画面と同じリスナーの出力を含む、すべてのプラグイン出力で共有する TCP 接続上限です。最初のプラグイン要求から切断まで数えます。管理と診断の要求は対象外です。0 は無制限です。上限を下げても既存の接続は切断しません。</value></data>
+  <data name="Settings_MaximumConnectionsLabel" xml:space="preserve"><value>配置全体のプラグイン接続数</value></data>
   <data name="Settings_MaximumRestartsHelp" xml:space="preserve"><value>再起動ウィンドウ内で許可する、失敗したワーカーの再起動回数です。</value></data>
   <data name="Settings_MaximumRestartsLabel" xml:space="preserve"><value>最大再起動回数</value></data>
   <data name="Settings_MemoryLimitHelp" xml:space="preserve"><value>ワーカーのメモリ上限です。上限を設定しない場合は 0 を指定します。</value></data>

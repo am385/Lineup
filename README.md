@@ -322,9 +322,11 @@ dotnet run
 
 Normal Web and TUI builds install the shipped isolated virtual-output workers into each host's `virtual-output-workers` directory, including Visual Studio builds and debugger launches.
 Packaging uses a shared, locked cache under `out\virtual-output-worker-packages` and separate worker compilation outputs.
+`build\Lineup.VirtualOutputWorkers.props` is the authoritative worker inventory for MSBuild and the existing .NET packager. Docker uses normal Web publishing; Windows packaging invokes that same packager through its PowerShell wrapper. Manifests, executable selection, hashes and protocol metadata are generated in one place.
 Unchanged source/build inputs reuse verified packages; missing or modified installed files are repaired on the next build without rewriting unchanged files.
 A normal `dotnet publish` of either host includes the same worker packages in the published distribution.
-Design-time builds do not package workers. Set the MSBuild property `SkipVirtualOutputWorkerPublish=true` only when a specialized packaging flow, such as the Docker or Windows release build, supplies those packages separately.
+Publishing packages workers once, then copies only the verified `packaging.files` inventory through the standard publish-file pipeline, including `--no-build` publishes. Stale or unverified output files are not included. Worker apphosts and dependencies stay outside a single-file host bundle.
+Design-time builds do not package workers. Set the MSBuild property `SkipVirtualOutputWorkerPublish=true` only when a specialized packaging flow, such as the Windows release build, supplies those packages separately.
 Visual Studio's up-to-date check tracks worker source inputs, manifests, and primary runtime files so missing packages or worker changes request a real build.
 
 Configure the TUI via environment variables:
@@ -513,6 +515,13 @@ The Physical Devices and Virtual Devices tabs provide inherited Video and Audio 
 
 Lineup builds each live stream as a reference-counted graph: exact physical acquisition, optional physical normalization, and virtual output packaging. Consumers share the longest byte-identical prefix, including across different virtual devices, and branch only where their effective output settings differ. Physical failover is resolved to an exact device before its profile is applied, so a fallback source shares with other consumers of that source and uses its own overrides. FFprobe metadata is also shared for the lifetime of the acquisition. The Dashboard visualizes the full configured topology and highlights active, shared, transcoding, and warm paths above the detailed Active Streams table. The status API exposes active graph nodes, stable node and parent identities, processing stages, receiver counts, warm state, subscription totals, and physical-capacity use.
 
+Changing a physical device's adapter or connection configuration, disabling it, or removing it disconnects all viewers using that device,
+including shared transforms and warm streams. Other devices keep running. Previously resolved routes cannot reopen the retired adapter.
+The replacement is published after old graph resources finish cleanup; physical capacity stays reserved until its owned source is actually disposed.
+New acquisitions, derived transforms and probe metadata use the replacement runtime's identity, while capacity remains aggregated by configured device.
+Once viewer retirement begins, cleanup and replacement publication finish even if the configuration caller cancels; cancellation before that point preserves the prior catalog.
+Name, ordering and nonconnection profile edits do not replace the physical adapter or disconnect its viewers. Status reports the current configured name.
+
 Jellyfin FFmpeg's AC-4 support is decoder-only and does not support every object-based or Dolby Atmos AC-4 presentation. Unsupported presentations are reported as stream errors rather than silently copied or discarded. Watch copies eligible source audio and starts a configured fallback rendition only if source packaging or playback fails.
 
 When an HDHomeRun reports DRM error 811, API streams return a protected-content error by default. The Settings page's Streaming tab can instead enable a synthetic **Content Protected** slate. The fallback is generated locally as H.264 video with silent AAC audio in the requested MPEG-TS or CMAF format; protected programming is never decrypted. Synthetic DRM and disabled-channel slates count toward **Maximum Concurrent Streams** but do not consume physical tuner capacity. Web-only refresh settings for active-stream information are configured on the Dashboard tab.
@@ -567,6 +576,16 @@ Network-facing Lineup Link, virtual HDHomeRun, and Web Player media outputs can 
 
 Managed workers receive a unique temporary directory beneath the trusted host's operating-system temporary path through their sanitized environment. This keeps dedicated Web Player media artifacts writable for ordinary Windows users without inheriting the host's user profile or unrelated environment variables. The launcher removes the directory after terminating and disposing the worker, including failed launches, and logs cleanup failures with the affected path. These worker directories are separate from the management host's `Lineup:TransientPath` setting.
 
+**Streaming > Deployment-wide plugin connections** sets `Streaming.MaximumPluginConnections` for all management-hosted and dedicated plugin outputs in one Lineup deployment. Zero is unlimited.
+One TCP connection consumes one slot from its first eligible plugin request until disconnect, including idle keep-alive time; concurrent HTTP/2 requests on that connection share the slot.
+Management UI/settings/status/enrollment, playback stop/session inspection and synthetic Watch Test routes are exempt, even on a connection whose plugin request was refused.
+Unadmitted idle sockets and TLS handshakes do not consume this budget; it is not transport-level denial-of-service protection.
+Saturation returns HTTP 429; an unavailable admission control plane returns HTTP 503. Lowering a limit does not disconnect existing clients: new connections are refused until usage falls below it.
+The status API's `pluginConnections` reports authoritative usage, management/worker attribution and `isDraining` while usage exceeds a reduced limit.
+Dedicated workers retain one authenticated IPC ownership channel per admitted TCP connection, outside broker-call and media-stream quotas.
+Losing ownership aborts the public connection; revocation retains its slot until ownership cleanup completes. Workers never fall back to independent local limits.
+Independent Lineup control planes are separate deployments, not a distributed quota cluster. Streaming schema 1 and worker IPC protocol 1 are the initial Lineup 3.0 contracts; unreleased 3.0 development changes do not introduce additional version levels. The intentional Lineup 2.0-to-3.0 factory-reset boundary remains; no migration is provided.
+
 Worker resolution isolates malformed, invalid, unreadable, or version-incompatible package manifests and logs each rejection with
 the manifest path and failure reason, allowing independent healthy workers to start. An unresolved adapter reports the rejected-package
 diagnostics explicitly; duplicate valid matches and unsupported platforms remain errors. Strict full-catalog validation still fails
@@ -576,9 +595,24 @@ Output reconciliation cleans up only identities owned by the configured-output s
 
 Managed child disposal remains mandatory when host shutdown cancels an in-progress drain or forced termination reports a failure. Cleanup terminates any remaining child before the interrupted stop finishes, without relying on later worker lease expiry; caller cancellation and stop failures still propagate after cleanup.
 
+Orphaned broker streams are cleaned independently: a disposal failure is logged with its stream, request and virtual-device identity
+without disabling later sweeps. Final broker shutdown attempts every remaining stream and reports incomplete disposals together.
+Unexpected orphan-maintenance faults surface through the IPC hosted service instead of remaining hidden until shutdown.
+
+Broker stream acquisition and media copying are canceled when their owning IPC connection disconnects, including before acceptance
+or while an upstream read is idle. Cleanup releases the request's broker-call budget; a stream returned after cancellation is still disposed.
+
+Malformed certificate references or unreadable fingerprint metadata fail only the affected output, retire its obsolete worker/enrollment,
+and report a safe configuration error without exposing certificate paths in public status. Correcting configuration permits reconciliation;
+independent outputs keep running.
+
 Worker lease renewal holds the session-authority lock from authorization through lease mutation, so concurrent revocation or
 replacement cannot update another activation or cause a missing-activation lookup. Old, expired, stale-generation, or
 capability-denied requests retain the explicit rejection/drain response; accepted renewals extend only their owning policy lease.
+
+External worker lease expiry is checked periodically without requiring an enrollment download. An expired registered worker becomes
+failed/unavailable until re-enrollment and readiness restore it; Lineup does not launch, terminate or automatically restart the externally
+owned process. Delayed registration, renewal or health status from an older generation cannot overwrite a newer generation's status.
 
 Management-hosted Watch Test startup owns its encoder and transient files until the manifests, fragments, and codec metadata are ready and its viewer is registered. Cancellation, readiness timeout, encoder exit, and startup errors terminate the encoder and remove its files even before registration. Successful presentations remain available until their viewer stops or expires.
 
@@ -630,7 +664,9 @@ sensor:
 
 The Settings **Reset** tab can stage default settings for review or perform a Factory Reset. Factory Reset removes all files and directories beneath Lineup's application-data and transient-data roots, along with the configured XMLTV output, during a graceful restart. The browser displays a blocking restart screen and returns to first-run setup after detecting the new Lineup instance. XMLTV files configured outside Lineup-owned storage are preserved. A service supervisor such as Docker's `restart: unless-stopped` must restart the process after reset.
 
-Lineup 3.0 introduces application-settings schema `1`, streaming-topology schema `1`, database schema `1`, and Web-settings schema `1` as an intentional factory-reset cutover. Persisted state must match these versions exactly; an older, newer, invalid, or unversioned artifact enters the explicit factory-reset-required startup state before current state is created. No pre-3.0 settings, topology, database, browser-profile, XMLTV, or Lineup Link token migration runs.
+Lineup 3.0 uses application-settings schema `1`, streaming-topology schema `1`, database schema `1`, and Web-settings schema `1` as an intentional factory-reset cutover. Persisted state must match these versions exactly; an older, newer, invalid, or unversioned artifact enters the explicit factory-reset-required startup state before current state is created. No settings, topology, database, browser-profile, XMLTV, or Lineup Link token migration runs. Worker packages require IPC protocol `1`; update managed and external worker packages together with the trusted host.
+
+For a new or empty SQLite database, Lineup commits the channel and guide tables together with the required schema-version metadata in one transaction. Failed, canceled, or interrupted first-time initialization rolls back for a later startup to retry. Existing populated databases with missing or incompatible metadata remain rejected; initialization does not repair, migrate, or delete them.
 
 Lineup-owned persistent data defaults to `/appdata`. The optional `Lineup:AppDataPath` setting overrides that root for custom deployments. This data includes settings and backups, the authoritative SQLite channel and guide database, rolling logs, ASP.NET Core Data Protection keys, and the restart-safe Factory Reset marker.
 
@@ -758,6 +794,10 @@ An enabled guide source that cannot activate still contributes its committed cac
 The refresh reports the activation failure; disabling or removing the source, or changing its subscription, immediately restricts that cached projection.
 Recovering the source updates its committed cache on the next successful refresh.
 
+Publishing cached XMLTV or JSON outputs, including on-demand guide downloads and topology-change publication, does not construct or refresh guide-source runtimes.
+It validates the current topology and applies the same source eligibility and output selections used by guide queries. Explicit and scheduled refreshes still activate sources;
+refresh-and-publish refreshes once before publishing the resulting committed cache.
+
 Guide queries isolate sources with unavailable adapters, invalid physical-device subscriptions, or no compatible enabled devices.
 They return the remaining eligible data with structured source diagnostics (`AdapterUnavailable`, `InvalidSubscription`, or `NoCompatibleDevices`),
 including when every source is excluded. Ineligible cached imports remain stored but are not projected. Disabled and unselected sources do not degrade an output.
@@ -798,6 +838,9 @@ The host-wide stream limit also applies to synthetic DRM and disabled-channel sl
 A reconnect to a draining shared stream waits for its physical and transform cleanup before creating a replacement; canceling that wait
 does not interrupt the owned cleanup. Draining acquisitions retain their tuner slots until source disposal completes, so rapid stop/reconnect
 cannot overlap same-channel physical opens or bypass capacity limits.
+
+Graph shutdown normally drains transforms before stopping physical acquisitions. Cancellation bounds that wait but still signals
+every acquisition to stop; graph-owned cleanup continues and retains capacity until the owned source is disposed.
 
 Shared FFmpeg transforms, MPEG-TS slates, and management/dedicated caption processes continuously drain diagnostics while retaining only the last 16,384 characters and at most fifty non-empty lines. Long warning lines cannot accumulate lifetime stderr in the trusted host; nonzero exits retain their exit code and recent diagnostic tail.
 

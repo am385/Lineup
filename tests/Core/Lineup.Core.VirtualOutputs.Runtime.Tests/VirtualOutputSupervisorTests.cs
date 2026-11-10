@@ -3,6 +3,7 @@ using System.Text.Json;
 using Lineup.Core.Common.Streaming;
 using Lineup.Core.Settings;
 using Lineup.Core.VirtualOutputs.Protocol;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Xunit;
@@ -12,6 +13,149 @@ namespace Lineup.Core.VirtualOutputs.Runtime.Tests;
 /// <summary>Verifies desired-versus-applied virtual-output worker supervision.</summary>
 public sealed class VirtualOutputSupervisorTests
 {
+    /// <summary>Verifies malformed certificate metadata is contained per output, retires obsolete ownership and recovers after correction.</summary>
+    [Theory]
+    [InlineData(VirtualOutputExecutionMode.ManagedProcess, false)]
+    [InlineData(VirtualOutputExecutionMode.ManagedProcess, true)]
+    [InlineData(VirtualOutputExecutionMode.ExternalProcess, false)]
+    [InlineData(VirtualOutputExecutionMode.ExternalProcess, true)]
+    public async Task Reconcile_InvalidCertificateFingerprint_IsolatesOutputAndRecovers(VirtualOutputExecutionMode mode, bool replace)
+    {
+        // Arrange
+        var directory = Directory.CreateTempSubdirectory("lineup-fingerprint-");
+        try
+        {
+            var certificate = Path.Combine(directory.FullName, "listener.pfx");
+            await File.WriteAllBytesAsync(certificate, [1, 2, 3, 4], TestContext.Current.CancellationToken);
+            await using var fixture = new OwnershipFixture(certificateResolver: new FileVirtualOutputCertificateResolver());
+            var device = fixture.CreateDevice(mode);
+            device = device with
+            {
+                Hosting = device.Hosting! with
+                {
+                    Bindings = [new VirtualOutputBindingDefinition { Transport = VirtualOutputTransport.Https, Addresses = ["127.0.0.1"], Port = 8443, SecurityPolicyKey = "tls" }]
+                }
+            };
+            var healthy = fixture.CreateDevice(mode);
+            var security = new VirtualOutputSecurityPolicyDefinition { Key = "tls", Name = "TLS", CertificateReference = certificate };
+            fixture.Configuration = fixture.Configuration with { VirtualDevices = [device, healthy], VirtualOutputSecurityPolicies = [security] };
+            VirtualOutputSessionContext? healthySession = null;
+            IVirtualOutputWorkerProcess? replacedProcess = null;
+            if (replace)
+            {
+                await fixture.ReconcileAsync();
+                healthySession = fixture.Register(fixture.GetBootstrap(mode, healthy.Id));
+                fixture.Status.Update(healthy.Id, current => current! with { State = VirtualOutputRuntimeState.Healthy });
+                replacedProcess = fixture.Processes.FirstOrDefault();
+            }
+            fixture.Configuration = fixture.Configuration with { VirtualOutputSecurityPolicies = [security with { CertificateReference = "invalid\0certificate" }] };
+
+            // Act
+            await fixture.StartAsync();
+            await WaitUntilAsync(() => fixture.Status.GetSnapshots().Any(snapshot => snapshot.VirtualDeviceId == device.Id && snapshot.State == VirtualOutputRuntimeState.Failed)
+                && fixture.Status.GetSnapshots().Any(snapshot => snapshot.VirtualDeviceId == healthy.Id && (mode != VirtualOutputExecutionMode.ManagedProcess || snapshot.ProcessId is not null)),
+                TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+            if (!replace)
+            {
+                healthySession = fixture.Register(fixture.GetBootstrap(mode, healthy.Id));
+                fixture.Status.Update(healthy.Id, current => current! with { State = VirtualOutputRuntimeState.Healthy });
+            }
+            var failed = Assert.Single(fixture.Status.GetSnapshots(), snapshot => snapshot.VirtualDeviceId == device.Id);
+            fixture.Configuration = fixture.Configuration with { VirtualOutputSecurityPolicies = [security] };
+            fixture.SignalSettingsChanged();
+            await WaitUntilAsync(() => fixture.Status.GetSnapshots().Any(snapshot => snapshot.VirtualDeviceId == device.Id && snapshot.State == VirtualOutputRuntimeState.Starting
+                && (mode != VirtualOutputExecutionMode.ManagedProcess || snapshot.ProcessId is not null)),
+                TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.True(fixture.IsRunning);
+            Assert.Equal(VirtualOutputRuntimeState.Failed, failed.State);
+            Assert.False(string.IsNullOrWhiteSpace(failed.LastFailure));
+            Assert.Contains(fixture.Logger.ReceivedCalls(), call => call.GetMethodInfo().Name == nameof(ILogger.Log) && Equals(call.GetArguments()[0], LogLevel.Error)
+                && call.GetArguments()[2]?.ToString()?.Contains(device.Id.ToString(), StringComparison.Ordinal) == true);
+            Assert.True(fixture.Authority.Authorize(Assert.IsType<VirtualOutputSessionContext>(healthySession), VirtualOutputCapability.ReportHealth).Authorized);
+            Assert.Equal(VirtualOutputRuntimeState.Healthy, Assert.Single(fixture.Status.GetSnapshots(), snapshot => snapshot.VirtualDeviceId == healthy.Id).State);
+            Assert.Equal(VirtualOutputRuntimeState.Starting, Assert.Single(fixture.Status.GetSnapshots(), snapshot => snapshot.VirtualDeviceId == device.Id).State);
+            var corrected = fixture.GetBootstrap(mode, device.Id);
+            var material = Assert.Single(corrected.CertificateMaterials);
+            Assert.Equal(certificate, material.Reference);
+            Assert.Equal([1, 2, 3, 4], material.Pkcs12);
+            if (replacedProcess is not null)
+            {
+                Assert.True(replacedProcess.Completion.IsCompleted);
+                await replacedProcess.Received().DisposeAsync();
+            }
+            if (mode == VirtualOutputExecutionMode.ExternalProcess)
+            {
+                Assert.Empty(fixture.Processes);
+            }
+            else
+            {
+                var sibling = fixture.Processes[replace ? 1 : 0];
+                await sibling.DidNotReceive().StopAsync(Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>());
+                await sibling.DidNotReceive().DisposeAsync();
+            }
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>Verifies lease expiry updates external availability without an enrollment read and preserves renewed generations and siblings.</summary>
+    [Theory]
+    [InlineData(VirtualOutputRuntimeState.Healthy, false)]
+    [InlineData(VirtualOutputRuntimeState.Healthy, true)]
+    [InlineData(VirtualOutputRuntimeState.Degraded, false)]
+    [InlineData(VirtualOutputRuntimeState.Starting, false)]
+    public async Task StartAsync_ExternalLeaseExpires_UpdatesStatusAndPreservesRenewedGeneration(VirtualOutputRuntimeState state, bool observeLiveLease)
+    {
+        // Arrange
+        var time = new ManualTimeProvider();
+        await using var fixture = new OwnershipFixture(time);
+        var device = fixture.CreateDevice(VirtualOutputExecutionMode.ExternalProcess);
+        var healthy = fixture.CreateDevice(VirtualOutputExecutionMode.ExternalProcess);
+        fixture.Configuration = fixture.Configuration with { VirtualDevices = [device, healthy] };
+        await fixture.StartAsync();
+        await time.WaitForTimerAsync(TimeSpan.FromSeconds(1));
+        var bootstrap = fixture.GetBootstrap(VirtualOutputExecutionMode.ExternalProcess, device.Id);
+        var context = fixture.Register(bootstrap);
+        var healthyContext = fixture.Register(fixture.GetBootstrap(VirtualOutputExecutionMode.ExternalProcess, healthy.Id));
+        fixture.Status.Update(device.Id, current => current! with { State = state, ProtocolVersion = VirtualOutputProtocol.MaximumVersion });
+        fixture.Status.Update(healthy.Id, current => current! with { State = VirtualOutputRuntimeState.Healthy, ProtocolVersion = VirtualOutputProtocol.MaximumVersion });
+        if (observeLiveLease)
+        {
+            time.Advance(TimeSpan.FromSeconds(1));
+            await time.WaitForTimerAsync(TimeSpan.FromSeconds(1));
+        }
+        time.Advance(TimeSpan.FromSeconds(10));
+        Assert.True(fixture.Authority.Renew(new VirtualOutputLeaseRenewalRequest { Session = healthyContext, Ready = true }).Accepted);
+        await time.WaitForTimerAsync(TimeSpan.FromSeconds(1));
+
+        // Act
+        time.Advance(TimeSpan.FromSeconds(6));
+        await time.WaitForTimerAsync(TimeSpan.FromSeconds(1));
+        var expired = Assert.Single(fixture.Status.GetSnapshots(), snapshot => snapshot.VirtualDeviceId == device.Id);
+        Assert.Equal(VirtualOutputRuntimeState.Failed, expired.State);
+        var renewed = Assert.IsType<VirtualOutputExternalEnrollment>(fixture.Enrollments.Take(device.Id));
+        var renewedContext = fixture.Register(renewed.Bootstrap);
+        fixture.Status.Update(device.Id, current => current! with { State = VirtualOutputRuntimeState.Healthy, ProtocolVersion = VirtualOutputProtocol.MaximumVersion });
+        time.Advance(TimeSpan.FromSeconds(1));
+        await time.WaitForTimerAsync(TimeSpan.FromSeconds(1));
+
+        // Assert
+        Assert.Contains("lease has expired", expired.LastFailure, StringComparison.Ordinal);
+        Assert.Equal(0, expired.RestartCount);
+        Assert.True(renewed.Bootstrap.Generation > bootstrap.Generation);
+        Assert.False(fixture.Authority.Renew(new VirtualOutputLeaseRenewalRequest { Session = context, Ready = true }).Accepted);
+        Assert.True(fixture.Authority.Authorize(renewedContext, VirtualOutputCapability.ReportHealth).Authorized);
+        Assert.Equal(VirtualOutputRuntimeState.Healthy, Assert.Single(fixture.Status.GetSnapshots(), snapshot => snapshot.VirtualDeviceId == device.Id).State);
+        Assert.Equal(VirtualOutputRuntimeState.Healthy, Assert.Single(fixture.Status.GetSnapshots(), snapshot => snapshot.VirtualDeviceId == healthy.Id).State);
+        Assert.True(fixture.Authority.Authorize(healthyContext, VirtualOutputCapability.ReportHealth).Authorized);
+        Assert.Empty(fixture.Processes);
+        Assert.Equal(2, fixture.ActivationAttempts);
+    }
+
     /// <summary>Verifies missed registration is recovered without settings changes and cannot exceed the restart budget.</summary>
     [Fact]
     public async Task StartAsync_UnregisteredWorker_StopsRetriesAndQuarantines()
@@ -565,7 +709,7 @@ public sealed class VirtualOutputSupervisorTests
         private readonly Dictionary<IVirtualOutputWorkerProcess, TaskCompletionSource<int>> _completions = [];
         private VirtualOutputWorkerBootstrap? _bootstrap;
 
-        internal OwnershipFixture(TimeProvider? timeProvider = null, TimeSpan? bootstrapLifetime = null)
+        internal OwnershipFixture(TimeProvider? timeProvider = null, TimeSpan? bootstrapLifetime = null, IVirtualOutputCertificateResolver? certificateResolver = null)
         {
             Authority = new VirtualOutputSessionAuthority(timeProvider);
             Enrollments = new VirtualOutputExternalEnrollmentStore(timeProvider);
@@ -640,13 +784,19 @@ public sealed class VirtualOutputSupervisorTests
                 },
                 catalog,
                 launcher,
-                Substitute.For<IVirtualOutputCertificateResolver>(),
+                certificateResolver ?? Substitute.For<IVirtualOutputCertificateResolver>(),
                 Authority,
                 Status,
                 Enrollments,
-                NullLogger<VirtualOutputSupervisor>.Instance,
+                Logger,
                 timeProvider);
         }
+
+        /// <summary>Gets captured output lifecycle diagnostics.</summary>
+        internal ILogger<VirtualOutputSupervisor> Logger { get; } = Substitute.For<ILogger<VirtualOutputSupervisor>>();
+
+        /// <summary>Gets whether hosted reconciliation remains active.</summary>
+        internal bool IsRunning => _supervisor.ExecuteTask is { IsCompleted: false };
 
         internal StreamingConfiguration Configuration { get; set; } = new()
         {

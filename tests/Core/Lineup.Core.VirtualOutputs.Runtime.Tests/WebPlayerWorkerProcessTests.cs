@@ -21,6 +21,40 @@ namespace Lineup.Core.VirtualOutputs.Runtime.Tests;
 /// <summary>Verifies the real dedicated Web Player executable across its HTTP, IPC, FFmpeg, and cleanup boundaries.</summary>
 public sealed class WebPlayerWorkerProcessTests
 {
+    /// <summary>Verifies process-start observations can read a live append-only writer and never expose its unfinished final record.</summary>
+    [Fact]
+    public void MediaStarts_ActiveWriter_ReadsOnlyCompleteRecords()
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-start-log-");
+        try
+        {
+            var path = Path.Combine(root.FullName, "starts.txt");
+            using var writer = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
+            writer.Write(Encoding.UTF8.GetBytes("100|first-output|copy\n101|second-output|a"));
+            writer.Flush();
+
+            // Act
+            var first = ReadMediaStarts(path);
+
+            // Assert
+            Assert.Equal(["100", "first-output", "copy"], Assert.Single(first));
+
+            // Act
+            writer.Write(Encoding.UTF8.GetBytes("ac\n"));
+            writer.Flush();
+            var completed = ReadMediaStarts(path);
+
+            // Assert
+            Assert.Equal(2, completed.Count);
+            Assert.Equal(["101", "second-output", "aac"], completed[1]);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
     /// <summary>Verifies normal host builds install discoverable packages that can activate a dedicated Web Player listener.</summary>
     [Theory]
     [InlineData("Lineup.App.Web", "Debug")]
@@ -442,6 +476,18 @@ public sealed class WebPlayerWorkerProcessTests
         }
     }
 
+    private static IReadOnlyList<string[]> ReadMediaStarts(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return [];
+        }
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var reader = new StreamReader(stream);
+        // The producer may still be appending its final record.
+        return reader.ReadToEnd().Split('\n')[..^1].Select(line => line.TrimEnd('\r').Split('|')).ToArray();
+    }
+
     private sealed class WebPlayerWorkerHarness : IAsyncDisposable
     {
         private static readonly AsyncLocal<IActiveStreamRegistry?> ActiveStreamsContext = new();
@@ -479,9 +525,7 @@ public sealed class WebPlayerWorkerProcessTests
         internal IReadOnlyList<ActiveStreamSnapshot> ReportedStreams => ActiveStreams.GetActiveStreams();
 
         /// <summary>Gets each main media attempt's process ID, output directory and first audio codec.</summary>
-        internal IReadOnlyList<string[]> MediaStarts => File.Exists(_startLog)
-            ? File.ReadAllLines(_startLog).Select(line => line.Split('|')).ToArray()
-            : [];
+        internal IReadOnlyList<string[]> MediaStarts => ReadMediaStarts(_startLog);
 
         /// <summary>Verifies that startup or explicit stop released every media attempt and its broker stream.</summary>
         internal async Task AssertMediaReleasedAsync()
@@ -533,6 +577,7 @@ public sealed class WebPlayerWorkerProcessTests
                 new HashSet<VirtualOutputCapability>
                 {
                     VirtualOutputCapability.OpenStream,
+                    VirtualOutputCapability.AdmitConnection,
                     VirtualOutputCapability.ReportHealth
                 },
                 TimeSpan.FromMinutes(1),
@@ -553,7 +598,8 @@ public sealed class WebPlayerWorkerProcessTests
                 new VirtualOutputRuntimeStatus(),
                 settings,
                 activeStreams,
-                NullLogger<VirtualOutputIpcServer>.Instance);
+                NullLogger<VirtualOutputIpcServer>.Instance,
+                new PluginConnectionBudget(settings));
             await server.StartAsync(cancellationToken);
             var bootstrap = new VirtualOutputWorkerBootstrap
             {
@@ -575,7 +621,7 @@ public sealed class WebPlayerWorkerProcessTests
                 BootstrapExpiresUtc = ticket.ExpiresUtc
             };
             var startLog = Path.Combine(Path.GetTempPath(), $"lineup-media-starts-{Guid.NewGuid():N}.txt");
-            var worker = StartWorker(bootstrap, mediaProcessorFails, startupMode, startLog, workerPath);
+            var worker = await StartWorkerAsync(bootstrap, mediaProcessorFails, startupMode, startLog, workerPath, cancellationToken);
             var client = new HttpClient
             {
                 BaseAddress = new Uri($"http://127.0.0.1:{port}"),
@@ -651,24 +697,34 @@ public sealed class WebPlayerWorkerProcessTests
             throw new TimeoutException("The Web Player worker did not open its HTTP listener.");
         }
 
-        private static Process StartWorker(VirtualOutputWorkerBootstrap bootstrap, bool mediaProcessorFails, string? startupMode, string startLog, string? workerPath)
+        private static async Task<Process> StartWorkerAsync(VirtualOutputWorkerBootstrap bootstrap, bool mediaProcessorFails, string? startupMode, string startLog, string? workerPath, CancellationToken cancellationToken)
         {
+            var packageRoot = Environment.GetEnvironmentVariable("LINEUP_TEST_WORKER_PACKAGE_ROOT");
+            if (workerPath is null && !string.IsNullOrWhiteSpace(packageRoot))
+            {
+                var package = await new VirtualOutputWorkerCatalog(packageRoot).ResolveAsync("web-player", cancellationToken);
+                workerPath = Path.Combine(package.PackageRoot, package.Manifest.ExecutablePath);
+            }
             workerPath ??= Path.Combine(AppContext.BaseDirectory, "Lineup.Plugin.WebPlayer.VirtualOutputHost.dll");
             if (!File.Exists(workerPath))
             {
                 throw new FileNotFoundException("The dedicated Web Player worker was not copied to the integration-test output.", workerPath);
             }
+            var managedAssembly = string.Equals(Path.GetExtension(workerPath), ".dll", StringComparison.OrdinalIgnoreCase);
             var startInfo = new ProcessStartInfo
             {
-                FileName = "dotnet",
-                WorkingDirectory = AppContext.BaseDirectory,
+                FileName = managedAssembly ? "dotnet" : workerPath,
+                WorkingDirectory = Path.GetDirectoryName(workerPath)!,
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true
             };
-            startInfo.ArgumentList.Add(workerPath);
+            if (managedAssembly)
+            {
+                startInfo.ArgumentList.Add(workerPath);
+            }
             startInfo.Environment["LINEUP_FFMPEG_EXECUTABLE"] = ResolveFakeMediaProcessorPath();
             startInfo.Environment["LINEUP_FAKE_FFMPEG_START_LOG"] = startLog;
             startInfo.Environment["LINEUP_FAKE_FFMPEG_STARTUP_MODE"] = startupMode;

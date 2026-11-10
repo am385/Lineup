@@ -81,7 +81,14 @@ public sealed class PhysicalDeviceStatusServiceTests
         Assert.True(prior.SupportsReceiverControl);
         Assert.True(prior.SupportsRestart);
         driver.FailActivation = true;
-        configuration = configuration with { PhysicalDevices = [definition with { Name = "Renamed unavailable device" }] };
+        configuration = configuration with
+        {
+            PhysicalDevices = [definition with
+        {
+            Name = "Renamed unavailable device",
+            Adapter = new AdapterConfiguration(definition.Adapter.Kind, JsonSerializer.SerializeToElement(new { failure = "io", address = "replacement" }))
+        }]
+        };
 
         // Act
         await RefreshSelectedAsync(service, configuration, informationOnly);
@@ -192,7 +199,14 @@ public sealed class PhysicalDeviceStatusServiceTests
         var configuration = new StreamingConfiguration { PhysicalDevices = [definition] };
         await service.RefreshAsync(configuration, TestContext.Current.CancellationToken);
         var prior = service.Devices;
-        configuration = configuration with { PhysicalDevices = [definition with { Name = "Replacement" }] };
+        configuration = configuration with
+        {
+            PhysicalDevices = [definition with
+        {
+            Name = "Replacement",
+            Adapter = new AdapterConfiguration(definition.Adapter.Kind, JsonSerializer.SerializeToElement(new { address = "replacement" }))
+        }]
+        };
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         driver.BeforeCreate = token =>
         {
@@ -287,6 +301,33 @@ public sealed class PhysicalDeviceStatusServiceTests
         Assert.Equal("Status refresh failed (UnauthorizedAccessException).", runtime.Error);
         Assert.Equal("initial", runtime.Status?.Details["firmware"]);
         Assert.Equal(7, Assert.Single(runtime.Status?.Receivers ?? []).Index);
+    }
+
+    /// <summary>Verifies renamed runtime metadata is current without recreating the adapter or losing optional capabilities.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Refresh_RenamedDevice_PreservesRuntimeAndUpdatesStatus(bool informationOnly)
+    {
+        // Arrange
+        var driver = new FakePhysicalDriver();
+        var catalog = new PhysicalDeviceCatalog(new StreamingAdapterRegistry([driver], [], []));
+        var service = new PhysicalDeviceStatusService(catalog);
+        var definition = Definition("Original", null, 0);
+        await service.RefreshAsync(new StreamingConfiguration { PhysicalDevices = [definition] }, TestContext.Current.CancellationToken);
+        var original = catalog.GetRequired(definition.Id);
+
+        // Act
+        await RefreshSelectedAsync(service, new StreamingConfiguration { PhysicalDevices = [definition with { Name = "Renamed", Order = 10 }] }, informationOnly);
+
+        // Assert
+        Assert.Same(original, catalog.GetRequired(definition.Id));
+        Assert.Single(driver.CreatedIds);
+        var runtime = Assert.Single(service.Devices);
+        Assert.Equal("Renamed", runtime.Device.Name);
+        Assert.Equal("Renamed", runtime.Status?.Device.Name);
+        Assert.True(runtime.SupportsReceiverControl);
+        Assert.True(runtime.SupportsRestart);
     }
 
     private static PhysicalDeviceDefinition Definition(string name, string? failure, int order) => new()

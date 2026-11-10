@@ -5,6 +5,7 @@ namespace Lineup.App.Web.Controllers;
 
 /// <summary>Exposes management-hosted HTTP contracts for virtual HDHomeRun outputs.</summary>
 [ApiController]
+[Lineup.Core.VirtualOutputs.Hosting.PluginConnectionEndpoint]
 public sealed class HdHomeRunProxyController : ControllerBase
 {
     private readonly IHdHomeRunProxyProfileProvider _profiles;

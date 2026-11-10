@@ -5,17 +5,21 @@ using Microsoft.Extensions.Logging;
 
 namespace Lineup.Core.VirtualOutputs.Runtime;
 
+/// <summary>Tracks broker stream ownership and isolates independent orphan cleanup failures.</summary>
 internal sealed class VirtualOutputBrokerStreamRegistry
 {
     private static readonly TimeSpan OrphanSweepInterval = TimeSpan.FromSeconds(5);
     private readonly ConcurrentDictionary<VirtualOutputStreamRequestId, Entry> _streams = new();
     private readonly IVirtualOutputSessionAuthority _authority;
     private readonly ILogger _logger;
+    private readonly TimeProvider _timeProvider;
 
-    internal VirtualOutputBrokerStreamRegistry(IVirtualOutputSessionAuthority authority, ILogger logger)
+    /// <summary>Initializes stream ownership, cleanup logging, and the orphan-sweep clock.</summary>
+    internal VirtualOutputBrokerStreamRegistry(IVirtualOutputSessionAuthority authority, ILogger logger, TimeProvider? timeProvider = null)
     {
         _authority = authority;
         _logger = logger;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     internal bool TryAdd(VirtualDeviceId virtualDeviceId, VirtualOutputOpenStreamRequest request, VirtualOutputBrokeredStream stream)
@@ -73,6 +77,7 @@ internal sealed class VirtualOutputBrokerStreamRegistry
         }
     }
 
+    /// <summary>Attempts every unauthorized stream independently and logs incomplete disposal without retrying its ownership.</summary>
     internal async Task ExpireUnauthorizedAsync()
     {
         foreach (var (requestId, entry) in _streams.ToArray())
@@ -86,17 +91,25 @@ internal sealed class VirtualOutputBrokerStreamRegistry
                 "Closing orphaned broker stream {StreamSessionId} for request {RequestId} because its worker session is no longer authorized.",
                 removed.StreamSessionId,
                 removed.RequestId);
-            await removed.Stream.DisposeAsync();
+            try
+            {
+                await removed.Stream.DisposeAsync();
+            }
+            catch (Exception exception)
+            {
+                LogDisposalFailure(removed, exception);
+            }
         }
     }
 
+    /// <summary>Runs successive orphan sweeps until cancellation; unexpected maintenance faults propagate to the IPC service.</summary>
     internal async Task RunExpirationLoopAsync(CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
         {
             try
             {
-                await Task.Delay(OrphanSweepInterval, cancellationToken);
+                await Task.Delay(OrphanSweepInterval, _timeProvider, cancellationToken);
                 await ExpireUnauthorizedAsync();
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -106,16 +119,35 @@ internal sealed class VirtualOutputBrokerStreamRegistry
         }
     }
 
+    /// <summary>Attempts every remaining stream and reports all incomplete disposals after independent cleanup finishes.</summary>
     internal async Task DisposeAllAsync()
     {
+        List<Exception>? failures = null;
         foreach (var requestId in _streams.Keys)
         {
             if (_streams.TryRemove(requestId, out var entry))
             {
-                await entry.Stream.DisposeAsync();
+                try
+                {
+                    await entry.Stream.DisposeAsync();
+                }
+                catch (Exception exception)
+                {
+                    LogDisposalFailure(entry, exception);
+                    (failures ??= []).Add(exception);
+                }
             }
         }
+        if (failures is not null)
+        {
+            throw new AggregateException("One or more broker streams could not be disposed during shutdown.", failures);
+        }
     }
+
+    private void LogDisposalFailure(Entry entry, Exception exception) =>
+        _logger.LogError(exception,
+            "Cleanup of broker stream {StreamSessionId} for request {RequestId} and virtual device {VirtualDeviceId} failed; resource cleanup is incomplete.",
+            entry.StreamSessionId, entry.RequestId, entry.VirtualDeviceId);
 
     private sealed record Entry(
         VirtualDeviceId VirtualDeviceId,

@@ -19,6 +19,51 @@ namespace Lineup.App.Web.Tests.Controllers;
 /// <summary>Verifies stream transport validation, routing, and lifecycle boundaries.</summary>
 public sealed class StreamControllerTests
 {
+    /// <summary>Verifies the exempt diagnostic route cannot serve normal live media without connection admission.</summary>
+    [Fact]
+    public async Task GetCompatibilityFile_LiveSession_ReturnsNotFound()
+    {
+        // Arrange
+        var controller = CreateController();
+        var registration = await RegisterCmafSessionAsync(controller);
+        try
+        {
+            // Act
+            var result = controller.GetCompatibilityFile(registration.SessionId, CmafStreamPlanner.HlsManifestName);
+
+            // Assert
+            if (result is FileStreamResult unexpectedFile)
+            {
+                await unexpectedFile.FileStream.DisposeAsync();
+            }
+            Assert.IsType<NotFoundObjectResult>(result);
+            var live = Assert.IsType<FileStreamResult>(controller.GetCmafFile(registration.SessionId, CmafStreamPlanner.HlsManifestName));
+            await live.FileStream.DisposeAsync();
+        }
+        finally
+        {
+            controller.StopCmaf(registration.SessionId);
+        }
+    }
+
+    /// <summary>Verifies genuine synthetic Watch Test artifacts remain available through their exempt route.</summary>
+    [Fact]
+    public async Task GetCompatibilityFile_SyntheticSession_ServesArtifact()
+    {
+        // Arrange
+        await using var fixture = new CompatibilityStartupFixture("ready");
+        var started = Assert.IsType<OkObjectResult>(await fixture.Controller.StartCmafCompatibilityTest(new CmafCompatibilityTestRequest()));
+        var session = Assert.IsType<CmafCompatibilityTestResponse>(started.Value);
+
+        // Act
+        var result = fixture.Controller.GetCompatibilityFile(session.SessionId, CmafStreamPlanner.HlsManifestName);
+
+        // Assert
+        var file = Assert.IsType<FileStreamResult>(result);
+        using var reader = new StreamReader(file.FileStream);
+        Assert.Equal("#EXTM3U", await reader.ReadToEndAsync(TestContext.Current.CancellationToken));
+    }
+
     /// <summary>Verifies a partial DASH publication cannot become an invalid success or an unhandled playlist rewrite failure.</summary>
     [Theory]
     [InlineData("manifest.mpd")]

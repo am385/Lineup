@@ -15,9 +15,127 @@ using Xunit;
 
 namespace Lineup.App.Web.Tests.Services;
 
-/// <summary>Verifies equivalent-source protection survives management/dedicated Lineup Link publication and downstream import.</summary>
+/// <summary>Verifies equivalent-source protection and capacity failures survive Lineup Link publication and downstream import.</summary>
 public sealed class LineupLinkProtectionPublicationTests
 {
+    /// <summary>Verifies shutdown tolerates the listener's pending accept completing concurrently with cancellation and close.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LineupServer_DisposeWithPendingAccept_DoesNotFault(bool serveRequest)
+    {
+        // Arrange
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+        for (var index = 0; index < 20; index++)
+        {
+            var server = new LineupServer(new LineupLinkLineup { VirtualDeviceId = Guid.NewGuid() });
+            if (serveRequest)
+            {
+                using var response = await client.GetAsync(server.BaseUri, TestContext.Current.CancellationToken);
+                response.EnsureSuccessStatusCode();
+            }
+
+            // Act
+            var failure = await Record.ExceptionAsync(() => server.DisposeAsync().AsTask());
+
+            // Assert
+            Assert.Null(failure);
+        }
+    }
+
+    /// <summary>Verifies real remote failures retain capacity codes through physical import, shared acquisition and management re-export.</summary>
+    [Theory]
+    [InlineData("resource_limit", 429, "resource_limit")]
+    [InlineData("stream_limit", 429, "stream_limit")]
+    [InlineData("source_capacity_exceeded", 503, "source_capacity_exceeded")]
+    [InlineData("source_unavailable", 503, "source_unavailable")]
+    [InlineData("source_no_signal", 503, "source_no_signal")]
+    [InlineData("malformed", 429, "source_unavailable")]
+    public async Task GetStreamAsync_RemoteFailure_PreservesCapacityClassification(string code, int remoteStatus, string expectedCode)
+    {
+        // Arrange
+        var id = VirtualDeviceId.New();
+        var driver = new LineupLinkVirtualTunerDriver();
+        var grant = LineupLinkAccessGrantManager.Create(new LineupLinkVirtualConfiguration
+        {
+            RequireEncryption = false,
+            PublicBaseUrl = "http://localhost:8080/"
+        }, "capacity-test", null, DateTime.UtcNow);
+        var output = new VirtualDeviceDefinition
+        {
+            Id = id,
+            Name = "Re-export",
+            Adapter = new AdapterConfiguration(driver.Kind, JsonSerializer.SerializeToElement(grant.Configuration))
+        };
+        var lineup = new LineupLinkLineup
+        {
+            VirtualDeviceId = id.Value,
+            Channels = [new LineupLinkChannel { Key = "7.1", Number = "7.1", Name = "News" }]
+        };
+        await using var server = new LineupServer(lineup, code, remoteStatus);
+        using var client = new LineupLinkClient(new LineupLinkPhysicalConfiguration
+        {
+            BaseUrl = server.BaseUri.AbsoluteUri,
+            VirtualDeviceId = id.Value,
+            AccessToken = "test-token",
+            TransportSecurity = LineupLinkTransportSecurity.Http
+        });
+        using var importedDevice = new LineupLinkPhysicalTunerDevice(PhysicalDeviceId.New(), "Imported",
+            new LineupLinkManifest { InstanceId = Guid.NewGuid(), VirtualDeviceId = id.Value, Name = "Source", TunerCount = 1 }, client);
+        var imported = Assert.Single(await importedDevice.RefreshLineupAsync(TestContext.Current.CancellationToken));
+        var candidate = new ResolvedStreamingCandidate
+        {
+            PhysicalDevice = importedDevice,
+            SourceChannelId = imported.Id,
+            Acquisition = new StreamAcquisitionDescriptor(importedDevice.Snapshot.Id,
+                PhysicalAcquisitionKey.Create(new PhysicalStreamRequest { ChannelId = imported.Id }), importedDevice.Snapshot.Capacity),
+            PhysicalProfile = new PhysicalTranscodeProfile(),
+            DiagnosticUri = server.BaseUri
+        };
+        var route = new ResolvedStreamingRoute
+        {
+            VirtualDevice = output,
+            PhysicalDevice = importedDevice,
+            SourceChannelId = imported.Id,
+            Acquisition = candidate.Acquisition,
+            DiagnosticUri = candidate.DiagnosticUri,
+            Candidates = [candidate],
+            SourceCandidates = [imported.Id],
+            PhysicalProfile = candidate.PhysicalProfile,
+            VirtualProfile = new VirtualTranscodeProfile()
+        };
+        var settings = Substitute.For<ILineupSettingsService>();
+        settings.Settings.Returns(new LineupSettings { Streaming = new StreamingConfiguration { VirtualDevices = [output] } });
+        var routes = Substitute.For<IStreamingRouteResolver>();
+        routes.ResolveVirtualAsync(id, "7.1", Arg.Any<CancellationToken>()).Returns(Task.FromResult<ResolvedStreamingRoute?>(route));
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance);
+        var multiplexer = new TunerStreamMultiplexer(graph, Substitute.For<IMediaProcessFactory>(), NullLogger<TunerStreamMultiplexer>.Instance);
+        var streams = new VirtualMpegTsOutputService(routes, settings, Substitute.For<IMediaProbeService>(), multiplexer,
+            Substitute.For<IChannelSlateStreamFactory>(), NullLogger<VirtualMpegTsOutputService>.Instance);
+        var controller = new LineupLinkController(settings, new StreamingAdapterRegistry([], [driver], []), Substitute.For<IPhysicalDeviceCatalog>(), routes,
+            Substitute.For<IGuideOrchestrator>(), streams, new ActiveStreamRegistry(), NullLogger<LineupLinkController>.Instance)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
+        controller.Request.Headers.Authorization = "Bearer " + grant.GeneratedToken;
+
+        // Act
+        IActionResult result;
+        try
+        {
+            result = await controller.GetStreamAsync(id.Value, "7.1", TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            await graph.StopAsync(TestContext.Current.CancellationToken);
+        }
+
+        // Assert
+        var response = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, response.StatusCode);
+        Assert.Equal(expectedCode, Assert.IsType<LineupLinkError>(response.Value).Code);
+    }
+
     /// <summary>Verifies a clear equivalent remains acquirable downstream while protected-only outputs honor their slate/error policy.</summary>
     [Theory]
     [InlineData(false, false, false, ProtectedContentMode.ReturnError)]
@@ -171,8 +289,8 @@ public sealed class LineupLinkProtectionPublicationTests
             VirtualDeviceId = ticket.VirtualDeviceId,
             Generation = ticket.Generation,
             BootstrapToken = ticket.BootstrapToken,
-            MinimumProtocolVersion = 1,
-            MaximumProtocolVersion = 1
+            MinimumProtocolVersion = VirtualOutputProtocol.MinimumVersion,
+            MaximumProtocolVersion = VirtualOutputProtocol.MaximumVersion
         });
         var broker = new VirtualOutputBroker(authority, settings, adapters, Substitute.For<IPhysicalDeviceCatalog>(), routes,
             Substitute.For<IGuideOrchestrator>(), Substitute.For<IVirtualMpegTsOutputService>(), new ActiveStreamRegistry());
@@ -202,7 +320,7 @@ public sealed class LineupLinkProtectionPublicationTests
         private readonly Task _task;
 
         /// <summary>Starts an owned loopback endpoint serving the production export.</summary>
-        public LineupServer(LineupLinkLineup lineup)
+        public LineupServer(LineupLinkLineup lineup, string? failureCode = null, int status = 503)
         {
             var reservation = new TcpListener(IPAddress.Loopback, 0);
             reservation.Start();
@@ -211,7 +329,7 @@ public sealed class LineupLinkProtectionPublicationTests
             BaseUri = new Uri($"http://127.0.0.1:{port}/");
             _listener.Prefixes.Add(BaseUri.AbsoluteUri);
             _listener.Start();
-            _task = ServeAsync(lineup);
+            _task = ServeAsync(lineup, failureCode, status);
         }
 
         /// <summary>Gets the owned endpoint's ephemeral address.</summary>
@@ -232,16 +350,33 @@ public sealed class LineupLinkProtectionPublicationTests
             catch (HttpListenerException) when (_shutdown.IsCancellationRequested)
             {
             }
-            _shutdown.Dispose();
+            catch (ObjectDisposedException exception) when (_shutdown.IsCancellationRequested && exception.ObjectName == typeof(HttpListener).FullName)
+            {
+            }
+            finally
+            {
+                _shutdown.Dispose();
+            }
         }
 
-        private async Task ServeAsync(LineupLinkLineup lineup)
+        private async Task ServeAsync(LineupLinkLineup lineup, string? failureCode, int status)
         {
             while (!_shutdown.IsCancellationRequested)
             {
                 var context = await _listener.GetContextAsync().WaitAsync(_shutdown.Token);
                 context.Response.ContentType = "application/json";
-                await JsonSerializer.SerializeAsync(context.Response.OutputStream, lineup, new JsonSerializerOptions(JsonSerializerDefaults.Web), _shutdown.Token);
+                if (context.Request.Url!.AbsolutePath.Contains("/streams/", StringComparison.Ordinal) && failureCode is not null)
+                {
+                    context.Response.StatusCode = status;
+                    var body = failureCode == "malformed"
+                        ? "{"
+                        : JsonSerializer.Serialize(new LineupLinkError { Code = failureCode, Message = "Remote stream refused." }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+                    await context.Response.OutputStream.WriteAsync(System.Text.Encoding.UTF8.GetBytes(body), _shutdown.Token);
+                }
+                else
+                {
+                    await JsonSerializer.SerializeAsync(context.Response.OutputStream, lineup, new JsonSerializerOptions(JsonSerializerDefaults.Web), _shutdown.Token);
+                }
                 context.Response.Close();
             }
         }

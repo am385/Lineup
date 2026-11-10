@@ -421,8 +421,8 @@
   <data name="Settings_MaximumBrokerCallsLabel" xml:space="preserve"><value>Nombre maximal d’appels au courtier</value></data>
   <data name="Settings_MaximumConcurrentStreamsHelp" xml:space="preserve"><value>Nombre maximal de sessions logiques de consommateurs, tous formats confondus. Les producteurs partagés comptent toujours une fois par consommateur connecté. Définissez cette valeur sur 0 pour ne fixer aucune limite.</value></data>
   <data name="Settings_MaximumConcurrentStreamsLabel" xml:space="preserve"><value>Nombre maximal de flux simultanés</value></data>
-  <data name="Settings_MaximumConnectionsHelp" xml:space="preserve"><value>Limite de clients simultanés. Utilisez 0 pour la valeur par défaut de l’hôte.</value></data>
-  <data name="Settings_MaximumConnectionsLabel" xml:space="preserve"><value>Nombre maximal de connexions</value></data>
+  <data name="Settings_MaximumConnectionsHelp" xml:space="preserve"><value>Budget TCP commun à toutes les sorties de plugins, y compris celles de l’interface de gestion. Compté de la première requête de plugin à la déconnexion. Les requêtes de gestion et de diagnostic sont exclues. 0 signifie illimité ; réduire la limite ne déconnecte pas les clients existants.</value></data>
+  <data name="Settings_MaximumConnectionsLabel" xml:space="preserve"><value>Connexions de plugins du déploiement</value></data>
   <data name="Settings_MaximumRestartsHelp" xml:space="preserve"><value>Nombre de redémarrages du processus de travail après échec autorisés dans la fenêtre de redémarrage.</value></data>
   <data name="Settings_MaximumRestartsLabel" xml:space="preserve"><value>Nombre maximal de redémarrages</value></data>
   <data name="Settings_MemoryLimitHelp" xml:space="preserve"><value>Plafond de mémoire du processus de travail. Utilisez 0 pour ne configurer aucune limite.</value></data>

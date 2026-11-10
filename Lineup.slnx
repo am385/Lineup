@@ -85,6 +85,9 @@
   <Folder Name="/tests/TestSupport/">
     <Project Path="tests/TestSupport/Lineup.TestSupport.FakeFFmpeg/Lineup.TestSupport.FakeFFmpeg.csproj" />
   </Folder>
+  <Folder Name="/tests/Tools/">
+    <Project Path="tests/Tools/Lineup.Tools.VirtualOutputWorkerPackager.Tests/Lineup.Tools.VirtualOutputWorkerPackager.Tests.csproj" />
+  </Folder>
   <Folder Name="/_Solution Items/">
     <File Path=".dockerignore" />
     <File Path=".editorconfig" />

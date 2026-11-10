@@ -421,8 +421,8 @@
   <data name="Settings_MaximumBrokerCallsLabel" xml:space="preserve"><value>Maximum broker calls</value></data>
   <data name="Settings_MaximumConcurrentStreamsHelp" xml:space="preserve"><value>Maximum logical consumer sessions across all formats. Shared producers still count once per connected consumer. Set to 0 for unlimited.</value></data>
   <data name="Settings_MaximumConcurrentStreamsLabel" xml:space="preserve"><value>Maximum Concurrent Streams</value></data>
-  <data name="Settings_MaximumConnectionsHelp" xml:space="preserve"><value>Concurrent client limit. Use 0 for the host default.</value></data>
-  <data name="Settings_MaximumConnectionsLabel" xml:space="preserve"><value>Maximum connections</value></data>
+  <data name="Settings_MaximumConnectionsHelp" xml:space="preserve"><value>One TCP connection budget for all plugin outputs, including management-hosted outputs. Counted from the first plugin request until disconnect. Management and diagnostic requests are exempt. Use 0 for unlimited; reducing the limit does not disconnect existing clients.</value></data>
+  <data name="Settings_MaximumConnectionsLabel" xml:space="preserve"><value>Deployment-wide plugin connections</value></data>
   <data name="Settings_MaximumRestartsHelp" xml:space="preserve"><value>Failed worker restarts allowed within the restart window.</value></data>
   <data name="Settings_MaximumRestartsLabel" xml:space="preserve"><value>Maximum restarts</value></data>
   <data name="Settings_MemoryLimitHelp" xml:space="preserve"><value>Worker memory ceiling. Use 0 for no configured limit.</value></data>

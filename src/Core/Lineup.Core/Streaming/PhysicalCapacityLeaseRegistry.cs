@@ -7,6 +7,9 @@ namespace Lineup.Core.Streaming;
 /// <param name="TuneKey">Normalized adapter tune parameters.</param>
 public sealed record PhysicalAcquisitionKey(SourceChannelId ChannelId, string TuneKey)
 {
+    /// <summary>Gets the host runtime generation, preventing different adapter instances from sharing a capacity lease.</summary>
+    internal Guid RuntimeId { get; init; }
+
     /// <summary>Creates a key with deterministic, ordinal tune-parameter ordering.</summary>
     public static PhysicalAcquisitionKey Create(PhysicalStreamRequest request)
     {

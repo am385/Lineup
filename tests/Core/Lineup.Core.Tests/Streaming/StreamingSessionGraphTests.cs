@@ -989,6 +989,79 @@ public sealed class StreamingSessionGraphTests
         Assert.Empty(graph.GetDiagnostics().Capacity);
     }
 
+    /// <summary>Verifies cancellation bounds shutdown waiting without skipping independent acquisition stops.</summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task StopAsync_BlockedTransform_StopsAcquisitionsDespiteCanceledWait(bool cancelWait, bool cancelBeforeStop)
+    {
+        // Arrange
+        using var watchdog = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        watchdog.CancelAfter(TimeSpan.FromSeconds(10));
+        using var shutdownCancellation = new CancellationTokenSource();
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance);
+        var transformCleanupStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseTransformCleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var transformedSource = new ControlledSourceStream();
+        var rawSource = new ControlledSourceStream();
+        var rawDeviceId = PhysicalDeviceId.New();
+        await using var transformed = await graph.AcquireTransformAsync(
+            CreateDescriptor(PhysicalDeviceId.New(), "7.1", capacity: 1),
+            new StreamTransformKey("virtual", "blocked-cleanup"),
+            _ => ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(transformedSource)),
+            new BlockingCleanupTransform(transformCleanupStarted, releaseTransformCleanup.Task),
+            watchdog.Token);
+        await using var raw = await graph.AcquireAsync(
+            CreateDescriptor(rawDeviceId, "9.1", capacity: 1),
+            _ => ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(rawSource)),
+            watchdog.Token);
+        await Task.WhenAll(transformedSource.WaitForReadAsync(watchdog.Token), rawSource.WaitForReadAsync(watchdog.Token));
+        try
+        {
+            // Act
+            if (cancelBeforeStop)
+            {
+                shutdownCancellation.Cancel();
+            }
+            var stopping = graph.StopAsync(shutdownCancellation.Token);
+            await transformCleanupStarted.Task.WaitAsync(watchdog.Token);
+            if (cancelWait)
+            {
+                shutdownCancellation.Cancel();
+            }
+            else
+            {
+                Assert.False(stopping.IsCompleted);
+                Assert.Contains(graph.GetDiagnostics().Nodes, node => node.PhysicalDeviceId == rawDeviceId && node.ReceiverCount == 1);
+                releaseTransformCleanup.TrySetResult();
+            }
+            var failure = await Record.ExceptionAsync(() => stopping.WaitAsync(watchdog.Token));
+
+            // Assert
+            if (cancelWait)
+            {
+                Assert.IsAssignableFrom<OperationCanceledException>(failure);
+                Assert.DoesNotContain(graph.GetDiagnostics().Nodes, node => node.PhysicalDeviceId == rawDeviceId && node.ReceiverCount != 0);
+                await rawSource.WaitForDisposalAsync(watchdog.Token);
+            }
+            else
+            {
+                Assert.Null(failure);
+            }
+            releaseTransformCleanup.TrySetResult();
+            await graph.StopAsync(watchdog.Token);
+            await graph.StopAsync(watchdog.Token);
+            Assert.Empty(graph.GetDiagnostics().Nodes);
+            Assert.Empty(graph.GetDiagnostics().Capacity);
+        }
+        finally
+        {
+            releaseTransformCleanup.TrySetResult();
+            await graph.StopAsync(TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        }
+    }
+
     private static StreamAcquisitionDescriptor CreateDescriptor(PhysicalDeviceId deviceId, string channel, int capacity) =>
         new(
             deviceId,
@@ -1240,6 +1313,17 @@ public sealed class StreamingSessionGraphTests
             cleanup.Add("transform");
             throw new InvalidOperationException("Transform startup failed.");
         }
+    }
+
+    private sealed class BlockingCleanupTransform(TaskCompletionSource cleanupStarted, Task releaseCleanup) : IStreamTransform
+    {
+        /// <inheritdoc />
+        public ValueTask<IStreamSourceLease> StartAsync(Stream input, CancellationToken cancellationToken) =>
+            ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(input, beforeDispose: async () =>
+            {
+                cleanupStarted.TrySetResult();
+                await releaseCleanup;
+            }));
     }
 
     private sealed class ThrowingDisposeTransform : IStreamTransform

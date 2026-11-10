@@ -23,7 +23,14 @@ internal sealed record LineupStatusResponse(
     IReadOnlyList<ReceiverStatusResponse> Receivers,
     ActiveStreamsStatusResponse Streams,
     StreamingGraphStatusResponse StreamingGraph,
-    StreamingFlowsStatusResponse StreamingFlows);
+    StreamingFlowsStatusResponse StreamingFlows)
+{
+    /// <summary>Gets authoritative deployment plugin admission usage, or null when the authority is unavailable.</summary>
+    public PluginConnectionBudgetStatusResponse? PluginConnections { get; init; }
+}
+
+/// <summary>Describes the shared TCP budget and any non-disruptive limit reduction in progress.</summary>
+internal sealed record PluginConnectionBudgetStatusResponse(int MaximumConnections, int ActiveConnections, int ManagementHostedConnections, bool IsDraining, IReadOnlyDictionary<string, int> WorkerConnections);
 
 /// <summary>
 /// Represents application identity, setup, and uptime status.
@@ -297,6 +304,7 @@ internal sealed class StatusApiService
     private readonly StreamingTopologyStore? _topologyStore;
     private readonly DeviceGuideStore? _guideStore;
     private readonly IStreamingFlowSnapshotService? _streamingFlows;
+    private readonly IPluginConnectionBudget? _pluginConnections;
 
     /// <summary>
     /// Initializes the status aggregation service.
@@ -318,7 +326,8 @@ internal sealed class StatusApiService
         IVirtualOutputRuntimeStatus? virtualOutputRuntime = null,
         StreamingTopologyStore? topologyStore = null,
         DeviceGuideStore? guideStore = null,
-        IStreamingFlowSnapshotService? streamingFlows = null)
+        IStreamingFlowSnapshotService? streamingFlows = null,
+        IPluginConnectionBudget? pluginConnections = null)
     {
         _guideReader = guideReader;
         _settings = settings;
@@ -337,6 +346,7 @@ internal sealed class StatusApiService
         _topologyStore = topologyStore;
         _guideStore = guideStore;
         _streamingFlows = streamingFlows;
+        _pluginConnections = pluginConnections;
     }
 
     /// <summary>
@@ -379,7 +389,21 @@ internal sealed class StatusApiService
             GetReceiverStatuses(webSettings),
             GetActiveStreamStatuses(webSettings, generatedAtUtc),
             GetStreamingGraphStatus(),
-            GetStreamingFlowsStatus(webSettings));
+            GetStreamingFlowsStatus(webSettings))
+        {
+            PluginConnections = GetPluginConnectionStatus()
+        };
+    }
+
+    private PluginConnectionBudgetStatusResponse? GetPluginConnectionStatus()
+    {
+        if (_pluginConnections is null)
+        {
+            return null;
+        }
+        var usage = _pluginConnections.GetSnapshot();
+        return new PluginConnectionBudgetStatusResponse(usage.MaximumConnections, usage.ActiveConnections, usage.ManagementHostedConnections,
+            usage.IsDraining, usage.WorkerConnections.ToDictionary(pair => pair.Key.ToString(), pair => pair.Value));
     }
 
     private ConfigurationStatusResponse GetConfigurationStatus(LineupSettings settings, WebSettings webSettings)
@@ -419,6 +443,7 @@ internal sealed class StatusApiService
             new StreamingConfigurationStatusResponse(
                 configuration.SchemaVersion,
                 configuration.KeepWarmPeriodSeconds,
+                configuration.MaximumPluginConnections,
                 ToTranscodeProfile(configuration.PhysicalDefaults),
                 ToTranscodeProfile(configuration.VirtualDefaults),
                 configuration.PhysicalDevices.Select(device => new PhysicalDeviceConfigurationStatusResponse(
@@ -462,7 +487,6 @@ internal sealed class StatusApiService
                     !string.IsNullOrWhiteSpace(policy.CertificateReference),
                     FormatName(policy.ClientCertificateMode),
                     webSettings.RedactApiDeviceAddresses ? null : policy.AllowedNetworks,
-                    policy.MaximumConnections,
                     policy.RequestsPerMinutePerClient,
                     policy.AllowForwardedHeaders,
                     webSettings.RedactApiDeviceAddresses ? null : policy.TrustedProxies)).ToArray(),
@@ -898,7 +922,7 @@ internal sealed class StatusApiService
                 var available = output.Enabled && _publications.Exists(destination.Path);
                 var downloadUrl = settings.RedactApiUrls || !output.Enabled
                     ? null
-                    : $"/api/guide-outputs/{Uri.EscapeDataString(output.Key)}";
+                    : output.IsBuiltIn ? "/api/xmltv" : $"/api/guide-outputs/{Uri.EscapeDataString(output.Key)}";
                 return new GuideOutputStatusResponse(
                     output.Id.ToString(),
                     output.Name,

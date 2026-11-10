@@ -15,6 +15,37 @@ namespace Lineup.App.Web.Tests.Services;
 /// </summary>
 public sealed class TopologySettingsEditorTests
 {
+    /// <summary>Verifies malformed editable host text cannot throw during preview or become a valid topology.</summary>
+    [Theory]
+    [InlineData("bad host")]
+    [InlineData("http://192.0.2.1")]
+    [InlineData("https://localhost/")]
+    [InlineData("192.0.2.1:9600")]
+    [InlineData("[::1")]
+    [InlineData("")]
+    [InlineData(" ")]
+    public void AutomaticPublicBaseUri_InvalidAddress_ReturnsEmptyPreviewAndValidation(string address)
+    {
+        // Arrange
+        var editor = new TopologySettingsEditor();
+        var model = editor.Edit(TopologySettingsEditor.CreateDefault());
+        var device = Assert.Single(model.VirtualDevices);
+        device.UseDedicatedListener = true;
+        device.ListenerAddresses = address;
+        device.ListenerPort = 9600;
+
+        // Act
+        var preview = device.AutomaticPublicBaseUri;
+        var effective = device.EffectivePublicBaseUri;
+        var errors = editor.TryBuild(model, out _);
+
+        // Assert
+        Assert.Empty(preview);
+        Assert.Empty(effective);
+        Assert.Equal(address, device.ListenerAddresses);
+        Assert.NotEmpty(errors);
+    }
+
     /// <summary>Verifies invalid intermediate listener ports leave URL previews empty without altering the editable value.</summary>
     [Theory]
     [InlineData(int.MinValue)]
@@ -78,6 +109,10 @@ public sealed class TopologySettingsEditorTests
     [InlineData(VirtualOutputTransport.Https, 443, "[::]", null, "https://localhost/")]
     [InlineData(VirtualOutputTransport.Http, 8600, "::1", 9600, "http://[::1]:9600/")]
     [InlineData(VirtualOutputTransport.Http, 65_536, "localhost", 9600, "http://localhost:9600/")]
+    [InlineData(VirtualOutputTransport.Http, 9600, "0.0.0.0", null, "http://localhost:9600/")]
+    [InlineData(VirtualOutputTransport.Http, 9600, "::", null, "http://localhost:9600/")]
+    [InlineData(VirtualOutputTransport.Http, 9600, "192.0.2.10", null, "http://192.0.2.10:9600/")]
+    [InlineData(VirtualOutputTransport.Http, 9600, "[::1]", null, "http://[::1]:9600/")]
     public void AutomaticPublicBaseUri_ListenerPortEditing_ValidDerivedPort_PreservesUrl(VirtualOutputTransport transport, int port, string addresses, int? publishedPort, string expected)
     {
         // Arrange
@@ -208,7 +243,6 @@ public sealed class TopologySettingsEditorTests
         device.OverridePublicBaseUri = true;
         device.PublicBaseUri = "http://lineup.example:8765/";
         device.AllowedNetworks = "192.0.2.0/24";
-        device.MaximumConnections = 12;
         device.MaximumRestarts = 2;
         device.MaximumMemoryMib = 512;
 
@@ -230,7 +264,6 @@ public sealed class TopologySettingsEditorTests
             configuration.VirtualOutputSecurityPolicies,
             policy => string.Equals(policy.Key, hosting.Bindings[0].SecurityPolicyKey, StringComparison.OrdinalIgnoreCase));
         Assert.Equal(["192.0.2.0/24"], security.AllowedNetworks);
-        Assert.Equal(12, security.MaximumConnections);
         var worker = Assert.Single(
             configuration.VirtualOutputWorkerPolicies,
             policy => string.Equals(policy.Key, hosting.WorkerPolicyKey, StringComparison.OrdinalIgnoreCase));
@@ -507,6 +540,7 @@ public sealed class TopologySettingsEditorTests
         var editor = new TopologySettingsEditor();
         var model = editor.Edit(TopologySettingsEditor.CreateDefault());
         model.KeepWarmPeriodSeconds = 15;
+        model.MaximumPluginConnections = 12;
         model.PhysicalDefaults.MaximumVideoBitRateMbps = 18;
         model.VirtualDefaults.Audio = OutputAudioPolicy.Eac3;
         editor.AddPhysicalDevice(model, new TestPhysicalTunerDriver());
@@ -519,6 +553,7 @@ public sealed class TopologySettingsEditorTests
         // Assert
         Assert.Empty(errors);
         Assert.Equal(15, roundTrip.KeepWarmPeriodSeconds);
+        Assert.Equal(12, roundTrip.MaximumPluginConnections);
         Assert.False(roundTrip.PhysicalDevices[0].OverrideMaximumVideoBitRate);
         Assert.Equal(18, roundTrip.PhysicalDevices[0].MaximumVideoBitRateMbps);
         Assert.False(roundTrip.VirtualDevices[0].OverrideAudio);

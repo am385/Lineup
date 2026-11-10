@@ -105,6 +105,7 @@ public class StreamController : ControllerBase
 
     /// <summary>Streams one management-hosted virtual HDHomeRun channel as MPEG-TS.</summary>
     [HttpGet("/auto/v{channel}")]
+    [Lineup.Core.VirtualOutputs.Hosting.PluginConnectionEndpoint]
     [HttpGet("/hdhomerun/{virtualDeviceId}/auto/v{channel}")]
     public async Task<IActionResult> Stream(string channel, string? virtualDeviceId = null, [FromQuery] string transcode = "none")
     {
@@ -171,6 +172,7 @@ public class StreamController : ControllerBase
 
     /// <summary>Starts a management-hosted Web Player CMAF presentation.</summary>
     [HttpPost("cmaf/start/{channel}")]
+    [Lineup.Core.VirtualOutputs.Hosting.PluginConnectionEndpoint]
     public async Task<IActionResult> StartCmafStream(string channel, [FromBody] CmafStreamRequest request)
     {
         if (request.CompatibilityProfile is not null && !CmafCompatibilityProfilePolicy.IsValid(request.CompatibilityProfile))
@@ -241,6 +243,7 @@ public class StreamController : ControllerBase
             {
                 SessionId = sessionId,
                 Channel = "Watch Test",
+                IsCompatibilityTest = true,
                 Process = process,
                 CmafDirectory = directory,
                 PlaylistPath = manifestPath,
@@ -633,7 +636,7 @@ public class StreamController : ControllerBase
                         RedirectStandardError = true
                     });
                     pendingOutput.Attach(process, directory, captionProcess);
-                    captionErrorTask = MediaProcessDiagnostics.ReadTailAsync(captionProcess.StandardError);
+                    captionErrorTask = MediaProcessDiagnostics.ReadTailAsync(captionProcess.StandardError, producerToken);
                     pendingOutput.Attach(process, directory, captionProcess, captionErrorTask);
                     _ = PumpSourceAsync(selectedCandidate!, captionProcess, pendingOutput.LifetimeToken);
                 }
@@ -931,7 +934,7 @@ public class StreamController : ControllerBase
     /// Opens artifacts before creating responses so cleanup cannot invalidate a deferred file open.
     /// The response executor owns binary streams; text artifacts are read and disposed within this action.
     /// </summary>
-    [HttpGet("watch-test/{sessionId}/{filename}")]
+    [Lineup.Core.VirtualOutputs.Hosting.PluginConnectionEndpoint]
     [HttpGet("cmaf/{sessionId}/{filename}")]
     public IActionResult GetCmafFile(string sessionId, string filename, [FromQuery] long offset = 0)
     {
@@ -962,7 +965,7 @@ public class StreamController : ControllerBase
 
             Response.Headers.CacheControl = "no-cache, no-store";
             Response.Headers["X-Lineup-Subtitle-Offset"] = offset.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            return File(Array.Empty<byte>(), "text/vtt; charset=utf-8");
+            return File([], "text/vtt; charset=utf-8");
         }
 
         if (isSubtitle)
@@ -1073,6 +1076,17 @@ public class StreamController : ControllerBase
                 stream.Dispose();
             }
         }
+    }
+
+    /// <summary>Serves synthetic Watch Test artifacts without consuming plugin connection capacity.</summary>
+    [HttpGet("watch-test/{sessionId}/{filename}")]
+    public IActionResult GetCompatibilityFile(string sessionId, string filename, [FromQuery] long offset = 0)
+    {
+        if (!TryGetCmafSession(sessionId, out var session) || !session.IsCompatibilityTest)
+        {
+            return NotFound(new { error = "Session not found" });
+        }
+        return GetCmafFile(sessionId, filename, offset);
     }
 
     private static ActiveStreamFlowContext CreatePhysicalFlow(ResolvedStreamingCandidate candidate, VirtualDeviceId virtualDeviceId, string? producerNodeId = null) =>
@@ -1778,6 +1792,8 @@ public class StreamController : ControllerBase
         /// Gets or sets channel.
         /// </summary>
         public required string Channel { get; init; }
+        /// <summary>Gets whether this session owns synthetic Watch Test output rather than normal plugin media.</summary>
+        public bool IsCompatibilityTest { get; init; }
         /// <summary>
         /// Gets or sets process.
         /// </summary>
@@ -1834,7 +1850,7 @@ public class StreamController : ControllerBase
     {
         private readonly TaskCompletionSource<IActionResult> _response = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private readonly object _gate = new();
+        private readonly Lock _gate = new();
         private readonly CancellationTokenSource _lifetimeCancellation = new();
         private readonly CancellationToken _lifetimeToken;
         private StreamController? _controller;

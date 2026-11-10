@@ -154,32 +154,32 @@ public sealed class StartupSchemaGateTests
     }
 
     /// <summary>
-    /// Verifies a standalone schema-v2 streaming configuration requires a factory reset.
+    /// Verifies a future streaming schema requires a factory reset.
     /// </summary>
     [Fact]
-    public void CheckStreamingConfigurationContent_SchemaVersionTwo_ReturnsFactoryResetRequired()
+    public void CheckStreamingConfigurationContent_FutureSchema_ReturnsFactoryResetRequired()
     {
         // Arrange
-        const string settings = """{"SchemaVersion":2,"PhysicalDevices":[],"VirtualDevices":[]}""";
+        var settings = $$"""{"SchemaVersion":{{StreamingConfiguration.CurrentSchemaVersion + 1}},"PhysicalDevices":[],"VirtualDevices":[]}""";
 
         // Act
         var state = StartupSchemaGate.CheckStreamingConfigurationContent(settings);
 
         // Assert
         Assert.Equal(LineupStartupStatus.FactoryResetRequired, state.Status);
-        Assert.Contains("schema 2", state.Reason, StringComparison.Ordinal);
+        Assert.Contains($"schema {StreamingConfiguration.CurrentSchemaVersion}", state.Reason, StringComparison.Ordinal);
     }
 
     /// <summary>
     /// Verifies checking an incompatible streaming file does not modify it before confirmation.
     /// </summary>
     [Fact]
-    public async Task CheckStreamingConfiguration_SchemaVersionTwo_ReturnsFactoryResetRequiredWithoutChangingFile()
+    public async Task CheckStreamingConfiguration_FutureSchema_ReturnsFactoryResetRequiredWithoutChangingFile()
     {
         // Arrange
         var root = Directory.CreateTempSubdirectory("lineup-streaming-schema-");
         var settingsPath = Path.Combine(root.FullName, "streaming.json");
-        const string settings = """{"SchemaVersion":2,"PhysicalDevices":[],"VirtualDevices":[]}""";
+        var settings = $$"""{"SchemaVersion":{{StreamingConfiguration.CurrentSchemaVersion + 1}},"PhysicalDevices":[],"VirtualDevices":[]}""";
         await File.WriteAllTextAsync(settingsPath, settings, TestContext.Current.CancellationToken);
 
         // Act
@@ -213,6 +213,20 @@ public sealed class StartupSchemaGateTests
     {
         // Arrange
         var settings = $$"""{"SchemaVersion":{{StreamingConfiguration.CurrentSchemaVersion - 1}},"PhysicalDevices":[],"VirtualDevices":[]}""";
+
+        // Act
+        var state = StartupSchemaGate.CheckStreamingConfigurationContent(settings);
+
+        // Assert
+        Assert.Equal(LineupStartupStatus.FactoryResetRequired, state.Status);
+    }
+
+    /// <summary>Verifies unversioned standalone settings cannot adopt the new connection-budget schema implicitly.</summary>
+    [Fact]
+    public void CheckStreamingConfigurationContent_MissingSchema_ReturnsFactoryResetRequired()
+    {
+        // Arrange
+        const string settings = """{"PhysicalDevices":[],"VirtualDevices":[]}""";
 
         // Act
         var state = StartupSchemaGate.CheckStreamingConfigurationContent(settings);

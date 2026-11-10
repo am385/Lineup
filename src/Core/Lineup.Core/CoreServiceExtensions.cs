@@ -32,9 +32,14 @@ public static class CoreServiceExtensions
         services.AddSingleton(provider => new StreamingTopologyStore(provider.GetRequiredService<IDbContextFactory<EpgDbContext>>()));
         services.AddSingleton<DeviceGuideStore>();
         services.AddSingleton<IPhysicalCapacityLeaseRegistry, PhysicalCapacityLeaseRegistry>();
+        services.AddSingleton<IPluginConnectionBudget>(provider => new PluginConnectionBudget(provider.GetRequiredService<Lineup.Core.Settings.ILineupSettingsService>()));
         services.AddSingleton<IPhysicalLineupService, PhysicalLineupService>();
         services.AddSingleton<IPhysicalDeviceStatusService, PhysicalDeviceStatusService>();
-        services.AddSingleton<IStreamingSessionGraph, StreamingSessionGraph>();
+        services.AddSingleton<IStreamingSessionGraph>(provider => new StreamingSessionGraph(
+            provider.GetRequiredService<IPhysicalCapacityLeaseRegistry>(),
+            provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<StreamingSessionGraph>>(),
+            TimeProvider.System,
+            provider.GetRequiredService<PhysicalDeviceRuntimeState>()));
         services.AddSingleton<IStreamingAdapterRegistry, StreamingAdapterRegistry>();
         services.AddSingleton<PhysicalDeviceRuntimeState>();
         services.AddSingleton<IPhysicalDeviceResolver>(provider => provider.GetRequiredService<PhysicalDeviceRuntimeState>());

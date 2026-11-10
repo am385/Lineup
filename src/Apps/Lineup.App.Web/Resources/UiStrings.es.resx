@@ -421,8 +421,8 @@
   <data name="Settings_MaximumBrokerCallsLabel" xml:space="preserve"><value>Máximo de llamadas al intermediario</value></data>
   <data name="Settings_MaximumConcurrentStreamsHelp" xml:space="preserve"><value>Sesiones máximas de consumidores lógicos en todos los formatos. Los productores compartidos todavía cuentan una vez por consumidor conectado. Establezca en 0 para ilimitado.</value></data>
   <data name="Settings_MaximumConcurrentStreamsLabel" xml:space="preserve"><value>Máximo de transmisiones simultáneas</value></data>
-  <data name="Settings_MaximumConnectionsHelp" xml:space="preserve"><value>Límite de clientes simultáneos. Utilice 0 como valor predeterminado del host.</value></data>
-  <data name="Settings_MaximumConnectionsLabel" xml:space="preserve"><value>Conexiones máximas</value></data>
+  <data name="Settings_MaximumConnectionsHelp" xml:space="preserve"><value>Un único límite TCP para todas las salidas de complementos, incluidas las alojadas en la interfaz de gestión. Se cuenta desde la primera solicitud del complemento hasta la desconexión. Gestión y diagnósticos quedan exentos. 0 significa sin límite; reducirlo no desconecta clientes existentes.</value></data>
+  <data name="Settings_MaximumConnectionsLabel" xml:space="preserve"><value>Conexiones de complementos del despliegue</value></data>
   <data name="Settings_MaximumRestartsHelp" xml:space="preserve"><value>Cantidad de reinicios fallidos permitidos del proceso de trabajo dentro del período de reinicio.</value></data>
   <data name="Settings_MaximumRestartsLabel" xml:space="preserve"><value>Reinicios máximos</value></data>
   <data name="Settings_MemoryLimitHelp" xml:space="preserve"><value>Límite de memoria del proceso de trabajo. Use 0 para no configurar ningún límite.</value></data>

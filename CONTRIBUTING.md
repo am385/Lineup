@@ -52,6 +52,9 @@ It is intentionally excluded from the solution and CI/CD because the full sweep 
 The separate `Lineup.Integration.Streaming.Sweep.Tests` xunit project participates in the normal solution gate and
 exercises only deterministic policies, persistence, ownership and reports; it never launches the live harness.
 
+Packaging regressions run in `Lineup.Tools.VirtualOutputWorkerPackager.Tests` as part of the solution gate. They use the installed SDK to publish tiny owned temporary projects and verify shared inventory, manifests, cache repair and real MSBuild publish/opt-out behavior without hardware.
+For installed Windows or Linux worker validation, set `LINEUP_TEST_WORKER_PACKAGE_ROOT` to a package tree before running `HdHomeRunWorkerProcessTests` or the `Worker_*` cases in `WebPlayerWorkerProcessTests`. These fixtures resolve hash-verified packaged workers instead of test-output assemblies and exercise local authenticated IPC, loopback HTTP and deterministic media cleanup. Explicit worker paths used by host-build tests take precedence. Leave the variable unset for ordinary source tests.
+
 ### Running the Web App
 
 ```bash
@@ -104,6 +107,7 @@ The app starts on `http://localhost:8080`.
 - Every test must contain explicit `// Arrange`, `// Act`, and `// Assert` sections.
 - Test the requested outcome directly, including meaningful failure and edge cases.
 - Keep tests deterministic and independent of execution order.
+- The Web UI's `Dashboard_RemainingDurationFormat` and `Dashboard_ChannelGapDurationFormat` resources are executable .NET `TimeSpan` formats, not ordinary translated text. Preserve `d`, `h`, and `m` numeric tokens and quote literal units, for example `h' hrs 'm' min'`. `UiLocalizationTests` exercises both formats with zero, hourly, and multi-day durations in every supported culture.
 - In bUnit tests, await `ClickAsync(new())` when the click handler performs asynchronous work before asserting completion. Use `Click()` only for synchronous handlers.
 - When testing an in-flight operation, retain the `ClickAsync` task, assert the pending state, release any controlled dependency, and await the task before disposing the component.
 

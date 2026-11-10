@@ -13,6 +13,7 @@
     <ProjectReference Include="..\..\Core\Lineup.Core.Hosting\Lineup.Core.Hosting.csproj" />
     <ProjectReference Include="..\..\Core\Lineup.Core.Streaming.FFmpeg\Lineup.Core.Streaming.FFmpeg.csproj" />
     <ProjectReference Include="..\..\Core\Lineup.Core.VirtualOutputs.Runtime\Lineup.Core.VirtualOutputs.Runtime.csproj" />
+    <ProjectReference Include="..\..\Core\Lineup.Core.VirtualOutputs.Hosting\Lineup.Core.VirtualOutputs.Hosting.csproj" />
     <ProjectReference Include="..\..\Plugins\GuideOutputs\Lineup.Plugin.GuideOutputs.Json.Plugin\Lineup.Plugin.GuideOutputs.Json.Plugin.csproj" />
     <ProjectReference Include="..\..\Plugins\GuideOutputs\Lineup.Plugin.GuideOutputs.Xmltv.Plugin\Lineup.Plugin.GuideOutputs.Xmltv.Plugin.csproj" />
     <ProjectReference Include="..\..\Plugins\SiliconDust\Lineup.Plugin.SiliconDust.GuideSource\Lineup.Plugin.SiliconDust.GuideSource.csproj" />

@@ -31,7 +31,10 @@ public enum VirtualOutputIpcOperation
     CloseStream = 7,
 
     /// <summary>Report the final media presentation produced for one opened stream.</summary>
-    ReportStreamStatus = 8
+    ReportStreamStatus = 8,
+
+    /// <summary>Retain one public TCP connection permit until this IPC ownership channel closes.</summary>
+    AdmitConnection = 9
 }
 
 /// <summary>Contains one length-prefixed IPC operation and typed JSON payload.</summary>

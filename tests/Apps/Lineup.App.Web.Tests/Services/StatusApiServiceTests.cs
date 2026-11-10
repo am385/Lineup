@@ -1,11 +1,17 @@
 using System.Text.Json;
+using System.Net;
 using Lineup.Core.Common.Configuration;
 using Lineup.Core.Extensibility.Configuration;
 using Lineup.Core.VirtualOutputs.Protocol;
 using Lineup.Core.VirtualOutputs.Runtime;
 using Lineup.App.Web.Services;
+using Lineup.Plugin.GuideOutputs.Xmltv.Plugin;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Xunit;
@@ -18,6 +24,152 @@ namespace Lineup.App.Web.Tests.Services;
 public class StatusApiServiceTests
 {
     private static readonly JsonSerializerOptions WebJsonOptions = new(JsonSerializerDefaults.Web);
+
+    /// <summary>Verifies advertised built-in and custom guide URLs against the production download endpoints, including privacy and unavailable publications.</summary>
+    [Theory]
+    [InlineData(true, false, true, "custom_guide")]
+    [InlineData(true, false, true, "custom guide+key")]
+    [InlineData(true, true, true, "custom_guide")]
+    [InlineData(false, false, true, "custom_guide")]
+    [InlineData(true, false, false, "custom_guide")]
+    public async Task GetStatusAsync_GuideDownloads_AdvertisesWorkingProductionRoutes(bool enabled, bool redactUrls, bool published, string customKey)
+    {
+        // Arrange
+        using var fixture = CreateFixture();
+        var root = Directory.CreateTempSubdirectory("lineup-status-guides-");
+        try
+        {
+            var builtIn = XmltvGuideOutputDriver.CreateBuiltIn(Path.Combine(root.FullName, "global.xml")) with { Enabled = enabled };
+            var custom = new GuideOutputDefinition
+            {
+                Id = GuideOutputId.New(),
+                Name = "Custom guide",
+                Key = customKey,
+                Enabled = enabled,
+                Adapter = XmltvGuideOutputDriver.CreateBuiltIn(Path.Combine(root.FullName, "custom.xml")).Adapter
+            };
+            fixture.Settings.Streaming = fixture.Settings.Streaming with { GuideOutputs = [builtIn, custom] };
+            fixture.Settings.XmltvOutputPath = new XmltvGuideOutputDriver().ResolveDestination(builtIn.Adapter).Path;
+            fixture.WebSettings.RedactApiUrls = redactUrls;
+            var driver = new XmltvGuideOutputDriver();
+            fixture.Adapters.GetGuideOutput(XmltvGuideOutputDriver.AdapterKind).Returns(driver);
+            fixture.Adapters.GetGuideOutputSettings(XmltvGuideOutputDriver.AdapterKind).Returns(driver);
+            if (published)
+            {
+                foreach (var output in new[] { builtIn, custom })
+                {
+                    await File.WriteAllTextAsync(driver.ResolveDestination(output.Adapter).Path, $"<tv>{output.Key}</tv>", TestContext.Current.CancellationToken);
+                }
+            }
+            var settingsService = Substitute.For<ILineupSettingsService>();
+            settingsService.Settings.Returns(fixture.Settings);
+            var guides = Substitute.For<ITopologyGuideService>();
+            var builder = WebApplication.CreateBuilder(new WebApplicationOptions { ContentRootPath = root.FullName });
+            builder.Logging.ClearProviders();
+            builder.WebHost.ConfigureKestrel(options => options.Listen(IPAddress.Loopback, 0));
+            builder.Services.AddSingleton(settingsService);
+            builder.Services.AddSingleton(fixture.Adapters);
+            builder.Services.AddSingleton(guides);
+            builder.Services.AddSingleton<IXmltvPublicationStore, XmltvPublicationStore>();
+            await using var app = builder.Build();
+            app.MapGuideOutputEndpoints();
+            await app.StartAsync(TestContext.Current.CancellationToken);
+            try
+            {
+                using var client = new HttpClient { BaseAddress = new Uri(Assert.Single(app.Urls)), Timeout = TimeSpan.FromSeconds(10) };
+
+                // Act
+                var status = await fixture.Service.GetStatusAsync(TestContext.Current.CancellationToken);
+
+                // Assert
+                foreach (var output in new[] { builtIn, custom })
+                {
+                    var projected = Assert.Single(status.Guide.Outputs, candidate => candidate.Key == output.Key);
+                    var expectedUrl = output.IsBuiltIn ? "/api/xmltv" : $"/api/guide-outputs/{Uri.EscapeDataString(output.Key)}";
+                    Assert.Equal(enabled && published, projected.Available);
+                    using var response = await client.GetAsync(projected.DownloadUrl ?? expectedUrl, TestContext.Current.CancellationToken);
+                    Assert.Equal(enabled && published ? HttpStatusCode.OK : HttpStatusCode.NotFound, response.StatusCode);
+                    Assert.Equal(enabled && !redactUrls ? expectedUrl : null, projected.DownloadUrl);
+                    if (enabled && published)
+                    {
+                        Assert.Equal($"<tv>{output.Key}</tv>", await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+                        Assert.Equal("application/xml", response.Content.Headers.ContentType?.MediaType);
+                        Assert.Equal("attachment", response.Content.Headers.ContentDisposition?.DispositionType);
+                    }
+                    if (enabled && !published)
+                    {
+                        await guides.Received(1).PublishAsync(output.Id, Arg.Any<CancellationToken>());
+                    }
+                }
+                if (!enabled || published)
+                {
+                    await guides.DidNotReceive().PublishAsync(Arg.Any<GuideOutputId>(), Arg.Any<CancellationToken>());
+                }
+            }
+            finally
+            {
+                await app.StopAsync(CancellationToken.None);
+            }
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>Verifies the public API reports authoritative over-limit draining rather than inferred worker-health counters.</summary>
+    [Fact]
+    public async Task GetStatusAsync_PluginConnectionBudget_ReportsDrainingAndOwnership()
+    {
+        // Arrange
+        var budget = Substitute.For<IPluginConnectionBudget>();
+        var worker = VirtualDeviceId.New();
+        budget.GetSnapshot().Returns(new PluginConnectionBudgetSnapshot(1, 2, 1, new Dictionary<VirtualDeviceId, int> { [worker] = 1 }));
+        using var fixture = CreateFixture(pluginConnections: budget);
+
+        // Act
+        var status = await fixture.Service.GetStatusAsync(TestContext.Current.CancellationToken);
+        var serialized = JsonSerializer.SerializeToElement(status, WebJsonOptions);
+
+        // Assert
+        var usage = serialized.GetProperty("pluginConnections");
+        Assert.Equal(1, usage.GetProperty("maximumConnections").GetInt32());
+        Assert.Equal(2, usage.GetProperty("activeConnections").GetInt32());
+        Assert.Equal(1, usage.GetProperty("managementHostedConnections").GetInt32());
+        Assert.True(usage.GetProperty("isDraining").GetBoolean());
+        Assert.Equal(1, usage.GetProperty("workerConnections").GetProperty(worker.ToString()).GetInt32());
+    }
+
+    /// <summary>Verifies the public device and worker projections agree on external-worker availability and recovery.</summary>
+    [Theory]
+    [InlineData(VirtualOutputRuntimeState.Healthy, true)]
+    [InlineData(VirtualOutputRuntimeState.Failed, false)]
+    [InlineData(VirtualOutputRuntimeState.Starting, false)]
+    [InlineData(VirtualOutputRuntimeState.Degraded, false)]
+    public async Task GetStatusAsync_ExternalWorkerState_ControlsPublicAvailability(VirtualOutputRuntimeState state, bool available)
+    {
+        // Arrange
+        using var fixture = CreateFixture();
+        var device = Assert.Single(fixture.Settings.Streaming.VirtualDevices);
+        fixture.Settings.Streaming = fixture.Settings.Streaming with
+        {
+            VirtualDevices = [device with { Hosting = new VirtualOutputHostingDefinition { ExecutionMode = VirtualOutputExecutionMode.ExternalProcess, WorkerPolicyKey = "external" } }]
+        };
+        var failure = state == VirtualOutputRuntimeState.Failed ? "The worker lease has expired." : null;
+        fixture.VirtualOutputRuntime.Update(device.Id, current => current! with { State = state, Generation = 2, LastFailure = failure });
+
+        // Act
+        var result = await fixture.Service.GetStatusAsync(TestContext.Current.CancellationToken);
+
+        // Assert
+        var output = Assert.Single(result.VirtualDevices);
+        var worker = Assert.Single(result.VirtualOutputWorkers);
+        Assert.Equal(available, output.Available);
+        Assert.Equal(failure, output.Error);
+        Assert.Equal(state.ToString(), worker.State);
+        Assert.Equal(2, worker.Generation);
+        Assert.Equal(failure, worker.LastFailure);
+    }
 
     /// <summary>Verifies failed activation appears in the runtime API projection rather than only in configured-device metadata.</summary>
     [Fact]
@@ -75,9 +227,9 @@ public class StatusApiServiceTests
     {
         // Arrange
         using var fixture = CreateFixture(useRealStreamingFlows: true, clientAddress: clientAddress);
-        fixture.Settings.RedactApiClientAddresses = redactClients;
-        fixture.Settings.RedactApiDeviceAddresses = redactDevices;
-        fixture.Settings.RedactApiUrls = redactUrls;
+        fixture.WebSettings.RedactApiClientAddresses = redactClients;
+        fixture.WebSettings.RedactApiDeviceAddresses = redactDevices;
+        fixture.WebSettings.RedactApiUrls = redactUrls;
         var snapshot = fixture.StreamingFlows.GetSnapshot();
         var originalConsumer = Assert.Single(snapshot.GetLane(StreamingFlowLane.Consumer));
         var originalPath = Assert.Single(snapshot.ActivePaths);
@@ -145,7 +297,7 @@ public class StatusApiServiceTests
     {
         // Arrange
         using var fixture = CreateFixture(useRealStreamingFlows: true, clientAddress: null);
-        fixture.Settings.RedactApiClientAddresses = redactClients;
+        fixture.WebSettings.RedactApiClientAddresses = redactClients;
 
         // Act
         var result = await fixture.Service.GetStatusAsync(TestContext.Current.CancellationToken);
@@ -172,9 +324,9 @@ public class StatusApiServiceTests
     {
         // Arrange
         using var fixture = CreateFixture();
-        fixture.Settings.RedactApiClientAddresses = true;
-        fixture.Settings.RedactApiDeviceAddresses = false;
-        fixture.Settings.RedactApiUrls = false;
+        fixture.WebSettings.RedactApiClientAddresses = true;
+        fixture.WebSettings.RedactApiDeviceAddresses = false;
+        fixture.WebSettings.RedactApiUrls = false;
 
         // Act
         var result = await fixture.Service.GetStatusAsync(TestContext.Current.CancellationToken);
@@ -261,9 +413,9 @@ public class StatusApiServiceTests
     {
         // Arrange
         using var fixture = CreateFixture();
-        fixture.Settings.RedactApiClientAddresses = true;
-        fixture.Settings.RedactApiDeviceAddresses = true;
-        fixture.Settings.RedactApiUrls = true;
+        fixture.WebSettings.RedactApiClientAddresses = true;
+        fixture.WebSettings.RedactApiDeviceAddresses = true;
+        fixture.WebSettings.RedactApiUrls = true;
 
         // Act
         var result = await fixture.Service.GetStatusAsync(TestContext.Current.CancellationToken);
@@ -408,12 +560,17 @@ public class StatusApiServiceTests
         Assert.True(import.HasSupplementalMetadata);
     }
 
-    private static StatusApiFixture CreateFixture(LineupStartupState? startupState = null, bool useRealStreamingFlows = false, string? clientAddress = "192.0.2.20:54321", IPhysicalDeviceStatusService? statuses = null)
+    private static StatusApiFixture CreateFixture(
+        LineupStartupState? startupState = null,
+        bool useRealStreamingFlows = false,
+        string? clientAddress = "192.0.2.20:54321",
+        IPhysicalDeviceStatusService? statuses = null,
+        IPluginConnectionBudget? pluginConnections = null
+    )
     {
         var xmltvPath = Path.Combine(Path.GetTempPath(), $"lineup-status-{Guid.NewGuid():N}.xml");
         var settings = new LineupSettings
         {
-            IsSetupComplete = true,
             XmltvOutputPath = xmltvPath
         };
         var physicalDeviceId = PhysicalDeviceId.New();
@@ -598,16 +755,13 @@ public class StatusApiServiceTests
         var contexts = new TestDbContextFactory(databaseOptions);
         var topologyStore = new StreamingTopologyStore(contexts);
         var guideStore = new DeviceGuideStore(contexts);
-        var virtualOutputRuntime = Substitute.For<IVirtualOutputRuntimeStatus>();
-        virtualOutputRuntime.GetSnapshots().Returns(
-        [
-            new VirtualOutputRuntimeSnapshot
-            {
-                VirtualDeviceId = virtualDeviceId,
-                State = VirtualOutputRuntimeState.Healthy,
-                Bindings = ["http://lineup.local:8080/"]
-            }
-        ]);
+        var virtualOutputRuntime = new VirtualOutputRuntimeStatus();
+        virtualOutputRuntime.Set(new VirtualOutputRuntimeSnapshot
+        {
+            VirtualDeviceId = virtualDeviceId,
+            State = VirtualOutputRuntimeState.Healthy,
+            Bindings = ["http://lineup.local:8080/"]
+        });
         var streamingFlows = Substitute.For<IStreamingFlowSnapshotService>();
         streamingFlows.GetSnapshot().Returns(new StreamingFlowSnapshot(
             [new StreamingFlowNode("multiplexer", StreamingFlowLane.Multiplexer, "Shared Multiplexer", "Reference-counted stream graph", StreamingFlowState.Active, [])],
@@ -630,10 +784,13 @@ public class StatusApiServiceTests
         IStreamingFlowSnapshotService flowService = useRealStreamingFlows
             ? new StreamingFlowSnapshotService(settingsService, graph, [], activeStreams, statuses ?? deviceState)
             : streamingFlows;
+        var webSettings = new WebSettings { IsSetupComplete = true };
+        var webSettingsService = Substitute.For<IWebSettingsService>();
+        webSettingsService.Settings.Returns(webSettings);
         var service = new StatusApiService(
             guideReader,
             settingsService,
-            CreateWebSettingsService(settings),
+            webSettingsService,
             statuses ?? deviceState,
             autoFetch,
             activeStreams,
@@ -647,8 +804,9 @@ public class StatusApiServiceTests
             virtualOutputRuntime,
             topologyStore: topologyStore,
             guideStore: guideStore,
-            streamingFlows: flowService);
-        return new StatusApiFixture(settings, guideReader, service, adapters, topologyStore, guideStore, physicalDeviceId, databasePath, flowService);
+            streamingFlows: flowService,
+            pluginConnections: pluginConnections);
+        return new StatusApiFixture(settings, webSettings, guideReader, service, adapters, topologyStore, guideStore, physicalDeviceId, databasePath, flowService, virtualOutputRuntime);
     }
 
     private static IGuideSourceDriver CreateGuideDriver()
@@ -667,19 +825,6 @@ public class StatusApiServiceTests
         return provider;
     }
 
-    private static IWebSettingsService CreateWebSettingsService(LineupSettings settings)
-    {
-        var service = Substitute.For<IWebSettingsService>();
-        service.Settings.Returns(_ => new WebSettings
-        {
-            IsSetupComplete = settings.IsSetupComplete,
-            RedactApiClientAddresses = settings.RedactApiClientAddresses,
-            RedactApiDeviceAddresses = settings.RedactApiDeviceAddresses,
-            RedactApiUrls = settings.RedactApiUrls
-        });
-        return service;
-    }
-
     private static HDHomeRunDeviceInfo CreatePhysicalDevice() => new()
     {
         FriendlyName = "HDHomeRun FLEX",
@@ -695,6 +840,7 @@ public class StatusApiServiceTests
 
     private sealed record StatusApiFixture(
         LineupSettings Settings,
+        WebSettings WebSettings,
         ILineupGuideReader GuideReader,
         StatusApiService Service,
         IStreamingAdapterRegistry Adapters,
@@ -702,7 +848,8 @@ public class StatusApiServiceTests
         DeviceGuideStore GuideStore,
         PhysicalDeviceId PhysicalDeviceId,
         string DatabasePath,
-        IStreamingFlowSnapshotService StreamingFlows) : IDisposable
+        IStreamingFlowSnapshotService StreamingFlows,
+        VirtualOutputRuntimeStatus VirtualOutputRuntime) : IDisposable
     {
         public void Dispose()
         {

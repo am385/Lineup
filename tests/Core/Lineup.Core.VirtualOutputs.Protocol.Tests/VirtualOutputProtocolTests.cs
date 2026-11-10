@@ -6,31 +6,60 @@ namespace Lineup.Core.VirtualOutputs.Protocol.Tests;
 /// <summary>Verifies isolated virtual-output protocol negotiation and boundary validation.</summary>
 public sealed class VirtualOutputProtocolTests
 {
-    /// <summary>Verifies new operations do not change the version-one wire identifiers.</summary>
+    /// <summary>Verifies the unreleased Lineup 3.0 contract keeps its initial schema and single worker protocol baseline.</summary>
     [Fact]
-    public void IpcOperations_VersionTwoAdditions_PreserveVersionOneValues()
+    public void ReleaseContracts_LineupThree_UseInitialVersions()
     {
+        // Arrange
+        var configuration = new StreamingConfiguration { MaximumPluginConnections = 8 };
+
         // Act
-        var reportHealth = (int)VirtualOutputIpcOperation.ReportHealth;
-        var closeStream = (int)VirtualOutputIpcOperation.CloseStream;
-        var reportStreamStatus = (int)VirtualOutputIpcOperation.ReportStreamStatus;
+        var negotiated = VirtualOutputProtocol.Negotiate(1, 1);
 
         // Assert
-        Assert.Equal(6, reportHealth);
-        Assert.Equal(7, closeStream);
-        Assert.Equal(8, reportStreamStatus);
+        Assert.Equal(1, StreamingConfiguration.CurrentSchemaVersion);
+        Assert.Equal(1, configuration.SchemaVersion);
+        Assert.Equal(8, configuration.MaximumPluginConnections);
+        Assert.Equal(1, VirtualOutputProtocol.MinimumVersion);
+        Assert.Equal(1, VirtualOutputProtocol.MaximumVersion);
+        Assert.Equal(1, negotiated);
+    }
+
+    /// <summary>Verifies the single Lineup 3.0 worker contract retains its operation identifiers.</summary>
+    [Fact]
+    public void IpcOperations_CurrentContract_PreservesWireValues()
+    {
+        // Arrange
+        int[] expected = [6, 7, 8, 9];
+
+        // Act
+        int[] actual =
+        [
+            (int)VirtualOutputIpcOperation.ReportHealth,
+            (int)VirtualOutputIpcOperation.CloseStream,
+            (int)VirtualOutputIpcOperation.ReportStreamStatus,
+            (int)VirtualOutputIpcOperation.AdmitConnection
+        ];
+
+        // Assert
+        Assert.Equal(expected, actual);
     }
 
     /// <summary>Verifies negotiation selects the newest mutually supported version.</summary>
     [Theory]
     [InlineData(1, 1, 1)]
-    [InlineData(1, 2, 2)]
-    [InlineData(2, 3, 2)]
+    [InlineData(1, 2, 1)]
+    [InlineData(2, 3, null)]
+    [InlineData(3, 3, null)]
+    [InlineData(4, 4, null)]
     [InlineData(2, 1, null)]
     public void Negotiate_PeerRange_ReturnsNewestCompatibleVersion(int minimum, int maximum, int? expected)
     {
+        // Arrange
+        var peerRange = (Minimum: minimum, Maximum: maximum);
+
         // Act
-        var actual = VirtualOutputProtocol.Negotiate(minimum, maximum);
+        var actual = VirtualOutputProtocol.Negotiate(peerRange.Minimum, peerRange.Maximum);
 
         // Assert
         Assert.Equal(expected, actual);

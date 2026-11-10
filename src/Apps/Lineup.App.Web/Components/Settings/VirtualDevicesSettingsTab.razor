@@ -328,11 +328,6 @@
                                                     <div class="form-text">@Text["Settings_AllowedClientNetworksHelp"]</div>
                                                 </div>
                                                 <div class="col-md-3">
-                                                    <label class="form-label" for="@($"listenerConnections-{index}")">@Text["Settings_MaximumConnectionsLabel"]</label>
-                                                    <input id="@($"listenerConnections-{index}")" class="form-control" type="number" min="0" @bind="device.MaximumConnections" />
-                                                    <div class="form-text">@Text["Settings_MaximumConnectionsHelp"]</div>
-                                                </div>
-                                                <div class="col-md-3">
                                                     <label class="form-label" for="@($"listenerRate-{index}")">@Text["Settings_RequestRateLabel"]</label>
                                                     <input id="@($"listenerRate-{index}")" class="form-control" type="number" min="0" @bind="device.RequestsPerMinutePerClient" />
                                                     <div class="form-text">@Text["Settings_RequestRateHelp"]</div>

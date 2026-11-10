@@ -187,7 +187,7 @@ public sealed class VirtualOutputWorkerLauncherTests
                         ExecutablePath = executable,
                         ExecutableSha256 = hash,
                         AdapterKinds = ["probe"],
-                        MinimumProtocolVersion = 1,
+                        MinimumProtocolVersion = VirtualOutputProtocol.MinimumVersion,
                         MaximumProtocolVersion = VirtualOutputProtocol.MaximumVersion,
                         MinimumLineupVersion = "3.0.0",
                         SettingsDescriptor = new AdapterSettingsDescriptor { AdapterKind = "probe" }

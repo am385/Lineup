@@ -1,6 +1,7 @@
 using System.IO.Pipes;
 using System.Net.Sockets;
 using Lineup.Core.VirtualOutputs.Protocol;
+using Microsoft.Extensions.Logging;
 
 namespace Lineup.Core.VirtualOutputs.Hosting;
 
@@ -94,6 +95,48 @@ public sealed class VirtualOutputBrokerClient
             var response = await VirtualOutputWireProtocol.ReadAsync<VirtualOutputIpcResponse>(connection, cancellationToken);
             ThrowIfFailed(response);
             return new VirtualOutputClientStream(this, connection, request, response.ReadPayload<VirtualOutputOpenStreamResponse>());
+        }
+        catch
+        {
+            await connection.DisposeAsync();
+            throw;
+        }
+    }
+
+    /// <summary>Owns one connection permit until disposal and aborts its public transport if ownership is lost.</summary>
+    public async Task<VirtualOutputClientConnection> AdmitConnectionAsync(VirtualOutputConnectionAdmissionRequest request, Action abortConnection, ILogger logger, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(abortConnection);
+        ArgumentNullException.ThrowIfNull(logger);
+        using var admissionTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var admissionCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, admissionTimeout.Token);
+        Stream connection;
+        try
+        {
+            connection = await ConnectAsync(admissionCancellation.Token);
+        }
+        catch (OperationCanceledException) when (admissionTimeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw new VirtualOutputClientException(VirtualOutputFailureCode.Unavailable, "The connection admission control plane did not respond.");
+        }
+        try
+        {
+            await VirtualOutputWireProtocol.WriteAsync(
+                connection, VirtualOutputIpcRequest.Create(VirtualOutputIpcOperation.AdmitConnection, request), admissionCancellation.Token);
+            var response = await VirtualOutputWireProtocol.ReadAsync<VirtualOutputIpcResponse>(connection, admissionCancellation.Token);
+            ThrowIfFailed(response);
+            if (!response.ReadPayload<VirtualOutputConnectionAdmissionResponse>().Admitted)
+            {
+                throw new InvalidDataException("The broker did not acknowledge connection admission.");
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            return new VirtualOutputClientConnection(connection, abortConnection, logger);
+        }
+        catch (OperationCanceledException) when (admissionTimeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            await connection.DisposeAsync();
+            throw new VirtualOutputClientException(VirtualOutputFailureCode.Unavailable, "The connection admission control plane did not respond.");
         }
         catch
         {

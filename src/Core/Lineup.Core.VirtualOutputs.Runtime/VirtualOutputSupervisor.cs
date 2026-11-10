@@ -123,7 +123,8 @@ public sealed class VirtualOutputSupervisor : BackgroundService
         VirtualOutputCapability.ReadLineup,
         VirtualOutputCapability.ReadGuide,
         VirtualOutputCapability.OpenStream,
-        VirtualOutputCapability.ReportHealth
+        VirtualOutputCapability.ReportHealth,
+        VirtualOutputCapability.AdmitConnection
     };
 
     private readonly ILineupSettingsService _settings;
@@ -202,6 +203,7 @@ public sealed class VirtualOutputSupervisor : BackgroundService
                         await ReconcileAsync(stoppingToken);
                     }
                     await CheckManagedWorkerLivenessAsync(stoppingToken);
+                    CheckExternalWorkerLiveness();
                 }
                 finally
                 {
@@ -278,6 +280,31 @@ public sealed class VirtualOutputSupervisor : BackgroundService
         }
     }
 
+    private void CheckExternalWorkerLiveness()
+    {
+        foreach (var snapshot in _status.GetSnapshots().Where(snapshot => _externalActive.ContainsKey(snapshot.VirtualDeviceId)))
+        {
+            // Enrollment can replace this generation without a settings reconciliation.
+            _status.Update(snapshot.VirtualDeviceId, current =>
+            {
+                if (current is not { Generation: { } generation, ProtocolVersion: not null, State: VirtualOutputRuntimeState.Starting or VirtualOutputRuntimeState.Healthy or VirtualOutputRuntimeState.Degraded }
+                    || _authority.HasActiveSession(snapshot.VirtualDeviceId, generation))
+                {
+                    return current ?? snapshot;
+                }
+
+                const string failure = "The externally supervised worker session is no longer active or its lease has expired. Waiting for re-enrollment.";
+                _logger.LogWarning("External virtual-output worker for {VirtualDeviceId} is unavailable: {Failure}", snapshot.VirtualDeviceId, failure);
+                return current with
+                {
+                    State = VirtualOutputRuntimeState.Failed,
+                    ReadySinceUtc = null,
+                    LastFailure = failure
+                };
+            });
+        }
+    }
+
     private async Task ReconcileAsync(CancellationToken cancellationToken)
     {
         var configuration = _settings.Settings.Streaming;
@@ -298,7 +325,25 @@ public sealed class VirtualOutputSupervisor : BackgroundService
         foreach (var device in desired.Values)
         {
             _ownedOutputs.Add(device.Id);
-            var fingerprint = CreateFingerprint(device, configuration);
+            string fingerprint;
+            try
+            {
+                fingerprint = CreateFingerprint(device, configuration);
+            }
+            catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException or System.Security.SecurityException)
+            {
+                ResetFailureState(device.Id);
+                await StopWorkerAsync(device.Id, cancellationToken);
+                _logger.LogError(exception, "Unable to evaluate isolated virtual output {VirtualDeviceId} certificate configuration", device.Id);
+                _status.Set(new VirtualOutputRuntimeSnapshot
+                {
+                    VirtualDeviceId = device.Id,
+                    State = VirtualOutputRuntimeState.Failed,
+                    Bindings = SafeBindings(device.Hosting!),
+                    LastFailure = "The virtual-output TLS certificate reference or file metadata could not be read. Correct the certificate configuration and retry."
+                });
+                continue;
+            }
             if (_pendingRetries.TryGetValue(device.Id, out var pendingRetry))
             {
                 if (!string.Equals(pendingRetry.Fingerprint, fingerprint, StringComparison.Ordinal))

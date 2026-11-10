@@ -1,16 +1,10 @@
 using System.Globalization;
-using System.Net;
-using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
-using System.Threading.RateLimiting;
-using Lineup.Core.Common.Networking;
 using Lineup.Core.Common.Streaming;
 using Lineup.Plugin.SiliconDust.HDHomeRun.VirtualTuner;
 using Lineup.Core.VirtualOutputs.Hosting;
 using Lineup.Core.VirtualOutputs.Protocol;
-using Microsoft.AspNetCore.Server.Kestrel.Https;
-using Microsoft.AspNetCore.Server.Kestrel.Core;
 
 var bootstrap = await VirtualOutputWorkerBootstrapReader.ReadAsync(cancellationToken: CancellationToken.None);
 if (!string.Equals(bootstrap.VirtualDevice.Adapter.Kind, HdHomeRunVirtualTunerDriver.AdapterKind, StringComparison.Ordinal))
@@ -27,13 +21,11 @@ var deviceId = string.IsNullOrWhiteSpace(configuration.DeviceId)
 var deviceAuth = HdHomeRunProxyIdentity.CreateDeviceAuth(bootstrap.VirtualDevice.Id.Value.ToString("N"));
 var hosting = bootstrap.VirtualDevice.Hosting
     ?? throw new InvalidDataException("HDHomeRun worker requires dedicated hosting configuration.");
-var securityPolicies = bootstrap.SecurityPolicies.ToDictionary(policy => policy.Key, StringComparer.OrdinalIgnoreCase);
 var bindingsByPort = VirtualOutputBindingResolver.CreatePortMap(hosting);
-var allowedNetworks = securityPolicies.ToDictionary(
-    pair => pair.Key,
-    pair => IpNetworkSet.Parse(pair.Value.AllowedNetworks, $"Virtual output security policy '{pair.Value.Name}' allowed networks"),
-    StringComparer.OrdinalIgnoreCase);
-var certificates = bootstrap.CertificateMaterials.ToDictionary(material => material.Reference, StringComparer.Ordinal);
+var listenerPolicy = new VirtualOutputListenerPolicy(bootstrap);
+var session = new VirtualOutputWorkerSession(bootstrap);
+await session.RegisterAsync();
+var admission = new PluginConnectionAdmission(session);
 var builder = WebApplication.CreateSlimBuilder(args);
 builder.Logging.ClearProviders();
 builder.Logging.AddSimpleConsole(options =>
@@ -42,53 +34,25 @@ builder.Logging.AddSimpleConsole(options =>
     options.TimestampFormat = "yyyy-MM-ddTHH:mm:ss.fffZ ";
     options.UseUtcTimestamp = true;
 });
-builder.Services.AddRateLimiter(options =>
-{
-    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
-    {
-        var policy = ResolveSecurityPolicy(context.Connection.LocalPort, bindingsByPort, securityPolicies);
-        var client = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        return policy.RequestsPerMinutePerClient > 0
-            ? RateLimitPartition.GetFixedWindowLimiter(
-                $"{context.Connection.LocalPort}:{client}",
-                _ => new FixedWindowRateLimiterOptions
-                {
-                    PermitLimit = policy.RequestsPerMinutePerClient,
-                    Window = TimeSpan.FromMinutes(1),
-                    QueueLimit = 0,
-                    AutoReplenishment = true
-                })
-            : RateLimitPartition.GetNoLimiter($"{context.Connection.LocalPort}:{client}");
-    });
-});
-builder.WebHost.ConfigureKestrel(options => ConfigureListeners(options, bootstrap, securityPolicies, certificates));
+listenerPolicy.AddServices(builder.Services);
+builder.WebHost.ConfigureKestrel(admission.Configure);
+builder.WebHost.ConfigureKestrel(listenerPolicy.Configure);
 
 var app = builder.Build();
-app.UseVirtualOutputForwardedHeaders(hosting, securityPolicies);
+listenerPolicy.UseForwardedHeaders(app);
 app.UseRateLimiter();
-var activeRequests = 0;
 app.Use(async (context, next) =>
 {
-    Interlocked.Increment(ref activeRequests);
-    try
+    if (!listenerPolicy.Allows(context))
     {
-        var policy = ResolveSecurityPolicy(context.Connection.LocalPort, bindingsByPort, securityPolicies);
-        if (!allowedNetworks[policy.Key].Contains(context.Connection.RemoteIpAddress))
-        {
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            return;
-        }
-        await next(context);
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        return;
     }
-    finally
-    {
-        Interlocked.Decrement(ref activeRequests);
-    }
+    await next(context);
 });
 
-var session = new VirtualOutputWorkerSession(bootstrap);
-await session.RegisterAsync();
+admission.Use(app, app.Logger, countUnmarkedEndpoints: true,
+    writeFailure: (context, _, message) => context.Response.WriteAsJsonAsync(new HdHomeRunWorkerError { Error = message }, context.RequestAborted));
 var sessionContext = session.Context!;
 var manifest = await session.Broker.GetManifestAsync(
     new VirtualOutputManifestRequest { Session = sessionContext },
@@ -186,7 +150,7 @@ await session.Broker.ReportHealthAsync(new VirtualOutputWorkerHealthReport
 });
 using var leaseCancellation = new CancellationTokenSource();
 var leaseLoop = session.RunLeaseLoopAsync(
-    () => (true, Volatile.Read(ref activeRequests)),
+    () => (true, admission.ActiveConnections),
     app.Lifetime.StopApplication,
     leaseCancellation.Token);
 await app.WaitForShutdownAsync();
@@ -213,77 +177,6 @@ static async Task<IReadOnlyList<HdHomeRunProxyChannel>> GetChannelsAsync(
         .OrderBy(channel => channel.Number, StringComparer.OrdinalIgnoreCase)
         .Select(channel => HdHomeRunProxyChannel.Create(channel, baseUri))
         .ToArray();
-}
-
-static void ConfigureListeners(
-    KestrelServerOptions options,
-    VirtualOutputWorkerBootstrap bootstrap,
-    IReadOnlyDictionary<string, VirtualOutputSecurityPolicyDefinition> policies,
-    IReadOnlyDictionary<string, VirtualOutputCertificateMaterial> certificates)
-{
-    var connectionLimits = bootstrap.VirtualDevice.Hosting!.Bindings
-        .Select(binding => policies[binding.SecurityPolicyKey].MaximumConnections)
-        .Where(limit => limit > 0)
-        .ToArray();
-    if (connectionLimits.Length > 0)
-    {
-        options.Limits.MaxConcurrentConnections = connectionLimits.Min();
-    }
-    foreach (var binding in bootstrap.VirtualDevice.Hosting.Bindings)
-    {
-        var policy = policies[binding.SecurityPolicyKey];
-        foreach (var address in binding.Addresses)
-        {
-            void Configure(ListenOptions listenOptions)
-            {
-                if (binding.Transport != VirtualOutputTransport.Https)
-                {
-                    return;
-                }
-                var certificatePath = policy.CertificateReference
-                    ?? throw new InvalidOperationException($"HTTPS policy '{policy.Key}' does not reference a certificate.");
-                var material = certificates[certificatePath];
-                var certificate = X509CertificateLoader.LoadPkcs12(material.Pkcs12, material.Password);
-                listenOptions.UseHttps(new HttpsConnectionAdapterOptions
-                {
-                    ServerCertificate = certificate,
-                    ClientCertificateMode = policy.ClientCertificateMode switch
-                    {
-                        VirtualOutputClientCertificateMode.Allow => ClientCertificateMode.AllowCertificate,
-                        VirtualOutputClientCertificateMode.Require => ClientCertificateMode.RequireCertificate,
-                        _ => ClientCertificateMode.NoCertificate
-                    }
-                });
-            }
-            if (address == "*" || address is "0.0.0.0" or "::")
-            {
-                options.ListenAnyIP(binding.Port, Configure);
-            }
-            else if (string.Equals(address, "localhost", StringComparison.OrdinalIgnoreCase))
-            {
-                options.ListenLocalhost(binding.Port, Configure);
-            }
-            else if (IPAddress.TryParse(address, out var ipAddress))
-            {
-                options.Listen(ipAddress, binding.Port, Configure);
-            }
-            else
-            {
-                throw new InvalidOperationException($"Unsupported output binding address '{address}'.");
-            }
-        }
-    }
-}
-
-static VirtualOutputSecurityPolicyDefinition ResolveSecurityPolicy(
-    int localPort,
-    IReadOnlyDictionary<int, VirtualOutputBindingDefinition> bindingsByPort,
-    IReadOnlyDictionary<string, VirtualOutputSecurityPolicyDefinition> policies)
-{
-    var binding = bindingsByPort.TryGetValue(localPort, out var configuredBinding)
-        ? configuredBinding
-        : throw new InvalidOperationException($"No virtual-output binding owns local port {localPort}.");
-    return policies[binding.SecurityPolicyKey];
 }
 
 static int GetFailureStatusCode(VirtualOutputFailureCode failureCode) =>

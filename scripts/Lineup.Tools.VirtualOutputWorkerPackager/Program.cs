@@ -2,36 +2,13 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Xml.Linq;
 
 namespace Lineup.Tools.VirtualOutputWorkerPackager;
 
 /// <summary>Publishes the shipped isolated worker executables and writes verified package manifests.</summary>
 internal static class Program
 {
-    private static readonly WorkerDefinition[] Workers =
-    [
-        new(
-            "lineup-link",
-            "lineup-link",
-            "src/Plugins/LineupLink/Lineup.Plugin.LineupLink.VirtualOutputHost/Lineup.Plugin.LineupLink.VirtualOutputHost.csproj",
-            "Lineup.Plugin.LineupLink.VirtualOutputHost"),
-        new(
-            "hdhomerun",
-            "hdhomerun",
-            "src/Plugins/SiliconDust/Lineup.Plugin.SiliconDust.HDHomeRun.VirtualOutputHost/Lineup.Plugin.SiliconDust.HDHomeRun.VirtualOutputHost.csproj",
-            "Lineup.Plugin.SiliconDust.HDHomeRun.VirtualOutputHost"),
-        new(
-            "hdhomerun-discovery",
-            "hdhomerun-discovery",
-            "src/Plugins/SiliconDust/Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryHost/Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryHost.csproj",
-            "Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryHost"),
-        new(
-            "web-player",
-            "web-player",
-            "src/Plugins/WebPlayer/Lineup.Plugin.WebPlayer.VirtualOutputHost/Lineup.Plugin.WebPlayer.VirtualOutputHost.csproj",
-            "Lineup.Plugin.WebPlayer.VirtualOutputHost")
-    ];
-
     /// <summary>Publishes all worker packages requested by the host build.</summary>
     /// <param name="args">Command-line packaging options.</param>
     /// <returns>Zero when every package succeeds; otherwise one.</returns>
@@ -43,7 +20,7 @@ internal static class Program
             await PackageAsync(options);
             return 0;
         }
-        catch (Exception exception) when (exception is ArgumentException or IOException or InvalidOperationException or JsonException)
+        catch (Exception exception) when (exception is ArgumentException or IOException or InvalidOperationException or JsonException or System.Xml.XmlException)
         {
             Console.Error.WriteLine(exception.Message);
             return 1;
@@ -52,6 +29,7 @@ internal static class Program
 
     private static async Task PackageAsync(PackagerOptions options)
     {
+        var workers = ReadWorkers(options.RepositoryRoot);
         var cacheRoot = Path.Combine(options.RepositoryRoot, "out", "virtual-output-worker-packages");
         Directory.CreateDirectory(cacheRoot);
         await using var cacheLock = await AcquireLockAsync(Path.Combine(cacheRoot, "packaging.lock"));
@@ -66,12 +44,12 @@ internal static class Program
         if (stamp is null || stamp.Fingerprint != fingerprint || !await VerifyFilesAsync(cacheDirectory, stamp.Files))
         {
             Directory.CreateDirectory(cacheDirectory);
-            foreach (var worker in Workers)
+            foreach (var worker in workers)
             {
                 await PublishAsync(options, worker, cacheDirectory);
             }
             var files = new Dictionary<string, string>(StringComparer.Ordinal);
-            foreach (var worker in Workers)
+            foreach (var worker in workers)
             {
                 foreach (var file in Directory.EnumerateFiles(Path.Combine(cacheDirectory, worker.Id), "*", SearchOption.AllDirectories))
                 {
@@ -92,9 +70,30 @@ internal static class Program
             Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
             File.Copy(Path.Combine(cacheDirectory, file.Key), destination, overwrite: true);
         }
+        await File.WriteAllLinesAsync(Path.Combine(options.OutputDirectory, "packaging.files"), stamp.Files.Keys.Order(StringComparer.Ordinal));
         await File.WriteAllTextAsync(Path.Combine(options.OutputDirectory, "packaging.stamp"), $"{configurationKey}:{fingerprint}");
         Console.WriteLine($"Verified virtual-output worker packages in '{options.OutputDirectory}'.");
     }
+
+    private static WorkerDefinition[] ReadWorkers(string repository)
+    {
+        var path = Path.Combine(repository, "build", "Lineup.VirtualOutputWorkers.props");
+        var workers = XDocument.Load(path).Descendants("_LineupBuiltInWorker").Select(item => new WorkerDefinition(
+            RequiredAttribute(item, "Include"),
+            RequiredAttribute(item, "AdapterKind"),
+            RequiredAttribute(item, "ProjectPath"),
+            RequiredAttribute(item, "AssemblyName"))).ToArray();
+        if (workers.Length == 0 || workers.Select(worker => worker.Id).Distinct(StringComparer.Ordinal).Count() != workers.Length)
+        {
+            throw new InvalidOperationException($"Worker inventory '{path}' must contain nonempty, unique worker definitions.");
+        }
+        return workers;
+    }
+
+    private static string RequiredAttribute(XElement item, string name) =>
+        !string.IsNullOrWhiteSpace((string?)item.Attribute(name))
+            ? item.Attribute(name)!.Value
+            : throw new InvalidOperationException($"Worker inventory item requires '{name}'.");
 
     private static async Task<FileStream> AcquireLockAsync(string path)
     {
@@ -203,14 +202,7 @@ internal static class Program
             throw new InvalidOperationException($"dotnet publish failed for virtual-output worker '{worker.Id}'.");
         }
 
-        var targetsWindows = options.RuntimeIdentifier is null
-            ? OperatingSystem.IsWindows()
-            : options.RuntimeIdentifier.StartsWith("win-", StringComparison.OrdinalIgnoreCase);
-        var executableName = options.SelfContained
-            ? targetsWindows
-                ? $"{worker.AssemblyName}.exe"
-                : worker.AssemblyName
-            : $"{worker.AssemblyName}.dll";
+        var executableName = GetExecutableName(worker.AssemblyName, options.RuntimeIdentifier, options.SelfContained);
         var executablePath = Path.Combine(workerOutput, executableName);
         if (!File.Exists(executablePath))
         {
@@ -241,6 +233,17 @@ internal static class Program
         await File.WriteAllTextAsync(
             manifestPath,
             JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    /// <summary>Selects the framework-dependent DLL or target-platform self-contained apphost.</summary>
+    /// <param name="assemblyName">Worker assembly name.</param>
+    /// <param name="runtimeIdentifier">Explicit target runtime, or null for the current host.</param>
+    /// <param name="selfContained">Whether the worker includes its runtime.</param>
+    /// <returns>The executable filename recorded in the verified manifest.</returns>
+    internal static string GetExecutableName(string assemblyName, string? runtimeIdentifier, bool selfContained)
+    {
+        var targetsWindows = runtimeIdentifier is null ? OperatingSystem.IsWindows() : runtimeIdentifier.StartsWith("win-", StringComparison.OrdinalIgnoreCase);
+        return selfContained ? targetsWindows ? $"{assemblyName}.exe" : assemblyName : $"{assemblyName}.dll";
     }
 
     private static ProcessStartInfo AddArguments(this ProcessStartInfo startInfo, IEnumerable<string> arguments)

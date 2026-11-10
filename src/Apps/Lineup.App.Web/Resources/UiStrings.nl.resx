@@ -421,8 +421,8 @@
   <data name="Settings_MaximumBrokerCallsLabel" xml:space="preserve"><value>Maximaal aantal brokeroproepen</value></data>
   <data name="Settings_MaximumConcurrentStreamsHelp" xml:space="preserve"><value>Maximaal aantal logische gebruikerssessies voor alle indelingen. Gedeelde producenten tellen nog steeds eenmaal per verbonden gebruiker. Stel in op 0 voor onbeperkt.</value></data>
   <data name="Settings_MaximumConcurrentStreamsLabel" xml:space="preserve"><value>Maximaal aantal gelijktijdige streams</value></data>
-  <data name="Settings_MaximumConnectionsHelp" xml:space="preserve"><value>Limiet voor gelijktijdige clients. Gebruik 0 voor de standaardwaarde van de host.</value></data>
-  <data name="Settings_MaximumConnectionsLabel" xml:space="preserve"><value>Maximaal aantal verbindingen</value></data>
+  <data name="Settings_MaximumConnectionsHelp" xml:space="preserve"><value>Eén TCP-verbindingslimiet voor alle pluginuitgangen, inclusief uitgangen op de beheerinterface. Telt vanaf het eerste pluginverzoek tot de verbinding sluit. Beheer en diagnostiek zijn vrijgesteld. 0 is onbeperkt; verlagen verbreekt bestaande verbindingen niet.</value></data>
+  <data name="Settings_MaximumConnectionsLabel" xml:space="preserve"><value>Pluginverbindingen voor de hele installatie</value></data>
   <data name="Settings_MaximumRestartsHelp" xml:space="preserve"><value>Toegestaan aantal mislukte herstarts van werkprocessen binnen het herstartvenster.</value></data>
   <data name="Settings_MaximumRestartsLabel" xml:space="preserve"><value>Maximaal aantal herstarts</value></data>
   <data name="Settings_MemoryLimitHelp" xml:space="preserve"><value>Geheugenlimiet voor werkproces. Gebruik 0 voor geen geconfigureerde limiet.</value></data>

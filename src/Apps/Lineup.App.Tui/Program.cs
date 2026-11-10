@@ -205,7 +205,7 @@ class Program
         services.AddSingleton<IStreamingConfigurationNormalizer>(provider => provider.GetRequiredService<WebPlayerVirtualTunerDriver>());
     }
 
-    /// <summary>Refreshes physical devices before applying guide sources that depend on their runtime capabilities.</summary>
+    /// <summary>Refreshes physical devices before applying cached-guide topology; guide-source construction is deferred until explicit refresh.</summary>
     /// <param name="lineups">Physical lineup service.</param>
     /// <param name="guides">Guide-source orchestrator.</param>
     /// <param name="configuration">Streaming topology to apply.</param>

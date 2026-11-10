@@ -2,6 +2,94 @@ namespace Lineup.Integration.Streaming.Sweep;
 
 internal sealed partial class SweepHarness
 {
+    private async Task ValidateMatrixInputsAsync(IEnumerable<MatrixDefinition> matrices, bool allowMissing)
+    {
+        _cancellation.ThrowIfCancellationRequested();
+        if (_options.ExistingInstance)
+        {
+            return;
+        }
+        var tuner = GetTunerAddress();
+        foreach (var matrix in matrices)
+        {
+            _cancellation.ThrowIfCancellationRequested();
+            if (allowMissing && !Directory.Exists(MatrixRoot(matrix)) && !File.Exists(Path.Combine(_root, "matrices.json")))
+            {
+                continue;
+            }
+            var (sourcePath, source) = await ReadMatrixStreamingAsync(Path.Combine(MatrixRoot(matrix), "templates", "source", "settings.json"));
+            if (source.PhysicalDevices is not { Count: 1 } devices || devices[0] is not { Enabled: true } device
+                || device.Adapter is not { } adapter || !string.Equals(adapter.Kind, HDHomeRunPhysicalTunerDriver.DriverKind, StringComparison.OrdinalIgnoreCase)
+                || adapter.Configuration.ValueKind != JsonValueKind.Object)
+            {
+                throw InvalidMatrixInput(sourcePath, "Expected exactly one enabled HDHomeRun input with explicit tuner configuration.");
+            }
+            string? address;
+            try
+            {
+                address = adapter.Configuration.Deserialize<HDHomeRunPhysicalTunerConfiguration>(_json)?.Address?.Trim();
+            }
+            catch (JsonException exception)
+            {
+                throw InvalidMatrixInput(sourcePath, "The cached tuner address is missing or invalid.", exception);
+            }
+            if (!string.Equals(address, tuner, StringComparison.OrdinalIgnoreCase))
+            {
+                throw InvalidMatrixInput(sourcePath, $"Requested tuner '{tuner}' does not match cached tuner '{address ?? "<missing>"}'.");
+            }
+            if (!matrix.Remote)
+            {
+                continue;
+            }
+            var (consumerPath, consumer) = await ReadMatrixStreamingAsync(Path.Combine(MatrixRoot(matrix), "templates", "consumer", "settings.json"));
+            if (consumer.PhysicalDevices is not { Count: 1 } inputs || inputs[0] is not { Enabled: true } input
+                || input.Adapter is not { } link || !string.Equals(link.Kind, LineupLinkProtocol.AdapterKind, StringComparison.OrdinalIgnoreCase)
+                || link.Configuration.ValueKind != JsonValueKind.Object)
+            {
+                throw InvalidMatrixInput(consumerPath, "Expected exactly one enabled Lineup Link input targeting the generated source.");
+            }
+            LineupLinkPhysicalConfiguration? configuration;
+            try
+            {
+                configuration = link.Configuration.Deserialize<LineupLinkPhysicalConfiguration>(_json);
+            }
+            catch (JsonException exception)
+            {
+                throw InvalidMatrixInput(consumerPath, "The cached remote input is invalid.", exception);
+            }
+            if (configuration?.VirtualDeviceId != GuidFor($"{matrix.Id}:source-virtual")
+                || !Uri.TryCreate(configuration.BaseUrl, UriKind.Absolute, out var baseUri) || baseUri != new Uri(SourceInternalBaseUrl(matrix)))
+            {
+                throw InvalidMatrixInput(consumerPath, "The cached remote input does not target this matrix's generated source.");
+            }
+        }
+    }
+
+    private async Task<(string Path, StreamingConfiguration Streaming)> ReadMatrixStreamingAsync(string settingsPath)
+    {
+        if (!File.Exists(settingsPath))
+        {
+            throw InvalidMatrixInput(settingsPath, "The cached template is incomplete; tuner provenance cannot be established.");
+        }
+        var streamingPath = Path.Combine(Path.GetDirectoryName(settingsPath)!, "streaming.json");
+        var path = File.Exists(streamingPath) ? streamingPath : settingsPath;
+        try
+        {
+            var json = await File.ReadAllTextAsync(path, _cancellation);
+            var streaming = path == settingsPath
+                ? JsonSerializer.Deserialize<LineupSettings>(json, _json)?.Streaming
+                : JsonSerializer.Deserialize<StreamingConfiguration>(json, _json);
+            return (path, streaming ?? throw InvalidMatrixInput(path, "The cached topology is null."));
+        }
+        catch (JsonException exception)
+        {
+            throw InvalidMatrixInput(path, "The cached settings are invalid JSON.", exception);
+        }
+    }
+
+    private static InvalidDataException InvalidMatrixInput(string path, string reason, Exception? inner = null) =>
+        new($"Sweep input validation failed for '{path}': {reason} Use --output with a new output root, or deliberately regenerate only after verifying exclusive ownership.", inner);
+
     private async Task GenerateMatrixSettingsAsync(MatrixDefinition matrix)
     {
         var sourcePhysicalId = new PhysicalDeviceId(GuidFor($"{matrix.Id}:source-physical"));
@@ -329,6 +417,7 @@ internal sealed partial class SweepHarness
         {
             throw new InvalidOperationException("Existing-instance mode forbids deployment preparation/start.");
         }
+        await ValidateMatrixInputsAsync([matrix], allowMissing: false);
         await EnsureTunerIdleAsync(TimeSpan.FromMinutes(5));
         var matrixRoot = MatrixRoot(matrix);
         var runtime = Path.Combine(matrixRoot, "runtime");

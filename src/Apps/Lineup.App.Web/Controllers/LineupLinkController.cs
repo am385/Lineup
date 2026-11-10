@@ -9,6 +9,7 @@ namespace Lineup.App.Web.Controllers;
 
 /// <summary>Publishes management-hosted Lineup Link virtual-device outputs.</summary>
 [ApiController]
+[Lineup.Core.VirtualOutputs.Hosting.PluginConnectionEndpoint]
 [Route(LineupLinkProtocol.ControllerRoute)]
 public sealed class LineupLinkController : ControllerBase
 {

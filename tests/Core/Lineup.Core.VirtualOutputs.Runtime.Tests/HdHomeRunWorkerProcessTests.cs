@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Sockets;
 using System.Text.Json;
 using Lineup.Core.Common.Streaming;
@@ -8,6 +9,8 @@ using Lineup.Core.Settings;
 using Lineup.Core.Streaming;
 using Lineup.Core.Extensibility.Streaming;
 using Lineup.Plugin.SiliconDust.HDHomeRun.VirtualTuner;
+using Lineup.Plugin.LineupLink.Protocol;
+using Lineup.Plugin.LineupLink.Virtual;
 using Lineup.Core.Streaming.FFmpeg;
 using Lineup.Core.VirtualOutputs.Protocol;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -16,9 +19,47 @@ using Xunit;
 
 namespace Lineup.Core.VirtualOutputs.Runtime.Tests;
 
-/// <summary>Verifies the real dedicated HDHomeRun worker reads current capacity over authenticated local IPC.</summary>
+/// <summary>Verifies real HDHomeRun capacity and connection admission shared with a dedicated Lineup Link worker.</summary>
 public sealed class HdHomeRunWorkerProcessTests
 {
+    /// <summary>Verifies different production workers share admission, preserve authentication and return capacity after a process crash.</summary>
+    [Fact]
+    public async Task Admission_LineupLinkAndHdHomeRunProcesses_ShareBudgetAndRecoverAfterCrash()
+    {
+        // Arrange
+        var settings = Substitute.For<ILineupSettingsService>();
+        settings.Settings.Returns(new LineupSettings { Streaming = new StreamingConfiguration { MaximumPluginConnections = 1 } });
+        var budget = new PluginConnectionBudget(settings);
+        await using var hdHomeRun = await Harness.StartAsync(null, false, budget: budget);
+        await using var lineupLink = await Harness.StartAsync(null, false, lineupLink: true, budget: budget);
+        using var recovery = new HttpClient(new SocketsHttpHandler { UseProxy = false }) { BaseAddress = hdHomeRun.Client.BaseAddress };
+        var manifestPath = $"{LineupLinkProtocol.DevicePath(lineupLink.DeviceId.Value)}/manifest";
+
+        // Act
+        using var unauthenticatedRequest = new HttpRequestMessage(HttpMethod.Get, manifestPath);
+        unauthenticatedRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", "invalid-test-token");
+        using var unauthenticated = await lineupLink.Client.SendAsync(unauthenticatedRequest, TestContext.Current.CancellationToken);
+        using var refused = await lineupLink.Client.GetAsync(manifestPath, TestContext.Current.CancellationToken);
+        hdHomeRun.Client.Dispose();
+        await WaitForConnectionsAsync(budget, 0);
+        using var admitted = await lineupLink.Client.GetAsync(manifestPath, TestContext.Current.CancellationToken);
+        using var otherRefused = await recovery.GetAsync("/discover.json", TestContext.Current.CancellationToken);
+        lineupLink.KillWorker();
+        await WaitForConnectionsAsync(budget, 0);
+        using var recovered = await recovery.GetAsync("/discover.json", TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Unauthorized, unauthenticated.StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, refused.StatusCode);
+        Assert.Contains("resource_limit", await refused.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(HttpStatusCode.OK, admitted.StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, otherRefused.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, recovered.StatusCode);
+        Assert.Equal(1, budget.GetSnapshot().ActiveConnections);
+        Assert.Equal(1, budget.GetSnapshot().WorkerConnections[hdHomeRun.DeviceId]);
+        Assert.False(hdHomeRun.HasExited);
+    }
+
     /// <summary>Verifies physical capacity changes reach HTTP discovery without replacing the virtual device or restarting its worker.</summary>
     [Theory]
     [InlineData(null, false, 6, 255)]
@@ -86,6 +127,16 @@ public sealed class HdHomeRunWorkerProcessTests
         Assert.False(harness.HasExited);
     }
 
+    private static async Task WaitForConnectionsAsync(IPluginConnectionBudget budget, int expected)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(10));
+        while (budget.GetSnapshot().ActiveConnections != expected)
+        {
+            await Task.Delay(10, deadline.Token);
+        }
+    }
+
     private sealed class Harness : IAsyncDisposable
     {
         private readonly VirtualOutputSessionAuthority _authority = new();
@@ -96,8 +147,9 @@ public sealed class HdHomeRunWorkerProcessTests
         private Process? _worker;
         private Task<string>? _output;
         private Task<string>? _error;
+        private readonly string? _lineupLinkToken;
 
-        private Harness(int? cap, bool selected)
+        private Harness(int? cap, bool selected, bool lineupLink, IPluginConnectionBudget? budget)
         {
             var endpoint = OperatingSystem.IsWindows()
                 ? new VirtualOutputIpcEndpoint { Transport = VirtualOutputIpcTransport.NamedPipe, Address = $"lineup-hd-test-{Guid.NewGuid():N}" }
@@ -109,12 +161,20 @@ public sealed class HdHomeRunWorkerProcessTests
             using var listener = new TcpListener(IPAddress.Loopback, 0);
             listener.Start();
             var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-            var driver = new HdHomeRunVirtualTunerDriver();
+            IVirtualTunerDriver driver = lineupLink ? new LineupLinkVirtualTunerDriver() : new HdHomeRunVirtualTunerDriver();
+            var configuration = JsonSerializer.SerializeToElement(new HdHomeRunVirtualTunerConfiguration { TunerCountCap = cap });
+            if (lineupLink)
+            {
+                var grant = LineupLinkAccessGrantManager.Create(new LineupLinkVirtualConfiguration { RequireEncryption = false }, "Worker test", null, DateTime.UtcNow);
+                Assert.Empty(grant.Errors);
+                _lineupLinkToken = Assert.IsType<string>(grant.GeneratedToken);
+                configuration = JsonSerializer.SerializeToElement(grant.Configuration);
+            }
             var device = new VirtualDeviceDefinition
             {
                 Id = VirtualDeviceId.New(),
                 Name = "Aggregate",
-                Adapter = new AdapterConfiguration(driver.Kind, JsonSerializer.SerializeToElement(new HdHomeRunVirtualTunerConfiguration { TunerCountCap = cap })),
+                Adapter = new AdapterConfiguration(driver.Kind, configuration),
                 Subscription = selected
                     ? new PhysicalDeviceSubscription { Mode = PhysicalDeviceSubscriptionMode.Selected, SelectedDeviceIds = new HashSet<PhysicalDeviceId> { _physicalIds[0] } }
                     : new PhysicalDeviceSubscription(),
@@ -147,9 +207,10 @@ public sealed class HdHomeRunWorkerProcessTests
             var broker = new VirtualOutputBroker(
                 _authority, settings, new StreamingAdapterRegistry([], [driver], []), catalog, Substitute.For<IStreamingRouteResolver>(),
                 Substitute.For<IGuideOrchestrator>(), Substitute.For<IVirtualMpegTsOutputService>(), activeStreams);
-            _server = new VirtualOutputIpcServer(endpoint, _authority, broker, new VirtualOutputRuntimeStatus(), settings, activeStreams, NullLogger<VirtualOutputIpcServer>.Instance);
+            _server = new VirtualOutputIpcServer(endpoint, _authority, broker, new VirtualOutputRuntimeStatus(), settings, activeStreams,
+                NullLogger<VirtualOutputIpcServer>.Instance, budget ?? new PluginConnectionBudget(settings));
             var ticket = _authority.CreateActivation(
-                device.Id, driver.Kind, new HashSet<VirtualOutputCapability> { VirtualOutputCapability.ReadManifest, VirtualOutputCapability.ReportHealth },
+                device.Id, driver.Kind, new HashSet<VirtualOutputCapability> { VirtualOutputCapability.ReadManifest, VirtualOutputCapability.ReportHealth, VirtualOutputCapability.AdmitConnection },
                 TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
             _bootstrap = new VirtualOutputWorkerBootstrap
             {
@@ -177,30 +238,52 @@ public sealed class HdHomeRunWorkerProcessTests
         /// <summary>Gets whether the isolated worker has exited.</summary>
         internal bool HasExited => _worker!.HasExited;
 
+        /// <summary>Gets the assigned production virtual device.</summary>
+        internal VirtualDeviceId DeviceId => _bootstrap.VirtualDevice.Id;
+
+        /// <summary>Simulates a crash of this owned worker without closing its public client first.</summary>
+        internal void KillWorker() => _worker!.Kill(entireProcessTree: true);
+
         /// <summary>Starts the actual worker and waits for its HTTP listener.</summary>
-        internal static async Task<Harness> StartAsync(int? cap, bool selected)
+        internal static async Task<Harness> StartAsync(int? cap, bool selected, bool lineupLink = false, IPluginConnectionBudget? budget = null)
         {
-            var harness = new Harness(cap, selected);
+            var harness = new Harness(cap, selected, lineupLink, budget);
             try
             {
                 await harness._server.StartAsync(TestContext.Current.CancellationToken);
-                var path = Path.Combine(AppContext.BaseDirectory, "Lineup.Plugin.SiliconDust.HDHomeRun.VirtualOutputHost.dll");
-                var start = new ProcessStartInfo("dotnet")
+                var executable = lineupLink ? "Lineup.Plugin.LineupLink.VirtualOutputHost.dll" : "Lineup.Plugin.SiliconDust.HDHomeRun.VirtualOutputHost.dll";
+                var path = Path.Combine(AppContext.BaseDirectory, executable);
+                var packageRoot = Environment.GetEnvironmentVariable("LINEUP_TEST_WORKER_PACKAGE_ROOT");
+                if (!string.IsNullOrWhiteSpace(packageRoot))
                 {
-                    WorkingDirectory = AppContext.BaseDirectory,
+                    var catalog = new VirtualOutputWorkerCatalog(packageRoot);
+                    var package = await catalog.ResolveAsync(lineupLink ? "lineup-link" : "hdhomerun", TestContext.Current.CancellationToken);
+                    path = Path.Combine(package.PackageRoot, package.Manifest.ExecutablePath);
+                }
+                var managedAssembly = string.Equals(Path.GetExtension(path), ".dll", StringComparison.OrdinalIgnoreCase);
+                var start = new ProcessStartInfo(managedAssembly ? "dotnet" : path)
+                {
+                    WorkingDirectory = Path.GetDirectoryName(path)!,
                     UseShellExecute = false,
                     CreateNoWindow = true,
                     RedirectStandardInput = true,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true
                 };
-                start.ArgumentList.Add(path);
-                harness._worker = Process.Start(start) ?? throw new InvalidOperationException("Unable to start the HDHomeRun worker.");
+                if (managedAssembly)
+                {
+                    start.ArgumentList.Add(path);
+                }
+                harness._worker = Process.Start(start) ?? throw new InvalidOperationException($"Unable to start {executable}.");
                 harness._output = harness._worker.StandardOutput.ReadToEndAsync();
                 harness._error = harness._worker.StandardError.ReadToEndAsync();
                 await harness._worker.StandardInput.WriteLineAsync(JsonSerializer.Serialize(harness._bootstrap, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
                 harness._worker.StandardInput.Close();
                 await harness.WaitForReadyAsync();
+                if (lineupLink)
+                {
+                    harness.Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", harness._lineupLinkToken);
+                }
                 return harness;
             }
             catch
@@ -238,11 +321,16 @@ public sealed class HdHomeRunWorkerProcessTests
             {
                 if (_worker!.HasExited)
                 {
-                    throw new InvalidOperationException($"HDHomeRun worker exited: {await _output!} {await _error!}");
+                    throw new InvalidOperationException($"Virtual output worker exited: {await _output!} {await _error!}");
                 }
                 try
                 {
-                    using var response = await Client.GetAsync("/lineup_status.json", TestContext.Current.CancellationToken);
+                    var path = _lineupLinkToken is null ? "/lineup_status.json" : $"{LineupLinkProtocol.DevicePath(DeviceId.Value)}/manifest";
+                    using var response = await Client.GetAsync(path, TestContext.Current.CancellationToken);
+                    if (_lineupLinkToken is not null && response.StatusCode == HttpStatusCode.Unauthorized)
+                    {
+                        return;
+                    }
                     response.EnsureSuccessStatusCode();
                     return;
                 }
@@ -251,7 +339,7 @@ public sealed class HdHomeRunWorkerProcessTests
                     await Task.Delay(50, TestContext.Current.CancellationToken);
                 }
             }
-            throw new TimeoutException("HDHomeRun worker did not open its listener.");
+            throw new TimeoutException("Virtual output worker did not open its listener.");
         }
 
         /// <inheritdoc />

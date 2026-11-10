@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -25,7 +26,19 @@ public sealed record StreamAcquisitionDescriptor(
     PhysicalDeviceId DeviceId,
     PhysicalAcquisitionKey AcquisitionKey,
     PhysicalTunerCapacity Capacity,
-    bool EnforceCapacity = true);
+    bool EnforceCapacity = true)
+{
+    private static readonly ConditionalWeakTable<IPhysicalTunerDevice, RuntimeIdentity> RuntimeIdentities = new();
+
+    /// <summary>Gets the host runtime captured when this route was resolved, without changing the plugin contract.</summary>
+    internal IPhysicalTunerDevice? Runtime { get; init; }
+
+    /// <summary>Gets the process-local identity of one adapter instance.</summary>
+    internal static Guid GetRuntimeId(IPhysicalTunerDevice? runtime) =>
+        runtime is null ? Guid.Empty : RuntimeIdentities.GetValue(runtime, _ => new RuntimeIdentity(Guid.NewGuid())).Id;
+
+    private sealed record RuntimeIdentity(Guid Id);
+}
 
 /// <summary>
 /// Owns a readable source used by the streaming session graph.
@@ -162,7 +175,7 @@ public interface IStreamingSessionGraph
     /// <summary>Gets immutable active graph and capacity diagnostics.</summary>
     StreamingSessionGraphDiagnostics GetDiagnostics();
 
-    /// <summary>Rejects new sessions and stops transforms before acquisitions.</summary>
+    /// <summary>Rejects new sessions and stops transforms before acquisitions; cancellation bounds waiting without skipping acquisition stop signals.</summary>
     Task StopAsync(CancellationToken cancellationToken = default);
 }
 
@@ -195,6 +208,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
     private readonly IPhysicalCapacityLeaseRegistry _capacity;
     private readonly ILogger<StreamingSessionGraph> _logger;
     private readonly TimeProvider _timeProvider;
+    private readonly PhysicalDeviceRuntimeState? _runtimes;
     private readonly ConcurrentDictionary<AcquisitionNodeKey, SharedNode> _acquisitions = [];
     private readonly ConcurrentDictionary<TransformNodeKey, SharedNode> _transforms = [];
     private readonly ConcurrentDictionary<AcquisitionMetadataKey, Lazy<Task<AcquisitionMetadataSnapshot>>> _metadata = [];
@@ -209,11 +223,22 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
 
     /// <summary>Initializes the shared graph with a clock for keep-warm expiration.</summary>
     internal StreamingSessionGraph(IPhysicalCapacityLeaseRegistry capacity, ILogger<StreamingSessionGraph> logger, TimeProvider timeProvider)
+        : this(capacity, logger, timeProvider, null)
+    {
+    }
+
+    /// <summary>Initializes the graph with catalog admission and retirement notifications.</summary>
+    internal StreamingSessionGraph(IPhysicalCapacityLeaseRegistry capacity, ILogger<StreamingSessionGraph> logger, TimeProvider timeProvider, PhysicalDeviceRuntimeState? runtimes)
     {
         ArgumentNullException.ThrowIfNull(timeProvider);
         _capacity = capacity;
         _logger = logger;
         _timeProvider = timeProvider;
+        _runtimes = runtimes;
+        if (_runtimes is not null)
+        {
+            _runtimes.Retiring += RetireDevicesAsync;
+        }
     }
 
     /// <inheritdoc />
@@ -285,6 +310,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
             lock (_lifecycleGate)
             {
                 ThrowIfStopping();
+                ThrowIfRuntimeUnavailable(descriptor);
                 GraphNodeKey key = AcquisitionNodeKey.Create(descriptor);
                 node = GetOrCreateAcquisitionNode(descriptor, acquisitionFactory);
                 foreach (var stage in stages)
@@ -315,6 +341,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
             try
             {
                 await node.Started.WaitAsync(cancellationToken);
+                ThrowIfRuntimeUnavailable(descriptor);
                 return createdLease;
             }
             catch (SharedParentStoppedException)
@@ -390,27 +417,30 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
 
         SharedNode node;
         AcquisitionNodeKey acquisitionKey;
+        AcquisitionMetadataKey key;
+        Lazy<Task<AcquisitionMetadataSnapshot>> lazy;
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
             lock (_lifecycleGate)
             {
                 ThrowIfStopping();
+                ThrowIfRuntimeUnavailable(descriptor);
                 acquisitionKey = AcquisitionNodeKey.Create(descriptor);
                 node = GetOrCreateAcquisitionNode(descriptor, acquisitionFactory);
                 if (node.CanSubscribe)
                 {
+                    key = new AcquisitionMetadataKey(acquisitionKey, metadataKey, node);
+                    lazy = _metadata.GetOrAdd(key, _ => CreateMetadataFactory(node, metadataFactory, refreshPolicy?.OperationTimeout ?? Timeout.InfiniteTimeSpan));
+                    _ = lazy.Value;
                     break;
                 }
             }
             await node.Completion.WaitAsync(cancellationToken);
         }
 
-        var key = new AcquisitionMetadataKey(acquisitionKey, metadataKey);
-        var lazy = _metadata.GetOrAdd(
-            key,
-            _ => CreateMetadataFactory(node, metadataFactory, refreshPolicy?.OperationTimeout ?? Timeout.InfiniteTimeSpan));
         var snapshot = await AwaitMetadataAsync<T>(key, lazy, cancellationToken);
+        ThrowIfRuntimeUnavailable(descriptor);
         if (refreshPolicy is null || refreshPolicy.IsReusable(snapshot.Value))
         {
             return snapshot.Value;
@@ -426,6 +456,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         {
             await Task.Delay(remainingDelay, cancellationToken);
         }
+        ThrowIfRuntimeUnavailable(descriptor);
 
         var replacement = CreateMetadataFactory(
             node,
@@ -469,15 +500,15 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         new(
             async () =>
             {
-                using var timeout = operationTimeout == Timeout.InfiniteTimeSpan
-                    ? null
-                    : new CancellationTokenSource(operationTimeout);
-                var operationToken = timeout?.Token ?? CancellationToken.None;
+                using var timeout = operationTimeout == Timeout.InfiniteTimeSpan ? null : new CancellationTokenSource(operationTimeout);
+                using var operation = CancellationTokenSource.CreateLinkedTokenSource(node.LifetimeToken, timeout?.Token ?? CancellationToken.None);
+                var operationToken = operation.Token;
                 try
                 {
                     await using var lease = await SubscribeNodeAsync(node, operationToken);
                     var value = (object?)await metadataFactory(lease.Stream, operationToken)
                         ?? throw new InvalidOperationException("Shared acquisition metadata cannot be null.");
+                    operationToken.ThrowIfCancellationRequested();
                     return new AcquisitionMetadataSnapshot(value, DateTimeOffset.UtcNow, refreshAttempted);
                 }
                 catch (OperationCanceledException exception) when (timeout?.IsCancellationRequested == true)
@@ -548,17 +579,49 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
             acquisitions = _acquisitions.Values.ToArray();
         }
 
-        foreach (var node in transforms)
+        try
         {
-            node.Stop();
+            foreach (var node in transforms)
+            {
+                node.Stop();
+            }
+            await Task.WhenAll(transforms.Select(node => node.Completion)).WaitAsync(cancellationToken);
         }
-        await Task.WhenAll(transforms.Select(node => node.Completion)).WaitAsync(cancellationToken);
-
-        foreach (var node in acquisitions)
+        finally
         {
-            node.Stop();
+            foreach (var node in acquisitions)
+            {
+                node.Stop();
+            }
         }
         await Task.WhenAll(acquisitions.Select(node => node.Completion)).WaitAsync(cancellationToken);
+    }
+
+    private async Task RetireDevicesAsync(IReadOnlyList<IPhysicalTunerDevice> devices)
+    {
+        var deviceIds = devices.Select(device => device.Snapshot.Id).ToHashSet();
+        SharedNode[] retired;
+        lock (_lifecycleGate)
+        {
+            retired = _transforms.Where(pair => deviceIds.Contains(GetAcquisition(pair.Key).DeviceId)).Select(pair => pair.Value)
+                .Concat(_acquisitions.Where(pair => deviceIds.Contains(pair.Key.DeviceId)).Select(pair => pair.Value)).ToArray();
+            foreach (var node in retired)
+            {
+                node.Stop();
+            }
+        }
+        await Task.WhenAll(retired.Select(node => node.Completion));
+    }
+
+    private static AcquisitionNodeKey GetAcquisition(GraphNodeKey key) =>
+        key is TransformNodeKey transform ? GetAcquisition(transform.Parent) : (AcquisitionNodeKey)key;
+
+    private void ThrowIfRuntimeUnavailable(StreamAcquisitionDescriptor descriptor)
+    {
+        if (descriptor.Runtime is { } runtime && _runtimes is not null && !_runtimes.IsCurrent(runtime))
+        {
+            throw new InvalidOperationException("The physical device runtime changed. Resolve a new route before opening or probing the stream.");
+        }
     }
 
     private SharedNode GetOrCreateAcquisitionNode(StreamAcquisitionDescriptor descriptor, StreamAcquisitionFactory acquisitionFactory)
@@ -575,7 +638,8 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                     {
                         return await acquisitionFactory(lifetime);
                     }
-                    var capacityLease = await _capacity.TryAcquireAsync(descriptor.DeviceId, descriptor.AcquisitionKey, descriptor.Capacity, lifetime);
+                    var capacityKey = descriptor.AcquisitionKey with { RuntimeId = StreamAcquisitionDescriptor.GetRuntimeId(descriptor.Runtime) };
+                    var capacityLease = await _capacity.TryAcquireAsync(descriptor.DeviceId, capacityKey, descriptor.Capacity, lifetime);
                     if (capacityLease is null)
                     {
                         throw new StreamCapacityExceededException(descriptor.DeviceId, descriptor.Capacity);
@@ -644,7 +708,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
     private void RemoveAcquisitionNode(AcquisitionNodeKey key, SharedNode node)
     {
         _acquisitions.TryRemove(new KeyValuePair<AcquisitionNodeKey, SharedNode>(key, node));
-        foreach (var metadataKey in _metadata.Keys.Where(candidate => candidate.Acquisition == key))
+        foreach (var metadataKey in _metadata.Keys.Where(candidate => ReferenceEquals(candidate.Node, node)))
         {
             _metadata.TryRemove(metadataKey, out _);
         }
@@ -678,12 +742,13 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         }
     }
 
-    private sealed record AcquisitionNodeKey(PhysicalDeviceId DeviceId, PhysicalAcquisitionKey AcquisitionKey) : GraphNodeKey
+    private sealed record AcquisitionNodeKey(PhysicalDeviceId DeviceId, PhysicalAcquisitionKey AcquisitionKey, Guid RuntimeId) : GraphNodeKey
     {
         public static AcquisitionNodeKey Create(StreamAcquisitionDescriptor descriptor) =>
-            new(descriptor.DeviceId, descriptor.AcquisitionKey);
+            new(descriptor.DeviceId, descriptor.AcquisitionKey, StreamAcquisitionDescriptor.GetRuntimeId(descriptor.Runtime));
 
-        public override string ToString() => $"{DeviceId}:{AcquisitionKey.ChannelId.ProviderKey}:{AcquisitionKey.TuneKey}";
+        public override string ToString() =>
+            $"{DeviceId}:{AcquisitionKey.ChannelId.ProviderKey}:{AcquisitionKey.TuneKey}{(RuntimeId == Guid.Empty ? "" : $":{RuntimeId:N}")}";
     }
 
     private sealed record TransformNodeKey(GraphNodeKey Parent, StreamTransformKey Transform) : GraphNodeKey
@@ -691,7 +756,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         public override string ToString() => $"{Parent}>{Transform.Stage}:{Transform.SettingsKey}";
     }
 
-    private sealed record AcquisitionMetadataKey(AcquisitionNodeKey Acquisition, string MetadataKey);
+    private sealed record AcquisitionMetadataKey(AcquisitionNodeKey Acquisition, string MetadataKey, SharedNode Node);
 
     private sealed record AcquisitionMetadataSnapshot(object Value, DateTimeOffset ObservedAtUtc, bool RefreshAttempted);
 
@@ -710,6 +775,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         private readonly object _gate = new();
         private readonly Dictionary<Guid, Subscriber> _subscribers = [];
         private readonly CancellationTokenSource _lifetime = new();
+        private readonly CancellationToken _lifetimeToken;
         private readonly TaskCompletionSource _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private Task? _runTask;
         private CancellationTokenSource? _warmCancellation;
@@ -724,7 +790,11 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
             _logger = logger;
             _timeProvider = timeProvider;
             _onCompleted = onCompleted;
+            _lifetimeToken = _lifetime.Token;
         }
+
+        /// <summary>Gets the producer lifetime, including after its cancellation source is disposed.</summary>
+        public CancellationToken LifetimeToken => _lifetimeToken;
 
         public Task Completion => _runTask ?? Task.CompletedTask;
 

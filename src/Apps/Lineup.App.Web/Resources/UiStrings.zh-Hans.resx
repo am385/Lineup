@@ -421,8 +421,8 @@
   <data name="Settings_MaximumBrokerCallsLabel" xml:space="preserve"><value>最大代理调用数</value></data>
   <data name="Settings_MaximumConcurrentStreamsHelp" xml:space="preserve"><value>所有格式中的最大逻辑使用方会话数。共享生产者仍会为每个已连接使用方计数一次。设为 0 表示无限制。</value></data>
   <data name="Settings_MaximumConcurrentStreamsLabel" xml:space="preserve"><value>最大并发流数</value></data>
-  <data name="Settings_MaximumConnectionsHelp" xml:space="preserve"><value>并发客户端限制。设为 0 可使用主机默认值。</value></data>
-  <data name="Settings_MaximumConnectionsLabel" xml:space="preserve"><value>最大连接数</value></data>
+  <data name="Settings_MaximumConnectionsHelp" xml:space="preserve"><value>所有插件输出共享同一个 TCP 连接上限，包括管理监听器上的输出。从首次插件请求开始计数，直到连接断开。管理和诊断请求不计入。0 表示无限制；降低上限不会断开现有客户端。</value></data>
+  <data name="Settings_MaximumConnectionsLabel" xml:space="preserve"><value>部署范围的插件连接数</value></data>
   <data name="Settings_MaximumRestartsHelp" xml:space="preserve"><value>重启时间窗口内允许的工作进程失败重启次数。</value></data>
   <data name="Settings_MaximumRestartsLabel" xml:space="preserve"><value>最大重启次数</value></data>
   <data name="Settings_MemoryLimitHelp" xml:space="preserve"><value>工作进程的内存上限。设为 0 表示不配置限制。</value></data>
@@ -658,7 +658,7 @@
   <data name="Dashboard_AutoFetchPending" xml:space="preserve"><value>自动获取等待中</value></data>
   <data name="Dashboard_AutoFetchRunning" xml:space="preserve"><value>正在自动获取</value></data>
   <data name="Dashboard_AutoRefreshDisabled" xml:space="preserve"><value>自动刷新已禁用</value></data>
-  <data name="Dashboard_ChannelGapDurationFormat" xml:space="preserve"><value>h&amp;apos; 小时 &amp;apos;m&amp;apos; 分钟&amp;apos;</value></data>
+  <data name="Dashboard_ChannelGapDurationFormat" xml:space="preserve"><value>h&apos; 小时 &apos;m&apos; 分钟&apos;</value></data>
   <data name="Dashboard_ChannelGapLabel" xml:space="preserve"><value>频道间隔</value></data>
   <data name="Dashboard_ChannelsHeading" xml:space="preserve"><value>频道</value></data>
   <data name="Dashboard_ChannelsLabel" xml:space="preserve"><value>频道</value></data>
@@ -723,7 +723,7 @@
   <data name="Dashboard_RefreshedChannels" xml:space="preserve"><value>已刷新 {0} 个物理源频道。</value></data>
   <data name="Dashboard_RefreshedChannelsWithFailures" xml:space="preserve"><value>已刷新 {0} 个物理源频道，但有 {1} 个设备失败。</value></data>
   <data name="Dashboard_RefreshingEnabledGuideSources" xml:space="preserve"><value>正在刷新已启用的节目指南源</value></data>
-  <data name="Dashboard_RemainingDurationFormat" xml:space="preserve"><value>d&amp;apos; 天 &amp;apos;h&amp;apos; 小时&amp;apos;</value></data>
+  <data name="Dashboard_RemainingDurationFormat" xml:space="preserve"><value>d&apos; 天 &apos;h&apos; 小时&apos;</value></data>
   <data name="Dashboard_RemainingLabel" xml:space="preserve"><value>剩余</value></data>
   <data name="Dashboard_RestartDevice" xml:space="preserve"><value>重启设备</value></data>
   <data name="Dashboard_Running" xml:space="preserve"><value>正在运行...</value></data>

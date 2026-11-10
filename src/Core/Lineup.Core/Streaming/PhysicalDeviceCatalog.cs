@@ -17,7 +17,10 @@ public interface IPhysicalDeviceCatalog : IPhysicalDeviceResolver
 
 internal sealed class PhysicalDeviceRuntimeState : IPhysicalDeviceResolver
 {
-    private CatalogSnapshot _snapshot = new(null, []);
+    private CatalogSnapshot _snapshot = new(null, [], new HashSet<IPhysicalTunerDevice>(ReferenceEqualityComparer.Instance));
+
+    /// <summary>Occurs after old admissions close and before replacement runtimes are published.</summary>
+    internal event Func<IReadOnlyList<IPhysicalTunerDevice>, Task>? Retiring;
 
     public IReadOnlyList<IPhysicalTunerDevice> Devices => Volatile.Read(ref _snapshot).Devices;
 
@@ -29,13 +32,42 @@ internal sealed class PhysicalDeviceRuntimeState : IPhysicalDeviceResolver
         Devices.FirstOrDefault(device => device.Snapshot.Id == deviceId)
         ?? throw new InvalidOperationException($"Physical device {deviceId} is not active.");
 
+    /// <summary>Checks that a resolved runtime is still published and accepting consumers.</summary>
+    internal bool IsCurrent(IPhysicalTunerDevice runtime)
+    {
+        var snapshot = Volatile.Read(ref _snapshot);
+        return !snapshot.Retiring.Contains(runtime) && snapshot.Devices.Any(device => ReferenceEquals(device, runtime));
+    }
+
+    /// <summary>Closes admission before waiting for graph-owned resources to finish cleanup.</summary>
+    internal async Task RetireAsync(IReadOnlyList<IPhysicalTunerDevice> devices)
+    {
+        if (devices.Count == 0)
+        {
+            return;
+        }
+        var snapshot = Volatile.Read(ref _snapshot);
+        Volatile.Write(ref _snapshot, snapshot with
+        {
+            ActivationKey = null,
+            Retiring = new HashSet<IPhysicalTunerDevice>(devices, ReferenceEqualityComparer.Instance)
+        });
+        if (Retiring is { } retiring)
+        {
+            foreach (Func<IReadOnlyList<IPhysicalTunerDevice>, Task> handler in retiring.GetInvocationList())
+            {
+                await handler(devices);
+            }
+        }
+    }
+
     /// <summary>Publishes one definition identity together with its active runtimes.</summary>
     public void Replace(string activationKey, IReadOnlyList<IPhysicalTunerDevice> devices)
     {
-        Volatile.Write(ref _snapshot, new CatalogSnapshot(activationKey, devices));
+        Volatile.Write(ref _snapshot, new CatalogSnapshot(activationKey, devices, new HashSet<IPhysicalTunerDevice>(ReferenceEqualityComparer.Instance)));
     }
 
-    private sealed record CatalogSnapshot(string? ActivationKey, IReadOnlyList<IPhysicalTunerDevice> Devices);
+    private sealed record CatalogSnapshot(string? ActivationKey, IReadOnlyList<IPhysicalTunerDevice> Devices, IReadOnlySet<IPhysicalTunerDevice> Retiring);
 }
 
 /// <summary>
@@ -102,8 +134,9 @@ public sealed class PhysicalDeviceCatalog : IPhysicalDeviceCatalog
                 foreach (var definition in definitions)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    var deviceKey = CreateActivationKey([definition]);
+                    var deviceKey = $"{definition.Id.Value:D}|{definition.Adapter.Kind.Length}:{definition.Adapter.Kind}|{definition.Adapter.Configuration.GetRawText()}";
                     if (previousById.TryGetValue(definition.Id, out var existing) &&
+                        _state.IsCurrent(existing) &&
                         _deviceActivationKeys.TryGetValue(definition.Id, out var previousKey) &&
                         string.Equals(previousKey, deviceKey, StringComparison.Ordinal))
                     {
@@ -142,11 +175,22 @@ public sealed class PhysicalDeviceCatalog : IPhysicalDeviceCatalog
                 await DisposeDevicesAsync(newlyCreated);
                 throw;
             }
+            var retained = created.ToHashSet<IPhysicalTunerDevice>(ReferenceEqualityComparer.Instance);
+            var retired = previous.Where(device => !retained.Contains(device)).ToArray();
+            try
+            {
+                await _state.RetireAsync(retired);
+            }
+            catch
+            {
+                _activationKey = null;
+                await DisposeDevicesAsync(newlyCreated);
+                throw;
+            }
             _deviceActivationKeys = deviceActivationKeys;
             _state.Replace(activationKey, created);
             _activationKey = activationSucceeded ? activationKey : null;
-            var retained = created.ToHashSet<IPhysicalTunerDevice>(ReferenceEqualityComparer.Instance);
-            await DisposeDevicesAsync(previous.Where(device => !retained.Contains(device)));
+            await DisposeDevicesAsync(retired);
         }
         finally
         {

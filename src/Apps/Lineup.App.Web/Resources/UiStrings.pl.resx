@@ -421,8 +421,8 @@
   <data name="Settings_MaximumBrokerCallsLabel" xml:space="preserve"><value>Maksymalna liczba wywołań brokera</value></data>
   <data name="Settings_MaximumConcurrentStreamsHelp" xml:space="preserve"><value>Maksymalna liczba logicznych sesji odbiorców we wszystkich formatach. Współdzieleni producenci nadal są liczeni raz dla każdego połączonego odbiorcy. Ustaw 0, aby nie ograniczać.</value></data>
   <data name="Settings_MaximumConcurrentStreamsLabel" xml:space="preserve"><value>Maksymalna liczba jednoczesnych strumieni</value></data>
-  <data name="Settings_MaximumConnectionsHelp" xml:space="preserve"><value>Limit jednoczesnych klientów. Użyj 0, aby zastosować wartość domyślną hosta.</value></data>
-  <data name="Settings_MaximumConnectionsLabel" xml:space="preserve"><value>Maksymalna liczba połączeń</value></data>
+  <data name="Settings_MaximumConnectionsHelp" xml:space="preserve"><value>Wspólny limit TCP dla wszystkich wyjść wtyczek, także na interfejsie zarządzania. Liczony od pierwszego żądania wtyczki do rozłączenia. Zarządzanie i diagnostyka są wyłączone. 0 oznacza brak limitu; obniżenie nie rozłącza istniejących klientów.</value></data>
+  <data name="Settings_MaximumConnectionsLabel" xml:space="preserve"><value>Połączenia wtyczek w całym wdrożeniu</value></data>
   <data name="Settings_MaximumRestartsHelp" xml:space="preserve"><value>Dozwolona liczba ponownych uruchomień procesu roboczego po awarii w oknie ponownych uruchomień.</value></data>
   <data name="Settings_MaximumRestartsLabel" xml:space="preserve"><value>Maksymalna liczba ponownych uruchomień</value></data>
   <data name="Settings_MemoryLimitHelp" xml:space="preserve"><value>Górny limit pamięci procesu roboczego. Użyj 0, aby nie konfigurować limitu.</value></data>
@@ -723,7 +723,7 @@
   <data name="Dashboard_RefreshedChannels" xml:space="preserve"><value>Odświeżono kanały źródeł fizycznych: {0}.</value></data>
   <data name="Dashboard_RefreshedChannelsWithFailures" xml:space="preserve"><value>Odświeżono kanały źródeł fizycznych: {0}; liczba awarii urządzeń: {1}.</value></data>
   <data name="Dashboard_RefreshingEnabledGuideSources" xml:space="preserve"><value>Odświeżanie włączonych źródeł przewodnika</value></data>
-  <data name="Dashboard_RemainingDurationFormat" xml:space="preserve"><value>&apos;d&apos; dni &apos;h&apos; godz.&apos;</value></data>
+  <data name="Dashboard_RemainingDurationFormat" xml:space="preserve"><value>d&apos; dni &apos;h&apos; godz.&apos;</value></data>
   <data name="Dashboard_RemainingLabel" xml:space="preserve"><value>Pozostało</value></data>
   <data name="Dashboard_RestartDevice" xml:space="preserve"><value>Uruchom ponownie urządzenie</value></data>
   <data name="Dashboard_Running" xml:space="preserve"><value>Trwa...</value></data>

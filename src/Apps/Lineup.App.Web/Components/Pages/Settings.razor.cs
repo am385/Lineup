@@ -38,7 +38,9 @@ public partial class Settings : IDisposable
     [Inject]
     private IServiceProvider Services { get; set; } = default!;
 
-    private IWebSettingsService WebSettingsService => Services.GetService<IWebSettingsService>() ??
+    private IWebSettingsService? _webSettingsService;
+
+    private IWebSettingsService WebSettingsService => _webSettingsService ??= Services.GetService<IWebSettingsService>() ??
         WebSettingsServiceFallback.Get(SettingsService);
 
     [Inject]
@@ -259,10 +261,10 @@ public partial class Settings : IDisposable
             .OrderBy(driver => IsXmltvGuideOutputKind(driver.Kind) ? 0 : 1)
             .ThenBy(driver => driver.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        SettingsService.OnSettingsChanged += OnSettingsChanged;
+        WebSettingsService.OnSettingsChanged += OnWebSettingsChanged;
     }
 
-    private void OnSettingsChanged()
+    private void OnWebSettingsChanged()
     {
         InvokeAsync(() =>
         {
@@ -278,7 +280,10 @@ public partial class Settings : IDisposable
     {
         _physicalDeviceProbeCancellation?.Cancel();
         _physicalDeviceProbeCancellation?.Dispose();
-        SettingsService.OnSettingsChanged -= OnSettingsChanged;
+        if (_webSettingsService is { } webSettings)
+        {
+            webSettings.OnSettingsChanged -= OnWebSettingsChanged;
+        }
     }
 
     private void LoadCurrentSettings()
@@ -678,7 +683,7 @@ public partial class Settings : IDisposable
         _fileLogRetentionDays = webDefaults.FileLogRetentionDays;
         _fileLogSizeLimitMb = webDefaults.FileLogSizeLimitMb;
         _enableNetworkDiscovery = webDefaults.EnableNetworkDiscovery;
-        _topology = _topologyEditor.Edit(defaults.Streaming, guideOutputDrivers: GuideOutputDrivers);
+        _topology = _topologyEditor.Edit(defaults.Streaming, SettingsService.ConfiguredXmltvOutputPath, GuideOutputDrivers);
         Notifications.ShowSuccess(Text["Settings_ResetDefaultsSuccess"]);
         SelectTab(SettingsTab.General);
     }

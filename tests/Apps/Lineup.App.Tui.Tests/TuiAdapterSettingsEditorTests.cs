@@ -61,7 +61,6 @@ public sealed class TuiAdapterSettingsEditorTests
             Assert.Equal(8601, binding.Port);
             Assert.Equal("new-certificate", policy.CertificateReference);
             Assert.Equal(["198.51.100.0/24", "2001:db8::/32"], policy.AllowedNetworks);
-            Assert.Equal(30, policy.MaximumConnections);
             Assert.Equal(240, policy.RequestsPerMinutePerClient);
             var sharedPolicy = reloaded.VirtualOutputSecurityPolicies.Single(item => item.Key == originalPolicy.Key);
             Assert.Equal(certificateMode, sharedPolicy.ClientCertificateMode);
@@ -69,7 +68,6 @@ public sealed class TuiAdapterSettingsEditorTests
             Assert.Equal(originalPolicy.TrustedProxies, sharedPolicy.TrustedProxies);
             Assert.Equal("original-certificate", sharedPolicy.CertificateReference);
             Assert.Equal(["192.0.2.0/24"], sharedPolicy.AllowedNetworks);
-            Assert.Equal(10, sharedPolicy.MaximumConnections);
             Assert.Equal(120, sharedPolicy.RequestsPerMinutePerClient);
             Assert.Equal(originalPolicy.Key, Assert.Single(reloaded.VirtualDevices[1].Hosting!.Bindings).SecurityPolicyKey);
             Assert.Same(originalPolicy, Assert.Single(original.VirtualOutputSecurityPolicies));
@@ -89,7 +87,7 @@ public sealed class TuiAdapterSettingsEditorTests
         var device = CreateHostingConfiguration().VirtualDevices[0];
 
         // Act
-        var policy = TuiAdapterSettingsEditor.BuildSecurityPolicy(device, null, "  ", " 192.0.2.0/24, ::1/128 ", 10, 120);
+        var policy = TuiAdapterSettingsEditor.BuildSecurityPolicy(device, null, "  ", " 192.0.2.0/24, ::1/128 ", 120);
 
         // Assert
         Assert.Equal($"virtual-{device.Id.Value:N}-security", policy.Key);
@@ -99,7 +97,6 @@ public sealed class TuiAdapterSettingsEditorTests
         Assert.False(policy.AllowForwardedHeaders);
         Assert.Empty(policy.TrustedProxies);
         Assert.Equal(["192.0.2.0/24", "::1/128"], policy.AllowedNetworks);
-        Assert.Equal(10, policy.MaximumConnections);
         Assert.Equal(120, policy.RequestsPerMinutePerClient);
     }
 
@@ -180,7 +177,7 @@ public sealed class TuiAdapterSettingsEditorTests
         // Arrange
         var settings = new LineupSettings { Streaming = CreateHostingConfiguration() };
         var service = CreateSettingsService(settings);
-        var candidate = CreateHostingConfiguration(8601);
+        var candidate = CreateHostingConfiguration(8601) with { MaximumPluginConnections = 12 };
 
         // Act
         var saved = await TuiAdapterSettingsEditor.TrySaveTopologyAsync(service, candidate);
@@ -188,6 +185,7 @@ public sealed class TuiAdapterSettingsEditorTests
         // Assert
         Assert.True(saved);
         Assert.Same(candidate, settings.Streaming);
+        Assert.Equal(12, settings.Streaming.MaximumPluginConnections);
         Assert.Empty(StreamingConfigurationValidator.Validate(settings.Streaming));
         await service.Received(1).UpdateAsync(Arg.Any<Action<LineupSettings>>());
     }
@@ -652,7 +650,6 @@ public sealed class TuiAdapterSettingsEditorTests
                     CertificateReference = "original-certificate",
                     ClientCertificateMode = certificateMode,
                     AllowedNetworks = ["192.0.2.0/24"],
-                    MaximumConnections = 10,
                     RequestsPerMinutePerClient = 120,
                     AllowForwardedHeaders = allowForwardedHeaders,
                     TrustedProxies = allowForwardedHeaders ? ["127.0.0.1", "192.0.2.0/24", "::1/128"] : []
@@ -666,7 +663,7 @@ public sealed class TuiAdapterSettingsEditorTests
         var device = original.VirtualDevices[0];
         var binding = Assert.Single(device.Hosting!.Bindings);
         var currentPolicy = original.VirtualOutputSecurityPolicies.Single(policy => policy.Key == binding.SecurityPolicyKey);
-        var policy = TuiAdapterSettingsEditor.BuildSecurityPolicy(device, currentPolicy, " new-certificate ", " 198.51.100.0/24, 2001:db8::/32 ", 30, 240);
+        var policy = TuiAdapterSettingsEditor.BuildSecurityPolicy(device, currentPolicy, " new-certificate ", " 198.51.100.0/24, 2001:db8::/32 ", 240);
         return original with
         {
             VirtualDevices =

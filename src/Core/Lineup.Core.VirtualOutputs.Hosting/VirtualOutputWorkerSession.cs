@@ -84,10 +84,15 @@ public sealed class VirtualOutputWorkerSession
             MinimumProtocolVersion = VirtualOutputProtocol.MinimumVersion,
             MaximumProtocolVersion = VirtualOutputProtocol.MaximumVersion
         }, cancellationToken);
+        if (registration.Accepted && registration.ProtocolVersion is not (>= VirtualOutputProtocol.MinimumVersion and <= VirtualOutputProtocol.MaximumVersion))
+        {
+            throw new VirtualOutputClientException(VirtualOutputFailureCode.InvalidRequest,
+                $"The Lineup control plane selected an unsupported worker protocol; this release requires protocol {VirtualOutputProtocol.MaximumVersion}.");
+        }
         if (!registration.Accepted ||
             registration.SessionId is not { } sessionId ||
             registration.Generation != _bootstrap.Generation ||
-            registration.ProtocolVersion is null ||
+            registration.ProtocolVersion is not (>= VirtualOutputProtocol.MinimumVersion and <= VirtualOutputProtocol.MaximumVersion) ||
             registration.LeaseExpiresUtc is not { } leaseExpiresUtc)
         {
             throw new VirtualOutputClientException(

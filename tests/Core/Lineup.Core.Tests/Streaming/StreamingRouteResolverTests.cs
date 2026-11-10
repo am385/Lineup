@@ -232,9 +232,9 @@ public sealed class StreamingRouteResolverTests
         }
     }
 
-    /// <summary>Verifies a changed definition cannot reuse a previously committed healthy route without applying the new configuration.</summary>
+    /// <summary>Verifies display-only edits apply without replacing the physical runtime or its stream identity.</summary>
     [Fact]
-    public async Task ResolveVirtualAsync_ChangedPhysicalDefinition_ActivatesReplacement()
+    public async Task ResolveVirtualAsync_RenamedPhysicalDefinition_PreservesRuntime()
     {
         // Arrange
         using var fixture = new Fixture();
@@ -249,8 +249,9 @@ public sealed class StreamingRouteResolverTests
         // Assert
         Assert.NotNull(original);
         Assert.NotNull(replacement);
-        Assert.NotSame(original.PhysicalDevice, replacement.PhysicalDevice);
-        Assert.Equal("Replacement", replacement.PhysicalDevice.Snapshot.Name);
+        Assert.Same(original.PhysicalDevice, replacement.PhysicalDevice);
+        Assert.Same(replacement.PhysicalDevice, replacement.Acquisition.Runtime);
+        Assert.Equal(original.Acquisition, replacement.Acquisition);
         Assert.Equal(2, fixture.RefreshCount);
     }
 

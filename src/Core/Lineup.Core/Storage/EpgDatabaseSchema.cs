@@ -1,9 +1,11 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace Lineup.Core.Storage;
 
 /// <summary>
-/// Creates the current database schema after the startup schema gate has rejected unsupported versions.
+/// Atomically creates the current database schema and metadata after the startup gate has rejected unsupported versions.
 /// </summary>
 internal static class EpgDatabaseSchema
 {
@@ -51,32 +53,18 @@ internal static class EpgDatabaseSchema
             }
         }
 
-        await context.Database.EnsureCreatedAsync(cancellationToken);
-        var connection = context.Database.GetDbConnection();
-        var shouldClose = connection.State != System.Data.ConnectionState.Open;
-        if (shouldClose)
+        var creator = context.GetService<IRelationalDatabaseCreator>();
+        if (!await creator.ExistsAsync(cancellationToken))
         {
-            await connection.OpenAsync(cancellationToken);
+            await creator.CreateAsync(cancellationToken);
         }
 
-        try
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        if (!await creator.HasTablesAsync(cancellationToken))
         {
-            await ExecuteAsync(connection, StartupSchemaGate.CreateDatabaseMetadataSql(), cancellationToken);
+            await creator.CreateTablesAsync(cancellationToken);
         }
-        finally
-        {
-            if (shouldClose)
-            {
-                await connection.CloseAsync();
-            }
-        }
-    }
-
-
-    private static async Task ExecuteAsync(System.Data.Common.DbConnection connection, string commandText, CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.CommandText = commandText;
-        await command.ExecuteNonQueryAsync(cancellationToken);
+        await context.Database.ExecuteSqlRawAsync(StartupSchemaGate.CreateDatabaseMetadataSql(), cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
     }
 }

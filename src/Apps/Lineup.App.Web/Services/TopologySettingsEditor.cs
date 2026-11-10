@@ -49,6 +49,7 @@ public sealed class TopologySettingsEditor
         var model = new TopologySettingsModel
         {
             KeepWarmPeriodSeconds = configuration.KeepWarmPeriodSeconds,
+            MaximumPluginConnections = configuration.MaximumPluginConnections,
             PhysicalDefaults = new PhysicalTranscodeSettingsModel
             {
                 ConvertHevcToH264 = configuration.PhysicalDefaults.ConvertHevcToH264,
@@ -174,7 +175,6 @@ public sealed class TopologySettingsEditor
                     CertificateReference = securityPolicy?.CertificateReference ?? string.Empty,
                     ClientCertificateMode = securityPolicy?.ClientCertificateMode ?? VirtualOutputClientCertificateMode.None,
                     AllowedNetworks = securityPolicy is null ? string.Empty : string.Join(", ", securityPolicy.AllowedNetworks),
-                    MaximumConnections = securityPolicy?.MaximumConnections ?? 0,
                     RequestsPerMinutePerClient = securityPolicy?.RequestsPerMinutePerClient ?? 0,
                     AllowForwardedHeaders = securityPolicy?.AllowForwardedHeaders ?? false,
                     TrustedProxies = securityPolicy is null ? string.Empty : string.Join(", ", securityPolicy.TrustedProxies),
@@ -227,6 +227,7 @@ public sealed class TopologySettingsEditor
         configuration = new StreamingConfiguration
         {
             KeepWarmPeriodSeconds = model.KeepWarmPeriodSeconds,
+            MaximumPluginConnections = model.MaximumPluginConnections,
             PhysicalDefaults = new PhysicalTranscodeProfile
             {
                 ConvertHevcToH264 = model.PhysicalDefaults.ConvertHevcToH264,
@@ -749,7 +750,6 @@ public sealed class TopologySettingsEditor
             CertificateReference = NormalizeOptional(device.CertificateReference),
             ClientCertificateMode = device.ClientCertificateMode,
             AllowedNetworks = SplitList(device.AllowedNetworks),
-            MaximumConnections = device.MaximumConnections,
             RequestsPerMinutePerClient = device.RequestsPerMinutePerClient,
             AllowForwardedHeaders = device.AllowForwardedHeaders,
             TrustedProxies = SplitList(device.TrustedProxies)
@@ -1030,6 +1030,9 @@ public sealed class TopologySettingsModel
 {
     /// <summary>Gets or sets how long unused shared live pipelines remain available for reuse.</summary>
     public int KeepWarmPeriodSeconds { get; set; }
+
+    /// <summary>Gets or sets the deployment-wide admitted plugin TCP connection limit, or zero for unlimited.</summary>
+    public int MaximumPluginConnections { get; set; }
 
     /// <summary>Gets or sets physical-stage defaults.</summary>
     public PhysicalTranscodeSettingsModel PhysicalDefaults { get; set; } = new();
@@ -1469,21 +1472,21 @@ public sealed class VirtualDeviceSettingsModel : ITranscodeOverrideSettingsModel
     /// <summary>Gets or sets the manually overridden client-facing listener root URI.</summary>
     public string PublicBaseUri { get; set; } = string.Empty;
 
-    /// <summary>Gets the client-facing root URI derived from the listener transport, address, and published port, or an empty string while the derived port is invalid.</summary>
+    /// <summary>Gets the client-facing root URI derived from the listener transport, address, and published port, or an empty string while the address or derived port is invalid.</summary>
     public string AutomaticPublicBaseUri
     {
         get
         {
             var address = ListenerAddresses
                 .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-                .FirstOrDefault() ?? "localhost";
+                .FirstOrDefault();
             if (address is "*" or "+" or "0.0.0.0" or "::" or "[::]")
             {
                 address = "localhost";
             }
             var scheme = ListenerTransport == VirtualOutputTransport.Https ? Uri.UriSchemeHttps : Uri.UriSchemeHttp;
             var port = PublishedPort is >= 1 and <= 65_535 ? PublishedPort.Value : ListenerPort;
-            if (port is < 1 or > 65_535)
+            if (port is < 1 or > 65_535 || string.IsNullOrEmpty(address) || Uri.CheckHostName(address) == UriHostNameType.Unknown)
             {
                 return string.Empty;
             }
@@ -1518,9 +1521,6 @@ public sealed class VirtualDeviceSettingsModel : ITranscodeOverrideSettingsModel
 
     /// <summary>Gets or sets comma-separated client network CIDRs.</summary>
     public string AllowedNetworks { get; set; } = string.Empty;
-
-    /// <summary>Gets or sets the public connection limit.</summary>
-    public int MaximumConnections { get; set; }
 
     /// <summary>Gets or sets the per-client request limit.</summary>
     public int RequestsPerMinutePerClient { get; set; }

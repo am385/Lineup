@@ -3,6 +3,7 @@ using System.Text.Json;
 using Lineup.Core.Common.Configuration;
 using Lineup.Core.Common.Streaming;
 using Xunit;
+using Lineup.Core.VirtualOutputs.Protocol;
 
 namespace Lineup.Core.VirtualOutputs.Runtime.Tests;
 
@@ -269,8 +270,8 @@ public sealed class VirtualOutputWorkerManifestValidatorTests
             ExecutableSha256 = hash,
             AdapterKinds = ["lineup-link"],
             Platforms = [new VirtualOutputWorkerPlatform { OperatingSystem = "windows", Architecture = "x64" }],
-            MinimumProtocolVersion = 1,
-            MaximumProtocolVersion = 1,
+            MinimumProtocolVersion = VirtualOutputProtocol.MinimumVersion,
+            MaximumProtocolVersion = VirtualOutputProtocol.MaximumVersion,
             MinimumLineupVersion = "3.0.0",
             SettingsDescriptor = new AdapterSettingsDescriptor { AdapterKind = "lineup-link" }
         };

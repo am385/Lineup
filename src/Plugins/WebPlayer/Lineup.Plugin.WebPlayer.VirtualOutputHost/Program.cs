@@ -1,8 +1,4 @@
 using System.Diagnostics;
-using System.Net;
-using System.Security.Cryptography.X509Certificates;
-using System.Threading.RateLimiting;
-using Lineup.Core.Common.Networking;
 using Lineup.Core.Common.Streaming;
 using Lineup.Core.Streaming.FFmpeg;
 using Lineup.Core.VirtualOutputs.Hosting;
@@ -10,8 +6,6 @@ using Lineup.Core.VirtualOutputs.Protocol;
 using Lineup.Plugin.WebPlayer;
 using Lineup.Plugin.WebPlayer.FFmpeg;
 using Lineup.Plugin.WebPlayer.VirtualOutputHost;
-using Microsoft.AspNetCore.Server.Kestrel.Core;
-using Microsoft.AspNetCore.Server.Kestrel.Https;
 
 var bootstrap = await VirtualOutputWorkerBootstrapReader.ReadAsync(cancellationToken: CancellationToken.None);
 if (!string.Equals(bootstrap.VirtualDevice.Adapter.Kind, WebPlayerVirtualTunerDriver.AdapterKind, StringComparison.Ordinal))
@@ -20,12 +14,10 @@ if (!string.Equals(bootstrap.VirtualDevice.Adapter.Kind, WebPlayerVirtualTunerDr
 }
 var hosting = bootstrap.VirtualDevice.Hosting
     ?? throw new InvalidDataException("Web Player worker requires dedicated hosting configuration.");
-var securityPolicies = bootstrap.SecurityPolicies.ToDictionary(policy => policy.Key, StringComparer.OrdinalIgnoreCase);
-var allowedNetworks = securityPolicies.ToDictionary(
-    pair => pair.Key,
-    pair => IpNetworkSet.Parse(pair.Value.AllowedNetworks, $"Virtual output security policy '{pair.Value.Name}' allowed networks"),
-    StringComparer.OrdinalIgnoreCase);
-var certificates = bootstrap.CertificateMaterials.ToDictionary(material => material.Reference, StringComparer.Ordinal);
+var listenerPolicy = new VirtualOutputListenerPolicy(bootstrap);
+var workerSession = new VirtualOutputWorkerSession(bootstrap);
+await workerSession.RegisterAsync();
+var admission = new PluginConnectionAdmission(workerSession);
 var bindingsByPort = VirtualOutputBindingResolver.CreatePortMap(hosting);
 var sessions = new DedicatedMediaSessionRegistry<MediaSession>(TimeProvider.System, CmafStreamPlanner.MinimumInactivityTimeout);
 var builder = WebApplication.CreateSlimBuilder(args);
@@ -36,56 +28,30 @@ builder.Logging.AddSimpleConsole(options =>
     options.TimestampFormat = "yyyy-MM-ddTHH:mm:ss.fffZ ";
     options.UseUtcTimestamp = true;
 });
-builder.Services.AddRateLimiter(options =>
-{
-    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
-    {
-        var policy = ResolveSecurityPolicy(context.Connection.LocalPort, bindingsByPort, securityPolicies);
-        var client = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        return policy.RequestsPerMinutePerClient > 0
-            ? RateLimitPartition.GetFixedWindowLimiter(
-                $"{context.Connection.LocalPort}:{client}",
-                _ => new FixedWindowRateLimiterOptions
-                {
-                    PermitLimit = policy.RequestsPerMinutePerClient,
-                    Window = TimeSpan.FromMinutes(1),
-                    QueueLimit = 0,
-                    AutoReplenishment = true
-                })
-            : RateLimitPartition.GetNoLimiter($"{context.Connection.LocalPort}:{client}");
-    });
-});
+listenerPolicy.AddServices(builder.Services);
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(DedicatedWorkerCorsPolicy.Create());
 });
-builder.WebHost.ConfigureKestrel(options => ConfigureListeners(options, bootstrap, securityPolicies, certificates));
+builder.WebHost.ConfigureKestrel(admission.Configure);
+builder.WebHost.ConfigureKestrel(listenerPolicy.Configure);
 var app = builder.Build();
-var workerSession = new VirtualOutputWorkerSession(bootstrap);
-await workerSession.RegisterAsync();
-var activeRequests = 0;
-app.UseVirtualOutputForwardedHeaders(hosting, securityPolicies);
+listenerPolicy.UseForwardedHeaders(app);
 app.UseCors();
 app.UseRateLimiter();
 app.Use(async (context, next) =>
 {
-    Interlocked.Increment(ref activeRequests);
-    try
+    if (!listenerPolicy.Allows(context))
     {
-        var policy = ResolveSecurityPolicy(context.Connection.LocalPort, bindingsByPort, securityPolicies);
-        if (!allowedNetworks[policy.Key].Contains(context.Connection.RemoteIpAddress))
-        {
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            return;
-        }
-        await next(context);
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        return;
     }
-    finally
-    {
-        Interlocked.Decrement(ref activeRequests);
-    }
+    await next(context);
 });
+
+admission.Use(app, app.Logger, countUnmarkedEndpoints: true,
+    writeFailure: (context, code, message) => context.Response.WriteAsJsonAsync(
+        DedicatedWorkerStartupFailureMapper.Map(new VirtualOutputClientException(code, message), DedicatedWorkerStartupStage.Broker), context.RequestAborted));
 
 app.MapPost("/media/start/{channel}", async (
     string channel,
@@ -253,10 +219,6 @@ static async Task ReportStreamStatusAsync(
     string? lastFailure,
     CancellationToken cancellationToken)
 {
-    if (workerSession.ProtocolVersion < 2)
-    {
-        return;
-    }
     var snapshot = plan.CreateActiveStreamSnapshot(streamSessionId.ToString(), channel, startedAtUtc);
     var response = await workerSession.Broker.ReportStreamStatusAsync(new VirtualOutputStreamStatusReport
     {
@@ -330,16 +292,17 @@ app.MapPost("/media/stop/{sessionId}", async (string sessionId) =>
         return Results.NotFound();
     }
     return Results.NoContent();
-});
+}).WithMetadata(new PluginConnectionEndpointAttribute(false));
 
-app.MapGet("/health", () => Results.Ok(new { ready = true, activeSessions = sessions.Count }));
+app.MapGet("/health", () => Results.Ok(new { ready = true, activeSessions = sessions.Count })).WithMetadata(new PluginConnectionEndpointAttribute(false));
 
 // This passive inventory uses the same listener network, TLS and rate-limit policies as media requests.
-app.MapGet("/media/sessions", () => Results.Ok(new { generation = bootstrap.Generation, sessionIds = sessions.GetSessionIds() }));
+app.MapGet("/media/sessions", () => Results.Ok(new { generation = bootstrap.Generation, sessionIds = sessions.GetSessionIds() }))
+    .WithMetadata(new PluginConnectionEndpointAttribute(false));
 
 using var leaseCancellation = new CancellationTokenSource();
 var leaseTask = workerSession.RunLeaseLoopAsync(
-    () => (Ready: true, ActiveConnections: Volatile.Read(ref activeRequests) + sessions.Count),
+    () => (Ready: true, ActiveConnections: admission.ActiveConnections),
     () => leaseCancellation.Cancel(),
     leaseCancellation.Token);
 var expirationTask = sessions.RunExpirationLoopAsync(leaseCancellation.Token);
@@ -488,74 +451,6 @@ static bool TryResolveMediaFile(string directory, string filename, out string pa
     path = candidate;
     return true;
 }
-
-static void ConfigureListeners(
-    KestrelServerOptions options,
-    VirtualOutputWorkerBootstrap bootstrap,
-    IReadOnlyDictionary<string, VirtualOutputSecurityPolicyDefinition> policies,
-    IReadOnlyDictionary<string, VirtualOutputCertificateMaterial> certificates)
-{
-    var connectionLimits = bootstrap.VirtualDevice.Hosting!.Bindings
-        .Select(binding => policies[binding.SecurityPolicyKey].MaximumConnections)
-        .Where(limit => limit > 0)
-        .ToArray();
-    if (connectionLimits.Length > 0)
-    {
-        options.Limits.MaxConcurrentConnections = connectionLimits.Min();
-    }
-    foreach (var binding in bootstrap.VirtualDevice.Hosting!.Bindings)
-    {
-        var policy = policies[binding.SecurityPolicyKey];
-        foreach (var address in binding.Addresses)
-        {
-            void Configure(ListenOptions listenOptions)
-            {
-                if (binding.Transport != VirtualOutputTransport.Https)
-                {
-                    return;
-                }
-                var certificateReference = policy.CertificateReference
-                    ?? throw new InvalidOperationException($"HTTPS policy '{policy.Key}' does not reference a certificate.");
-                var material = certificates[certificateReference];
-                var certificate = X509CertificateLoader.LoadPkcs12(material.Pkcs12, material.Password);
-                listenOptions.UseHttps(new HttpsConnectionAdapterOptions
-                {
-                    ServerCertificate = certificate,
-                    ClientCertificateMode = policy.ClientCertificateMode switch
-                    {
-                        VirtualOutputClientCertificateMode.Allow => ClientCertificateMode.AllowCertificate,
-                        VirtualOutputClientCertificateMode.Require => ClientCertificateMode.RequireCertificate,
-                        _ => ClientCertificateMode.NoCertificate
-                    }
-                });
-            }
-            if (address == "*" || address is "0.0.0.0" or "::")
-            {
-                options.ListenAnyIP(binding.Port, Configure);
-            }
-            else if (string.Equals(address, "localhost", StringComparison.OrdinalIgnoreCase))
-            {
-                options.ListenLocalhost(binding.Port, Configure);
-            }
-            else if (IPAddress.TryParse(address, out var ipAddress))
-            {
-                options.Listen(ipAddress, binding.Port, Configure);
-            }
-            else
-            {
-                throw new InvalidOperationException($"Unsupported output binding address '{address}'.");
-            }
-        }
-    }
-}
-
-static VirtualOutputSecurityPolicyDefinition ResolveSecurityPolicy(
-    int localPort,
-    IReadOnlyDictionary<int, VirtualOutputBindingDefinition> bindingsByPort,
-    IReadOnlyDictionary<string, VirtualOutputSecurityPolicyDefinition> policies) =>
-    policies[bindingsByPort.TryGetValue(localPort, out var binding)
-        ? binding.SecurityPolicyKey
-        : throw new InvalidOperationException($"No virtual-output binding owns local port {localPort}.")];
 
 internal sealed class MediaSession : IAsyncDisposable
 {

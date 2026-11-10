@@ -207,7 +207,10 @@ public sealed class StreamingRouteResolver : IStreamingRouteResolver
                     Acquisition = new StreamAcquisitionDescriptor(
                         candidate.PhysicalDeviceId,
                         PhysicalAcquisitionKey.Create(candidateRequest),
-                        device.Snapshot.Capacity),
+                        device.Snapshot.Capacity)
+                    {
+                        Runtime = device
+                    },
                     PhysicalProfile = definition.TranscodeOverrides.Apply(configuration.PhysicalDefaults)
                 };
             })

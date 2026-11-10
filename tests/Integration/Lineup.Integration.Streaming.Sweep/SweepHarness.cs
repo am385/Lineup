@@ -47,13 +47,19 @@ internal sealed partial class SweepHarness
         ];
     }
 
+    /// <summary>Validates cached tuner targets before generating settings or updating compose definitions under the output-root lock.</summary>
     public async Task GenerateAsync()
     {
-        Directory.CreateDirectory(_runsRoot);
+        _cancellation.ThrowIfCancellationRequested();
         if (_options.ExistingInstance)
         {
             return;
         }
+        _ = GetTunerAddress();
+        Directory.CreateDirectory(_root);
+        await using var lease = new FileStream(Path.Combine(_root, "sweep.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        await ValidateMatrixInputsAsync(_matrices, allowMissing: true);
+        Directory.CreateDirectory(_runsRoot);
         foreach (var matrix in _matrices)
         {
             var matrixRoot = MatrixRoot(matrix);
@@ -62,7 +68,7 @@ internal sealed partial class SweepHarness
             Directory.CreateDirectory(Path.Combine(matrixRoot, "templates", "consumer"));
             var sourceSettings = Path.Combine(matrixRoot, "templates", "source", "settings.json");
             var consumerSettings = Path.Combine(matrixRoot, "templates", "consumer", "settings.json");
-            if (!File.Exists(sourceSettings) || (matrix.Remote && !File.Exists(consumerSettings)))
+            if (!File.Exists(sourceSettings) && (!matrix.Remote || !File.Exists(consumerSettings)))
             {
                 await GenerateMatrixSettingsAsync(matrix);
             }
@@ -71,9 +77,11 @@ internal sealed partial class SweepHarness
         await File.WriteAllTextAsync(Path.Combine(_root, "matrices.json"), JsonSerializer.Serialize(_matrices, _json));
     }
 
+    /// <summary>Retries failed channels only when their canonical tuner provenance still matches the effective input.</summary>
     public async Task RecheckPostFixFailuresAsync(string inputRun)
     {
         var reference = await SweepStore.LoadAsync(inputRun);
+        ValidateRunTuner(reference, inputRun);
         var failedChannels = SweepPolicy.RecheckChannels(reference);
         if (failedChannels.Count == 0)
         {
@@ -84,8 +92,10 @@ internal sealed partial class SweepHarness
         await ExecuteAsync(failedChannels, $"post-fix-failure-recheck-{DateTime.UtcNow:yyyyMMdd-HHmmss}");
     }
 
+    /// <summary>Executes selected channels and matrices only after offline input validation.</summary>
     public async Task ExecuteAsync(IReadOnlySet<string>? channelNumbers = null, string? runId = null, IReadOnlySet<string>? matrixIds = null)
     {
+        await ValidateMatrixInputsAsync(_matrices, allowMissing: false);
         _options = _options with
         {
             Include = channelNumbers?.Order(StringComparer.OrdinalIgnoreCase).ToArray() ?? _options.Include,

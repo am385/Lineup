@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Globalization;
 using System.Text.Json;
 using Bunit;
 using Lineup.App.Web.Components.Pages;
@@ -17,6 +18,42 @@ namespace Lineup.App.Web.Tests.Components.Pages;
 public class DashboardComponentTests
 {
     private const string StorageKey = "lineup-dashboard-sections-v1";
+
+    /// <summary>Verifies populated localized guide statistics render duration summaries and channel gaps even when the guide panel starts collapsed.</summary>
+    [Theory]
+    [InlineData("pl", false)]
+    [InlineData("pl", true)]
+    [InlineData("zh-Hans", false)]
+    [InlineData("zh-Hans", true)]
+    [InlineData("it", false)]
+    [InlineData("it", true)]
+    public void GuidePanel_LocalizedDurations_RendersStatistics(string culture, bool collapsed)
+    {
+        // Arrange
+        var originalCulture = CultureInfo.CurrentUICulture;
+        try
+        {
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(culture);
+            using var context = CreateContext();
+            context.JSInterop.Setup<string?>("localStorage.getItem", StorageKey)
+                .SetResult(collapsed ? """{"GuideExpanded":false}""" : null);
+            var start = DateTimeOffset.UtcNow;
+            context.Services.GetRequiredService<ILineupGuideReader>().GetStatisticsAsync(Arg.Any<CancellationToken>())
+                .Returns(new GuideStatistics(12, 345, start, start.AddDays(3).AddHours(4), start.AddDays(3).AddHours(2)));
+
+            // Act
+            var component = context.Render<Dashboard>();
+
+            // Assert
+            Assert.Equal(collapsed, component.Find("#guideSection").HasAttribute("hidden"));
+            Assert.Contains("345", component.Find("#guideSection").TextContent, StringComparison.Ordinal);
+            Assert.Contains("2", component.Find("#guideSection .text-warning").TextContent, StringComparison.Ordinal);
+        }
+        finally
+        {
+            CultureInfo.CurrentUICulture = originalCulture;
+        }
+    }
 
     /// <summary>Verifies source warnings are visible even when the guide panel is collapsed and do not replace healthy statistics.</summary>
     [Fact]
@@ -393,8 +430,6 @@ public class DashboardComponentTests
         var settings = Substitute.For<ILineupSettingsService>();
         settings.Settings.Returns(new LineupSettings
         {
-            IsSetupComplete = true,
-            ActiveStreamRefreshIntervalSeconds = 0,
             RefreshChannelsBeforeGuideFetch = false
         });
 
@@ -420,6 +455,9 @@ public class DashboardComponentTests
 
         context.Services.AddSingleton(repository);
         context.Services.AddSingleton(settings);
+        var webSettings = Substitute.For<IWebSettingsService>();
+        webSettings.Settings.Returns(new WebSettings { IsSetupComplete = true, ActiveStreamRefreshIntervalSeconds = 0 });
+        context.Services.AddSingleton(webSettings);
         context.Services.AddSingleton(deviceStatuses ?? deviceState);
         context.Services.AddSingleton(autoFetchState);
         context.Services.AddSingleton(timeZone);

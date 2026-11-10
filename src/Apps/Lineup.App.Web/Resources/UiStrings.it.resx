@@ -421,8 +421,8 @@
   <data name="Settings_MaximumBrokerCallsLabel" xml:space="preserve"><value>Numero massimo di chiamate</value></data>
   <data name="Settings_MaximumConcurrentStreamsHelp" xml:space="preserve"><value>Massime sessioni di consumo logiche in tutti i formati. I produttori condivisi contano ancora una volta per consumatore connesso. Impostare a 0 per illimitato.</value></data>
   <data name="Settings_MaximumConcurrentStreamsLabel" xml:space="preserve"><value>Massimi flussi concorrenti</value></data>
-  <data name="Settings_MaximumConnectionsHelp" xml:space="preserve"><value>Limite client corrente. Utilizzare 0 per il default dell'host.</value></data>
-  <data name="Settings_MaximumConnectionsLabel" xml:space="preserve"><value>Collegamenti massimi</value></data>
+  <data name="Settings_MaximumConnectionsHelp" xml:space="preserve"><value>Un unico limite TCP per tutte le uscite dei plugin, incluse quelle dell'interfaccia di gestione. Il conteggio va dalla prima richiesta del plugin alla disconnessione. Gestione e diagnostica sono escluse. 0 significa illimitato; ridurre il limite non disconnette i client esistenti.</value></data>
+  <data name="Settings_MaximumConnectionsLabel" xml:space="preserve"><value>Connessioni dei plugin dell'installazione</value></data>
   <data name="Settings_MaximumRestartsHelp" xml:space="preserve"><value>Riavviamento del lavoratore non eseguito all'interno della finestra di riavvio.</value></data>
   <data name="Settings_MaximumRestartsLabel" xml:space="preserve"><value>Riavvio massimo</value></data>
   <data name="Settings_MemoryLimitHelp" xml:space="preserve"><value>soffitto di memoria del lavoratore. Utilizzare 0 per nessun limite configurato.</value></data>
@@ -658,7 +658,7 @@
   <data name="Dashboard_AutoFetchPending" xml:space="preserve"><value>auto-fetch in attesa</value></data>
   <data name="Dashboard_AutoFetchRunning" xml:space="preserve"><value>auto-fetch in esecuzione</value></data>
   <data name="Dashboard_AutoRefreshDisabled" xml:space="preserve"><value>auto-refresh disattivato</value></data>
-  <data name="Dashboard_ChannelGapDurationFormat" xml:space="preserve"><value>ore 'm' min'</value></data>
+  <data name="Dashboard_ChannelGapDurationFormat" xml:space="preserve"><value>h' ore 'm' min'</value></data>
   <data name="Dashboard_ChannelGapLabel" xml:space="preserve"><value>Canale Gap</value></data>
   <data name="Dashboard_ChannelsHeading" xml:space="preserve"><value>Canali</value></data>
   <data name="Dashboard_ChannelsLabel" xml:space="preserve"><value>Canali</value></data>

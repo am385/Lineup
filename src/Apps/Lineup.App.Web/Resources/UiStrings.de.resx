@@ -421,8 +421,8 @@
   <data name="Settings_MaximumBrokerCallsLabel" xml:space="preserve"><value>Maximale Brokeraufrufe</value></data>
   <data name="Settings_MaximumConcurrentStreamsHelp" xml:space="preserve"><value>Maximale Anzahl logischer Verbrauchersitzungen über alle Formate hinweg. Gemeinsam genutzte Produzenten zählen weiterhin einmal pro verbundenem Verbraucher. Mit 0 gilt keine Begrenzung.</value></data>
   <data name="Settings_MaximumConcurrentStreamsLabel" xml:space="preserve"><value>Maximale gleichzeitige Streams</value></data>
-  <data name="Settings_MaximumConnectionsHelp" xml:space="preserve"><value>Grenzwert für gleichzeitige Clients. Mit 0 wird der Hoststandard verwendet.</value></data>
-  <data name="Settings_MaximumConnectionsLabel" xml:space="preserve"><value>Maximale Verbindungen</value></data>
+  <data name="Settings_MaximumConnectionsHelp" xml:space="preserve"><value>Gemeinsames TCP-Verbindungslimit für alle Plugin-Ausgaben, einschließlich Ausgaben am Verwaltungsendpunkt. Gezählt wird ab der ersten Plugin-Anfrage bis zur Trennung. Verwaltungs- und Diagnoseanfragen sind ausgenommen. 0 bedeutet unbegrenzt; eine Senkung trennt bestehende Clients nicht.</value></data>
+  <data name="Settings_MaximumConnectionsLabel" xml:space="preserve"><value>Bereitstellungsweite Plugin-Verbindungen</value></data>
   <data name="Settings_MaximumRestartsHelp" xml:space="preserve"><value>Zulässige fehlgeschlagene Worker-Neustarts innerhalb des Neustartzeitfensters.</value></data>
   <data name="Settings_MaximumRestartsLabel" xml:space="preserve"><value>Maximale Neustarts</value></data>
   <data name="Settings_MemoryLimitHelp" xml:space="preserve"><value>Arbeitsspeicherobergrenze des Workers. Verwenden Sie 0, um keinen Grenzwert festzulegen.</value></data>

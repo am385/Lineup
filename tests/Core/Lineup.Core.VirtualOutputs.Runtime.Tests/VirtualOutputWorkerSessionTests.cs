@@ -10,6 +10,26 @@ namespace Lineup.Core.VirtualOutputs.Runtime.Tests;
 /// <summary>Verifies worker lease deadlines cancel real IPC without extending an expired worker's lifetime.</summary>
 public sealed class VirtualOutputWorkerSessionTests
 {
+    /// <summary>Verifies a worker cannot adopt an accepted registration using an unsupported protocol.</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public async Task RegisterAsync_IncompatibleAcceptedVersion_RejectsSession(int protocol)
+    {
+        // Arrange
+        await using var fixture = new LeaseFixture();
+
+        // Act
+        var error = await Assert.ThrowsAsync<VirtualOutputClientException>(() => fixture.RegisterAsync(protocol));
+
+        // Assert
+        Assert.Equal(VirtualOutputFailureCode.InvalidRequest, error.FailureCode);
+        Assert.Contains($"requires protocol {VirtualOutputProtocol.MaximumVersion}", error.Message);
+        Assert.Null(fixture.Session.Context);
+        Assert.Null(fixture.Session.ProtocolVersion);
+    }
+
     /// <summary>Verifies an unavailable broker cannot leave a worker connecting beyond its lease deadline.</summary>
     [Fact]
     public async Task RunLeaseLoopAsync_BrokerDisappears_ShutsDownAtExpiration()
@@ -244,7 +264,7 @@ public sealed class VirtualOutputWorkerSessionTests
 
         public NamedPipeServerStream CreateServer() => new(_bootstrap.Endpoint.Address, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
 
-        public async Task RegisterAsync()
+        public async Task RegisterAsync(int? protocolVersion = null)
         {
             await using var server = CreateServer();
             var connection = server.WaitForConnectionAsync(Token);
@@ -257,7 +277,7 @@ public sealed class VirtualOutputWorkerSessionTests
                 Accepted = true,
                 SessionId = VirtualOutputWorkerSessionId.New(),
                 Generation = _bootstrap.Generation,
-                ProtocolVersion = VirtualOutputProtocol.MaximumVersion,
+                ProtocolVersion = protocolVersion ?? VirtualOutputProtocol.MaximumVersion,
                 LeaseExpiresUtc = Time.GetUtcNow().AddSeconds(3)
             }), Token);
             await registration;

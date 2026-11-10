@@ -14,6 +14,55 @@ namespace Lineup.App.Web.Tests.Services;
 /// <summary>Verifies Web UI culture configuration and request application.</summary>
 public sealed class UiLocalizationTests
 {
+    /// <summary>Provides each duration resource and representative duration in every supported culture.</summary>
+    public static IEnumerable<object[]> DurationFormats()
+    {
+        foreach (var culture in UiLocalization.SupportedCultures)
+        {
+            foreach (var key in new[] { "Dashboard_RemainingDurationFormat", "Dashboard_ChannelGapDurationFormat" })
+            {
+                foreach (var duration in new[] { TimeSpan.Zero, new TimeSpan(0, 2, 17, 0), new TimeSpan(3, 4, 25, 0) })
+                {
+                    yield return [culture, key, duration];
+                }
+            }
+        }
+    }
+
+    /// <summary>Verifies translated executable formats retain actual day/hour or hour/minute numbers, including zero and multi-day durations.</summary>
+    [Theory]
+    [MemberData(nameof(DurationFormats))]
+    public void ResourceCatalog_DurationFormats_RenderNumericComponents(string culture, string key, TimeSpan duration)
+    {
+        // Arrange
+        using var services = new ServiceCollection()
+            .AddLogging()
+            .AddLocalization(options => options.ResourcesPath = "Resources")
+            .BuildServiceProvider();
+        var localizer = services.GetRequiredService<IStringLocalizer<UiStrings>>();
+        var originalCulture = CultureInfo.CurrentUICulture;
+        try
+        {
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(culture);
+            var format = localizer[key];
+            var expected = key == "Dashboard_RemainingDurationFormat"
+                ? new[] { duration.Days, duration.Hours }
+                : new[] { duration.Hours, duration.Minutes };
+
+            // Act
+            var formatted = duration.ToString(format.Value, CultureInfo.GetCultureInfo(culture));
+            var numbers = Regex.Matches(formatted, @"\d+").Select(match => int.Parse(match.Value, CultureInfo.InvariantCulture)).ToArray();
+
+            // Assert
+            Assert.False(format.ResourceNotFound);
+            Assert.Equal(expected, numbers);
+        }
+        finally
+        {
+            CultureInfo.CurrentUICulture = originalCulture;
+        }
+    }
+
     /// <summary>Verifies supported cultures normalize consistently.</summary>
     [Theory]
     [InlineData("EN", "en")]

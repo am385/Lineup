@@ -7,9 +7,14 @@ using Lineup.Plugin.GuideOutputs.Xmltv.Plugin;
 using Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryRuntime;
 using Lineup.Core.VirtualOutputs.Protocol;
 using Lineup.Core.VirtualOutputs.Runtime;
+using Lineup.Core.VirtualOutputs.Hosting;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
+IPluginConnectionBudget? pluginConnectionBudget = null;
+var pluginAdmission = new PluginConnectionAdmission((_, _) => ValueTask.FromResult(
+    (pluginConnectionBudget ?? throw new InvalidOperationException("The plugin connection budget is not initialized.")).TryAcquire()));
+builder.WebHost.ConfigureKestrel(pluginAdmission.Configure);
 var statusRuntime = new StatusApiRuntime(Guid.NewGuid().ToString("N"));
 var appDataStore = AppDataStore.Create(builder.Configuration);
 builder.Services.AddSingleton(appDataStore);
@@ -164,6 +169,7 @@ builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
 var app = builder.Build();
+pluginConnectionBudget = app.Services.GetRequiredService<IPluginConnectionBudget>();
 var reverseProxyConfiguration = ReverseProxyConfigurator.Load(app.Services.GetRequiredService<ILineupSettingsService>().Settings);
 if (reverseProxyConfiguration.Enabled)
 {
@@ -227,6 +233,17 @@ if (startupState.IsFactoryResetRequired)
     });
 }
 app.UseMiddleware<ApiRequestLoggingMiddleware>();
+pluginAdmission.Use(app, app.Logger, writeFailure: (context, code, message) =>
+{
+    var action = context.GetEndpoint()?.Metadata.GetMetadata<Microsoft.AspNetCore.Mvc.Controllers.ControllerActionDescriptor>();
+    return action?.ControllerTypeInfo.AsType() == typeof(Lineup.App.Web.Controllers.LineupLinkController)
+        ? context.Response.WriteAsJsonAsync(new Lineup.Plugin.LineupLink.Protocol.LineupLinkError
+        {
+            Code = code == VirtualOutputFailureCode.ResourceLimit ? "resource_limit" : "broker_unavailable",
+            Message = message
+        }, context.RequestAborted)
+        : context.Response.WriteAsJsonAsync(new { code = code == VirtualOutputFailureCode.ResourceLimit ? "resource_limit" : "broker_unavailable", error = message }, context.RequestAborted);
+});
 app.UseAntiforgery();
 
 // Map API controllers (stream proxy)
@@ -289,84 +306,7 @@ app.MapGet("/api/logs/files/{fileName}", (string fileName, LogFileService files)
     .WithSummary("Download a rolling log file")
     .WithDescription("Returns one available rolling log file as plain text.");
 
-// Stable endpoint for the built-in global XMLTV output.
-app.MapGet("/api/xmltv", async Task<IResult> (
-    ITopologyGuideService guides,
-    ILineupSettingsService settings,
-    IStreamingAdapterRegistry adapters,
-    IXmltvPublicationStore publications,
-    bool? download,
-    CancellationToken cancellationToken) =>
-{
-    var output = settings.Settings.Streaming.GuideOutputs.SingleOrDefault(candidate => candidate.IsBuiltIn && candidate.Enabled);
-    return output is null
-        ? Results.NotFound("The built-in XMLTV guide output is not enabled.")
-        : await ServeGuideOutputAsync(output, guides, adapters, publications, download ?? true, cancellationToken);
-})
-    .DisableAntiforgery()
-    .WithName("GetGlobalXmltvGuideOutput")
-    .WithTags("Guide Outputs")
-    .WithSummary("Get the global XMLTV guide output")
-    .WithDescription("Returns the built-in XMLTV output inline or as a file attachment. The download parameter defaults to true.");
-
-app.MapGet("/api/guide-outputs/{guideOutputIdentifier}", async Task<IResult> (
-    string guideOutputIdentifier,
-    ITopologyGuideService guides,
-    ILineupSettingsService settings,
-    IStreamingAdapterRegistry adapters,
-    IXmltvPublicationStore publications,
-    bool? download,
-    CancellationToken cancellationToken) =>
-{
-    var output = GuideOutputIdentifierResolver.Resolve(
-        settings.Settings.Streaming.GuideOutputs,
-        guideOutputIdentifier);
-    return output is null
-        ? Results.NotFound()
-        : await ServeGuideOutputAsync(output, guides, adapters, publications, download ?? true, cancellationToken);
-})
-    .DisableAntiforgery()
-    .WithName("GetGuideOutput")
-    .WithTags("Guide Outputs")
-    .WithSummary("Get a configured guide output")
-    .WithDescription("Returns a guide output selected by its editable key or stable identifier, inline or as a file attachment. The download parameter defaults to true.");
-
-static async Task<IResult> ServeGuideOutputAsync(
-    GuideOutputDefinition output,
-    ITopologyGuideService guides,
-    IStreamingAdapterRegistry adapters,
-    IXmltvPublicationStore publications,
-    bool download,
-    CancellationToken cancellationToken)
-{
-    GuideOutputDestination destination;
-    try
-    {
-        destination = adapters.GetGuideOutput(output.Adapter.Kind).ResolveDestination(output.Adapter);
-    }
-    catch (InvalidOperationException exception)
-    {
-        return Results.NotFound(exception.Message);
-    }
-
-    if (!publications.Exists(destination.Path))
-    {
-        var publication = await guides.PublishAsync(output.Id, cancellationToken);
-        if (publication is null || !publication.Succeeded)
-        {
-            return Results.NotFound(publication?.Error ?? "The guide output is not available.");
-        }
-    }
-
-    var stream = publications.OpenRead(destination.Path);
-    if (stream is null)
-    {
-        return Results.NotFound("The guide output publication is not available.");
-    }
-    return download
-        ? Results.File(stream, destination.ContentType, destination.FileName)
-        : Results.File(stream, destination.ContentType);
-}
+app.MapGuideOutputEndpoints();
 
 app.MapStaticAssets();
 app.MapRazorComponents<App>()

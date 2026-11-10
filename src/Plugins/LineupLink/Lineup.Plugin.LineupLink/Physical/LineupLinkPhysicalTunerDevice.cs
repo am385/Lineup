@@ -179,7 +179,7 @@ public sealed class LineupLinkPhysicalTunerDevice :
     private static PhysicalStreamFailureCategory MapFailureCategory(string code) =>
         code switch
         {
-            "source_capacity_exceeded" or "stream_limit" => PhysicalStreamFailureCategory.Capacity,
+            "source_capacity_exceeded" or "stream_limit" or "resource_limit" => PhysicalStreamFailureCategory.Capacity,
             "source_no_signal" => PhysicalStreamFailureCategory.NoSignal,
             "source_no_video_data" => PhysicalStreamFailureCategory.NoData,
             "source_not_found" or "channel_not_found" => PhysicalStreamFailureCategory.NotFound,

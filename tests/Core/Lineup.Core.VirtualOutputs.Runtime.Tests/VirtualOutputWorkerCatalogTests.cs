@@ -5,6 +5,7 @@ using Lineup.Core.Common.Streaming;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 using Xunit;
+using Lineup.Core.VirtualOutputs.Protocol;
 
 namespace Lineup.Core.VirtualOutputs.Runtime.Tests;
 
@@ -251,8 +252,8 @@ public sealed class VirtualOutputWorkerCatalogTests
             ExecutablePath = "worker.bin",
             ExecutableSha256 = new string('0', 64),
             AdapterKinds = [adapterKind],
-            MinimumProtocolVersion = 1,
-            MaximumProtocolVersion = 1,
+            MinimumProtocolVersion = VirtualOutputProtocol.MinimumVersion,
+            MaximumProtocolVersion = VirtualOutputProtocol.MaximumVersion,
             MinimumLineupVersion = "3.0.0",
             SettingsDescriptor = new AdapterSettingsDescriptor { AdapterKind = adapterKind }
         };

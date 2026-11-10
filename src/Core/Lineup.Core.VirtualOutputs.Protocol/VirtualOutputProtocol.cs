@@ -11,7 +11,7 @@ public static class VirtualOutputProtocol
     public const int MinimumVersion = 1;
 
     /// <summary>Gets the newest protocol version implemented by this release.</summary>
-    public const int MaximumVersion = 2;
+    public const int MaximumVersion = 1;
 
     /// <summary>Gets the maximum serialized control-message size.</summary>
     public const int MaximumControlMessageBytes = 1024 * 1024;
@@ -187,8 +187,25 @@ public enum VirtualOutputCapability
     OpenStream,
 
     /// <summary>Report worker health and listener readiness.</summary>
-    ReportHealth
+    ReportHealth,
+
+    /// <summary>Acquire connection-owned public plugin admission.</summary>
+    AdmitConnection
 }
+
+/// <summary>Requests one generation-scoped permit for a worker's public TCP connection.</summary>
+public sealed record VirtualOutputConnectionAdmissionRequest
+{
+    /// <summary>Gets the authenticated worker session.</summary>
+    public required VirtualOutputSessionContext Session { get; init; }
+
+    /// <summary>Gets the worker-local transport identity, shared by HTTP/2 requests.</summary>
+    public required string ConnectionId { get; init; }
+}
+
+/// <summary>Acknowledges connection admission; its IPC connection retains ownership until disconnect.</summary>
+/// <param name="Admitted">Whether the public connection may serve plugin requests.</param>
+public sealed record VirtualOutputConnectionAdmissionResponse(bool Admitted);
 
 /// <summary>Requests an authenticated, generation-bound worker session.</summary>
 public sealed record VirtualOutputWorkerRegistrationRequest

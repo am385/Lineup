@@ -43,6 +43,7 @@ internal static class TuiAdapterSettingsEditor
                         "Manage adapter access grants",
                         "Edit virtual output hosting",
                         "Remove configured adapter",
+                        "Edit plugin connection limit",
                         "Back"
                     ]));
             switch (action)
@@ -70,6 +71,12 @@ internal static class TuiAdapterSettingsEditor
                     break;
                 case "Remove configured adapter":
                     await RemoveAsync(settings);
+                    break;
+                case "Edit plugin connection limit":
+                    var maximum = AnsiConsole.Prompt(new TextPrompt<int>("Deployment-wide plugin TCP connections (0 for unlimited):")
+                        .DefaultValue(settings.Settings.Streaming.MaximumPluginConnections)
+                        .Validate(value => value >= 0 ? ValidationResult.Success() : ValidationResult.Error("The connection limit cannot be negative.")));
+                    await TrySaveTopologyAsync(settings, settings.Settings.Streaming with { MaximumPluginConnections = maximum });
                     break;
                 default:
                     return;
@@ -156,7 +163,6 @@ internal static class TuiAdapterSettingsEditor
         var allowedNetworks = AnsiConsole.Ask(
             "Allowed client CIDRs (comma-separated, empty for unrestricted):",
             currentSecurity is null ? string.Empty : string.Join(", ", currentSecurity.AllowedNetworks));
-        var maximumConnections = AnsiConsole.Ask("Maximum connections (0 for host default):", currentSecurity?.MaximumConnections ?? 0);
         var requestsPerMinute = AnsiConsole.Ask("Requests per minute per client (0 to disable):", currentSecurity?.RequestsPerMinutePerClient ?? 0);
         var maximumRestarts = AnsiConsole.Ask("Maximum restarts per window:", currentWorker?.MaximumRestarts ?? 5);
         var restartWindow = AnsiConsole.Ask("Restart window in seconds:", currentWorker?.RestartWindowSeconds ?? 300);
@@ -177,7 +183,7 @@ internal static class TuiAdapterSettingsEditor
             ],
             WorkerPolicyKey = workerKey
         };
-        var securityPolicy = BuildSecurityPolicy(device, currentSecurity, certificateReference, allowedNetworks, maximumConnections, requestsPerMinute);
+        var securityPolicy = BuildSecurityPolicy(device, currentSecurity, certificateReference, allowedNetworks, requestsPerMinute);
         var workerPolicy = new VirtualOutputWorkerPolicyDefinition
         {
             Key = workerKey,
@@ -223,7 +229,6 @@ internal static class TuiAdapterSettingsEditor
         VirtualOutputSecurityPolicyDefinition? currentSecurity,
         string certificateReference,
         string allowedNetworks,
-        int maximumConnections,
         int requestsPerMinute
     ) =>
         new()
@@ -233,7 +238,6 @@ internal static class TuiAdapterSettingsEditor
             CertificateReference = string.IsNullOrWhiteSpace(certificateReference) ? null : certificateReference.Trim(),
             ClientCertificateMode = currentSecurity?.ClientCertificateMode ?? VirtualOutputClientCertificateMode.None,
             AllowedNetworks = SplitList(allowedNetworks),
-            MaximumConnections = maximumConnections,
             RequestsPerMinutePerClient = requestsPerMinute,
             AllowForwardedHeaders = currentSecurity?.AllowForwardedHeaders ?? false,
             TrustedProxies = currentSecurity?.TrustedProxies.ToArray() ?? []

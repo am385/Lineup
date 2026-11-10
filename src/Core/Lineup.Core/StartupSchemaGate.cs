@@ -150,6 +150,12 @@ public static class StartupSchemaGate
 
         try
         {
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind != JsonValueKind.Object ||
+                !document.RootElement.EnumerateObject().Any(property => string.Equals(property.Name, nameof(StreamingConfiguration.SchemaVersion), StringComparison.OrdinalIgnoreCase)))
+            {
+                return FactoryResetRequired("The streaming configuration does not declare the required schema version.");
+            }
             var configuration = JsonSerializer.Deserialize<StreamingConfiguration>(json, new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true

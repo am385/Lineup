@@ -87,7 +87,8 @@ internal static class SweepPolicy
         return code?.ToLowerInvariant() switch
         {
             "protected_content" => "protected-content",
-            "805" or "source_capacity_exceeded" or "all_tuners_in_use" or "tuner_capacity_exhausted" or "capacity_exhausted" => "capacity-contamination",
+            "805" or "resource_limit" or "stream_limit" or "source_capacity_exceeded"
+                or "all_tuners_in_use" or "tuner_capacity_exhausted" or "capacity_exhausted" => "capacity-contamination",
             "source_no_video_data" or "source_no_data" or "source_no_signal" or "no_signal" or "source_unavailable" or "source_acquisition_timeout" => "source-unavailable",
             "cmaf_startup_timeout" => "startup-timeout",
             _ => status switch

@@ -376,27 +376,35 @@ public sealed class ProjectLayoutTests
                 {
                     BeforeTargets = element.Attribute("BeforeTargets")?.Value,
                     AfterTargets = element.Attribute("AfterTargets")?.Value,
+                    DependsOnTargets = element.Attribute("DependsOnTargets")?.Value,
                     Condition = element.Attribute("Condition")?.Value,
-                    Command = element.Descendants().Single(child => child.Name.LocalName == "Exec").Attribute("Command")?.Value
+                    Command = element.Descendants().SingleOrDefault(child => child.Name.LocalName == "Exec")?.Attribute("Command")?.Value
                 },
                 StringComparer.Ordinal);
 
         // Assert
         Assert.All(imports, import => Assert.Equal(expectedImport, import));
         Assert.Equal("Build", targets["PrepareVirtualOutputWorkersForBuild"].AfterTargets);
-        Assert.Equal("Publish", targets["PublishVirtualOutputWorkersWithHost"].AfterTargets);
-        var publishCommand = Assert.IsType<string>(targets["PublishVirtualOutputWorkersWithHost"].Command);
-        Assert.Contains("$(LineupWorkerPackagerRuntimeArguments)", publishCommand, StringComparison.Ordinal);
-        Assert.Contains("$(LineupWorkerPackagerSelfContainedArgument)", publishCommand, StringComparison.Ordinal);
+        Assert.Equal("ComputeFilesToPublish", targets["PublishVirtualOutputWorkersWithHost"].BeforeTargets);
+        Assert.Equal("PrepareVirtualOutputWorkersForBuild", targets["PublishVirtualOutputWorkersWithHost"].DependsOnTargets);
+        Assert.Null(targets["PublishVirtualOutputWorkersWithHost"].Command);
+        var packageCommand = Assert.IsType<string>(targets["PrepareVirtualOutputWorkersForBuild"].Command);
+        Assert.Contains("$(LineupWorkerPackagerRuntimeArguments)", packageCommand, StringComparison.Ordinal);
+        Assert.Contains("$(LineupWorkerPackagerSelfContainedArgument)", packageCommand, StringComparison.Ordinal);
+        Assert.Contains("--artifacts-path", packageCommand, StringComparison.Ordinal);
         Assert.All(targets.Values, target =>
         {
             Assert.Contains("$(DesignTimeBuild)", target.Condition, StringComparison.Ordinal);
             Assert.Contains("$(SkipVirtualOutputWorkerPublish)", target.Condition, StringComparison.Ordinal);
-            Assert.Contains("--artifacts-path", target.Command, StringComparison.Ordinal);
         });
+        var publishFiles = XDocument.Load(targetPath).Descendants().Where(element => element.Name.LocalName == "ResolvedFileToPublish").ToArray();
+        Assert.Single(publishFiles);
+        Assert.Equal("true", publishFiles[0].Element("ExcludeFromSingleFile")?.Value);
+        var inventory = Assert.Single(XDocument.Load(targetPath).Descendants(), element => element.Name.LocalName == "ReadLinesFromFile");
+        Assert.Equal(@"$(TargetDir)virtual-output-workers\packaging.files", inventory.Attribute("File")?.Value);
         var upToDateOutputs = XDocument.Load(targetPath).Descendants().Where(element => element.Name.LocalName == "UpToDateCheckOutput").ToArray();
         Assert.Contains(upToDateOutputs, element => element.Attribute("Set")?.Value == "VirtualOutputPackaging" &&
-            element.Attribute("Include")?.Value == @"$(OutputPath)virtual-output-workers\packaging.stamp");
+            element.Attribute("Include")?.Value == @"$(OutputPath)virtual-output-workers\packaging.stamp;$(OutputPath)virtual-output-workers\packaging.files");
         Assert.Contains(upToDateOutputs, element => element.Attribute("Set")?.Value == "VirtualOutputPackageFiles");
         Assert.True(File.Exists(packagerProject));
         Assert.True(File.Exists(Path.Combine(repositoryRoot, "scripts", "Publish-VirtualOutputWorkers.ps1")));

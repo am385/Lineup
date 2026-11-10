@@ -52,6 +52,7 @@ internal sealed record ApiPrivacyStatusResponse(bool RedactClientAddresses, bool
 internal sealed record StreamingConfigurationStatusResponse(
     int SchemaVersion,
     int KeepWarmPeriodSeconds,
+    int MaximumPluginConnections,
     TranscodeProfileStatusResponse PhysicalDefaults,
     TranscodeProfileStatusResponse VirtualDefaults,
     IReadOnlyList<PhysicalDeviceConfigurationStatusResponse> PhysicalDevices,
@@ -169,7 +170,6 @@ internal sealed record VirtualOutputSecurityPolicyStatusResponse(
     bool CertificateConfigured,
     string ClientCertificateMode,
     IReadOnlyList<string>? AllowedNetworks,
-    int MaximumConnections,
     int RequestsPerMinutePerClient,
     bool AllowForwardedHeaders,
     IReadOnlyList<string>? TrustedProxies);

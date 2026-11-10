@@ -19,6 +19,218 @@ namespace Lineup.App.Web.Tests.Components.Pages;
 /// </summary>
 public sealed class TopologySettingsTests
 {
+    /// <summary>Verifies shared saves cannot overwrite a pending theme owned by the independent Web settings store.</summary>
+    [Theory]
+    [InlineData("light", "themeLight")]
+    [InlineData("auto", "themeAuto")]
+    public async Task Save_ThemeChange_WithIndependentSettings_PreservesSelection(string theme, string selector)
+    {
+        // Arrange
+        using var context = CreateContext(out var settingsService, out var settings);
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        var webSettings = context.Services.GetRequiredService<IWebSettingsService>().Settings;
+        webSettings.Theme = "dark";
+        var component = context.Render<Settings>();
+        component.Find($"#{selector}").Change(true);
+        component.Find("#tab-guide").Click();
+        component.Find("#epgHistoryRetentionHours").Change(48);
+
+        // Act
+        await component.InvokeAsync(() => settingsService.UpdateAsync(current => current.MaximumConcurrentStreams = 2));
+        Assert.True(component.Find($"#{selector}").HasAttribute("checked"));
+        await component.Find("button.btn-primary").ClickAsync(new());
+
+        // Assert
+        Assert.Equal(theme, webSettings.Theme);
+        Assert.True(component.Find($"#{selector}").HasAttribute("checked"));
+        Assert.Equal(48, settings.EpgHistoryRetentionHours);
+        Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "setTheme" && Equals(invocation.Arguments[0], theme));
+    }
+
+    /// <summary>Verifies external Web theme changes update the open form without reloading unsaved shared settings.</summary>
+    [Fact]
+    public async Task WebSettingsChanged_ExternalThemeChange_PreservesOtherEdits()
+    {
+        // Arrange
+        using var context = CreateContext(out _, out var settings);
+        var webSettings = context.Services.GetRequiredService<IWebSettingsService>();
+        var component = context.Render<Settings>();
+        component.Find("#tab-guide").Click();
+        component.Find("#epgHistoryRetentionHours").Change(48);
+
+        // Act
+        await component.InvokeAsync(() => webSettings.UpdateAsync(current => current.Theme = "dark"));
+
+        // Assert
+        Assert.True(component.Find("#themeDark").HasAttribute("checked"));
+        Assert.Equal("48", component.Find("#epgHistoryRetentionHours").GetAttribute("value"));
+        Assert.NotEqual(48, settings.EpgHistoryRetentionHours);
+    }
+
+    /// <summary>Verifies the theme handler is owned by, and unsubscribed from, the Web settings event.</summary>
+    [Fact]
+    public void Dispose_IndependentSettings_UnsubscribesWebThemeHandler()
+    {
+        // Arrange
+        using var context = CreateContext(out var settingsService, out _);
+        var webSettings = context.Services.GetRequiredService<IWebSettingsService>();
+        var component = context.Render<Settings>();
+
+        // Act
+        component.Instance.Dispose();
+
+        // Assert
+        webSettings.Received(1).OnSettingsChanged += Arg.Any<Action>();
+        webSettings.Received(1).OnSettingsChanged -= Arg.Any<Action>();
+        settingsService.DidNotReceive().OnSettingsChanged += Arg.Any<Action>();
+    }
+
+    /// <summary>Verifies theme cleanup does not resolve dependencies after the prerender request's service scope has been disposed.</summary>
+    [Fact]
+    public void Dispose_ExpiredServiceScope_UnsubscribesCapturedWebSettings()
+    {
+        // Arrange
+        using var context = CreateContext(out _, out _);
+        var webSettings = context.Services.GetRequiredService<IWebSettingsService>();
+        var component = context.Render<Settings>();
+        using var expired = new ServiceCollection().BuildServiceProvider();
+        var property = Assert.IsAssignableFrom<System.Reflection.PropertyInfo>(
+            typeof(Settings).GetProperty("Services", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic));
+        property.SetValue(component.Instance, expired);
+        expired.Dispose();
+
+        // Act
+        Exception? failure;
+        try
+        {
+            failure = Record.Exception(component.Instance.Dispose);
+        }
+        finally
+        {
+            property.SetValue(component.Instance, context.Services);
+        }
+
+        // Assert
+        Assert.Null(failure);
+        webSettings.Received(1).OnSettingsChanged -= Arg.Any<Action>();
+    }
+
+    /// <summary>Verifies reset and save retain the configured built-in publication destination rather than the editor's default filename.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ResetDefaults_ConfiguredXmltvPath_PreservesTopologyAndPublication(bool customPath)
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-settings-reset-");
+        try
+        {
+            using var context = CreateContext(out var settingsService, out var settings);
+            context.JSInterop.Mode = JSRuntimeMode.Loose;
+            var configuredPath = customPath ? Path.Combine(root.FullName, "configured.xml") : "xmltv.xml";
+            settingsService.ConfiguredXmltvOutputPath.Returns(configuredPath);
+            settings.XmltvOutputPath = Path.Combine(root.FullName, "previous.xml");
+            var original = settings.Streaming;
+            var component = context.Render<Settings>();
+            component.Find("#tab-reset").Click();
+
+            // Act
+            component.Find("#resetSettings").Click();
+            var edited = Assert.Single(component.Instance.Topology.GuideOutputs, output => output.IsBuiltIn);
+            Assert.Equal(configuredPath, edited.OutputPath);
+            Assert.Equal(configuredPath, component.Instance.XmltvOutputPath);
+            Assert.Same(original, settings.Streaming);
+            await component.Find("button.btn-primary").ClickAsync(new());
+
+            // Assert
+            Assert.Equal(configuredPath, settings.XmltvOutputPath);
+            var builtIn = Assert.Single(settings.Streaming.GuideOutputs, output => output.IsBuiltIn);
+            var destination = new XmltvGuideOutputDriver().ResolveDestination(builtIn.Adapter);
+            Assert.Equal(Path.GetFullPath(configuredPath), destination.Path);
+            Assert.True(builtIn.Enabled);
+            Assert.Equal(new LineupSettings().AutoGenerateXmltv, settings.AutoGenerateXmltv);
+            Assert.Single(settings.Streaming.VirtualDevices);
+            if (customPath)
+            {
+                var publications = new XmltvPublicationStore();
+                await publications.PublishAsync(destination.Path, async (stream, token) =>
+                {
+                    await using var writer = new StreamWriter(stream, leaveOpen: true);
+                    await writer.WriteAsync("<tv />".AsMemory(), token);
+                    await writer.FlushAsync(token);
+                }, Xunit.TestContext.Current.CancellationToken);
+                Assert.Equal("<tv />", await File.ReadAllTextAsync(configuredPath, Xunit.TestContext.Current.CancellationToken));
+            }
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>Verifies malformed listener addresses stay editable, reject persistence, and can be corrected without losing unrelated changes.</summary>
+    [Theory]
+    [InlineData("bad host")]
+    [InlineData("http://192.0.2.1")]
+    [InlineData("192.0.2.1:9600")]
+    [InlineData("[::1")]
+    public async Task Save_InvalidListenerAddress_PreservesEditsAndAllowsCorrection(string address)
+    {
+        // Arrange
+        using var context = CreateContext(out var settingsService, out var settings);
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        var original = settings.Streaming;
+        var component = context.Render<Settings>();
+        component.Find("#tab-virtual-devices").Click();
+        component.Find(".virtual-device-tab").Click();
+        component.Find("#dedicatedListener-0").Change(true);
+        component.Find("#workerRestarts-0").Change(2);
+
+        // Act
+        component.Find("#listenerAddresses-0").Change(address);
+        await component.Find("button.btn-primary").ClickAsync(new());
+
+        // Assert
+        Assert.Equal(address, component.Find("#listenerAddresses-0").GetAttribute("value"));
+        Assert.Equal("2", component.Find("#workerRestarts-0").GetAttribute("value"));
+        Assert.True(string.IsNullOrEmpty(component.Find("#listenerClientUrl-0").GetAttribute("value")));
+        Assert.Same(original, settings.Streaming);
+        await settingsService.DidNotReceive().UpdateAsync(Arg.Any<Action<LineupSettings>>());
+        Assert.Contains(context.Services.GetRequiredService<IStatusNotificationService>().Notifications, notification => notification.IsError);
+
+        // Act
+        component.Find("#listenerAddresses-0").Change("192.0.2.10");
+        await component.Find("button.btn-primary").ClickAsync(new());
+
+        // Assert
+        var hosting = Assert.IsType<VirtualOutputHostingDefinition>(Assert.Single(settings.Streaming.VirtualDevices).Hosting);
+        Assert.Equal("192.0.2.10", Assert.Single(Assert.Single(hosting.Bindings).Addresses));
+        Assert.Equal(2, Assert.Single(settings.Streaming.VirtualOutputWorkerPolicies, policy => policy.Key == hosting.WorkerPolicyKey).MaximumRestarts);
+        await settingsService.Received(1).UpdateAsync(Arg.Any<Action<LineupSettings>>());
+    }
+
+    /// <summary>Verifies the deployment-wide limit is editable in Streaming settings and persists independently of listener policies.</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(8)]
+    public async Task StreamingPluginConnectionLimit_Save_PersistsGlobalSetting(int maximum)
+    {
+        // Arrange
+        using var context = CreateContext(out var settingsService, out var settings);
+        settings.Streaming = settings.Streaming with { MaximumPluginConnections = 4 };
+        var component = context.Render<Settings>();
+        component.Find("#tab-streaming").Click();
+        Assert.Equal("4", component.Find("#maximumPluginConnections").GetAttribute("value"));
+        component.Find("#maximumPluginConnections").Change(maximum);
+
+        // Act
+        await component.Find("button.btn-primary").ClickAsync(new());
+
+        // Assert
+        Assert.Equal(maximum, settings.Streaming.MaximumPluginConnections);
+        await settingsService.Received(1).UpdateAsync(Arg.Any<Action<LineupSettings>>());
+    }
+
     /// <summary>Verifies exported, copied, displayed, and reloaded dedicated bundles use the same effective URL as saved listener bindings.</summary>
     [Theory]
     [InlineData(VirtualOutputTransport.Http, "192.0.2.10", null, false, "", "http://192.0.2.10:9600/")]
@@ -476,7 +688,7 @@ public sealed class TopologySettingsTests
         Assert.DoesNotContain("}", hostingText, StringComparison.Ordinal);
         Assert.Contains("Managed processes are launched and supervised by Lineup", hostingText);
         Assert.Contains("Port opened by the worker", hostingText);
-        Assert.Contains("Concurrent client limit", hostingText);
+        Assert.DoesNotContain("Concurrent client limit", hostingText);
         Assert.Contains("forwarded client addresses and schemes", hostingText);
         Assert.Contains("Failed worker restarts allowed", hostingText);
         Assert.Contains("active requests to finish", hostingText);
@@ -486,7 +698,7 @@ public sealed class TopologySettingsTests
         Assert.Contains("Worker CPU ceiling", hostingText);
         var advancedNetworking = component.Find(".virtual-output-advanced-networking");
         Assert.NotNull(advancedNetworking.QuerySelector("#listenerNetworks-1"));
-        Assert.NotNull(advancedNetworking.QuerySelector("#listenerConnections-1"));
+        Assert.Null(advancedNetworking.QuerySelector("#listenerConnections-1"));
         Assert.NotNull(advancedNetworking.QuerySelector("#listenerForwarded-1"));
         Assert.NotNull(advancedNetworking.QuerySelector("#workerRestarts-1"));
         Assert.NotNull(advancedNetworking.QuerySelector("#workerLease-1"));
@@ -1239,18 +1451,31 @@ public sealed class TopologySettingsTests
     private static BunitContext CreateContext(out ILineupSettingsService settingsService, out LineupSettings settings)
     {
         var context = new BunitContext();
-        settings = new LineupSettings { IsSetupComplete = true };
+        settings = new LineupSettings();
         settingsService = Substitute.For<ILineupSettingsService>();
         settingsService.Settings.Returns(settings);
         var capturedSettings = settings;
+        var capturedService = settingsService;
+        settingsService.ConfiguredXmltvOutputPath.Returns(_ => capturedSettings.XmltvOutputPath);
         settingsService.UpdateAsync(Arg.Any<Action<LineupSettings>>()).Returns(callInfo =>
         {
             callInfo.Arg<Action<LineupSettings>>()(capturedSettings);
+            capturedService.OnSettingsChanged += Raise.Event<Action>();
+            return Task.CompletedTask;
+        });
+        var webSettings = new WebSettings { IsSetupComplete = true };
+        var webSettingsService = Substitute.For<IWebSettingsService>();
+        webSettingsService.Settings.Returns(webSettings);
+        webSettingsService.UpdateAsync(Arg.Any<Action<WebSettings>>()).Returns(callInfo =>
+        {
+            callInfo.Arg<Action<WebSettings>>()(webSettings);
+            webSettingsService.OnSettingsChanged += Raise.Event<Action>();
             return Task.CompletedTask;
         });
         var timeZoneService = Substitute.For<ITimeZoneService>();
         timeZoneService.TimeZone.Returns(TimeZoneInfo.Utc);
         context.Services.AddSingleton(settingsService);
+        context.Services.AddSingleton(webSettingsService);
         context.Services.AddSingleton(timeZoneService);
         return context;
     }

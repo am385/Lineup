@@ -10,6 +10,56 @@ namespace Lineup.Integration.Streaming.Sweep.Tests;
 /// <summary>Actual HTTP response capture and owned synthetic-flow classification without a browser.</summary>
 public sealed class StartupEvidenceTests
 {
+    /// <summary>Actual startup payload capture preserves contention through verdicts, canonical evidence and failure reports.</summary>
+    [Theory]
+    [InlineData(429, """{"code":"resource_limit","retryable":true}""", (int)SweepVerdict.CapacityContamination)]
+    [InlineData(429, """{"code":"stream_limit","retryable":true}""", (int)SweepVerdict.CapacityContamination)]
+    [InlineData(503, """{"code":"source_capacity_exceeded","retryable":true}""", (int)SweepVerdict.CapacityContamination)]
+    [InlineData(503, """{"code":"source_unavailable","retryable":true}""", (int)SweepVerdict.SourceUnavailable)]
+    [InlineData(502, "{", (int)SweepVerdict.InitialServerFailure)]
+    [InlineData(429, "{", (int)SweepVerdict.InitialServerFailure)]
+    public async Task HttpResourceEvidenceRetainsCapacityVerdict(int status, string body, int expected)
+    {
+        // Arrange
+        var response = DispatchProxy.Create<IResponse, ResponseFixture>();
+        ((ResponseFixture)response).Body = body;
+        ((ResponseFixture)response).Status = status;
+        var run = SweepPolicyTests.CreateRun();
+        run.State = "complete";
+        var now = DateTimeOffset.UnixEpoch;
+
+        // Act
+        var outcome = await SweepHarness.CreateStartupOutcomeAsync(response, now, now.AddMilliseconds(25));
+        var result = new ChannelAttemptResult("target", "1", "One", 1, false, "not-applicable", 0, "refused", null, outcome, 1, "startup", outcome.Outcome);
+        var attempt = new SweepAttempt
+        {
+            Id = "capacity",
+            Key = run.Selected[0].Key,
+            Starts = [new("response", outcome, null, null, null, null, null)],
+            Result = result,
+            FinishedUtc = now.AddSeconds(1),
+            Cleanup = new(true, false, true, [], [])
+        };
+        attempt.Verdict = SweepPolicy.Classify(result, attempt.Starts);
+        run.Attempts.Add(attempt);
+        run.Accepted[attempt.Key] = attempt.Id;
+        var roundTrip = JsonSerializer.Deserialize<SweepRun>(JsonSerializer.Serialize(run, SweepStore.Json), SweepStore.Json)!;
+        var markdown = SweepStore.Markdown(roundTrip);
+
+        // Assert
+        Assert.Equal((SweepVerdict)expected, attempt.Verdict);
+        Assert.True(outcome.Retryable);
+        Assert.Equal(outcome.Code, roundTrip.Attempts[0].Starts[0].Outcome.Code);
+        Assert.Equal(status, roundTrip.Attempts[0].Starts[0].Outcome.HttpStatus);
+        Assert.Equal(0, roundTrip.Aggregates.PlaybackPassed);
+        Assert.Contains(((SweepVerdict)expected).ToString(), markdown);
+        if (attempt.Verdict == SweepVerdict.CapacityContamination)
+        {
+            Assert.Contains(SweepPolicy.Evaluate(roundTrip, true), violation => violation.Contains("Capacity contamination", StringComparison.Ordinal));
+            Assert.Equal(2, SweepPolicy.ExitCode(roundTrip));
+        }
+    }
+
     /// <summary>Product inference and source survive the HTTP capture path and canonical serialization.</summary>
     [Theory]
     [InlineData("""{"code":"protected_content","inferred":true,"source":"channel-lineup","retryable":false}""", true, "channel-lineup", (int)SweepVerdict.InferredDrm)]
@@ -144,10 +194,13 @@ public sealed class StartupEvidenceTests
         /// <summary>Gets or sets the product response body.</summary>
         public string Body { get; set; } = "{}";
 
+        /// <summary>Gets or sets the HTTP response status.</summary>
+        public int Status { get; set; } = 422;
+
         /// <inheritdoc />
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args) => targetMethod?.Name switch
         {
-            "get_Status" => 422,
+            "get_Status" => Status,
             "get_Url" => "http://localhost/api/stream/cmaf/start/1",
             "TextAsync" => Task.FromResult(Body),
             _ => throw new InvalidOperationException($"Unexpected response member: {targetMethod?.Name}")

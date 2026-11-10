@@ -21,10 +21,13 @@ public sealed class VirtualOutputIpcServer : BackgroundService
     private readonly ILineupSettingsService _settings;
     private readonly IActiveStreamRegistry _activeStreams;
     private readonly ILogger<VirtualOutputIpcServer> _logger;
+    private readonly IPluginConnectionBudget _connectionBudget;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<(VirtualOutputSessionContext Session, string ConnectionId), byte> _connectionOwners = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<VirtualDeviceId, int> _outstandingCalls = new();
     private readonly VirtualOutputBrokerStreamRegistry _brokerStreams;
     private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Socket? _unixListener;
+    private readonly HashSet<Task> _connectionHandlers = [];
 
     /// <summary>Initializes the local IPC server.</summary>
     public VirtualOutputIpcServer(
@@ -34,7 +37,8 @@ public sealed class VirtualOutputIpcServer : BackgroundService
         IVirtualOutputRuntimeStatus status,
         ILineupSettingsService settings,
         IActiveStreamRegistry activeStreams,
-        ILogger<VirtualOutputIpcServer> logger)
+        ILogger<VirtualOutputIpcServer> logger,
+        IPluginConnectionBudget connectionBudget)
     {
         _endpoint = endpoint;
         _authority = authority;
@@ -43,6 +47,7 @@ public sealed class VirtualOutputIpcServer : BackgroundService
         _settings = settings;
         _activeStreams = activeStreams;
         _logger = logger;
+        _connectionBudget = connectionBudget ?? throw new ArgumentNullException(nameof(connectionBudget));
         _brokerStreams = new VirtualOutputBrokerStreamRegistry(authority, logger);
         ValidateEndpoint(endpoint);
     }
@@ -59,16 +64,14 @@ public sealed class VirtualOutputIpcServer : BackgroundService
     {
         using var brokerStreamCancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         var expirationTask = _brokerStreams.RunExpirationLoopAsync(brokerStreamCancellation.Token);
+        Task listenerTask = Task.CompletedTask;
         try
         {
-            if (_endpoint.Transport == VirtualOutputIpcTransport.NamedPipe)
-            {
-                await RunNamedPipeAsync(stoppingToken);
-            }
-            else
-            {
-                await RunUnixSocketAsync(stoppingToken);
-            }
+            listenerTask = _endpoint.Transport == VirtualOutputIpcTransport.NamedPipe
+                ? RunNamedPipeAsync(brokerStreamCancellation.Token)
+                : RunUnixSocketAsync(brokerStreamCancellation.Token);
+            var completed = await Task.WhenAny(listenerTask, expirationTask);
+            await completed;
         }
         catch (Exception exception)
         {
@@ -77,9 +80,27 @@ public sealed class VirtualOutputIpcServer : BackgroundService
         }
         finally
         {
-            brokerStreamCancellation.Cancel();
-            await expirationTask;
-            await _brokerStreams.DisposeAllAsync();
+            try
+            {
+                brokerStreamCancellation.Cancel();
+                await Task.WhenAll(listenerTask, expirationTask);
+            }
+            finally
+            {
+                try
+                {
+                    Task[] handlers;
+                    lock (_connectionHandlers)
+                    {
+                        handlers = _connectionHandlers.ToArray();
+                    }
+                    await Task.WhenAll(handlers);
+                }
+                finally
+                {
+                    await _brokerStreams.DisposeAllAsync();
+                }
+            }
         }
     }
 
@@ -111,7 +132,7 @@ public sealed class VirtualOutputIpcServer : BackgroundService
                 await pipe.DisposeAsync();
                 throw;
             }
-            _ = HandleOwnedConnectionAsync(pipe, cancellationToken);
+            TrackConnection(pipe, cancellationToken);
         }
     }
 
@@ -140,7 +161,36 @@ public sealed class VirtualOutputIpcServer : BackgroundService
             {
                 break;
             }
-            _ = HandleOwnedConnectionAsync(new NetworkStream(socket, ownsSocket: true), cancellationToken);
+            TrackConnection(new NetworkStream(socket, ownsSocket: true), cancellationToken);
+        }
+    }
+
+    private void TrackConnection(Stream stream, CancellationToken cancellationToken)
+    {
+        var handler = HandleOwnedConnectionAsync(stream, cancellationToken);
+        lock (_connectionHandlers)
+        {
+            _connectionHandlers.Add(handler);
+        }
+        _ = ObserveConnectionHandlerAsync(handler);
+    }
+
+    private async Task ObserveConnectionHandlerAsync(Task handler)
+    {
+        try
+        {
+            await handler;
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(exception, "Virtual-output IPC connection ownership cleanup failed.");
+        }
+        finally
+        {
+            lock (_connectionHandlers)
+            {
+                _connectionHandlers.Remove(handler);
+            }
         }
     }
 
@@ -208,8 +258,90 @@ public sealed class VirtualOutputIpcServer : BackgroundService
             case VirtualOutputIpcOperation.ReportHealth:
                 await ReportHealthAsync(stream, request.ReadPayload<VirtualOutputWorkerHealthReport>(), cancellationToken);
                 break;
+            case VirtualOutputIpcOperation.AdmitConnection:
+                await AdmitConnectionAsync(stream, request.ReadPayload<VirtualOutputConnectionAdmissionRequest>(), cancellationToken);
+                break;
             default:
                 throw new InvalidDataException($"Unsupported IPC operation {request.Operation}.");
+        }
+    }
+
+    private async Task AdmitConnectionAsync(Stream stream, VirtualOutputConnectionAdmissionRequest request, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.ConnectionId) || request.ConnectionId.Length > 128)
+        {
+            throw new InvalidDataException("A connection identity of at most 128 characters is required.");
+        }
+        var authorization = AuthorizeConnection(request.Session);
+        var key = (request.Session, request.ConnectionId);
+        if (!_connectionOwners.TryAdd(key, 0))
+        {
+            throw new VirtualOutputBrokerException(VirtualOutputFailureCode.InvalidRequest, "This connection already owns an admission channel.");
+        }
+        try
+        {
+            await using var permit = _connectionBudget.TryAcquire(authorization.VirtualDeviceId
+                ?? throw new InvalidOperationException("An authorized connection owner must identify its assigned virtual device."))
+                ?? throw new VirtualOutputBrokerException(VirtualOutputFailureCode.ResourceLimit, "The deployment-wide plugin connection limit has been reached.");
+            _ = AuthorizeConnection(request.Session);
+            await WriteAsync(stream, new VirtualOutputConnectionAdmissionResponse(true), cancellationToken);
+            using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var disconnected = ObserveConnectionDisconnectAsync(stream, lifetime.Token);
+            var revoked = ObserveConnectionRevocationAsync(request.Session, lifetime.Token);
+            try
+            {
+                var completed = await Task.WhenAny(disconnected, revoked);
+                await completed;
+                if (completed == revoked)
+                {
+                    await stream.WriteAsync(new byte[] { 1 }, cancellationToken);
+                    await stream.FlushAsync(cancellationToken);
+                    await disconnected;
+                }
+            }
+            finally
+            {
+                lifetime.Cancel();
+                try
+                {
+                    await Task.WhenAll(disconnected, revoked);
+                }
+                catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
+                {
+                }
+            }
+        }
+        finally
+        {
+            _connectionOwners.TryRemove(key, out _);
+        }
+    }
+
+    private VirtualOutputAuthorizationResult AuthorizeConnection(VirtualOutputSessionContext session)
+    {
+        var authorization = _authority.Authorize(session, VirtualOutputCapability.AdmitConnection);
+        if (!authorization.Authorized)
+        {
+            throw new VirtualOutputBrokerException(authorization.FailureCode ?? VirtualOutputFailureCode.Unauthorized,
+                authorization.Failure ?? "Connection admission is not authorized.");
+        }
+        return authorization;
+    }
+
+    private async Task ObserveConnectionRevocationAsync(VirtualOutputSessionContext session, CancellationToken cancellationToken)
+    {
+        while (_authority.Authorize(session, VirtualOutputCapability.AdmitConnection).Authorized)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
+        }
+    }
+
+    private async Task ObserveConnectionDisconnectAsync(Stream stream, CancellationToken cancellationToken)
+    {
+        var received = await stream.ReadAsync(new byte[1], cancellationToken);
+        if (received != 0)
+        {
+            _logger.LogWarning("A connection-admission owner sent unexpected control data; its ownership channel will close.");
         }
     }
 
@@ -255,7 +387,7 @@ public sealed class VirtualOutputIpcServer : BackgroundService
             await WriteAsync(stream, response, cancellationToken);
             return;
         }
-        _status.Update(request.VirtualDeviceId, current => new VirtualOutputRuntimeSnapshot
+        UpdateWorkerStatus(request.VirtualDeviceId, request.Generation, current => new VirtualOutputRuntimeSnapshot
         {
             VirtualDeviceId = request.VirtualDeviceId,
             State = VirtualOutputRuntimeState.Starting,
@@ -280,7 +412,7 @@ public sealed class VirtualOutputIpcServer : BackgroundService
             if (authorization.Authorized)
             {
                 var virtualDeviceId = authorization.VirtualDeviceId!.Value;
-                _status.Update(virtualDeviceId, current => new VirtualOutputRuntimeSnapshot
+                UpdateWorkerStatus(virtualDeviceId, request.Session.Generation, current => new VirtualOutputRuntimeSnapshot
                 {
                     VirtualDeviceId = virtualDeviceId,
                     State = request.Ready ? VirtualOutputRuntimeState.Healthy : VirtualOutputRuntimeState.Degraded,
@@ -304,25 +436,70 @@ public sealed class VirtualOutputIpcServer : BackgroundService
     private async Task WriteStreamAsync(Stream stream, VirtualOutputOpenStreamRequest request, CancellationToken cancellationToken)
     {
         using var lease = AcquireBrokerCall(request.Session, VirtualOutputCapability.OpenStream);
-        var output = await _broker.OpenStreamAsync(request, cancellationToken);
-        if (!_brokerStreams.TryAdd(lease.VirtualDeviceId, request, output))
-        {
-            await output.DisposeAsync();
-            throw new VirtualOutputBrokerException(VirtualOutputFailureCode.InvalidRequest, "The stream request ID is already active.");
-        }
+        using var streamCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var disconnected = MonitorStreamDisconnectAsync(stream, streamCancellation);
         try
         {
-            await VirtualOutputWireProtocol.WriteAsync(stream, VirtualOutputIpcResponse.Success(output.Response), cancellationToken);
-            await output.Stream.CopyToAsync(stream, cancellationToken);
+            var output = await _broker.OpenStreamAsync(request, streamCancellation.Token);
+            if (!_brokerStreams.TryAdd(lease.VirtualDeviceId, request, output))
+            {
+                await output.DisposeAsync();
+                throw new VirtualOutputBrokerException(VirtualOutputFailureCode.InvalidRequest, "The stream request ID is already active.");
+            }
+            try
+            {
+                streamCancellation.Token.ThrowIfCancellationRequested();
+                await VirtualOutputWireProtocol.WriteAsync(stream, VirtualOutputIpcResponse.Success(output.Response), streamCancellation.Token);
+                await output.Stream.CopyToAsync(stream, streamCancellation.Token);
+            }
+            catch (Exception exception) when (exception is MediaProcessException or MpegTsTranscodeException or MediaInputException)
+            {
+                MediaProcessDiagnostics.LogFailure(_logger, exception, "broker-stream", output.Response.StreamSessionId?.ToString() ?? request.RequestId.ToString(),
+                    request.RequestId.ToString(), output.Response.StreamSessionId?.ToString());
+            }
+            finally
+            {
+                await _brokerStreams.CompleteAsync(request.RequestId, output);
+            }
         }
-        catch (Exception exception) when (exception is MediaProcessException or MpegTsTranscodeException or MediaInputException)
+        catch (OperationCanceledException exception) when (exception.CancellationToken == streamCancellation.Token
+            && streamCancellation.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
-            MediaProcessDiagnostics.LogFailure(_logger, exception, "broker-stream", output.Response.StreamSessionId?.ToString() ?? request.RequestId.ToString(),
-                request.RequestId.ToString(), output.Response.StreamSessionId?.ToString());
+            _logger.LogDebug("Virtual-output streaming IPC client disconnected for request {RequestId}", request.RequestId);
         }
         finally
         {
-            await _brokerStreams.CompleteAsync(request.RequestId, output);
+            try
+            {
+                await streamCancellation.CancelAsync();
+            }
+            finally
+            {
+                await disconnected;
+            }
+        }
+    }
+
+    private async Task MonitorStreamDisconnectAsync(Stream stream, CancellationTokenSource cancellation)
+    {
+        try
+        {
+            // After its single request frame, a streaming connection carries only server-to-client media.
+            if (await stream.ReadAsync(new byte[1], cancellation.Token) != 0)
+            {
+                _logger.LogWarning("Rejected unexpected client data on a virtual-output streaming IPC connection");
+            }
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+        }
+        catch (IOException exception)
+        {
+            _logger.LogDebug(exception, "Virtual-output streaming IPC client disconnected");
+        }
+        finally
+        {
+            await cancellation.CancelAsync();
         }
     }
 
@@ -426,7 +603,7 @@ public sealed class VirtualOutputIpcServer : BackgroundService
                 authorization.Failure ?? "The worker health report is not authorized.");
         }
         var virtualDeviceId = authorization.VirtualDeviceId!.Value;
-        _status.Update(virtualDeviceId, current => new VirtualOutputRuntimeSnapshot
+        UpdateWorkerStatus(virtualDeviceId, report.Session.Generation, current => new VirtualOutputRuntimeSnapshot
         {
             VirtualDeviceId = virtualDeviceId,
             State = report.Ready ? VirtualOutputRuntimeState.Healthy : VirtualOutputRuntimeState.Degraded,
@@ -443,6 +620,20 @@ public sealed class VirtualOutputIpcServer : BackgroundService
             LastFailure = report.Failure
         });
         await WriteAsync(stream, new { accepted = true }, cancellationToken);
+    }
+
+    private void UpdateWorkerStatus(VirtualDeviceId deviceId, long generation, Func<VirtualOutputRuntimeSnapshot?, VirtualOutputRuntimeSnapshot> update)
+    {
+        _status.Update(deviceId, current =>
+        {
+            if (current is { Generation: { } appliedGeneration } && appliedGeneration > generation)
+            {
+                _logger.LogDebug("Ignored stale virtual-output status for {VirtualDeviceId} generation {Generation}; applied generation is {AppliedGeneration}",
+                    deviceId, generation, appliedGeneration);
+                return current;
+            }
+            return update(current);
+        });
     }
 
     private static Task WriteAsync<T>(Stream stream, T response, CancellationToken cancellationToken) =>
