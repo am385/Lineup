@@ -168,6 +168,7 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
                 var registration = await startOutput(cancellationToken);
                 output = new OutputEntry(StreamSessionId.New(), registration.Owner, registration.State, registration.ViewerReleased);
                 _outputs.Add(transformKey, output);
+                Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.CmafProducers.Add(1);
             }
             CancelWarmExpiration(output);
 
@@ -259,6 +260,7 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
             if (output.Value is not null)
             {
                 _outputs.Remove(output.Key);
+                Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.CmafProducers.Add(-1);
                 CancelWarmExpiration(output.Value);
                 owner = output.Value.Owner;
             }
@@ -341,15 +343,28 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
             }
             owners = _outputs.Values.Select(output => output.Owner).ToArray();
             _viewers.Clear();
+            Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.CmafProducers.Add(-_outputs.Count);
             _outputs.Clear();
         }
         finally
         {
             _gate.Release();
         }
+        List<Exception>? failures = null;
         foreach (var owner in owners)
         {
-            await owner.DisposeAsync();
+            try
+            {
+                await owner.DisposeAsync();
+            }
+            catch (Exception exception)
+            {
+                (failures ??= []).Add(exception);
+            }
+        }
+        if (failures is not null)
+        {
+            throw new AggregateException("One or more CMAF producers could not be disposed during shutdown.", failures);
         }
     }
 
@@ -402,6 +417,10 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
         }
+        finally
+        {
+            viewer.ExpirationCancellation.Dispose();
+        }
     }
 
     private static TimeSpan NormalizeTimeout(TimeSpan? timeout)
@@ -419,12 +438,14 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
         if (keepWarmPeriod <= TimeSpan.Zero)
         {
             _outputs.Remove(transformKey);
+            Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.CmafProducers.Add(-1);
             return output.Owner;
         }
 
         CancelWarmExpiration(output);
         var expiration = new CancellationTokenSource();
         output.WarmExpirationCancellation = expiration;
+        Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.WarmCmafProducers.Add(1);
         _ = ExpireOutputAsync(transformKey, output, keepWarmPeriod, expiration);
         return null;
     }
@@ -444,7 +465,9 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
                     ReferenceEquals(current, output))
                 {
                     output.WarmExpirationCancellation = null;
+                    Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.WarmCmafProducers.Add(-1);
                     _outputs.Remove(transformKey);
+                    Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.CmafProducers.Add(-1);
                     owner = output.Owner;
                 }
             }
@@ -470,6 +493,10 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
     {
         var expiration = output.WarmExpirationCancellation;
         output.WarmExpirationCancellation = null;
+        if (expiration is not null)
+        {
+            Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.WarmCmafProducers.Add(-1);
+        }
         expiration?.Cancel();
     }
 

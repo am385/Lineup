@@ -28,6 +28,10 @@ public static class MediaProcessDiagnostics
     /// <summary>Retains bounded failure details and correlation fields without serializing an unbounded exception history.</summary>
     public static void LogFailure(ILogger logger, Exception exception, string stage, string sessionId, string? requestId = null, string? streamSessionId = null, int? exitCode = null, string? diagnostics = null)
     {
+        using var scope = logger.BeginScope(new Dictionary<string, object?>
+        {
+            ["CorrelationId"] = System.Diagnostics.Activity.Current?.TraceId.ToString()
+        });
         var cause = exception.GetBaseException();
         var processFailure = cause as MediaProcessException;
         logger.LogWarning(

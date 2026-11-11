@@ -281,7 +281,7 @@ public partial class Watch : IAsyncDisposable
     {
         try
         {
-            var guideChannels = await GuideReader.GetChannelsAsync();
+            var guideChannels = await GuideReader.GetChannelDirectoryAsync();
             _channels = guideChannels
                 .OrderBy(channel => GetChannelSortValue(channel.GuideNumber))
                 .ThenBy(channel => channel.GuideNumber, StringComparer.OrdinalIgnoreCase)

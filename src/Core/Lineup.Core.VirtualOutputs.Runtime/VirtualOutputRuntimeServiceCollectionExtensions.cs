@@ -14,6 +14,7 @@ public static class VirtualOutputRuntimeServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(options);
         services.AddSingleton(options);
+        services.AddSingleton<Lineup.Core.Extensibility.Streaming.IVirtualOutputResourcePolicyValidator, VirtualOutputResourcePolicyValidator>();
         services.AddSingleton(options.IpcEndpoint);
         services.AddSingleton<IVirtualOutputSessionAuthority, VirtualOutputSessionAuthority>();
         services.AddSingleton<IVirtualOutputRuntimeStatus, VirtualOutputRuntimeStatus>();

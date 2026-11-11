@@ -172,6 +172,55 @@ public sealed class VirtualOutputProtocolTests
         Assert.Equal(9, errors.Count);
     }
 
+    /// <summary>Verifies producer retention is restricted to the physical-effective media stage.</summary>
+    [Theory]
+    [InlineData(VirtualOutputStreamStage.PhysicalOutput, 0)]
+    [InlineData(VirtualOutputStreamStage.VirtualOutput, 1)]
+    public void Validate_RetainedProducerSource_RequiresPhysicalOutput(VirtualOutputStreamStage stage, int expectedErrors)
+    {
+        // Arrange
+        var request = new VirtualOutputOpenStreamRequest
+        {
+            Session = new VirtualOutputSessionContext { SessionId = VirtualOutputWorkerSessionId.New(), Generation = 1 },
+            RequestId = VirtualOutputStreamRequestId.New(),
+            ChannelKey = "2.1",
+            Stage = stage,
+            RetainSourceForProducer = true
+        };
+
+        // Act
+        var errors = VirtualOutputProtocolValidation.Validate(request);
+
+        // Assert
+        Assert.Equal(expectedErrors, errors.Count);
+    }
+
+    /// <summary>Verifies optional producer correlation accepts only canonical producer identities.</summary>
+    [Theory]
+    [InlineData(null, 0)]
+    [InlineData("12345678901234567890123456789012", 0)]
+    [InlineData("worker-producer", 1)]
+    [InlineData("", 1)]
+    public void Validate_WorkerProducerIdentity_RejectsInvalidIds(string? producerId, int expectedErrors)
+    {
+        // Arrange
+        var report = new VirtualOutputStreamStatusReport
+        {
+            Session = new VirtualOutputSessionContext { SessionId = VirtualOutputWorkerSessionId.New(), Generation = 1 },
+            RequestId = VirtualOutputStreamRequestId.New(),
+            StreamSessionId = StreamSessionId.New(),
+            WorkerMediaSessionId = "viewer",
+            WorkerProducerId = producerId,
+            Format = HostedStreamFormat.Cmaf
+        };
+
+        // Act
+        var errors = VirtualOutputProtocolValidation.Validate(report);
+
+        // Assert
+        Assert.Equal(expectedErrors, errors.Count);
+    }
+
     /// <summary>Verifies worker presentation reports reject invalid nested media metadata.</summary>
     [Fact]
     public void Validate_StreamStatusReportWithInvalidMediaMetadata_ReturnsBoundaryError()

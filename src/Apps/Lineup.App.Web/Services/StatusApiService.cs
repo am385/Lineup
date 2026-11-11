@@ -27,7 +27,22 @@ internal sealed record LineupStatusResponse(
 {
     /// <summary>Gets authoritative deployment plugin admission usage, or null when the authority is unavailable.</summary>
     public PluginConnectionBudgetStatusResponse? PluginConnections { get; init; }
+
+    /// <summary>Gets observation intervals; sections are eventually consistent, not one atomic system snapshot.</summary>
+    public StatusObservationResponse? Observation { get; init; }
 }
+
+/// <summary>Describes independently observed status sections and captured configuration identities.</summary>
+internal sealed record StatusObservationResponse(
+    string Consistency,
+    string CoreConfigurationRevision,
+    string WebConfigurationRevision,
+    string StreamingConfigurationRevision,
+    bool ConfigurationChangedDuringRead,
+    IReadOnlyDictionary<string, StatusSectionObservation> Sections);
+
+/// <summary>Bounds when a section was read, not when its underlying cached data was last refreshed.</summary>
+internal sealed record StatusSectionObservation(DateTime StartedAtUtc, DateTime CompletedAtUtc);
 
 /// <summary>Describes the shared TCP budget and any non-disruptive limit reduction in progress.</summary>
 internal sealed record PluginConnectionBudgetStatusResponse(int MaximumConnections, int ActiveConnections, int ManagementHostedConnections, bool IsDraining, IReadOnlyDictionary<string, int> WorkerConnections);
@@ -63,6 +78,15 @@ internal sealed record GuideStatusResponse(
 {
     /// <summary>Gets safe source exclusions affecting the returned guide counts and coverage.</summary>
     public IReadOnlyList<GuideSourceDiagnosticStatusResponse> SourceDiagnostics { get; init; } = [];
+
+    /// <summary>Gets the coherent statistics generation; adjacent import/publication sections may differ.</summary>
+    public GuideReadGeneration? Generation { get; init; }
+
+    /// <summary>Gets when the independent source-import inventory was observed.</summary>
+    public DateTime? SourceImportsObservedAtUtc { get; init; }
+
+    /// <summary>Gets the revision of the complete source-import inventory, not just statistics contributors.</summary>
+    public string? SourceImportsRevision { get; init; }
 }
 
 /// <summary>Represents one configured guide-source exclusion without private provider details.</summary>
@@ -104,7 +128,17 @@ internal sealed record PhysicalDeviceStatusResponse(
     bool SupportsReceiverControl,
     bool SupportsRestart,
     IReadOnlyDictionary<string, string> Details,
-    DateTime? ObservedAtUtc);
+    DateTime? ObservedAtUtc)
+{
+    /// <summary>Gets when the last refresh attempt completed, including failures.</summary>
+    public DateTimeOffset? LastAttemptAtUtc { get; init; }
+
+    /// <summary>Gets the last successful receiver-status observation.</summary>
+    public DateTimeOffset? StatusObservedAtUtc { get; init; }
+
+    /// <summary>Gets the last successful descriptive-information observation.</summary>
+    public DateTimeOffset? InformationObservedAtUtc { get; init; }
+}
 
 /// <summary>
 /// Represents configured and resolved virtual HDHomeRun device state.
@@ -164,7 +198,11 @@ internal sealed record ActiveStreamsStatusResponse(int Count, IReadOnlyList<Acti
 /// <summary>Represents shared producer and physical-capacity state.</summary>
 internal sealed record StreamingGraphStatusResponse(
     IReadOnlyList<StreamingGraphNodeStatusResponse> Nodes,
-    IReadOnlyList<StreamingCapacityStatusResponse> Capacity);
+    IReadOnlyList<StreamingCapacityStatusResponse> Capacity)
+{
+    /// <summary>Gets bounded recent terminal reasons; clients reconnect rather than relying on seamless source switching.</summary>
+    public IReadOnlyList<StreamTermination> RecentTerminations { get; init; } = [];
+}
 
 /// <summary>Represents one active shared acquisition or transform node.</summary>
 internal sealed record StreamingGraphNodeStatusResponse(
@@ -190,6 +228,7 @@ internal sealed record StreamingCapacityStatusResponse(
 /// </summary>
 internal sealed record ActiveStreamStatusResponse(
     string SessionId,
+    string? CorrelationId,
     string? ClientId,
     string? AuthenticatedClientId,
     string? AuthenticatedClientName,
@@ -357,16 +396,35 @@ internal sealed class StatusApiService
         var generatedAtUtc = DateTime.UtcNow;
         var settings = _settings.Settings;
         var webSettings = _webSettings.Settings;
-        var guide = _startupState.IsFactoryResetRequired
-            ? CreateRestrictedGuideStatus(settings)
-            : await GetGuideStatusAsync(settings, cancellationToken);
+        var coreRevision = ConfigurationRevision.ForSettings(settings);
+        var webRevision = ConfigurationRevision.Create(webSettings);
+        var observations = new Dictionary<string, StatusSectionObservation>(StringComparer.Ordinal);
+        T Observe<T>(string name, Func<T> read)
+        {
+            var startedAt = DateTime.UtcNow;
+            var value = read();
+            observations.Add(name, new StatusSectionObservation(startedAt, DateTime.UtcNow));
+            return value;
+        }
+        async Task<T> ObserveAsync<T>(string name, Func<Task<T>> read)
+        {
+            var startedAt = DateTime.UtcNow;
+            var value = await read();
+            observations.Add(name, new StatusSectionObservation(startedAt, DateTime.UtcNow));
+            return value;
+        }
+        var guide = await ObserveAsync("guide", () => _startupState.IsFactoryResetRequired
+            ? Task.FromResult(CreateRestrictedGuideStatus(settings))
+            : GetGuideStatusAsync(settings, cancellationToken));
         cancellationToken.ThrowIfCancellationRequested();
+        var profilesStartedAt = DateTime.UtcNow;
         var virtualDevices = _startupState.IsFactoryResetRequired || _profiles is null
             ? []
             : await _profiles.GetProfilesAsync(cancellationToken);
-        var channels = _startupState.IsFactoryResetRequired
-            ? new ChannelsStatusResponse("unavailable", "Channel state is unavailable until factory reset.", 0, [], [])
-            : await GetChannelsStatusAsync(settings.Streaming, webSettings, cancellationToken);
+        observations.Add("profiles", new StatusSectionObservation(profilesStartedAt, DateTime.UtcNow));
+        var channels = await ObserveAsync("channels", () => _startupState.IsFactoryResetRequired
+            ? Task.FromResult(new ChannelsStatusResponse("unavailable", "Channel state is unavailable until factory reset.", 0, [], []))
+            : GetChannelsStatusAsync(settings.Streaming, webSettings, cancellationToken));
 
         long uptimeSeconds = Math.Max(0, (long)(generatedAtUtc - _runtime.StartedAtUtc).TotalSeconds);
         return new LineupStatusResponse(
@@ -380,18 +438,21 @@ internal sealed class StatusApiService
                 uptimeSeconds,
                 _startupState.IsFactoryResetRequired ? "factoryResetRequired" : "ready",
                 _startupState.Reason),
-            GetConfigurationStatus(settings, webSettings),
+            Observe("configuration", () => GetConfigurationStatus(settings, webSettings)),
             guide,
             channels,
-            GetPhysicalDeviceStatuses(webSettings),
-            GetVirtualDeviceStatuses(settings.Streaming, webSettings, virtualDevices),
-            GetVirtualOutputWorkerStatuses(webSettings),
-            GetReceiverStatuses(webSettings),
-            GetActiveStreamStatuses(webSettings, generatedAtUtc),
-            GetStreamingGraphStatus(),
-            GetStreamingFlowsStatus(webSettings))
+            Observe("physicalDevices", () => GetPhysicalDeviceStatuses(webSettings)),
+            Observe("virtualDevices", () => GetVirtualDeviceStatuses(settings.Streaming, webSettings, virtualDevices)),
+            Observe("virtualOutputWorkers", () => GetVirtualOutputWorkerStatuses(webSettings)),
+            Observe("receivers", () => GetReceiverStatuses(webSettings)),
+            Observe("streams", () => GetActiveStreamStatuses(webSettings, generatedAtUtc)),
+            Observe("streamingGraph", GetStreamingGraphStatus),
+            Observe("streamingFlows", () => GetStreamingFlowsStatus(webSettings)))
         {
-            PluginConnections = GetPluginConnectionStatus()
+            PluginConnections = Observe("pluginConnections", GetPluginConnectionStatus),
+            Observation = new StatusObservationResponse("eventual", coreRevision, webRevision,
+                ConfigurationRevision.Create(settings.Streaming),
+                coreRevision != ConfigurationRevision.ForSettings(_settings.Settings) || webRevision != ConfigurationRevision.Create(_webSettings.Settings), observations)
         };
     }
 
@@ -815,7 +876,10 @@ internal sealed class StatusApiService
                     capacity.DeviceId.ToString(),
                     capacity.Capacity,
                     capacity.ActiveAcquisitions,
-                    capacity.Receivers)).ToArray());
+                    capacity.Receivers)).ToArray())
+            {
+                RecentTerminations = diagnostics.RecentTerminations
+            };
     }
 
     private GuideStatusResponse CreateRestrictedGuideStatus(LineupSettings settings) =>
@@ -838,6 +902,8 @@ internal sealed class StatusApiService
         var autoFetch = GetAutoFetchStatus();
         var xmltv = GetXmltvStatus(settings);
         var imports = await GetGuideSourceImportStatusesAsync(cancellationToken);
+        var importsObservedAtUtc = DateTime.UtcNow;
+        var importsRevision = imports.Status == "available" ? ConfigurationRevision.Create(imports) : null;
         var outputs = GetGuideOutputStatuses(settings.Streaming, _webSettings.Settings);
         try
         {
@@ -858,6 +924,9 @@ internal sealed class StatusApiService
                 imports,
                 outputs)
             {
+                Generation = statistics.Generation,
+                SourceImportsObservedAtUtc = importsObservedAtUtc,
+                SourceImportsRevision = importsRevision,
                 SourceDiagnostics = statistics.SourceDiagnostics.Select(diagnostic => new GuideSourceDiagnosticStatusResponse(
                     diagnostic.SourceId.ToString(), diagnostic.SourceName, diagnostic.Code.ToString(), diagnostic.Message)).ToArray()
             };
@@ -1004,7 +1073,12 @@ internal sealed class StatusApiService
                 device.SupportsReceiverControl,
                 device.SupportsRestart,
                 details,
-                device.Status?.ObservedAtUtc.UtcDateTime);
+                device.Status?.ObservedAtUtc.UtcDateTime)
+            {
+                LastAttemptAtUtc = device.LastAttemptAtUtc,
+                StatusObservedAtUtc = device.StatusObservedAtUtc,
+                InformationObservedAtUtc = device.InformationObservedAtUtc
+            };
         }).ToArray();
     }
 
@@ -1072,6 +1146,7 @@ internal sealed class StatusApiService
     {
         var streams = _activeStreams.GetActiveStreams().Select(stream => new ActiveStreamStatusResponse(
             stream.SessionId,
+            stream.CorrelationId,
             stream.ClientId,
             stream.AuthenticatedClientId,
             stream.AuthenticatedClientName,

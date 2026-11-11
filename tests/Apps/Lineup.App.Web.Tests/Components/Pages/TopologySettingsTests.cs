@@ -36,7 +36,7 @@ public sealed class TopologySettingsTests
         component.Find("#epgHistoryRetentionHours").Change(48);
 
         // Act
-        await component.InvokeAsync(() => settingsService.UpdateAsync(current => current.MaximumConcurrentStreams = 2));
+        await component.InvokeAsync(() => settingsService.UpdateAsync(current => current.NextAutoFetchTime = DateTime.UtcNow.AddDays(1)));
         Assert.True(component.Find($"#{selector}").HasAttribute("checked"));
         await component.Find("button.btn-primary").ClickAsync(new());
 

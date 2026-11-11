@@ -8,6 +8,42 @@ namespace Lineup.Core.VirtualOutputs.Runtime;
 
 internal static class VirtualOutputProcessLimits
 {
+    /// <summary>Probes requested enforcement before creating a worker or consuming its restart allowance.</summary>
+    internal static void Preflight(VirtualOutputWorkerPolicyDefinition policy)
+    {
+        if (policy.MaximumMemoryMib < 0 || policy.MaximumCpuPercent is < 0 or > 100)
+        {
+            throw new VirtualOutputResourcePolicyException("Worker memory must be nonnegative and CPU percentage must be between zero and 100.");
+        }
+        if (policy.MaximumMemoryMib == 0 && policy.MaximumCpuPercent == 0)
+        {
+            return;
+        }
+        try
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                using var job = WindowsJobLimits.Create(policy);
+                return;
+            }
+            if (OperatingSystem.IsLinux())
+            {
+                LinuxCgroupLimits.Preflight(policy);
+                return;
+            }
+            throw new PlatformNotSupportedException("Worker CPU and memory enforcement is supported only on Windows and Linux.");
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException or Win32Exception)
+        {
+            throw new VirtualOutputResourcePolicyException(
+                "The requested worker CPU/memory policy cannot be enforced. On Linux, configure LINEUP_CGROUP_ROOT to a writable delegated cgroup v2 with the requested controllers enabled. " +
+                "Worker limits do not cover host-side FFmpeg or graph buffers. Disable the requested limits or correct the deployment permissions.", exception);
+        }
+    }
+
+    /// <summary>Probes one explicitly owned Linux cgroup root without modifying process-wide configuration.</summary>
+    internal static void PreflightLinux(VirtualOutputWorkerPolicyDefinition policy, string root) => LinuxCgroupLimits.Preflight(policy, root);
+
     internal static IDisposable? Apply(Process process, VirtualOutputWorkerPolicyDefinition policy)
     {
         ArgumentNullException.ThrowIfNull(process);
@@ -29,31 +65,59 @@ internal static class VirtualOutputProcessLimits
 
     private static class LinuxCgroupLimits
     {
-        private const string CgroupRoot = "/sys/fs/cgroup";
+        private static string CgroupRoot => Environment.GetEnvironmentVariable("LINEUP_CGROUP_ROOT") is { Length: > 0 } root ? root : "/sys/fs/cgroup";
+
+        /// <summary>Checks that the kernel exposes writable requested controllers in a temporary delegated child.</summary>
+        internal static void Preflight(VirtualOutputWorkerPolicyDefinition policy, string? root = null)
+        {
+            root ??= CgroupRoot;
+            RequireCgroupV2(root);
+            var path = Path.Combine(root, $"lineup-preflight-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(path);
+            try
+            {
+                foreach (var name in new[] { "cgroup.procs" }
+                             .Concat(policy.MaximumMemoryMib > 0 ? ["memory.max"] : Array.Empty<string>())
+                             .Concat(policy.MaximumCpuPercent > 0 ? ["cpu.max"] : Array.Empty<string>()))
+                {
+                    using var file = new FileStream(Path.Combine(path, name), FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
+                }
+                Configure(path, policy);
+            }
+            finally
+            {
+                Directory.Delete(path);
+            }
+        }
+
+        private static void RequireCgroupV2(string? root = null)
+        {
+            if (!File.Exists(Path.Combine(root ?? CgroupRoot, "cgroup.controllers")))
+            {
+                throw new PlatformNotSupportedException("Worker limits require a delegated Linux cgroup v2 directory.");
+            }
+        }
+
+        private static void Configure(string path, VirtualOutputWorkerPolicyDefinition policy)
+        {
+            if (policy.MaximumMemoryMib > 0)
+            {
+                File.WriteAllText(Path.Combine(path, "memory.max"), checked((long)policy.MaximumMemoryMib * 1024 * 1024).ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
+            if (policy.MaximumCpuPercent > 0)
+            {
+                File.WriteAllText(Path.Combine(path, "cpu.max"), checked(policy.MaximumCpuPercent * 1000).ToString(System.Globalization.CultureInfo.InvariantCulture) + " 100000");
+            }
+        }
 
         internal static IDisposable Apply(Process process, VirtualOutputWorkerPolicyDefinition policy)
         {
-            if (!File.Exists(Path.Combine(CgroupRoot, "cgroup.controllers")))
-            {
-                throw new PlatformNotSupportedException("Virtual-output process limits require Linux cgroup v2.");
-            }
+            RequireCgroupV2();
             var path = Path.Combine(CgroupRoot, $"lineup-output-{process.Id}");
             Directory.CreateDirectory(path);
             try
             {
-                if (policy.MaximumMemoryMib > 0)
-                {
-                    File.WriteAllText(
-                        Path.Combine(path, "memory.max"),
-                        checked((long)policy.MaximumMemoryMib * 1024 * 1024).ToString(System.Globalization.CultureInfo.InvariantCulture));
-                }
-                if (policy.MaximumCpuPercent > 0)
-                {
-                    var quota = checked(policy.MaximumCpuPercent * 1000);
-                    File.WriteAllText(
-                        Path.Combine(path, "cpu.max"),
-                        $"{quota} 100000");
-                }
+                Configure(path, policy);
                 File.WriteAllText(
                     Path.Combine(path, "cgroup.procs"),
                     process.Id.ToString(System.Globalization.CultureInfo.InvariantCulture));
@@ -103,6 +167,19 @@ internal static class VirtualOutputProcessLimits
 
         internal static IDisposable Apply(Process process, VirtualOutputWorkerPolicyDefinition policy)
         {
+            var job = Create(policy);
+            if (!AssignProcessToJobObject(job, process.Handle))
+            {
+                var error = Marshal.GetLastWin32Error();
+                job.Dispose();
+                throw new Win32Exception(error, "Could not assign the virtual-output worker to its job object.");
+            }
+            return job;
+        }
+
+        /// <summary>Creates and configures a job without attaching a running worker.</summary>
+        internal static SafeFileHandle Create(VirtualOutputWorkerPolicyDefinition policy)
+        {
             var job = CreateJobObject(IntPtr.Zero, null);
             if (job.IsInvalid)
             {
@@ -129,10 +206,6 @@ internal static class VirtualOutputProcessLimits
                         ControlFlags = CpuRateControlEnable | CpuRateControlHardCap,
                         CpuRate = checked((uint)policy.MaximumCpuPercent * 100)
                     });
-                }
-                if (!AssignProcessToJobObject(job, process.Handle))
-                {
-                    throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not assign the virtual-output worker to its job object.");
                 }
                 return job;
             }

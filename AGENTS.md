@@ -45,6 +45,7 @@ Run the smallest relevant tests while developing. Before declaring a code change
 ```powershell
 dotnet build Lineup.slnx -c Release --no-restore
 dotnet test Lineup.slnx -c Release --no-build --no-restore
+node --test tests\Apps\Lineup.App.Web.Tests\Browser\subtitle-polling.test.cjs tests\Apps\Lineup.App.Web.Tests\Browser\shutdown.test.cjs
 dotnet format Lineup.slnx --verify-no-changes --no-restore
 git diff --check
 ```

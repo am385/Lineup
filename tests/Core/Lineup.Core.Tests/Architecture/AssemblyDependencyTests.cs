@@ -9,12 +9,13 @@ namespace Lineup.Core.Tests.Architecture;
 /// <summary>Verifies the supported dependency direction between shared models, formats, and plugins.</summary>
 public sealed class AssemblyDependencyTests
 {
-    /// <summary>Verifies common and format assemblies remain independent from implementation and plugin layers.</summary>
+    /// <summary>Verifies common, extensibility, and format assemblies remain independent from implementation and plugin layers.</summary>
     [Fact]
     public void ConsumerAssemblies_References_MatchSupportedBoundary()
     {
         // Arrange
         var common = GetLineupReferences(typeof(StreamingConfiguration).Assembly);
+        var extensibility = GetLineupReferences(typeof(Lineup.Core.Extensibility.Streaming.IPhysicalTunerDriver).Assembly);
         var json = GetLineupReferences(typeof(JsonGuideDocument).Assembly);
         var xmltv = GetLineupReferences(typeof(XmltvGuideSerialization).Assembly);
 
@@ -22,12 +23,14 @@ public sealed class AssemblyDependencyTests
         var actual = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
         {
             ["common"] = common,
+            ["extensibility"] = extensibility,
             ["json"] = json,
             ["xmltv"] = xmltv
         };
 
         // Assert
         Assert.Empty(actual["common"]);
+        Assert.Equal(["Lineup.Core.Common"], actual["extensibility"]);
         Assert.Equal(["Lineup.Core.Common"], actual["json"]);
         Assert.Equal(["Lineup.Core.Common"], actual["xmltv"]);
     }

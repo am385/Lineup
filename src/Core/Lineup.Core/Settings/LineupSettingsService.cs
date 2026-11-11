@@ -324,6 +324,8 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
     private readonly SemaphoreSlim _lock = new(1, 1);
     private readonly LineupStartupState _startupState;
     private readonly IReadOnlyList<IStreamingConfigurationNormalizer> _streamingNormalizers;
+    private readonly IVirtualOutputResourcePolicyValidator? _resourcePolicies;
+    private string _persistedStreamingRevision;
     private bool _preserveBackupOnNextSave;
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -352,24 +354,28 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
     /// <param name="configuration">Startup configuration containing the XMLTV output seed.</param>
     /// <param name="streamingNormalizers">Plugin-owned streaming configuration normalizers.</param>
     /// <param name="startupState">Persisted-state schema result.</param>
+    /// <param name="resourcePolicies">Optional host enforcement capability validator.</param>
     public LineupSettingsService(
         ILogger<LineupSettingsService> logger,
         IAppDataStore appDataStore,
         IConfiguration configuration,
         IEnumerable<IStreamingConfigurationNormalizer> streamingNormalizers,
-        LineupStartupState? startupState = null)
+        LineupStartupState? startupState = null,
+        IVirtualOutputResourcePolicyValidator? resourcePolicies = null)
     {
         _logger = logger;
         _appDataStore = appDataStore;
         _configuredXmltvOutputPath = ResolveConfiguredXmltvOutputPath(configuration[AppConstants.GuideOutputDirConfigKey]);
         _startupState = startupState ?? StartupSchemaGate.Check(appDataStore);
         _streamingNormalizers = streamingNormalizers.ToArray();
+        _resourcePolicies = resourcePolicies;
         Settings = CreateDefaultSettings();
 
         if (!_startupState.IsFactoryResetRequired)
         {
             LoadSettingsSync();
         }
+        _persistedStreamingRevision = ConfigurationRevision.Create(Settings.Streaming);
     }
 
     /// <summary>
@@ -471,6 +477,7 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
     private void ApplyLoadedSettings(LineupSettings settings)
     {
         Settings = settings;
+        _persistedStreamingRevision = ConfigurationRevision.Create(settings.Streaming);
     }
 
     private LineupSettings CreateDefaultSettings()
@@ -609,17 +616,23 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
         {
             _lock.Release();
         }
+        NotifySettingsChanged();
     }
 
     private async Task PersistSettingsAsync(LineupSettings settings)
     {
         ValidateXmltvOutputPath(settings.XmltvOutputPath);
         settings.KnownProxies = TrustedProxySet.Parse(settings.KnownProxies, "Known proxies").Values;
+        var streamingRevision = ConfigurationRevision.Create(settings.Streaming);
+        if (streamingRevision != _persistedStreamingRevision)
+        {
+            _resourcePolicies?.Validate(settings.Streaming);
+        }
         await WriteSettingsAtomicallyAsync(settings);
         Settings = settings;
+        _persistedStreamingRevision = streamingRevision;
         _preserveBackupOnNextSave = false;
         _logger.LogInformation("Saved settings to {Path}", SettingsPath);
-        OnSettingsChanged?.Invoke();
     }
 
     private async Task WriteSettingsAtomicallyAsync(LineupSettings settings)
@@ -642,6 +655,11 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
             updateAction(updatedSettings);
             await PersistSettingsAsync(updatedSettings);
         }
+        catch (SettingsConflictException)
+        {
+            _logger.LogWarning("Core settings update rejected because the editor revision is stale");
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error updating settings");
@@ -650,6 +668,22 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
         finally
         {
             _lock.Release();
+        }
+        NotifySettingsChanged();
+    }
+
+    private void NotifySettingsChanged()
+    {
+        foreach (var subscriber in OnSettingsChanged?.GetInvocationList().Cast<Action>() ?? [])
+        {
+            try
+            {
+                subscriber();
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(exception, "Core settings were saved, but a settings-change subscriber failed");
+            }
         }
     }
 

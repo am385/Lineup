@@ -13,11 +13,15 @@ internal sealed class ContainedFileStore
     /// Initializes a contained filesystem root.
     /// </summary>
     /// <param name="rootPath">Root containing every managed path.</param>
-    public ContainedFileStore(string rootPath)
+    /// <param name="createRoot">Whether construction creates the root; recovery previews remain read-only.</param>
+    public ContainedFileStore(string rootPath, bool createRoot = true)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(rootPath);
         RootPath = Path.GetFullPath(rootPath);
-        Directory.CreateDirectory(RootPath);
+        if (createRoot)
+        {
+            Directory.CreateDirectory(RootPath);
+        }
     }
 
     /// <summary>Gets the normalized storage root.</summary>

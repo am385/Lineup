@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using Lineup.Core.Storage;
 
-namespace Lineup.Plugin.WebPlayer.FFmpeg;
+namespace Lineup.Core.Hosting.Streaming;
 
 /// <summary>
 /// Owns transient, contained WebVTT sidecars for active Watch sessions.
@@ -9,7 +9,7 @@ namespace Lineup.Plugin.WebPlayer.FFmpeg;
 public sealed class SubtitleSidecarService
 {
     /// <summary>Gets the application-owned transient subtitle directory name.</summary>
-    public const string DirectoryName = WebPlayerTransientWorkspaces.Subtitles;
+    public const string DirectoryName = "web-player-subtitles";
 
     private readonly ITransientDataStore _transientStore;
     private readonly string _root;

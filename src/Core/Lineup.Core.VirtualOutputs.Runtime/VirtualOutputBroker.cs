@@ -30,16 +30,19 @@ public sealed class VirtualOutputBrokeredStream : IAsyncDisposable
 {
     private readonly IActiveStreamRegistry _activeStreams;
     private readonly VirtualMpegTsOutput _output;
+    private readonly IStreamStartupLease? _startup;
+    private readonly bool _retainedProducerSource;
+    private int _viewerStopRequested;
     private int _disposed;
 
-    internal VirtualOutputBrokeredStream(
-        IActiveStreamRegistry activeStreams,
-        VirtualMpegTsOutput output,
-        VirtualOutputOpenStreamResponse response)
+    /// <summary>Initializes a broker-owned output, retaining dedicated Web Player startup admission until readiness or cleanup.</summary>
+    internal VirtualOutputBrokeredStream(IActiveStreamRegistry activeStreams, VirtualMpegTsOutput output, VirtualOutputOpenStreamResponse response, IStreamStartupLease? startup = null, bool retainedProducerSource = false)
     {
         _activeStreams = activeStreams;
         _output = output;
         Response = response;
+        _startup = startup;
+        _retainedProducerSource = retainedProducerSource;
     }
 
     /// <summary>Gets accepted stream metadata.</summary>
@@ -47,6 +50,33 @@ public sealed class VirtualOutputBrokeredStream : IAsyncDisposable
 
     /// <summary>Gets the readable MPEG-TS stream.</summary>
     public Stream Stream => _output.Stream;
+
+    /// <summary>Gets whether the logical viewer was explicitly stopped by the trusted host.</summary>
+    internal bool ViewerStopRequested => Volatile.Read(ref _viewerStopRequested) != 0;
+
+    /// <summary>Stops a viewer without revoking a physical lease retained by a shared producer.</summary>
+    internal void RequestViewerStop()
+    {
+        Interlocked.Exchange(ref _viewerStopRequested, 1);
+        if (!_retainedProducerSource)
+        {
+            _output.Stream.Dispose();
+        }
+    }
+
+    /// <summary>Releases only logical-viewer admission; producer source ownership ends with normal stream disposal.</summary>
+    internal void ReleaseViewer()
+    {
+        if (!_retainedProducerSource)
+        {
+            throw new VirtualOutputBrokerException(VirtualOutputFailureCode.InvalidRequest, "This stream did not reserve independent producer ownership.");
+        }
+        if (Response.StreamSessionId is { } id)
+        {
+            _activeStreams.Unregister(id.ToString());
+        }
+        _startup?.Dispose();
+    }
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
@@ -59,6 +89,7 @@ public sealed class VirtualOutputBrokeredStream : IAsyncDisposable
         {
             _activeStreams.Unregister(sessionId.ToString());
         }
+        _startup?.Dispose();
         await _output.DisposeAsync();
     }
 }
@@ -155,46 +186,69 @@ public sealed class VirtualOutputBroker : IVirtualOutputBroker
             throw new VirtualOutputBrokerException(VirtualOutputFailureCode.InvalidRequest, string.Join(" ", validation));
         }
         var device = AuthorizeAndResolve(request.Session, VirtualOutputCapability.OpenStream);
-        VirtualMpegTsOutput output;
+        using var startupCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var startup = _activeStreams.TryBeginStartup(_settings.Settings.MaximumConcurrentStreams, () => startupCancellation.Cancel());
+        if (startup is null)
+        {
+            throw new VirtualOutputBrokerException(VirtualOutputFailureCode.ResourceLimit, "The stream or startup limit has been reached.");
+        }
         try
         {
-            output = request.Stage == VirtualOutputStreamStage.PhysicalOutput
-                ? await _streams.OpenPhysicalOutputAsync(device.Id, request.ChannelKey, cancellationToken)
-                : await _streams.OpenAsync(device.Id, request.ChannelKey, cancellationToken);
-        }
-        catch (KeyNotFoundException exception)
-        {
-            throw new VirtualOutputBrokerException(VirtualOutputFailureCode.ChannelNotFound, exception.Message, exception);
-        }
-        catch (StreamAcquisitionException exception)
-        {
-            throw new VirtualOutputBrokerException(MapAcquisitionFailure(exception.Category), exception.Message, exception);
-        }
-        catch (InvalidOperationException exception)
-        {
-            throw new VirtualOutputBrokerException(VirtualOutputFailureCode.Unavailable, exception.Message, exception);
-        }
-
-        var streamSessionId = StreamSessionId.New();
-        var activeStream = CreateActiveStream(streamSessionId, request, output);
-        if (!_activeStreams.TryRegister(activeStream, _settings.Settings.MaximumConcurrentStreams, () => output.Stream.Dispose()))
-        {
-            await output.DisposeAsync();
-            throw new VirtualOutputBrokerException(VirtualOutputFailureCode.ResourceLimit, "The maximum number of concurrent streams is already active.");
-        }
-
-        return new VirtualOutputBrokeredStream(
-            _activeStreams,
-            output,
-            new VirtualOutputOpenStreamResponse
+            VirtualMpegTsOutput output;
+            try
             {
-                Accepted = true,
-                ContentType = "video/mp2t",
-                StreamSessionId = streamSessionId,
-                RawSource = output.RawSource,
-                Source = output.Source,
-                Profile = output.Profile
-            });
+                output = request.Stage == VirtualOutputStreamStage.PhysicalOutput
+                    ? await _streams.OpenPhysicalOutputAsync(device.Id, request.ChannelKey, startupCancellation.Token)
+                    : await _streams.OpenAsync(device.Id, request.ChannelKey, startupCancellation.Token);
+            }
+            catch (KeyNotFoundException exception)
+            {
+                throw new VirtualOutputBrokerException(VirtualOutputFailureCode.ChannelNotFound, exception.Message, exception);
+            }
+            catch (StreamAcquisitionException exception)
+            {
+                throw new VirtualOutputBrokerException(MapAcquisitionFailure(exception.Category), exception.Message, exception);
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new VirtualOutputBrokerException(VirtualOutputFailureCode.Unavailable, exception.Message, exception);
+            }
+
+            var streamSessionId = StreamSessionId.New();
+            var activeStream = CreateActiveStream(streamSessionId, request, output);
+            var brokered = new VirtualOutputBrokeredStream(
+                _activeStreams,
+                output,
+                new VirtualOutputOpenStreamResponse
+                {
+                    Accepted = true,
+                    ContentType = "video/mp2t",
+                    StreamSessionId = streamSessionId,
+                    RawSource = output.RawSource,
+                    Source = output.Source,
+                    Profile = output.Profile,
+                    ProducerNodeId = output.Flow.ProducerNodeId,
+                    KeepWarmPeriodSeconds = _settings.Settings.Streaming.KeepWarmPeriodSeconds
+                },
+                request.Stage == VirtualOutputStreamStage.PhysicalOutput ? startup : null,
+                request.RetainSourceForProducer);
+            if (!startup.TryRegister(activeStream, brokered.RequestViewerStop))
+            {
+                await output.DisposeAsync();
+                throw new VirtualOutputBrokerException(VirtualOutputFailureCode.ResourceLimit, "The maximum number of concurrent streams is already active.");
+            }
+
+            if (request.Stage != VirtualOutputStreamStage.PhysicalOutput)
+            {
+                startup.Dispose();
+            }
+            return brokered;
+        }
+        catch
+        {
+            startup.Dispose();
+            throw;
+        }
     }
 
     private static VirtualOutputFailureCode MapAcquisitionFailure(PhysicalStreamFailureCategory category) =>

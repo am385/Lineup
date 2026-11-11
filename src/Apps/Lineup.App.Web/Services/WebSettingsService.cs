@@ -155,7 +155,7 @@ public interface IWebSettingsService
     /// <summary>Occurs after settings are persisted.</summary>
     event Action? OnSettingsChanged;
 
-    /// <summary>Updates and persists Web settings.</summary>
+    /// <summary>Updates a detached settings copy and publishes it only after persistence succeeds.</summary>
     Task UpdateAsync(Action<WebSettings> updateAction);
 }
 
@@ -193,17 +193,30 @@ public sealed class WebSettingsService : IWebSettingsService
         await _lock.WaitAsync();
         try
         {
-            updateAction(Settings);
+            var updatedSettings = JsonSerializer.Deserialize<WebSettings>(JsonSerializer.Serialize(Settings, JsonOptions))
+                ?? throw new JsonException("The Web settings document contained a null root value.");
+            updateAction(updatedSettings);
             await _appDataStore.WriteAtomicallyAsync(
                 _path,
-                (stream, cancellationToken) => JsonSerializer.SerializeAsync(stream, Settings, JsonOptions, cancellationToken),
+                (stream, cancellationToken) => JsonSerializer.SerializeAsync(stream, updatedSettings, JsonOptions, cancellationToken),
                 _backupPath);
+            Settings = updatedSettings;
         }
         finally
         {
             _lock.Release();
         }
-        OnSettingsChanged?.Invoke();
+        foreach (var subscriber in OnSettingsChanged?.GetInvocationList().Cast<Action>() ?? [])
+        {
+            try
+            {
+                subscriber();
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(exception, "Web settings were saved, but a settings-change subscriber failed");
+            }
+        }
     }
 
     private WebSettings Load()

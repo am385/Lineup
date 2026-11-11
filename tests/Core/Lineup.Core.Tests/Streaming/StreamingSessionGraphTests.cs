@@ -11,6 +11,239 @@ namespace Lineup.Core.Tests.Streaming;
 /// </summary>
 public sealed class StreamingSessionGraphTests
 {
+    /// <summary>Excludes transport abort exceptions caused by intentional shutdown from unexpected source-loss diagnostics.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StopAsync_CanceledTransportRead_DoesNotReportSourceLoss(bool disposed)
+    {
+        // Arrange
+        using var watchdog = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        watchdog.CancelAfter(TimeSpan.FromSeconds(10));
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance);
+        var source = new CancellationFailureStream(disposed);
+        await using var lease = await graph.AcquireAsync(CreateDescriptor(PhysicalDeviceId.New(), "7.1", 1),
+            _ => ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(source)), watchdog.Token);
+        await source.ReadStarted.Task.WaitAsync(watchdog.Token);
+
+        // Act
+        await graph.StopAsync(watchdog.Token);
+
+        // Assert
+        Assert.Empty(graph.GetDiagnostics().RecentTerminations);
+        Assert.Empty(graph.GetDiagnostics().Nodes);
+    }
+
+    /// <summary>Bounds terminal history and excludes explicit viewer disposal and graph shutdown from source-loss records.</summary>
+    [Fact]
+    public async Task GetDiagnostics_TerminalHistory_IsBoundedAndIgnoresExplicitStops()
+    {
+        // Arrange
+        using var watchdog = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        watchdog.CancelAfter(TimeSpan.FromSeconds(10));
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance);
+        var descriptor = CreateDescriptor(PhysicalDeviceId.New(), "7.1", 1);
+
+        // Act
+        for (var index = 0; index < 65; index++)
+        {
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            await using var lease = await graph.AcquireAsync(descriptor,
+                _ => ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(new TerminalStream(release.Task, false))), watchdog.Token);
+            release.SetResult();
+            Assert.Equal(0, await lease.Stream.ReadAsync(new byte[1], watchdog.Token));
+            await WaitUntilAsync(() => graph.GetDiagnostics().Nodes.Count == 0, watchdog.Token);
+        }
+        await using var active = await graph.AcquireAsync(descriptor,
+            _ => ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(new ControlledSourceStream())), watchdog.Token);
+        await active.DisposeAsync();
+        await graph.StopAsync(watchdog.Token);
+
+        // Assert
+        Assert.Equal(64, graph.GetDiagnostics().RecentTerminations.Count);
+        Assert.All(graph.GetDiagnostics().RecentTerminations, termination => Assert.Equal("source_eof", termination.Reason));
+        Assert.Empty(graph.GetDiagnostics().Nodes);
+    }
+
+    /// <summary>Reports midstream EOF/failure without splicing, then permits a fresh independently routed acquisition.</summary>
+    [Theory]
+    [InlineData(false, "source_eof")]
+    [InlineData(true, "source_failure")]
+    public async Task AcquireAsync_SourceTerminates_RecordsReasonAndAllowsReconnect(bool fail, string expected)
+    {
+        // Arrange
+        using var watchdog = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        watchdog.CancelAfter(TimeSpan.FromSeconds(10));
+        using var operation = Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.Begin("recovery_test", cancellationToken: watchdog.Token);
+        var correlation = System.Diagnostics.Activity.Current!.TraceId.ToString();
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var descriptor = CreateDescriptor(PhysicalDeviceId.New(), "7.1", 1);
+        await using var first = await graph.AcquireAsync(descriptor,
+            _ => ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(new TerminalStream(release.Task, fail))), watchdog.Token);
+        await using var second = await graph.AcquireAsync(descriptor, _ => throw new InvalidOperationException("The source must remain shared."), watchdog.Token);
+        await first.DisposeAsync();
+
+        // Act
+        release.SetResult();
+        var read = second.Stream.ReadAsync(new byte[1], watchdog.Token).AsTask();
+        if (fail)
+        {
+            await Assert.ThrowsAsync<IOException>(() => read);
+        }
+        else
+        {
+            Assert.Equal(0, await read);
+        }
+        await WaitUntilAsync(() => graph.GetDiagnostics().RecentTerminations.Count == 1, watchdog.Token);
+        var replacement = new ControlledSourceStream();
+        var reopened = false;
+        await using var reconnected = await graph.AcquireAsync(descriptor,
+            _ =>
+            {
+                reopened = true;
+                return ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(replacement));
+            }, watchdog.Token);
+
+        // Assert
+        var termination = Assert.Single(graph.GetDiagnostics().RecentTerminations);
+        Assert.Equal(expected, termination.Reason);
+        Assert.Equal(correlation, termination.CorrelationId);
+        Assert.Equal(second.ProducerNodeId, termination.NodeId);
+        Assert.True(reopened);
+        Assert.NotEqual(second.SessionId, reconnected.SessionId);
+        await reconnected.DisposeAsync();
+        await graph.StopAsync(watchdog.Token);
+        Assert.Single(graph.GetDiagnostics().RecentTerminations);
+    }
+
+    /// <summary>Verifies shared allocations remain accounted until every reader releases its reference, including partially consumed heads.</summary>
+    [Fact]
+    public async Task BufferBudget_SharedPayload_CountsAllocationOnce()
+    {
+        // Arrange
+        using var budget = new StreamBufferBudget(new(), TimeProvider.System);
+        var first = budget.Subscribe(() => { });
+        var second = budget.Subscribe(() => { });
+        var payload = new byte[64 * 1024];
+
+        // Act
+        budget.Publish(payload, [first, second]);
+        await first.ReadAsync(new byte[1], TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(payload.Length, budget.RetainedBytes);
+
+        // Act
+        first.Close();
+        await second.ReadAsync(new byte[payload.Length], TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(0, budget.RetainedBytes);
+        Assert.Equal(0, budget.Evictions);
+    }
+
+    /// <summary>Verifies a byte-limited stalled viewer does not interrupt a consuming viewer sharing its producer.</summary>
+    [Fact]
+    public async Task BufferBudget_SlowReader_EnforcesBytesWithoutBlockingHealthyReader()
+    {
+        // Arrange
+        using var budget = new StreamBufferBudget(new() { SubscriberBufferMib = 1, GraphBufferMib = 4 }, TimeProvider.System);
+        var slow = budget.Subscribe(() => { });
+        var healthy = budget.Subscribe(() => { });
+        var destination = new byte[64 * 1024];
+
+        // Act
+        for (var index = 0; index < 17; index++)
+        {
+            budget.Publish(new byte[64 * 1024], [slow, healthy]);
+            Assert.Equal(destination.Length, await healthy.ReadAsync(destination, TestContext.Current.CancellationToken));
+            Assert.InRange(budget.RetainedBytes, 0, 1024 * 1024);
+        }
+
+        // Assert
+        Assert.Equal(1, budget.Evictions);
+        Assert.Equal(0, budget.RetainedBytes);
+        await Assert.ThrowsAsync<IOException>(() => slow.ReadAsync(destination, TestContext.Current.CancellationToken).AsTask());
+    }
+
+    /// <summary>Verifies graph-wide exhaustion evicts the largest backlog rather than rejecting unrelated healthy traffic.</summary>
+    [Fact]
+    public async Task BufferBudget_GlobalLimit_EvictsBacklogAndAcceptsHealthyTraffic()
+    {
+        // Arrange
+        using var budget = new StreamBufferBudget(new() { GraphBufferMib = 1 }, TimeProvider.System);
+        var slow = budget.Subscribe(() => { });
+        var healthy = budget.Subscribe(() => { });
+        for (var index = 0; index < 16; index++)
+        {
+            budget.Publish(new byte[64 * 1024], [slow]);
+        }
+
+        // Act
+        budget.Publish(new byte[64 * 1024], [healthy]);
+
+        // Assert
+        Assert.Equal(1, budget.Evictions);
+        Assert.Equal(64 * 1024, budget.RetainedBytes);
+        Assert.Equal(64 * 1024, await healthy.ReadAsync(new byte[64 * 1024], TestContext.Current.CancellationToken));
+        Assert.Equal(0, budget.RetainedBytes);
+        await Assert.ThrowsAsync<IOException>(() => slow.ReadAsync(new byte[1], TestContext.Current.CancellationToken).AsTask());
+    }
+
+    /// <summary>Verifies idle producers cannot leave unread media retained beyond the five-second age limit.</summary>
+    [Fact]
+    public async Task BufferBudget_MediaAge_ExpiresWithoutFurtherPublication()
+    {
+        // Arrange
+        var clock = new ManualTimeProvider();
+        using var budget = new StreamBufferBudget(new(), clock);
+        var slow = budget.Subscribe(() => { });
+        budget.Publish(new byte[64 * 1024], [slow]);
+
+        // Act
+        clock.Advance(TimeSpan.FromMilliseconds(4999));
+
+        // Assert
+        Assert.Equal(64 * 1024, budget.RetainedBytes);
+        Assert.Equal(0, budget.Evictions);
+
+        // Act
+        clock.Advance(TimeSpan.FromMilliseconds(1));
+
+        // Assert
+        Assert.Equal(0, budget.RetainedBytes);
+        Assert.Equal(1, budget.Evictions);
+        await Assert.ThrowsAsync<IOException>(() => slow.ReadAsync(new byte[1], TestContext.Current.CancellationToken).AsTask());
+    }
+
+    /// <summary>Verifies ordinary EOF preserves remaining payload and explicit disposal releases it without waiting for expiration.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BufferBudget_SourceCompletes_ReleasesOwnedPayload(bool dispose)
+    {
+        // Arrange
+        using var budget = new StreamBufferBudget(new(), TimeProvider.System);
+        var subscription = budget.Subscribe(() => { });
+        budget.Publish(new byte[64 * 1024], [subscription]);
+
+        // Act
+        budget.Complete(subscription);
+        if (dispose)
+        {
+            subscription.Close();
+        }
+        else
+        {
+            Assert.Equal(64 * 1024, await subscription.ReadAsync(new byte[64 * 1024], TestContext.Current.CancellationToken));
+        }
+
+        // Assert
+        Assert.Equal(0, budget.RetainedBytes);
+        Assert.Equal(0, await subscription.ReadAsync(new byte[1], TestContext.Current.CancellationToken));
+    }
+
     /// <summary>Verifies live packets retain warm acquisitions and transform chains until the original idle deadline, without extending it.</summary>
     [Theory]
     [InlineData(0)]
@@ -30,7 +263,7 @@ public sealed class StreamingSessionGraphTests
 
         // Assert
         fixture.AssertWarm(lease.ProducerNodeId);
-        Assert.Equal(1, fixture.Time.CreatedTimers);
+        Assert.Equal(1, fixture.Time.CreatedWarmTimers);
 
         // Act
         fixture.Time.Advance(TimeSpan.FromMilliseconds(19_999));
@@ -38,7 +271,7 @@ public sealed class StreamingSessionGraphTests
 
         // Assert
         fixture.AssertWarm(lease.ProducerNodeId);
-        Assert.Equal(1, fixture.Time.CreatedTimers);
+        Assert.Equal(1, fixture.Time.CreatedWarmTimers);
 
         // Act
         fixture.Time.Advance(TimeSpan.FromMilliseconds(1));
@@ -84,7 +317,7 @@ public sealed class StreamingSessionGraphTests
 
         // Assert
         fixture.AssertWarm(second.ProducerNodeId);
-        Assert.Equal(2, fixture.Time.CreatedTimers);
+        Assert.Equal(2, fixture.Time.CreatedWarmTimers);
 
         // Act
         fixture.Time.Advance(TimeSpan.FromSeconds(1));
@@ -135,7 +368,7 @@ public sealed class StreamingSessionGraphTests
         await fixture.WaitForReleaseAsync();
 
         // Assert
-        Assert.Equal(0, fixture.Time.CreatedTimers);
+        Assert.Equal(0, fixture.Time.CreatedWarmTimers);
         Assert.Empty(fixture.Graph.GetDiagnostics().Nodes);
         Assert.Empty(fixture.Graph.GetDiagnostics().Capacity);
     }
@@ -153,6 +386,7 @@ public sealed class StreamingSessionGraphTests
         {
             await fixture.SendPacketAsync();
         }
+        await WaitUntilAsync(() => fixture.Graph.GetDiagnostics().Nodes.Single(node => node.NodeId == lease.ProducerNodeId).IsWarm, fixture.CancellationToken);
         fixture.AssertWarm(lease.ProducerNodeId);
 
         // Act
@@ -165,7 +399,7 @@ public sealed class StreamingSessionGraphTests
 
         // Assert
         fixture.AssertWarm(lease.ProducerNodeId);
-        Assert.Equal(1, fixture.Time.CreatedTimers);
+        Assert.Equal(1, fixture.Time.CreatedWarmTimers);
 
         // Act
         fixture.Time.Advance(TimeSpan.FromSeconds(20));
@@ -1062,6 +1296,32 @@ public sealed class StreamingSessionGraphTests
         }
     }
 
+    private sealed class CancellationFailureStream(bool disposed) : MemoryStream
+    {
+        /// <summary>Gets confirmation that a transport read is pending before shutdown.</summary>
+        public TaskCompletionSource ReadStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <inheritdoc />
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var registration = cancellationToken.Register(() => stopped.TrySetResult());
+            ReadStarted.TrySetResult();
+            await stopped.Task;
+            throw disposed ? new ObjectDisposedException("transport") : new IOException("Transport aborted during shutdown.");
+        }
+    }
+
+    private sealed class TerminalStream(Task release, bool fail) : MemoryStream
+    {
+        /// <inheritdoc />
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            await release.WaitAsync(cancellationToken);
+            return fail ? throw new IOException("Controlled source failure.") : 0;
+        }
+    }
+
     private static StreamAcquisitionDescriptor CreateDescriptor(PhysicalDeviceId deviceId, string channel, int capacity) =>
         new(
             deviceId,
@@ -1228,11 +1488,18 @@ public sealed class StreamingSessionGraphTests
         private TimeSpan _elapsed;
         private int _createdTimers;
 
-        public int CreatedTimers => Volatile.Read(ref _createdTimers);
+        public int CreatedWarmTimers => Volatile.Read(ref _createdTimers);
+
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        public override long GetTimestamp() => _elapsed.Ticks;
 
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
         {
-            Interlocked.Increment(ref _createdTimers);
+            if (dueTime != Timeout.InfiniteTimeSpan)
+            {
+                Interlocked.Increment(ref _createdTimers);
+            }
             var timer = new ManualTimer(this, callback, state);
             timer.Change(dueTime, period);
             return timer;

@@ -1,4 +1,6 @@
-namespace Lineup.Core.Streaming.FFmpeg;
+using Lineup.Core.Streaming.FFmpeg;
+
+namespace Lineup.Core.Hosting.Streaming;
 
 /// <summary>
 /// Describes how a failed stream was classified as protected content.

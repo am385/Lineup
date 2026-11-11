@@ -1,6 +1,7 @@
 using Lineup.Core.Storage;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Lineup.Core.Settings;
 
 namespace Lineup.Core.Streaming;
 
@@ -31,6 +32,9 @@ public sealed record PhysicalLineupRefreshResult
 
     /// <summary>Gets an actionable error without sensitive adapter details.</summary>
     public string? Error { get; init; }
+
+    /// <summary>Gets when this refresh attempt completed.</summary>
+    public DateTimeOffset ObservedAtUtc { get; init; } = DateTimeOffset.UtcNow;
 }
 
 /// <summary>
@@ -41,80 +45,97 @@ public sealed class PhysicalLineupService : IPhysicalLineupService
     private readonly IPhysicalDeviceCatalog _devices;
     private readonly StreamingTopologyStore _topology;
     private readonly ILogger<PhysicalLineupService> _logger;
-    private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly PhysicalDeviceRefreshScheduler _refresh;
+    private readonly CoalescedRefresh<IReadOnlyList<PhysicalLineupRefreshResult>> _requests;
 
     /// <summary>Initializes a physical lineup refresh coordinator.</summary>
-    public PhysicalLineupService(
-        IPhysicalDeviceCatalog devices,
-        StreamingTopologyStore topology,
-        ILogger<PhysicalLineupService>? logger = null)
+    public PhysicalLineupService(IPhysicalDeviceCatalog devices, StreamingTopologyStore topology, ILogger<PhysicalLineupService>? logger = null, PhysicalDeviceRefreshScheduler? refresh = null)
     {
         _devices = devices;
         _topology = topology;
         _logger = logger ?? NullLogger<PhysicalLineupService>.Instance;
+        _refresh = refresh ?? new PhysicalDeviceRefreshScheduler();
+        _requests = new CoalescedRefresh<IReadOnlyList<PhysicalLineupRefreshResult>>(_logger);
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<PhysicalLineupRefreshResult>> RefreshAsync(
-        StreamingConfiguration configuration,
-        CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<PhysicalLineupRefreshResult>> RefreshAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default) =>
+        _requests.RunAsync(ConfigurationRevision.Create(configuration.PhysicalDevices), token => RefreshCoreAsync(configuration, token), cancellationToken);
+
+    private async Task<IReadOnlyList<PhysicalLineupRefreshResult>> RefreshCoreAsync(StreamingConfiguration configuration, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(configuration);
-        await _gate.WaitAsync(cancellationToken);
-        try
+        await _devices.ApplyAsync(configuration, cancellationToken);
+        var definitions = configuration.PhysicalDevices.Where(device => device.Enabled).OrderBy(device => device.Order).ThenBy(device => device.Id.Value).ToArray();
+        var initialized = await _devices.TryPublishAsync(configuration, async ct =>
         {
-            await _devices.ApplyAsync(configuration, cancellationToken);
-            await _topology.PruneDevicesAsync(configuration.PhysicalDevices.Select(device => device.Id), cancellationToken);
-            var activeDevices = _devices.Devices.ToDictionary(device => device.Snapshot.Id);
-            var results = new List<PhysicalLineupRefreshResult>(configuration.PhysicalDevices.Count);
-            foreach (var definition in configuration.PhysicalDevices.Where(device => device.Enabled).OrderBy(device => device.Order).ThenBy(device => device.Id.Value))
+            await _topology.PruneDevicesAsync(configuration.PhysicalDevices.Select(device => device.Id), ct);
+        }, cancellationToken);
+        if (!initialized)
+        {
+            return definitions.Select(definition => new PhysicalLineupRefreshResult
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (!activeDevices.TryGetValue(definition.Id, out var device))
-                {
-                    _logger.LogWarning(
-                        "Unable to refresh physical lineup for inactive device {PhysicalDeviceId}; activation failed and prior state was preserved",
-                        definition.Id);
-                    results.Add(new PhysicalLineupRefreshResult
-                    {
-                        DeviceId = definition.Id,
-                        Succeeded = false,
-                        Error = "Physical device activation failed; check the device configuration and connection. Prior state was preserved."
-                    });
-                    continue;
-                }
-                try
-                {
-                    var lineup = await device.RefreshLineupAsync(cancellationToken);
-                    var stored = await _topology.ReconcileAsync(device.Snapshot.Id, lineup, cancellationToken);
-                    results.Add(new PhysicalLineupRefreshResult
-                    {
-                        DeviceId = device.Snapshot.Id,
-                        Succeeded = true,
-                        ChannelCount = stored.Count
-                    });
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception exception) when (
-                    exception is ArgumentException or InvalidOperationException or InvalidDataException or IOException or HttpRequestException or UnauthorizedAccessException)
-                {
-                    _logger.LogWarning(exception, "Unable to refresh physical lineup for device {PhysicalDeviceId}; prior state was preserved", device.Snapshot.Id);
-                    results.Add(new PhysicalLineupRefreshResult
-                    {
-                        DeviceId = device.Snapshot.Id,
-                        Succeeded = false,
-                        Error = $"Physical lineup refresh failed ({exception.GetType().Name}); prior state was preserved."
-                    });
-                }
-            }
-            return results;
+                DeviceId = definition.Id,
+                Succeeded = false,
+                Error = "Physical configuration changed before lineup publication; the obsolete refresh was discarded."
+            }).ToArray();
         }
-        finally
+        var activeDevices = _devices.Devices.ToDictionary(device => device.Snapshot.Id);
+        var results = new PhysicalLineupRefreshResult[definitions.Length];
+        await Parallel.ForEachAsync(Enumerable.Range(0, definitions.Length),
+            new ParallelOptions { MaxDegreeOfParallelism = _refresh.MaximumConcurrentOperations, CancellationToken = cancellationToken }, async (index, token) =>
         {
-            _gate.Release();
-        }
+            var definition = definitions[index];
+            token.ThrowIfCancellationRequested();
+            if (!activeDevices.TryGetValue(definition.Id, out var device))
+            {
+                _logger.LogWarning(
+                    "Unable to refresh physical lineup for inactive device {PhysicalDeviceId}; activation failed and prior state was preserved",
+                    definition.Id);
+                results[index] = new PhysicalLineupRefreshResult
+                {
+                    DeviceId = definition.Id,
+                    Succeeded = false,
+                    Error = "Physical device activation failed; check the device configuration and connection. Prior state was preserved."
+                };
+                return;
+            }
+            try
+            {
+                var lineup = await _refresh.RunAsync(device.RefreshLineupAsync, token);
+                var channelCount = 0;
+                var committed = await _devices.TryPublishAsync(configuration, async ct =>
+                {
+                    if (!_devices.Devices.Any(current => ReferenceEquals(current, device)))
+                    {
+                        throw new InvalidOperationException("The physical-device runtime changed before lineup publication.");
+                    }
+                    channelCount = (await _topology.ReconcileAsync(device.Snapshot.Id, lineup, ct)).Count;
+                }, token);
+                results[index] = new PhysicalLineupRefreshResult
+                {
+                    DeviceId = device.Snapshot.Id,
+                    Succeeded = committed,
+                    ChannelCount = channelCount,
+                    Error = committed ? null : "Physical configuration changed before lineup publication; the obsolete refresh was discarded."
+                };
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception) when (
+                exception is ArgumentException or InvalidOperationException or InvalidDataException or IOException or HttpRequestException or UnauthorizedAccessException or TimeoutException)
+            {
+                _logger.LogWarning(exception, "Unable to refresh physical lineup for device {PhysicalDeviceId}; prior state was preserved", device.Snapshot.Id);
+                results[index] = new PhysicalLineupRefreshResult
+                {
+                    DeviceId = device.Snapshot.Id,
+                    Succeeded = false,
+                    Error = $"Physical lineup refresh failed ({exception.GetType().Name}); prior state was preserved."
+                };
+            }
+        });
+        return results;
     }
 }

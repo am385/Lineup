@@ -311,7 +311,7 @@ public sealed class StreamingRouteResolverTests
             driver.CreateAsync(Arg.Any<PhysicalDeviceId>(), Arg.Any<string>(), Arg.Any<AdapterConfiguration>(), Arg.Any<CancellationToken>()).Returns(call =>
             {
                 var id = call.Arg<PhysicalDeviceId>();
-                ActivationCounts[id] = ActivationCounts.GetValueOrDefault(id) + 1;
+                ActivationCounts.AddOrUpdate(id, 1, static (_, count) => count + 1);
                 if (_activationFailures.Contains(id))
                 {
                     return ValueTask.FromException<IPhysicalTunerDevice>(new IOException("Synthetic activation failure."));
@@ -320,7 +320,7 @@ public sealed class StreamingRouteResolverTests
                 device.Snapshot.Returns(new PhysicalDeviceSnapshot { Id = id, Name = call.Arg<string>(), Kind = "route-test", Capacity = new PhysicalTunerCapacity(1) });
                 device.RefreshLineupAsync(Arg.Any<CancellationToken>()).Returns(refresh =>
                 {
-                    LineupCounts[id] = LineupCounts.GetValueOrDefault(id) + 1;
+                    LineupCounts.AddOrUpdate(id, 1, static (_, count) => count + 1);
                     BeforeChannelRefresh?.Invoke(id, refresh.Arg<CancellationToken>());
                     return _lineupFailures.Contains(id)
                         ? Task.FromException<IReadOnlyList<PhysicalSourceChannel>>(new IOException("Synthetic lineup failure."))
@@ -366,9 +366,9 @@ public sealed class StreamingRouteResolverTests
         /// <summary>Gets the real lineup service for activation outside the resolver.</summary>
         internal PhysicalLineupService Lineups { get; }
 
-        internal Dictionary<PhysicalDeviceId, int> ActivationCounts { get; } = [];
+        internal System.Collections.Concurrent.ConcurrentDictionary<PhysicalDeviceId, int> ActivationCounts { get; } = new();
 
-        internal Dictionary<PhysicalDeviceId, int> LineupCounts { get; } = [];
+        internal System.Collections.Concurrent.ConcurrentDictionary<PhysicalDeviceId, int> LineupCounts { get; } = new();
 
         internal HashSet<PhysicalDeviceId> EmptyLineups { get; } = [];
 

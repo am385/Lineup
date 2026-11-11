@@ -417,27 +417,174 @@ public sealed class WebPlayerWorkerProcessTests
         Assert.Empty(harness.ActiveStreams.GetActiveStreams());
     }
 
-    private static VirtualOutputBrokeredStream CreateBrokeredStream(VirtualOutputOpenStreamRequest request, Stream stream)
+    /// <summary>Verifies independently admitted viewer aliases share one producer and stopping its initiating viewer leaves the other playing.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Worker_EquivalentViewers_ShareProducerAndStopIndependently(bool stopFromHost)
+    {
+        // Arrange
+        await using var harness = await WebPlayerWorkerHarness.StartAsync(
+            (request, _) => Task.FromResult(CreateBrokeredStream(request, new PacedPatternStream(), "physical-generation-one")),
+            TestContext.Current.CancellationToken);
+        using var firstRequest = harness.CreateRequest(HttpMethod.Post, "/media/start/2.1", "{}");
+        using var secondRequest = harness.CreateRequest(HttpMethod.Post, "/media/start/2.1", "{}");
+
+        // Act
+        using var firstResponse = await harness.Client.SendAsync(firstRequest, TestContext.Current.CancellationToken);
+        var first = (await firstResponse.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: TestContext.Current.CancellationToken))!;
+        var firstStream = Assert.Single(harness.ReportedStreams);
+        using var secondResponse = await harness.Client.SendAsync(secondRequest, TestContext.Current.CancellationToken);
+        var second = (await secondResponse.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: TestContext.Current.CancellationToken))!;
+        var joined = harness.ReportedStreams;
+        if (stopFromHost)
+        {
+            Assert.True(harness.ActiveStreams.RequestStop(firstStream.SessionId));
+        }
+        else
+        {
+            using var stopped = await harness.Client.PostAsync(new Uri(first["stopUrl"]!.GetValue<string>()), null, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, stopped.StatusCode);
+        }
+        await WaitUntilAsync(() => harness.ReportedStreams.Count == 1, TimeSpan.FromSeconds(10));
+        using var remainingMedia = await harness.Client.GetAsync(new Uri(second["dashManifestUrl"]!.GetValue<string>()), TestContext.Current.CancellationToken);
+        using var removedMedia = await harness.Client.GetAsync(new Uri(first["dashManifestUrl"]!.GetValue<string>()), TestContext.Current.CancellationToken);
+        using var finalStop = await harness.Client.PostAsync(new Uri(second["stopUrl"]!.GetValue<string>()), null, TestContext.Current.CancellationToken);
+        await harness.AssertMediaReleasedAsync();
+
+        // Assert
+        Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, secondResponse.StatusCode);
+        Assert.Equal(2, joined.Count);
+        Assert.Equal(2, joined.Select(stream => stream.WorkerMediaSessionId).Distinct().Count());
+        Assert.NotNull(Assert.Single(joined.Select(stream => stream.Flow!.ReusableOutputId).Distinct()));
+        Assert.Single(harness.MediaStarts);
+        Assert.Equal(HttpStatusCode.OK, remainingMedia.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, removedMedia.StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, finalStop.StatusCode);
+    }
+
+    /// <summary>Verifies canceling the initiating HTTP request does not cancel a producer another admitted viewer is still starting.</summary>
+    [Fact]
+    public async Task Worker_InitiatingViewerDisconnects_DoesNotCancelSharedStartup()
+    {
+        // Arrange
+        await using var harness = await WebPlayerWorkerHarness.StartAsync(
+            (request, _) => Task.FromResult(CreateBrokeredStream(request, new PacedPatternStream(), "physical-generation-one")),
+            TestContext.Current.CancellationToken, startupMode: "hold-readiness");
+        using var firstRequest = harness.CreateRequest(HttpMethod.Post, "/media/start/2.1", "{}");
+        using var firstCancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var firstResponse = harness.Client.SendAsync(firstRequest, firstCancellation.Token);
+        await WaitUntilAsync(() => harness.MediaStarts.Count == 1, TimeSpan.FromSeconds(10));
+        using var secondRequest = harness.CreateRequest(HttpMethod.Post, "/media/start/2.1", "{}");
+        var secondResponse = harness.Client.SendAsync(secondRequest, TestContext.Current.CancellationToken);
+        await WaitUntilAsync(() => harness.ReportedStreams.Count == 2, TimeSpan.FromSeconds(10));
+        await WaitUntilAsync(async () =>
+        {
+            var health = await harness.Client.GetFromJsonAsync<JsonObject>("/health", TestContext.Current.CancellationToken);
+            return health!["activeSessions"]!.GetValue<int>() == 2;
+        }, TimeSpan.FromSeconds(10));
+
+        // Act
+        firstCancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await firstResponse);
+        await WaitUntilAsync(() => harness.ReportedStreams.Count == 1, TimeSpan.FromSeconds(10));
+        await harness.ReleaseReadinessAsync();
+        using var ready = await secondResponse;
+        var second = (await ready.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: TestContext.Current.CancellationToken))!;
+        using var stopped = await harness.Client.PostAsync(new Uri(second["stopUrl"]!.GetValue<string>()), null, TestContext.Current.CancellationToken);
+        await harness.AssertMediaReleasedAsync();
+
+        // Assert
+        Assert.Equal(HttpStatusCode.OK, ready.StatusCode);
+        Assert.Single(harness.MediaStarts);
+        Assert.Equal(HttpStatusCode.NoContent, stopped.StatusCode);
+    }
+
+    /// <summary>Verifies warm producer retention releases viewer admission, reuses media, and eventually cleans the retained source.</summary>
+    [Fact]
+    public async Task Worker_WarmProducer_HasNoActiveViewerAndReusesUntilExpiry()
+    {
+        // Arrange
+        await using var harness = await WebPlayerWorkerHarness.StartAsync(
+            (request, _) => Task.FromResult(CreateBrokeredStream(request, new PacedPatternStream(), "physical-generation-one", keepWarmSeconds: 3)),
+            TestContext.Current.CancellationToken);
+        using var firstRequest = harness.CreateRequest(HttpMethod.Post, "/media/start/2.1", "{}");
+        using var firstResponse = await harness.Client.SendAsync(firstRequest, TestContext.Current.CancellationToken);
+        var first = (await firstResponse.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: TestContext.Current.CancellationToken))!;
+
+        // Act
+        using var firstStop = await harness.Client.PostAsync(new Uri(first["stopUrl"]!.GetValue<string>()), null, TestContext.Current.CancellationToken);
+        var warm = await harness.Client.GetFromJsonAsync<JsonObject>("/health", TestContext.Current.CancellationToken);
+        var activeWhileWarm = harness.ReportedStreams;
+        using var secondRequest = harness.CreateRequest(HttpMethod.Post, "/media/start/2.1", "{}");
+        using var secondResponse = await harness.Client.SendAsync(secondRequest, TestContext.Current.CancellationToken);
+        var second = (await secondResponse.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: TestContext.Current.CancellationToken))!;
+        using var secondStop = await harness.Client.PostAsync(new Uri(second["stopUrl"]!.GetValue<string>()), null, TestContext.Current.CancellationToken);
+        await harness.AssertMediaReleasedAsync();
+        await WaitUntilAsync(async () =>
+        {
+            var health = await harness.Client.GetFromJsonAsync<JsonObject>("/health", TestContext.Current.CancellationToken);
+            return health!["activeProducers"]!.GetValue<int>() == 0;
+        }, TimeSpan.FromSeconds(10));
+
+        // Assert
+        Assert.Equal(HttpStatusCode.NoContent, firstStop.StatusCode);
+        Assert.Empty(activeWhileWarm);
+        Assert.Equal(0, warm!["activeSessions"]!.GetValue<int>());
+        Assert.Equal(1, warm["activeProducers"]!.GetValue<int>());
+        Assert.Equal(HttpStatusCode.OK, secondResponse.StatusCode);
+        Assert.Single(harness.MediaStarts);
+        Assert.Equal(HttpStatusCode.NoContent, secondStop.StatusCode);
+    }
+
+    /// <summary>Verifies source generation and effective encoding-plan differences cannot reuse an unrelated producer.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Worker_DifferentSourcesOrPlans_DoNotShareProducer(bool changeSource)
+    {
+        // Arrange
+        var opens = 0;
+        await using var harness = await WebPlayerWorkerHarness.StartAsync(
+            (request, _) => Task.FromResult(CreateBrokeredStream(request, new PacedPatternStream(),
+                changeSource ? $"physical-generation-{Interlocked.Increment(ref opens)}" : "physical-generation-one")),
+            TestContext.Current.CancellationToken);
+        using var firstRequest = harness.CreateRequest(HttpMethod.Post, "/media/start/2.1", "{}");
+        using var secondRequest = harness.CreateRequest(HttpMethod.Post, "/media/start/2.1", changeSource ? "{}" : """{"preferredAudio":1}""");
+
+        // Act
+        using var firstResponse = await harness.Client.SendAsync(firstRequest, TestContext.Current.CancellationToken);
+        using var secondResponse = await harness.Client.SendAsync(secondRequest, TestContext.Current.CancellationToken);
+        var first = (await firstResponse.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: TestContext.Current.CancellationToken))!;
+        var second = (await secondResponse.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: TestContext.Current.CancellationToken))!;
+        var producers = harness.ReportedStreams.Select(stream => stream.Flow!.ReusableOutputId).Distinct().ToArray();
+        using var firstStop = await harness.Client.PostAsync(new Uri(first["stopUrl"]!.GetValue<string>()), null, TestContext.Current.CancellationToken);
+        using var secondStop = await harness.Client.PostAsync(new Uri(second["stopUrl"]!.GetValue<string>()), null, TestContext.Current.CancellationToken);
+        await harness.AssertMediaReleasedAsync();
+
+        // Assert
+        Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, secondResponse.StatusCode);
+        Assert.Equal(2, harness.MediaStarts.Count);
+        Assert.Equal(2, producers.Length);
+    }
+
+    private static VirtualOutputBrokeredStream CreateBrokeredStream(VirtualOutputOpenStreamRequest request, Stream stream, string? producerNodeId = null, int keepWarmSeconds = 0)
     {
         var activeStreams = WebPlayerWorkerHarness.CurrentActiveStreams
             ?? throw new InvalidOperationException("The test broker is not attached to an active worker harness.");
         var streamSessionId = StreamSessionId.New();
         var source = CreateSourceMetadata();
-        activeStreams.Register(new ActiveStreamSnapshot(
-            streamSessionId.ToString(),
-            request.ChannelKey,
-            HostedStreamFormat.MpegTs,
-            DateTime.UtcNow,
-            source.BitRate,
-            []));
-        return new VirtualOutputBrokeredStream(
+        var flow = new ActiveStreamFlowContext { ProducerNodeId = producerNodeId };
+        var brokered = new VirtualOutputBrokeredStream(
             activeStreams,
             new VirtualMpegTsOutput(
                 stream,
                 source,
                 source,
                 new VirtualTranscodeProfile(),
-                new ActiveStreamFlowContext()),
+                flow),
             new VirtualOutputOpenStreamResponse
             {
                 Accepted = true,
@@ -445,8 +592,14 @@ public sealed class WebPlayerWorkerProcessTests
                 StreamSessionId = streamSessionId,
                 RawSource = source,
                 Source = source,
-                Profile = new VirtualTranscodeProfile()
-            });
+                Profile = new VirtualTranscodeProfile(),
+                ProducerNodeId = producerNodeId,
+                KeepWarmPeriodSeconds = keepWarmSeconds
+            }, retainedProducerSource: request.RetainSourceForProducer);
+        activeStreams.Register(new ActiveStreamSnapshot(
+            streamSessionId.ToString(), request.ChannelKey, HostedStreamFormat.MpegTs, DateTime.UtcNow, source.BitRate, [])
+        { Flow = flow }, brokered.RequestViewerStop);
+        return brokered;
     }
 
     private static MediaProbeResult CreateSourceMetadata() =>
@@ -467,6 +620,20 @@ public sealed class WebPlayerWorkerProcessTests
     {
         var started = Stopwatch.StartNew();
         while (!condition())
+        {
+            if (started.Elapsed >= timeout)
+            {
+                throw new TimeoutException($"The integration condition did not complete within {timeout}.");
+            }
+
+            await Task.Delay(100, TestContext.Current.CancellationToken);
+        }
+    }
+
+    private static async Task WaitUntilAsync(Func<Task<bool>> condition, TimeSpan timeout)
+    {
+        var started = Stopwatch.StartNew();
+        while (!await condition())
         {
             if (started.Elapsed >= timeout)
             {
@@ -526,6 +693,9 @@ public sealed class WebPlayerWorkerProcessTests
 
         /// <summary>Gets each main media attempt's process ID, output directory and first audio codec.</summary>
         internal IReadOnlyList<string[]> MediaStarts => ReadMediaStarts(_startLog);
+
+        /// <summary>Releases deterministic readiness after concurrent viewers have joined a pending producer.</summary>
+        internal Task ReleaseReadinessAsync() => File.WriteAllTextAsync(_startLog + ".ready", string.Empty, TestContext.Current.CancellationToken);
 
         /// <summary>Verifies that startup or explicit stop released every media attempt and its broker stream.</summary>
         internal async Task AssertMediaReleasedAsync()
@@ -671,6 +841,7 @@ public sealed class WebPlayerWorkerProcessTests
             _authority.Dispose();
             _worker.Dispose();
             File.Delete(_startLog);
+            File.Delete(_startLog + ".ready");
             ActiveStreamsContext.Value = null;
         }
 

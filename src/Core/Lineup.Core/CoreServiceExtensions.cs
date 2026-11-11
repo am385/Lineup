@@ -32,6 +32,8 @@ public static class CoreServiceExtensions
         services.AddSingleton(provider => new StreamingTopologyStore(provider.GetRequiredService<IDbContextFactory<EpgDbContext>>()));
         services.AddSingleton<DeviceGuideStore>();
         services.AddSingleton<IPhysicalCapacityLeaseRegistry, PhysicalCapacityLeaseRegistry>();
+        services.TryAddSingleton(provider => StreamingResourceOptions.Load(provider.GetService<Microsoft.Extensions.Configuration.IConfiguration>()));
+        services.TryAddSingleton(provider => PhysicalDeviceRefreshScheduler.Load(provider.GetService<Microsoft.Extensions.Configuration.IConfiguration>()));
         services.AddSingleton<IPluginConnectionBudget>(provider => new PluginConnectionBudget(provider.GetRequiredService<Lineup.Core.Settings.ILineupSettingsService>()));
         services.AddSingleton<IPhysicalLineupService, PhysicalLineupService>();
         services.AddSingleton<IPhysicalDeviceStatusService, PhysicalDeviceStatusService>();
@@ -39,14 +41,16 @@ public static class CoreServiceExtensions
             provider.GetRequiredService<IPhysicalCapacityLeaseRegistry>(),
             provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<StreamingSessionGraph>>(),
             TimeProvider.System,
-            provider.GetRequiredService<PhysicalDeviceRuntimeState>()));
+            provider.GetRequiredService<PhysicalDeviceRuntimeState>(),
+            provider.GetRequiredService<StreamingResourceOptions>()));
         services.AddSingleton<IStreamingAdapterRegistry, StreamingAdapterRegistry>();
         services.AddSingleton<PhysicalDeviceRuntimeState>();
         services.AddSingleton<IPhysicalDeviceResolver>(provider => provider.GetRequiredService<PhysicalDeviceRuntimeState>());
         services.AddSingleton<IPhysicalDeviceCatalog>(provider => new PhysicalDeviceCatalog(
             provider.GetRequiredService<IStreamingAdapterRegistry>(),
             provider.GetRequiredService<PhysicalDeviceRuntimeState>(),
-            provider.GetService<Microsoft.Extensions.Logging.ILogger<PhysicalDeviceCatalog>>()));
+            provider.GetService<Microsoft.Extensions.Logging.ILogger<PhysicalDeviceCatalog>>(),
+            provider.GetRequiredService<PhysicalDeviceRefreshScheduler>()));
         services.AddSingleton<IGuideOrchestrator, GuideOrchestrator>();
         services.AddSingleton<IGuideQueryService, GuideQueryService>();
         services.TryAddSingleton<IEpgRetentionPolicy, DefaultEpgRetentionPolicy>();

@@ -80,6 +80,13 @@ if (output?.EndsWith(".mpd", StringComparison.OrdinalIgnoreCase) == true)
     {
         await File.AppendAllTextAsync(startLog, $"{Environment.ProcessId}|{Path.GetDirectoryName(output)}|{codec}{Environment.NewLine}");
     }
+    if (mode == "hold-readiness" && !string.IsNullOrEmpty(startLog))
+    {
+        while (!File.Exists(startLog + ".ready"))
+        {
+            await Task.Delay(10);
+        }
+    }
     if (mode is "unrelated" or "both-fail" || (codec == "copy" && mode is "copy-fails" or "fallback-holds"))
     {
         await File.WriteAllTextAsync(output, "stale failed-attempt manifest");

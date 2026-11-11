@@ -1,7 +1,9 @@
 using System.Text.Json;
 using Lineup.App.Web.Services;
+using Lineup.Core.Extensibility.Streaming;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
 using Xunit;
 
 namespace Lineup.App.Web.Tests.Services;
@@ -11,6 +13,85 @@ namespace Lineup.App.Web.Tests.Services;
 /// </summary>
 public class LineupSettingsServiceTests
 {
+    /// <summary>Verifies resource preflight rejects changed topology before publication without blocking operational timestamp updates.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Persist_ResourcePolicyRejected_PreservesDiskAndAllowsUnrelatedSave(bool directSave)
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-policy-save-");
+        try
+        {
+            var validator = Substitute.For<IVirtualOutputResourcePolicyValidator>();
+            validator.When(value => value.Validate(Arg.Any<StreamingConfiguration>())).Do(_ => throw new InvalidOperationException("Requested enforcement unavailable."));
+            var store = new AppDataStore(root.FullName);
+            var service = new LineupSettingsService(NullLogger<LineupSettingsService>.Instance, store, new ConfigurationBuilder().Build(), [], resourcePolicies: validator);
+            await service.SaveAsync();
+            var original = File.ReadAllText(store.SettingsPath);
+            var notifications = 0;
+            service.OnSettingsChanged += () => notifications++;
+            var committed = service.Settings.Streaming;
+            Task Save()
+            {
+                if (!directSave)
+                {
+                    return service.UpdateAsync(settings => settings.Streaming = settings.Streaming with { MaximumPluginConnections = 10 });
+                }
+                service.Settings.Streaming = committed with { MaximumPluginConnections = 10 };
+                return service.SaveAsync();
+            }
+
+            // Act
+            var failure = await Assert.ThrowsAsync<InvalidOperationException>(Save);
+
+            // Assert
+            Assert.Contains("enforcement unavailable", failure.Message, StringComparison.Ordinal);
+            Assert.Equal(original, File.ReadAllText(store.SettingsPath));
+            Assert.Equal(0, notifications);
+            if (directSave)
+            {
+                service.Settings.Streaming = committed;
+            }
+            Assert.Equal(committed, service.Settings.Streaming);
+            await service.UpdateAsync(settings => settings.NextAutoFetchTime = DateTime.UtcNow.AddHours(1));
+            Assert.Equal(1, notifications);
+            validator.Received(1).Validate(Arg.Any<StreamingConfiguration>());
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>Verifies notification failures cannot misreport committed Core settings or prevent other subscribers from running.</summary>
+    [Fact]
+    public async Task UpdateAsync_SubscriberThrows_PreservesSuccessfulCommitAndNotifiesOtherSubscribers()
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-settings-notification-");
+        try
+        {
+            var path = Path.Combine(root.FullName, AppConstants.SettingsFileName);
+            var service = new LineupSettingsService(NullLogger<LineupSettingsService>.Instance, path);
+            service.OnSettingsChanged += () => throw new InvalidOperationException("Controlled subscriber failure.");
+            var notified = false;
+            service.OnSettingsChanged += () => notified = true;
+
+            // Act
+            await service.UpdateAsync(settings => settings.TargetDays = 7);
+
+            // Assert
+            Assert.True(notified);
+            Assert.Equal(7, service.Settings.TargetDays);
+            Assert.Equal(7, JsonSerializer.Deserialize<LineupSettings>(File.ReadAllText(path))!.TargetDays);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
     /// <summary>
     /// Verifies fresh settings persist exactly one built-in Web Player virtual device.
     /// </summary>

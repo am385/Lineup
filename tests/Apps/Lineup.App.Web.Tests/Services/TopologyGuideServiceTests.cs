@@ -137,8 +137,10 @@ public sealed class TopologyGuideServiceTests
     }
 
     /// <summary>Verifies every enabled output is attempted and one failure does not block later outputs.</summary>
-    [Fact]
-    public async Task PublishAsync_MultipleOutputs_ContinuesAfterFailure()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PublishAsync_MultipleOutputs_ContinuesAfterFailure(bool capturedConfiguration)
     {
         // Arrange
         var firstId = GuideOutputId.New();
@@ -153,7 +155,7 @@ public sealed class TopologyGuideServiceTests
             ]
         };
         var settings = Substitute.For<ILineupSettingsService>();
-        settings.Settings.Returns(new LineupSettings { Streaming = configuration });
+        settings.Settings.Returns(new LineupSettings { Streaming = capturedConfiguration ? new StreamingConfiguration() : configuration });
         var guides = Substitute.For<IGuideOrchestrator>();
         var guideQueries = Substitute.For<IGuideQueryService>();
         var diagnostic = new GuideSourceDiagnostic
@@ -204,9 +206,12 @@ public sealed class TopologyGuideServiceTests
             publications);
 
         // Act
-        var results = await service.PublishAsync(TestContext.Current.CancellationToken);
+        var results = capturedConfiguration
+            ? await service.PublishConfigurationAsync(configuration, TestContext.Current.CancellationToken)
+            : await service.PublishAsync(TestContext.Current.CancellationToken);
 
         // Assert
+        await guides.Received(1).ApplyAsync(configuration, Arg.Any<CancellationToken>());
         Assert.Collection(
             results,
             result =>

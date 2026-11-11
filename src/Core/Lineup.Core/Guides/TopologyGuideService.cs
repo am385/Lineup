@@ -19,6 +19,9 @@ public interface ITopologyGuideService
     /// <summary>Publishes enabled guide outputs from eligible cached data without activating guide-source runtimes.</summary>
     Task<IReadOnlyList<GuideOutputPublicationResult>> PublishAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Applies and publishes one captured topology without mixing concurrent configuration revisions.</summary>
+    Task<IReadOnlyList<GuideOutputPublicationResult>> PublishConfigurationAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default);
+
     /// <summary>Publishes one enabled guide output from eligible cached data without activating guide-source runtimes.</summary>
     Task<GuideOutputPublicationResult?> PublishAsync(
         GuideOutputId outputId,
@@ -142,12 +145,16 @@ public sealed class TopologyGuideService : ITopologyGuideService
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<GuideOutputPublicationResult>> PublishAsync(CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<GuideOutputPublicationResult>> PublishAsync(CancellationToken cancellationToken = default) =>
+        PublishConfigurationAsync(_settings.Settings.Streaming, cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<GuideOutputPublicationResult>> PublishConfigurationAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(configuration);
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            var configuration = _settings.Settings.Streaming;
             await _guides.ApplyAsync(configuration, cancellationToken);
             return await PublishAsync(configuration, cancellationToken);
         }

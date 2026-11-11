@@ -1120,4 +1120,16 @@
   <data name="WatchTest_VideoCodec" xml:space="preserve"><value>Códec de video</value></data>
   <data name="WatchTest_VideoProfile" xml:space="preserve"><value>Perfil de video</value></data>
   <data name="WatchTest_WebVttSidecar" xml:space="preserve"><value>Archivo auxiliar WebVTT</value></data>
+  <data name="Settings_Conflict" xml:space="preserve"><value>La configuración cambió mientras este borrador estaba abierto. No se guardó nada. Vuelva a cargar la configuración guardada antes de reintentar.</value></data>
+  <data name="Settings_CoreSavedWebConflict" xml:space="preserve"><value>La configuración de Core se guardó, pero la de Web cambió simultáneamente y no se guardó. Vuelva a cargar antes de reintentar; los cambios confirmados no se revirtieron.</value></data>
+  <data name="Settings_SavedApplyConflict" xml:space="preserve"><value>La configuración de Core y Web se guardó, pero cambios posteriores impidieron completar la configuración inicial. Vuelva a cargar antes de reintentar; los cambios confirmados no se revirtieron.</value></data>
+  <data name="Settings_CoreSavedWebFailure" xml:space="preserve"><value>La configuración de Core se guardó, pero la de Web no. Reintente guardar o vuelva a cargar; los cambios confirmados no se revirtieron. Error: {0}</value></data>
+  <data name="Settings_TopologyHeading" xml:space="preserve"><value>Estado de la configuración</value></data>
+  <data name="Settings_TopologyPending" xml:space="preserve"><value>La topología guardada está pendiente de aplicación.</value></data>
+  <data name="Settings_TopologyApplying" xml:space="preserve"><value>Aplicando la topología guardada.</value></data>
+  <data name="Settings_TopologyApplied" xml:space="preserve"><value>La topología guardada se aplicó correctamente.</value></data>
+  <data name="Settings_TopologyDegraded" xml:space="preserve"><value>La configuración guardada no se aplicó por completo. Revise los dispositivos o las salidas afectados y los registros del servidor y reintente.</value></data>
+  <data name="Settings_TopologyRevisions" xml:space="preserve"><value>Deseada: {0}. Intentada: {1}. Última aplicada por completo: {2}.</value></data>
+  <data name="Settings_TopologyDeviceFailure" xml:space="preserve"><value>No se pudo aplicar el dispositivo físico {0}.</value></data>
+  <data name="Settings_TopologyOutputFailure" xml:space="preserve"><value>La salida de guía {0} falló o es parcial.</value></data>
 </root>

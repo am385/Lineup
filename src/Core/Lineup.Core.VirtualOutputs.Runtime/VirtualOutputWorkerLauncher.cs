@@ -48,6 +48,7 @@ public sealed class VirtualOutputWorkerLauncher : IVirtualOutputWorkerLauncher
     {
         ArgumentNullException.ThrowIfNull(package);
         ArgumentNullException.ThrowIfNull(bootstrap);
+        VirtualOutputProcessLimits.Preflight(bootstrap.WorkerPolicy);
         if (!await VirtualOutputWorkerManifestValidator.VerifyExecutableAsync(package.Manifest, package.PackageRoot, cancellationToken))
         {
             throw new InvalidOperationException($"Virtual-output worker '{package.Manifest.WorkerId}' failed executable provenance verification.");
@@ -98,7 +99,14 @@ public sealed class VirtualOutputWorkerLauncher : IVirtualOutputWorkerLauncher
             {
                 throw new InvalidOperationException($"Virtual-output worker '{package.Manifest.WorkerId}' could not be started.");
             }
-            processLimits = VirtualOutputProcessLimits.Apply(process, bootstrap.WorkerPolicy);
+            try
+            {
+                processLimits = VirtualOutputProcessLimits.Apply(process, bootstrap.WorkerPolicy);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException or System.ComponentModel.Win32Exception)
+            {
+                throw new VirtualOutputResourcePolicyException("The worker could not be attached to its requested CPU/memory enforcement scope. Correct the deployment permissions before retrying.", exception);
+            }
             var bootstrapJson = JsonSerializer.Serialize(bootstrap, new JsonSerializerOptions(JsonSerializerDefaults.Web));
             await process.StandardInput.WriteLineAsync(bootstrapJson.AsMemory(), cancellationToken);
             await process.StandardInput.FlushAsync(cancellationToken);

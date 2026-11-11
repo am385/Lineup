@@ -256,7 +256,7 @@ See [Project Dependency Map](docs/project-dependencies.md) for direct-reference 
 |---|---|
 | `Lineup.Core.Common` | Dependency-free identifiers, configuration records, normalized guide models, streaming DTOs, and serialized metadata types |
 | `Lineup.Core` | Provider-neutral device, guide, topology, capacity, and shared-stream orchestration with authoritative SQLite storage |
-| `Lineup.Core.Hosting` | Reusable hosted workers for topology activation, device refresh, guide scheduling, and stream shutdown |
+| `Lineup.Core.Hosting` | Trusted topology/guide workers, stream shutdown, and graph/settings/storage adapters for portable media execution |
 | `Lineup.Core.Extensibility` | Plugin/runtime interfaces, portable validation, and narrow host capabilities built on `Lineup.Core.Common` |
 | `Lineup.Core.Streaming.FFmpeg` | Reusable FFmpeg/FFprobe process and streaming transforms |
 | `Lineup.Core.VirtualOutputs.Protocol` | Versioned dependency-light local IPC contracts and bounded framing for isolated output workers |
@@ -443,10 +443,14 @@ Dedicated-session inactivity uses a monotonic clock and a minimum 30-second life
 two-second segments plus five extra retained segments. This does not retain closed sessions indefinitely or guarantee
 new requests after an explicit stop or terminal producer cleanup.
 
-Management-hosted Watch viewers with identical playback requests (apart from client ID), effective profiles, and exact physical
-sources share one CMAF producer. Each viewer retains its own manifest/subtitle URLs, client diagnostics,
+In both management-hosted and dedicated modes, Watch viewers with identical effective playback requests (apart from client ID), profiles, and exact physical
+source generations share one CMAF producer within their output host. Each viewer retains its own manifest/subtitle URLs, client diagnostics,
 inactivity lifetime, and admission-limit slot. Stopping or expiring one viewer leaves the others attached; the final viewer's
-release follows the configured keep-warm policy. Different media plans or physical source/channel identities remain isolated.
+release follows the configured keep-warm policy. Different media plans, bitmap-subtitle selections, physical source/channel identities, and output hosts remain isolated.
+An idle warm producer has no active viewer admission slots. Dedicated mode retains its canonical broker input separately from the initiating viewer;
+additional viewers still have independently admitted, drained broker inputs, not additional FFmpeg producers. These active and warm input leases remain
+subject to the worker's outstanding broker-call budget. Worker `/health` and passive `/media/sessions` inventories distinguish viewers from producers;
+inventory and broker-status polling do not refresh media inactivity.
 
 Watch hides manual stream policy controls behind **Override stream settings**. Each protocol, quality, video, audio, and
 fallback-audio setting can independently use **Browser profile** or a manual value. Overrides are applied to a request-scoped
@@ -515,6 +519,55 @@ The Physical Devices and Virtual Devices tabs provide inherited Video and Audio 
 
 Lineup builds each live stream as a reference-counted graph: exact physical acquisition, optional physical normalization, and virtual output packaging. Consumers share the longest byte-identical prefix, including across different virtual devices, and branch only where their effective output settings differ. Physical failover is resolved to an exact device before its profile is applied, so a fallback source shares with other consumers of that source and uses its own overrides. FFprobe metadata is also shared for the lifetime of the acquisition. The Dashboard visualizes the full configured topology and highlights active, shared, transcoding, and warm paths above the detailed Active Streams table. The status API exposes active graph nodes, stable node and parent identities, processing stages, receiver counts, warm state, subscription totals, and physical-capacity use.
 
+Stream admission reserves both a logical viewer slot and a pending-startup slot **before** source acquisition, probing, or
+transcoding. Overload is rejected immediately with HTTP 429 (`stream_limit` for Lineup Link); dedicated workers receive the
+existing `ResourceLimit` broker rejection. Existing viewers are not displaced. Producer sharing is unchanged: each admitted
+viewer still needs its own slot, even when joining an existing producer. Pending startup reservations count toward
+**Maximum Concurrent Streams**, and that setting's zero/unlimited behavior and physical tuner limits are unchanged.
+Startup slots are released on readiness, failure, cancellation, or cleanup; dedicated Web Player slots remain held through
+worker media planning and readiness, not just the broker's physical-stream response.
+
+The host also enforces these finite, startup-scoped defaults:
+
+| Host budget | Default | Configuration key |
+|---|---|---|
+| Concurrent pending stream startups | 8 | `StreamingResources:MaximumPendingStarts` |
+| Queued payload per graph subscription | 8 MiB | `StreamingResources:SubscriberBufferMib` |
+| Distinct queued payload across the graph | 128 MiB | `StreamingResources:GraphBufferMib` |
+| Maximum unread media age | 5 seconds | `StreamingResources:MaximumBufferAgeSeconds` |
+| Overall physical-source acquisition | 20 seconds | `StreamingResources:AcquisitionTimeoutSeconds` |
+
+These are host configuration, **not** persisted `settings.json` fields or Settings-page controls. Set them in the host's
+`appsettings.json` and restart the host, or use equivalent environment variables such as
+`StreamingResources__MaximumPendingStarts=8`. For example:
+
+```json
+{
+  "StreamingResources": {
+    "MaximumPendingStarts": 8,
+    "SubscriberBufferMib": 8,
+    "GraphBufferMib": 128,
+    "MaximumBufferAgeSeconds": 5,
+    "AcquisitionTimeoutSeconds": 20
+  }
+}
+```
+
+Zero does not disable these safety budgets: invalid configuration fails explicitly. Pending startups support 1-1024,
+buffer budgets 1-1,048,576 MiB, and age/acquisition budgets 1-300 seconds. A partially read array remains accounted until its
+last byte is consumed or its owner is released; sharing the same array across readers counts it only once globally.
+The existing 2048-entry ceiling remains as an additional metadata safeguard. Slow readers exceeding their byte, entry,
+or age allowance are disconnected with a logged stream failure; aggregate pressure evicts the largest queued backlogs
+instead of blocking unrelated producers. Age expiry runs even when a producer stops sending data. Ordinary EOF preserves
+unread data within the budgets; errors, shutdown, and disposal release it immediately.
+Temporary startup reservations are actively drained during probing until the replacement output is subscribed, preventing
+long probes from turning an intentionally held reservation into a slow reader and unnecessarily reopening the source.
+
+Graph diagnostics expose `BufferedBytes` and `BufferEvictions`. The `Lineup.Streaming` .NET meter additionally publishes
+`lineup.streaming.buffered_bytes` and `lineup.streaming.buffer_evictions`; eviction reasons are the bounded values `bytes`,
+`entries`, `aggregate`, and `age`. These limits measure **queued payload**, not process RSS, queue metadata, HTTP/socket buffers,
+CMAF files, FFmpeg memory, or total deployment memory. Worker process policies are a separate, opt-in boundary.
+
 Changing a physical device's adapter or connection configuration, disabling it, or removing it disconnects all viewers using that device,
 including shared transforms and warm streams. Other devices keep running. Previously resolved routes cannot reopen the retired adapter.
 The replacement is published after old graph resources finish cleanup; physical capacity stays reserved until its owned source is actually disposed.
@@ -528,7 +581,8 @@ When an HDHomeRun reports DRM error 811, API streams return a protected-content 
 
 ## Configuration
 
-All settings are configurable through the web UI's settings page and persisted to `settings.json`:
+Runtime application settings are configurable through the web UI's settings page and persisted to `settings.json`.
+Startup-only host budgets are documented separately above.
 
 | Setting | Description |
 |---|---|
@@ -570,11 +624,35 @@ HDHomeRun discovery and lineup HTTP deadlines are also reported as recoverable d
 
 Published virtual-channel protection considers all enabled, subscribed equivalent sources: a channel is not marked protected merely because its preferred source is protected when a clear or unknown equivalent remains. Other published metadata retains preferred-source precedence. Management and dedicated Lineup Link outputs use this same projection; protected-only outputs retain the configured error/slate policy.
 
-Physical source selection allows each equivalent candidate ten seconds to complete acquisition, including remote stream headers and error-body parsing. A candidate timeout or invalid stream response releases that candidate's subscription and permits the next equivalent source; other subscribers to the same pending acquisition are not canceled. Once acquired, a live stream has no acquisition time limit. Explicit caller cancellation stops selection instead of trying another source.
+Physical source selection has one configurable overall acquisition allowance (20 seconds by default), including remote stream
+headers and error-body parsing. Each candidate receives a share of the remaining allowance, capped at ten seconds, so stalled
+preferred sources leave time for healthy fallbacks. Exhausting the overall deadline prevents starting later sources and reports
+`source_acquisition_timeout`. A candidate timeout or invalid stream response releases that candidate's subscription; other
+subscribers to the same pending acquisition are not canceled. Source adapters must honor cancellation; cleanup retains
+physical-capacity ownership until the source actually stops rather than abandoning a noncooperative adapter. Once acquired,
+a live stream has no acquisition time limit. Explicit caller cancellation stops selection instead of trying another source.
+The separate CMAF presentation-startup/readiness timeout remains in force.
 
 Network-facing Lineup Link, virtual HDHomeRun, and Web Player media outputs can be served through the management UI host or through one isolated worker process per virtual device. Management-hosted mode reuses the existing Lineup HTTP/HTTPS ports for simpler local deployments. A management-hosted virtual HDHomeRun needs its externally reachable management URL in **Advertised base URL** when network discovery is enabled. Dedicated mode gives the output its own sockets, firewall boundary, TLS and network policy, and process lifecycle. Dedicated workers receive instance-scoped capabilities over authenticated named-pipe or Unix-domain-socket IPC. A separate shared HDHomeRun discovery worker owns UDP 65001 and SSDP 1900 and receives only bounded advertisement snapshots for enabled virtual devices. Web Player presentation remains in Blazor in both modes; its selected host owns CMAF/HLS/DASH generation and delivery. Worker packages are hash-verified before launch, bootstrap credentials are one-time and generation-bound, leases fail closed, and TLS certificate bytes are delivered through activation stdin rather than exposing trusted-host certificate paths. The Web and TUI hosts both run the same trusted supervisor for outputs configured in dedicated mode; `Lineup:VirtualOutputs:WorkerPath` overrides the packaged `virtual-output-workers` directory.
 
 Managed workers receive a unique temporary directory beneath the trusted host's operating-system temporary path through their sanitized environment. This keeps dedicated Web Player media artifacts writable for ordinary Windows users without inheriting the host's user profile or unrelated environment variables. The launcher removes the directory after terminating and disposing the worker, including failed launches, and logs cleanup failures with the affected path. These worker directories are separate from the management host's `Lineup:TransientPath` setting.
+
+Nonzero worker CPU/memory policies are preflighted before saving changed topology and before launching a worker. Zero remains
+opt-in/unlimited and requires no resource-controller privileges. Unsupported enforcement fails closed with an actionable
+configuration/runtime error; it never silently launches an unlimited worker or repeatedly spends its restart budget.
+An existing unsupported deployment can still load its settings and perform unrelated timestamp updates; correcting the output
+configuration permits activation again without a factory reset.
+
+On Linux, use cgroup v2 with a writable delegated parent, enable the requested `cpu`/`memory` controllers for its children,
+and set `LINEUP_CGROUP_ROOT` to that parent when `/sys/fs/cgroup` is not the delegated location. Lineup probes a temporary child
+and requires writable kernel-created controller and process-membership files; it does not enable controllers or make the
+container privileged. Actual worker attachment remains fail-closed if permissions change after preflight. Linux memory
+limits cover the worker cgroup and descendants; its CPU quota is a percentage of one CPU. Windows uses a job CPU-rate cap
+and **per-process** memory limits, not one aggregate deployment-memory cap. Job setup is probed first, and a failed process
+attachment terminates the worker and reports a permanent deployment-policy error.
+Externally launched workers must enforce limits in their external supervisor and leave Lineup's host CPU/memory policy at
+zero, because the host does not own those processes. None of these worker policies constrain management-host FFmpeg or
+the shared graph; use deployment/container limits for a deployment-wide CPU or RSS ceiling.
 
 **Streaming > Deployment-wide plugin connections** sets `Streaming.MaximumPluginConnections` for all management-hosted and dedicated plugin outputs in one Lineup deployment. Zero is unlimited.
 One TCP connection consumes one slot from its first eligible plugin request until disconnect, including idle keep-alive time; concurrent HTTP/2 requests on that connection share the slot.
@@ -616,7 +694,15 @@ owned process. Delayed registration, renewal or health status from an older gene
 
 Management-hosted Watch Test startup owns its encoder and transient files until the manifests, fragments, and codec metadata are ready and its viewer is registered. Cancellation, readiness timeout, encoder exit, and startup errors terminate the encoder and remove its files even before registration. Successful presentations remain available until their viewer stops or expires.
 
-Management-hosted shared Watch startup owns readiness and its bounded deadline at the producer, not at the initiating HTTP request. Canceling or stopping one pending viewer releases only that viewer; remaining viewers still receive the ready presentation or the producer's terminal failure. Releasing the final viewer cancels pending work and cleans its encoder, input, and files when keep-warm is zero.
+Both management-hosted and dedicated shared Watch startup own readiness and their bounded deadline at the producer, not at the initiating HTTP request.
+Canceling or stopping one pending viewer releases only that viewer; remaining viewers still receive the ready presentation or the producer's terminal failure.
+Releasing the final viewer cancels pending work and cleans its encoder, input, and files when keep-warm is zero. Dedicated host-initiated stops are
+acknowledged through worker status polling, normally within one second, without closing another viewer's shared input.
+
+Long-lived management playback ownership lives in a typed application service, not an MVC controller; dedicated playback uses a typed worker runtime.
+Both reuse the same host-neutral viewer/producer coordinator and portable CMAF planning primitives. HTTP adapters only map requests, results, media files,
+and public URLs. Portable FFmpeg and Web Player worker dependencies do not include Core application services, EF, or SQLite; trusted graph, settings,
+guide, and subtitle-storage integration stays in `Lineup.Core.Hosting.Streaming`.
 
 The TUI validates the complete topology before saving hosting changes. Conflicting listener bindings or invalid security and worker settings are reported without changing live settings, the settings file, or its backup. If saved topology is already invalid, the TUI shows the validation errors and offers **Configure Sources** and **Exit** instead of applying it to physical devices and guide sources. Correct the errors and return from configuration to resume the normal menu.
 
@@ -638,6 +724,17 @@ profiles and desired-versus-applied worker state; active streams with source/out
 end-to-end streaming-flow projection used by the Dashboard.
 The endpoint is passive: polling it does not fetch guide data, discover devices, refresh tuners, retune channels, or interrupt streams. Responses use
 `Cache-Control: no-store`; unavailable sections report their own status and error without hiding the remaining state.
+
+Operational status is **eventually consistent**, not one atomic system-wide snapshot. `observation` identifies the captured Core, Web and streaming configuration
+revisions, reports configuration drift during the request, and bounds each section's read with UTC start/completion times. These intervals describe observation,
+not freshness of cached source data. Physical devices separately expose the last attempt and last successful status/information observations.
+`guide.generation` identifies the coherent statistics read, its contributing-import revision and its streaming configuration revision.
+The independently read source-import inventory has its own observation time and revision; its scope includes all stored imports, so its revision is not comparable
+to the contributing-import revision. Worker, stream, graph and flow sections may change between observations; collecting status never takes a global streaming lock.
+
+Guide publications and statistics resolve topology, bindings, authoritative programs and contributing import metadata in one deferred SQLite read transaction.
+Statistics use per-authoritative-channel SQL count/min/max aggregates, preserving equivalence, manual-unavailable and empty-channel coverage semantics without
+loading program JSON. Guide/watch channel lists and playback protection checks use channel-only projections; interactive program reads remain time-windowed.
 
 The endpoint is unauthenticated and follows Lineup's trusted-network model. Open **Settings → API** to redact active-stream client addresses, device addresses,
 and URLs independently. Client addresses are redacted by default; device addresses and URLs are visible by default. Secret adapter values are represented only
@@ -662,6 +759,22 @@ sensor:
     scan_interval: 30
 ```
 
+### Saving and applying settings
+
+The Settings page keeps one **Save** operation, but Core (`settings.json`) and Web (`web-settings.json`) settings commit independently.
+If Core saves and Web fails, the page reports that partial outcome without rolling back committed changes. Retrying retains the committed Core baseline;
+newer edits by another operator produce a conflict instead of being overwritten. Use **Undo** to reload saved settings before resolving a conflict.
+Scheduling timestamps do not invalidate an open draft, and header theme changes remain synchronized without discarding other unsaved edits.
+TUI topology replacement, adapter editing, and access-grant changes also reject stale configuration.
+Draft revisions compare the running host's live snapshots; they do not add cross-process file locking.
+
+The Settings page stays quiet during normal configuration application. Failed or partial application displays a **Configuration status** warning
+with the affected devices or outputs and **Retry**; revision hashes are not displayed in the normal settings view.
+This operation covers physical lineup refresh and cached guide publication; dedicated output-worker health remains a separate runtime concern.
+Timestamp, schedule, retention, and other non-topology updates do not refresh lineups or republish guides. **Retry** reapplies the desired topology
+without rewriting settings. Outcomes are retained for the process lifetime; startup reapplies the persisted desired topology.
+Failed publication preserves the previous output file, and initial setup reports success only after its required connectivity and application checks finish.
+
 The Settings **Reset** tab can stage default settings for review or perform a Factory Reset. Factory Reset removes all files and directories beneath Lineup's application-data and transient-data roots, along with the configured XMLTV output, during a graceful restart. The browser displays a blocking restart screen and returns to first-run setup after detecting the new Lineup instance. XMLTV files configured outside Lineup-owned storage are preserved. A service supervisor such as Docker's `restart: unless-stopped` must restart the process after reset.
 
 Lineup 3.0 uses application-settings schema `1`, streaming-topology schema `1`, database schema `1`, and Web-settings schema `1` as an intentional factory-reset cutover. Persisted state must match these versions exactly; an older, newer, invalid, or unversioned artifact enters the explicit factory-reset-required startup state before current state is created. No settings, topology, database, browser-profile, XMLTV, or Lineup Link token migration runs. Worker packages require IPC protocol `1`; update managed and external worker packages together with the trusted host.
@@ -675,6 +788,86 @@ Transient CMAF fragments and subtitle sidecars default to `/transient`. When `Li
 Lineup routes application-owned files through explicit storage boundaries. `AppDataStore` owns persistent settings, database, reset, and log artifacts; `TransientDataStore` owns disposable CMAF and subtitle workspaces; and `XmltvPublicationStore` owns the configured public XMLTV destination, including destinations outside app-data. Browser preferences remain client-local through `BrowserDataStore`. Framework and process infrastructure such as SQLite, Serilog sinks, Data Protection, and FFmpeg continue to receive managed paths and perform their own I/O.
 
 ASP.NET Core Data Protection keys are stored in the `data-protection-keys` directory beneath the app-data root. Persisting this directory through the Docker `/appdata` volume keeps antiforgery tokens and other protected browser state readable after a container recreation. Factory Reset deletes the key ring so previously protected state is intentionally invalidated.
+
+### Operational health and stream recovery
+
+`GET /health/live` returns HTTP 200 when the management HTTP pipeline is alive, including factory-reset recovery mode.
+It does not query SQLite, build a status document, or contact tuner hardware. Both Compose deployments use this endpoint for their container health check;
+an unhealthy Docker health status alone does not restart a container.
+
+`GET /health/ready` returns HTTP 200 when management is usable, including first-run setup and external tuner outages.
+It returns HTTP 503 while starting, stopping, or awaiting a required factory reset. Its small, non-cacheable response reports cached device-failure count
+and age of the last successful guide fetch when known. Unknown guide age is null, not zero. Cached failures are reported as `degraded` without making the process
+unready: do not restart Lineup because an external device is offline. Use readiness for traffic routing and liveness for process supervision.
+
+Established streams are not spliced onto arbitrary alternate sources. Unexpected source EOF or failure terminates the current producer and its subscribers;
+MPEG-TS clients receive the remaining media followed by EOF/disconnection, and browser playback can become unavailable or report a playback error.
+Start playback again to reconnect. The new request resolves the current route and can acquire another available candidate using the existing bounded startup failover.
+No automatic browser retry or seamless codec/timestamp/track continuity is promised. Stopping one viewer still leaves a shared producer running for other viewers.
+The status API's `streamingGraph.recentTerminations` retains the last 64 unexpected producer completions with `source_eof` or `source_failure`,
+producer identity, observation time and originating correlation ID. Intentional viewer stops and shutdown cancellation are not source-loss events.
+
+Lineup exposes standard .NET meters `Lineup`, `Lineup.Streaming`, and `Lineup.Host`, plus activity source `Lineup`.
+Measurements include operation duration/count by fixed stage and outcome, candidate acquisition/fallback, pending admission and rejection,
+active/warm graph and CMAF producers, unexpected producer completion, worker restart attempts, retained buffering/eviction and cached guide age.
+Graph stages and CMAF outputs are distinct resources, not interchangeable viewer counts. Unknown guide age emits no measurement.
+Meter labels never contain viewer/channel IDs, addresses, tokens, URLs or raw failure text.
+Use a .NET diagnostic collector or an explicitly configured metrics/tracing integration to subscribe; the existing OTLP **logging** configuration
+does not automatically enable metrics or trace export.
+
+API responses include `X-Correlation-ID`. Request log scopes, acquisition/media-readiness/producer activities and local broker request envelopes
+preserve W3C trace identity; IPC carries only `traceparent`, not baggage or credentials. Active-stream status includes its correlation ID alongside existing
+broker request, worker media-session and producer identities. Worker activation activities include the generation as a trace attribute, never as a metric label.
+A reused producer retains its original trace; later viewers have independent request traces and are joined through producer/output identities, not falsely treated
+as new producer starts.
+
+### Offline configuration export and recovery
+
+Both Web and TUI executables accept `--recovery backup|export|preview|restore <path>` **before** normal application startup.
+Stop all Lineup processes and supervisors using the data directory first. Use the exact same release/build for backup and restore, and configure the data root
+through `Lineup__AppDataPath` (Web) or `Lineup__TuiAppDataPath` (TUI). Recovery does not support a TUI database override outside that root.
+The updated hosts and recovery commands retain a sibling `.NAME.lineup.lock` file to exclude concurrent owners.
+The parent directory must be writable and paths must not use symbolic links/reparse points. The lock is outside factory-reset-owned contents;
+do not remove it while a process owns it. Older versions, other containers/hosts with different filesystem views, and external database tools are not coordinated;
+all writers must be stopped.
+
+For example, from a stopped Windows Web installation (use `Lineup.App.Tui.dll` and its data-root variable for the TUI):
+
+```powershell
+$env:Lineup__AppDataPath = 'E:\Lineup\data'
+dotnet Lineup.App.Web.dll --recovery export 'E:\Backups\lineup-portable.json'
+dotnet Lineup.App.Web.dll --recovery backup 'E:\Backups\lineup-sensitive.zip'
+dotnet Lineup.App.Web.dll --recovery preview 'E:\Backups\lineup-sensitive.zip'
+$env:Lineup__AppDataPath = 'E:\Lineup\restored'
+dotnet Lineup.App.Web.dll --recovery restore 'E:\Backups\lineup-sensitive.zip'
+```
+
+Create the destination's parent directory first. Existing export/backup files are never overwritten.
+Portable export is an allowlisted configuration starter: it retains topology identities, subscriptions and media preferences but clears all opaque adapter payloads,
+hosting/security policies and grants, disables adapters, and omits keys, database contents, proxy addresses and deployment-specific destinations.
+It is **not** a recovery archive or an automatic import workflow. Recreate adapter connections/authorization and review enabled outputs through normal setup;
+operator-assigned names and topology identifiers remain present, so it is not an anonymized support bundle.
+
+Sensitive recovery archives include primary Core/Web settings, saved adapter credentials/grants, SQLite channel identities/bindings/guide data,
+and Data Protection XML keys. They are **not encrypted**: store them with operator-only access and encrypt/protect transport and storage outside Lineup.
+Unix archive/staging files are owner-only; Windows uses inherited filesystem ACLs, so select a private directory.
+Logs, settings fallback files, reset markers, transient media, generated guide files, external certificates and environment/platform secrets are excluded.
+Certificate references remain in sensitive settings; provision external certificate files/passwords and host configuration separately.
+Platform-protected Data Protection keys can still require the original OS account/machine; the archive cannot defeat external key encryption.
+Save artifacts outside application-data, transient and generated-output/reset-owned directories, including their parent directories;
+the command rejects paths inside its own app-data root, but cannot infer every externally managed cleanup location.
+
+Backup uses SQLite's online backup API (including committed WAL data), not a live database-file copy; offline ownership keeps settings and database stable together.
+Preview validates the entire archive's release, inventory, SHA-256 contents, paths, expansion limits, schemas and SQLite integrity before returning file names.
+Hashes detect corruption, not authenticity: restore only trusted archives. The supported limit is two GiB of expanded data and 1,024 entries.
+Incomplete writes use unique `.pending` names and are published only after closing/flushing the complete archive.
+
+Restore validates in a private sibling staging directory and installs it by directory rename only into an absent or empty target.
+It never merges with or replaces populated state; a failed preview/restore does not install partial application files.
+Restore into a **new directory**, then point the stopped deployment at it after review. Mounted volume roots cannot be replaced atomically:
+for containers, restore into a new subdirectory such as `/appdata/restored` and update `Lineup__AppDataPath` accordingly.
+Do not delete the old deployment or perform Factory Reset until recovery has been verified.
+The existing exact-schema/reset boundary remains unchanged; no Lineup 2.0 migration is introduced.
 
 ### Reverse proxy TLS termination
 
@@ -714,6 +907,8 @@ Outside the production Compose deployment, HTTPS remains optional and is enabled
 ### Logging
 
 Console logging is always enabled and remains available through `docker logs lineup` or the host service manager. After initial setup, the **Logs** page shows a bounded, redacted view of recent structured events from the current process. It supports severity, category, and text filters plus pause and manual refresh controls. Because Lineup currently assumes a trusted local network, the Logs page is unauthenticated and may expose operational details such as device addresses; do not expose it to untrusted clients.
+
+Guide refresh failures retain the underlying exception in source-correlated warning logs while returning a sanitized failure result to callers. Topology application also logs each failed guide-output publication by output identity; physical streaming remains available when guide publication fails.
 
 Lineup uses the standard .NET `Logging:LogLevel` configuration for its startup default and category-prefix filters. **Settings → Logging → Override Logging Defaults** can replace that complete filter set at runtime. The editor starts with categories discovered from the effective startup configuration, including environment overrides, and supports additional custom prefixes. Exact categories and dotted descendants match, with the longest prefix taking precedence. Disabling the override immediately restores the startup filter set. The application filter applies to every output before any sink-specific minimum.
 
@@ -757,6 +952,16 @@ The shared UDP/SSDP discovery supervisor also checks current physical-capacity s
 Lineup retries incomplete physical-lineup initialization on a later tune for a missing source, without requiring a settings save, including when status polling has already recovered device activation. Already-active sources with committed channels remain routable without awaiting a stalled sibling retry, including a retry running for another viewer. Background device refresh continues recovery attempts. Unchanged healthy runtime devices are retained across partial-activation retries; changed, disabled, or removed definitions are still reconciled. Fully successful initialization is reused.
 
 The Dashboard and runtime status API report every enabled physical device, including failed activations. An inactive device has a safe activation error and no receiver-control or restart actions. Its last successful status and capacity are retained when the adapter kind is unchanged; without a prior snapshot, capacity is zero and no observations are fabricated. Successful refresh clears the error, and disabled or removed devices are excluded.
+
+Physical-device activation, lineup, status and information requests share a bounded host-wide network allowance. The defaults are four concurrent operations and
+a ten-second deadline per admitted operation, configured at startup using `PhysicalDeviceRefresh:MaximumConcurrentOperations` and
+`PhysicalDeviceRefresh:OperationTimeoutSeconds` (environment variables use `__` instead of `:`). Valid ranges are 1-1,024 concurrent operations and 1-300 seconds;
+invalid startup values are rejected. Waiting for admission does not consume the network deadline.
+Adapters must honor cancellation; an uncooperative adapter retains its slot until it exits rather than permitting unbounded abandoned work.
+Equivalent in-flight refresh requests coalesce; canceling one caller does not cancel remaining callers. Healthy lineup/status results publish independently,
+failed attempts retain prior successful observations, and obsolete configuration/runtime results cannot overwrite current state.
+Catalog replacement and retirement remain atomic; initial activation therefore completes before refresh publication starts, and retirement cleanup retains its
+existing non-cancelable ownership boundary.
 
 For management-hosted virtual HDHomeRun devices, the first enabled device is available at the root routes:
 

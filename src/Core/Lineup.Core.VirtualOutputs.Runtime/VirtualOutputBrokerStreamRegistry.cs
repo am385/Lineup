@@ -46,6 +46,16 @@ internal sealed class VirtualOutputBrokerStreamRegistry
             entry.StreamSessionId == streamSessionId;
     }
 
+    /// <summary>Gets the owned stream only after matching the complete worker, request, and stream identity.</summary>
+    internal VirtualOutputBrokeredStream GetOwnedStream(VirtualOutputStreamRequestId requestId, VirtualOutputSessionContext session, StreamSessionId streamSessionId)
+    {
+        if (!_streams.TryGetValue(requestId, out var entry) || entry.Session != session || entry.StreamSessionId != streamSessionId)
+        {
+            throw new VirtualOutputBrokerException(VirtualOutputFailureCode.InvalidRequest, "The viewer operation does not match an active broker stream.");
+        }
+        return entry.Stream;
+    }
+
     internal async Task<bool> CloseAsync(VirtualOutputCloseStreamRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);

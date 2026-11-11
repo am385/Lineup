@@ -18,7 +18,7 @@ public sealed class GuideTests
         // Arrange
         var reader = Substitute.For<ILineupGuideReader>();
         var sourceId = GuideSourceId.New();
-        reader.GetChannelsAsync(Arg.Any<DateTimeOffset?>(), Arg.Any<DateTimeOffset?>(), Arg.Any<CancellationToken>())
+        reader.GetChannelDirectoryAsync(Arg.Any<CancellationToken>())
             .Returns(empty ? [] : [new GuideChannelSegment { GuideNumber = "2", GuideName = "Healthy channel" }]);
         reader.GetProgramsAsync(Arg.Any<DateTimeOffset?>(), Arg.Any<DateTimeOffset?>(), Arg.Any<CancellationToken>()).Returns([]);
         reader.GetSourceDiagnostics().Returns(
@@ -60,7 +60,7 @@ public sealed class GuideTests
     {
         // Arrange
         var reader = Substitute.For<ILineupGuideReader>();
-        reader.GetChannelsAsync(Arg.Any<DateTimeOffset?>(), Arg.Any<DateTimeOffset?>(), Arg.Any<CancellationToken>()).Returns(
+        reader.GetChannelDirectoryAsync(Arg.Any<CancellationToken>()).Returns(
         [
             new GuideChannelSegment { GuideNumber = "100.1", GuideName = "Hundred" },
             new GuideChannelSegment { GuideNumber = "10.1", GuideName = "Ten" },

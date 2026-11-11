@@ -92,6 +92,9 @@ public interface IGuideQueryService
     /// <summary>Gets current source-eligibility diagnostics without reading stored guide data.</summary>
     IReadOnlyList<GuideSourceDiagnostic> GetSourceDiagnostics(StreamingConfiguration configuration);
 
+    /// <summary>Builds channel metadata without reading program rows.</summary>
+    Task<VirtualGuideSnapshot> BuildUnionDirectoryAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default);
+
     /// <summary>Builds the union guide for every enabled physical device.</summary>
     Task<VirtualGuideSnapshot> BuildUnionSnapshotAsync(
         StreamingConfiguration configuration,
@@ -121,6 +124,9 @@ public sealed record GuideStatistics(
     DateTimeOffset? LatestProgramEndUtc,
     DateTimeOffset? SafeCoverageEndUtc)
 {
+    /// <summary>Gets the database observation and configuration identity used for these aggregates.</summary>
+    public GuideReadGeneration? Generation { get; init; }
+
     /// <summary>Gets enabled-source exclusions affecting these statistics.</summary>
     public IReadOnlyList<GuideSourceDiagnostic> SourceDiagnostics { get; init; } = [];
 

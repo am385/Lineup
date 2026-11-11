@@ -96,6 +96,11 @@ public class DashboardComponentTests
     {
         // Arrange
         var catalog = Substitute.For<IPhysicalDeviceCatalog>();
+        catalog.TryPublishAsync(Arg.Any<StreamingConfiguration>(), Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>()).Returns(async call =>
+        {
+            await call.Arg<Func<CancellationToken, Task>>()(call.Arg<CancellationToken>());
+            return true;
+        });
         var statuses = new PhysicalDeviceStatusService(catalog);
         using var context = CreateContext(deviceStatuses: statuses);
         context.JSInterop.Setup<string?>("localStorage.getItem", StorageKey).SetResult(null);

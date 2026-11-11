@@ -35,6 +35,9 @@ internal sealed record DedicatedCmafSessionPlan
     /// <summary>Gets the main CMAF FFmpeg arguments.</summary>
     internal required IReadOnlyList<string> Arguments { get; init; }
 
+    /// <summary>Gets the canonical media plan identity without output paths or viewer identifiers.</summary>
+    internal string SharingKey => CmafStreamPlanner.CreatePlanKey(Profile, Source, Selection, Request);
+
     /// <summary>Gets the embedded-caption track requiring a parallel extractor.</summary>
     internal MediaTrackMetadata? EmbeddedCaptions { get; init; }
 

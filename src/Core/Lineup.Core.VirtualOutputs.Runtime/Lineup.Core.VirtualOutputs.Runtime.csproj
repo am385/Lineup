@@ -15,6 +15,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Lineup.Core.Common\Lineup.Core.Common.csproj" />
     <ProjectReference Include="..\Lineup.Core\Lineup.Core.csproj" />
+    <ProjectReference Include="..\Lineup.Core.Hosting\Lineup.Core.Hosting.csproj" />
     <ProjectReference Include="..\Lineup.Core.Extensibility\Lineup.Core.Extensibility.csproj" />
     <ProjectReference Include="..\Lineup.Core.Streaming.FFmpeg\Lineup.Core.Streaming.FFmpeg.csproj" />
     <ProjectReference Include="..\Lineup.Core.VirtualOutputs.Protocol\Lineup.Core.VirtualOutputs.Protocol.csproj" />

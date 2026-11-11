@@ -211,6 +211,9 @@ public sealed record GuideSourceDiagnostic
 /// </summary>
 public sealed record VirtualGuideSnapshot
 {
+    /// <summary>Gets the transaction's observation and contributing import identity.</summary>
+    public GuideReadGeneration? Generation { get; init; }
+
     /// <summary>Gets diagnostics for enabled sources excluded from this projection.</summary>
     public IReadOnlyList<GuideSourceDiagnostic> SourceDiagnostics { get; init; } = [];
 
@@ -226,6 +229,9 @@ public sealed record VirtualGuideSnapshot
     /// <summary>Gets supplemental XMLTV root metadata from contributing guide sources.</summary>
     public IReadOnlyList<string> SupplementalXml { get; init; } = [];
 }
+
+/// <summary>Identifies a coherent database read and the configuration used to project it.</summary>
+public sealed record GuideReadGeneration(DateTimeOffset ObservedAtUtc, string ImportRevision, string? ConfigurationRevision = null);
 
 /// <summary>
 /// Guide content resolved for one virtual channel.

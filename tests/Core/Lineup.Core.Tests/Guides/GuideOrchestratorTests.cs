@@ -6,6 +6,8 @@ using Lineup.Core.Common.Streaming;
 using Lineup.Core.Extensibility.Streaming;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using NSubstitute;
 using Xunit;
 
 namespace Lineup.Core.Tests.Guides;
@@ -164,12 +166,14 @@ public sealed class GuideOrchestratorTests
             await topologyStore.ReconcileAsync(firstDevice, [PhysicalChannel(firstDevice, "7")], TestContext.Current.CancellationToken);
             await topologyStore.ReconcileAsync(secondDevice, [PhysicalChannel(secondDevice, "9")], TestContext.Current.CancellationToken);
             await guideStore.ImportAsync(Import(secondSource, "9", "Previous"), TestContext.Current.CancellationToken);
+            var failure = new IOException("Second source unavailable.");
             var driver = new FakeGuideDriver(new Dictionary<GuideSourceId, Func<Task<GuideImport>>>
             {
                 [firstSource] = () => Task.FromResult(Import(firstSource, "7", "Fresh")),
-                [secondSource] = () => Task.FromException<GuideImport>(new IOException("Second source unavailable."))
+                [secondSource] = () => Task.FromException<GuideImport>(failure)
             });
-            var orchestrator = new GuideOrchestrator(new StreamingAdapterRegistry([], [], [driver]), guideStore, topologyStore);
+            var logger = Substitute.For<ILogger<GuideOrchestrator>>();
+            var orchestrator = new GuideOrchestrator(new StreamingAdapterRegistry([], [], [driver]), guideStore, topologyStore, logger);
             await orchestrator.ApplyAsync(
                 Configuration(
                     [PhysicalDefinition(firstDevice, 0), PhysicalDefinition(secondDevice, 1)],
@@ -198,6 +202,94 @@ public sealed class GuideOrchestratorTests
             Assert.Equal(2, driver.RefreshCount);
             Assert.Single(preserved);
             Assert.Equal(GuideBindingState.Automatic, preserved[0].State);
+            var warning = Assert.Single(logger.ReceivedCalls(), call => call.GetMethodInfo().Name == nameof(ILogger.Log));
+            Assert.Equal(LogLevel.Warning, warning.GetArguments()[0]);
+            Assert.Same(failure, warning.GetArguments()[3]);
+            var values = Assert.IsAssignableFrom<IEnumerable<KeyValuePair<string, object?>>>(warning.GetArguments()[2]).ToDictionary();
+            Assert.Equal(secondSource, values["GuideSourceId"]);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            root.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>Verifies an invalid refresh import preserves committed data while retaining a source-correlated diagnostic.</summary>
+    [Fact]
+    public async Task RefreshAllAsync_WrongImportIdentity_LogsFailureAndPreservesCommittedImport()
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-guide-refresh-identity-");
+        try
+        {
+            var factory = new TestContextFactory(Path.Combine(root.FullName, "guides.db"));
+            var store = new DeviceGuideStore(factory);
+            var topology = new StreamingTopologyStore(factory);
+            var device = PhysicalDeviceId.New();
+            var source = GuideSourceId.New();
+            var output = VirtualDeviceId.New();
+            await topology.ReconcileAsync(device, [PhysicalChannel(device, "7")], TestContext.Current.CancellationToken);
+            await store.ImportAsync(Import(source, "7", "Committed"), TestContext.Current.CancellationToken);
+            var driver = new FakeGuideDriver(new Dictionary<GuideSourceId, Func<Task<GuideImport>>>
+            {
+                [source] = () => Task.FromResult(Import(GuideSourceId.New(), "7", "Invalid"))
+            });
+            var logger = Substitute.For<ILogger<GuideOrchestrator>>();
+            var orchestrator = new GuideOrchestrator(new StreamingAdapterRegistry([], [new FakeVirtualDriver()], [driver]), store, topology, logger);
+            await orchestrator.ApplyAsync(Configuration([PhysicalDefinition(device, 0)], [GuideDefinition(source, device)], [VirtualDefinition(output, device)]), TestContext.Current.CancellationToken);
+
+            // Act
+            var result = Assert.Single(await orchestrator.RefreshAllAsync(TestContext.Current.CancellationToken));
+            var cached = await orchestrator.BuildSnapshotAsync(output, TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.False(result.Succeeded);
+            Assert.Contains(nameof(InvalidDataException), result.Error, StringComparison.Ordinal);
+            Assert.Equal("Committed", Assert.Single(Assert.Single(cached.Channels).Programs).Title);
+            var warning = Assert.Single(logger.ReceivedCalls(), call => call.GetMethodInfo().Name == nameof(ILogger.Log));
+            Assert.Equal(LogLevel.Warning, warning.GetArguments()[0]);
+            Assert.IsType<InvalidDataException>(warning.GetArguments()[3]);
+            var values = Assert.IsAssignableFrom<IEnumerable<KeyValuePair<string, object?>>>(warning.GetArguments()[2]).ToDictionary();
+            Assert.Equal(source, values["GuideSourceId"]);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            root.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>Verifies caller cancellation remains cancellation rather than a logged refresh failure.</summary>
+    [Fact]
+    public async Task RefreshAllAsync_CallerCancels_PropagatesWithoutFailureWarning()
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-guide-refresh-cancel-");
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        try
+        {
+            var factory = new TestContextFactory(Path.Combine(root.FullName, "guides.db"));
+            var device = PhysicalDeviceId.New();
+            var source = GuideSourceId.New();
+            var driver = new FakeGuideDriver(new Dictionary<GuideSourceId, Func<Task<GuideImport>>>
+            {
+                [source] = () =>
+                {
+                    cancellation.Cancel();
+                    return Task.FromCanceled<GuideImport>(cancellation.Token);
+                }
+            });
+            var logger = Substitute.For<ILogger<GuideOrchestrator>>();
+            var orchestrator = new GuideOrchestrator(new StreamingAdapterRegistry([], [], [driver]), new DeviceGuideStore(factory), new StreamingTopologyStore(factory), logger);
+            await orchestrator.ApplyAsync(Configuration([PhysicalDefinition(device, 0)], [GuideDefinition(source, device)], []), cancellation.Token);
+
+            // Act
+            var exception = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => orchestrator.RefreshAllAsync(cancellation.Token));
+
+            // Assert
+            Assert.Equal(cancellation.Token, exception.CancellationToken);
+            Assert.DoesNotContain(logger.ReceivedCalls(), call => call.GetMethodInfo().Name == nameof(ILogger.Log));
         }
         finally
         {

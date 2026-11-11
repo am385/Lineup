@@ -36,6 +36,12 @@ services:
     # address is set to an IP reachable from the container.
     # network_mode: host
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://localhost:8080/health/live"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
 
 volumes:
   appdata:

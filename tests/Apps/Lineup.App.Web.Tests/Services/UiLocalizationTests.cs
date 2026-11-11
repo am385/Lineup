@@ -288,6 +288,10 @@ public sealed class UiLocalizationTests
     [InlineData("Streaming_MediaTrackAudio")]
     [InlineData("Streaming_MediaTrackSubtitle")]
     [InlineData("Streaming_MediaTrackVideo")]
+    [InlineData("Settings_TopologyPending")]
+    [InlineData("Settings_TopologyApplying")]
+    [InlineData("Settings_TopologyApplied")]
+    [InlineData("Settings_TopologyDegraded")]
     public void ResourceCatalog_DynamicReference_HasEnglishValue(string key)
     {
         // Arrange

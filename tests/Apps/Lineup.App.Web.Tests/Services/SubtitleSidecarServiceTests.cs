@@ -7,6 +7,20 @@ namespace Lineup.App.Web.Tests.Services;
 /// </summary>
 public class SubtitleSidecarServiceTests
 {
+    /// <summary>Verifies trusted subtitle storage retains the portable Web Player workspace identity.</summary>
+    [Fact]
+    public void DirectoryName_MatchesPortableWorkspace()
+    {
+        // Arrange
+        var expected = WebPlayerTransientWorkspaces.Subtitles;
+
+        // Act
+        var actual = SubtitleSidecarService.DirectoryName;
+
+        // Assert
+        Assert.Equal(expected, actual);
+    }
+
     /// <summary>
     /// Verifies default stores remain isolated when multiple hosts run in one process.
     /// </summary>

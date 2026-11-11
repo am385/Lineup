@@ -1121,4 +1121,16 @@
   <data name="WatchTest_VideoCodec" xml:space="preserve"><value>Kodek obrazu</value></data>
   <data name="WatchTest_VideoProfile" xml:space="preserve"><value>Profil obrazu</value></data>
   <data name="WatchTest_WebVttSidecar" xml:space="preserve"><value>Dodatkowy plik WebVTT</value></data>
+  <data name="Settings_Conflict" xml:space="preserve"><value>Ustawienia zmieniły się podczas edycji szkicu. Nic nie zapisano. Wczytaj ponownie zapisane ustawienia przed kolejną próbą.</value></data>
+  <data name="Settings_CoreSavedWebConflict" xml:space="preserve"><value>Ustawienia Core zapisano, ale ustawienia Web zmieniły się równocześnie i nie zostały zapisane. Wczytaj je ponownie; zatwierdzonych zmian nie cofnięto.</value></data>
+  <data name="Settings_SavedApplyConflict" xml:space="preserve"><value>Ustawienia Core i Web zapisano, ale nowsze zmiany uniemożliwiły zakończenie konfiguracji początkowej. Wczytaj je ponownie; zatwierdzonych zmian nie cofnięto.</value></data>
+  <data name="Settings_CoreSavedWebFailure" xml:space="preserve"><value>Ustawienia Core zapisano, ale ustawień Web nie zapisano. Ponów zapis lub wczytaj je ponownie; zatwierdzonych zmian nie cofnięto. Błąd: {0}</value></data>
+  <data name="Settings_TopologyHeading" xml:space="preserve"><value>Stan konfiguracji</value></data>
+  <data name="Settings_TopologyPending" xml:space="preserve"><value>Zapisana topologia czeka na zastosowanie.</value></data>
+  <data name="Settings_TopologyApplying" xml:space="preserve"><value>Stosowanie zapisanej topologii.</value></data>
+  <data name="Settings_TopologyApplied" xml:space="preserve"><value>Zapisana topologia została zastosowana.</value></data>
+  <data name="Settings_TopologyDegraded" xml:space="preserve"><value>Zapisane ustawienia nie zostały w pełni zastosowane. Sprawdź urządzenia lub wyjścia, których dotyczy problem, oraz dzienniki serwera, a następnie ponów próbę.</value></data>
+  <data name="Settings_TopologyRevisions" xml:space="preserve"><value>Żądana: {0}. Próbowana: {1}. Ostatnia w pełni zastosowana: {2}.</value></data>
+  <data name="Settings_TopologyDeviceFailure" xml:space="preserve"><value>Nie udało się zastosować urządzenia fizycznego {0}.</value></data>
+  <data name="Settings_TopologyOutputFailure" xml:space="preserve"><value>Wyjście przewodnika {0} zakończyło się błędem lub jest częściowe.</value></data>
 </root>

@@ -13,6 +13,38 @@ namespace Lineup.Core.VirtualOutputs.Runtime.Tests;
 /// <summary>Verifies desired-versus-applied virtual-output worker supervision.</summary>
 public sealed class VirtualOutputSupervisorTests
 {
+    /// <summary>Verifies unsupported enforcement is rejected before activation, does not consume restart attempts, and recovers after correction.</summary>
+    [Fact]
+    public async Task Reconcile_UnenforceableExternalPolicy_RequiresOperatorCorrectionWithoutRestartLoop()
+    {
+        // Arrange
+        await using var fixture = new OwnershipFixture();
+        var device = fixture.CreateDevice(VirtualOutputExecutionMode.ExternalProcess);
+        var policy = Assert.Single(fixture.Configuration.VirtualOutputWorkerPolicies);
+        fixture.Configuration = fixture.Configuration with { VirtualDevices = [device], VirtualOutputWorkerPolicies = [policy with { MaximumCpuPercent = 25 }] };
+
+        // Act
+        await fixture.ReconcileAsync();
+        await fixture.ReconcileAsync();
+
+        // Assert
+        Assert.Empty(fixture.Processes);
+        Assert.Equal(0, fixture.ActivationAttempts);
+        var failed = Assert.Single(fixture.Status.GetSnapshots());
+        Assert.Equal(VirtualOutputRuntimeState.Failed, failed.State);
+        Assert.Equal(0, failed.RestartCount);
+        Assert.Contains("externally launched", failed.LastFailure);
+        Assert.DoesNotContain("Retrying", failed.LastFailure);
+
+        // Act
+        fixture.Configuration = fixture.Configuration with { VirtualOutputWorkerPolicies = [policy] };
+        await fixture.ReconcileAsync();
+
+        // Assert
+        Assert.Equal(1, fixture.ActivationAttempts);
+        Assert.NotNull(fixture.GetBootstrap(VirtualOutputExecutionMode.ExternalProcess, device.Id));
+    }
+
     /// <summary>Verifies malformed certificate metadata is contained per output, retires obsolete ownership and recovers after correction.</summary>
     [Theory]
     [InlineData(VirtualOutputExecutionMode.ManagedProcess, false)]
@@ -629,6 +661,7 @@ public sealed class VirtualOutputSupervisorTests
     public async Task StartAsync_ActivationFailure_RetriesAutomatically()
     {
         // Arrange
+        var time = new ManualTimeProvider();
         var deviceId = VirtualDeviceId.New();
         var settings = Substitute.For<ILineupSettingsService>();
         settings.Settings.Returns(new LineupSettings
@@ -687,11 +720,16 @@ public sealed class VirtualOutputSupervisorTests
             authority,
             status,
             new VirtualOutputExternalEnrollmentStore(),
-            NullLogger<VirtualOutputSupervisor>.Instance);
+            NullLogger<VirtualOutputSupervisor>.Instance,
+            time);
 
         // Act
         await supervisor.StartAsync(TestContext.Current.CancellationToken);
-        await WaitUntilAsync(() => Volatile.Read(ref attempts) >= 2, TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        await WaitUntilAsync(() => status.GetSnapshots().Any(snapshot => snapshot.State == VirtualOutputRuntimeState.Failed && snapshot.RestartCount == 1),
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        time.Advance(TimeSpan.FromSeconds(1));
+        await WaitUntilAsync(() => status.GetSnapshots().Any(snapshot => snapshot.State == VirtualOutputRuntimeState.Failed && snapshot.RestartCount == 2),
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         await supervisor.StopAsync(TestContext.Current.CancellationToken);
 
         // Assert

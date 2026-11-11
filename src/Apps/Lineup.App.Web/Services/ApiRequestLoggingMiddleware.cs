@@ -35,12 +35,20 @@ public sealed class ApiRequestLoggingMiddleware
         }
 
         var stopwatch = Stopwatch.StartNew();
+        using var operation = Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.Begin("http", cancellationToken: context.RequestAborted);
+        var correlationId = Activity.Current!.TraceId.ToString();
+        context.Response.Headers["X-Correlation-ID"] = correlationId;
+        using var scope = _logger.BeginScope(new Dictionary<string, object> { ["CorrelationId"] = correlationId });
         var requestLevel = IsHighFrequencyRequest(context) ? LogLevel.Trace : LogLevel.Debug;
         _logger.Log(requestLevel, "API endpoint hit: {Method} {Path}", context.Request.Method, context.Request.Path);
 
         try
         {
             await _next(context);
+            if (context.Response.StatusCode < StatusCodes.Status500InternalServerError)
+            {
+                operation.Succeed();
+            }
         }
         catch (Exception ex)
         {

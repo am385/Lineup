@@ -377,6 +377,9 @@ public sealed record VirtualOutputOpenStreamRequest
 
     /// <summary>Gets the broker stage required by the output worker.</summary>
     public VirtualOutputStreamStage Stage { get; init; }
+
+    /// <summary>Gets whether viewer stop requests are acknowledged separately from the producer-owned physical stream.</summary>
+    public bool RetainSourceForProducer { get; init; }
 }
 
 /// <summary>Identifies the MPEG-TS stage exposed to an isolated output worker.</summary>
@@ -392,6 +395,12 @@ public enum VirtualOutputStreamStage
 /// <summary>Describes an accepted brokered MPEG-TS stream.</summary>
 public sealed record VirtualOutputOpenStreamResponse
 {
+    /// <summary>Gets the exact graph producer identity, including its physical runtime generation, when available for safe reuse.</summary>
+    public string? ProducerNodeId { get; init; }
+
+    /// <summary>Gets the host-selected idle producer reuse period in seconds.</summary>
+    public int KeepWarmPeriodSeconds { get; init; }
+
     /// <summary>Gets whether the stream was accepted.</summary>
     public bool Accepted { get; init; }
 
@@ -499,6 +508,12 @@ public enum VirtualOutputStreamStartupStage
 /// <summary>Reports the normalized final media presentation for one brokered stream.</summary>
 public sealed record VirtualOutputStreamStatusReport
 {
+    /// <summary>Gets whether the viewer has ended while its separately owned producer source remains open.</summary>
+    public bool ReleaseViewer { get; init; }
+
+    /// <summary>Gets the shared worker-local producer identity independently of the viewer alias.</summary>
+    public string? WorkerProducerId { get; init; }
+
     /// <summary>Gets the authenticated session context that opened the stream.</summary>
     public required VirtualOutputSessionContext Session { get; init; }
 
@@ -538,6 +553,9 @@ public sealed record VirtualOutputStreamStatusResponse
 {
     /// <summary>Gets whether the correlated active stream was updated.</summary>
     public bool Updated { get; init; }
+
+    /// <summary>Gets whether the host requested this viewer to stop without terminating another viewer's shared producer.</summary>
+    public bool StopRequested { get; init; }
 }
 
 /// <summary>Reports safe worker health and listener readiness.</summary>

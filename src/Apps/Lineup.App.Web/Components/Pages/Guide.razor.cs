@@ -52,7 +52,7 @@ public partial class Guide : IAsyncDisposable
         _startHour = (Tz.Now.Hour / 2) * 2;
         _dotNetRef = DotNetObjectReference.Create(this);
         // Load channels but defer full data load until we know the container width
-        _channels = SortChannels(await GuideReader.GetChannelsAsync());
+        _channels = SortChannels(await GuideReader.GetChannelDirectoryAsync());
         _sourceDiagnostics = GuideReader.GetSourceDiagnostics();
     }
 
@@ -160,7 +160,7 @@ public partial class Guide : IAsyncDisposable
 
         try
         {
-            _channels = SortChannels(await GuideReader.GetChannelsAsync());
+            _channels = SortChannels(await GuideReader.GetChannelDirectoryAsync());
 
             var startTime = _selectedDate.Date.AddHours(_startHour);
             var endTime = startTime.AddMinutes(_slotsToShow * 30);

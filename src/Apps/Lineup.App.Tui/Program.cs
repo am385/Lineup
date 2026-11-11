@@ -39,9 +39,16 @@ class Program
         var resolvedAppDataPath = string.IsNullOrWhiteSpace(appDataPath)
             ? Path.Combine(Environment.CurrentDirectory, ".lineup", "tui")
             : appDataPath.Trim();
-        var appDataStore = new AppDataStore(resolvedAppDataPath);
-        var transientDataStore = new TransientDataStore(Path.Combine(resolvedAppDataPath, "transient"));
+        var appDataStore = new AppDataStore(resolvedAppDataPath, createRoot: false);
         var resolvedDatabasePath = databasePath ?? appDataStore.DatabasePath;
+        var recoveryExit = await RecoveryCommand.TryRunAsync(args, resolvedAppDataPath, resolvedDatabasePath);
+        if (recoveryExit is { } exitCode)
+        {
+            return exitCode;
+        }
+        using var dataOwnership = ApplicationDataOwnership.Acquire(resolvedAppDataPath);
+        appDataStore.EnsureDirectory(appDataStore.RootPath);
+        var transientDataStore = new TransientDataStore(Path.Combine(resolvedAppDataPath, "transient"));
         var startupState = StartupSchemaGate.Check(appDataStore.SettingsPath, appDataStore.SettingsBackupPath, resolvedDatabasePath);
 
         if (startupState.IsFactoryResetRequired)

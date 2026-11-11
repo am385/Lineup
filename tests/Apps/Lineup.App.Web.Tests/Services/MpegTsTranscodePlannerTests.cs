@@ -15,7 +15,6 @@ public class MpegTsTranscodePlannerTests
     public void TopologyProfile_ControlsActualMpegTsArguments()
     {
         // Arrange
-        var settings = new LineupSettings();
         var profile = new VirtualTranscodeProfile
         {
             Audio = OutputAudioPolicy.Eac3,
@@ -33,7 +32,6 @@ public class MpegTsTranscodePlannerTests
             "hevc",
             [new AudioStreamInfo(1, "aac", 2), new AudioStreamInfo(2, "ac4", 2)],
             profile,
-            settings,
             sourceVideoIsInterlaced: true);
 
         // Assert
@@ -74,7 +72,7 @@ public class MpegTsTranscodePlannerTests
         ];
 
         // Act
-        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(InputUri, "hevc", streams, settings);
+        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(InputUri, "hevc", streams, settings.Streaming.VirtualDefaults);
 
         // Assert
         Assert.DoesNotContain("-c:a:0", arguments);
@@ -121,7 +119,7 @@ public class MpegTsTranscodePlannerTests
         ];
 
         // Act
-        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(InputUri, "hevc", streams, settings);
+        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(InputUri, "hevc", streams, settings.Streaming.VirtualDefaults);
 
         AssertOption(arguments, "-c:a:0", "ac3");
         AssertOption(arguments, "-b:a:0", "448k");
@@ -146,7 +144,7 @@ public class MpegTsTranscodePlannerTests
         ];
 
         // Act
-        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(InputUri, "h264", streams, settings);
+        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(InputUri, "h264", streams, settings.Streaming.VirtualDefaults);
 
         // Assert
         Assert.DoesNotContain(arguments, argument => argument.StartsWith("-c:a:", StringComparison.Ordinal));
@@ -171,7 +169,7 @@ public class MpegTsTranscodePlannerTests
         AudioStreamInfo[] streams = [new(1, "ac4", 6)];
 
         // Act
-        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(InputUri, "h264", streams, settings);
+        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(InputUri, "h264", streams, settings.Streaming.VirtualDefaults);
 
         // Assert
         Assert.DoesNotContain(arguments, argument => argument.StartsWith("-c:a:", StringComparison.Ordinal));
@@ -193,7 +191,7 @@ public class MpegTsTranscodePlannerTests
         ];
 
         // Act
-        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(InputUri, "h264", [], new LineupSettings(), subtitles);
+        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(InputUri, "h264", [], new VirtualTranscodeProfile(), subtitles);
 
         // Assert
         AssertMappings(arguments, "0:5", "0:7");

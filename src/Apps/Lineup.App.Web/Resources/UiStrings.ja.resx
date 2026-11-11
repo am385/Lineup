@@ -1120,4 +1120,16 @@
   <data name="WatchTest_VideoCodec" xml:space="preserve"><value>映像コーデック</value></data>
   <data name="WatchTest_VideoProfile" xml:space="preserve"><value>映像プロファイル</value></data>
   <data name="WatchTest_WebVttSidecar" xml:space="preserve"><value>WebVTT サイドカー</value></data>
+  <data name="Settings_Conflict" xml:space="preserve"><value>編集中に設定が変更されました。何も保存されていません。保存済みの設定を再読み込みしてから再試行してください。</value></data>
+  <data name="Settings_CoreSavedWebConflict" xml:space="preserve"><value>Core の設定は保存されましたが、Web の設定は同時に変更されたため保存されませんでした。再読み込みしてから再試行してください。確定済みの変更は元に戻していません。</value></data>
+  <data name="Settings_SavedApplyConflict" xml:space="preserve"><value>Core と Web の設定は保存されましたが、その後の変更により初期設定を完了できませんでした。再読み込みしてから再試行してください。確定済みの変更は元に戻していません。</value></data>
+  <data name="Settings_CoreSavedWebFailure" xml:space="preserve"><value>Core の設定は保存されましたが、Web の設定は保存されませんでした。保存を再試行するか再読み込みしてください。確定済みの変更は元に戻していません。エラー: {0}</value></data>
+  <data name="Settings_TopologyHeading" xml:space="preserve"><value>設定の状態</value></data>
+  <data name="Settings_TopologyPending" xml:space="preserve"><value>保存済みのトポロジーは適用待ちです。</value></data>
+  <data name="Settings_TopologyApplying" xml:space="preserve"><value>保存済みのトポロジーを適用しています。</value></data>
+  <data name="Settings_TopologyApplied" xml:space="preserve"><value>保存済みのトポロジーを適用しました。</value></data>
+  <data name="Settings_TopologyDegraded" xml:space="preserve"><value>保存済みの設定が完全には適用されていません。該当するデバイスや出力とサーバーログを確認してから再試行してください。</value></data>
+  <data name="Settings_TopologyRevisions" xml:space="preserve"><value>要求: {0}。試行: {1}。最後に完全適用: {2}。</value></data>
+  <data name="Settings_TopologyDeviceFailure" xml:space="preserve"><value>物理デバイス {0} を適用できませんでした。</value></data>
+  <data name="Settings_TopologyOutputFailure" xml:space="preserve"><value>ガイド出力 {0} は失敗したか、一部のみ成功しました。</value></data>
 </root>

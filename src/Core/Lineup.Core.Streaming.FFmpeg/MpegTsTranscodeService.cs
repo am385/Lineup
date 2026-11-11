@@ -44,31 +44,15 @@ public static class MpegTsTranscodePlanner
     /// <param name="inputUri">The live media source.</param>
     /// <param name="sourceVideoCodec">The detected source video codec.</param>
     /// <param name="audioStreams">Audio stream metadata in output mapping order.</param>
-    /// <param name="settings">The current video and audio transcode settings.</param>
+    /// <param name="profile">The immutable effective video and audio transcode profile.</param>
     /// <param name="subtitleStreams">Detected standalone subtitle streams.</param>
+    /// <param name="sourceVideoIsInterlaced">Whether the effective source video is confirmed interlaced.</param>
     /// <returns>The FFmpeg argument list.</returns>
     public static IReadOnlyList<string> CreateFfmpegArguments(
         Uri inputUri,
         string? sourceVideoCodec,
         IReadOnlyList<AudioStreamInfo> audioStreams,
-        LineupSettings settings,
-        IReadOnlyList<MediaTrackMetadata>? subtitleStreams = null)
-        => CreateFfmpegArgumentsCore(
-            inputUri,
-            sourceVideoCodec,
-            audioStreams,
-            settings.Streaming.VirtualDefaults,
-            subtitleStreams,
-            false,
-            codec => ResolveAudioCodec(codec, settings.Streaming.VirtualDefaults));
-
-    /// <summary>Creates FFmpeg arguments using an effective topology virtual profile.</summary>
-    public static IReadOnlyList<string> CreateFfmpegArguments(
-        Uri inputUri,
-        string? sourceVideoCodec,
-        IReadOnlyList<AudioStreamInfo> audioStreams,
         VirtualTranscodeProfile profile,
-        LineupSettings encoderSettings,
         IReadOnlyList<MediaTrackMetadata>? subtitleStreams = null,
         bool sourceVideoIsInterlaced = false)
         => CreateFfmpegArgumentsCore(
@@ -78,19 +62,7 @@ public static class MpegTsTranscodePlanner
             profile,
             subtitleStreams,
             sourceVideoIsInterlaced,
-            codec => string.Equals(codec, "ac4", StringComparison.OrdinalIgnoreCase)
-                ? profile.Ac4Audio switch
-                {
-                    OutputAudioPolicy.Ac3 => "ac3",
-                    OutputAudioPolicy.Eac3 => "eac3",
-                    _ => "copy"
-                }
-                : profile.Audio switch
-                {
-                    OutputAudioPolicy.Ac3 => "ac3",
-                    OutputAudioPolicy.Eac3 => "eac3",
-                    _ => "copy"
-                });
+            codec => ResolveAudioCodec(codec, profile));
 
     private static IReadOnlyList<string> CreateFfmpegArgumentsCore(
         Uri inputUri,

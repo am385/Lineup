@@ -100,7 +100,7 @@ public sealed class PhysicalLineupServiceTests
         Assert.DoesNotContain(PrivateDetail, results[1].Error!, StringComparison.Ordinal);
         Assert.Equal(2, results[2].ChannelCount);
         Assert.Equal(2, fixture.Logger.Warnings.Count);
-        Assert.Equal([refreshFailure.Id, healthy.Id], fixture.Driver.RefreshedIds);
+        Assert.Equal(new[] { refreshFailure.Id, healthy.Id }.OrderBy(id => id.Value), fixture.Driver.RefreshedIds.OrderBy(id => id.Value));
         var stored = await fixture.Store.ReadActiveAsync(TestContext.Current.CancellationToken);
         Assert.Equal("Saved identity", Assert.Single(stored, channel => channel.Source.Id.PhysicalDeviceId == refreshFailure.Id).EffectiveName);
     }
@@ -290,7 +290,7 @@ public sealed class PhysicalLineupServiceTests
 
     private sealed class CapturedLogger : ILogger<PhysicalLineupService>
     {
-        public List<string> Warnings { get; } = [];
+        public System.Collections.Concurrent.ConcurrentQueue<string> Warnings { get; } = new();
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
         public bool IsEnabled(LogLevel logLevel) => true;
 
@@ -298,7 +298,7 @@ public sealed class PhysicalLineupServiceTests
         {
             if (logLevel == LogLevel.Warning)
             {
-                Warnings.Add(formatter(state, exception));
+                Warnings.Enqueue(formatter(state, exception));
             }
         }
     }
@@ -310,8 +310,8 @@ public sealed class PhysicalLineupServiceTests
         public string DisplayName => "Test lineup driver";
         public bool SupportsUserCreation => true;
         public DeviceCapabilities Capabilities { get; } = new();
-        public List<PhysicalDeviceId> CreatedIds { get; } = [];
-        public List<PhysicalDeviceId> RefreshedIds { get; } = [];
+        public System.Collections.Concurrent.ConcurrentQueue<PhysicalDeviceId> CreatedIds { get; } = new();
+        public System.Collections.Concurrent.ConcurrentQueue<PhysicalDeviceId> RefreshedIds { get; } = new();
         public Action<CancellationToken>? BeforeCreate { get; set; }
         public Action<CancellationToken>? BeforeRefresh { get; set; }
 
@@ -321,7 +321,7 @@ public sealed class PhysicalLineupServiceTests
 
         public ValueTask<IPhysicalTunerDevice> CreateAsync(PhysicalDeviceId deviceId, string name, AdapterConfiguration configuration, CancellationToken cancellationToken = default)
         {
-            CreatedIds.Add(deviceId);
+            CreatedIds.Enqueue(deviceId);
             BeforeCreate?.Invoke(cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             var mode = configuration.Configuration.GetProperty("Mode").GetString();
@@ -348,7 +348,7 @@ public sealed class PhysicalLineupServiceTests
 
         public Task<IReadOnlyList<PhysicalSourceChannel>> RefreshLineupAsync(CancellationToken cancellationToken = default)
         {
-            driver.RefreshedIds.Add(id);
+            driver.RefreshedIds.Enqueue(id);
             driver.BeforeRefresh?.Invoke(cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             return mode == "refresh-failure"

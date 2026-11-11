@@ -1120,4 +1120,16 @@
   <data name="WatchTest_VideoCodec" xml:space="preserve"><value>Codec vidéo</value></data>
   <data name="WatchTest_VideoProfile" xml:space="preserve"><value>Profil vidéo</value></data>
   <data name="WatchTest_WebVttSidecar" xml:space="preserve"><value>Fichier WebVTT associé</value></data>
+  <data name="Settings_Conflict" xml:space="preserve"><value>Les paramètres ont changé pendant la modification de ce brouillon. Rien n'a été enregistré. Rechargez les paramètres enregistrés avant de réessayer.</value></data>
+  <data name="Settings_CoreSavedWebConflict" xml:space="preserve"><value>Les paramètres Core ont été enregistrés, mais les paramètres Web ont changé simultanément et n'ont pas été enregistrés. Rechargez avant de réessayer ; les modifications validées n'ont pas été annulées.</value></data>
+  <data name="Settings_SavedApplyConflict" xml:space="preserve"><value>Les paramètres Core et Web ont été enregistrés, mais des modifications plus récentes empêchent de terminer la configuration initiale. Rechargez avant de réessayer ; les modifications validées n'ont pas été annulées.</value></data>
+  <data name="Settings_CoreSavedWebFailure" xml:space="preserve"><value>Les paramètres Core ont été enregistrés, mais pas les paramètres Web. Réessayez ou rechargez ; les modifications validées n'ont pas été annulées. Erreur : {0}</value></data>
+  <data name="Settings_TopologyHeading" xml:space="preserve"><value>État de la configuration</value></data>
+  <data name="Settings_TopologyPending" xml:space="preserve"><value>La topologie enregistrée attend d'être appliquée.</value></data>
+  <data name="Settings_TopologyApplying" xml:space="preserve"><value>Application de la topologie enregistrée.</value></data>
+  <data name="Settings_TopologyApplied" xml:space="preserve"><value>La topologie enregistrée a été appliquée.</value></data>
+  <data name="Settings_TopologyDegraded" xml:space="preserve"><value>Les paramètres enregistrés ne sont pas entièrement appliqués. Consultez les périphériques ou sorties concernés et les journaux du serveur, puis réessayez.</value></data>
+  <data name="Settings_TopologyRevisions" xml:space="preserve"><value>Souhaitée : {0}. Tentée : {1}. Dernière entièrement appliquée : {2}.</value></data>
+  <data name="Settings_TopologyDeviceFailure" xml:space="preserve"><value>Échec de l'application du périphérique physique {0}.</value></data>
+  <data name="Settings_TopologyOutputFailure" xml:space="preserve"><value>La sortie de guide {0} a échoué ou est partielle.</value></data>
 </root>

@@ -3,10 +3,20 @@ using System.Runtime.ExceptionServices;
 
 namespace Lineup.Core.Streaming.FFmpeg;
 
+/// <summary>Owns the readable output and process lifetime of one portable media transform.</summary>
+public interface IMediaStreamLease : IAsyncDisposable
+{
+    /// <summary>Gets the readable media output.</summary>
+    Stream Stream { get; }
+
+    /// <summary>Gets the output content type when known.</summary>
+    string? ContentType { get; }
+}
+
 /// <summary>
 /// Runs one reusable FFmpeg standard-input to standard-output transform.
 /// </summary>
-public sealed class FfmpegStreamTransform : IStreamTransform
+public sealed class FfmpegStreamTransform
 {
     private readonly IReadOnlyList<string> _arguments;
     private readonly IMediaProcessFactory _processFactory;
@@ -22,8 +32,8 @@ public sealed class FfmpegStreamTransform : IStreamTransform
         _sourceName = sourceName;
     }
 
-    /// <inheritdoc />
-    public ValueTask<IStreamSourceLease> StartAsync(Stream input, CancellationToken cancellationToken)
+    /// <summary>Starts the media process and returns ownership of its output and cleanup without taking ownership of the input stream.</summary>
+    public ValueTask<IMediaStreamLease> StartAsync(Stream input, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var process = _processFactory.Start(new MediaProcessRequest
@@ -36,10 +46,10 @@ public sealed class FfmpegStreamTransform : IStreamTransform
         var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var pumpTask = MediaStreamPump.PumpAsync(input, process, _logger, _sourceName, lifetime.Token);
         var errorTask = MediaProcessDiagnostics.ReadTailAsync(process.StandardError, lifetime.Token);
-        return ValueTask.FromResult<IStreamSourceLease>(new ProcessOutputLease(process, pumpTask, errorTask, lifetime));
+        return ValueTask.FromResult<IMediaStreamLease>(new ProcessOutputLease(process, pumpTask, errorTask, lifetime));
     }
 
-    private sealed class ProcessOutputLease : IStreamSourceLease
+    private sealed class ProcessOutputLease : IMediaStreamLease
     {
         private Process? _process;
         private readonly Task _pumpTask;

@@ -3,6 +3,7 @@
 @using Lineup.Plugin.LineupLink.Protocol
 @using Lineup.App.Web.Components.Transcoding
 @using Lineup.App.Web.Services
+@using Lineup.Core.Hosting
 
 <PageTitle>@Text["Settings_PageTitle"]</PageTitle>
 
@@ -35,6 +36,23 @@
 }
 
 <h1><span class="bi bi-gear me-2"></span>@Text["Settings_PageTitle"]</h1>
+
+@if (_topologyRuntime?.Application is { Phase: TopologyApplicationPhase.Degraded } application)
+{
+    <div id="topologyApplication" class="alert alert-warning" role="status" aria-live="polite">
+        <h2 class="h5">@Text["Settings_TopologyHeading"]</h2>
+        <p id="topologyApplicationPhase">@Text[$"Settings_Topology{application.Phase}"]</p>
+        @foreach (var device in application.Devices.Where(device => !device.Succeeded))
+        {
+            <p class="mb-1">@Text["Settings_TopologyDeviceFailure", SettingsService.Settings.Streaming.PhysicalDevices.FirstOrDefault(candidate => candidate.Id == device.DeviceId)?.Name ?? device.DeviceId.ToString()]</p>
+        }
+        @foreach (var output in application.Outputs.Where(output => !output.Succeeded || output.IsPartial))
+        {
+            <p class="mb-1">@Text["Settings_TopologyOutputFailure", output.Name]</p>
+        }
+        <button id="retryTopologyApplication" class="btn btn-outline-warning" @onclick="RetryTopology" disabled="@_isSaving">@Text["Common_Retry"]</button>
+    </div>
+}
 
 @if (StartupState.IsFactoryResetRequired)
 {
@@ -120,7 +138,7 @@
 </ul>
 
 <div id="settingsContent" class="row">
-    <div class="col-md-8">
+    <fieldset class="col-md-8 border-0" disabled="@_isSaving">
         <GeneralSettingsTab CssClass="@GetTabPaneClass(SettingsTab.General)"
                             @bind-Theme="_theme"
                             @bind-TimeZoneId="_timeZoneId"
@@ -185,7 +203,7 @@
 
         @if (_activeTab != SettingsTab.Reset)
         {
-            <div class="d-flex gap-2">
+            <div class="d-flex gap-2 pb-4">
                 <button class="btn btn-primary" @onclick="SaveSettings" disabled="@_isSaving">
                     @if (_isSaving)
                     {
@@ -193,19 +211,16 @@
                     }
                     <span class="bi bi-save me-1"></span>@(_isInitialSetup ? Text["Settings_SaveAndGetStarted"] : Text["Settings_SaveSettings"])
                 </button>
-                @if (!_isInitialSetup)
-                {
-                    <button id="undoSettings" class="btn btn-outline-secondary" @onclick="UndoUnsavedChanges">
-                        <span class="bi bi-arrow-counterclockwise me-1"></span>@Text["Common_Undo"]
-                    </button>
-                }
-                <button class="btn btn-outline-secondary" @onclick="Cancel">
+                <button id="undoSettings" class="btn btn-outline-secondary" @onclick="UndoUnsavedChanges" disabled="@_isSaving">
+                    <span class="bi bi-arrow-counterclockwise me-1"></span>@Text["Common_Undo"]
+                </button>
+                <button class="btn btn-outline-secondary" @onclick="Cancel" disabled="@_isSaving">
                     @(_isInitialSetup ? Text["Common_Skip"] : Text["Common_Cancel"])
                 </button>
             </div>
         }
 
-    </div>
+    </fieldset>
 
     <div class="col-md-4">
         <div class="card">

@@ -34,6 +34,7 @@ public class ApiRequestLoggingMiddlewareTests
         await middleware.InvokeAsync(context);
 
         // Assert
+        Assert.Matches("^[0-9a-f]{32}$", context.Response.Headers["X-Correlation-ID"].ToString());
         Assert.Collection(
             logger.Entries,
             entry =>

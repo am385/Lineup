@@ -7,6 +7,7 @@ Thank you for considering contributing to Lineup! This document provides guideli
 ### Prerequisites
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download) (version pinned in `global.json`)
+- [Node.js 24 LTS](https://nodejs.org/) for dependency-free browser regression tests
 - An HDHomeRun device on your local network (for integration testing)
 - Git
 
@@ -41,6 +42,11 @@ Run these tests when changing incremental caption delivery. They execute the pro
 they do not launch a browser or require tuner hardware. The dedicated worker's CORS response-header regressions also run in the normal .NET gate.
 The shutdown regressions exercise owned stop routing, repeated-stop HTTP 404 handling, explicit HTTP/network failures,
 player destruction failures and isolation from replacement players.
+
+Ordinary CI and development/release publishing share `.github/workflows/validate.yml`. Both Linux and Windows run the full Release build/test gate,
+the browser regressions, formatting verification, and installed-worker smoke tests. The smoke tests use the hash-verified worker packages installed
+by the Web host build, exercising Web Player startup/captions/stop and shared HDHomeRun/Lineup Link admission and crash recovery without physical hardware.
+Publishing waits for both platforms to pass.
 
 The streaming-sweep harness is checked in as an opt-in hardware certification test:
 
@@ -148,6 +154,7 @@ Run the smallest relevant tests while developing. Before submitting any code cha
 ```powershell
 dotnet build Lineup.slnx -c Release --no-restore
 dotnet test Lineup.slnx -c Release --no-build --no-restore
+node --test tests\Apps\Lineup.App.Web.Tests\Browser\subtitle-polling.test.cjs tests\Apps\Lineup.App.Web.Tests\Browser\shutdown.test.cjs
 dotnet format Lineup.slnx --verify-no-changes --no-restore
 git diff --check
 ```
@@ -172,17 +179,26 @@ Production and test projects are grouped by dependency role:
 Project directories, `.csproj` filenames, root namespaces, and assembly names must agree. Use `Lineup.App.*` for application hosts, `Lineup.Core` or `Lineup.Core.*` for foundations, and `Lineup.Plugin.*` for plugin families and their support libraries.
 Use `Lineup.Integration.*` for integration harnesses, `Lineup.TestSupport.*` for test helpers, and `Lineup.Tools.*` for build tools. Automated test projects use their subject project's name followed by `.Tests`, with the same root namespace.
 
-`Lineup.Core.Common` has no project or package dependencies and contains only shared data types. `Lineup.Core.Extensibility` references only `Lineup.Core.Common` and contains plugin/runtime interfaces and boundary validation. Production plugin projects may reference it, the provider-neutral `Lineup.Core.Streaming.FFmpeg` foundation when media processing is required, and designated support libraries in the same provider family, but must not reference `Lineup.Core`.
+`Lineup.Core.Common` has no project or package dependencies and contains only shared data types. `Lineup.Core.Extensibility` references only `Lineup.Core.Common` and contains plugin/runtime interfaces, portable diagnostics and boundary validation. Production plugin projects may reference it, the provider-neutral `Lineup.Core.Streaming.FFmpeg` foundation when media processing is required, and designated support libraries in the same provider family, but must not reference `Lineup.Core`.
 Provider family folders are organizational only; every adapter and support library remains an independently referenced assembly. Support libraries may not depend on adapters or projects from another plugin family.
+
+Architecture tests check direct production dependencies and transitive paths from portable libraries and worker executables to trusted host implementations.
+`Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryRuntime` is a trusted host-side supervisor, not a portable worker, and may reference the trusted worker runtime.
+`Lineup.Core.Streaming.FFmpeg` contains portable process execution, media probing, metadata policies, and immutable-profile planners.
+Core graph leases, application settings, cached channel metadata, subtitle storage, and DI composition belong in
+`Lineup.Core.Hosting.Streaming`. Portable media libraries and worker executables must not depend transitively on Core, hosting, EF, or SQLite.
+There is no portable-media dependency exception.
+Common and Extensibility remain package-free, and portable projects may not add direct Entity Framework or SQLite implementation packages.
 
 | Project | Description |
 |---|---|
 | `Lineup.Core.Common` | Dependency-free identifiers, configuration records, normalized guide models, streaming DTOs, and serialized metadata types |
-| `Lineup.Core.Extensibility` | Plugin/runtime interfaces, portable validation, and narrow host capabilities built on `Lineup.Core.Common` |
+| `Lineup.Core.Extensibility` | Plugin/runtime interfaces, portable diagnostics/validation, and narrow host capabilities built on `Lineup.Core.Common` |
 | `Lineup.Plugin.SiliconDust.HDHomeRun.Device` | Local device communication — discovery, channel lineup, native binary protocol |
 | `Lineup.Plugin.SiliconDust.HDHomeRun.Api` | Remote API client — fetches EPG data from `api.hdhomerun.com` |
 | `Lineup.Core` | Provider-neutral business logic — orchestration, topology, guides, and storage |
-| `Lineup.Core.Streaming.FFmpeg` | Shared FFmpeg and FFprobe streaming transforms |
+| `Lineup.Core.Hosting` | Trusted topology/guide workers and graph, settings, storage, and FFmpeg application adapters |
+| `Lineup.Core.Streaming.FFmpeg` | Portable FFmpeg execution, FFprobe probing, media metadata, and immutable-profile planners |
 | `Lineup.Core.VirtualOutputs.Protocol` | Versioned local IPC contracts and framing shared by the trusted host and workers |
 | `Lineup.Core.VirtualOutputs.Hosting` | Worker-side bootstrap, broker client, and lease handling |
 | `Lineup.Core.VirtualOutputs.Runtime` | Trusted package validation, process supervision, IPC server, and capability broker |

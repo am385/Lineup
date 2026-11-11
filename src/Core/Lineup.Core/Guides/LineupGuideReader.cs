@@ -10,6 +10,9 @@ public interface ILineupGuideReader
     /// <summary>Gets current source exclusions without reading stored programs.</summary>
     IReadOnlyList<GuideSourceDiagnostic> GetSourceDiagnostics();
 
+    /// <summary>Gets active channel metadata without loading any programs.</summary>
+    Task<IReadOnlyList<GuideChannelSegment>> GetChannelDirectoryAsync(CancellationToken cancellationToken = default);
+
     /// <summary>Gets active guide channels and their programs in an optional UTC window.</summary>
     Task<IReadOnlyList<GuideChannelSegment>> GetChannelsAsync(
         DateTimeOffset? startUtc = null,
@@ -43,6 +46,13 @@ public sealed class LineupGuideReader : ILineupGuideReader
 
     /// <inheritdoc />
     public IReadOnlyList<GuideSourceDiagnostic> GetSourceDiagnostics() => _guides.GetSourceDiagnostics(_settings.Settings.Streaming);
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<GuideChannelSegment>> GetChannelDirectoryAsync(CancellationToken cancellationToken = default)
+    {
+        var snapshot = await _guides.BuildUnionDirectoryAsync(_settings.Settings.Streaming, cancellationToken);
+        return snapshot.Channels.Select(MapChannel).ToArray();
+    }
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<GuideChannelSegment>> GetChannelsAsync(

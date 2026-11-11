@@ -1,3 +1,4 @@
+using Lineup.Core.Common.Streaming;
 using Lineup.Plugin.WebPlayer.VirtualOutputHost;
 using Xunit;
 
@@ -10,73 +11,71 @@ public sealed class DedicatedMediaSessionTests
     [Theory]
     [InlineData(3600)]
     [InlineData(-3600)]
-    public async Task ExpireInactiveAsync_WallClockChanges_UsesElapsedLifetime(int clockCorrectionSeconds)
+    public async Task ViewerExpiration_WallClockChanges_UsesElapsedLifetime(int clockCorrectionSeconds)
     {
         // Arrange
         var clock = new MutableTimeProvider();
-        var registry = new DedicatedMediaSessionRegistry<TestSession>(clock, TimeSpan.FromSeconds(20));
+        await using var coordinator = new CmafOutputCoordinator(clock, TimeSpan.FromMilliseconds(20));
         var session = new TestSession();
-        registry.TryAdd("owned", session);
-        clock.Advance(TimeSpan.FromSeconds(19));
+        await coordinator.AcquireAsync(new StreamTransformKey("cmaf", "owned"), _ => ValueTask.FromResult<IAsyncDisposable>(session), TestContext.Current.CancellationToken);
+        clock.Advance(TimeSpan.FromMilliseconds(19));
         clock.CorrectUtc(TimeSpan.FromSeconds(clockCorrectionSeconds));
 
         // Act
-        await registry.ExpireInactiveAsync();
-        var stillAvailable = registry.Count;
-        clock.Advance(TimeSpan.FromSeconds(1));
-        await registry.ExpireInactiveAsync();
+        var stillAvailable = coordinator.GetViewers().Count;
+        clock.Advance(TimeSpan.FromMilliseconds(1));
+        await session.Disposed.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         // Assert
         Assert.Equal(1, stillAvailable);
-        Assert.Empty(registry.GetSessionIds());
+        Assert.Empty(coordinator.GetViewers());
         Assert.True(session.IsDisposed);
     }
 
     /// <summary>Concurrent passive snapshots cannot extend session leases.</summary>
     [Fact]
-    public async Task GetSessionIds_DoesNotTouchLifetime()
+    public async Task GetViewers_DoesNotTouchLifetime()
     {
         // Arrange
         var clock = new MutableTimeProvider();
-        var registry = new DedicatedMediaSessionRegistry<TestSession>(clock, TimeSpan.FromSeconds(20));
+        await using var coordinator = new CmafOutputCoordinator(clock, TimeSpan.FromMilliseconds(20));
         var session = new TestSession();
-        registry.TryAdd("owned", session);
-        clock.Advance(TimeSpan.FromSeconds(19));
+        var lease = await coordinator.AcquireAsync(new StreamTransformKey("cmaf", "owned"), _ => ValueTask.FromResult<IAsyncDisposable>(session), TestContext.Current.CancellationToken);
+        clock.Advance(TimeSpan.FromMilliseconds(19));
 
         // Act
-        var snapshots = await Task.WhenAll(Enumerable.Range(0, 20).Select(_ => Task.Run(registry.GetSessionIds)));
-        clock.Advance(TimeSpan.FromSeconds(1));
-        await registry.ExpireInactiveAsync();
+        var snapshots = await Task.WhenAll(Enumerable.Range(0, 20).Select(_ => Task.Run(coordinator.GetViewers)));
+        clock.Advance(TimeSpan.FromMilliseconds(1));
+        await session.Disposed.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         // Assert
-        Assert.All(snapshots, snapshot => Assert.Equal(["owned"], snapshot));
-        Assert.Empty(registry.GetSessionIds());
+        Assert.All(snapshots, snapshot => Assert.Equal(lease.ViewerSessionId, Assert.Single(snapshot).ViewerSessionId));
+        Assert.Empty(coordinator.GetViewers());
         Assert.True(session.IsDisposed);
     }
 
     /// <summary>Verifies media access refreshes inactivity and an abandoned session is eventually disposed.</summary>
     [Fact]
-    public async Task ExpireInactiveAsync_AbandonedSession_DisposesAfterLastAccessTimeout()
+    public async Task ViewerExpiration_AbandonedSession_DisposesAfterLastAccessTimeout()
     {
         // Arrange
         var timeProvider = new MutableTimeProvider();
-        var registry = new DedicatedMediaSessionRegistry<TestSession>(timeProvider, TimeSpan.FromMinutes(2));
+        await using var coordinator = new CmafOutputCoordinator(timeProvider, TimeSpan.FromMilliseconds(20));
         var session = new TestSession();
-        Assert.True(registry.TryAdd("session", session));
-        timeProvider.Advance(TimeSpan.FromMinutes(1));
-        Assert.True(registry.TryGetAndTouch("session", out var touched));
-        Assert.Same(session, touched);
+        var lease = await coordinator.AcquireAsync(new StreamTransformKey("cmaf", "session"), _ => ValueTask.FromResult(new CmafOutputRegistration(session, session)), TestContext.Current.CancellationToken);
+        timeProvider.Advance(TimeSpan.FromMilliseconds(10));
+        Assert.True(coordinator.TryGetViewer(lease.ViewerSessionId, out var touched));
+        Assert.Same(session, touched!.State);
 
         // Act
-        timeProvider.Advance(TimeSpan.FromMinutes(1));
-        await registry.ExpireInactiveAsync();
-        var retainedAfterOriginalDeadline = registry.Count;
-        timeProvider.Advance(TimeSpan.FromMinutes(1));
-        await registry.ExpireInactiveAsync();
+        timeProvider.Advance(TimeSpan.FromMilliseconds(10));
+        var retainedAfterOriginalDeadline = coordinator.GetViewers().Count;
+        timeProvider.Advance(TimeSpan.FromMilliseconds(10));
+        await session.Disposed.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         // Assert
         Assert.Equal(1, retainedAfterOriginalDeadline);
-        Assert.Equal(0, registry.Count);
+        Assert.Empty(coordinator.GetViewers());
         Assert.True(session.IsDisposed);
     }
 
@@ -99,14 +98,42 @@ public sealed class DedicatedMediaSessionTests
         Assert.False(Directory.Exists(directory));
     }
 
-    private sealed class TestSession : IAsyncDisposable
+    /// <summary>Verifies one producer's failed cleanup cannot prevent independent producers from releasing during shutdown.</summary>
+    [Fact]
+    public async Task StopAsync_OneProducerFails_DisposesEveryOwnerBeforeReportingFailure()
     {
+        // Arrange
+        await using var coordinator = new CmafOutputCoordinator();
+        var failed = new TestSession(failDisposal: true);
+        var independent = new TestSession();
+        await coordinator.AcquireAsync(new StreamTransformKey("cmaf", "failed"), _ => ValueTask.FromResult<IAsyncDisposable>(failed), TestContext.Current.CancellationToken);
+        await coordinator.AcquireAsync(new StreamTransformKey("cmaf", "independent"), _ => ValueTask.FromResult<IAsyncDisposable>(independent), TestContext.Current.CancellationToken);
+
+        // Act
+        var failure = await Assert.ThrowsAsync<AggregateException>(() => coordinator.StopAsync().AsTask());
+
+        // Assert
+        Assert.IsType<IOException>(Assert.Single(failure.InnerExceptions));
+        Assert.True(failed.IsDisposed);
+        Assert.True(independent.IsDisposed);
+        Assert.Empty(coordinator.GetDiagnostics());
+    }
+
+    private sealed class TestSession(bool failDisposal = false) : IAsyncDisposable
+    {
+        private readonly TaskCompletionSource _disposed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        /// <summary>Gets whether owned cleanup has completed.</summary>
         internal bool IsDisposed { get; private set; }
 
+        /// <summary>Gets completion of owned cleanup.</summary>
+        internal Task Disposed => _disposed.Task;
+
+        /// <inheritdoc />
         public ValueTask DisposeAsync()
         {
             IsDisposed = true;
-            return ValueTask.CompletedTask;
+            _disposed.TrySetResult();
+            return failDisposal ? ValueTask.FromException(new IOException("Synthetic cleanup failure.")) : ValueTask.CompletedTask;
         }
     }
 

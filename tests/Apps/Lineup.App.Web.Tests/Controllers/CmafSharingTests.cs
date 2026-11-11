@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
 using Lineup.App.Web.Controllers;
+using Lineup.App.Web.Services.Playback;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -12,9 +13,295 @@ using Xunit;
 
 namespace Lineup.App.Web.Tests.Controllers;
 
-/// <summary>Verifies management-hosted CMAF sharing through actual controllers, coordinator lifetimes, storage, and encoder processes.</summary>
+/// <summary>Verifies typed management playback and its HTTP adapter with real coordinator lifetimes, storage, and encoder processes.</summary>
 public sealed class CmafSharingTests
 {
+    /// <summary>Verifies typed application startup shares producers and independently owns viewers without constructing an MVC controller.</summary>
+    [Fact]
+    public async Task Service_EquivalentViewers_ShareProducerAndStopIndependently()
+    {
+        // Arrange
+        await using var fixture = new Fixture();
+        var first = fixture.BeginServiceStart("first");
+        var firstResult = await first.Start;
+        var firstPresentation = Assert.IsType<ManagementPlaybackPresentation>(firstResult.Presentation);
+        var second = fixture.BeginServiceStart("second");
+        var secondPresentation = Assert.IsType<ManagementPlaybackPresentation>((await second.Start).Presentation);
+        var producer = Assert.IsType<ManagementPlaybackService.PendingCmafOutput>(fixture.Outputs.GetViewers().First().State);
+
+        // Act
+        first.Cancellation.Cancel();
+        Assert.True(first.Service.Stop(firstPresentation.SessionId));
+
+        // Assert
+        Assert.Same(first.Service, second.Service);
+        Assert.Equal(1, fixture.EncoderCount);
+        Assert.NotEqual(firstPresentation.SessionId, secondPresentation.SessionId);
+        Assert.False(first.Service.TryGetArtifacts(firstPresentation.SessionId, out _));
+        Assert.True(second.Service.TryGetArtifacts(secondPresentation.SessionId, out _));
+        Assert.Single(second.Service.GetViewers());
+        Assert.True(fixture.IsEncoderRunning);
+        Assert.False(producer.LifetimeToken.IsCancellationRequested);
+
+        // Act
+        Assert.True(second.Service.Stop(secondPresentation.SessionId));
+        await producer.Stopped.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.True(producer.StartupCompletion.IsCompletedSuccessfully);
+        Assert.False(fixture.IsEncoderRunning);
+        Assert.Equal(0, fixture.ActiveInputs);
+        Assert.False(fixture.HasEncoderDirectory);
+        Assert.Empty(fixture.ActiveStreams.GetActiveStreams());
+    }
+
+    /// <summary>Verifies application readiness survives the initiating viewer's cancellation or explicit stop without an HTTP request.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Service_InitiatorLeavesBeforeReadiness_SurvivorReceivesPresentation(bool cancel)
+    {
+        // Arrange
+        await using var fixture = new Fixture { HoldReadiness = true };
+        var first = fixture.BeginServiceStart("owner");
+        await fixture.EncoderStarted.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        var second = fixture.BeginServiceStart("survivor");
+        await WaitUntilAsync(() => fixture.Outputs.GetViewers().Count == 2);
+        var producer = Assert.IsType<ManagementPlaybackService.PendingCmafOutput>(fixture.Outputs.GetViewers().First().State);
+
+        // Act
+        if (cancel)
+        {
+            first.Cancellation.Cancel();
+        }
+        else
+        {
+            Assert.Equal(1, fixture.ActiveStreams.RequestStopByClientId("owner"));
+        }
+        var departed = await first.Start.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        fixture.PublishReadiness();
+        var surviving = await second.Start.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.True(departed.IsCanceled);
+        Assert.NotNull(surviving.Presentation);
+        Assert.False(producer.LifetimeToken.IsCancellationRequested);
+        Assert.Equal("survivor", Assert.Single(fixture.ActiveStreams.GetActiveStreams()).ClientId);
+        Assert.Single(second.Service.GetViewers());
+        Assert.Equal(1, fixture.EncoderCount);
+        Assert.True(second.Service.Stop(surviving.Presentation.SessionId));
+        Assert.True(producer.Stopped.IsCompletedSuccessfully);
+        Assert.Equal(0, fixture.ActiveInputs);
+    }
+
+    /// <summary>Verifies application-owned inactivity expiry preserves a renewed viewer and releases every task after the final expiry.</summary>
+    [Fact]
+    public async Task Service_InactivityExpiry_ReleasesOnlyExpiredViewerThenProducer()
+    {
+        // Arrange
+        await using var fixture = new Fixture();
+        var first = fixture.BeginServiceStart("idle");
+        var firstPresentation = Assert.IsType<ManagementPlaybackPresentation>((await first.Start).Presentation);
+        var second = fixture.BeginServiceStart("active");
+        var secondPresentation = Assert.IsType<ManagementPlaybackPresentation>((await second.Start).Presentation);
+        var producer = Assert.IsType<ManagementPlaybackService.PendingCmafOutput>(fixture.Outputs.GetViewers().First().State);
+
+        // Act
+        fixture.Clock.Advance(TimeSpan.FromMilliseconds(100));
+        Assert.True(second.Service.TryGetArtifacts(secondPresentation.SessionId, out _));
+        fixture.Clock.Advance(TimeSpan.FromMilliseconds(100));
+        await WaitUntilAsync(() => fixture.Outputs.GetViewers().Count == 1);
+
+        // Assert
+        Assert.False(first.Service.TryGetArtifacts(firstPresentation.SessionId, out _));
+        Assert.Equal(secondPresentation.SessionId, Assert.Single(second.Service.GetViewers()).SessionId);
+        Assert.True(fixture.IsEncoderRunning);
+
+        // Act
+        fixture.Clock.Advance(TimeSpan.FromMilliseconds(200));
+        await producer.Stopped.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Empty(second.Service.GetViewers());
+        Assert.False(fixture.IsEncoderRunning);
+        Assert.False(fixture.HasEncoderDirectory);
+        Assert.Equal(0, fixture.ActiveInputs);
+        Assert.Empty(fixture.ActiveStreams.GetActiveStreams());
+    }
+
+    /// <summary>Verifies application startup exposes typed sanitized failures and releases its media resources without an MVC response.</summary>
+    [Theory]
+    [InlineData("process", ManagementPlaybackFailureKind.MediaFailure, "media_process_failed")]
+    [InlineData("input", ManagementPlaybackFailureKind.MediaFailure, "media_source_failed")]
+    [InlineData("timeout", ManagementPlaybackFailureKind.Timeout, "cmaf_startup_timeout")]
+    public async Task Service_StartupFailure_ReturnsTypedFailureAndCleansResources(string failure, ManagementPlaybackFailureKind kind, string code)
+    {
+        // Arrange
+        await using var fixture = new Fixture
+        {
+            HoldReadiness = true,
+            ProcessFailure = failure == "process" ? new MediaProcessException("PRIVATE diagnostics") : null,
+            InputFailure = failure == "input" ? new IOException("Upstream failed.") : null,
+            StartupTimeout = failure == "timeout" ? TimeSpan.FromMilliseconds(500) : TimeSpan.FromSeconds(30)
+        };
+        var started = fixture.BeginServiceStart("viewer");
+
+        // Act
+        var result = await started.Start.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        await WaitUntilAsync(() => !fixture.IsEncoderRunning && !fixture.HasEncoderDirectory && fixture.ActiveInputs == 0);
+
+        // Assert
+        var error = Assert.IsType<ManagementPlaybackFailure>(result.Failure);
+        Assert.Equal(kind, error.Kind);
+        Assert.Equal(code, error.Code);
+        Assert.DoesNotContain("PRIVATE", error.Error, StringComparison.Ordinal);
+        Assert.Null(result.Presentation);
+        Assert.Empty(fixture.Outputs.GetViewers());
+        Assert.Empty(fixture.ActiveStreams.GetActiveStreams());
+    }
+
+    /// <summary>Verifies known protected playback is application-owned synthetic output and never acquires physical input.</summary>
+    [Fact]
+    public async Task Service_ProtectedSlate_UsesSyntheticProducerWithoutPhysicalInput()
+    {
+        // Arrange
+        await using var fixture = new Fixture { ProtectedContent = true };
+        fixture.Settings.ProtectedContentMode = ProtectedContentMode.StreamSlate;
+        var started = fixture.BeginServiceStart("slate");
+
+        // Act
+        var result = await started.Start;
+        var presentation = Assert.IsType<ManagementPlaybackPresentation>(result.Presentation);
+        Assert.True(started.Service.Stop(presentation.SessionId));
+
+        // Assert
+        fixture.AssertNoPhysicalInput();
+        Assert.False(fixture.IsEncoderRunning);
+        Assert.False(fixture.HasEncoderDirectory);
+        Assert.Empty(fixture.Outputs.GetViewers());
+    }
+
+    /// <summary>Verifies disabled-channel policy remains a typed application decision without acquiring physical input.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Service_DisabledChannel_PreservesErrorOrSlatePolicy(bool useSlate)
+    {
+        // Arrange
+        await using var fixture = new Fixture();
+        await fixture.DisableChannelAsync();
+        fixture.Settings.DisabledChannelMode = useSlate ? DisabledChannelMode.StreamSlate : DisabledChannelMode.ReturnError;
+        var started = fixture.BeginServiceStart("disabled");
+
+        // Act
+        var result = await started.Start;
+
+        // Assert
+        if (useSlate)
+        {
+            var presentation = Assert.IsType<ManagementPlaybackPresentation>(result.Presentation);
+            Assert.True(started.Service.Stop(presentation.SessionId));
+            fixture.AssertNoPhysicalInput(ChannelSlateReason.DisabledChannel);
+        }
+        else
+        {
+            Assert.Equal(ManagementPlaybackFailureKind.Disabled, Assert.IsType<ManagementPlaybackFailure>(result.Failure).Kind);
+            Assert.Equal(0, fixture.EncoderCount);
+            Assert.Equal(0, fixture.ActiveInputs);
+        }
+        Assert.False(fixture.IsEncoderRunning);
+        Assert.False(fixture.HasEncoderDirectory);
+        Assert.Empty(fixture.ActiveStreams.GetActiveStreams());
+    }
+
+    /// <summary>Verifies independently counted viewer admission still applies when equivalent plans share one producer.</summary>
+    [Fact]
+    public async Task Service_ViewerAdmissionLimit_RejectsBeforeCreatingAnotherProducer()
+    {
+        // Arrange
+        await using var fixture = new Fixture();
+        await fixture.BeginServiceStart("first").Start;
+        await fixture.BeginServiceStart("second").Start;
+
+        // Act
+        var rejected = await fixture.BeginServiceStart("third").Start;
+
+        // Assert
+        Assert.Equal(ManagementPlaybackFailureKind.AdmissionLimit, Assert.IsType<ManagementPlaybackFailure>(rejected.Failure).Kind);
+        Assert.Equal(2, fixture.Outputs.GetViewers().Count);
+        Assert.Equal(2, fixture.ActiveStreams.GetActiveStreams().Count);
+        Assert.Equal(1, fixture.EncoderCount);
+    }
+
+    /// <summary>Verifies both caption and media pumps are owned and terminal before the service reports producer cleanup complete.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Service_EmbeddedCaptions_StopObservesEveryOwnedTask(bool captionInputFails)
+    {
+        // Arrange
+        await using var fixture = new Fixture
+        {
+            CaptionInputFailure = captionInputFails ? new IOException("Caption input failed.") : null,
+            ProbeOverride = new MediaProbeResult(
+            [
+                new MediaTrackMetadata(0, MediaTrackType.Video, "h264", null, 1280, 720, null, null),
+                new MediaTrackMetadata(1, MediaTrackType.Audio, "aac", null, null, null, 2, 48_000),
+                new MediaTrackMetadata(2, MediaTrackType.Subtitle, "eia_608", null, null, null, null, null)
+                {
+                    SubtitlePresentation = SubtitlePresentation.WebVtt,
+                    IsEmbeddedClosedCaptions = true
+                }
+            ], null)
+        };
+        var started = fixture.BeginServiceStart("captions");
+        var result = await started.Start;
+        var presentation = Assert.IsType<ManagementPlaybackPresentation>(result.Presentation);
+        var producer = Assert.IsType<ManagementPlaybackService.PendingCmafOutput>(Assert.Single(fixture.Outputs.GetViewers()).State);
+
+        // Act
+        Assert.True(started.Service.Stop(presentation.SessionId));
+        await producer.Stopped.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        await producer.Tasks.DrainAsync().WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(2, fixture.EncoderCount);
+        Assert.True(Assert.Single(presentation.Subtitles).IsEmbeddedClosedCaptions);
+        Assert.False(fixture.IsEncoderRunning);
+        Assert.Equal(0, fixture.ActiveInputs);
+        Assert.False(fixture.HasEncoderDirectory);
+    }
+
+    /// <summary>Verifies known protected channels start a local slate without acquiring or probing physical input.</summary>
+    [Fact]
+    public async Task Start_KnownProtectedSlate_StartsSyntheticProducerWithoutPhysicalInput()
+    {
+        // Arrange
+        await using var fixture = new Fixture { ProtectedContent = true };
+        fixture.Settings.ProtectedContentMode = ProtectedContentMode.StreamSlate;
+        var started = fixture.BeginStart("slate-viewer");
+
+        // Act
+        var response = await ResponseAsync(started.Start);
+        var viewers = fixture.Outputs.GetViewers().ToArray();
+        using (var fragment = Assert.IsType<FileStreamResult>(started.Controller.GetCmafFile(response.SessionId, "chunk-0-00001.m4s")).FileStream)
+        {
+            Assert.True(fragment.CanRead);
+        }
+        var stopped = started.Controller.StopCmaf(response.SessionId);
+
+        // Assert
+        Assert.Equal(1, fixture.EncoderCount);
+        Assert.Equal(0, fixture.ActiveInputs);
+        Assert.Single(viewers);
+        fixture.AssertNoPhysicalInput();
+        Assert.IsType<OkObjectResult>(stopped);
+        Assert.False(fixture.IsEncoderRunning);
+        Assert.False(fixture.HasEncoderDirectory);
+        Assert.Empty(fixture.Outputs.GetViewers());
+        Assert.Empty(fixture.ActiveStreams.GetActiveStreams());
+    }
+
     /// <summary>Verifies actual management startup copies H.264 and already-normalized HEVC while preserving conversion and overrides.</summary>
     [Theory]
     [InlineData("h264", false, null, "copy")]
@@ -469,21 +756,25 @@ public sealed class CmafSharingTests
 
     private sealed class Fixture : IAsyncDisposable
     {
-        private readonly DirectoryInfo _root = Directory.CreateTempSubdirectory("lineup-cmaf-sharing-");
+        private readonly DirectoryInfo _root = Directory.CreateDirectory(Path.Combine(AppContext.BaseDirectory, "cmaf-sharing-artifacts", Guid.NewGuid().ToString("N")));
         private readonly ConcurrentQueue<(Process Observer, string Directory)> _encoders = new();
         private readonly ConcurrentQueue<MediaProcessRequest> _encoderRequests = new();
         private readonly TaskCompletionSource _encoderStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly List<CancellationTokenSource> _cancellations = [];
         private readonly List<Task<IActionResult>> _starts = [];
+        private readonly List<Task<ManagementPlaybackStartResult>> _serviceStarts = [];
         private readonly ILineupSettingsService _settings = Substitute.For<ILineupSettingsService>();
         private readonly ITunerStreamMultiplexer _multiplexer = Substitute.For<ITunerStreamMultiplexer, IEffectiveTunerStreamMultiplexer>();
         private readonly IMediaProbeService _probe = Substitute.For<IMediaProbeService>();
         private readonly IMediaProcessFactory _processes = Substitute.For<IMediaProcessFactory>();
+        private readonly IProtectedContentSlateService _slates = Substitute.For<IProtectedContentSlateService>();
         private readonly IStreamingRouteResolver _routes = Substitute.For<IStreamingRouteResolver>();
         private readonly HttpClient _diagnosticClient = new(new UnavailableDiagnostics());
         private readonly StreamingTopologyStore _topology;
         private readonly TransientDataStore _files;
         private int _activeInputs;
+        private int _subscriptions;
+        private ManagementPlaybackService? _playback;
 
         /// <summary>Creates isolated SQLite storage, deterministic source capabilities, and real process ownership.</summary>
         internal Fixture()
@@ -498,6 +789,11 @@ public sealed class CmafSharingTests
                 .Returns(call => new ResolvedTunerStream(call.Arg<ResolvedStreamingRoute>().Candidates[0], new BlockingInput()));
             _multiplexer.SubscribeAsync(Arg.Any<StreamAcquisitionDescriptor>(), Arg.Any<StreamAcquisitionFactory>(), Arg.Any<CancellationToken>()).Returns(_ =>
             {
+                var subscription = Interlocked.Increment(ref _subscriptions);
+                if (subscription == 2 && CaptionInputFailure is not null)
+                {
+                    throw CaptionInputFailure;
+                }
                 if (InputFailure is not null)
                 {
                     throw InputFailure;
@@ -526,6 +822,12 @@ public sealed class CmafSharingTests
                     }
                 ], null));
             _processes.Start(Arg.Any<MediaProcessRequest>()).Returns(call => StartEncoder(call.Arg<MediaProcessRequest>()));
+            _slates.StartCmaf(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<ChannelSlateReason>()).Returns(call => StartEncoder(new MediaProcessRequest
+            {
+                FileName = "synthetic-slate",
+                Arguments = [],
+                WorkingDirectory = Path.GetDirectoryName(call.ArgAt<string>(1))
+            }));
         }
 
         /// <summary>Gets the controllable logical inactivity clock.</summary>
@@ -553,6 +855,12 @@ public sealed class CmafSharingTests
         /// <summary>Gets or sets a terminal failure from the upstream producer subscription.</summary>
         internal Exception? InputFailure { get; set; }
 
+        /// <summary>Gets or sets the embedded-caption input failure independently of the media input.</summary>
+        internal Exception? CaptionInputFailure { get; set; }
+
+        /// <summary>Gets or sets the complete application startup deadline.</summary>
+        internal TimeSpan? StartupTimeout { get; set; }
+
         /// <summary>Gets or sets a terminal failure while creating the output processor.</summary>
         internal MediaProcessException? ProcessFailure { get; set; }
 
@@ -561,6 +869,9 @@ public sealed class CmafSharingTests
 
         /// <summary>Gets or sets the source's normalized audio declaration.</summary>
         internal string? AudioHint { get; set; }
+
+        /// <summary>Gets or sets whether route metadata marks the source as protected.</summary>
+        internal bool ProtectedContent { get; set; }
 
         /// <summary>Gets notification that the real encoder process has started.</summary>
         internal Task EncoderStarted => _encoderStarted.Task;
@@ -580,6 +891,22 @@ public sealed class CmafSharingTests
         /// <summary>Gets the number of live producer input subscriptions.</summary>
         internal int ActiveInputs => Volatile.Read(ref _activeInputs);
 
+        /// <summary>Starts the application service directly, with no controller, HTTP context, or action result.</summary>
+        internal (ManagementPlaybackService Service, CancellationTokenSource Cancellation, Task<ManagementPlaybackStartResult> Start) BeginServiceStart(string clientId)
+        {
+            var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+            _cancellations.Add(cancellation);
+            var httpClients = Substitute.For<IHttpClientFactory>();
+            httpClients.CreateClient("StreamProxy").Returns(_diagnosticClient);
+            _playback ??= new ManagementPlaybackService(
+                httpClients, Substitute.For<ILineupGuideReader>(), _settings, _topology, _probe, ActiveStreams,
+                _slates, _multiplexer, NullLogger<ManagementPlaybackService>.Instance,
+                transientData: _files, mediaProcessFactory: _processes, streamRoutes: _routes, cmafOutputs: Outputs, cmafStartupTimeout: StartupTimeout);
+            var start = _playback.StartAsync("7.1", new CmafStreamRequest { ClientId = clientId }, $"127.0.0.1:{10_000 + _cancellations.Count}", cancellationToken: cancellation.Token);
+            _serviceStarts.Add(start);
+            return (_playback, cancellation, start);
+        }
+
         /// <summary>Starts a real controller request with its own client metadata and cancellation lifetime.</summary>
         internal (StreamController Controller, CancellationTokenSource Cancellation, Task<IActionResult> Start) BeginStart(
             string clientId,
@@ -593,7 +920,7 @@ public sealed class CmafSharingTests
             httpClients.CreateClient("StreamProxy").Returns(_diagnosticClient);
             var controller = new StreamController(
                 httpClients, Substitute.For<ILineupGuideReader>(), _settings, _topology, _probe, ActiveStreams,
-                Substitute.For<IProtectedContentSlateService>(), _multiplexer, NullLogger<StreamController>.Instance,
+                _slates, _multiplexer, NullLogger<StreamController>.Instance,
                 transientData: _files, mediaProcessFactory: _processes, streamRoutes: _routes, cmafOutputs: Outputs, cmafStartupTimeout: startupTimeout)
             {
                 ControllerContext = new ControllerContext
@@ -606,6 +933,24 @@ public sealed class CmafSharingTests
             var start = controller.StartCmafStream(channel, (request ?? new CmafStreamRequest()) with { ClientId = clientId });
             _starts.Add(start);
             return (controller, cancellation, start);
+        }
+
+        /// <summary>Verifies synthetic playback did not select, probe, or subscribe to any physical input.</summary>
+        internal void AssertNoPhysicalInput(ChannelSlateReason reason = ChannelSlateReason.ContentProtected)
+        {
+            Assert.Empty(_multiplexer.ReceivedCalls());
+            Assert.Empty(_probe.ReceivedCalls());
+            _processes.DidNotReceive().Start(Arg.Any<MediaProcessRequest>());
+            _slates.Received(1).StartCmaf(Arg.Any<string>(), Arg.Any<string>(), reason);
+        }
+
+        /// <summary>Disables the fixture's source channel in the real topology store.</summary>
+        internal async Task DisableChannelAsync()
+        {
+            var source = new SourceChannelId(PhysicalId, "7.1");
+            await _topology.ReconcileAsync(
+                PhysicalId, [new PhysicalSourceChannel { Id = source, ProviderNumber = "7.1", ProviderName = "Disabled" }], TestContext.Current.CancellationToken);
+            await _topology.SetEnabledAsync(source, enabled: false, TestContext.Current.CancellationToken);
         }
 
         /// <summary>Releases readiness for current and subsequent encoders using deterministic manifests, fragments, and captions.</summary>
@@ -652,7 +997,8 @@ public sealed class CmafSharingTests
             {
                 throw ProcessFailure;
             }
-            var directory = request.WorkingDirectory ?? throw new InvalidOperationException("The CMAF encoder request is missing its owned output directory.");
+            var directory = request.WorkingDirectory ?? _encoders.LastOrDefault().Directory
+                ?? throw new InvalidOperationException("The CMAF encoder request is missing its owned output directory.");
             _encoderRequests.Enqueue(request);
             var configuration = new DirectoryInfo(AppContext.BaseDirectory).Name;
             var executable = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "Lineup.TestSupport.FakeFFmpeg", configuration, "Lineup.TestSupport.FakeFFmpeg.dll"));
@@ -689,7 +1035,9 @@ public sealed class CmafSharingTests
                 SourceChannelId = source,
                 Acquisition = acquisition,
                 PhysicalProfile = Settings.Streaming.PhysicalDefaults,
-                SourceMetadata = AudioHint is null ? new Dictionary<string, string>() : new Dictionary<string, string> { ["audioCodec"] = AudioHint },
+                SourceMetadata = ProtectedContent
+                    ? new Dictionary<string, string> { ["drm"] = bool.TrueString }
+                    : AudioHint is null ? new Dictionary<string, string>() : new Dictionary<string, string> { ["audioCodec"] = AudioHint },
                 DiagnosticUri = new Uri($"http://source.invalid/auto/v{channel}")
             };
             return new ResolvedStreamingRoute
@@ -718,6 +1066,7 @@ public sealed class CmafSharingTests
                 try
                 {
                     await Task.WhenAll(_starts).WaitAsync(TimeSpan.FromSeconds(5));
+                    await Task.WhenAll(_serviceStarts).WaitAsync(TimeSpan.FromSeconds(5));
                 }
                 catch (OperationCanceledException) when (_cancellations.All(cancellation => cancellation.IsCancellationRequested))
                 {
@@ -726,6 +1075,10 @@ public sealed class CmafSharingTests
             finally
             {
                 await Outputs.DisposeAsync();
+                if (_playback is not null)
+                {
+                    await _playback.DisposeAsync();
+                }
                 foreach (var encoder in _encoders)
                 {
                     if (!encoder.Observer.HasExited)

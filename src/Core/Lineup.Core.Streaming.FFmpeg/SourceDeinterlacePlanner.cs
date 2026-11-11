@@ -33,12 +33,6 @@ public static class SourceDeinterlacePlanner
             || source.Tracks.Any(track => track.Type == MediaTrackType.Audio && ResolveAudioCodec(track.Codec, profile) != "copy");
     }
 
-    /// <summary>
-    /// Returns metadata describing the effective shared source delivered to playback consumers.
-    /// </summary>
-    public static MediaProbeResult CreateEffectiveSource(MediaProbeResult source, LineupSettings settings)
-        => CreateEffectiveSource(source, ToPhysicalProfile(settings));
-
     /// <summary>Returns metadata for a source normalized with an effective topology profile, including audio-only sources.</summary>
     public static MediaProbeResult CreateEffectiveSource(MediaProbeResult source, PhysicalTranscodeProfile profile)
     {
@@ -115,14 +109,8 @@ public static class SourceDeinterlacePlanner
         return effective with { Tracks = tracks };
     }
 
-    /// <summary>
-    /// Creates FFmpeg arguments for one shared normalized MPEG-TS source, including audio-only sources.
-    /// </summary>
-    public static IReadOnlyList<string> CreateArguments(MediaProbeResult source, LineupSettings settings)
-        => CreateArguments(source, ToPhysicalProfile(settings), settings);
-
     /// <summary>Creates FFmpeg arguments using an effective topology physical profile.</summary>
-    public static IReadOnlyList<string> CreateArguments(MediaProbeResult source, PhysicalTranscodeProfile profile, LineupSettings encoderSettings)
+    public static IReadOnlyList<string> CreateArguments(MediaProbeResult source, PhysicalTranscodeProfile profile)
     {
         if (!ShouldNormalize(source, profile))
         {
@@ -233,6 +221,4 @@ public static class SourceDeinterlacePlanner
             _ => "copy"
         };
     }
-
-    private static PhysicalTranscodeProfile ToPhysicalProfile(LineupSettings settings) => settings.Streaming.PhysicalDefaults;
 }

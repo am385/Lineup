@@ -27,6 +27,10 @@ public static class FactoryResetRecoveryRequestPolicy
     /// <returns>The recovery-mode action for the path.</returns>
     public static FactoryResetRecoveryRequestAction GetAction(PathString path)
     {
+        if (OperationalHealthService.IsHealthEndpoint(path))
+        {
+            return FactoryResetRecoveryRequestAction.Continue;
+        }
         if (path == "/")
         {
             return FactoryResetRecoveryRequestAction.RedirectToSettings;

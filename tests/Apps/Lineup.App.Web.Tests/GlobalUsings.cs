@@ -4,6 +4,7 @@ global using Lineup.Core.Streaming;
 global using Lineup.Core.Common.Guides;
 global using Lineup.Core.Extensibility.Guides;
 global using Lineup.Core.Hosting;
+global using Lineup.Core.Hosting.Streaming;
 global using Lineup.Core.Settings;
 global using Lineup.Core.Storage;
 global using Lineup.Core.Common.Streaming;

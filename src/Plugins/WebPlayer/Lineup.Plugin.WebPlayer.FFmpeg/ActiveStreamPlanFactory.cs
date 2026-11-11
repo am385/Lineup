@@ -1,4 +1,3 @@
-using Lineup.Core.Settings;
 using Lineup.Core.Common.Streaming;
 using Lineup.Core.Extensibility.Streaming;
 using Lineup.Core.Streaming.FFmpeg;
@@ -10,12 +9,6 @@ namespace Lineup.Plugin.WebPlayer.FFmpeg;
 /// </summary>
 public static class ActiveStreamPlanFactory
 {
-    /// <summary>
-    /// Creates a transparent MPEG-TS active stream snapshot.
-    /// </summary>
-    public static ActiveStreamSnapshot CreateMpegTs(string sessionId, string channel, DateTime startedAtUtc, MediaProbeResult source, LineupSettings settings)
-        => CreateMpegTs(sessionId, channel, startedAtUtc, source, settings.Streaming.VirtualDefaults);
-
     /// <summary>Creates a transparent MPEG-TS snapshot from the effective topology profile.</summary>
     public static ActiveStreamSnapshot CreateMpegTs(
         string sessionId,
@@ -116,41 +109,8 @@ public static class ActiveStreamPlanFactory
         MediaProbeResult source,
         WebPlayerTrackSelection selection,
         CmafStreamRequest request,
-        LineupSettings settings)
-        => CreateCmaf(
-            sessionId,
-            channel,
-            startedAtUtc,
-            source,
-            selection,
-            request,
-            settings,
-            settings.Streaming.VirtualDefaults);
-
-    /// <summary>Creates CMAF stream metadata from the complete effective topology plan.</summary>
-    public static ActiveStreamSnapshot CreateCmaf(
-        string sessionId,
-        string channel,
-        DateTime startedAtUtc,
-        MediaProbeResult source,
-        WebPlayerTrackSelection selection,
-        CmafStreamRequest request,
-        LineupSettings encoderSettings,
         VirtualTranscodeProfile profile)
         => CreateCmaf(sessionId, channel, startedAtUtc, source, source, selection, request, profile);
-
-    /// <summary>Creates CMAF stream metadata from raw source media and the complete effective topology plan.</summary>
-    public static ActiveStreamSnapshot CreateCmaf(
-        string sessionId,
-        string channel,
-        DateTime startedAtUtc,
-        MediaProbeResult rawSource,
-        MediaProbeResult source,
-        WebPlayerTrackSelection selection,
-        CmafStreamRequest request,
-        LineupSettings encoderSettings,
-        VirtualTranscodeProfile profile)
-        => CreateCmaf(sessionId, channel, startedAtUtc, rawSource, source, selection, request, profile);
 
     /// <summary>Creates CMAF stream metadata from raw source media and a worker's complete effective topology plan.</summary>
     public static ActiveStreamSnapshot CreateCmaf(

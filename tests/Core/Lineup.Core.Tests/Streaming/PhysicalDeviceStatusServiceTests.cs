@@ -381,7 +381,7 @@ public sealed class PhysicalDeviceStatusServiceTests
 
         public Action<CancellationToken>? BeforeCreate { get; set; }
 
-        public List<PhysicalDeviceId> CreatedIds { get; } = [];
+        public System.Collections.Concurrent.ConcurrentQueue<PhysicalDeviceId> CreatedIds { get; } = new();
 
         public string Kind => DriverKind;
 
@@ -403,7 +403,7 @@ public sealed class PhysicalDeviceStatusServiceTests
             AdapterConfiguration configuration,
             CancellationToken cancellationToken = default)
         {
-            CreatedIds.Add(deviceId);
+            CreatedIds.Enqueue(deviceId);
             BeforeCreate?.Invoke(cancellationToken);
             var failure = FailActivation ? GetFailure(configuration) : null;
             var exception = failure switch

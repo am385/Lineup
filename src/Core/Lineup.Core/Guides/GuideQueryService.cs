@@ -1,6 +1,7 @@
 using Lineup.Core.Storage;
 using Lineup.Core.Common.Streaming;
 using Lineup.Core.Extensibility.Streaming;
+using Lineup.Core.Settings;
 
 namespace Lineup.Core.Guides;
 
@@ -10,14 +11,13 @@ namespace Lineup.Core.Guides;
 public sealed class GuideQueryService : IGuideQueryService
 {
     private static readonly VirtualDeviceId UnionVirtualDeviceId = new(Guid.Parse("8F58C8DC-2B33-4C17-B3B3-18BA69936C73"));
-    private readonly StreamingTopologyStore _topology;
     private readonly DeviceGuideStore _guides;
     private readonly IStreamingAdapterRegistry _adapters;
 
     /// <summary>Initializes a guide query service.</summary>
     public GuideQueryService(StreamingTopologyStore topology, DeviceGuideStore guides, IStreamingAdapterRegistry adapters)
     {
-        _topology = topology;
+        ArgumentNullException.ThrowIfNull(topology);
         _guides = guides;
         _adapters = adapters;
     }
@@ -30,32 +30,32 @@ public sealed class GuideQueryService : IGuideQueryService
     }
 
     /// <inheritdoc />
-    public async Task<VirtualGuideSnapshot> BuildUnionSnapshotAsync(
-        StreamingConfiguration configuration,
-        DateTimeOffset? startUtc = null,
-        DateTimeOffset? endUtc = null,
-        CancellationToken cancellationToken = default)
+    public Task<VirtualGuideSnapshot> BuildUnionSnapshotAsync(StreamingConfiguration configuration, DateTimeOffset? startUtc = null, DateTimeOffset? endUtc = null, CancellationToken cancellationToken = default) =>
+        BuildUnionAsync(configuration, startUtc, endUtc, true, cancellationToken);
+
+    /// <inheritdoc />
+    public Task<VirtualGuideSnapshot> BuildUnionDirectoryAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default) =>
+        BuildUnionAsync(configuration, null, null, false, cancellationToken);
+
+    private async Task<VirtualGuideSnapshot> BuildUnionAsync(StreamingConfiguration configuration, DateTimeOffset? startUtc, DateTimeOffset? endUtc, bool includePrograms, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(configuration);
-        var unionDevice = new VirtualDeviceDefinition
-        {
-            Id = UnionVirtualDeviceId,
-            Name = "Lineup",
-            Enabled = true,
-            Adapter = new AdapterConfiguration("lineup-union", default),
-            Subscription = new PhysicalDeviceSubscription { Mode = PhysicalDeviceSubscriptionMode.All }
-        };
-        var identities = await _topology.ReadActiveAsync(cancellationToken);
-        var resolution = ChannelTopologyResolver.Resolve(unionDevice, configuration.PhysicalDevices, identities);
+        var unionDevice = CreateUnionDevice();
         var eligibility = GuideSourceSubscriptionResolver.ResolveEligibleSources(configuration.GuideSources, configuration.PhysicalDevices, _adapters, cancellationToken);
-        var snapshot = await _guides.BuildSnapshotAsync(
+        var snapshot = await _guides.BuildResolvedSnapshotAsync(
             UnionVirtualDeviceId,
-            resolution.Channels,
+            identities => ChannelTopologyResolver.Resolve(unionDevice, configuration.PhysicalDevices, identities).Channels,
             eligibility.Sources.Select(source => source.Scope).ToArray(),
             startUtc,
             endUtc,
+            configuration.PhysicalDevices.Where(device => device.Enabled).Select(device => device.Id).ToArray(),
+            includePrograms,
             cancellationToken);
-        return snapshot with { SourceDiagnostics = eligibility.Diagnostics };
+        return snapshot with
+        {
+            SourceDiagnostics = eligibility.Diagnostics,
+            Generation = snapshot.Generation! with { ConfigurationRevision = ConfigurationRevision.Create(configuration) }
+        };
     }
 
     /// <inheritdoc />
@@ -89,8 +89,6 @@ public sealed class GuideQueryService : IGuideQueryService
                 SelectedDeviceIds = selectedPhysicalDeviceIds
             }
         };
-        var identities = await _topology.ReadActiveAsync(cancellationToken);
-        var resolution = ChannelTopologyResolver.Resolve(projectionDevice, configuration.PhysicalDevices, identities);
         var eligibility = GuideSourceSubscriptionResolver.ResolveEligibleSources(
             ResolveSelectedGuideSources(configuration, output), configuration.PhysicalDevices, _adapters, cancellationToken);
         var activeGuideScopes = eligibility.Sources
@@ -100,35 +98,46 @@ public sealed class GuideQueryService : IGuideQueryService
                 scope.PhysicalDeviceIds.Where(selectedPhysicalDeviceIds.Contains).ToArray()))
             .Where(scope => scope.PhysicalDeviceIds.Count > 0)
             .ToArray();
-        var snapshot = await _guides.BuildSnapshotAsync(
+        var snapshot = await _guides.BuildResolvedSnapshotAsync(
             projectionDevice.Id,
-            resolution.Channels,
+            identities => ChannelTopologyResolver.Resolve(projectionDevice, configuration.PhysicalDevices, identities).Channels,
             activeGuideScopes,
             startUtc,
             endUtc,
-            cancellationToken);
-        return snapshot with { SourceDiagnostics = eligibility.Diagnostics };
+            selectedPhysicalDeviceIds,
+            cancellationToken: cancellationToken);
+        return snapshot with
+        {
+            SourceDiagnostics = eligibility.Diagnostics,
+            Generation = snapshot.Generation! with { ConfigurationRevision = ConfigurationRevision.Create(configuration) }
+        };
     }
 
     /// <inheritdoc />
     public async Task<GuideStatistics> GetStatisticsAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default)
     {
-        var snapshot = await BuildUnionSnapshotAsync(configuration, cancellationToken: cancellationToken);
-        var programs = snapshot.Channels.SelectMany(channel => channel.Programs).ToArray();
-        var latestByChannel = snapshot.Channels
-            .Select(channel => channel.Programs.Count == 0 ? (DateTimeOffset?)null : channel.Programs.Max(program => program.EndUtc))
-            .OfType<DateTimeOffset>()
-            .ToArray();
-        return new GuideStatistics(
-            snapshot.Channels.Count,
-            programs.Length,
-            programs.Length == 0 ? null : programs.Min(program => program.StartUtc),
-            programs.Length == 0 ? null : programs.Max(program => program.EndUtc),
-            latestByChannel.Length == 0 ? null : latestByChannel.Min())
+        ArgumentNullException.ThrowIfNull(configuration);
+        var unionDevice = CreateUnionDevice();
+        var eligibility = GuideSourceSubscriptionResolver.ResolveEligibleSources(configuration.GuideSources, configuration.PhysicalDevices, _adapters, cancellationToken);
+        var statistics = await _guides.GetStatisticsAsync(
+            identities => ChannelTopologyResolver.Resolve(unionDevice, configuration.PhysicalDevices, identities).Channels,
+            eligibility.Sources.Select(source => source.Scope).ToArray(),
+            configuration.PhysicalDevices.Where(device => device.Enabled).Select(device => device.Id).ToArray(), cancellationToken);
+        return statistics with
         {
-            SourceDiagnostics = snapshot.SourceDiagnostics
+            SourceDiagnostics = eligibility.Diagnostics,
+            Generation = statistics.Generation! with { ConfigurationRevision = ConfigurationRevision.Create(configuration) }
         };
     }
+
+    private static VirtualDeviceDefinition CreateUnionDevice() => new()
+    {
+        Id = UnionVirtualDeviceId,
+        Name = "Lineup",
+        Enabled = true,
+        Adapter = new AdapterConfiguration("lineup-union", default),
+        Subscription = new PhysicalDeviceSubscription { Mode = PhysicalDeviceSubscriptionMode.All }
+    };
 
     private static IReadOnlyList<VirtualDeviceDefinition> ResolveSelectedVirtualDevices(
         StreamingConfiguration configuration,

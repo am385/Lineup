@@ -40,6 +40,9 @@ public enum VirtualOutputIpcOperation
 /// <summary>Contains one length-prefixed IPC operation and typed JSON payload.</summary>
 public sealed record VirtualOutputIpcRequest
 {
+    /// <summary>Gets the W3C parent context, excluding credentials, addresses and baggage.</summary>
+    public string? TraceParent { get; init; }
+
     /// <summary>Gets the requested operation.</summary>
     public VirtualOutputIpcOperation Operation { get; init; }
 
@@ -51,6 +54,7 @@ public sealed record VirtualOutputIpcRequest
         new()
         {
             Operation = operation,
+            TraceParent = System.Diagnostics.Activity.Current is { IdFormat: System.Diagnostics.ActivityIdFormat.W3C } activity ? activity.Id : null,
             Payload = JsonSerializer.SerializeToElement(payload, VirtualOutputWireProtocol.SerializerOptions)
         };
 

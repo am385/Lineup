@@ -22,7 +22,9 @@ public static class CoreHostingServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddLineupStreamingTopologyRuntime(this IServiceCollection services)
     {
-        services.AddHostedService<StreamingTopologyRuntime>();
+        services.AddSingleton<StreamingTopologyRuntime>();
+        services.AddSingleton<IStreamingTopologyRuntime>(provider => provider.GetRequiredService<StreamingTopologyRuntime>());
+        services.AddHostedService(provider => provider.GetRequiredService<StreamingTopologyRuntime>());
         return services;
     }
 

@@ -58,6 +58,10 @@ public static class VirtualOutputProtocolValidation
         {
             errors.Add("The requested stream stage is invalid.");
         }
+        if (request.RetainSourceForProducer && request.Stage != VirtualOutputStreamStage.PhysicalOutput)
+        {
+            errors.Add("Independent producer ownership requires physical-output stage media.");
+        }
         if (request.Client.AuthenticatedClientId?.Length > VirtualOutputProtocol.MaximumAuthenticatedClientIdLength)
         {
             errors.Add($"Authenticated client ID cannot exceed {VirtualOutputProtocol.MaximumAuthenticatedClientIdLength} characters.");
@@ -130,6 +134,10 @@ public static class VirtualOutputProtocolValidation
         if (report.LastFailure?.Length > VirtualOutputProtocol.MaximumStreamFailureLength)
         {
             errors.Add($"The stream failure cannot exceed {VirtualOutputProtocol.MaximumStreamFailureLength} characters.");
+        }
+        if (report.WorkerProducerId is not null && !Guid.TryParseExact(report.WorkerProducerId, "N", out _))
+        {
+            errors.Add("The worker producer identity must be a canonical session identifier.");
         }
         var trackCount = (report.Tracks?.Count ?? 0) +
             (report.PhysicalInput?.Tracks?.Count ?? 0) +

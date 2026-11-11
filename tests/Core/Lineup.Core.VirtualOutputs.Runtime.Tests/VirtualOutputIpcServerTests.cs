@@ -279,12 +279,19 @@ public sealed class VirtualOutputIpcServerTests
             TimeSpan.FromMinutes(1),
             TimeSpan.FromMinutes(1));
         var broker = Substitute.For<IVirtualOutputBroker>();
+        string? brokerTrace = null;
+        long? brokerGeneration = null;
         broker.GetManifestAsync(Arg.Any<VirtualOutputManifestRequest>(), Arg.Any<CancellationToken>())
-            .Returns(new VirtualOutputManifest
+            .Returns(_ =>
             {
-                VirtualDeviceId = deviceId,
-                Name = "Isolated output",
-                TunerCount = 4
+                brokerTrace = System.Diagnostics.Activity.Current?.TraceId.ToString();
+                brokerGeneration = System.Diagnostics.Activity.Current?.GetTagItem("lineup.worker.generation") is long generation ? generation : null;
+                return new VirtualOutputManifest
+                {
+                    VirtualDeviceId = deviceId,
+                    Name = "Isolated output",
+                    TunerCount = 4
+                };
             });
         var status = new VirtualOutputRuntimeStatus();
         var settings = Substitute.For<ILineupSettingsService>();
@@ -337,6 +344,8 @@ public sealed class VirtualOutputIpcServerTests
             MinimumProtocolVersion = VirtualOutputProtocol.MinimumVersion,
             MaximumProtocolVersion = VirtualOutputProtocol.MaximumVersion
         }, TestContext.Current.CancellationToken);
+        using var operation = Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.Begin("ipc_test", cancellationToken: TestContext.Current.CancellationToken);
+        var callerTrace = System.Diagnostics.Activity.Current!.TraceId.ToString();
         var manifest = await client.GetManifestAsync(new VirtualOutputManifestRequest
         {
             Session = new VirtualOutputSessionContext
@@ -350,6 +359,8 @@ public sealed class VirtualOutputIpcServerTests
         Assert.True(registration.Accepted);
         Assert.Equal(deviceId, manifest.VirtualDeviceId);
         Assert.Equal(4, manifest.TunerCount);
+        Assert.Equal(callerTrace, brokerTrace);
+        Assert.Equal(ticket.Generation, brokerGeneration);
         await server.StopAsync(TestContext.Current.CancellationToken);
         server.Dispose();
     }
@@ -436,9 +447,11 @@ public sealed class VirtualOutputIpcServerTests
         server.Dispose();
     }
 
-    /// <summary>Verifies a correlated worker presentation replaces broker media stages without replacing broker-owned identity metadata.</summary>
-    [Fact]
-    public async Task Client_ReportStreamStatus_MergesCorrelatedPresentation()
+    /// <summary>Verifies correlated readiness releases startup admission and replaces media stages without replacing broker identity.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Client_ReportStreamStatus_MergesCorrelatedPresentation(bool retained)
     {
         // Arrange
         var endpoint = CreateEndpoint();
@@ -454,7 +467,8 @@ public sealed class VirtualOutputIpcServerTests
             },
             TimeSpan.FromMinutes(1),
             TimeSpan.FromMinutes(1));
-        var activeStreams = new ActiveStreamRegistry();
+        var activeStreams = new ActiveStreamRegistry(resources: new() { MaximumPendingStarts = 1 });
+        using var startup = activeStreams.TryBeginStartup(0, () => { });
         var mediaStream = new BlockingReadStream();
         var streamSessionId = StreamSessionId.New();
         var originalFlow = new ActiveStreamFlowContext
@@ -462,7 +476,8 @@ public sealed class VirtualOutputIpcServerTests
             SyntheticSource = "physical-source",
             VirtualDeviceId = deviceId
         };
-        activeStreams.Register(new ActiveStreamSnapshot(
+        Assert.NotNull(startup);
+        Assert.True(startup.TryRegister(new ActiveStreamSnapshot(
             streamSessionId.ToString(),
             "48.3",
             HostedStreamFormat.MpegTs,
@@ -473,7 +488,7 @@ public sealed class VirtualOutputIpcServerTests
             ClientId = "client-id",
             ClientAddress = "192.0.2.10",
             Flow = originalFlow
-        });
+        }, mediaStream.Dispose));
         var rawSource = new MediaProbeResult(
             [
                 new MediaTrackMetadata(0, MediaTrackType.Video, "mpeg2video", 8_000_000, 1920, 1080, null, null),
@@ -494,7 +509,7 @@ public sealed class VirtualOutputIpcServerTests
                     RawSource = rawSource,
                     Source = rawSource,
                     Profile = new VirtualTranscodeProfile()
-                }));
+                }, retainedProducerSource: retained));
         var server = new VirtualOutputIpcServer(
             endpoint,
             authority,
@@ -547,12 +562,13 @@ public sealed class VirtualOutputIpcServerTests
         ];
 
         // Act
-        var response = await client.ReportStreamStatusAsync(new VirtualOutputStreamStatusReport
+        var report = new VirtualOutputStreamStatusReport
         {
             Session = request.Session,
             RequestId = request.RequestId,
             StreamSessionId = streamSessionId,
             WorkerMediaSessionId = "worker-media-session",
+            WorkerProducerId = StreamSessionId.New().ToString(),
             Format = HostedStreamFormat.Cmaf,
             Tracks = presentationTracks,
             PhysicalInput = new ActiveStreamMediaSnapshot(9_000_000, rawSource.Tracks.Select(ToMediaTrack).ToArray()),
@@ -564,20 +580,47 @@ public sealed class VirtualOutputIpcServerTests
                     new ActiveStreamMediaTrack(1, MediaTrackType.Audio, "aac", 192_000, null, null, 2, 48_000)
                 ]),
             StartupStage = VirtualOutputStreamStartupStage.Ready
-        }, TestContext.Current.CancellationToken);
+        };
+        var starting = await client.ReportStreamStatusAsync(report with { StartupStage = VirtualOutputStreamStartupStage.Starting }, TestContext.Current.CancellationToken);
+        Assert.True(starting.Updated);
+        Assert.Null(activeStreams.TryBeginStartup(0, () => { }));
+        var response = await client.ReportStreamStatusAsync(report, TestContext.Current.CancellationToken);
 
         // Assert
         Assert.True(response.Updated);
+        using var nextStartup = activeStreams.TryBeginStartup(0, () => { });
+        Assert.NotNull(nextStartup);
         var snapshot = Assert.Single(activeStreams.GetActiveStreams());
         Assert.Equal(HostedStreamFormat.Cmaf, snapshot.Format);
         Assert.Equal("client-id", snapshot.ClientId);
         Assert.Equal("192.0.2.10", snapshot.ClientAddress);
-        Assert.Same(originalFlow, snapshot.Flow);
+        Assert.Equal(originalFlow with { ReusableOutputId = new StreamSessionId(Guid.ParseExact(report.WorkerProducerId, "N")) }, snapshot.Flow);
         Assert.Equal(request.RequestId.ToString(), snapshot.BrokerRequestId);
         Assert.Equal("worker-media-session", snapshot.WorkerMediaSessionId);
         Assert.Equal(nameof(VirtualOutputStreamStartupStage.Ready), snapshot.WorkerStartupStage);
         Assert.Equal(["h264", "aac"], snapshot.VirtualOutput!.Tracks.Select(track => track.Codec));
         Assert.DoesNotContain(snapshot.VirtualOutput.Tracks, track => track.Type == MediaTrackType.Subtitle);
+        var mismatched = await Assert.ThrowsAsync<VirtualOutputClientException>(() =>
+            client.ReportStreamStatusAsync(report with { RequestId = VirtualOutputStreamRequestId.New(), ReleaseViewer = true }, TestContext.Current.CancellationToken));
+        Assert.Equal(VirtualOutputFailureCode.InvalidRequest, mismatched.FailureCode);
+        var wrongStream = await Assert.ThrowsAsync<VirtualOutputClientException>(() =>
+            client.ReportStreamStatusAsync(report with { StreamSessionId = StreamSessionId.New(), ReleaseViewer = true }, TestContext.Current.CancellationToken));
+        Assert.Equal(VirtualOutputFailureCode.InvalidRequest, wrongStream.FailureCode);
+        Assert.Single(activeStreams.GetActiveStreams());
+        if (retained)
+        {
+            var released = await client.ReportStreamStatusAsync(report with { ReleaseViewer = true }, TestContext.Current.CancellationToken);
+            Assert.True(released.Updated);
+            Assert.Empty(activeStreams.GetActiveStreams());
+            Assert.False(mediaStream.IsDisposed);
+        }
+        else
+        {
+            var rejected = await Assert.ThrowsAsync<VirtualOutputClientException>(() =>
+                client.ReportStreamStatusAsync(report with { ReleaseViewer = true }, TestContext.Current.CancellationToken));
+            Assert.Equal(VirtualOutputFailureCode.InvalidRequest, rejected.FailureCode);
+            Assert.Single(activeStreams.GetActiveStreams());
+        }
         await opened.CloseAsync(TestContext.Current.CancellationToken);
         await server.StopAsync(TestContext.Current.CancellationToken);
         server.Dispose();

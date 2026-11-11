@@ -1120,4 +1120,16 @@
   <data name="WatchTest_VideoCodec" xml:space="preserve"><value>Videocodec</value></data>
   <data name="WatchTest_VideoProfile" xml:space="preserve"><value>Videoprofiel</value></data>
   <data name="WatchTest_WebVttSidecar" xml:space="preserve"><value>WebVTT-sidecar</value></data>
+  <data name="Settings_Conflict" xml:space="preserve"><value>De instellingen zijn gewijzigd terwijl dit concept openstond. Er is niets opgeslagen. Laad de opgeslagen instellingen opnieuw voordat u het opnieuw probeert.</value></data>
+  <data name="Settings_CoreSavedWebConflict" xml:space="preserve"><value>De Core-instellingen zijn opgeslagen, maar de Web-instellingen zijn gelijktijdig gewijzigd en niet opgeslagen. Laad opnieuw; vastgelegde wijzigingen zijn niet teruggedraaid.</value></data>
+  <data name="Settings_SavedApplyConflict" xml:space="preserve"><value>De Core- en Web-instellingen zijn opgeslagen, maar nieuwere wijzigingen verhinderen het voltooien van de installatie. Laad opnieuw; vastgelegde wijzigingen zijn niet teruggedraaid.</value></data>
+  <data name="Settings_CoreSavedWebFailure" xml:space="preserve"><value>De Core-instellingen zijn opgeslagen, maar de Web-instellingen niet. Sla opnieuw op of laad opnieuw; vastgelegde wijzigingen zijn niet teruggedraaid. Fout: {0}</value></data>
+  <data name="Settings_TopologyHeading" xml:space="preserve"><value>Configuratiestatus</value></data>
+  <data name="Settings_TopologyPending" xml:space="preserve"><value>De opgeslagen topologie wacht op toepassing.</value></data>
+  <data name="Settings_TopologyApplying" xml:space="preserve"><value>De opgeslagen topologie wordt toegepast.</value></data>
+  <data name="Settings_TopologyApplied" xml:space="preserve"><value>De opgeslagen topologie is toegepast.</value></data>
+  <data name="Settings_TopologyDegraded" xml:space="preserve"><value>De opgeslagen instellingen zijn niet volledig toegepast. Controleer de betrokken apparaten of uitvoer en de serverlogboeken en probeer het opnieuw.</value></data>
+  <data name="Settings_TopologyRevisions" xml:space="preserve"><value>Gewenst: {0}. Geprobeerd: {1}. Laatst volledig toegepast: {2}.</value></data>
+  <data name="Settings_TopologyDeviceFailure" xml:space="preserve"><value>Het fysieke apparaat {0} kon niet worden toegepast.</value></data>
+  <data name="Settings_TopologyOutputFailure" xml:space="preserve"><value>Gidsuitvoer {0} is mislukt of gedeeltelijk.</value></data>
 </root>

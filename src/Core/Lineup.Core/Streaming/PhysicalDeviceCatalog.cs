@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Lineup.Core.Settings;
 
 namespace Lineup.Core.Streaming;
 
@@ -13,6 +14,9 @@ public interface IPhysicalDeviceCatalog : IPhysicalDeviceResolver
 
     /// <summary>Atomically creates and activates enabled physical devices.</summary>
     Task ApplyAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default);
+
+    /// <summary>Publishes a refresh only while the matching topology generation is still current.</summary>
+    Task<bool> TryPublishAsync(StreamingConfiguration configuration, Func<CancellationToken, Task> publish, CancellationToken cancellationToken = default);
 }
 
 internal sealed class PhysicalDeviceRuntimeState : IPhysicalDeviceResolver
@@ -79,20 +83,27 @@ public sealed class PhysicalDeviceCatalog : IPhysicalDeviceCatalog
     private readonly PhysicalDeviceRuntimeState _state;
     private readonly ILogger<PhysicalDeviceCatalog> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly SemaphoreSlim _publicationGate = new(1, 1);
+    private readonly PhysicalDeviceRefreshScheduler _refresh;
+    private readonly CoalescedRefresh<int> _applications;
+    private string? _requestedKey;
     private string? _activationKey;
     private Dictionary<PhysicalDeviceId, string> _deviceActivationKeys = [];
 
     /// <summary>Initializes a physical device catalog.</summary>
-    public PhysicalDeviceCatalog(IStreamingAdapterRegistry adapters, ILogger<PhysicalDeviceCatalog>? logger = null)
-        : this(adapters, new PhysicalDeviceRuntimeState(), logger)
+    public PhysicalDeviceCatalog(IStreamingAdapterRegistry adapters, ILogger<PhysicalDeviceCatalog>? logger = null, PhysicalDeviceRefreshScheduler? refresh = null)
+        : this(adapters, new PhysicalDeviceRuntimeState(), logger, refresh)
     {
     }
 
-    internal PhysicalDeviceCatalog(IStreamingAdapterRegistry adapters, PhysicalDeviceRuntimeState state, ILogger<PhysicalDeviceCatalog>? logger = null)
+    /// <summary>Initializes a catalog with shared graph runtime state and host-wide refresh admission.</summary>
+    internal PhysicalDeviceCatalog(IStreamingAdapterRegistry adapters, PhysicalDeviceRuntimeState state, ILogger<PhysicalDeviceCatalog>? logger = null, PhysicalDeviceRefreshScheduler? refresh = null)
     {
         _adapters = adapters;
         _state = state;
         _logger = logger ?? NullLogger<PhysicalDeviceCatalog>.Instance;
+        _refresh = refresh ?? new PhysicalDeviceRefreshScheduler();
+        _applications = new CoalescedRefresh<int>(_logger);
     }
 
     /// <inheritdoc />
@@ -109,40 +120,73 @@ public sealed class PhysicalDeviceCatalog : IPhysicalDeviceCatalog
     }
 
     /// <inheritdoc />
-    public async Task ApplyAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default)
+    public Task ApplyAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default)
     {
         ValidateConfiguration(configuration);
+        cancellationToken.ThrowIfCancellationRequested();
+        var key = ConfigurationRevision.Create(configuration.PhysicalDevices);
+        Volatile.Write(ref _requestedKey, key);
+        return _applications.RunAsync(key, token => ApplyCoreAsync(configuration, token), cancellationToken, waitForCancellationCleanup: true);
+    }
 
+    /// <inheritdoc />
+    public async Task<bool> TryPublishAsync(StreamingConfiguration configuration, Func<CancellationToken, Task> publish, CancellationToken cancellationToken = default)
+    {
+        await _publicationGate.WaitAsync(cancellationToken);
+        try
+        {
+            var key = CreateActivationKey(configuration.PhysicalDevices);
+            if (!string.Equals(Volatile.Read(ref _requestedKey), ConfigurationRevision.Create(configuration.PhysicalDevices), StringComparison.Ordinal) || !_state.IsConfigurationCurrent(key))
+            {
+                return false;
+            }
+            await publish(cancellationToken);
+            return true;
+        }
+        finally
+        {
+            _publicationGate.Release();
+        }
+    }
+
+    private async Task<int> ApplyCoreAsync(StreamingConfiguration configuration, CancellationToken cancellationToken)
+    {
         await _gate.WaitAsync(cancellationToken);
         try
         {
+            if (!string.Equals(Volatile.Read(ref _requestedKey), ConfigurationRevision.Create(configuration.PhysicalDevices), StringComparison.Ordinal))
+            {
+                return 0;
+            }
             var definitions = configuration.PhysicalDevices.Where(device => device.Enabled).OrderBy(device => device.Order).ThenBy(device => device.Id.Value).ToArray();
             var activationKey = CreateActivationKey(definitions);
             if (string.Equals(_activationKey, activationKey, StringComparison.Ordinal))
             {
-                return;
+                return 0;
             }
 
-            var created = new List<IPhysicalTunerDevice>();
-            var newlyCreated = new List<IPhysicalTunerDevice>();
+            var created = new IPhysicalTunerDevice?[definitions.Length];
+            var newlyCreated = new System.Collections.Concurrent.ConcurrentBag<IPhysicalTunerDevice>();
             var previous = _state.Devices;
             var previousById = previous.ToDictionary(device => device.Snapshot.Id);
-            var deviceActivationKeys = new Dictionary<PhysicalDeviceId, string>();
-            var activationSucceeded = true;
+            var deviceActivationKeys = new System.Collections.Concurrent.ConcurrentDictionary<PhysicalDeviceId, string>();
+            var activationFailures = 0;
             try
             {
-                foreach (var definition in definitions)
+                await Parallel.ForEachAsync(Enumerable.Range(0, definitions.Length),
+                    new ParallelOptions { MaxDegreeOfParallelism = _refresh.MaximumConcurrentOperations, CancellationToken = cancellationToken }, async (index, token) =>
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
+                    var definition = definitions[index];
+                    token.ThrowIfCancellationRequested();
                     var deviceKey = $"{definition.Id.Value:D}|{definition.Adapter.Kind.Length}:{definition.Adapter.Kind}|{definition.Adapter.Configuration.GetRawText()}";
                     if (previousById.TryGetValue(definition.Id, out var existing) &&
                         _state.IsCurrent(existing) &&
                         _deviceActivationKeys.TryGetValue(definition.Id, out var previousKey) &&
                         string.Equals(previousKey, deviceKey, StringComparison.Ordinal))
                     {
-                        created.Add(existing);
-                        deviceActivationKeys.Add(definition.Id, deviceKey);
-                        continue;
+                        created[index] = existing;
+                        deviceActivationKeys[definition.Id] = deviceKey;
+                        return;
                     }
                     try
                     {
@@ -152,22 +196,22 @@ public sealed class PhysicalDeviceCatalog : IPhysicalDeviceCatalog
                         {
                             throw new InvalidOperationException($"Physical device {definition.Name} is invalid: {string.Join(" ", adapterErrors)}");
                         }
-                        var device = await driver.CreateAsync(definition.Id, definition.Name, definition.Adapter, cancellationToken);
+                        var device = await _refresh.RunAsync(ct => driver.CreateAsync(definition.Id, definition.Name, definition.Adapter, ct).AsTask(), token, device => DisposeDevicesAsync([device]));
                         newlyCreated.Add(device);
-                        created.Add(device);
-                        deviceActivationKeys.Add(definition.Id, deviceKey);
+                        created[index] = device;
+                        deviceActivationKeys[definition.Id] = deviceKey;
                     }
                     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                     {
                         throw;
                     }
                     catch (Exception exception) when (
-                        exception is ArgumentException or InvalidOperationException or InvalidDataException or IOException or HttpRequestException or UnauthorizedAccessException)
+                        exception is ArgumentException or InvalidOperationException or InvalidDataException or IOException or HttpRequestException or UnauthorizedAccessException or TimeoutException)
                     {
-                        activationSucceeded = false;
+                        Interlocked.Increment(ref activationFailures);
                         _logger.LogWarning(exception, "Unable to activate physical device {PhysicalDeviceId} ({PhysicalDeviceName}); other devices will continue", definition.Id, definition.Name);
                     }
-                }
+                });
                 cancellationToken.ThrowIfCancellationRequested();
             }
             catch
@@ -175,22 +219,45 @@ public sealed class PhysicalDeviceCatalog : IPhysicalDeviceCatalog
                 await DisposeDevicesAsync(newlyCreated);
                 throw;
             }
-            var retained = created.ToHashSet<IPhysicalTunerDevice>(ReferenceEqualityComparer.Instance);
+            var activated = created.OfType<IPhysicalTunerDevice>().ToArray();
+            var retained = activated.ToHashSet<IPhysicalTunerDevice>(ReferenceEqualityComparer.Instance);
             var retired = previous.Where(device => !retained.Contains(device)).ToArray();
             try
             {
-                await _state.RetireAsync(retired);
+                await _publicationGate.WaitAsync(cancellationToken);
             }
             catch
             {
-                _activationKey = null;
                 await DisposeDevicesAsync(newlyCreated);
                 throw;
             }
-            _deviceActivationKeys = deviceActivationKeys;
-            _state.Replace(activationKey, created);
-            _activationKey = activationSucceeded ? activationKey : null;
+            try
+            {
+                try
+                {
+                    if (!string.Equals(Volatile.Read(ref _requestedKey), ConfigurationRevision.Create(configuration.PhysicalDevices), StringComparison.Ordinal))
+                    {
+                        await DisposeDevicesAsync(newlyCreated);
+                        return 0;
+                    }
+                    await _state.RetireAsync(retired);
+                }
+                catch
+                {
+                    _activationKey = null;
+                    await DisposeDevicesAsync(newlyCreated);
+                    throw;
+                }
+                _deviceActivationKeys = new Dictionary<PhysicalDeviceId, string>(deviceActivationKeys);
+                _state.Replace(activationKey, activated);
+                _activationKey = activationFailures == 0 ? activationKey : null;
+            }
+            finally
+            {
+                _publicationGate.Release();
+            }
             await DisposeDevicesAsync(retired);
+            return 0;
         }
         finally
         {

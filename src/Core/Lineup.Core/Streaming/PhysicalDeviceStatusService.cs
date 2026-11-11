@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Lineup.Core.Settings;
 
 namespace Lineup.Core.Streaming;
 
@@ -46,6 +47,15 @@ public sealed record PhysicalDeviceRuntimeStatus
 
     /// <summary>Gets whether device restart is supported.</summary>
     public bool SupportsRestart { get; init; }
+
+    /// <summary>Gets the last completed refresh attempt, including failures.</summary>
+    public DateTimeOffset? LastAttemptAtUtc { get; init; }
+
+    /// <summary>Gets the last successful receiver-status observation.</summary>
+    public DateTimeOffset? StatusObservedAtUtc { get; init; }
+
+    /// <summary>Gets the last successful descriptive-information observation.</summary>
+    public DateTimeOffset? InformationObservedAtUtc { get; init; }
 }
 
 /// <summary>
@@ -55,14 +65,19 @@ public sealed class PhysicalDeviceStatusService : IPhysicalDeviceStatusService
 {
     private readonly IPhysicalDeviceCatalog _catalog;
     private readonly ILogger<PhysicalDeviceStatusService> _logger;
-    private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly PhysicalDeviceRefreshScheduler _refresh;
+    private readonly CoalescedRefresh<int> _statuses;
+    private readonly CoalescedRefresh<int> _information;
     private IReadOnlyList<PhysicalDeviceRuntimeStatus> _devices = [];
 
     /// <summary>Initializes a physical-device status service.</summary>
-    public PhysicalDeviceStatusService(IPhysicalDeviceCatalog catalog, ILogger<PhysicalDeviceStatusService>? logger = null)
+    public PhysicalDeviceStatusService(IPhysicalDeviceCatalog catalog, ILogger<PhysicalDeviceStatusService>? logger = null, PhysicalDeviceRefreshScheduler? refresh = null)
     {
         _catalog = catalog;
         _logger = logger ?? NullLogger<PhysicalDeviceStatusService>.Instance;
+        _refresh = refresh ?? new PhysicalDeviceRefreshScheduler();
+        _statuses = new CoalescedRefresh<int>(_logger);
+        _information = new CoalescedRefresh<int>(_logger);
     }
 
     /// <inheritdoc />
@@ -72,96 +87,95 @@ public sealed class PhysicalDeviceStatusService : IPhysicalDeviceStatusService
     public event Action? StateChanged;
 
     /// <inheritdoc />
-    public async Task RefreshAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(configuration);
-        await _gate.WaitAsync(cancellationToken);
-        try
-        {
-            await _catalog.ApplyAsync(configuration, cancellationToken);
-            var activeDevices = _catalog.Devices.ToDictionary(device => device.Snapshot.Id);
-            var statuses = new List<PhysicalDeviceRuntimeStatus>(configuration.PhysicalDevices.Count);
-            foreach (var definition in configuration.PhysicalDevices.Where(device => device.Enabled).OrderBy(device => device.Order).ThenBy(device => device.Id.Value))
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (!activeDevices.TryGetValue(definition.Id, out var device))
-                {
-                    statuses.Add(CreateActivationFailureStatus(definition));
-                    continue;
-                }
-                try
-                {
-                    var status = device is IPhysicalDeviceStatusCapability capability
-                        ? await capability.RefreshStatusAsync(cancellationToken)
-                        : new PhysicalDeviceStatusSnapshot { Device = device.Snapshot };
-                    statuses.Add(CreateRuntimeStatus(device, status, null, definition.Name));
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception exception) when (
-                    exception is ArgumentException or InvalidOperationException or InvalidDataException or IOException or HttpRequestException or UnauthorizedAccessException)
-                {
-                    _logger.LogWarning(exception, "Unable to refresh status for physical device {PhysicalDeviceId}", device.Snapshot.Id);
-                    var prior = Devices.SingleOrDefault(item => item.Device.Id == device.Snapshot.Id)?.Status;
-                    statuses.Add(CreateRuntimeStatus(device, prior, $"Status refresh failed ({exception.GetType().Name}).", definition.Name));
-                }
-            }
-            Volatile.Write(ref _devices, statuses);
-        }
-        finally
-        {
-            _gate.Release();
-        }
-        StateChanged?.Invoke();
-    }
+    public Task RefreshAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default) =>
+        _statuses.RunAsync(ConfigurationRevision.Create(configuration.PhysicalDevices), token => RefreshCoreAsync(configuration, false, token), cancellationToken);
 
     /// <inheritdoc />
-    public async Task RefreshDeviceInformationAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default)
+    public Task RefreshDeviceInformationAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default) =>
+        _information.RunAsync(ConfigurationRevision.Create(configuration.PhysicalDevices), token => RefreshCoreAsync(configuration, true, token), cancellationToken);
+
+    private async Task<int> RefreshCoreAsync(StreamingConfiguration configuration, bool informationOnly, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(configuration);
-        await _gate.WaitAsync(cancellationToken);
-        try
+        await _catalog.ApplyAsync(configuration, cancellationToken);
+        var activeDevices = _catalog.Devices.ToDictionary(device => device.Snapshot.Id);
+        var definitions = configuration.PhysicalDevices.Where(device => device.Enabled).OrderBy(device => device.Order).ThenBy(device => device.Id.Value).ToArray();
+        var initialized = await _catalog.TryPublishAsync(configuration, _ =>
         {
-            await _catalog.ApplyAsync(configuration, cancellationToken);
-            var activeDevices = _catalog.Devices.ToDictionary(device => device.Snapshot.Id);
-            var statuses = new List<PhysicalDeviceRuntimeStatus>(configuration.PhysicalDevices.Count);
-            foreach (var definition in configuration.PhysicalDevices.Where(device => device.Enabled).OrderBy(device => device.Order).ThenBy(device => device.Id.Value))
+            Volatile.Write(ref _devices, definitions.Select(definition => activeDevices.TryGetValue(definition.Id, out var device)
+                ? Devices.SingleOrDefault(prior => prior.Device.Id == definition.Id && prior.Device.Kind == definition.Adapter.Kind)
+                    ?? CreateRuntimeStatus(device, null, null, definition.Name)
+                : CreateActivationFailureStatus(definition)).ToArray());
+            return Task.CompletedTask;
+        }, cancellationToken);
+        if (!initialized)
+        {
+            return 0;
+        }
+        await Parallel.ForEachAsync(definitions,
+            new ParallelOptions { MaxDegreeOfParallelism = _refresh.MaximumConcurrentOperations, CancellationToken = cancellationToken }, async (definition, token) =>
+        {
+            if (!activeDevices.TryGetValue(definition.Id, out var device))
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (!activeDevices.TryGetValue(definition.Id, out var device))
-                {
-                    statuses.Add(CreateActivationFailureStatus(definition));
-                    continue;
-                }
-                var prior = Devices.SingleOrDefault(item => item.Device.Id == device.Snapshot.Id);
-                try
-                {
-                    var refreshed = device is IPhysicalDeviceInformationCapability capability
-                        ? await capability.RefreshDeviceInformationAsync(cancellationToken)
-                        : prior?.Status ?? new PhysicalDeviceStatusSnapshot { Device = device.Snapshot };
-                    var status = refreshed with { Receivers = prior?.Status?.Receivers ?? refreshed.Receivers };
-                    statuses.Add(CreateRuntimeStatus(device, status, null, definition.Name));
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception exception) when (
-                    exception is ArgumentException or InvalidOperationException or InvalidDataException or IOException or HttpRequestException or UnauthorizedAccessException)
-                {
-                    _logger.LogWarning(exception, "Unable to refresh information for physical device {PhysicalDeviceId}", device.Snapshot.Id);
-                    statuses.Add(CreateRuntimeStatus(device, prior?.Status, $"Device information refresh failed ({exception.GetType().Name}).", definition.Name));
-                }
+                return;
             }
-            Volatile.Write(ref _devices, statuses);
-        }
-        finally
+            PhysicalDeviceStatusSnapshot? refreshed = null;
+            string? error = null;
+            var startedAt = DateTimeOffset.UtcNow;
+            try
+            {
+                refreshed = await _refresh.RunAsync(ct => informationOnly
+                    ? device is IPhysicalDeviceInformationCapability information
+                        ? information.RefreshDeviceInformationAsync(ct)
+                        : Task.FromResult(Devices.SingleOrDefault(item => item.Device.Id == definition.Id)?.Status ?? new PhysicalDeviceStatusSnapshot { Device = device.Snapshot })
+                    : device is IPhysicalDeviceStatusCapability status ? status.RefreshStatusAsync(ct) : Task.FromResult(new PhysicalDeviceStatusSnapshot { Device = device.Snapshot }), token);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception) when (
+                exception is ArgumentException or InvalidOperationException or InvalidDataException or IOException or HttpRequestException or UnauthorizedAccessException or TimeoutException)
+            {
+                _logger.LogWarning(exception, "Unable to refresh {RefreshKind} for physical device {PhysicalDeviceId}", informationOnly ? "information" : "status", device.Snapshot.Id);
+                error = $"{(informationOnly ? "Device information" : "Status")} refresh failed ({exception.GetType().Name}).";
+            }
+            var published = await _catalog.TryPublishAsync(configuration, _ =>
+            {
+                if (!_catalog.Devices.Any(current => ReferenceEquals(current, device)))
+                {
+                    return Task.CompletedTask;
+                }
+                var prior = Devices.SingleOrDefault(item => item.Device.Id == definition.Id);
+                var status = refreshed ?? prior?.Status;
+                if (refreshed is not null && informationOnly)
+                {
+                    status = refreshed with { Receivers = prior?.Status?.Receivers ?? refreshed.Receivers };
+                }
+                else if (refreshed is not null && prior?.InformationObservedAtUtc > startedAt)
+                {
+                    status = refreshed with { Device = prior.Device };
+                }
+                var now = DateTimeOffset.UtcNow;
+                var updated = CreateRuntimeStatus(device, status, error, definition.Name) with
+                {
+                    LastAttemptAtUtc = now,
+                    StatusObservedAtUtc = !informationOnly && error is null ? now : prior?.StatusObservedAtUtc,
+                    InformationObservedAtUtc = informationOnly && error is null ? now : prior?.InformationObservedAtUtc
+                };
+                Volatile.Write(ref _devices, Devices.Select(item => item.Device.Id == definition.Id ? updated : item).ToArray());
+                return Task.CompletedTask;
+            }, token);
+            if (published)
+            {
+                StateChanged?.Invoke();
+            }
+        });
+        if (activeDevices.Count == 0)
         {
-            _gate.Release();
+            StateChanged?.Invoke();
         }
-        StateChanged?.Invoke();
+        return 0;
     }
 
     /// <inheritdoc />
@@ -205,6 +219,9 @@ public sealed class PhysicalDeviceStatusService : IPhysicalDeviceStatusService
                 Capacity = prior?.Device.Capacity ?? new PhysicalTunerCapacity(0)
             },
             Status = prior?.Status,
+            LastAttemptAtUtc = DateTimeOffset.UtcNow,
+            StatusObservedAtUtc = prior?.StatusObservedAtUtc,
+            InformationObservedAtUtc = prior?.InformationObservedAtUtc,
             Error = "Physical device activation failed; check the device configuration and connection."
         };
     }

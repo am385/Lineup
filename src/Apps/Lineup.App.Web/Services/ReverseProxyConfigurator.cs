@@ -7,12 +7,14 @@ namespace Lineup.App.Web.Services;
 /// <summary>Holds validated management-listener reverse-proxy request metadata configuration.</summary>
 internal sealed class ReverseProxyConfiguration
 {
+    private readonly HashSet<string> _knownProxies;
+
     /// <summary>Initializes validated reverse-proxy configuration.</summary>
-    internal ReverseProxyConfiguration(bool enabled, ForwardedHeadersOptions options, int configuredProxyCount)
+    internal ReverseProxyConfiguration(bool enabled, ForwardedHeadersOptions options, IReadOnlyList<string> knownProxies)
     {
         Enabled = enabled;
         Options = options;
-        ConfiguredProxyCount = configuredProxyCount;
+        _knownProxies = knownProxies.ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>Gets whether forwarded request metadata processing is enabled.</summary>
@@ -22,8 +24,10 @@ internal sealed class ReverseProxyConfiguration
     internal ForwardedHeadersOptions Options { get; }
 
     /// <summary>Gets the number of explicitly configured trusted proxy addresses.</summary>
-    internal int ConfiguredProxyCount { get; }
+    internal int ConfiguredProxyCount => _knownProxies.Count;
 
+    /// <summary>Returns whether desired proxy trust differs from the active startup pipeline, including after a partial-save reload.</summary>
+    internal bool RequiresRestart(IEnumerable<string> knownProxies) => !_knownProxies.SetEquals(knownProxies);
 }
 
 /// <summary>Loads strict persisted trusted reverse-proxy configuration for the management request pipeline.</summary>
@@ -51,6 +55,6 @@ internal static class ReverseProxyConfigurator
         {
             options.KnownIPNetworks.Add(network);
         }
-        return new ReverseProxyConfiguration(trustedProxies.Values.Count > 0, options, trustedProxies.Values.Count);
+        return new ReverseProxyConfiguration(trustedProxies.Values.Count > 0, options, trustedProxies.Values);
     }
 }

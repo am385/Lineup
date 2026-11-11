@@ -1,4 +1,5 @@
 using System.Text;
+using MediaSession = Lineup.Plugin.WebPlayer.VirtualOutputHost.DedicatedPlaybackRuntime.MediaSession;
 using Xunit;
 
 namespace Lineup.Plugin.WebPlayer.Tests;

@@ -25,6 +25,44 @@ public class StatusApiServiceTests
 {
     private static readonly JsonSerializerOptions WebJsonOptions = new(JsonSerializerDefaults.Web);
 
+    /// <summary>Verifies status reports independent observation intervals, guide generation and configuration drift honestly.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GetStatusAsync_ExposesObservationIntervalsAndConfigurationDrift(bool changeConfiguration)
+    {
+        // Arrange
+        using var fixture = CreateFixture();
+        var generation = new GuideReadGeneration(DateTimeOffset.UtcNow, "contributing-import-revision", "guide-configuration-revision");
+        fixture.GuideReader.GetStatisticsAsync(Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            if (changeConfiguration)
+            {
+                fixture.Settings.TargetDays++;
+            }
+            return new GuideStatistics(1, 2, null, null, null) { Generation = generation };
+        });
+
+        // Act
+        var status = await fixture.Service.GetStatusAsync(TestContext.Current.CancellationToken);
+
+        // Assert
+        var observation = Assert.IsType<StatusObservationResponse>(status.Observation);
+        Assert.Equal("eventual", observation.Consistency);
+        Assert.Equal(changeConfiguration, observation.ConfigurationChangedDuringRead);
+        Assert.NotEmpty(observation.CoreConfigurationRevision);
+        Assert.NotEmpty(observation.WebConfigurationRevision);
+        Assert.Same(generation, status.Guide.Generation);
+        Assert.NotNull(status.Guide.SourceImportsObservedAtUtc);
+        Assert.Equal(12, observation.Sections.Count);
+        Assert.All(observation.Sections.Values, section =>
+        {
+            Assert.True(section.StartedAtUtc >= status.GeneratedAtUtc);
+            Assert.True(section.CompletedAtUtc >= section.StartedAtUtc);
+        });
+        Assert.True(observation.Sections["channels"].StartedAtUtc >= observation.Sections["guide"].CompletedAtUtc);
+    }
+
     /// <summary>Verifies advertised built-in and custom guide URLs against the production download endpoints, including privacy and unavailable publications.</summary>
     [Theory]
     [InlineData(true, false, true, "custom_guide")]
@@ -177,6 +215,11 @@ public class StatusApiServiceTests
     {
         // Arrange
         var catalog = Substitute.For<IPhysicalDeviceCatalog>();
+        catalog.TryPublishAsync(Arg.Any<StreamingConfiguration>(), Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>()).Returns(async call =>
+        {
+            await call.Arg<Func<CancellationToken, Task>>()(call.Arg<CancellationToken>());
+            return true;
+        });
         var statuses = new PhysicalDeviceStatusService(catalog);
         using var fixture = CreateFixture(statuses: statuses);
         var healthy = Assert.Single(fixture.Settings.Streaming.PhysicalDevices);

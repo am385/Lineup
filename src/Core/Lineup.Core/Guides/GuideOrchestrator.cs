@@ -3,6 +3,7 @@ using Lineup.Core.Common.Streaming;
 using Lineup.Core.Extensibility.Streaming;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Lineup.Core.Settings;
 
 namespace Lineup.Core.Guides;
 
@@ -13,7 +14,6 @@ public sealed class GuideOrchestrator : IGuideOrchestrator
 {
     private readonly IStreamingAdapterRegistry _adapters;
     private readonly DeviceGuideStore _guideStore;
-    private readonly StreamingTopologyStore _topologyStore;
     private readonly ILogger<GuideOrchestrator> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private ActiveConfiguration _active = new(new StreamingConfiguration(), [], []);
@@ -27,7 +27,7 @@ public sealed class GuideOrchestrator : IGuideOrchestrator
     {
         _adapters = adapters;
         _guideStore = guideStore;
-        _topologyStore = topologyStore;
+        ArgumentNullException.ThrowIfNull(topologyStore);
         _logger = logger ?? NullLogger<GuideOrchestrator>.Instance;
     }
 
@@ -139,11 +139,15 @@ public sealed class GuideOrchestrator : IGuideOrchestrator
             virtualDevice,
             active.Configuration.PhysicalDevices,
             _adapters.GetVirtual(virtualDevice.Adapter.Kind));
-        var identities = await _topologyStore.ReadActiveAsync(cancellationToken);
-        var resolution = ChannelTopologyResolver.Resolve(virtualDevice, physicalDevices, identities);
-        var snapshot = await _guideStore.BuildSnapshotAsync(
-            virtualDeviceId, resolution.Channels, active.Sources.Select(source => source.Scope).ToArray(), cancellationToken: cancellationToken);
-        return snapshot with { SourceDiagnostics = active.SourceDiagnostics };
+        var snapshot = await _guideStore.BuildResolvedSnapshotAsync(
+            virtualDeviceId,
+            identities => ChannelTopologyResolver.Resolve(virtualDevice, physicalDevices, identities).Channels,
+            active.Sources.Select(source => source.Scope).ToArray(), physicalDeviceIds: physicalDevices.Select(device => device.Id).ToArray(), cancellationToken: cancellationToken);
+        return snapshot with
+        {
+            SourceDiagnostics = active.SourceDiagnostics,
+            Generation = snapshot.Generation! with { ConfigurationRevision = ConfigurationRevision.Create(active.Configuration) }
+        };
     }
 
     private async Task<GuideRefreshResult> RefreshAsync(IGuideSource source, GuideSourceScope scope, CancellationToken cancellationToken)
@@ -173,6 +177,7 @@ public sealed class GuideOrchestrator : IGuideOrchestrator
         }
         catch (Exception exception)
         {
+            _logger.LogWarning(exception, "Unable to refresh guide source {GuideSourceId}; the last committed import was preserved", source.Id);
             return new GuideRefreshResult
             {
                 SourceId = source.Id,

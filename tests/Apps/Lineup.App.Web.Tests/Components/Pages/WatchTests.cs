@@ -25,7 +25,7 @@ public class WatchTests
     {
         // Arrange
         var repository = Substitute.For<ILineupGuideReader>();
-        repository.GetChannelsAsync(Arg.Any<DateTimeOffset?>(), Arg.Any<DateTimeOffset?>(), Arg.Any<CancellationToken>()).Returns(
+        repository.GetChannelDirectoryAsync(Arg.Any<CancellationToken>()).Returns(
         [
             new GuideChannelSegment { GuideNumber = "100.1", GuideName = "Hundred" },
             new GuideChannelSegment { GuideNumber = "10.1", GuideName = "Ten" },
@@ -490,7 +490,7 @@ public class WatchTests
     {
         // Arrange
         var repository = Substitute.For<ILineupGuideReader>();
-        repository.GetChannelsAsync(Arg.Any<DateTimeOffset?>(), Arg.Any<DateTimeOffset?>(), Arg.Any<CancellationToken>()).Returns(
+        repository.GetChannelDirectoryAsync(Arg.Any<CancellationToken>()).Returns(
         [
             new GuideChannelSegment { GuideNumber = "2.1", GuideName = "First" },
             new GuideChannelSegment { GuideNumber = "2.2", GuideName = "Second" }
@@ -1554,7 +1554,7 @@ public class WatchTests
         // Arrange
         var now = DateTimeOffset.UtcNow;
         var repository = Substitute.For<ILineupGuideReader>();
-        repository.GetChannelsAsync(Arg.Any<DateTimeOffset?>(), Arg.Any<DateTimeOffset?>(), Arg.Any<CancellationToken>()).Returns(
+        repository.GetChannelDirectoryAsync(Arg.Any<CancellationToken>()).Returns(
         [
             new GuideChannelSegment { GuideNumber = "2.1", GuideName = "Test Channel", Favorite = true, DRM = true }
         ]);
@@ -1682,7 +1682,7 @@ public class WatchTests
         if (repository is null)
         {
             repository = Substitute.For<ILineupGuideReader>();
-            repository.GetChannelsAsync(Arg.Any<DateTimeOffset?>(), Arg.Any<DateTimeOffset?>(), Arg.Any<CancellationToken>()).Returns([]);
+            repository.GetChannelDirectoryAsync(Arg.Any<CancellationToken>()).Returns([]);
             repository.GetProgramsAsync(Arg.Any<DateTimeOffset?>(), Arg.Any<DateTimeOffset?>(), Arg.Any<CancellationToken>()).Returns([]);
         }
         if (deviceState is null)

@@ -3,6 +3,8 @@ using Lineup.Core.Extensibility.Guides;
 using Lineup.Core.Storage.Entities;
 using Lineup.Core.Common.Streaming;
 using Lineup.Core.Extensibility.Streaming;
+using Lineup.Core.Guides;
+using Lineup.Core.Settings;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Cryptography;
 using System.Text;
@@ -145,6 +147,7 @@ public sealed class DeviceGuideStore
     /// </summary>
     public async Task ImportAsync(GuideImport import, CancellationToken cancellationToken = default)
     {
+        using var operation = Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.Begin("guide_import", cancellationToken: cancellationToken);
         ArgumentNullException.ThrowIfNull(import);
         if (import.CoverageEndUtc <= import.CoverageStartUtc)
         {
@@ -263,6 +266,7 @@ public sealed class DeviceGuideStore
             storedImport.SupplementalXml = import.SupplementalXml;
             await context.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
+            operation.Succeed();
         }
         finally
         {
@@ -332,28 +336,137 @@ public sealed class DeviceGuideStore
         ArgumentNullException.ThrowIfNull(channels);
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
         await EpgDatabaseSchema.EnsureAsync(context, cancellationToken);
-        var storedSources = await context.PhysicalSourceChannels.AsNoTracking().Where(channel => channel.IsActive).ToArrayAsync(cancellationToken);
+        await using var transaction = await EpgReadTransaction.BeginAsync(context, cancellationToken);
+        return await BuildSnapshotAsync(context, virtualDeviceId, channels, activeGuideScopes, startUtc, endUtc, true, cancellationToken);
+    }
+
+    /// <summary>Resolves topology and projects guide data within one database read transaction.</summary>
+    public async Task<VirtualGuideSnapshot> BuildResolvedSnapshotAsync(
+        VirtualDeviceId virtualDeviceId,
+        Func<IReadOnlyList<PhysicalChannelIdentity>, IReadOnlyList<ResolvedVirtualChannel>> resolveChannels,
+        IReadOnlyList<GuideSourceScope>? activeGuideScopes = null,
+        DateTimeOffset? startUtc = null,
+        DateTimeOffset? endUtc = null,
+        IReadOnlyCollection<PhysicalDeviceId>? physicalDeviceIds = null,
+        bool includePrograms = true,
+        CancellationToken cancellationToken = default
+    )
+    {
+        ArgumentNullException.ThrowIfNull(resolveChannels);
+        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        await EpgDatabaseSchema.EnsureAsync(context, cancellationToken);
+        await using var transaction = await EpgReadTransaction.BeginAsync(context, cancellationToken);
+        var channels = resolveChannels(await StreamingTopologyStore.ReadActiveAsync(context, cancellationToken, physicalDeviceIds));
+        return await BuildSnapshotAsync(context, virtualDeviceId, channels, activeGuideScopes, startUtc, endUtc, includePrograms, cancellationToken);
+    }
+
+    /// <summary>Aggregates only authoritative contributing programs, without materializing program text or metadata.</summary>
+    public async Task<GuideStatistics> GetStatisticsAsync(
+        Func<IReadOnlyList<PhysicalChannelIdentity>, IReadOnlyList<ResolvedVirtualChannel>> resolveChannels,
+        IReadOnlyList<GuideSourceScope>? activeGuideScopes = null,
+        IReadOnlyCollection<PhysicalDeviceId>? physicalDeviceIds = null,
+        CancellationToken cancellationToken = default
+    )
+    {
+        ArgumentNullException.ThrowIfNull(resolveChannels);
+        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        await EpgDatabaseSchema.EnsureAsync(context, cancellationToken);
+        await using var transaction = await EpgReadTransaction.BeginAsync(context, cancellationToken);
+        var channels = resolveChannels(await StreamingTopologyStore.ReadActiveAsync(context, cancellationToken, physicalDeviceIds));
+        var selected = await SelectGuidesAsync(context, channels, activeGuideScopes, cancellationToken);
+        var ids = selected.OfType<StoredGuideSourceChannel>().Select(guide => guide.Id).Distinct().ToArray();
+        var summaries = await context.GuideSourcePrograms.AsNoTracking()
+            .Where(program => ids.Contains(program.GuideSourceChannelId))
+            .GroupBy(program => program.GuideSourceChannelId)
+            .Select(group => new { Id = group.Key, Count = group.Count(), Start = group.Min(program => program.StartTime), End = group.Max(program => program.EndTime) })
+            .ToDictionaryAsync(summary => summary.Id, cancellationToken);
+        var contributing = selected.OfType<StoredGuideSourceChannel>()
+            .Where(guide => summaries.ContainsKey(guide.Id))
+            .Select(guide => summaries[guide.Id]).ToArray();
+        var imports = await ReadContributingImportsAsync(context, selected, cancellationToken);
+        return new GuideStatistics(
+            channels.Count,
+            contributing.Sum(summary => summary.Count),
+            contributing.Length == 0 ? null : DateTimeOffset.FromUnixTimeSeconds(contributing.Min(summary => summary.Start)),
+            contributing.Length == 0 ? null : DateTimeOffset.FromUnixTimeSeconds(contributing.Max(summary => summary.End)),
+            contributing.Length == 0 ? null : DateTimeOffset.FromUnixTimeSeconds(contributing.Min(summary => summary.End)))
+        {
+            Generation = new GuideReadGeneration(_timeProvider.GetUtcNow(), ConfigurationRevision.Create(imports))
+        };
+    }
+
+    private static async Task<StoredGuideSourceChannel?[]> SelectGuidesAsync(
+        EpgDbContext context,
+        IReadOnlyList<ResolvedVirtualChannel> channels,
+        IReadOnlyList<GuideSourceScope>? activeGuideScopes,
+        CancellationToken cancellationToken
+    )
+    {
+        var requested = channels.SelectMany(channel => channel.Sources).ToArray();
+        var requestedPairs = requested.Select(source => (source.PhysicalDeviceId.ToString(), source.ProviderKey)).ToHashSet();
+        var requestedDevices = requested.Select(source => source.PhysicalDeviceId).ToHashSet();
+        var relevantScopes = activeGuideScopes?.Where(scope => scope.PhysicalDeviceIds.Any(requestedDevices.Contains)).ToArray();
+        var deviceIds = requested.Select(source => source.PhysicalDeviceId.ToString()).Distinct().ToArray();
+        var providerKeys = requested.Select(source => source.ProviderKey).Distinct().ToArray();
+        var matchingSources = await context.PhysicalSourceChannels.AsNoTracking()
+            .Where(channel => channel.IsActive && deviceIds.Contains(channel.PhysicalDeviceId) && providerKeys.Contains(channel.ProviderKey))
+            .ToArrayAsync(cancellationToken);
+        var storedSources = matchingSources.Where(channel => requestedPairs.Contains((channel.PhysicalDeviceId, channel.ProviderKey))).ToArray();
         var sourceLookup = storedSources.ToDictionary(channel => (channel.PhysicalDeviceId, channel.ProviderKey));
         var sourceIds = storedSources.Select(channel => channel.Id).ToArray();
         var bindings = await context.SourceGuideBindings
             .AsNoTracking()
             .Where(binding => sourceIds.Contains(binding.PhysicalSourceChannelId))
             .ToDictionaryAsync(binding => binding.PhysicalSourceChannelId, cancellationToken);
-        var storedGuides = await context.GuideSourceChannels.AsNoTracking().ToArrayAsync(cancellationToken);
+        var eligibleIds = relevantScopes?.Select(scope => scope.SourceId.Value.ToString("D")).Distinct().ToArray();
+        var manuallyBoundIds = bindings.Values.Select(binding => binding.GuideSourceChannelId).Distinct().ToArray();
+        var guideQuery = context.GuideSourceChannels.AsNoTracking();
+        if (eligibleIds is not null)
+        {
+            guideQuery = guideQuery.Where(guide => eligibleIds.Contains(guide.GuideSourceId) || manuallyBoundIds.Contains(guide.Id));
+        }
+        var storedGuides = await guideQuery.ToArrayAsync(cancellationToken);
         var guideById = storedGuides.ToDictionary(channel => channel.Id);
-        var activeGuideSourceIds = activeGuideScopes?.Select(scope => scope.SourceId).ToHashSet();
+        var activeGuideSourceIds = relevantScopes?.Select(scope => scope.SourceId).ToHashSet();
         var activeGuides = storedGuides
             .Where(channel => channel.IsActive && (activeGuideSourceIds is null || activeGuideSourceIds.Contains(MapGuideChannelId(channel).GuideSourceId)))
             .ToArray();
+        var candidatesByDevice = storedSources.Select(source => source.PhysicalDeviceId).Distinct().ToDictionary(
+            deviceId => deviceId,
+            deviceId => new BindingCandidates(activeGuides, GetEligibleSourceIds(deviceId, relevantScopes, activeGuides)));
         var resolvedGuides = storedSources.ToDictionary(
             source => source.Id,
             source =>
             {
                 bindings.TryGetValue(source.Id, out var binding);
-                var eligibleSourceIds = GetEligibleSourceIds(source.PhysicalDeviceId, activeGuideScopes, activeGuides);
-                return ResolveBinding(source, activeGuides, guideById, binding, eligibleSourceIds).SelectedActiveGuide;
+                var candidates = candidatesByDevice[source.PhysicalDeviceId];
+                return ResolveBinding(source, activeGuides, guideById, binding, candidates.SourceIds, candidates).SelectedActiveGuide;
             });
-        var guides = resolvedGuides.Values.OfType<StoredGuideSourceChannel>().DistinctBy(channel => channel.Id).ToDictionary(channel => channel.Id);
+        return channels.Select(channel => channel.Sources
+            .Select(sourceId => sourceLookup.TryGetValue((sourceId.PhysicalDeviceId.ToString(), sourceId.ProviderKey), out var source) ? resolvedGuides[source.Id] : null)
+            .FirstOrDefault(guide => guide is not null)).ToArray();
+    }
+
+    private static async Task<StoredDeviceGuideImport[]> ReadContributingImportsAsync(EpgDbContext context, IReadOnlyList<StoredGuideSourceChannel?> selected, CancellationToken cancellationToken)
+    {
+        var sourceIds = selected.OfType<StoredGuideSourceChannel>().Select(guide => guide.GuideSourceId).Distinct().ToArray();
+        return await context.DeviceGuideImports.AsNoTracking().Where(import => sourceIds.Contains(import.GuideSourceId))
+            .OrderBy(import => import.Id).ToArrayAsync(cancellationToken);
+    }
+
+    private async Task<VirtualGuideSnapshot> BuildSnapshotAsync(
+        EpgDbContext context,
+        VirtualDeviceId virtualDeviceId,
+        IReadOnlyList<ResolvedVirtualChannel> channels,
+        IReadOnlyList<GuideSourceScope>? activeGuideScopes,
+        DateTimeOffset? startUtc,
+        DateTimeOffset? endUtc,
+        bool includePrograms,
+        CancellationToken cancellationToken
+    )
+    {
+        var selected = await SelectGuidesAsync(context, channels, activeGuideScopes, cancellationToken);
+        var guides = selected.OfType<StoredGuideSourceChannel>().DistinctBy(channel => channel.Id).ToDictionary(channel => channel.Id);
         var activeGuideIds = guides.Keys.ToArray();
         var programQuery = context.GuideSourcePrograms
             .AsNoTracking()
@@ -368,15 +481,13 @@ public sealed class DeviceGuideStore
             var end = endUtc.Value.ToUnixTimeSeconds();
             programQuery = programQuery.Where(program => program.StartTime < end);
         }
-        var programs = await programQuery.OrderBy(program => program.StartTime).ToArrayAsync(cancellationToken);
+        var programs = includePrograms ? await programQuery.OrderBy(program => program.StartTime).ToArrayAsync(cancellationToken) : [];
         var programsByGuide = programs.ToLookup(program => program.GuideSourceChannelId);
         var contributingGuideSources = guides.Values
             .Select(guide => guide.GuideSourceId)
             .Distinct()
             .ToArray();
-        var deviceGuideImports = await context.DeviceGuideImports
-            .AsNoTracking()
-            .ToArrayAsync(cancellationToken);
+        var deviceGuideImports = await ReadContributingImportsAsync(context, selected, cancellationToken);
         var importSupplementalXml = deviceGuideImports
             .Where(import => contributingGuideSources.Contains(import.GuideSourceId))
             .Select(import => import.SupplementalXml)
@@ -384,20 +495,10 @@ public sealed class DeviceGuideStore
             .ToArray();
 
         var projected = new List<VirtualGuideChannel>(channels.Count);
-        foreach (var channel in channels)
+        for (var index = 0; index < channels.Count; index++)
         {
-            StoredGuideSourceChannel? guide = null;
-            foreach (var sourceId in channel.Sources)
-            {
-                if (sourceLookup.TryGetValue((sourceId.PhysicalDeviceId.ToString(), sourceId.ProviderKey), out var source)
-                    && resolvedGuides.TryGetValue(source.Id, out guide)
-                    && guide is not null
-                    && GetEligibleSourceIds(source.PhysicalDeviceId, activeGuideScopes, activeGuides).Contains(MapGuideChannelId(guide).GuideSourceId))
-                {
-                    break;
-                }
-                guide = null;
-            }
+            var channel = channels[index];
+            var guide = selected[index];
 
             var channelPrograms = guide is null
                 ? []
@@ -436,6 +537,7 @@ public sealed class DeviceGuideStore
         return new VirtualGuideSnapshot
         {
             VirtualDeviceId = virtualDeviceId,
+            Generation = new GuideReadGeneration(_timeProvider.GetUtcNow(), ConfigurationRevision.Create(deviceGuideImports)),
             Channels = projected,
             SupplementalXml = importSupplementalXml
         };
@@ -522,19 +624,14 @@ public sealed class DeviceGuideStore
         IReadOnlyList<StoredGuideSourceChannel> activeGuides,
         IReadOnlyDictionary<int, StoredGuideSourceChannel> guideById,
         StoredSourceGuideBinding? manualBinding,
-        IReadOnlySet<GuideSourceId> eligibleSourceIds)
+        IReadOnlySet<GuideSourceId> eligibleSourceIds,
+        BindingCandidates? candidates = null
+    )
     {
-        var eligibleGuides = activeGuides
-            .Where(guide => eligibleSourceIds.Contains(MapGuideChannelId(guide).GuideSourceId))
-            .OrderBy(guide => guide.Number, ChannelNumberComparer.Instance)
-            .ThenBy(guide => guide.Name, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-        var providerKeyMatches = eligibleGuides
-            .Where(guide => string.Equals(guide.ProviderKey, source.ProviderKey, StringComparison.OrdinalIgnoreCase))
-            .ToArray();
-        var numberMatches = eligibleGuides
-            .Where(guide => string.Equals(guide.Number, source.ProviderNumber, StringComparison.OrdinalIgnoreCase))
-            .ToArray();
+        candidates ??= new BindingCandidates(activeGuides, eligibleSourceIds);
+        var eligibleGuides = candidates.Guides;
+        var providerKeyMatches = candidates.ByProvider[source.ProviderKey].ToArray();
+        var numberMatches = candidates.ByNumber[source.ProviderNumber].ToArray();
         var automaticCandidates = providerKeyMatches.Length == 1
             ? providerKeyMatches
             : numberMatches.Length > 0
@@ -544,7 +641,7 @@ public sealed class DeviceGuideStore
         if (manualBinding is not null)
         {
             guideById.TryGetValue(manualBinding.GuideSourceChannelId, out var selectedGuide);
-            var selectedActiveGuide = selectedGuide is not null && selectedGuide.IsActive && eligibleGuides.Any(guide => guide.Id == selectedGuide.Id)
+            var selectedActiveGuide = selectedGuide is not null && selectedGuide.IsActive && candidates.ChannelIds.Contains(selectedGuide.Id)
                 ? selectedGuide
                 : null;
             return new GuideBindingResolution(
@@ -636,6 +733,35 @@ public sealed class DeviceGuideStore
         Span<byte> hash = stackalloc byte[32];
         SHA256.HashData(input, hash);
         return new VirtualChannelId(virtualDeviceId, new Guid(hash[..16]));
+    }
+
+    private sealed class BindingCandidates
+    {
+        /// <summary>Initializes indexed candidates once per physical-device subscription.</summary>
+        public BindingCandidates(IReadOnlyList<StoredGuideSourceChannel> guides, IReadOnlySet<GuideSourceId> eligibleSourceIds)
+        {
+            SourceIds = eligibleSourceIds;
+            Guides = guides.Where(guide => eligibleSourceIds.Contains(MapGuideChannelId(guide).GuideSourceId))
+                .OrderBy(guide => guide.Number, ChannelNumberComparer.Instance).ThenBy(guide => guide.Name, StringComparer.OrdinalIgnoreCase).ToArray();
+            ByProvider = Guides.ToLookup(guide => guide.ProviderKey, StringComparer.OrdinalIgnoreCase);
+            ByNumber = Guides.ToLookup(guide => guide.Number, StringComparer.OrdinalIgnoreCase);
+            ChannelIds = Guides.Select(guide => guide.Id).ToHashSet();
+        }
+
+        /// <summary>Gets contributing subscription identities.</summary>
+        public IReadOnlySet<GuideSourceId> SourceIds { get; }
+
+        /// <summary>Gets eligible stored channel identities.</summary>
+        public IReadOnlySet<int> ChannelIds { get; }
+
+        /// <summary>Gets ordered eligible channels.</summary>
+        public StoredGuideSourceChannel[] Guides { get; }
+
+        /// <summary>Gets case-insensitive provider-key candidates.</summary>
+        public ILookup<string, StoredGuideSourceChannel> ByProvider { get; }
+
+        /// <summary>Gets case-insensitive provider-number candidates.</summary>
+        public ILookup<string, StoredGuideSourceChannel> ByNumber { get; }
     }
 
     private sealed record GuideBindingResolution(

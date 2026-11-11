@@ -1120,4 +1120,16 @@
   <data name="WatchTest_VideoCodec" xml:space="preserve"><value>Video codec</value></data>
   <data name="WatchTest_VideoProfile" xml:space="preserve"><value>Video profile</value></data>
   <data name="WatchTest_WebVttSidecar" xml:space="preserve"><value>WebVTT sidecar</value></data>
+  <data name="Settings_Conflict" xml:space="preserve"><value>Settings changed while this draft was open. Nothing was saved. Reload the saved settings before trying again.</value></data>
+  <data name="Settings_CoreSavedWebConflict" xml:space="preserve"><value>Core settings were saved, but Web settings changed concurrently and were not saved. Reload before trying again; committed changes were not rolled back.</value></data>
+  <data name="Settings_SavedApplyConflict" xml:space="preserve"><value>Core and Web settings were saved, but newer changes prevented setup completion. Reload before trying again; committed changes were not rolled back.</value></data>
+  <data name="Settings_CoreSavedWebFailure" xml:space="preserve"><value>Core settings were saved, but Web settings were not saved. Retry Save or reload; committed changes were not rolled back. Error: {0}</value></data>
+  <data name="Settings_TopologyHeading" xml:space="preserve"><value>Configuration status</value></data>
+  <data name="Settings_TopologyPending" xml:space="preserve"><value>Saved topology is waiting to be applied.</value></data>
+  <data name="Settings_TopologyApplying" xml:space="preserve"><value>Applying saved topology.</value></data>
+  <data name="Settings_TopologyApplied" xml:space="preserve"><value>Saved topology was applied successfully.</value></data>
+  <data name="Settings_TopologyDegraded" xml:space="preserve"><value>Saved settings are not fully applied. Review the affected devices or outputs and server logs, then retry.</value></data>
+  <data name="Settings_TopologyRevisions" xml:space="preserve"><value>Desired: {0}. Attempted: {1}. Last fully applied: {2}.</value></data>
+  <data name="Settings_TopologyDeviceFailure" xml:space="preserve"><value>Physical device {0} failed to apply.</value></data>
+  <data name="Settings_TopologyOutputFailure" xml:space="preserve"><value>Guide output {0} failed or is partial.</value></data>
 </root>

@@ -215,7 +215,7 @@ public sealed class PhysicalDeviceCatalogTests
         // Arrange
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         var driver = new FakePhysicalDriver();
-        var catalog = new PhysicalDeviceCatalog(new StreamingAdapterRegistry([driver], [], []));
+        var catalog = new PhysicalDeviceCatalog(new StreamingAdapterRegistry([driver], [], []), refresh: new PhysicalDeviceRefreshScheduler(1));
         var retained = CreateDefinition(PhysicalDeviceId.New(), "Retained", 0, true);
         var changed = CreateDefinition(PhysicalDeviceId.New(), "Original", 1, true);
         var configuration = new StreamingConfiguration { PhysicalDevices = [retained, changed] };
@@ -300,7 +300,7 @@ public sealed class PhysicalDeviceCatalogTests
         public Action<string, CancellationToken>? BeforeCreate { get; set; }
 
         /// <summary>Gets owned fake runtime instances for rollback checks.</summary>
-        public List<FakePhysicalDevice> Created { get; } = [];
+        public System.Collections.Concurrent.ConcurrentQueue<FakePhysicalDevice> Created { get; } = new();
 
         public string Kind => DriverKind;
 
@@ -326,7 +326,7 @@ public sealed class PhysicalDeviceCatalogTests
             if (name is not ("Unauthorized" or "HttpTimeout") && (name != "Fail" || !FailActivation))
             {
                 var device = new FakePhysicalDevice(deviceId, name);
-                Created.Add(device);
+                Created.Enqueue(device);
                 return ValueTask.FromResult<IPhysicalTunerDevice>(device);
             }
             return name switch

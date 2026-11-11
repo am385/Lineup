@@ -1,14 +1,15 @@
 using System.Text.Json;
 using Lineup.Core.Extensibility.Streaming;
+using Lineup.Core.Streaming.FFmpeg;
 
-namespace Lineup.Core.Streaming.FFmpeg;
+namespace Lineup.Core.Hosting.Streaming;
 
 /// <summary>
 /// Adapts URI-based streaming callers to the provider-neutral Core session graph.
 /// </summary>
 public interface ITunerStreamMultiplexer : ISharedStreamShutdown
 {
-    /// <summary>Subscribes to the first available exact physical candidate, allowing ten seconds for each acquisition without limiting established stream lifetime.</summary>
+    /// <summary>Subscribes within one overall source-acquisition deadline, dividing time among remaining candidates without limiting established stream lifetime.</summary>
     ValueTask<ResolvedTunerStream> SubscribeFirstAvailableAsync(ResolvedStreamingRoute route, CancellationToken cancellationToken);
 
     /// <summary>Subscribes to a provider-owned physical acquisition.</summary>
@@ -77,6 +78,7 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
     private readonly IMediaProcessFactory _processFactory;
     private readonly ILogger<TunerStreamMultiplexer> _logger;
     private readonly TimeProvider _timeProvider;
+    private readonly StreamingResourceOptions _resources;
 
     /// <summary>Initializes the Core graph adapter.</summary>
     public TunerStreamMultiplexer(
@@ -88,37 +90,66 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
     }
 
     /// <summary>Initializes the graph adapter with a clock for physical acquisition deadlines.</summary>
-    public TunerStreamMultiplexer(IStreamingSessionGraph graph, IMediaProcessFactory processFactory, ILogger<TunerStreamMultiplexer> logger, TimeProvider timeProvider)
+    public TunerStreamMultiplexer(
+        IStreamingSessionGraph graph,
+        IMediaProcessFactory processFactory,
+        ILogger<TunerStreamMultiplexer> logger,
+        TimeProvider timeProvider,
+        StreamingResourceOptions? resources = null)
     {
         _graph = graph;
         _processFactory = processFactory;
         _logger = logger;
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
+        _resources = resources ?? new();
+        _resources.Validate();
     }
 
     /// <inheritdoc />
     public async ValueTask<ResolvedTunerStream> SubscribeFirstAvailableAsync(ResolvedStreamingRoute route, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(route);
+        using var operation = Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.Begin("acquisition", cancellationToken: cancellationToken);
         var failures = new List<Exception>();
         var candidateFailures = new List<StreamAcquisitionCandidateFailure>();
-        foreach (var candidate in route.Candidates)
+        var allowance = TimeSpan.FromSeconds(_resources.AcquisitionTimeoutSeconds);
+        var started = _timeProvider.GetTimestamp();
+        using var overallDeadline = new CancellationTokenSource(allowance, _timeProvider);
+        for (var index = 0; index < route.Candidates.Count; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            using var deadline = new CancellationTokenSource(CandidateAcquisitionTimeout, _timeProvider);
-            using var acquisition = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
+            var candidate = route.Candidates[index];
+            var remaining = allowance - _timeProvider.GetElapsedTime(started);
+            if (overallDeadline.IsCancellationRequested || remaining <= TimeSpan.Zero)
+            {
+                candidateFailures.Add(CreateCandidateFailure(candidate, PhysicalStreamFailureCategory.Unavailable, "source_acquisition_timeout", "The overall source acquisition deadline was exhausted.", true));
+                failures.Add(new TimeoutException("The overall source acquisition deadline was exhausted."));
+                break;
+            }
+            var slice = TimeSpan.FromTicks(Math.Min(CandidateAcquisitionTimeout.Ticks, Math.Max(1, remaining.Ticks / (route.Candidates.Count - index))));
+            using var deadline = new CancellationTokenSource(slice, _timeProvider);
+            using var acquisition = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token, overallDeadline.Token);
+            using var attempt = Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.Begin("source_candidate");
             try
             {
                 var stream = await SubscribeAsync(candidate.Acquisition, candidate.OpenAsync, acquisition.Token);
+                if (index > 0)
+                {
+                    Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.Fallbacks.Add(1);
+                }
+                operation.Succeed();
+                attempt.Succeed();
                 return new ResolvedTunerStream(candidate, stream);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
+                operation.Cancel();
+                attempt.Cancel();
                 throw;
             }
-            catch (OperationCanceledException exception) when (deadline.IsCancellationRequested)
+            catch (OperationCanceledException exception) when (deadline.IsCancellationRequested || overallDeadline.IsCancellationRequested)
             {
-                const string message = "The physical source did not complete stream acquisition within 10 seconds.";
+                var message = $"The physical source did not complete stream acquisition within its {slice.TotalSeconds:0.###}-second allowance.";
                 failures.Add(new TimeoutException(message, exception));
                 candidateFailures.Add(CreateCandidateFailure(
                     candidate,
@@ -231,7 +262,7 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
 
         var stage = CreateStage(
             "source-normalization",
-            SourceDeinterlacePlanner.CreateArguments(source, physicalProfile, settings),
+            SourceDeinterlacePlanner.CreateArguments(source, physicalProfile),
             sourceName);
         var lease = await _graph.AcquireTransformAsync(descriptor, stage.Key, acquisitionFactory, stage.Transform, cancellationToken);
         return new SessionOwnedStream(lease);
@@ -257,7 +288,7 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
         var effectiveSource = source;
         if (SourceDeinterlacePlanner.ShouldNormalize(source, physicalProfile))
         {
-            var physicalArguments = SourceDeinterlacePlanner.CreateArguments(source, physicalProfile, settings);
+            var physicalArguments = SourceDeinterlacePlanner.CreateArguments(source, physicalProfile);
             stages.Add(CreateStage("source-normalization", physicalArguments, sourceName));
             effectiveSource = SourceDeinterlacePlanner.CreateEffectiveSource(source, physicalProfile);
         }
@@ -273,7 +304,6 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
             sourceVideo?.Codec,
             audioStreams,
             virtualProfile,
-            settings,
             subtitles,
             sourceVideo?.ScanType == VideoScanType.Interlaced).ToList();
         virtualArguments[virtualArguments.IndexOf("http://lineup.invalid/source")] = "pipe:0";
@@ -291,7 +321,7 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
         var settingsKey = JsonSerializer.Serialize(arguments);
         return new StreamTransformStage(
             new StreamTransformKey(stage, settingsKey),
-            new FfmpegStreamTransform(arguments, _processFactory, _logger, sourceName));
+            new FfmpegGraphTransform(new FfmpegStreamTransform(arguments, _processFactory, _logger, sourceName)));
     }
 
     private sealed class SessionOwnedStream(IStreamSessionLease lease) : Stream, IStreamProducerCorrelation

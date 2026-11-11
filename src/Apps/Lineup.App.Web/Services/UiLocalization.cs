@@ -64,6 +64,11 @@ public static class UiLocalization
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(next);
+        if (OperationalHealthService.IsHealthEndpoint(context.Request.Path))
+        {
+            await next(context);
+            return;
+        }
         var originalUiCulture = CultureInfo.CurrentUICulture;
         var configuredCulture = context.RequestServices.GetRequiredService<IWebSettingsService>().Settings.UiCulture;
         CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(Normalize(configuredCulture));

@@ -114,6 +114,9 @@ public sealed record ActiveStreamMediaSnapshot(long? BitRate, IReadOnlyList<Acti
 /// <summary>Represents an active stream hosted by Lineup.</summary>
 public sealed record ActiveStreamSnapshot(string SessionId, string Channel, HostedStreamFormat Format, DateTime StartedAtUtc, long? SourceBitRate, IReadOnlyList<ActiveStreamTrack> Tracks)
 {
+    /// <summary>Gets the originating trace identity, without credentials or network addresses.</summary>
+    public string? CorrelationId { get; init; }
+
     /// <summary>Gets the isolated worker's broker request identifier when applicable.</summary>
     public string? BrokerRequestId { get; init; }
 

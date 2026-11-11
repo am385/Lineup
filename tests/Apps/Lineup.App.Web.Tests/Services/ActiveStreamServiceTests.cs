@@ -33,7 +33,7 @@ public class ActiveStreamServiceTests
         };
 
         // Act
-        var snapshot = ActiveStreamPlanFactory.CreateCmaf("session", "7.1", DateTime.UtcNow, source, selection, request, settings);
+        var snapshot = ActiveStreamPlanFactory.CreateCmaf("session", "7.1", DateTime.UtcNow, source, selection, request, settings.Streaming.VirtualDefaults);
 
         // Assert
         Assert.Equal(HostedStreamFormat.Cmaf, snapshot.Format);
@@ -52,7 +52,7 @@ public class ActiveStreamServiceTests
         Assert.Equal("webvtt", snapshot.Tracks.Single(track => track.SourceIndex == 3).OutputCodec);
     }
 
-    /// <summary>Verifies application defaults convert only AC-4 and describe the same output in FFmpeg arguments and legacy settings-based status.</summary>
+    /// <summary>Verifies projected application defaults convert only AC-4 and describe the same output in FFmpeg arguments and status.</summary>
     [Theory]
     [InlineData(1)]
     [InlineData(2)]
@@ -71,7 +71,7 @@ public class ActiveStreamServiceTests
         var settings = new LineupSettings();
 
         // Act
-        var snapshot = ActiveStreamPlanFactory.CreateCmaf("session", "7.1", DateTime.UnixEpoch, source, selection, request, settings);
+        var snapshot = ActiveStreamPlanFactory.CreateCmaf("session", "7.1", DateTime.UnixEpoch, source, selection, request, settings.Streaming.VirtualDefaults);
         var arguments = CmafStreamPlanner.CreateArguments(settings.Streaming.VirtualDefaults, source, selection, request, "manifest.mpd");
 
         // Assert
@@ -106,7 +106,7 @@ public class ActiveStreamServiceTests
         var selection = WebPlayerTrackPlanner.SelectTracks(source, 1, null);
 
         // Act
-        var snapshot = ActiveStreamPlanFactory.CreateCmaf("session", "105.1", DateTime.UtcNow, source, selection, new CmafStreamRequest(), new LineupSettings());
+        var snapshot = ActiveStreamPlanFactory.CreateCmaf("session", "105.1", DateTime.UtcNow, source, selection, new CmafStreamRequest(), new VirtualTranscodeProfile());
 
         // Assert
         var videoTrack = Assert.Single(snapshot.Tracks, track => track.Type == MediaTrackType.Video);
@@ -769,7 +769,7 @@ public class ActiveStreamServiceTests
         };
 
         // Act
-        var stream = ActiveStreamPlanFactory.CreateMpegTs("session", "2.1", DateTime.UtcNow, source, settings);
+        var stream = ActiveStreamPlanFactory.CreateMpegTs("session", "2.1", DateTime.UtcNow, source, settings.Streaming.VirtualDefaults);
 
         // Assert
         Assert.Equal("h264", stream.Tracks[0].OutputCodec);

@@ -11,5 +11,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Lineup.Core\Lineup.Core.csproj" />
+    <ProjectReference Include="..\Lineup.Core.Streaming.FFmpeg\Lineup.Core.Streaming.FFmpeg.csproj" />
   </ItemGroup>
 </Project>

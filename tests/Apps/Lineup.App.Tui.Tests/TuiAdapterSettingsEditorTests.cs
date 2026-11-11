@@ -690,6 +690,32 @@ public sealed class TuiAdapterSettingsEditorTests
         };
     }
 
+    /// <summary>Verifies a topology replacement is rejected after a queued serialized update changes its original revision.</summary>
+    [Fact]
+    public async Task TrySaveTopologyAsync_ConcurrentUpdate_PreservesNewerTopology()
+    {
+        // Arrange
+        var original = CreateHostingConfiguration();
+        var latest = original with { MaximumPluginConnections = 12 };
+        var settings = new LineupSettings { Streaming = original };
+        var service = CreateSettingsService(settings);
+        service.UpdateAsync(Arg.Any<Action<LineupSettings>>()).Returns(call =>
+        {
+            settings.Streaming = latest;
+            call.Arg<Action<LineupSettings>>()(settings);
+            return Task.CompletedTask;
+        });
+
+        // Act
+        var saved = await TuiAdapterSettingsEditor.TrySaveTopologyAsync(service, original with { KeepWarmPeriodSeconds = 15 }, original);
+
+        // Assert
+        Assert.False(saved);
+        Assert.Same(latest, settings.Streaming);
+        Assert.Equal(12, settings.Streaming.MaximumPluginConnections);
+        Assert.Equal(0, settings.Streaming.KeepWarmPeriodSeconds);
+    }
+
     private static ILineupSettingsService CreateSettingsService(LineupSettings settings)
     {
         var service = Substitute.For<ILineupSettingsService>();

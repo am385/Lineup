@@ -1,8 +1,8 @@
 using System.Net;
 using System.Diagnostics;
-using System.Reflection;
 using Lineup.Core.Extensibility.Streaming;
 using Lineup.App.Web.Controllers;
+using Lineup.App.Web.Services.Playback;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Abstractions;
@@ -19,6 +19,69 @@ namespace Lineup.App.Web.Tests.Controllers;
 /// <summary>Verifies stream transport validation, routing, and lifecycle boundaries.</summary>
 public sealed class StreamControllerTests
 {
+    /// <summary>Verifies synthetic startup transfers typed ownership without constructing a controller or HTTP context.</summary>
+    [Theory]
+    [InlineData("ready")]
+    [InlineData("partial")]
+    public async Task PlaybackService_CompatibilityReady_OwnsEncoderUntilViewerStops(string scenario)
+    {
+        // Arrange
+        await using var fixture = new CompatibilityStartupFixture(scenario, serviceOnly: true);
+
+        // Act
+        var result = await fixture.Playback.StartCompatibilityAsync(new CmafCompatibilityTestRequest(), TestContext.Current.CancellationToken);
+
+        // Assert
+        var presentation = Assert.IsType<ManagementCompatibilityPresentation>(result.Compatibility);
+        Assert.True(fixture.IsEncoderRunning);
+        Assert.True(Directory.Exists(fixture.SessionDirectory));
+        Assert.Single(fixture.Playback.GetViewers());
+        Assert.True(fixture.Playback.Stop(presentation.SessionId));
+        Assert.False(fixture.IsEncoderRunning);
+        Assert.False(Directory.Exists(fixture.SessionDirectory));
+        Assert.Empty(fixture.Playback.GetViewers());
+    }
+
+    /// <summary>Verifies typed synthetic failures release processes, diagnostic tasks, and artifacts without MVC.</summary>
+    [Theory]
+    [InlineData("io", ManagementPlaybackFailureKind.InternalError)]
+    [InlineData("registration", ManagementPlaybackFailureKind.InternalError)]
+    [InlineData("exit", ManagementPlaybackFailureKind.MediaFailure)]
+    public async Task PlaybackService_CompatibilityFailure_CleansOwnedResources(string scenario, ManagementPlaybackFailureKind kind)
+    {
+        // Arrange
+        await using var fixture = new CompatibilityStartupFixture(scenario, serviceOnly: true);
+
+        // Act
+        var result = await fixture.Playback.StartCompatibilityAsync(new CmafCompatibilityTestRequest(), TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(kind, Assert.IsType<ManagementPlaybackFailure>(result.Failure).Kind);
+        Assert.Null(result.Compatibility);
+        Assert.False(fixture.IsEncoderRunning);
+        Assert.False(Directory.Exists(fixture.SessionDirectory));
+        Assert.Empty(fixture.Outputs.GetViewers());
+    }
+
+    /// <summary>Verifies a canceled synthetic startup has a typed terminal result and no unowned encoder.</summary>
+    [Fact]
+    public async Task PlaybackService_CompatibilityCanceled_CleansOwnedResources()
+    {
+        // Arrange
+        await using var fixture = new CompatibilityStartupFixture("waiting", serviceOnly: true);
+        var starting = fixture.Playback.StartCompatibilityAsync(new CmafCompatibilityTestRequest(), fixture.RequestCancellation.Token);
+
+        // Act
+        await fixture.RequestCancellation.CancelAsync();
+        var result = await starting;
+
+        // Assert
+        Assert.True(result.IsCanceled);
+        Assert.False(fixture.IsEncoderRunning);
+        Assert.False(Directory.Exists(fixture.SessionDirectory));
+        Assert.Empty(fixture.Outputs.GetViewers());
+    }
+
     /// <summary>Verifies the exempt diagnostic route cannot serve normal live media without connection admission.</summary>
     [Fact]
     public async Task GetCompatibilityFile_LiveSession_ReturnsNotFound()
@@ -335,21 +398,16 @@ public sealed class StreamControllerTests
         var controller = CreateController();
         using var requestCancellation = new CancellationTokenSource();
         controller.HttpContext.RequestAborted = requestCancellation.Token;
-        var pendingType = typeof(StreamController).GetNestedType("PendingCmafOutput", BindingFlags.NonPublic);
-        Assert.NotNull(pendingType);
-        var constructor = Assert.Single(pendingType.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic));
-        var pending = constructor.Invoke([controller, Path.Combine(AppContext.BaseDirectory, "stream-controller-artifacts", Guid.NewGuid().ToString("N"))]);
-        Assert.NotNull(pending);
-        var lifetimeProperty = pendingType.GetProperty("LifetimeToken", BindingFlags.Instance | BindingFlags.Public);
-        Assert.NotNull(lifetimeProperty);
-        var lifetimeToken = Assert.IsType<CancellationToken>(lifetimeProperty.GetValue(pending));
+        var pending = new ManagementPlaybackService.PendingCmafOutput(
+            controller.Playback, Path.Combine(AppContext.BaseDirectory, "stream-controller-artifacts", Guid.NewGuid().ToString("N")));
+        var lifetimeToken = pending.LifetimeToken;
 
         // Act
         requestCancellation.Cancel();
 
         // Assert
         Assert.False(lifetimeToken.IsCancellationRequested);
-        await Assert.IsAssignableFrom<IAsyncDisposable>(pending).DisposeAsync();
+        await pending.DisposeAsync();
         Assert.True(lifetimeToken.IsCancellationRequested);
     }
 
@@ -722,6 +780,39 @@ public sealed class StreamControllerTests
         Assert.True(stopwatch.Elapsed < TimeSpan.FromMilliseconds(500), $"Startup timeout took {stopwatch.Elapsed}.");
     }
 
+    /// <summary>Verifies full active or startup admission rejects media before routing, acquiring, probing, or creating output state.</summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task Stream_AdmissionFull_DoesNotStartExpensiveWork(bool pending, bool cmaf)
+    {
+        // Arrange
+        var registry = new ActiveStreamRegistry(resources: new() { MaximumPendingStarts = 1 });
+        using var reservation = pending ? registry.TryBeginStartup(0, () => { }) : null;
+        if (!pending)
+        {
+            registry.Register(new ActiveStreamSnapshot("existing", "1", HostedStreamFormat.MpegTs, DateTime.UtcNow, null, []));
+        }
+        var routes = Substitute.For<IStreamingRouteResolver>();
+        var multiplexer = Substitute.For<ITunerStreamMultiplexer>();
+        var probe = Substitute.For<IMediaProbeService>();
+        var outputs = Substitute.For<IVirtualMpegTsOutputService>();
+        var controller = CreateController(routes: routes, multiplexer: multiplexer, mediaProbe: probe, activeStreams: registry, maximumConcurrentStreams: pending ? 0 : 1, virtualMpegTsOutputs: outputs);
+
+        // Act
+        var result = cmaf ? await controller.StartCmafStream("9.1", new CmafStreamRequest()) : await controller.Stream("9.1");
+
+        // Assert
+        Assert.Equal(StatusCodes.Status429TooManyRequests, Assert.IsType<ObjectResult>(result).StatusCode);
+        Assert.Empty(routes.ReceivedCalls());
+        Assert.Empty(multiplexer.ReceivedCalls());
+        Assert.Empty(probe.ReceivedCalls());
+        Assert.Empty(outputs.ReceivedCalls());
+        Assert.Equal(pending ? 0 : 1, registry.GetActiveStreams().Count);
+    }
+
     private static StreamController CreateController(
         StreamingTopologyStore? store = null,
         IStreamingRouteResolver? routes = null,
@@ -735,7 +826,8 @@ public sealed class StreamControllerTests
         ITransientDataStore? transientData = null,
         ICmafOutputCoordinator? cmafOutputs = null,
         TimeSpan? cmafStartupTimeout = null,
-        ICmafCompatibilityTestService? compatibilityTestService = null)
+        ICmafCompatibilityTestService? compatibilityTestService = null,
+        IVirtualMpegTsOutputService? virtualMpegTsOutputs = null)
     {
         var settings = Substitute.For<ILineupSettingsService>();
         settings.Settings.Returns(new LineupSettings
@@ -773,6 +865,7 @@ public sealed class StreamControllerTests
             streamRoutes: routes,
             cmafOutputs: cmafOutputs,
             cmafStartupTimeout: cmafStartupTimeout,
+            virtualMpegTsOutputs: virtualMpegTsOutputs,
             compatibilityTestService: compatibilityTestService)
         {
             ControllerContext = new ControllerContext
@@ -869,29 +962,18 @@ public sealed class StreamControllerTests
         });
         Assert.NotNull(process);
         await process.WaitForExitAsync(TestContext.Current.CancellationToken);
-        var sessionType = typeof(StreamController).GetNestedType("CmafSession", BindingFlags.NonPublic);
-        Assert.NotNull(sessionType);
-        var session = Activator.CreateInstance(sessionType);
-        Assert.NotNull(session);
-        SetProperty(sessionType, session, "SessionId", sessionId);
-        SetProperty(sessionType, session, "Channel", "20.1");
-        SetProperty(sessionType, session, "Process", process);
-        SetProperty(sessionType, session, "CmafDirectory", directory);
-        SetProperty(sessionType, session, "PlaylistPath", playlistPath);
-        SetProperty(sessionType, session, "StartTime", DateTime.UtcNow);
-        SetProperty(sessionType, session, "SourceVideoCodec", sourceVideoCodec);
-        var register = typeof(StreamController).GetMethod("RegisterCmafSessionAsync", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(register);
-        var task = Assert.IsAssignableFrom<Task>(register.Invoke(controller, [session, TestContext.Current.CancellationToken]));
-        await task;
+        var session = new ManagementPlaybackService.CmafSession
+        {
+            SessionId = sessionId,
+            Channel = "20.1",
+            Process = process,
+            CmafDirectory = directory,
+            PlaylistPath = playlistPath,
+            StartTime = DateTime.UtcNow,
+            SourceVideoCodec = sourceVideoCodec
+        };
+        await controller.Playback.RegisterCmafSessionAsync(session, TestContext.Current.CancellationToken);
         return new CmafRegistration(sessionId, directory, playlistPath);
-    }
-
-    private static void SetProperty(Type type, object instance, string name, object? value)
-    {
-        var property = type.GetProperty(name, BindingFlags.Instance | BindingFlags.Public);
-        Assert.NotNull(property);
-        property.SetValue(instance, value);
     }
 
     private sealed class DelayedReadStream(TimeSpan delay) : Stream
@@ -918,11 +1000,12 @@ public sealed class StreamControllerTests
 
     private sealed class CompatibilityStartupFixture : IAsyncDisposable
     {
-        private readonly DirectoryInfo _root = Directory.CreateTempSubdirectory("lineup-watch-test-startup-");
+        private readonly DirectoryInfo _root = Directory.CreateDirectory(Path.Combine(AppContext.BaseDirectory, "watch-test-startup-artifacts", Guid.NewGuid().ToString("N")));
         private readonly Process _encoder;
         private readonly Process _observer;
 
-        internal CompatibilityStartupFixture(string scenario)
+        /// <summary>Creates deterministic encoder ownership for HTTP-adapter or application-only tests.</summary>
+        internal CompatibilityStartupFixture(string scenario, bool serviceOnly = false)
         {
             var configuration = new DirectoryInfo(AppContext.BaseDirectory).Name;
             var executable = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "Lineup.TestSupport.FakeFFmpeg", configuration, "Lineup.TestSupport.FakeFFmpeg.dll"));
@@ -987,11 +1070,28 @@ public sealed class StreamControllerTests
             {
                 Outputs.StopAsync().AsTask().GetAwaiter().GetResult();
             }
-            Controller = CreateController(transientData: transient, cmafOutputs: Outputs, compatibilityTestService: service);
-            Controller.HttpContext.RequestAborted = RequestCancellation.Token;
+            if (serviceOnly)
+            {
+                var settings = Substitute.For<ILineupSettingsService>();
+                settings.Settings.Returns(new LineupSettings());
+                Playback = new ManagementPlaybackService(
+                    Substitute.For<IHttpClientFactory>(), Substitute.For<ILineupGuideReader>(), settings,
+                    CreateTopologyStore(), Substitute.For<IMediaProbeService>(), new ActiveStreamRegistry(),
+                    Substitute.For<IProtectedContentSlateService>(), Substitute.For<ITunerStreamMultiplexer>(), NullLogger<ManagementPlaybackService>.Instance,
+                    transientData: transient, cmafOutputs: Outputs, compatibilityTestService: service);
+            }
+            else
+            {
+                Controller = CreateController(transientData: transient, cmafOutputs: Outputs, compatibilityTestService: service);
+                Controller.HttpContext.RequestAborted = RequestCancellation.Token;
+                Playback = Controller.Playback;
+            }
         }
 
-        internal StreamController Controller { get; }
+        internal StreamController Controller { get; } = null!;
+
+        /// <summary>Gets the typed application runtime, which can run without an MVC controller.</summary>
+        internal ManagementPlaybackService Playback { get; }
 
         internal CmafOutputCoordinator Outputs { get; } = new();
 
@@ -1007,6 +1107,7 @@ public sealed class StreamControllerTests
         public async ValueTask DisposeAsync()
         {
             await Outputs.DisposeAsync();
+            await Playback.DisposeAsync();
             if (!_observer.HasExited)
             {
                 _observer.Kill(entireProcessTree: true);

@@ -1120,4 +1120,16 @@
   <data name="WatchTest_VideoCodec" xml:space="preserve"><value>Videocodec</value></data>
   <data name="WatchTest_VideoProfile" xml:space="preserve"><value>Videoprofil</value></data>
   <data name="WatchTest_WebVttSidecar" xml:space="preserve"><value>WebVTT-Sidecar</value></data>
+  <data name="Settings_Conflict" xml:space="preserve"><value>Die Einstellungen wurden während der Bearbeitung geändert. Es wurde nichts gespeichert. Laden Sie die gespeicherten Einstellungen vor einem erneuten Versuch neu.</value></data>
+  <data name="Settings_CoreSavedWebConflict" xml:space="preserve"><value>Die Core-Einstellungen wurden gespeichert. Die Web-Einstellungen wurden gleichzeitig geändert und nicht gespeichert. Laden Sie die Einstellungen neu; bestätigte Änderungen wurden nicht zurückgesetzt.</value></data>
+  <data name="Settings_SavedApplyConflict" xml:space="preserve"><value>Core- und Web-Einstellungen wurden gespeichert, aber neuere Änderungen verhindern den Abschluss der Einrichtung. Laden Sie die Einstellungen neu; bestätigte Änderungen wurden nicht zurückgesetzt.</value></data>
+  <data name="Settings_CoreSavedWebFailure" xml:space="preserve"><value>Die Core-Einstellungen wurden gespeichert, die Web-Einstellungen jedoch nicht. Speichern Sie erneut oder laden Sie neu; bestätigte Änderungen wurden nicht zurückgesetzt. Fehler: {0}</value></data>
+  <data name="Settings_TopologyHeading" xml:space="preserve"><value>Konfigurationsstatus</value></data>
+  <data name="Settings_TopologyPending" xml:space="preserve"><value>Die gespeicherte Topologie wartet auf die Anwendung.</value></data>
+  <data name="Settings_TopologyApplying" xml:space="preserve"><value>Die gespeicherte Topologie wird angewendet.</value></data>
+  <data name="Settings_TopologyApplied" xml:space="preserve"><value>Die gespeicherte Topologie wurde erfolgreich angewendet.</value></data>
+  <data name="Settings_TopologyDegraded" xml:space="preserve"><value>Die gespeicherten Einstellungen wurden nicht vollständig angewendet. Prüfen Sie die betroffenen Geräte oder Ausgaben und die Serverprotokolle und versuchen Sie es erneut.</value></data>
+  <data name="Settings_TopologyRevisions" xml:space="preserve"><value>Gewünscht: {0}. Versucht: {1}. Zuletzt vollständig angewendet: {2}.</value></data>
+  <data name="Settings_TopologyDeviceFailure" xml:space="preserve"><value>Das physische Gerät {0} konnte nicht angewendet werden.</value></data>
+  <data name="Settings_TopologyOutputFailure" xml:space="preserve"><value>Die Programmausgabe {0} ist fehlgeschlagen oder unvollständig.</value></data>
 </root>

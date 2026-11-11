@@ -67,13 +67,14 @@ flowchart TB
     CoreApp --> Common
     CoreApp --> Ext
     CoreHosting --> CoreApp
+    CoreHosting --> FFmpeg
     FFmpeg --> Ext
-    FFmpeg --> CoreApp
     VOProtocol --> Common
     VOHosting --> Common
     VOHosting --> VOProtocol
     VORuntime --> Common
     VORuntime --> CoreApp
+    VORuntime --> CoreHosting
     VORuntime --> Ext
     VORuntime --> FFmpeg
     VORuntime --> VOProtocol
@@ -160,11 +161,15 @@ flowchart TB
 | `Lineup.Core.Common` | Library | Dependency floor containing stable identifiers, configuration records, normalized guide and channel models, streaming DTOs, and serialized metadata shared across Core, plugins, hosts, and workers. | None |
 | `Lineup.Core.Extensibility` | Library | Stable plugin boundary: tuner, guide-source, guide-output, virtual-output, stream, settings, status, and host-capability interfaces plus portable validation primitives. | `Lineup.Core.Common` |
 | `Lineup.Core` | Library | Provider-neutral application behavior: topology and settings, device and guide orchestration, channel routing, capacity, shared stream multiplexing, transcoding policy, persistence, and status services. | `Lineup.Core.Common`, `Lineup.Core.Extensibility` |
-| `Lineup.Core.Hosting` | Library | Reusable `IHostedService` composition for activating topology, refreshing devices, scheduling guide work, supervising runtime state, and shutting streams down cleanly in Web or TUI hosts. | `Lineup.Core` |
-| `Lineup.Core.Streaming.FFmpeg` | Library | Shared FFmpeg/FFprobe process control, media probing, MPEG-TS transforms, transcoding plans, synthetic streams, and process error handling. | `Lineup.Core.Extensibility`, `Lineup.Core` |
+| `Lineup.Core.Hosting` | Library | Trusted hosted-service composition for topology, device refresh, guide work, and shutdown; application adapters for graph leases, settings, cached channel metadata, media probing, and subtitle storage. | `Lineup.Core`, `Lineup.Core.Streaming.FFmpeg` |
+| `Lineup.Core.Streaming.FFmpeg` | Library | Portable FFmpeg/FFprobe process control, stream probing, MPEG-TS transforms, immutable-profile planners, synthetic streams, and process error handling. | `Lineup.Core.Extensibility` |
 | `Lineup.Core.VirtualOutputs.Protocol` | Library | Versioned, dependency-light local IPC messages and bounded framing shared by the trusted host and isolated output/discovery workers. | `Lineup.Core.Common` |
 | `Lineup.Core.VirtualOutputs.Hosting` | Library | Worker-side bootstrap and activation parsing, authenticated capability-broker client, lease renewal, TLS material loading, and fail-closed worker lifecycle. | `Lineup.Core.Common`, `Lineup.Core.VirtualOutputs.Protocol` |
-| `Lineup.Core.VirtualOutputs.Runtime` | Library | Trusted-host worker package verification, process activation and supervision, local IPC server, capability brokerage, enrollment, resource limits, restart policy, and runtime status. | `Lineup.Core.Common`, `Lineup.Core`, `Lineup.Core.Extensibility`, `Lineup.Core.Streaming.FFmpeg`, `Lineup.Core.VirtualOutputs.Protocol` |
+| `Lineup.Core.VirtualOutputs.Runtime` | Library | Trusted-host worker package verification, process activation and supervision, local IPC server, capability brokerage, enrollment, resource limits, restart policy, and runtime status. | `Lineup.Core.Common`, `Lineup.Core`, `Lineup.Core.Hosting`, `Lineup.Core.Extensibility`, `Lineup.Core.Streaming.FFmpeg`, `Lineup.Core.VirtualOutputs.Protocol` |
+
+Portable media projects and output workers have no transitive dependency on Core application services, trusted hosting, EF, or SQLite.
+`Lineup.Core.Hosting.Streaming` adapts portable media execution to application graph, settings, guide, and storage services.
+There is no FFmpeg-to-Core dependency exception.
 
 ### Guide outputs
 
@@ -200,8 +205,8 @@ flowchart TB
 | Project | Type | Purpose and usage | Direct project dependencies |
 |---|---|---|---|
 | `Lineup.Plugin.WebPlayer` | Library | Built-in Web Player contracts, virtual-output driver, browser/session models, compatibility policy, and shared CMAF output lifecycle abstractions. | `Lineup.Core.Extensibility` |
-| `Lineup.Plugin.WebPlayer.FFmpeg` | Library | FFmpeg-backed CMAF generation, track planning, HLS/DASH manifest processing, subtitles, and browser compatibility-test media generation. | `Lineup.Core.Extensibility`, `Lineup.Core.Streaming.FFmpeg`, `Lineup.Plugin.WebPlayer` |
-| `Lineup.Plugin.WebPlayer.VirtualOutputHost` | Worker executable | Dedicated Web Player media process serving CMAF/HLS/DASH sessions and obtaining stream capabilities from the trusted host. | `Lineup.Core.VirtualOutputs.Hosting`, `Lineup.Plugin.WebPlayer`, `Lineup.Plugin.WebPlayer.FFmpeg` |
+| `Lineup.Plugin.WebPlayer.FFmpeg` | Library | Portable CMAF generation, track/subtitle planning, HLS/DASH manifest processing, and browser compatibility-test media generation. | `Lineup.Core.Extensibility`, `Lineup.Core.Streaming.FFmpeg`, `Lineup.Plugin.WebPlayer` |
+| `Lineup.Plugin.WebPlayer.VirtualOutputHost` | Worker executable | Dedicated typed Web Player runtime sharing CMAF/HLS/DASH producers across independently admitted viewers and obtaining stream capabilities from the trusted host. | `Lineup.Core.VirtualOutputs.Hosting`, `Lineup.Plugin.WebPlayer`, `Lineup.Plugin.WebPlayer.FFmpeg` |
 
 ## Test dependency graph
 

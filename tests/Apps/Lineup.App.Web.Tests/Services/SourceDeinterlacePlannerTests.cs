@@ -15,7 +15,6 @@ public class SourceDeinterlacePlannerTests
         var source = new MediaProbeResult(
             [new MediaTrackMetadata(0, MediaTrackType.Video, "mpeg2video", 8_000_000, 1920, 1080, null, null) { ScanType = VideoScanType.Interlaced }],
             null);
-        var encoder = new LineupSettings();
         var profile = new PhysicalTranscodeProfile
         {
             Deinterlace = SourceDeinterlacePolicy.SourceFieldRate,
@@ -25,7 +24,7 @@ public class SourceDeinterlacePlannerTests
         };
 
         // Act
-        var arguments = SourceDeinterlacePlanner.CreateArguments(source, profile, encoder);
+        var arguments = SourceDeinterlacePlanner.CreateArguments(source, profile);
 
         // Assert
         AssertOption(arguments, "-filter:v:0", "bwdif=mode=send_field:parity=auto:deint=interlaced");
@@ -56,7 +55,7 @@ public class SourceDeinterlacePlannerTests
         };
 
         // Act
-        var arguments = SourceDeinterlacePlanner.CreateArguments(source, profile, new LineupSettings());
+        var arguments = SourceDeinterlacePlanner.CreateArguments(source, profile);
         var effective = SourceDeinterlacePlanner.CreateEffectiveSource(source, profile);
 
         // Assert
@@ -97,8 +96,8 @@ public class SourceDeinterlacePlannerTests
         };
 
         // Act
-        var arguments = SourceDeinterlacePlanner.CreateArguments(source, settings);
-        var effective = SourceDeinterlacePlanner.CreateEffectiveSource(source, settings);
+        var arguments = SourceDeinterlacePlanner.CreateArguments(source, settings.Streaming.PhysicalDefaults);
+        var effective = SourceDeinterlacePlanner.CreateEffectiveSource(source, settings.Streaming.PhysicalDefaults);
 
         // Assert
         AssertOption(arguments, "-analyzeduration", "10000000");
@@ -157,7 +156,7 @@ public class SourceDeinterlacePlannerTests
                 VirtualDefaults = new VirtualTranscodeProfile { Deinterlace = SourceDeinterlacePolicy.SourceFieldRate }
             }
         };
-        var effectiveSource = SourceDeinterlacePlanner.CreateEffectiveSource(rawSource, settings);
+        var effectiveSource = SourceDeinterlacePlanner.CreateEffectiveSource(rawSource, settings.Streaming.PhysicalDefaults);
         var selection = WebPlayerTrackPlanner.SelectTracks(effectiveSource, 1, null);
 
         // Act
@@ -222,7 +221,7 @@ public class SourceDeinterlacePlannerTests
         var profile = AudioOnlyProfile(audioPolicy, ac4Policy);
 
         // Act
-        var arguments = SourceDeinterlacePlanner.CreateArguments(source, profile, new LineupSettings());
+        var arguments = SourceDeinterlacePlanner.CreateArguments(source, profile);
 
         // Assert
         Assert.True(SourceDeinterlacePlanner.ShouldNormalize(source, profile));
@@ -292,9 +291,9 @@ public class SourceDeinterlacePlannerTests
         AssertAudioOnlyMetadata(source, effective, aacEncoder, ac4Encoder);
     }
 
-    /// <summary>Verifies legacy settings overloads retain audio-only transform behavior.</summary>
+    /// <summary>Verifies explicitly projected settings retain audio-only transform behavior.</summary>
     [Fact]
-    public void CreatePlan_AudioOnlyTopology_SettingsOverloadsMatchProfile()
+    public void CreatePlan_AudioOnlyTopology_ProjectedSettingsMatchProfile()
     {
         // Arrange
         var source = AudioOnlySource();
@@ -304,8 +303,8 @@ public class SourceDeinterlacePlannerTests
         };
 
         // Act
-        var arguments = SourceDeinterlacePlanner.CreateArguments(source, settings);
-        var effective = SourceDeinterlacePlanner.CreateEffectiveSource(source, settings);
+        var arguments = SourceDeinterlacePlanner.CreateArguments(source, settings.Streaming.PhysicalDefaults);
+        var effective = SourceDeinterlacePlanner.CreateEffectiveSource(source, settings.Streaming.PhysicalDefaults);
 
         // Assert
         AssertAudioEncoder(arguments, 0, "ac3");
@@ -326,7 +325,7 @@ public class SourceDeinterlacePlannerTests
         // Act
         var normalize = SourceDeinterlacePlanner.ShouldNormalize(source, profile);
         var effective = SourceDeinterlacePlanner.CreateEffectiveSource(source, profile);
-        var exception = Record.Exception(() => SourceDeinterlacePlanner.CreateArguments(source, profile, new LineupSettings()));
+        var exception = Record.Exception(() => SourceDeinterlacePlanner.CreateArguments(source, profile));
 
         // Assert
         Assert.False(normalize);

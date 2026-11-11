@@ -13,9 +13,10 @@ public sealed class AppDataStore : IAppDataStore
     /// Initializes a store rooted at the specified persistent application-data directory.
     /// </summary>
     /// <param name="rootPath">Persistent application-data directory.</param>
-    public AppDataStore(string rootPath)
+    /// <param name="createRoot">Whether construction creates the root; disable for read-only recovery previews.</param>
+    public AppDataStore(string rootPath, bool createRoot = true)
     {
-        _files = new ContainedFileStore(rootPath);
+        _files = new ContainedFileStore(rootPath, createRoot);
         RootPath = _files.RootPath;
         SettingsPath = GetPath(AppConstants.SettingsFileName);
         SettingsBackupPath = $"{SettingsPath}.bak";

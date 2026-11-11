@@ -17,6 +17,7 @@ internal static class DedicatedMediaReadiness
         TimeSpan timeout,
         CancellationToken cancellationToken)
     {
+        using var operation = Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.Begin("media_readiness", cancellationToken: cancellationToken);
         using var readinessTimeout = new CancellationTokenSource(timeout);
         using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, readinessTimeout.Token);
         int[] representationFragmentCounts = [];
@@ -53,6 +54,7 @@ internal static class DedicatedMediaReadiness
                 if (File.Exists(dashPath) && File.Exists(hlsPath) && representationFragmentCounts.All(count => count >= 2) &&
                     Enumerable.Range(0, representationCount).All(index => File.Exists(Path.Combine(directory, $"init-{index}.mp4"))))
                 {
+                    operation.Succeed();
                     return;
                 }
                 await Task.Delay(100, linkedCancellation.Token);

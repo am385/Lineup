@@ -29,9 +29,19 @@ public sealed class StreamingTopologyStore
     {
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
         await EpgDatabaseSchema.EnsureAsync(context, cancellationToken);
-        var channels = await context.PhysicalSourceChannels
-            .AsNoTracking()
-            .Where(channel => channel.IsActive)
+        return await ReadActiveAsync(context, cancellationToken);
+    }
+
+    /// <summary>Reads topology through the caller's guide read transaction.</summary>
+    internal static async Task<IReadOnlyList<PhysicalChannelIdentity>> ReadActiveAsync(EpgDbContext context, CancellationToken cancellationToken, IReadOnlyCollection<PhysicalDeviceId>? physicalDeviceIds = null)
+    {
+        var query = context.PhysicalSourceChannels.AsNoTracking().Where(channel => channel.IsActive);
+        if (physicalDeviceIds is not null)
+        {
+            var keys = physicalDeviceIds.Select(id => id.ToString()).ToArray();
+            query = query.Where(channel => keys.Contains(channel.PhysicalDeviceId));
+        }
+        var channels = await query
             .OrderBy(channel => channel.PhysicalDeviceId)
             .ThenBy(channel => channel.ProviderNumber)
             .ToArrayAsync(cancellationToken);
@@ -138,12 +148,14 @@ public sealed class StreamingTopologyStore
                 return 0;
             }
 
+            await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
             await context.SourceGuideBindings
                 .Where(binding => staleChannelIds.Contains(binding.PhysicalSourceChannelId))
                 .ExecuteDeleteAsync(cancellationToken);
             await context.PhysicalSourceChannels
                 .Where(channel => staleChannelIds.Contains(channel.Id))
                 .ExecuteDeleteAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
             return staleChannelIds.Length;
         }
         finally

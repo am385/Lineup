@@ -8,6 +8,31 @@ namespace Lineup.Plugin.WebPlayer.Tests;
 /// <summary>Verifies dedicated workers build browser presentations with the shared CMAF planner.</summary>
 public sealed class DedicatedCmafSessionPlanTests
 {
+    /// <summary>Verifies equivalent dedicated presentations share an identity across viewer IDs and output directories.</summary>
+    [Fact]
+    public void SharingKey_EquivalentPlans_IgnoresViewerAndOutputDirectory()
+    {
+        // Arrange
+        var response = CreateMixedAudioResponse(OutputAudioPolicy.Copy, OutputAudioPolicy.Copy);
+        var profile = response.Profile!;
+        var request = new CmafStreamRequest { ClientId = "first-viewer", AudioTrack = 4 };
+
+        // Act
+        var first = DedicatedCmafSessionPlan.Create(response, request, Path.Combine("media-plan-tests", "first"));
+        var second = DedicatedCmafSessionPlan.Create(response, request with { ClientId = "second-viewer" }, Path.Combine("media-plan-tests", "second"));
+        var fallback = first.CreateFallback(Path.Combine("media-plan-tests", "fallback"));
+        var changedProfile = DedicatedCmafSessionPlan.Create(
+            response with { Profile = profile with { VideoQuality = profile.VideoQuality + 1 } },
+            request,
+            Path.Combine("media-plan-tests", "third"));
+
+        // Assert
+        Assert.Equal(first.SharingKey, second.SharingKey);
+        Assert.NotEqual(first.Arguments, second.Arguments);
+        Assert.NotEqual(first.SharingKey, fallback.SharingKey);
+        Assert.NotEqual(first.SharingKey, changedProfile.SharingKey);
+    }
+
     /// <summary>Verifies dedicated planning uses effective physical video rather than raw codec to apply the HEVC default.</summary>
     [Theory]
     [InlineData("h264", false, null, "copy")]

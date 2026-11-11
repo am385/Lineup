@@ -142,6 +142,11 @@ public sealed class LineupLinkController : ControllerBase
         {
             return failure;
         }
+        using var startup = _activeStreams.TryBeginStartup(_settings.Settings.MaximumConcurrentStreams, HttpContext.Abort);
+        if (startup is null)
+        {
+            return StatusCode(StatusCodes.Status429TooManyRequests, new LineupLinkError { Code = "stream_limit", Message = "The stream or startup limit has been reached." });
+        }
         try
         {
             _logger.LogInformation(
@@ -162,7 +167,7 @@ public sealed class LineupLinkController : ControllerBase
                 ClientAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
                 Flow = output.Flow
             };
-            if (!_activeStreams.TryRegister(stream, _settings.Settings.MaximumConcurrentStreams, HttpContext.Abort))
+            if (!startup.TryRegister(stream, HttpContext.Abort))
             {
                 return StatusCode(StatusCodes.Status429TooManyRequests, new LineupLinkError
                 {
@@ -170,6 +175,7 @@ public sealed class LineupLinkController : ControllerBase
                     Message = "The maximum number of concurrent streams is already active."
                 });
             }
+            startup.Dispose();
             try
             {
                 Response.ContentType = LineupLinkProtocol.MpegTsMediaType;

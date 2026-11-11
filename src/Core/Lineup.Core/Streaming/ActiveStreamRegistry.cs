@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Lineup.Core.Extensibility.Diagnostics;
 using Microsoft.Extensions.Logging;
 
 namespace Lineup.Core.Streaming;
@@ -6,6 +7,12 @@ namespace Lineup.Core.Streaming;
 /// <summary>Provides process-local active stream registration and snapshots.</summary>
 public interface IActiveStreamRegistry
 {
+    /// <summary>Reserves active-stream capacity and a startup slot before acquiring or probing media; returns null on overload or shutdown.</summary>
+    IStreamStartupLease? TryBeginStartup(int maximumConcurrentStreams, Action stop);
+
+    /// <summary>Releases a registered worker's startup slot after its ready or terminal status report.</summary>
+    void CompleteStartup(string sessionId);
+
     /// <summary>Occurs when an active stream receives an explicit stop request.</summary>
     event Action<ActiveStreamSnapshot>? StopRequested;
 
@@ -34,19 +41,67 @@ public interface IActiveStreamRegistry
     IReadOnlyList<ActiveStreamSnapshot> GetActiveStreams();
 }
 
+/// <summary>Owns a pending startup reservation until failure or completion; registered stream ownership remains with the active registry.</summary>
+public interface IStreamStartupLease : IDisposable
+{
+    /// <summary>Transfers reserved active-stream capacity to one active session without releasing the startup slot yet.</summary>
+    bool TryRegister(ActiveStreamSnapshot stream, Action stop);
+}
+
 /// <summary>Thread-safe in-memory active stream registry.</summary>
 public sealed class ActiveStreamRegistry : IActiveStreamRegistry
 {
     private readonly ConcurrentDictionary<string, ActiveStreamRegistration> _streams = new(StringComparer.Ordinal);
     private readonly Lock _registrationLock = new();
+    private readonly Dictionary<Guid, StartupLease> _startups = [];
+    private readonly int _maximumPendingStarts;
     private readonly ILogger<ActiveStreamRegistry> _logger;
     private TaskCompletionSource _allStreamsStopped = CompletedTaskCompletionSource();
     private bool _isStopping;
 
     /// <summary>Initializes an active stream registry.</summary>
-    public ActiveStreamRegistry(ILogger<ActiveStreamRegistry>? logger = null)
+    public ActiveStreamRegistry(ILogger<ActiveStreamRegistry>? logger = null, StreamingResourceOptions? resources = null)
     {
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<ActiveStreamRegistry>.Instance;
+        resources ??= new();
+        resources.Validate();
+        _maximumPendingStarts = resources.MaximumPendingStarts;
+    }
+
+    /// <inheritdoc />
+    public IStreamStartupLease? TryBeginStartup(int maximumConcurrentStreams, Action stop)
+    {
+        ArgumentNullException.ThrowIfNull(stop);
+        lock (_registrationLock)
+        {
+            if (_isStopping || _startups.Count >= _maximumPendingStarts ||
+                maximumConcurrentStreams > 0 && _streams.Count + _startups.Values.Count(startup => !startup.Registered) >= maximumConcurrentStreams)
+            {
+                _logger.LogWarning("Stream startup rejected: {ActiveStreams} active streams and {PendingStarts} pending startups.", _streams.Count, _startups.Count);
+                LineupTelemetry.Rejections.Add(1);
+                return null;
+            }
+            if (_streams.IsEmpty && _startups.Count == 0)
+            {
+                _allStreamsStopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+            var lease = new StartupLease(this, stop);
+            _startups.Add(lease.Id, lease);
+            LineupTelemetry.PendingStarts.Add(1);
+            return lease;
+        }
+    }
+
+    /// <inheritdoc />
+    public void CompleteStartup(string sessionId)
+    {
+        lock (_registrationLock)
+        {
+            foreach (var startup in _startups.Values.Where(startup => startup.SessionId == sessionId).ToArray())
+            {
+                startup.Dispose();
+            }
+        }
     }
 
     /// <inheritdoc />
@@ -73,7 +128,7 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
             if (_isStopping ||
                 !_streams.ContainsKey(stream.SessionId) &&
                 maximumConcurrentStreams > 0 &&
-                _streams.Count >= maximumConcurrentStreams)
+                _streams.Count + _startups.Values.Count(startup => !startup.Registered) >= maximumConcurrentStreams)
             {
                 return false;
             }
@@ -126,10 +181,12 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
     public async Task StopAllAsync(CancellationToken cancellationToken)
     {
         ActiveStreamRegistration[] registrations;
+        Action[] pendingStops;
         Task allStreamsStopped;
         lock (_registrationLock)
         {
             _isStopping = true;
+            pendingStops = _startups.Values.Where(startup => !startup.Registered).Select(startup => startup.Stop).ToArray();
             registrations = _streams.Values.ToArray();
             foreach (var registration in registrations)
             {
@@ -144,6 +201,7 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
         var stopTasks = registrations
             .Where(registration => registration.Stop is not null)
             .Select(registration => Task.Run(() => RequestShutdown(registration)))
+            .Concat(pendingStops.Select(stop => Task.Run(() => RequestStartupShutdown(stop))))
             .ToArray();
         await Task.WhenAll(stopTasks).WaitAsync(cancellationToken);
         await allStreamsStopped.WaitAsync(cancellationToken);
@@ -155,7 +213,7 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
         lock (_registrationLock)
         {
             var removed = _streams.TryRemove(sessionId, out _);
-            if (removed && _streams.IsEmpty)
+            if (removed && _streams.IsEmpty && _startups.Count == 0)
             {
                 _allStreamsStopped.TrySetResult();
             }
@@ -194,13 +252,53 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
 
     private sealed record ActiveStreamRegistration(ActiveStreamSnapshot Snapshot, Action? Stop);
 
+    private sealed class StartupLease(ActiveStreamRegistry owner, Action stop) : IStreamStartupLease
+    {
+        private readonly long _started = System.Diagnostics.Stopwatch.GetTimestamp();
+        public Guid Id { get; } = Guid.NewGuid();
+        public Action Stop { get; } = stop;
+        public bool Registered { get; private set; }
+        public string? SessionId { get; private set; }
+
+        public bool TryRegister(ActiveStreamSnapshot stream, Action stop)
+        {
+            lock (owner._registrationLock)
+            {
+                if (owner._isStopping || !owner._startups.ContainsKey(Id) || Registered || owner._streams.ContainsKey(stream.SessionId))
+                {
+                    return false;
+                }
+                owner.RegisterCore(stream, stop);
+                Registered = true;
+                SessionId = stream.SessionId;
+                return true;
+            }
+        }
+
+        public void Dispose()
+        {
+            lock (owner._registrationLock)
+            {
+                if (owner._startups.Remove(Id))
+                {
+                    LineupTelemetry.PendingStarts.Add(-1);
+                    LineupTelemetry.Record("admission", Registered ? "registered" : "released", System.Diagnostics.Stopwatch.GetElapsedTime(_started));
+                }
+                if (owner._streams.IsEmpty && owner._startups.Count == 0)
+                {
+                    owner._allStreamsStopped.TrySetResult();
+                }
+            }
+        }
+    }
+
     private void RegisterCore(ActiveStreamSnapshot stream, Action? stop)
     {
-        if (_streams.IsEmpty)
+        if (_streams.IsEmpty && _startups.Count == 0)
         {
             _allStreamsStopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         }
-        var immutable = CloneSnapshot(stream);
+        var immutable = CloneSnapshot(stream) with { CorrelationId = stream.CorrelationId ?? System.Diagnostics.Activity.Current?.TraceId.ToString() };
         _streams.AddOrUpdate(
             stream.SessionId,
             _ => new ActiveStreamRegistration(immutable, stop),
@@ -242,6 +340,22 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Unable to request shutdown of active stream {SessionId}", registration.Snapshot.SessionId);
+        }
+    }
+
+    private void RequestStartupShutdown(Action stop)
+    {
+        try
+        {
+            stop();
+        }
+        catch (ObjectDisposedException)
+        {
+            _logger.LogDebug("The pending stream startup completed before its captured shutdown callback ran.");
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Unable to request shutdown of a pending stream startup");
         }
     }
 }

@@ -73,10 +73,11 @@ internal static class TuiAdapterSettingsEditor
                     await RemoveAsync(settings);
                     break;
                 case "Edit plugin connection limit":
+                    var original = settings.Settings.Streaming;
                     var maximum = AnsiConsole.Prompt(new TextPrompt<int>("Deployment-wide plugin TCP connections (0 for unlimited):")
-                        .DefaultValue(settings.Settings.Streaming.MaximumPluginConnections)
+                        .DefaultValue(original.MaximumPluginConnections)
                         .Validate(value => value >= 0 ? ValidationResult.Success() : ValidationResult.Error("The connection limit cannot be negative.")));
-                    await TrySaveTopologyAsync(settings, settings.Settings.Streaming with { MaximumPluginConnections = maximum });
+                    await TrySaveTopologyAsync(settings, original with { MaximumPluginConnections = maximum }, original);
                     break;
                 default:
                     return;
@@ -126,7 +127,7 @@ internal static class TuiAdapterSettingsEditor
                 VirtualOutputWorkerPolicies = configuration.VirtualOutputWorkerPolicies
                     .Where(policy => !string.Equals(policy.Key, workerKey, StringComparison.OrdinalIgnoreCase))
                     .ToArray()
-            });
+            }, configuration);
             return;
         }
 
@@ -220,7 +221,7 @@ internal static class TuiAdapterSettingsEditor
                             !string.Equals(policy.Key, workerKey, StringComparison.OrdinalIgnoreCase)),
                         workerPolicy
             ]
-        });
+        }, configuration);
     }
 
     /// <summary>Applies the TUI's editable security fields to a device-specific policy while preserving unexposed certificate and proxy requirements.</summary>
@@ -244,8 +245,9 @@ internal static class TuiAdapterSettingsEditor
         };
 
     /// <summary>Validates a candidate topology before persistence, reporting errors and leaving saved settings unchanged on rejection.</summary>
-    internal static async Task<bool> TrySaveTopologyAsync(ILineupSettingsService settings, StreamingConfiguration configuration)
+    internal static async Task<bool> TrySaveTopologyAsync(ILineupSettingsService settings, StreamingConfiguration configuration, StreamingConfiguration? original = null)
     {
+        var expectedRevision = ConfigurationRevision.Create(original ?? settings.Settings.Streaming);
         var errors = StreamingConfigurationValidator.Validate(configuration);
         if (errors.Count > 0)
         {
@@ -257,7 +259,19 @@ internal static class TuiAdapterSettingsEditor
             return false;
         }
 
-        await settings.UpdateAsync(value => value.Streaming = configuration);
+        try
+        {
+            await settings.UpdateAsync(value =>
+            {
+                ConfigurationRevision.RequireMatch(expectedRevision, ConfigurationRevision.Create(value.Streaming));
+                value.Streaming = configuration;
+            });
+        }
+        catch (SettingsConflictException exception)
+        {
+            AnsiConsole.MarkupLine($"[red]{Markup.Escape(exception.Message)}[/]");
+            return false;
+        }
         return true;
     }
 
@@ -433,7 +447,8 @@ internal static class TuiAdapterSettingsEditor
         IReadOnlyList<IGuideSourceDriver> guideDrivers,
         IReadOnlyList<IGuideOutputDriver> guideOutputDrivers)
     {
-        var item = SelectConfigured(settings.Settings.Streaming);
+        var original = settings.Settings.Streaming;
+        var item = SelectConfigured(original);
         if (item is null)
         {
             return;
@@ -459,41 +474,40 @@ internal static class TuiAdapterSettingsEditor
             return;
         }
 
-        await settings.UpdateAsync(value =>
+        var updated = item.Category switch
         {
-            value.Streaming = item.Category switch
+            AdapterCategory.Physical => original with
             {
-                AdapterCategory.Physical => value.Streaming with
-                {
-                    PhysicalDevices = value.Streaming.PhysicalDevices
-                        .Select(device => device.Id.Value == item.Id ? device with { Adapter = configuration } : device)
-                        .ToArray()
-                },
-                AdapterCategory.Virtual => value.Streaming with
-                {
-                    VirtualDevices = value.Streaming.VirtualDevices
-                        .Select(device => device.Id.Value == item.Id ? device with { Adapter = configuration } : device)
-                        .ToArray()
-                },
-                AdapterCategory.Guide => value.Streaming with
-                {
-                    GuideSources = value.Streaming.GuideSources
-                        .Select(source => source.Id.Value == item.Id ? source with { Adapter = configuration } : source)
-                        .ToArray()
-                },
-                _ => value.Streaming with
-                {
-                    GuideOutputs = value.Streaming.GuideOutputs
-                        .Select(output => output.Id.Value == item.Id ? output with { Adapter = configuration } : output)
-                        .ToArray()
-                }
-            };
-        });
+                PhysicalDevices = original.PhysicalDevices
+                    .Select(device => device.Id.Value == item.Id ? device with { Adapter = configuration } : device)
+                    .ToArray()
+            },
+            AdapterCategory.Virtual => original with
+            {
+                VirtualDevices = original.VirtualDevices
+                    .Select(device => device.Id.Value == item.Id ? device with { Adapter = configuration } : device)
+                    .ToArray()
+            },
+            AdapterCategory.Guide => original with
+            {
+                GuideSources = original.GuideSources
+                    .Select(source => source.Id.Value == item.Id ? source with { Adapter = configuration } : source)
+                    .ToArray()
+            },
+            _ => original with
+            {
+                GuideOutputs = original.GuideOutputs
+                    .Select(output => output.Id.Value == item.Id ? output with { Adapter = configuration } : output)
+                    .ToArray()
+            }
+        };
+        await TrySaveTopologyAsync(settings, updated, original);
     }
 
     private static async Task RemoveAsync(ILineupSettingsService settings)
     {
-        var item = SelectConfigured(settings.Settings.Streaming);
+        var original = settings.Settings.Streaming;
+        var item = SelectConfigured(original);
         if (item is null || !item.CanRemove || !AnsiConsole.Confirm($"Remove {Markup.Escape(item.Name)}?", defaultValue: false))
         {
             return;
@@ -501,12 +515,12 @@ internal static class TuiAdapterSettingsEditor
 
         var updated = item.Category switch
         {
-            AdapterCategory.Physical => RemovePhysicalDevice(settings.Settings.Streaming, new PhysicalDeviceId(item.Id)),
-            AdapterCategory.Virtual => RemoveVirtualDevice(settings.Settings.Streaming, new VirtualDeviceId(item.Id)),
-            AdapterCategory.Guide => RemoveGuideSource(settings.Settings.Streaming, new GuideSourceId(item.Id)),
-            _ => RemoveGuideOutput(settings.Settings.Streaming, new GuideOutputId(item.Id))
+            AdapterCategory.Physical => RemovePhysicalDevice(original, new PhysicalDeviceId(item.Id)),
+            AdapterCategory.Virtual => RemoveVirtualDevice(original, new VirtualDeviceId(item.Id)),
+            AdapterCategory.Guide => RemoveGuideSource(original, new GuideSourceId(item.Id)),
+            _ => RemoveGuideOutput(original, new GuideOutputId(item.Id))
         };
-        await TrySaveTopologyAsync(settings, updated);
+        await TrySaveTopologyAsync(settings, updated, original);
     }
 
     private static async Task ManageAccessGrantsAsync(
@@ -515,7 +529,8 @@ internal static class TuiAdapterSettingsEditor
     {
         while (true)
         {
-            var candidates = settings.Settings.Streaming.VirtualDevices
+            var original = settings.Settings.Streaming;
+            var candidates = original.VirtualDevices
                 .Select(device => new
                 {
                     Device = device,
@@ -632,12 +647,15 @@ internal static class TuiAdapterSettingsEditor
                 continue;
             }
 
-            await settings.UpdateAsync(value => value.Streaming = value.Streaming with
+            if (!await TrySaveTopologyAsync(settings, original with
             {
-                VirtualDevices = value.Streaming.VirtualDevices
+                VirtualDevices = original.VirtualDevices
                     .Select(device => device.Id == selected.Device.Id ? device with { Adapter = mutation.Configuration! } : device)
                     .ToArray()
-            });
+            }, original))
+            {
+                continue;
+            }
             if (!string.IsNullOrWhiteSpace(mutation.GeneratedSecret))
             {
                 DisplayGeneratedLineupLinkBundle(selected.Device with { Adapter = mutation.Configuration! }, mutation.GeneratedSecret);

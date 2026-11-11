@@ -5,147 +5,23 @@ using System.Text.Json.Serialization;
 namespace Lineup.Core.Streaming.FFmpeg;
 
 /// <summary>
-/// Probes media stream metadata with FFprobe.
+/// Uses Jellyfin FFprobe to inspect a caller-owned media stream without application orchestration.
 /// </summary>
-public interface IMediaProbeService
+public sealed class MediaStreamProbe
 {
-    /// <summary>Probes a provider-owned physical acquisition.</summary>
-    Task<MediaProbeResult> ProbeAsync(
-        StreamAcquisitionDescriptor descriptor,
-        StreamAcquisitionFactory acquisitionFactory,
-        string sourceName,
-        IReadOnlyDictionary<string, string> sourceMetadata,
-        CancellationToken cancellationToken);
-}
-
-/// <summary>
-/// Uses Jellyfin FFprobe to inspect live media sources.
-/// </summary>
-public sealed class MediaProbeService : IMediaProbeService
-{
-    private const string MetadataKey = "ffprobe-v2";
     private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(20);
-    private static readonly TimeSpan SharedProbeOperationTimeout = TimeSpan.FromSeconds(20);
-    private static readonly TimeSpan SharedProbeRefreshWaitTimeout = TimeSpan.FromSeconds(8);
-    private static readonly TimeSpan ProvisionalRetryDelay = TimeSpan.FromSeconds(1);
-    private readonly ILogger<MediaProbeService> _logger;
-    private readonly ITunerStreamMultiplexer _tunerStreamMultiplexer;
+    private readonly ILogger _logger;
     private readonly IMediaProcessFactory _processFactory;
-    private readonly IStreamingSessionGraph? _streamingGraph;
 
-    /// <summary>
-    /// Initializes the media probe service.
-    /// </summary>
-    /// <param name="logger">Logger used for probe diagnostics.</param>
-    /// <param name="tunerStreamMultiplexer">Shares tuner input across probes and stream encoders.</param>
-    /// <param name="processFactory">Starts FFprobe without shell interpretation.</param>
-    /// <param name="streamingGraph">Optionally shares probe results for the lifetime of a live acquisition.</param>
-    public MediaProbeService(
-        ILogger<MediaProbeService> logger,
-        ITunerStreamMultiplexer tunerStreamMultiplexer,
-        IMediaProcessFactory processFactory,
-        IStreamingSessionGraph? streamingGraph = null)
+    /// <summary>Initializes a stream-level probe with its diagnostics and process factory.</summary>
+    public MediaStreamProbe(ILogger logger, IMediaProcessFactory processFactory)
     {
         _logger = logger;
-        _tunerStreamMultiplexer = tunerStreamMultiplexer;
         _processFactory = processFactory;
-        _streamingGraph = streamingGraph;
     }
 
-    /// <summary>Initializes the probe service with the default process factory.</summary>
-    public MediaProbeService(ILogger<MediaProbeService> logger, ITunerStreamMultiplexer tunerStreamMultiplexer)
-        : this(logger, tunerStreamMultiplexer, new MediaProcessFactory())
-    {
-    }
-
-    /// <inheritdoc />
-    public async Task<MediaProbeResult> ProbeAsync(
-        StreamAcquisitionDescriptor descriptor,
-        StreamAcquisitionFactory acquisitionFactory,
-        string sourceName,
-        IReadOnlyDictionary<string, string> sourceMetadata,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(sourceMetadata);
-        if (_streamingGraph is not null)
-        {
-            if (!MediaProbeResultPolicy.IsDeclaredVideoOnly(sourceMetadata))
-            {
-                var result = await GetSharedProbeAsync(
-                    () => _streamingGraph.GetOrRefreshAcquisitionMetadataAsync(
-                        descriptor,
-                        acquisitionFactory,
-                        MetadataKey,
-                        (stream, token) => ProbeStreamCoreAsync(sourceName, stream, token),
-                        new AcquisitionMetadataRefreshPolicy<MediaProbeResult>
-                        {
-                            IsReusable = MediaProbeResultPolicy.HasAudio,
-                            Merge = MediaProbeResultPolicy.Merge,
-                            RetryDelay = ProvisionalRetryDelay,
-                            OperationTimeout = SharedProbeOperationTimeout,
-                            RefreshWaitTimeout = SharedProbeRefreshWaitTimeout
-                        },
-                        cancellationToken),
-                    sourceName);
-                if (!MediaProbeResultPolicy.HasAudio(result) && MediaProbeResultPolicy.ExpectsAudio(sourceMetadata))
-                {
-                    _logger.LogWarning(
-                        "FFprobe did not discover advertised audio after a bounded refresh for {InputSource}; a later viewer will probe again",
-                        sourceName);
-                }
-                return MediaProbeResultPolicy.Assess(result, sourceMetadata);
-            }
-            var declaredVideoOnly = await GetSharedProbeAsync(
-                () => _streamingGraph.GetOrCreateAcquisitionMetadataAsync(
-                    descriptor,
-                    acquisitionFactory,
-                    MetadataKey,
-                    (stream, token) => ProbeStreamCoreAsync(sourceName, stream, token),
-                    cancellationToken),
-                sourceName);
-            return MediaProbeResultPolicy.Assess(declaredVideoOnly, sourceMetadata);
-        }
-        var observation = await ProbeCoreAsync(
-            sourceName,
-            token => _tunerStreamMultiplexer.SubscribeAsync(descriptor, acquisitionFactory, token),
-            cancellationToken);
-        if (!MediaProbeResultPolicy.IsDeclaredVideoOnly(sourceMetadata) && !MediaProbeResultPolicy.HasAudio(observation))
-        {
-            await Task.Delay(ProvisionalRetryDelay, cancellationToken);
-            var refreshed = await ProbeCoreAsync(
-                sourceName, token => _tunerStreamMultiplexer.SubscribeAsync(descriptor, acquisitionFactory, token), cancellationToken);
-            observation = MediaProbeResultPolicy.Merge(observation, refreshed);
-        }
-        return MediaProbeResultPolicy.Assess(observation, sourceMetadata);
-    }
-
-    private static async Task<MediaProbeResult> GetSharedProbeAsync(Func<Task<MediaProbeResult>> probeFactory, string sourceName)
-    {
-        try
-        {
-            return await probeFactory();
-        }
-        catch (TimeoutException exception)
-        {
-            throw new MpegTsTranscodeException(
-                $"FFprobe source acquisition and analysis timed out after {SharedProbeOperationTimeout.TotalSeconds:0} seconds for {sourceName}.",
-                exception);
-        }
-    }
-
-    private async Task<MediaProbeResult> ProbeCoreAsync(
-        string sourceName,
-        Func<CancellationToken, ValueTask<Stream>> subscribe,
-        CancellationToken cancellationToken)
-    {
-        await using var input = await subscribe(cancellationToken);
-        return await ProbeStreamCoreAsync(sourceName, input, cancellationToken);
-    }
-
-    private async Task<MediaProbeResult> ProbeStreamCoreAsync(
-        string sourceName,
-        Stream input,
-        CancellationToken cancellationToken)
+    /// <summary>Probes a readable stream without taking ownership of it.</summary>
+    public async Task<MediaProbeResult> ProbeAsync(string sourceName, Stream input, CancellationToken cancellationToken)
     {
         using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutSource.CancelAfter(ProbeTimeout);

@@ -3,7 +3,6 @@ using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
 using System.Text;
-using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 
 namespace Lineup.Core.Streaming;
@@ -126,7 +125,25 @@ public sealed record StreamNodeDiagnostics(
 /// <param name="Capacity">Physical capacity state.</param>
 public sealed record StreamingSessionGraphDiagnostics(
     IReadOnlyList<StreamNodeDiagnostics> Nodes,
-    IReadOnlyList<PhysicalCapacityDiagnostics> Capacity);
+    IReadOnlyList<PhysicalCapacityDiagnostics> Capacity)
+{
+    /// <summary>Gets distinct queued payload bytes retained across the graph.</summary>
+    public long BufferedBytes { get; init; }
+
+    /// <summary>Gets the number of subscriptions evicted for buffering limits.</summary>
+    public long BufferEvictions { get; init; }
+
+    /// <summary>Gets the last 64 unexpected producer completions; reconnect creates a new route acquisition.</summary>
+    public IReadOnlyList<StreamTermination> RecentTerminations { get; init; } = [];
+}
+
+/// <summary>Describes a safe terminal reason without exposing source addresses or raw exceptions.</summary>
+/// <param name="NodeId">Producer identity used by stream diagnostics.</param>
+/// <param name="Kind">Acquisition or transform.</param>
+/// <param name="Reason">Stable terminal reason.</param>
+/// <param name="ObservedAtUtc">Termination time.</param>
+/// <param name="CorrelationId">Originating trace identity.</param>
+public sealed record StreamTermination(string NodeId, string Kind, string Reason, DateTimeOffset ObservedAtUtc, string? CorrelationId);
 
 /// <summary>
 /// Shares physical acquisitions and identical transforms across consumer sessions.
@@ -204,7 +221,7 @@ public sealed record AcquisitionMetadataRefreshPolicy<T>
 public sealed class StreamingSessionGraph : IStreamingSessionGraph
 {
     private const int BufferSize = 64 * 1024;
-    private const int SubscriberBufferCount = 2048;
+    private readonly StreamBufferBudget _buffers;
     private readonly IPhysicalCapacityLeaseRegistry _capacity;
     private readonly ILogger<StreamingSessionGraph> _logger;
     private readonly TimeProvider _timeProvider;
@@ -213,6 +230,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
     private readonly ConcurrentDictionary<TransformNodeKey, SharedNode> _transforms = [];
     private readonly ConcurrentDictionary<AcquisitionMetadataKey, Lazy<Task<AcquisitionMetadataSnapshot>>> _metadata = [];
     private readonly Lock _lifecycleGate = new();
+    private readonly ConcurrentQueue<StreamTermination> _terminations = new();
     private bool _isStopping;
 
     /// <summary>Initializes the shared graph.</summary>
@@ -228,13 +246,14 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
     }
 
     /// <summary>Initializes the graph with catalog admission and retirement notifications.</summary>
-    internal StreamingSessionGraph(IPhysicalCapacityLeaseRegistry capacity, ILogger<StreamingSessionGraph> logger, TimeProvider timeProvider, PhysicalDeviceRuntimeState? runtimes)
+    internal StreamingSessionGraph(IPhysicalCapacityLeaseRegistry capacity, ILogger<StreamingSessionGraph> logger, TimeProvider timeProvider, PhysicalDeviceRuntimeState? runtimes, StreamingResourceOptions? resources = null)
     {
         ArgumentNullException.ThrowIfNull(timeProvider);
         _capacity = capacity;
         _logger = logger;
         _timeProvider = timeProvider;
         _runtimes = runtimes;
+        _buffers = new(resources ?? new(), timeProvider);
         if (_runtimes is not null)
         {
             _runtimes.Retiring += RetireDevicesAsync;
@@ -564,7 +583,12 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
             .OrderBy(node => node.Kind, StringComparer.Ordinal)
             .ThenBy(node => node.Key, StringComparer.Ordinal)
             .ToArray();
-        return new StreamingSessionGraphDiagnostics(nodes, _capacity.GetDiagnostics());
+        return new StreamingSessionGraphDiagnostics(nodes, _capacity.GetDiagnostics())
+        {
+            BufferedBytes = _buffers.RetainedBytes,
+            BufferEvictions = _buffers.Evictions,
+            RecentTerminations = _terminations.ToArray()
+        };
     }
 
     /// <inheritdoc />
@@ -593,6 +617,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
             {
                 node.Stop();
             }
+            _buffers.Dispose();
         }
         await Task.WhenAll(acquisitions.Select(node => node.Completion)).WaitAsync(cancellationToken);
     }
@@ -657,7 +682,12 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                 },
                 _logger,
                 _timeProvider,
-                completed => RemoveAcquisitionNode(key, completed)));
+                completed =>
+                {
+                    RecordTermination(completed);
+                    RemoveAcquisitionNode(key, completed);
+                },
+                _buffers));
     }
 
     private SharedNode GetOrCreateTransformNode(SharedNode parent, TransformNodeKey key, IStreamTransform transform)
@@ -683,7 +713,12 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                 },
                 _logger,
                 _timeProvider,
-                completed => _transforms.TryRemove(new KeyValuePair<TransformNodeKey, SharedNode>(key, completed))));
+                completed =>
+                {
+                    RecordTermination(completed);
+                    _transforms.TryRemove(new KeyValuePair<TransformNodeKey, SharedNode>(key, completed));
+                },
+                _buffers));
     }
 
     private static async ValueTask<IStreamSessionLease> SubscribeNodeAsync(SharedNode node, CancellationToken cancellationToken)
@@ -702,6 +737,19 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         {
             await lease.DisposeAsync();
             throw;
+        }
+    }
+
+    private void RecordTermination(SharedNode node)
+    {
+        if (node.Termination is not { } termination)
+        {
+            return;
+        }
+        _terminations.Enqueue(termination);
+        while (_terminations.Count > 64)
+        {
+            _terminations.TryDequeue(out _);
         }
     }
 
@@ -772,6 +820,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         private readonly ILogger _logger;
         private readonly TimeProvider _timeProvider;
         private readonly Action<SharedNode> _onCompleted;
+        private readonly StreamBufferBudget _buffers;
         private readonly object _gate = new();
         private readonly Dictionary<Guid, Subscriber> _subscribers = [];
         private readonly CancellationTokenSource _lifetime = new();
@@ -781,8 +830,20 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         private CancellationTokenSource? _warmCancellation;
         private long _totalSubscriptions;
         private bool _completed;
+        private readonly string? _traceParent = System.Diagnostics.Activity.Current?.Id;
 
-        public SharedNode(string kind, GraphNodeKey key, Func<CancellationToken, ValueTask<IStreamSourceLease>> sourceFactory, ILogger logger, TimeProvider timeProvider, Action<SharedNode> onCompleted)
+        /// <summary>Gets a terminal reason only for unexpected completion.</summary>
+        public StreamTermination? Termination { get; private set; }
+
+        public SharedNode(
+            string kind,
+            GraphNodeKey key,
+            Func<CancellationToken, ValueTask<IStreamSourceLease>> sourceFactory,
+            ILogger logger,
+            TimeProvider timeProvider,
+            Action<SharedNode> onCompleted,
+            StreamBufferBudget buffers
+        )
         {
             _kind = kind;
             _key = key;
@@ -790,6 +851,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
             _logger = logger;
             _timeProvider = timeProvider;
             _onCompleted = onCompleted;
+            _buffers = buffers;
             _lifetimeToken = _lifetime.Token;
         }
 
@@ -815,12 +877,6 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         public bool TrySubscribe(TimeSpan keepWarmPeriod, out IStreamSessionLease lease)
         {
             var id = Guid.NewGuid();
-            var channel = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(SubscriberBufferCount)
-            {
-                FullMode = BoundedChannelFullMode.Wait,
-                SingleReader = true,
-                SingleWriter = true
-            });
             lock (_gate)
             {
                 if (_completed)
@@ -829,11 +885,12 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                     return false;
                 }
                 CancelWarmExpiration();
-                _subscribers.Add(id, new Subscriber(channel, keepWarmPeriod));
+                var subscription = _buffers.Subscribe(() => _ = RemoveEvictedSubscriberAsync(id));
+                _subscribers.Add(id, new Subscriber(subscription, keepWarmPeriod));
                 _totalSubscriptions++;
                 _runTask ??= RunAsync();
+                lease = new SessionLease(_key.NodeId, subscription, () => RemoveSubscriberAsync(id));
             }
-            lease = new SessionLease(_key.NodeId, channel.Reader, () => RemoveSubscriberAsync(id));
             return true;
         }
 
@@ -870,7 +927,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                 CancelWarmExpiration();
                 foreach (var subscriber in _subscribers.Values)
                 {
-                    subscriber.Channel.Writer.TryComplete();
+                    _buffers.Complete(subscriber.Subscription, discard: true);
                 }
                 _subscribers.Clear();
                 _lifetime.Cancel();
@@ -879,6 +936,8 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
 
         private async Task RunAsync()
         {
+            using var operation = Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.Begin("producer", _traceParent, _lifetimeToken);
+            Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.Producers.Add(1);
             Exception? failure = null;
             try
             {
@@ -890,6 +949,11 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                     var count = await source.Stream.ReadAsync(buffer, _lifetime.Token);
                     if (count == 0)
                     {
+                        if (!_lifetime.IsCancellationRequested)
+                        {
+                            Termination = new(_key.NodeId, _kind, "source_eof", _timeProvider.GetUtcNow(), System.Diagnostics.Activity.Current?.TraceId.ToString());
+                            _logger.LogWarning("Shared {StreamKind} producer {ProducerNodeId} ended: source_eof. Clients must reconnect; no source is spliced into this stream.", _kind, _key.NodeId);
+                        }
                         break;
                     }
                     if (count != buffer.Length)
@@ -899,18 +963,25 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                     Broadcast(buffer);
                 }
             }
-            catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+            catch (Exception ex) when (_lifetime.IsCancellationRequested && ex is OperationCanceledException or IOException or ObjectDisposedException)
             {
+                operation.Cancel();
                 _started.TrySetCanceled(_lifetime.Token);
             }
             catch (Exception ex)
             {
                 failure = ex;
+                Termination = new(_key.NodeId, _kind, "source_failure", _timeProvider.GetUtcNow(), System.Diagnostics.Activity.Current?.TraceId.ToString());
                 _started.TrySetException(ex);
                 _logger.LogWarning(ex, "Shared stream {StreamKind} node {StreamKey} stopped unexpectedly", _kind, _key);
             }
             finally
             {
+                if (Termination is not null)
+                {
+                    Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.SourceLosses.Add(1);
+                }
+                Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.Producers.Add(-1);
                 CompleteSubscribers(failure);
                 _onCompleted(this);
                 _lifetime.Dispose();
@@ -919,26 +990,22 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
 
         private void Broadcast(byte[] buffer)
         {
-            List<Guid>? slowSubscribers = null;
             lock (_gate)
             {
-                foreach (var subscriber in _subscribers)
-                {
-                    if (!subscriber.Value.Channel.Writer.TryWrite(buffer))
-                    {
-                        (slowSubscribers ??= []).Add(subscriber.Key);
-                    }
-                }
-                var keepWarmPeriod = TimeSpan.Zero;
-                foreach (var id in slowSubscribers ?? [])
-                {
-                    if (_subscribers.Remove(id, out var subscriber))
-                    {
-                        keepWarmPeriod = keepWarmPeriod > subscriber.KeepWarmPeriod ? keepWarmPeriod : subscriber.KeepWarmPeriod;
-                        subscriber.Channel.Writer.TryComplete(new IOException("The consumer could not keep up with the shared stream."));
-                    }
-                }
-                BeginIdle(keepWarmPeriod);
+                _buffers.Publish(buffer, _subscribers.Values.Select(subscriber => subscriber.Subscription));
+            }
+        }
+
+        private async Task RemoveEvictedSubscriberAsync(Guid id)
+        {
+            _logger.LogWarning("Evicting a lagging consumer from shared {StreamKind} node {StreamKey}.", _kind, _key);
+            try
+            {
+                await RemoveSubscriberAsync(id);
+            }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(exception, "Could not finish cleanup of an evicted shared-stream consumer.");
             }
         }
 
@@ -951,7 +1018,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                 if (_subscribers.Remove(id, out var subscriber))
                 {
                     keepWarmPeriod = subscriber.KeepWarmPeriod;
-                    subscriber.Channel.Writer.TryComplete();
+                    _buffers.Complete(subscriber.Subscription, discard: true);
                 }
                 completion = BeginIdle(keepWarmPeriod);
             }
@@ -969,7 +1036,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                 CancelWarmExpiration();
                 foreach (var subscriber in _subscribers.Values)
                 {
-                    subscriber.Channel.Writer.TryComplete(failure);
+                    _buffers.Complete(subscriber.Subscription, failure);
                 }
                 _subscribers.Clear();
             }
@@ -990,6 +1057,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
 
             var expiration = new CancellationTokenSource();
             _warmCancellation = expiration;
+            Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.WarmProducers.Add(1);
             _ = ExpireWarmAsync(expiration, keepWarmPeriod);
             return null;
         }
@@ -1006,6 +1074,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                         return;
                     }
                     _warmCancellation = null;
+                    Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.WarmProducers.Add(-1);
                     _completed = true;
                     _lifetime.Cancel();
                 }
@@ -1023,17 +1092,21 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         {
             var expiration = _warmCancellation;
             _warmCancellation = null;
+            if (expiration is not null)
+            {
+                Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.WarmProducers.Add(-1);
+            }
             expiration?.Cancel();
         }
 
-        private sealed record Subscriber(Channel<byte[]> Channel, TimeSpan KeepWarmPeriod);
+        private sealed record Subscriber(StreamBufferBudget.Subscription Subscription, TimeSpan KeepWarmPeriod);
     }
 
     private sealed class SessionLease : IStreamSessionLease
     {
         private readonly SubscriptionStream _stream;
 
-        public SessionLease(string producerNodeId, ChannelReader<byte[]> reader, Func<ValueTask> unsubscribe)
+        public SessionLease(string producerNodeId, StreamBufferBudget.Subscription reader, Func<ValueTask> unsubscribe)
         {
             SessionId = StreamSessionId.New();
             ProducerNodeId = producerNodeId;
@@ -1114,12 +1187,10 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
 
     private sealed class SubscriptionStream : Stream
     {
-        private readonly ChannelReader<byte[]> _reader;
+        private readonly StreamBufferBudget.Subscription _reader;
         private Func<ValueTask>? _unsubscribe;
-        private byte[]? _current;
-        private int _offset;
 
-        public SubscriptionStream(ChannelReader<byte[]> reader, Func<ValueTask> unsubscribe)
+        public SubscriptionStream(StreamBufferBudget.Subscription reader, Func<ValueTask> unsubscribe)
         {
             _reader = reader;
             _unsubscribe = unsubscribe;
@@ -1135,22 +1206,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
             ObjectDisposedException.ThrowIf(_unsubscribe is null, this);
-            while (_current is null || _offset == _current.Length)
-            {
-                if (!await _reader.WaitToReadAsync(cancellationToken))
-                {
-                    return 0;
-                }
-                if (!_reader.TryRead(out _current))
-                {
-                    continue;
-                }
-                _offset = 0;
-            }
-            var count = Math.Min(buffer.Length, _current.Length - _offset);
-            _current.AsMemory(_offset, count).CopyTo(buffer);
-            _offset += count;
-            return count;
+            return await _reader.ReadAsync(buffer, cancellationToken);
         }
 
         protected override void Dispose(bool disposing)
@@ -1158,6 +1214,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
             if (disposing)
             {
                 var unsubscribe = Interlocked.Exchange(ref _unsubscribe, null);
+                _reader.Close();
                 unsubscribe?.Invoke().AsTask().GetAwaiter().GetResult();
             }
             base.Dispose(disposing);
@@ -1166,6 +1223,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         public override async ValueTask DisposeAsync()
         {
             var unsubscribe = Interlocked.Exchange(ref _unsubscribe, null);
+            _reader.Close();
             if (unsubscribe is not null)
             {
                 await unsubscribe();

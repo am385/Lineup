@@ -162,12 +162,12 @@ public sealed class FfmpegStreamDiagnosticsTests
         return factory;
     }
 
-    private static async ValueTask<IStreamSourceLease> OpenAsync(IMediaProcessFactory factory, Stream input, bool slate, CancellationToken cancellationToken) =>
+    private static async ValueTask<IMediaStreamLease> OpenAsync(IMediaProcessFactory factory, Stream input, bool slate, CancellationToken cancellationToken) =>
         slate
             ? new SlateLease(new ChannelSlateStreamFactory(factory).OpenMpegTs("7.1"))
             : await new FfmpegStreamTransform([], factory, NullLogger.Instance, "diagnostic-test").StartAsync(input, cancellationToken);
 
-    private sealed class SlateLease(Stream stream) : IStreamSourceLease
+    private sealed class SlateLease(Stream stream) : IMediaStreamLease
     {
         /// <inheritdoc />
         public Stream Stream => stream;

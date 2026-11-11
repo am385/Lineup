@@ -226,6 +226,7 @@ public sealed class PhysicalRuntimeReplacementTests
 
         // Act
         var replacement = fixture.ApplyAsync("B");
+        await fixture.RetirementStarted.Task.WaitAsync(fixture.Token);
         fixture.ReleaseOpen.TrySetResult();
         await replacement;
 
@@ -397,6 +398,11 @@ public sealed class PhysicalRuntimeReplacementTests
             services.AddSingleton(driver);
             services.AddEpgCore();
             _services = services.BuildServiceProvider();
+            _services.GetRequiredService<PhysicalDeviceRuntimeState>().Retiring += _ =>
+            {
+                RetirementStarted.TrySetResult();
+                return Task.CompletedTask;
+            };
             Graph = _services.GetRequiredService<IStreamingSessionGraph>();
             Catalog = _services.GetRequiredService<IPhysicalDeviceCatalog>();
         }
@@ -423,6 +429,8 @@ public sealed class PhysicalRuntimeReplacementTests
         internal TaskCompletionSource ReleaseCleanup { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         /// <summary>Gets the source-creation entry signal.</summary>
         internal TaskCompletionSource OpenStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        /// <summary>Gets the catalog's admission-fence signal before graph cleanup.</summary>
+        internal TaskCompletionSource RetirementStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         /// <summary>Gets the source-creation release signal.</summary>
         internal TaskCompletionSource ReleaseOpen { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 

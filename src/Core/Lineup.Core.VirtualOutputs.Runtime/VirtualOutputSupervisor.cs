@@ -397,6 +397,7 @@ public sealed class VirtualOutputSupervisor : BackgroundService
             var hosting = device.Hosting!;
             workerPolicy = configuration.VirtualOutputWorkerPolicies.Single(
                 policy => string.Equals(policy.Key, hosting.WorkerPolicyKey, StringComparison.OrdinalIgnoreCase));
+            new VirtualOutputResourcePolicyValidator().Validate(configuration with { VirtualDevices = [device] });
             var leaseLifetime = TimeSpan.FromSeconds(workerPolicy.LeaseGracePeriodSeconds);
             var package = await _catalog.ResolveAsync(device.Adapter.Kind, cancellationToken);
             var ticket = _authority.CreateActivation(
@@ -508,9 +509,16 @@ public sealed class VirtualOutputSupervisor : BackgroundService
             using var startupDeadline = new CancellationTokenSource(remaining, _timeProvider);
             using var startupCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, startupDeadline.Token);
             IVirtualOutputWorkerProcess process;
+            using var activation = Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.Begin("worker_activation");
+            System.Diagnostics.Activity.Current?.SetTag("lineup.worker.generation", ticket.Generation);
             try
             {
+                if (restartCount > 0)
+                {
+                    Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.WorkerRestarts.Add(1);
+                }
                 process = await _launcher.StartAsync(package, bootstrap, startupCancellation.Token);
+                activation.Succeed();
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && startupDeadline.IsCancellationRequested)
             {
@@ -547,8 +555,9 @@ public sealed class VirtualOutputSupervisor : BackgroundService
             _externalEnrollments.Remove(device.Id);
             _externalActive.Remove(device.Id);
             _authority.Revoke(device.Id, "The virtual output worker could not be activated.");
-            var decision = workerPolicy is null ? null : RecordFailure(device.Id, workerPolicy);
-            var quarantined = decision?.Exhausted == true;
+            var policyUnavailable = exception is VirtualOutputResourcePolicyException;
+            var decision = workerPolicy is null || policyUnavailable ? null : RecordFailure(device.Id, workerPolicy);
+            var quarantined = policyUnavailable || decision?.Exhausted == true;
             if (quarantined)
             {
                 _quarantinedFingerprints[device.Id] = fingerprint;
@@ -563,7 +572,9 @@ public sealed class VirtualOutputSupervisor : BackgroundService
                 State = device.Hosting is null ? VirtualOutputRuntimeState.RequiresConfiguration : VirtualOutputRuntimeState.Failed,
                 Bindings = device.Hosting is null ? [] : SafeBindings(device.Hosting),
                 RestartCount = decision?.FailureCount ?? 0,
-                LastFailure = quarantined
+                LastFailure = policyUnavailable
+                    ? exception.Message
+                    : quarantined
                     ? $"{exception.Message} The worker exceeded its restart budget."
                     : decision is null
                         ? exception.Message

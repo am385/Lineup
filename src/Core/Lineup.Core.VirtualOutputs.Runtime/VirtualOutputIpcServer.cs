@@ -198,13 +198,40 @@ public sealed class VirtualOutputIpcServer : BackgroundService
     {
         await using (stream)
         {
+            Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.Operation? operation = null;
+            IDisposable? scope = null;
             try
             {
                 var request = await VirtualOutputWireProtocol.ReadAsync<VirtualOutputIpcRequest>(stream, serverCancellationToken);
+                if (request.TraceParent is not null && (request.TraceParent.Length != 55 ||
+                    !System.Diagnostics.ActivityContext.TryParse(request.TraceParent, null, out _)))
+                {
+                    throw new InvalidDataException("The broker trace context is invalid.");
+                }
+                operation = Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.Begin("broker", request.TraceParent);
+                if (request.Payload.ValueKind == JsonValueKind.Object)
+                {
+                    var identity = request.Payload.TryGetProperty("session", out var session) && session.ValueKind == JsonValueKind.Object ? session : request.Payload;
+                    if (identity.TryGetProperty("generation", out var generation) && generation.ValueKind == JsonValueKind.Number && generation.TryGetInt64(out var number))
+                    {
+                        System.Diagnostics.Activity.Current?.SetTag("lineup.worker.generation", number);
+                    }
+                    if (request.Payload.TryGetProperty("requestId", out var requestId) && requestId.ValueKind == JsonValueKind.Object &&
+                        requestId.TryGetProperty("value", out var value) && value.ValueKind == JsonValueKind.String && value.TryGetGuid(out var id))
+                    {
+                        System.Diagnostics.Activity.Current?.SetTag("lineup.broker.request_id", id.ToString("N"));
+                    }
+                }
+                scope = _logger.BeginScope(new Dictionary<string, object>
+                {
+                    ["CorrelationId"] = System.Diagnostics.Activity.Current!.TraceId.ToString()
+                });
                 await DispatchAsync(stream, request, serverCancellationToken);
+                operation.Succeed();
             }
             catch (OperationCanceledException) when (serverCancellationToken.IsCancellationRequested)
             {
+                operation?.Cancel();
             }
             catch (VirtualOutputBrokerException exception)
             {
@@ -223,6 +250,11 @@ public sealed class VirtualOutputIpcServer : BackgroundService
             {
                 _logger.LogError(exception, "Unhandled virtual-output IPC request failure");
                 await TryWriteErrorAsync(stream, VirtualOutputFailureCode.Unavailable, "The capability broker could not complete the request.", serverCancellationToken);
+            }
+            finally
+            {
+                scope?.Dispose();
+                operation?.Dispose();
             }
         }
     }
@@ -529,6 +561,13 @@ public sealed class VirtualOutputIpcServer : BackgroundService
                 VirtualOutputFailureCode.InvalidRequest,
                 "The worker stream-status report does not match an active broker stream.");
         }
+        var ownedStream = _brokerStreams.GetOwnedStream(report.RequestId, report.Session, report.StreamSessionId);
+        if (report.ReleaseViewer)
+        {
+            ownedStream.ReleaseViewer();
+            await WriteAsync(stream, new VirtualOutputStreamStatusResponse { Updated = true, StopRequested = ownedStream.ViewerStopRequested }, cancellationToken);
+            return;
+        }
         var updated = _activeStreams.TryUpdate(report.StreamSessionId.ToString(), current => current with
         {
             Format = report.Format,
@@ -538,10 +577,17 @@ public sealed class VirtualOutputIpcServer : BackgroundService
             VirtualOutput = report.VirtualOutput ?? current.VirtualOutput,
             BrokerRequestId = report.RequestId.ToString(),
             WorkerMediaSessionId = report.WorkerMediaSessionId,
+            Flow = report.WorkerProducerId is { } producerId && current.Flow is { } flow
+                ? flow with { ReusableOutputId = new StreamSessionId(Guid.ParseExact(producerId, "N")) }
+                : current.Flow,
             WorkerStartupStage = report.StartupStage.ToString(),
             WorkerLastFailure = report.LastFailure
         });
-        await WriteAsync(stream, new VirtualOutputStreamStatusResponse { Updated = updated }, cancellationToken);
+        if (updated && report.StartupStage != VirtualOutputStreamStartupStage.Starting)
+        {
+            _activeStreams.CompleteStartup(report.StreamSessionId.ToString());
+        }
+        await WriteAsync(stream, new VirtualOutputStreamStatusResponse { Updated = updated, StopRequested = ownedStream.ViewerStopRequested }, cancellationToken);
     }
 
     private BrokerCallLease AcquireBrokerCall(

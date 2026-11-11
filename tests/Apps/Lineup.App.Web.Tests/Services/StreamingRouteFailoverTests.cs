@@ -14,6 +14,92 @@ namespace Lineup.App.Web.Tests.Services;
 /// <summary>Verifies ordered physical failover routing.</summary>
 public sealed class StreamingRouteFailoverTests
 {
+    /// <summary>Verifies two stalled preferred sources leave a deterministic fair share for a healthy third source within the overall budget.</summary>
+    [Fact]
+    public async Task SubscribeFirstAvailableAsync_TwoStalledCandidates_LeavesTimeForHealthySource()
+    {
+        // Arrange
+        var clock = new AcquisitionClock();
+        var firstStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = StalledDevice(firstStarted);
+        var second = StalledDevice(secondStarted);
+        var healthy = new FakeDevice(PhysicalDeviceId.New(), false, streamFactory: () => new BlockingStream());
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance);
+        var multiplexer = new TunerStreamMultiplexer(graph, Substitute.For<IMediaProcessFactory>(), NullLogger<TunerStreamMultiplexer>.Instance, clock);
+        var route = Route(new[] { first, second, healthy }.Select(device => Candidate(device, new SourceChannelId(device.Snapshot.Id, "1"), "http://source.invalid/1")).ToArray());
+        var opening = multiplexer.SubscribeFirstAvailableAsync(route, TestContext.Current.CancellationToken).AsTask();
+        try
+        {
+            await firstStarted.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+
+            // Act
+            clock.Advance(TimeSpan.FromSeconds(7));
+            await secondStarted.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+            clock.Advance(TimeSpan.FromSeconds(7));
+            await using var selected = await opening.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.Same(healthy, selected.Candidate.PhysicalDevice);
+            Assert.Equal(TimeSpan.FromSeconds(14), clock.GetElapsedTime(0));
+            Assert.Equal(0, clock.ActiveTimerCount);
+            Assert.Single(healthy.Requests);
+        }
+        finally
+        {
+            await graph.StopAsync(TestContext.Current.CancellationToken);
+        }
+    }
+
+    /// <summary>Verifies the overall deadline prevents any later physical candidate from starting after the acquisition allowance expires.</summary>
+    [Fact]
+    public async Task SubscribeFirstAvailableAsync_OverallBudgetExhausted_DoesNotStartLaterSource()
+    {
+        // Arrange
+        var clock = new AcquisitionClock();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stalled = StalledDevice(started);
+        var healthy = new FakeDevice(PhysicalDeviceId.New(), false);
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance);
+        var multiplexer = new TunerStreamMultiplexer(graph, Substitute.For<IMediaProcessFactory>(), NullLogger<TunerStreamMultiplexer>.Instance, clock);
+        var opening = multiplexer.SubscribeFirstAvailableAsync(Route(
+            [Candidate(stalled, new SourceChannelId(stalled.Snapshot.Id, "1"), "http://source.invalid/1"),
+             Candidate(healthy, new SourceChannelId(healthy.Snapshot.Id, "1"), "http://source.invalid/1")]), TestContext.Current.CancellationToken).AsTask();
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        try
+        {
+            // Act
+            clock.Advance(TimeSpan.FromSeconds(20));
+            var failure = await Record.ExceptionAsync(() => opening.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken));
+
+            // Assert
+            var acquisition = Assert.IsType<StreamAcquisitionException>(failure);
+            Assert.Contains(acquisition.CandidateFailures, candidate => candidate.Code == "source_acquisition_timeout");
+            Assert.Empty(healthy.Requests);
+            Assert.Equal(0, clock.ActiveTimerCount);
+            Assert.Empty(graph.GetDiagnostics().Nodes);
+        }
+        finally
+        {
+            await graph.StopAsync(TestContext.Current.CancellationToken);
+        }
+    }
+
+    private static IPhysicalTunerDevice StalledDevice(TaskCompletionSource started)
+    {
+        var device = Substitute.For<IPhysicalTunerDevice>();
+        device.Snapshot.Returns(new PhysicalDeviceSnapshot { Id = PhysicalDeviceId.New(), Kind = "stalled", Name = "Stalled", Capacity = new PhysicalTunerCapacity(1) });
+        device.OpenStreamAsync(Arg.Any<PhysicalStreamRequest>(), Arg.Any<CancellationToken>()).Returns(call => WaitAsync(call.Arg<CancellationToken>()));
+        return device;
+
+        async ValueTask<IPhysicalStreamLease> WaitAsync(CancellationToken cancellationToken)
+        {
+            started.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new IOException("The controlled source should have been canceled.");
+        }
+    }
+
     /// <summary>Verifies invalid live responses do not bypass healthy-source failover or structured route failures.</summary>
     [Theory]
     [InlineData(true)]
@@ -770,6 +856,12 @@ public sealed class StreamingRouteFailoverTests
         private readonly List<AcquisitionTimer> _timers = [];
         private TimeSpan _elapsed;
 
+        /// <inheritdoc />
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        /// <inheritdoc />
+        public override long GetTimestamp() => _elapsed.Ticks;
+
         /// <summary>Gets the number of pending acquisition deadlines.</summary>
         internal int ActiveTimerCount
         {
@@ -913,6 +1005,13 @@ public sealed class StreamingRouteFailoverTests
 
         public Task ApplyAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
+
+        /// <inheritdoc />
+        public async Task<bool> TryPublishAsync(StreamingConfiguration configuration, Func<CancellationToken, Task> publish, CancellationToken cancellationToken = default)
+        {
+            await publish(cancellationToken);
+            return true;
+        }
     }
 
     private sealed class TestDbContextFactory(DbContextOptions<EpgDbContext> options) : IDbContextFactory<EpgDbContext>

@@ -350,7 +350,7 @@ public sealed class LineupLinkProtectionPublicationTests
             catch (HttpListenerException) when (_shutdown.IsCancellationRequested)
             {
             }
-            catch (ObjectDisposedException exception) when (_shutdown.IsCancellationRequested && exception.ObjectName == typeof(HttpListener).FullName)
+            catch (ObjectDisposedException) when (_shutdown.IsCancellationRequested)
             {
             }
             finally

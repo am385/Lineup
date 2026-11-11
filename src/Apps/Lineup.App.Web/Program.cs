@@ -3,6 +3,7 @@ using Lineup.Plugin.GuideOutputs.Json.Plugin;
 using Lineup.Plugin.LineupLink;
 using Lineup.App.Web.Components;
 using Lineup.App.Web.Services;
+using Lineup.App.Web.Services.Playback;
 using Lineup.Plugin.GuideOutputs.Xmltv.Plugin;
 using Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryRuntime;
 using Lineup.Core.VirtualOutputs.Protocol;
@@ -16,7 +17,15 @@ var pluginAdmission = new PluginConnectionAdmission((_, _) => ValueTask.FromResu
     (pluginConnectionBudget ?? throw new InvalidOperationException("The plugin connection budget is not initialized.")).TryAcquire()));
 builder.WebHost.ConfigureKestrel(pluginAdmission.Configure);
 var statusRuntime = new StatusApiRuntime(Guid.NewGuid().ToString("N"));
-var appDataStore = AppDataStore.Create(builder.Configuration);
+var appDataRoot = AppDataStore.ResolveRootPath(builder.Configuration);
+var recoveryExit = await RecoveryCommand.TryRunAsync(args, appDataRoot);
+if (recoveryExit is { } exitCode)
+{
+    Environment.ExitCode = exitCode;
+    return;
+}
+using var dataOwnership = ApplicationDataOwnership.Acquire(appDataRoot);
+var appDataStore = new AppDataStore(appDataRoot);
 builder.Services.AddSingleton(appDataStore);
 builder.Services.AddSingleton<IAppDataStore>(appDataStore);
 var transientDataStore = TransientDataStore.Create(builder.Configuration);
@@ -129,10 +138,30 @@ builder.Services.AddHttpClient("StreamProxy")
 builder.Services.AddLineupMpegTsStreaming();
 builder.Services.AddSingleton<IStreamingFlowSnapshotService, StreamingFlowSnapshotService>();
 builder.Services.AddSingleton(statusRuntime);
+builder.Services.AddSingleton(provider => new OperationalHealthService(
+    startupState,
+    provider.GetRequiredService<IHostApplicationLifetime>(),
+    () => (provider.GetRequiredService<IPhysicalDeviceStatusService>().Devices.Count(device => device.Error is not null),
+        provider.GetRequiredService<ILineupSettingsService>().Settings.LastAutoFetchTime)));
 builder.Services.AddScoped<StatusApiService>();
 builder.Services.AddSingleton<IProtectedContentSlateService, ProtectedContentSlateService>();
 builder.Services.AddSingleton<ICmafCompatibilityTestService, CmafCompatibilityTestService>();
 builder.Services.AddSingleton<ICmafOutputCoordinator, CmafOutputCoordinator>();
+builder.Services.AddSingleton(services => new ManagementPlaybackService(
+    services.GetRequiredService<IHttpClientFactory>(),
+    services.GetRequiredService<ILineupGuideReader>(),
+    services.GetRequiredService<ILineupSettingsService>(),
+    services.GetRequiredService<StreamingTopologyStore>(),
+    services.GetRequiredService<IMediaProbeService>(),
+    services.GetRequiredService<IActiveStreamRegistry>(),
+    services.GetRequiredService<IProtectedContentSlateService>(),
+    services.GetRequiredService<ITunerStreamMultiplexer>(),
+    services.GetRequiredService<ILogger<ManagementPlaybackService>>(),
+    transientData: services.GetRequiredService<ITransientDataStore>(),
+    compatibilityTestService: services.GetRequiredService<ICmafCompatibilityTestService>(),
+    mediaProcessFactory: services.GetRequiredService<IMediaProcessFactory>(),
+    streamRoutes: services.GetService<IStreamingRouteResolver>(),
+    cmafOutputs: services.GetRequiredService<ICmafOutputCoordinator>()));
 builder.Services.AddSingleton<IStreamingProducerDiagnosticsContributor>(
     services => services.GetRequiredService<ICmafOutputCoordinator>());
 builder.Services.AddSingleton<SubtitleSidecarService>();
@@ -168,9 +197,11 @@ builder.Services.AddOpenApi(options =>
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
+builder.Services.AddSingleton(provider => ReverseProxyConfigurator.Load(provider.GetRequiredService<ILineupSettingsService>().Settings));
 var app = builder.Build();
+_ = app.Services.GetRequiredService<OperationalHealthService>();
 pluginConnectionBudget = app.Services.GetRequiredService<IPluginConnectionBudget>();
-var reverseProxyConfiguration = ReverseProxyConfigurator.Load(app.Services.GetRequiredService<ILineupSettingsService>().Settings);
+var reverseProxyConfiguration = app.Services.GetRequiredService<ReverseProxyConfiguration>();
 if (reverseProxyConfiguration.Enabled)
 {
     app.UseForwardedHeaders(reverseProxyConfiguration.Options);
@@ -248,6 +279,7 @@ app.UseAntiforgery();
 
 // Map API controllers (stream proxy)
 app.MapControllers();
+OperationalHealthService.MapEndpoints(app);
 app.MapOpenApi()
     .DisableAntiforgery();
 app.MapScalarApiReference("/api-docs", options =>

@@ -38,6 +38,26 @@ public sealed class ProjectLayoutTests
             ["Plugins"] = new HashSet<string>(["Core", "Plugins"], StringComparer.OrdinalIgnoreCase)
         };
 
+    private static readonly IReadOnlyDictionary<string, string[]> CoreProjectDependencies =
+        new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Lineup.Core.Common"] = [],
+            ["Lineup.Core.Extensibility"] = ["Lineup.Core.Common"],
+            ["Lineup.Core"] = ["Lineup.Core.Common", "Lineup.Core.Extensibility"],
+            ["Lineup.Core.Hosting"] = ["Lineup.Core", "Lineup.Core.Streaming.FFmpeg"],
+            ["Lineup.Core.Streaming.FFmpeg"] = ["Lineup.Core.Extensibility"],
+            ["Lineup.Core.VirtualOutputs.Protocol"] = ["Lineup.Core.Common"],
+            ["Lineup.Core.VirtualOutputs.Hosting"] = ["Lineup.Core.Common", "Lineup.Core.VirtualOutputs.Protocol"],
+            ["Lineup.Core.VirtualOutputs.Runtime"] =
+            [
+                "Lineup.Core.Common", "Lineup.Core", "Lineup.Core.Hosting", "Lineup.Core.Extensibility", "Lineup.Core.Streaming.FFmpeg", "Lineup.Core.VirtualOutputs.Protocol"
+            ]
+        };
+
+    private static readonly IReadOnlySet<string> TrustedHostProjects = new HashSet<string>(
+        ["Lineup.Core", "Lineup.Core.Hosting", "Lineup.Core.VirtualOutputs.Runtime", "Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryRuntime"],
+        StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Verifies project files, folders, namespaces, and output identities use matching role-based names.</summary>
     [Fact]
     public void ProjectIdentities_MatchRoleAndNamespace()
@@ -221,6 +241,69 @@ public sealed class ProjectLayoutTests
         Assert.Empty(violations);
     }
 
+    /// <summary>Verifies portable foundations, plugins, and workers have no transitive application or trusted-runtime dependencies.</summary>
+    [Fact]
+    public void PortableProjects_TransitiveReferences_ExcludeTrustedImplementations()
+    {
+        // Arrange
+        var repositoryRoot = GetRepositoryRoot();
+        var projects = GetProjects(Path.Combine(repositoryRoot, "src"));
+        var graph = projects.ToDictionary(project => project, GetProjectReferences, StringComparer.OrdinalIgnoreCase);
+        var portableProjects = projects.Where(project => IsPortableProject(Path.GetFileNameWithoutExtension(project))).ToArray();
+
+        // Act
+        var actual = portableProjects.SelectMany(project => GetDependencyClosure(project, graph)
+            .Select(dependency => Path.GetFileNameWithoutExtension(dependency))
+            .Where(name => !IsPortableProject(name))
+            .Select(name => $"{Path.GetFileNameWithoutExtension(project)} -> {name}"))
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        // Assert
+        Assert.NotEmpty(portableProjects);
+        Assert.Empty(actual);
+    }
+
+    /// <summary>Verifies portable projects cannot bypass project boundaries by adding direct database implementation packages.</summary>
+    [Fact]
+    public void PortableProjects_Packages_DoNotReferenceDatabaseImplementations()
+    {
+        // Arrange
+        var projects = GetProjects(Path.Combine(GetRepositoryRoot(), "src"))
+            .Where(project => IsPortableProject(Path.GetFileNameWithoutExtension(project)))
+            .ToArray();
+        var databasePackages = new[] { "Microsoft.EntityFrameworkCore", "Microsoft.Data.Sqlite", "SQLitePCLRaw" };
+
+        // Act
+        var violations = projects.SelectMany(project => XDocument.Load(project).Descendants()
+            .Where(element => element.Name.LocalName == "PackageReference")
+            .Select(element => element.Attribute("Include")?.Value)
+            .OfType<string>()
+            .Where(package => databasePackages.Any(prefix => package.Equals(prefix, StringComparison.OrdinalIgnoreCase) || package.StartsWith($"{prefix}.", StringComparison.OrdinalIgnoreCase)))
+            .Select(package => $"{Path.GetFileNameWithoutExtension(project)} -> {package}"))
+            .ToArray();
+
+        // Assert
+        Assert.NotEmpty(projects);
+        Assert.Empty(violations);
+    }
+
+    /// <summary>Verifies shared model and extensibility projects remain free of package dependencies.</summary>
+    [Theory]
+    [InlineData("Lineup.Core.Common")]
+    [InlineData("Lineup.Core.Extensibility")]
+    public void ContractProjects_DoNotReferencePackages(string name)
+    {
+        // Arrange
+        var project = Path.Combine(GetRepositoryRoot(), "src", "Core", name, $"{name}.csproj");
+
+        // Act
+        var packages = XDocument.Load(project).Descendants().Where(element => element.Name.LocalName == "PackageReference").ToArray();
+
+        // Assert
+        Assert.Empty(packages);
+    }
+
     /// <summary>Verifies Windows-style MSBuild project-reference paths resolve on every host platform.</summary>
     [Fact]
     public void ProjectReferencePaths_WindowsSeparatorsResolveOnCurrentPlatform()
@@ -315,8 +398,8 @@ public sealed class ProjectLayoutTests
                 .Where(element => element.Name.LocalName == "ProjectReference")
                 .Select(element => element.Attribute("Include")?.Value)
                 .Where(value => !string.IsNullOrWhiteSpace(value))
-                .Select(value => Path.GetFileNameWithoutExtension(value))
-                .Where(name => name is "Lineup.Core" or "Lineup.Core.Hosting" or "Lineup.Core.Streaming.FFmpeg" or "Lineup.App.Web" or "Lineup.App.Tui")
+                .Select(value => Path.GetFileNameWithoutExtension(ResolveProjectReference(project, value!)))
+                .Where(name => TrustedHostProjects.Contains(name) || name == "Lineup.Core.Streaming.FFmpeg" || name.StartsWith("Lineup.App.", StringComparison.Ordinal))
                 .Select(name => $"{Path.GetFileName(project)} -> {name}"))
             .ToArray();
 
@@ -471,6 +554,35 @@ public sealed class ProjectLayoutTests
                 Path.GetDirectoryName(sourceProject)!,
                 reference.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar)));
 
+    private static string[] GetProjectReferences(string project) =>
+        XDocument.Load(project).Descendants()
+            .Where(element => element.Name.LocalName == "ProjectReference")
+            .Select(element => element.Attribute("Include")?.Value)
+            .OfType<string>()
+            .Select(reference => ResolveProjectReference(project, reference))
+            .ToArray();
+
+    private static IReadOnlySet<string> GetDependencyClosure(string project, IReadOnlyDictionary<string, string[]> graph)
+    {
+        var dependencies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var pending = new Stack<string>(graph[project]);
+        while (pending.TryPop(out var dependency))
+        {
+            if (!dependencies.Add(dependency))
+            {
+                continue;
+            }
+            foreach (var target in graph[dependency])
+            {
+                pending.Push(target);
+            }
+        }
+        return dependencies;
+    }
+
+    private static bool IsPortableProject(string name) =>
+        !TrustedHostProjects.Contains(name) && !name.StartsWith("Lineup.App.", StringComparison.OrdinalIgnoreCase);
+
     private static string GetLayer(string sourceRoot, string projectPath)
     {
         var relativePath = Path.GetRelativePath(sourceRoot, projectPath);
@@ -486,13 +598,10 @@ public sealed class ProjectLayoutTests
 
         var sourceProjectName = Path.GetFileNameWithoutExtension(sourceProject);
         var targetProjectName = Path.GetFileNameWithoutExtension(targetPath);
-        if (string.Equals(sourceProjectName, "Lineup.Core.Common", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(sourceLayer, "Core", StringComparison.OrdinalIgnoreCase))
         {
-            return false;
-        }
-        if (string.Equals(sourceProjectName, "Lineup.Core.Extensibility", StringComparison.OrdinalIgnoreCase))
-        {
-            return string.Equals(targetProjectName, "Lineup.Core.Common", StringComparison.OrdinalIgnoreCase);
+            return CoreProjectDependencies.TryGetValue(sourceProjectName, out var allowed)
+                && allowed.Contains(targetProjectName, StringComparer.OrdinalIgnoreCase);
         }
 
         var targetLayer = GetLayer(sourceRoot, targetPath);

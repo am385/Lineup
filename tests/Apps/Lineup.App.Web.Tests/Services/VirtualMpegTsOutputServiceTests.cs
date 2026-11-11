@@ -8,6 +8,76 @@ namespace Lineup.App.Web.Tests.Services;
 /// <summary>Verifies virtual MPEG-TS output ownership and topology metadata.</summary>
 public sealed class VirtualMpegTsOutputServiceTests
 {
+    /// <summary>Verifies the temporary source reservation is actively drained during probing and its pump is stopped on success or failure.</summary>
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, true)]
+    [InlineData(true, false, true)]
+    public async Task OpenAsync_Probing_DrainsAndReleasesTemporaryReservation(bool physicalOutput, bool probeFails, bool drainFails)
+    {
+        // Arrange
+        var virtualId = VirtualDeviceId.New();
+        var route = CreateRoute(virtualId, protectedContent: false);
+        var routes = Substitute.For<IStreamingRouteResolver>();
+        routes.ResolveVirtualAsync(virtualId, "112.1", Arg.Any<CancellationToken>()).Returns(route);
+        var settings = Substitute.For<ILineupSettingsService>();
+        settings.Settings.Returns(new LineupSettings());
+        var reservation = new ReservationStream { FailOnCancel = drainFails };
+        using var produced = new CorrelatedStream("shared");
+        var multiplexer = Substitute.For<ITunerStreamMultiplexer, IEffectiveTunerStreamMultiplexer>();
+        multiplexer.SubscribeFirstAvailableAsync(route, Arg.Any<CancellationToken>()).Returns(new ResolvedTunerStream(route.Candidates[0], reservation));
+        var media = new MediaProbeResult([], null);
+        var probe = Substitute.For<IMediaProbeService>();
+        probe.ProbeAsync(Arg.Any<StreamAcquisitionDescriptor>(), Arg.Any<StreamAcquisitionFactory>(), Arg.Any<string>(),
+            Arg.Any<IReadOnlyDictionary<string, string>>(), Arg.Any<CancellationToken>()).Returns(async _ =>
+            {
+                await reservation.Started.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+                if (probeFails)
+                {
+                    throw new InvalidOperationException("Controlled probe failure.");
+                }
+                return media;
+            });
+        var effective = (IEffectiveTunerStreamMultiplexer)multiplexer;
+        effective.GetEffectiveSource(media, route.PhysicalProfile).Returns(media);
+        effective.SubscribeEffectiveAsync(Arg.Any<StreamAcquisitionDescriptor>(), Arg.Any<StreamAcquisitionFactory>(), Arg.Any<string>(),
+            Arg.Any<MediaProbeResult>(), Arg.Any<PhysicalTranscodeProfile>(), Arg.Any<LineupSettings>(), Arg.Any<CancellationToken>()).Returns(produced);
+        effective.SubscribeMpegTsAsync(Arg.Any<StreamAcquisitionDescriptor>(), Arg.Any<StreamAcquisitionFactory>(), Arg.Any<string>(),
+            Arg.Any<MediaProbeResult>(), Arg.Any<PhysicalTranscodeProfile>(), Arg.Any<VirtualTranscodeProfile>(), Arg.Any<LineupSettings>(), Arg.Any<TimeSpan>(),
+            Arg.Any<CancellationToken>()).Returns(produced);
+        var service = new VirtualMpegTsOutputService(routes, settings, probe, multiplexer, Substitute.For<IChannelSlateStreamFactory>(), NullLogger<VirtualMpegTsOutputService>.Instance);
+
+        // Act
+        var failure = await Record.ExceptionAsync(async () =>
+        {
+            await using var output = physicalOutput
+                ? await service.OpenPhysicalOutputAsync(virtualId, "112.1", TestContext.Current.CancellationToken)
+                : await service.OpenAsync(virtualId, "112.1", TestContext.Current.CancellationToken);
+        });
+
+        // Assert
+        if (drainFails)
+        {
+            Assert.Equal("Controlled reservation failure.", Assert.IsType<IOException>(failure).Message);
+            Assert.False(produced.CanRead);
+        }
+        else if (probeFails)
+        {
+            Assert.Equal("Controlled probe failure.", Assert.IsType<InvalidOperationException>(failure).Message);
+        }
+        else
+        {
+            Assert.Null(failure);
+        }
+        Assert.True(reservation.Started.Task.IsCompletedSuccessfully);
+        Assert.True(reservation.Stopped);
+        Assert.False(reservation.CanRead);
+        Assert.Same(Stream.Null, reservation.Destination);
+    }
+
     /// <summary>Verifies the output identifies the selected physical source, virtual destination, and producer node.</summary>
     [Fact]
     public async Task OpenAsync_ResolvedRoute_PreservesStreamingFlowContext()
@@ -235,5 +305,31 @@ public sealed class VirtualMpegTsOutputServiceTests
     private sealed class CorrelatedStream(string producerNodeId) : MemoryStream, IStreamProducerCorrelation
     {
         public string ProducerNodeId { get; } = producerNodeId;
+    }
+
+    private sealed class ReservationStream : MemoryStream
+    {
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public bool Stopped { get; private set; }
+        public Stream? Destination { get; private set; }
+        public bool FailOnCancel { get; init; }
+
+        public override async Task CopyToAsync(Stream destination, int bufferSize, CancellationToken cancellationToken)
+        {
+            Destination = destination;
+            Started.TrySetResult();
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+            finally
+            {
+                Stopped = true;
+                if (FailOnCancel)
+                {
+                    throw new IOException("Controlled reservation failure.");
+                }
+            }
+        }
     }
 }

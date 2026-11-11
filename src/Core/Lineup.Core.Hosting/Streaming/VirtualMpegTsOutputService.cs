@@ -1,4 +1,6 @@
-namespace Lineup.Core.Streaming.FFmpeg;
+using Lineup.Core.Streaming.FFmpeg;
+
+namespace Lineup.Core.Hosting.Streaming;
 
 /// <summary>Opens multiplexed MPEG-TS output for configured virtual devices.</summary>
 public interface IVirtualMpegTsOutputService
@@ -94,46 +96,74 @@ public sealed class VirtualMpegTsOutputService : IVirtualMpegTsOutputService
         }
         var selected = await _multiplexer.SubscribeFirstAvailableAsync(route, cancellationToken);
         await using var reservation = selected.Stream;
-        var source = await ProbeBestEffortAsync(selected.Candidate, cancellationToken);
-        if (_multiplexer is not IEffectiveTunerStreamMultiplexer effective)
+        using var drainCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var drain = reservation.CopyToAsync(Stream.Null, drainCancellation.Token);
+        VirtualMpegTsOutput? openedOutput = null;
+        try
         {
-            throw new InvalidOperationException("The configured stream multiplexer cannot produce virtual MPEG-TS output.");
-        }
-
-        var physicalSource = effective.GetEffectiveSource(source, selected.Candidate.PhysicalProfile);
-        var output = applyVirtualProfile
-            ? await effective.SubscribeMpegTsAsync(
-                selected.Candidate.Acquisition,
-                selected.Candidate.OpenAsync,
-                selected.Candidate.DiagnosticUri.AbsoluteUri,
-                source,
-                selected.Candidate.PhysicalProfile,
-                route.VirtualProfile,
-                settings,
-                TimeSpan.FromSeconds(settings.Streaming.KeepWarmPeriodSeconds),
-                cancellationToken)
-            : await effective.SubscribeEffectiveAsync(
-                selected.Candidate.Acquisition,
-                selected.Candidate.OpenAsync,
-                selected.Candidate.DiagnosticUri.AbsoluteUri,
-                source,
-                selected.Candidate.PhysicalProfile,
-                settings,
-                cancellationToken);
-        return new VirtualMpegTsOutput(
-            output,
-            source,
-            applyVirtualProfile
-                ? SourceDeinterlacePlanner.CreateVirtualMpegTsSource(physicalSource, route.VirtualProfile)
-                : physicalSource,
-            route.VirtualProfile,
-            new ActiveStreamFlowContext
+            var source = await ProbeBestEffortAsync(selected.Candidate, cancellationToken);
+            if (_multiplexer is not IEffectiveTunerStreamMultiplexer effective)
             {
-                PhysicalDeviceId = selected.Candidate.SourceChannelId.PhysicalDeviceId,
-                SourceChannelId = selected.Candidate.SourceChannelId,
-                VirtualDeviceId = route.VirtualDevice.Id,
-                ProducerNodeId = (output as IStreamProducerCorrelation)?.ProducerNodeId
-            });
+                throw new InvalidOperationException("The configured stream multiplexer cannot produce virtual MPEG-TS output.");
+            }
+
+            var physicalSource = effective.GetEffectiveSource(source, selected.Candidate.PhysicalProfile);
+            var output = applyVirtualProfile
+                ? await effective.SubscribeMpegTsAsync(
+                    selected.Candidate.Acquisition,
+                    selected.Candidate.OpenAsync,
+                    selected.Candidate.DiagnosticUri.AbsoluteUri,
+                    source,
+                    selected.Candidate.PhysicalProfile,
+                    route.VirtualProfile,
+                    settings,
+                    TimeSpan.FromSeconds(settings.Streaming.KeepWarmPeriodSeconds),
+                    cancellationToken)
+                : await effective.SubscribeEffectiveAsync(
+                    selected.Candidate.Acquisition,
+                    selected.Candidate.OpenAsync,
+                    selected.Candidate.DiagnosticUri.AbsoluteUri,
+                    source,
+                    selected.Candidate.PhysicalProfile,
+                    settings,
+                    cancellationToken);
+            return openedOutput = new VirtualMpegTsOutput(
+                output,
+                source,
+                applyVirtualProfile
+                    ? SourceDeinterlacePlanner.CreateVirtualMpegTsSource(physicalSource, route.VirtualProfile)
+                    : physicalSource,
+                route.VirtualProfile,
+                new ActiveStreamFlowContext
+                {
+                    PhysicalDeviceId = selected.Candidate.SourceChannelId.PhysicalDeviceId,
+                    SourceChannelId = selected.Candidate.SourceChannelId,
+                    VirtualDeviceId = route.VirtualDevice.Id,
+                    ProducerNodeId = (output as IStreamProducerCorrelation)?.ProducerNodeId
+                });
+        }
+        finally
+        {
+            try
+            {
+                await drainCancellation.CancelAsync();
+                try
+                {
+                    await drain;
+                }
+                catch (OperationCanceledException) when (drainCancellation.IsCancellationRequested)
+                {
+                }
+            }
+            catch
+            {
+                if (openedOutput is not null)
+                {
+                    await openedOutput.DisposeAsync();
+                }
+                throw;
+            }
+        }
     }
 
     private async Task<MediaProbeResult> ProbeBestEffortAsync(
