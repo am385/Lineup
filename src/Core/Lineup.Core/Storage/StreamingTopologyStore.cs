@@ -167,12 +167,14 @@ public sealed class StreamingTopologyStore
     /// <summary>
     /// Applies one global number/name/equivalence choice to a physical source channel.
     /// </summary>
-    public async Task<PhysicalChannelIdentity> SetIdentityAsync(
-        SourceChannelId channelId,
-        string? numberOverride,
-        string? nameOverride,
-        Guid? equivalenceGroupId,
-        CancellationToken cancellationToken = default)
+    public Task<PhysicalChannelIdentity> SetIdentityAsync(SourceChannelId channelId, string? numberOverride, string? nameOverride, Guid? equivalenceGroupId, CancellationToken cancellationToken = default) =>
+        SetIdentityCoreAsync(channelId, numberOverride, nameOverride, equivalenceGroupId, false, cancellationToken);
+
+    /// <summary>Edits display identity while preserving the current saved group, including changes made since the editor loaded.</summary>
+    public Task<PhysicalChannelIdentity> SetDisplayIdentityAsync(SourceChannelId channelId, string? numberOverride, string? nameOverride, CancellationToken cancellationToken = default) =>
+        SetIdentityCoreAsync(channelId, numberOverride, nameOverride, null, true, cancellationToken);
+
+    private async Task<PhysicalChannelIdentity> SetIdentityCoreAsync(SourceChannelId channelId, string? numberOverride, string? nameOverride, Guid? equivalenceGroupId, bool preserveGroup, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);
         try
@@ -183,6 +185,17 @@ public sealed class StreamingTopologyStore
             var stored = await context.PhysicalSourceChannels.SingleOrDefaultAsync(
                 channel => channel.PhysicalDeviceId == deviceKey && channel.ProviderKey == channelId.ProviderKey,
                 cancellationToken) ?? throw new InvalidOperationException($"Physical source channel {channelId.ProviderKey} was not found.");
+            var identity = Map(stored);
+            if (preserveGroup)
+            {
+                equivalenceGroupId = identity.EquivalenceGroupId;
+            }
+            var number = Normalize(numberOverride) ?? stored.ProviderNumber;
+            if (stored.EquivalenceGroupId is not null && equivalenceGroupId.HasValue &&
+                !number.Equals(identity.EffectiveNumber, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("Remove the source from its same-channel group before renumbering it.");
+            }
             stored.NumberOverride = Normalize(numberOverride);
             stored.NameOverride = Normalize(nameOverride);
             stored.EquivalenceGroupId = equivalenceGroupId?.ToString("D");
@@ -194,6 +207,88 @@ public sealed class StreamingTopologyStore
             _gate.Release();
         }
     }
+
+    /// <summary>Atomically groups equal-number sources or adds ungrouped sources, rejecting stale previews and group merges.</summary>
+    public Task GroupChannelsAsync(IReadOnlyList<PhysicalChannelIdentity> expectedTopology, IReadOnlyCollection<SourceChannelId> channelIds, CancellationToken cancellationToken = default) =>
+        ApplyEquivalenceAsync(expectedTopology, channelIds, false, cancellationToken);
+
+    /// <summary>Removes one source from its group without changing channel identity, priority, or guide bindings.</summary>
+    public Task RemoveFromGroupAsync(IReadOnlyList<PhysicalChannelIdentity> expectedTopology, SourceChannelId channelId, CancellationToken cancellationToken = default) =>
+        ApplyEquivalenceAsync(expectedTopology, [channelId], true, cancellationToken);
+
+    private async Task ApplyEquivalenceAsync(IReadOnlyList<PhysicalChannelIdentity> expectedTopology, IReadOnlyCollection<SourceChannelId> channelIds, bool remove, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(expectedTopology);
+        ArgumentNullException.ThrowIfNull(channelIds);
+        var selectedIds = channelIds.ToHashSet();
+        if (selectedIds.Count != channelIds.Count || (remove ? selectedIds.Count != 1 : selectedIds.Count < 2))
+        {
+            throw new ArgumentException("Select distinct source channels; grouping requires at least two sources.", nameof(channelIds));
+        }
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+            await EpgDatabaseSchema.EnsureAsync(context, cancellationToken);
+            await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+            var stored = await context.PhysicalSourceChannels.Where(channel => channel.IsActive).ToArrayAsync(cancellationToken);
+            var current = stored.Select(channel => (Stored: channel, Identity: Map(channel))).ToDictionary(channel => channel.Identity.Source.Id);
+            if (current.Count != expectedTopology.Count || expectedTopology.Select(channel => channel.Source.Id).Distinct().Count() != expectedTopology.Count ||
+                expectedTopology.Any(expected => !current.TryGetValue(expected.Source.Id, out var actual) || !MatchesPreview(actual.Identity, expected)))
+            {
+                throw new InvalidOperationException("The saved lineup changed. Reopen the same-channel preview before saving.");
+            }
+            if (selectedIds.Any(id => !current.ContainsKey(id)))
+            {
+                throw new InvalidOperationException("A selected source is no longer active. Reopen the same-channel preview.");
+            }
+            var selected = selectedIds.Select(id => current[id]).ToArray();
+            Guid? group;
+            if (remove)
+            {
+                if (!selected[0].Identity.EquivalenceGroupId.HasValue)
+                {
+                    throw new InvalidOperationException("The selected source is not in a same-channel group.");
+                }
+                group = null;
+            }
+            else
+            {
+                if (selected.Select(channel => channel.Identity.EffectiveNumber).Distinct(StringComparer.OrdinalIgnoreCase).Count() != 1)
+                {
+                    throw new InvalidOperationException("Same-channel sources must already have matching global numbers. Renumber them separately first.");
+                }
+                var groups = selected.Select(channel => channel.Identity.EquivalenceGroupId).OfType<Guid>().Distinct().ToArray();
+                if (groups.Length > 1)
+                {
+                    throw new InvalidOperationException("Merging existing same-channel groups is not supported.");
+                }
+                group = groups.Length == 1 ? groups[0] : Guid.NewGuid();
+                if (current.Values.Any(channel => channel.Identity.EquivalenceGroupId == group && !selectedIds.Contains(channel.Identity.Source.Id)))
+                {
+                    throw new InvalidOperationException("Include every active member when adding sources to an existing group.");
+                }
+            }
+            foreach (var channel in selected)
+            {
+                channel.Stored.EquivalenceGroupId = group?.ToString("D");
+            }
+            await context.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private static bool MatchesPreview(PhysicalChannelIdentity actual, PhysicalChannelIdentity expected) =>
+        actual.LastSeenUtc == expected.LastSeenUtc &&
+        actual.NumberOverride == expected.NumberOverride && actual.NameOverride == expected.NameOverride &&
+        actual.EquivalenceGroupId == expected.EquivalenceGroupId && actual.IsEnabled == expected.IsEnabled &&
+        actual.Source.ProviderNumber == expected.Source.ProviderNumber && actual.Source.ProviderName == expected.Source.ProviderName &&
+        actual.Source.Metadata.Count == expected.Source.Metadata.Count &&
+        actual.Source.Metadata.All(pair => expected.Source.Metadata.TryGetValue(pair.Key, out var value) && value == pair.Value);
 
     /// <summary>
     /// Enables or disables one physical source channel without affecting equivalent sources.

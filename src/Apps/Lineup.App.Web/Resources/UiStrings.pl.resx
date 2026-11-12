@@ -1145,4 +1145,21 @@
   <data name="Settings_WorkerWaiting" xml:space="preserve"><value>Proces nie zgłosił gotowości do prawidłowej pracy. Odśwież, aby sprawdzić jego stan.</value></data>
   <data name="Watch_Reconnecting" xml:space="preserve"><value>Ponowne łączenie z telewizją na żywo. Możesz zatrzymać odtwarzanie lub wybrać inny kanał.</value></data>
   <data name="Watch_ReconnectExhausted" xml:space="preserve"><value>Automatyczne łączenie zakończono po osiągnięciu limitu prób lub 60 sekund. Wybierz kanał ponownie, aby spróbować jeszcze raz.</value></data>
+  <data name="Channels_ManageGroup" xml:space="preserve"><value>Źródła tego samego kanału</value></data>
+  <data name="Channels_GroupRenumberHelp" xml:space="preserve"><value>Usuń to źródło z grupy przed zmianą numeru.</value></data>
+  <data name="Channels_GroupHelp" xml:space="preserve"><value>Używaj zapisanych, zgodnych numerów globalnych; zmiany numerów zapisz osobno. Numery i nazwy nie potwierdzają identycznej treści. Otwórz istniejącego członka, aby dodać źródła; grup nie można scalać.</value></data>
+  <data name="Channels_GroupPolicy" xml:space="preserve"><value>Priorytet pozostaje ustawieniem urządzenia. Przełączenie awaryjne odbywa się przy uruchamianiu strumienia, a nie płynnie w trakcie odtwarzania. Powiązania przewodnika nie zmieniają się; pierwsze odpowiednie powiązane źródło dostarcza przewodnik. Wyłączone lub niesubskrybowane źródła są pomijane. Podglądy pokazują zapisaną topologię, nie stan źródeł na żywo.</value></data>
+  <data name="Channels_GroupAlready" xml:space="preserve"><value>Już należy do innej grupy</value></data>
+  <data name="Channels_GroupRemove" xml:space="preserve"><value>Usuń to źródło z grupy</value></data>
+  <data name="Channels_GroupGlobalGuide" xml:space="preserve"><value>Globalny przewodnik / Oglądaj</value></data>
+  <data name="Channels_GroupCurrent" xml:space="preserve"><value>Obecnie</value></data>
+  <data name="Channels_GroupProposed" xml:space="preserve"><value>Po potwierdzeniu</value></data>
+  <data name="Channels_GroupUnavailable" xml:space="preserve"><value>Brak odpowiedniego źródła dla tego wyjścia</value></data>
+  <data name="Channels_GroupConflicts" xml:space="preserve"><value>Konflikty numerów: {0}</value></data>
+  <data name="Channels_GroupPublications" xml:space="preserve"><value>Publikacje przewodnika odbudowywane po zapisaniu: {0}</value></data>
+  <data name="Channels_GroupConfirm" xml:space="preserve"><value>Potwierdzam, że wybrane źródła nadają tę samą treść kanału.</value></data>
+  <data name="Channels_GroupRemoveConfirm" xml:space="preserve"><value>Rozumiem, że to źródło przestanie być zapasowym członkiem tej grupy.</value></data>
+  <data name="Channels_GroupAction" xml:space="preserve"><value>Traktuj jako ten sam kanał</value></data>
+  <data name="Channels_GroupSaved" xml:space="preserve"><value>Zapisano źródła tego samego kanału.</value></data>
+  <data name="Channels_GroupPreviewChanged" xml:space="preserve"><value>Ustawienia lub wybór przewodnika uległy zmianie. Zamknij i ponownie otwórz podgląd przed zapisaniem.</value></data>
 </root>

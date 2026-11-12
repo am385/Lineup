@@ -55,6 +55,13 @@ public partial class Channels
     private bool _isLoading = true;
     private bool _isRefreshing;
     private readonly HashSet<SourceChannelId> _updatingChannels = [];
+    private PhysicalChannelIdentity? _equivalenceAnchor;
+    private IReadOnlyList<PhysicalChannelIdentity> _equivalenceSnapshot = [];
+    private IReadOnlyDictionary<SourceChannelId, SourceGuideBindingState> _equivalenceBindings = new Dictionary<SourceChannelId, SourceGuideBindingState>();
+    private StreamingConfiguration? _equivalenceConfiguration;
+    private string _equivalenceRevision = string.Empty;
+    private bool _savingEquivalence;
+    private bool _openingEquivalence;
 
     /// <inheritdoc />
     protected override async Task OnInitializedAsync()
@@ -90,8 +97,7 @@ public partial class Channels
             _channelEdits[channel.Source.Id] = new ChannelIdentityEdit
             {
                 NumberOverride = channel.NumberOverride ?? string.Empty,
-                NameOverride = channel.NameOverride ?? string.Empty,
-                EquivalenceGroup = channel.EquivalenceGroupId?.ToString("D") ?? string.Empty
+                NameOverride = channel.NameOverride ?? string.Empty
             };
         }
     }
@@ -99,20 +105,9 @@ public partial class Channels
     private async Task SaveIdentity(PhysicalChannelIdentity channel)
     {
         var edit = _channelEdits[channel.Source.Id];
-        Guid? equivalenceGroup = null;
-        if (!string.IsNullOrWhiteSpace(edit.EquivalenceGroup))
-        {
-            if (!Guid.TryParse(edit.EquivalenceGroup, out var parsedGroup))
-            {
-                Notifications.ShowError(Text["Channels_InvalidEquivalenceGroup"]);
-                return;
-            }
-            equivalenceGroup = parsedGroup;
-        }
-
         try
         {
-            var published = await ApplyChannelChangeAsync(token => TopologyStore.SetIdentityAsync(channel.Source.Id, edit.NumberOverride, edit.NameOverride, equivalenceGroup, token));
+            var published = await ApplyChannelChangeAsync(token => TopologyStore.SetDisplayIdentityAsync(channel.Source.Id, edit.NumberOverride, edit.NameOverride, token));
             await LoadTopologyAsync();
             if (published)
             {
@@ -122,6 +117,86 @@ public partial class Channels
         catch (Exception ex)
         {
             Notifications.ShowError(Text["Channels_ErrorUpdatingIdentity", ex.Message]);
+        }
+    }
+
+    private async Task OpenEquivalence(PhysicalChannelIdentity channel)
+    {
+        if (_openingEquivalence || _savingEquivalence || _equivalenceAnchor is not null)
+        {
+            return;
+        }
+        _openingEquivalence = true;
+        try
+        {
+            _equivalenceConfiguration = SettingsService.Settings.Streaming;
+            _equivalenceRevision = ConfigurationRevision.Create(_equivalenceConfiguration);
+            _equivalenceSnapshot = await TopologyStore.ReadActiveAsync();
+            _equivalenceBindings = (await GuideStore.ReadBindingStatesAsync(activeGuideScopes: GetActiveGuideScopes())).ToDictionary(binding => binding.SourceChannelId);
+            _equivalenceAnchor = _equivalenceSnapshot.Single(candidate => candidate.Source.Id == channel.Source.Id);
+        }
+        catch (Exception ex)
+        {
+            Notifications.ShowError(Text["Channels_ErrorUpdatingIdentity", ex.Message]);
+        }
+        finally
+        {
+            _openingEquivalence = false;
+        }
+    }
+
+    private void CloseEquivalence()
+    {
+        if (!_savingEquivalence)
+        {
+            _equivalenceAnchor = null;
+        }
+    }
+
+    private Task GroupChannels(IReadOnlyList<SourceChannelId> channelIds) =>
+        SaveEquivalence(token => TopologyStore.GroupChannelsAsync(_equivalenceSnapshot, channelIds, token));
+
+    private Task RemoveFromGroup(SourceChannelId channelId) =>
+        SaveEquivalence(token => TopologyStore.RemoveFromGroupAsync(_equivalenceSnapshot, channelId, token));
+
+    private async Task SaveEquivalence(Func<CancellationToken, Task> mutation)
+    {
+        if (_savingEquivalence)
+        {
+            return;
+        }
+        _savingEquivalence = true;
+        try
+        {
+            var published = await ApplyChannelChangeAsync(async token =>
+            {
+                if (_equivalenceRevision != ConfigurationRevision.Create(SettingsService.Settings.Streaming))
+                {
+                    throw new InvalidOperationException(Text["Channels_GroupPreviewChanged"]);
+                }
+                var bindings = await GuideStore.ReadBindingStatesAsync(token, GetActiveGuideScopes());
+                if (bindings.Count != _equivalenceBindings.Count || bindings.Any(binding =>
+                    !_equivalenceBindings.TryGetValue(binding.SourceChannelId, out var expected) ||
+                    binding.State != expected.State || binding.SelectedGuideChannelId != expected.SelectedGuideChannelId))
+                {
+                    throw new InvalidOperationException(Text["Channels_GroupPreviewChanged"]);
+                }
+                await mutation(token);
+            });
+            _equivalenceAnchor = null;
+            await LoadTopologyAsync();
+            if (published)
+            {
+                Notifications.ShowSuccess(Text["Channels_GroupSaved"]);
+            }
+        }
+        catch (Exception ex)
+        {
+            Notifications.ShowError(Text["Channels_ErrorUpdatingIdentity", ex.Message]);
+        }
+        finally
+        {
+            _savingEquivalence = false;
         }
     }
 
@@ -264,7 +339,6 @@ public partial class Channels
             Contains(channel.Source.ProviderName, search) ||
             Contains(channel.EffectiveNumber, search) ||
             Contains(channel.EffectiveName, search) ||
-            Contains(channel.EquivalenceGroupId?.ToString("D"), search) ||
             Contains(GetMetadata(channel, "videoCodec"), search) ||
             Contains(GetMetadata(channel, "audioCodec"), search) ||
             binding?.MatchingCandidates.Any(candidate =>
@@ -303,7 +377,7 @@ public partial class Channels
             .ThenBy(channel => channel.Source.ProviderName, StringComparer.OrdinalIgnoreCase),
         ChannelSortColumn.GlobalNumber => Sort(channels, channel => channel.EffectiveNumber, ChannelNumberComparer.Instance),
         ChannelSortColumn.GlobalName => Sort(channels, channel => channel.EffectiveName, StringComparer.OrdinalIgnoreCase),
-        ChannelSortColumn.EquivalenceGroup => Sort(channels, channel => channel.EquivalenceGroupId?.ToString("D") ?? string.Empty, StringComparer.OrdinalIgnoreCase),
+        ChannelSortColumn.EquivalenceGroup => Sort(channels, channel => channel.EquivalenceGroupId.HasValue ? channel.EffectiveNumber : string.Empty, ChannelNumberComparer.Instance),
         ChannelSortColumn.Guide => Sort(channels, GetGuideSortValue, StringComparer.OrdinalIgnoreCase),
         ChannelSortColumn.Flags => Sort(channels, GetFlagsSortValue, StringComparer.OrdinalIgnoreCase),
         ChannelSortColumn.Video => Sort(channels, channel => GetMetadata(channel, "videoCodec") ?? string.Empty, StringComparer.OrdinalIgnoreCase),

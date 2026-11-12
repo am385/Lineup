@@ -35,6 +35,7 @@ var xmltvPublicationStore = new XmltvPublicationStore();
 builder.Services.AddSingleton<IXmltvPublicationStore>(xmltvPublicationStore);
 builder.Services.AddScoped<IBrowserDataStore, BrowserDataStore>();
 builder.Services.AddScoped<IStatusNotificationService, StatusNotificationService>();
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IFileSystemBrowser, FileSystemBrowser>();
 builder.Services.AddLocalization(options => options.ResourcesPath = "Resources");
 

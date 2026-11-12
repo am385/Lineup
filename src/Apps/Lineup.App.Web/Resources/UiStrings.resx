@@ -1144,4 +1144,21 @@
   <data name="Settings_WorkerWaiting" xml:space="preserve"><value>The worker has not reported healthy readiness. Refresh to check its status.</value></data>
   <data name="Watch_Reconnecting" xml:space="preserve"><value>Reconnecting to live TV. You can stop or select another channel.</value></data>
   <data name="Watch_ReconnectExhausted" xml:space="preserve"><value>Automatic reconnect stopped after its retry limit or 60-second deadline. Select the channel again to retry.</value></data>
+  <data name="Channels_ManageGroup" xml:space="preserve"><value>Same-channel sources</value></data>
+  <data name="Channels_GroupRenumberHelp" xml:space="preserve"><value>Remove this source from its group before renumbering.</value></data>
+  <data name="Channels_GroupHelp" xml:space="preserve"><value>Use saved, matching global numbers; save any renumbering separately first. Numbers and names do not prove identical content. Open an existing member to add sources; existing groups cannot be merged.</value></data>
+  <data name="Channels_GroupPolicy" xml:space="preserve"><value>Priority stays device-wide. Failover occurs at stream startup, not seamlessly midstream. Guide bindings stay unchanged; the first eligible bound source supplies the guide. Disabled or unsubscribed sources are excluded from output previews. These previews describe saved topology, not live source health.</value></data>
+  <data name="Channels_GroupAlready" xml:space="preserve"><value>Already in another group</value></data>
+  <data name="Channels_GroupRemove" xml:space="preserve"><value>Remove this source from group</value></data>
+  <data name="Channels_GroupGlobalGuide" xml:space="preserve"><value>Global Guide / Watch</value></data>
+  <data name="Channels_GroupCurrent" xml:space="preserve"><value>Current</value></data>
+  <data name="Channels_GroupProposed" xml:space="preserve"><value>After confirmation</value></data>
+  <data name="Channels_GroupUnavailable" xml:space="preserve"><value>No eligible source for this output</value></data>
+  <data name="Channels_GroupConflicts" xml:space="preserve"><value>Number conflicts: {0}</value></data>
+  <data name="Channels_GroupPublications" xml:space="preserve"><value>Guide publications rebuilt after saving: {0}</value></data>
+  <data name="Channels_GroupConfirm" xml:space="preserve"><value>I confirm that the selected sources carry the same channel content.</value></data>
+  <data name="Channels_GroupRemoveConfirm" xml:space="preserve"><value>I understand that this source will no longer be a fallback member of this group.</value></data>
+  <data name="Channels_GroupAction" xml:space="preserve"><value>Treat as the same channel</value></data>
+  <data name="Channels_GroupSaved" xml:space="preserve"><value>Saved same-channel sources.</value></data>
+  <data name="Channels_GroupPreviewChanged" xml:space="preserve"><value>Settings or guide choices changed. Close and reopen the same-channel preview before saving.</value></data>
 </root>

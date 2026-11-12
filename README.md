@@ -28,6 +28,11 @@ The built-in physical adapter currently supports [HDHomeRun](https://www.silicon
 - **Versioned status API** — `/api/v1/status` provides one stable guide, device, tuner, and stream snapshot for Home Assistant and other dashboards
 - **Authoritative SQLite storage** — physical channels, enabled preferences, normalized EPG data, and configurable guide history are stored locally
 
+The interactive Guide uses fixed 30-minute elapsed-time slots in the configured timezone. Spring daylight-saving gaps are skipped;
+repeated fall times include their UTC offsets, including program tooltips and details. Program widths and durations use elapsed time.
+Navigation stays within the selected local date, including 23- and 25-hour days. Rapid navigation and resizing cancel obsolete reads;
+only the latest request may display results or end its loading indicator. Failed reads show an explicit retry action instead of old-window rows.
+
 ## Lineup 3.0 reset boundary
 
 Lineup 3.0 is an intentional configuration and storage reset. It does not migrate persisted state created by earlier releases. On startup, Lineup requires the exact application-settings, streaming-topology, database, and Web-settings schema versions used by the running release; an older, newer, invalid, or unversioned artifact enters the explicit factory-reset-required state.
@@ -1068,6 +1073,9 @@ Lineup retries incomplete physical-lineup initialization on a later tune for a m
 
 The Dashboard and runtime status API report every enabled physical device, including failed activations. An inactive device has a safe activation error and no receiver-control or restart actions. Its last successful status and capacity are retained when the adapter kind is unchanged; without a prior snapshot, capacity is zero and no observations are fabricated. Successful refresh clears the error, and disabled or removed devices are excluded.
 
+HDHomeRun status and control initialization reuse the successful activation discovery result instead of fetching device discovery a second time.
+Explicit device-information refreshes and fresh guide authorization requests still query the device; failed activations remain eligible for retry.
+
 Physical-device activation, lineup, status and information requests share a bounded host-wide network allowance. The defaults are four concurrent operations and
 a ten-second deadline per admitted operation, configured at startup using `PhysicalDeviceRefresh:MaximumConcurrentOperations` and
 `PhysicalDeviceRefresh:OperationTimeoutSeconds` (environment variables use `__` instead of `:`). Valid ranges are 1-1,024 concurrent operations and 1-300 seconds;
@@ -1104,6 +1112,16 @@ channel snapshot without otherwise querying the tuners. Past programs are retain
 pages, but are excluded from published XMLTV and virtual JSON, XML, and M3U lineups. Their MPEG-TS and Watch URLs return an error by default or a
 synthetic slate when configured. Global channel number/name overrides resolve conflicts once at the physical source, so every subscribed virtual output,
 guide view, and XMLTV publication uses the same canonical identity. Equivalent source groups provide ordered physical failover.
+
+On **Channels**, open **Same-channel sources** to preview saved number conflicts, preferred metadata, authoritative guide selection, and ordered
+source candidates for the global Guide/Watch projection and each enabled virtual output. Output previews apply adapter compatibility, subscriptions,
+and enabled states; they are not live-health checks. Matching numbers or names never automatically establish equivalent content.
+Explicitly confirm **Treat as the same channel** to create a group, or open a group member to add ungrouped sources with the same saved global number.
+Numbers must be changed and saved separately; remove a source from its group before renumbering. Existing groups cannot be merged.
+Groups are labeled with effective channel identities, not editable GUIDs. Membership changes are atomic, reject stale previews, and preserve
+device-wide priority and individual guide bindings. Removing a member requires confirmation and leaves the other members unchanged.
+Failover is attempted at stream startup, not by splicing an active stream. All enabled guide outputs are republished through the normal publication path;
+publication failure is reported separately from the already committed edit, while the previous successful publication remains available.
 
 Successful guide imports update matching programs and remove missing current or future programs within the source's reported coverage window.
 Retained ended programs and future coverage outside that window survive narrower refreshes. Expired history is pruned according to the configured

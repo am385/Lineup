@@ -1,5 +1,6 @@
 using Bunit;
 using Lineup.App.Web.Components.Pages;
+using Lineup.App.Web.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
@@ -146,6 +147,229 @@ public sealed class ChannelsTests
         Assert.Equal(fixture.FirstGuideId, binding.SelectedGuideChannelId);
     }
 
+    /// <summary>Verifies explicit same-content confirmation, group additions, and removal preserve guide choices and global identity.</summary>
+    [Fact]
+    public async Task Grouping_CreateAddRemove_RequiresConfirmationAndPreservesBindings()
+    {
+        // Arrange
+        using var fixture = await ChannelFixture.CreateAsync();
+        var (topology, news, movies) = await PrepareGrouping(fixture);
+        await fixture.GuideStore.SetBindingAsync(news, fixture.FirstGuideId, Xunit.TestContext.Current.CancellationToken);
+        var component = fixture.Context.Render<Channels>();
+        component.WaitForAssertion(() => Assert.Equal(3, ChannelRows(component).Count));
+
+        // Act
+        await component.Find("tr[data-provider-key='news'] .manage-channel-group").ClickAsync(new());
+        component.Find(".group-candidate[data-provider-key='movies'] input").Change(true);
+
+        // Assert
+        Assert.Empty(component.FindAll(".channel-equivalence-group"));
+        Assert.True(component.Find(".save-channel-group").HasAttribute("disabled"));
+        Assert.All(await topology.ReadActiveAsync(Xunit.TestContext.Current.CancellationToken), channel => Assert.Null(channel.EquivalenceGroupId));
+        var preview = component.Find("[data-output-name='All devices']");
+        Assert.Single(preview.QuerySelectorAll(".group-projection")[0].QuerySelectorAll(".group-source-priority li"));
+        Assert.Equal(2, preview.QuerySelectorAll(".group-projection")[1].QuerySelectorAll(".group-source-priority li").Length);
+        Assert.Contains("First guide", preview.TextContent, StringComparison.Ordinal);
+
+        // Act
+        component.Find(".confirm-channel-content").Change(true);
+        await component.Find(".save-channel-group").ClickAsync(new());
+        var created = await topology.ReadActiveAsync(Xunit.TestContext.Current.CancellationToken);
+        var group = created.Single(channel => channel.Source.Id == news).EquivalenceGroupId;
+        var backup = new PhysicalSourceChannel
+        {
+            Id = new SourceChannelId(fixture.BetaDeviceId, "backup"),
+            ProviderNumber = "2.1",
+            ProviderName = "News backup"
+        };
+        await topology.ReconcileAsync(fixture.BetaDeviceId, [created.Single(channel => channel.Source.Id == movies).Source, backup], Xunit.TestContext.Current.CancellationToken);
+        var sports = created.Single(channel => channel.Source.Id.ProviderKey == "sports").Source.Id;
+        await topology.SetIdentityAsync(sports, "2.1", null, Guid.NewGuid(), Xunit.TestContext.Current.CancellationToken);
+        await component.Find("tr[data-provider-key='news'] .manage-channel-group").ClickAsync(new());
+        Assert.True(component.Find(".group-candidate[data-provider-key='sports'] input").HasAttribute("disabled"));
+        component.Find(".group-candidate[data-provider-key='backup'] input").Change(true);
+        component.Find(".confirm-channel-content").Change(true);
+        await component.Find(".save-channel-group").ClickAsync(new());
+        var added = await topology.ReadActiveAsync(Xunit.TestContext.Current.CancellationToken);
+        await component.Find("tr[data-provider-key='movies'] .manage-channel-group").ClickAsync(new());
+        component.Find(".change-group-mode").Click();
+        Assert.True(component.Find(".save-channel-group").HasAttribute("disabled"));
+        component.Find(".confirm-channel-content").Change(true);
+        await component.Find(".save-channel-group").ClickAsync(new());
+
+        // Assert
+        Assert.NotNull(group);
+        Assert.Equal(group, created.Single(channel => channel.Source.Id == movies).EquivalenceGroupId);
+        Assert.Equal(group, added.Single(channel => channel.Source.Id == backup.Id).EquivalenceGroupId);
+        var removed = await topology.ReadActiveAsync(Xunit.TestContext.Current.CancellationToken);
+        Assert.Null(removed.Single(channel => channel.Source.Id == movies).EquivalenceGroupId);
+        Assert.Equal(group, removed.Single(channel => channel.Source.Id == news).EquivalenceGroupId);
+        Assert.Equal("2.1", removed.Single(channel => channel.Source.Id == movies).NumberOverride);
+        var binding = (await fixture.GuideStore.ReadBindingStatesAsync(Xunit.TestContext.Current.CancellationToken)).Single(binding => binding.SourceChannelId == news);
+        Assert.Equal(fixture.FirstGuideId, binding.SelectedGuideChannelId);
+        Assert.Empty(component.FindAll(".channel-equivalence-editor"));
+    }
+
+    /// <summary>Verifies changed saved topology, guide choices, and configuration invalidate a confirmed preview.</summary>
+    [Theory]
+    [InlineData("topology")]
+    [InlineData("guide")]
+    [InlineData("configuration")]
+    [InlineData("subscription")]
+    public async Task Grouping_StalePreview_RejectsSave(string changed)
+    {
+        // Arrange
+        using var fixture = await ChannelFixture.CreateAsync();
+        var (topology, news, movies) = await PrepareGrouping(fixture);
+        var component = fixture.Context.Render<Channels>();
+        component.WaitForAssertion(() => Assert.Equal(3, ChannelRows(component).Count));
+        await component.Find("tr[data-provider-key='news'] .manage-channel-group").ClickAsync(new());
+        component.Find(".group-candidate[data-provider-key='movies'] input").Change(true);
+        component.Find(".confirm-channel-content").Change(true);
+        if (changed == "topology")
+        {
+            await topology.SetEnabledAsync(movies, false, Xunit.TestContext.Current.CancellationToken);
+        }
+        else if (changed == "guide")
+        {
+            await fixture.GuideStore.SetBindingAsync(news, fixture.FirstGuideId, Xunit.TestContext.Current.CancellationToken);
+        }
+        else if (changed == "configuration")
+        {
+            var settings = fixture.Context.Services.GetRequiredService<ILineupSettingsService>();
+            settings.Settings.Streaming = settings.Settings.Streaming with { KeepWarmPeriodSeconds = 10 };
+        }
+        else
+        {
+            var settings = fixture.Context.Services.GetRequiredService<ILineupSettingsService>();
+            var selected = settings.Settings.Streaming.VirtualDevices[1].Subscription.SelectedDeviceIds;
+            selected.Clear();
+            selected.Add(fixture.BetaDeviceId);
+        }
+
+        // Act
+        await component.Find(".save-channel-group").ClickAsync(new());
+
+        // Assert
+        Assert.All(await topology.ReadActiveAsync(Xunit.TestContext.Current.CancellationToken), channel => Assert.Null(channel.EquivalenceGroupId));
+        Assert.Single(component.FindAll(".channel-equivalence-editor"));
+        Assert.Contains(fixture.Context.Services.GetRequiredService<IStatusNotificationService>().Notifications,
+            notification => notification.IsError && notification.Message.Contains("Reopen", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Verifies a failed publication does not masquerade as rollback or lose the committed group.</summary>
+    [Fact]
+    public async Task Grouping_PublicationFails_RetainsCommittedGroupAndReportsFailure()
+    {
+        // Arrange
+        using var fixture = await ChannelFixture.CreateAsync();
+        var (topology, news, _) = await PrepareGrouping(fixture);
+        var publications = fixture.Context.Services.GetRequiredService<ITopologyGuideService>();
+        publications.ApplyChannelChangeAsync(Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>()).Returns(async call =>
+        {
+            await call.Arg<Func<CancellationToken, Task>>()(call.Arg<CancellationToken>());
+            IReadOnlyList<GuideOutputPublicationResult> results =
+            [
+                new() { OutputId = GuideOutputId.New(), Name = "XMLTV", Succeeded = false, Error = "Output is read-only." }
+            ];
+            return results;
+        });
+        var component = fixture.Context.Render<Channels>();
+        component.WaitForAssertion(() => Assert.Equal(3, ChannelRows(component).Count));
+        await component.Find("tr[data-provider-key='news'] .manage-channel-group").ClickAsync(new());
+        component.Find(".group-candidate[data-provider-key='movies'] input").Change(true);
+        component.Find(".confirm-channel-content").Change(true);
+
+        // Act
+        await component.Find(".save-channel-group").ClickAsync(new());
+
+        // Assert
+        Assert.NotNull((await topology.ReadActiveAsync(Xunit.TestContext.Current.CancellationToken)).Single(channel => channel.Source.Id == news).EquivalenceGroupId);
+        Assert.Empty(component.FindAll(".channel-equivalence-editor"));
+        Assert.Contains(fixture.Context.Services.GetRequiredService<IStatusNotificationService>().Notifications,
+            notification => notification.IsError && notification.Message.Contains("Output is read-only.", StringComparison.Ordinal));
+    }
+
+    /// <summary>Verifies subscription, adapter compatibility, and source enablement constrain the actual output preview.</summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task Grouping_OutputPreview_UsesEligibleOrderedSources(bool incompatible, bool disabled)
+    {
+        // Arrange
+        using var fixture = await ChannelFixture.CreateAsync();
+        await PrepareGrouping(fixture, !disabled);
+        if (incompatible)
+        {
+            var settings = fixture.Context.Services.GetRequiredService<ILineupSettingsService>();
+            var streaming = settings.Settings.Streaming;
+            settings.Settings.Streaming = streaming with
+            {
+                PhysicalDevices = streaming.PhysicalDevices.Select(device => device.Id == fixture.BetaDeviceId
+                    ? device with { Adapter = new AdapterConfiguration("unsupported", JsonSerializer.SerializeToElement(new { })) } : device).ToArray()
+            };
+        }
+        var component = fixture.Context.Render<Channels>();
+        component.WaitForAssertion(() => Assert.Equal(3, ChannelRows(component).Count));
+
+        // Act
+        await component.Find("tr[data-provider-key='news'] .manage-channel-group").ClickAsync(new());
+        component.Find(".group-candidate[data-provider-key='movies'] input").Change(true);
+
+        // Assert
+        var all = component.Find("[data-output-name='All devices'] .group-projection:last-child .group-source-priority");
+        Assert.Equal(incompatible || disabled ? 1 : 2, all.QuerySelectorAll("li").Length);
+        Assert.Contains("Alpha", all.QuerySelector("li")!.TextContent, StringComparison.Ordinal);
+        Assert.Single(component.FindAll("[data-output-name='Alpha only'] .group-projection:last-child .group-source-priority li"));
+    }
+
+    /// <summary>Verifies publication remains single-flight after the atomic membership commit.</summary>
+    [Fact]
+    public async Task Grouping_PendingPublication_DisablesDuplicateSaveAndClose()
+    {
+        // Arrange
+        using var fixture = await ChannelFixture.CreateAsync();
+        await PrepareGrouping(fixture);
+        var completion = new TaskCompletionSource<IReadOnlyList<GuideOutputPublicationResult>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var publications = fixture.Context.Services.GetRequiredService<ITopologyGuideService>();
+        publications.ApplyChannelChangeAsync(Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>()).Returns(async call =>
+        {
+            await call.Arg<Func<CancellationToken, Task>>()(call.Arg<CancellationToken>());
+            return await completion.Task;
+        });
+        var component = fixture.Context.Render<Channels>();
+        component.WaitForAssertion(() => Assert.Equal(3, ChannelRows(component).Count));
+        await component.Find("tr[data-provider-key='news'] .manage-channel-group").ClickAsync(new());
+        component.Find(".group-candidate[data-provider-key='movies'] input").Change(true);
+        component.Find(".confirm-channel-content").Change(true);
+
+        // Act
+        var saving = component.Find(".save-channel-group").ClickAsync(new());
+        component.WaitForAssertion(() =>
+        {
+            Assert.True(component.Find(".save-channel-group").HasAttribute("disabled"));
+            Assert.True(component.Find(".channel-equivalence-editor .btn-close").HasAttribute("disabled"));
+        });
+        completion.SetResult([]);
+        await saving;
+
+        // Assert
+        await publications.Received(1).ApplyChannelChangeAsync(Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>());
+        Assert.Empty(component.FindAll(".channel-equivalence-editor"));
+    }
+
+    private static async Task<(StreamingTopologyStore Store, SourceChannelId News, SourceChannelId Movies)> PrepareGrouping(ChannelFixture fixture, bool enabled = true)
+    {
+        var topology = fixture.Context.Services.GetRequiredService<StreamingTopologyStore>();
+        var channels = await topology.ReadActiveAsync(Xunit.TestContext.Current.CancellationToken);
+        var news = channels.Single(channel => channel.Source.Id.ProviderKey == "news").Source.Id;
+        var movies = channels.Single(channel => channel.Source.Id.ProviderKey == "movies").Source.Id;
+        await topology.SetIdentityAsync(movies, "2.1", null, null, Xunit.TestContext.Current.CancellationToken);
+        await topology.SetEnabledAsync(movies, enabled, Xunit.TestContext.Current.CancellationToken);
+        return (topology, news, movies);
+    }
+
     private static IReadOnlyList<AngleSharp.Dom.IElement> ChannelRows(IRenderedComponent<Channels> component) =>
         component.FindAll("tr.topology-channel");
 
@@ -222,6 +446,20 @@ public sealed class ChannelsTests
                         Physical(alpha, "Alpha"),
                         Physical(beta, "Beta")
                     ],
+                    VirtualDevices =
+                    [
+                        new VirtualDeviceDefinition
+                        {
+                            Id = VirtualDeviceId.New(), Name = "All devices",
+                            Adapter = new AdapterConfiguration("test-output", JsonSerializer.SerializeToElement(new { }))
+                        },
+                        new VirtualDeviceDefinition
+                        {
+                            Id = VirtualDeviceId.New(), Name = "Alpha only",
+                            Adapter = new AdapterConfiguration("test-output", JsonSerializer.SerializeToElement(new { })),
+                            Subscription = new PhysicalDeviceSubscription { Mode = PhysicalDeviceSubscriptionMode.Selected, SelectedDeviceIds = [alpha] }
+                        }
+                    ],
                     GuideSources =
                     [
                         GuideSource(firstGuideId.GuideSourceId, "First Source", alpha),
@@ -232,7 +470,10 @@ public sealed class ChannelsTests
             var guideDriver = Substitute.For<IGuideSourceDriver>();
             guideDriver.Kind.Returns("test-guide");
             guideDriver.SupportsPhysicalAdapter("test").Returns(true);
-            var adapters = new StreamingAdapterRegistry([], [], [guideDriver]);
+            var outputDriver = Substitute.For<IVirtualTunerDriver>();
+            outputDriver.Kind.Returns("test-output");
+            outputDriver.SupportsPhysicalAdapter("test").Returns(true);
+            var adapters = new StreamingAdapterRegistry([], [outputDriver], [guideDriver]);
             var timeZone = Substitute.For<ITimeZoneService>();
             timeZone.ConvertFromUtc(Arg.Any<DateTime>()).Returns(call => call.Arg<DateTime>());
             var refresh = Substitute.For<IPhysicalLineupService>();
@@ -308,6 +549,7 @@ public sealed class ChannelsTests
             {
                 Id = id,
                 Name = name,
+                Order = name == "Alpha" ? 0 : 1,
                 Adapter = new AdapterConfiguration("test", JsonSerializer.SerializeToElement(new { }))
             };
 

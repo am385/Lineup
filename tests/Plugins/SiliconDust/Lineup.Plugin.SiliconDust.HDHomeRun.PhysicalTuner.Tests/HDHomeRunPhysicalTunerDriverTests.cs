@@ -6,6 +6,7 @@ using Lineup.Core.Extensibility.Configuration;
 using Lineup.Core.Common.Streaming;
 using Lineup.Core.Extensibility.Streaming;
 using Lineup.Plugin.SiliconDust.HDHomeRun.Device;
+using Lineup.Plugin.SiliconDust.HDHomeRun.Device.Models;
 using Lineup.Plugin.SiliconDust.HDHomeRun.Device.Protocol;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -73,6 +74,7 @@ public sealed class HDHomeRunPhysicalTunerDriverTests
         var lookup = Assert.Single(service.Lookups);
         Assert.Equal(expectedHost, lookup.Address);
         Assert.Equal(TestContext.Current.CancellationToken, lookup.Token);
+        Assert.Same(Assert.IsType<HDHomeRunPhysicalTunerDevice>(device).DeviceInfo, lookup.Info);
         Assert.Equal(new Uri(new Uri(expectedBaseAddress), "discover.json"), Assert.Single(requests));
         Assert.Equal(address, driver.GetSettings(configuration).Values.Single().Value?.GetString());
         Assert.Equal($"HDHomeRun device {deviceId} is unavailable through the native control protocol.", exception.Message);
@@ -257,7 +259,7 @@ public sealed class HDHomeRunPhysicalTunerDriverTests
 
         // Assert
         Assert.Equal(discoveryRequestsAfterFirstRefresh, discoveryRequestCount);
-        Assert.Equal(2, discoveryRequestCount);
+        Assert.Equal(1, discoveryRequestCount);
         Assert.Equal(4, statusRequestCount);
         Assert.Equal(2, first.Receivers.Count);
         Assert.Equal(2, second.Receivers.Count);
@@ -292,6 +294,41 @@ public sealed class HDHomeRunPhysicalTunerDriverTests
         Assert.Equal(0, statusRequestCount);
         Assert.Equal("20261001", refreshed.Details["firmwareVersion"]);
         Assert.Equal("20261001", Assert.IsType<HDHomeRunPhysicalTunerDevice>(device).DeviceInfo.FirmwareVersion);
+    }
+
+    /// <summary>Verifies explicit endpoint refresh rebuilds control from the refreshed metadata without another discovery request.</summary>
+    [Fact]
+    public async Task RefreshStatusAsync_InformationEndpointChanged_ReusesRefreshedDiscovery()
+    {
+        // Arrange
+        var discoveryRequestCount = 0;
+        var statusRequests = new List<Uri>();
+        var driver = CreateDriver(request =>
+        {
+            if (request.RequestUri!.AbsolutePath == "/discover.json")
+            {
+                var baseUrl = discoveryRequestCount == 0 ? "https://original-device:8443" : "http://updated-device:8080";
+                return CountedJsonResponse(ref discoveryRequestCount, DiscoverJson(tunerCount: 2, baseUrl: baseUrl));
+            }
+            Assert.Equal("/status.json", request.RequestUri.AbsolutePath);
+            statusRequests.Add(request.RequestUri);
+            return JsonResponse("[]");
+        });
+        var device = await driver.CreateAsync(PhysicalDeviceId.New(), "Living room", Configuration("127.0.0.1"), TestContext.Current.CancellationToken);
+        var status = Assert.IsAssignableFrom<IPhysicalDeviceStatusCapability>(device);
+        var information = Assert.IsAssignableFrom<IPhysicalDeviceInformationCapability>(device);
+
+        // Act
+        await status.RefreshStatusAsync(TestContext.Current.CancellationToken);
+        await information.RefreshDeviceInformationAsync(TestContext.Current.CancellationToken);
+        await status.RefreshStatusAsync(TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(2, discoveryRequestCount);
+        Assert.Equal(
+            [new Uri("https://original-device:8443/status.json"), new Uri("https://original-device:8443/status.json"),
+             new Uri("http://updated-device:8080/status.json"), new Uri("http://updated-device:8080/status.json")],
+            statusRequests);
     }
 
     /// <summary>
@@ -508,7 +545,7 @@ public sealed class HDHomeRunPhysicalTunerDriverTests
         return JsonResponse(json);
     }
 
-    private static string DiscoverJson(int tunerCount, string firmwareVersion = "20260901")
+    private static string DiscoverJson(int tunerCount, string firmwareVersion = "20260901", string baseUrl = "http://device")
         => $$"""
              {
                "FriendlyName":"HDHomeRun FLEX",
@@ -517,21 +554,21 @@ public sealed class HDHomeRunPhysicalTunerDriverTests
                "FirmwareVersion":"{{firmwareVersion}}",
                "DeviceID":"ABCDEF01",
                "DeviceAuth":"secret",
-               "BaseURL":"http://device",
-               "LineupURL":"http://device/lineup.json",
+               "BaseURL":"{{baseUrl}}",
+               "LineupURL":"{{baseUrl}}/lineup.json",
                "TunerCount":{{tunerCount}}
              }
              """;
 
     private sealed class RecordingDeviceService(IHDHomeRunHttpControlFactory factory) : HDHomeRunService(NullLoggerFactory.Instance, factory)
     {
-        public List<(string Address, CancellationToken Token)> Lookups { get; } = [];
+        public List<(string Address, CancellationToken Token, HDHomeRunDeviceInfo Info)> Lookups { get; } = [];
 
         public CancellationTokenSource? CancelLookup { get; set; }
 
-        public override Task<HDHomeRunDevice?> GetDeviceByIpAsync(string addressOrHostname, CancellationToken cancellationToken = default)
+        public override Task<HDHomeRunDevice?> GetDeviceFromDiscoveryAsync(string addressOrHostname, HDHomeRunDeviceInfo deviceInfo, CancellationToken cancellationToken = default)
         {
-            Lookups.Add((addressOrHostname, cancellationToken));
+            Lookups.Add((addressOrHostname, cancellationToken, deviceInfo));
             CancelLookup?.Cancel();
             cancellationToken.ThrowIfCancellationRequested();
             return Task.FromResult<HDHomeRunDevice?>(null);

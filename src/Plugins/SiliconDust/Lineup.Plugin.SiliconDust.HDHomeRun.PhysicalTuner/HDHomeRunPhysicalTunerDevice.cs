@@ -446,7 +446,7 @@ public sealed class HDHomeRunPhysicalTunerDevice :
                 return existing;
             }
 
-            var created = await _deviceService.GetDeviceByIpAsync(_address, cancellationToken)
+            var created = await _deviceService.GetDeviceFromDiscoveryAsync(_address, DeviceInfo, cancellationToken)
                 ?? throw new InvalidOperationException($"HDHomeRun device {Snapshot.Id} is unavailable through the native control protocol.");
             Volatile.Write(ref _protocolDevice, created);
             return created;

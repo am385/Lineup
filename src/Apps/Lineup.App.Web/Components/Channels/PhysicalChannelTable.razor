@@ -49,9 +49,19 @@
                             </td>
                             <td>@GetDeviceName(channel.Source.Id.PhysicalDeviceId)</td>
                             <td>@channel.Source.ProviderNumber · @channel.Source.ProviderName</td>
-                            <td><input class="form-control form-control-sm channel-number-override" placeholder="@channel.Source.ProviderNumber" @bind="edit.NumberOverride" /></td>
+                            <td>
+                                <input class="form-control form-control-sm channel-number-override" placeholder="@channel.Source.ProviderNumber"
+                                       disabled="@channel.EquivalenceGroupId.HasValue" title="@Text["Channels_GroupRenumberHelp"]" @bind="edit.NumberOverride" />
+                            </td>
                             <td><input class="form-control form-control-sm channel-name-override" placeholder="@channel.Source.ProviderName" @bind="edit.NameOverride" /></td>
-                            <td><input class="form-control form-control-sm channel-equivalence-group" placeholder="@Text["Channels_OptionalGuid"]" @bind="edit.EquivalenceGroup" /></td>
+                            <td>
+                                @if (channel.EquivalenceGroupId.HasValue)
+                                {
+                                    <div class="same-channel-group">@channel.EffectiveNumber · @channel.EffectiveName</div>
+                                }
+                                <button type="button" class="btn btn-sm btn-outline-secondary manage-channel-group"
+                                        @onclick="() => GroupRequested.InvokeAsync(channel)">@Text["Channels_ManageGroup"]</button>
+                            </td>
                             <td>
                                 @if (binding is null)
                                 {
@@ -150,6 +160,10 @@
     /// <summary>Gets or sets the save-identity callback.</summary>
     [Parameter]
     public EventCallback<PhysicalChannelIdentity> SaveRequested { get; set; }
+
+    /// <summary>Gets or sets the callback that opens the saved same-channel preview.</summary>
+    [Parameter]
+    public EventCallback<PhysicalChannelIdentity> GroupRequested { get; set; }
 
     private RenderFragment Header(ChannelSortColumn column, string label) => builder =>
     {

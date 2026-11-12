@@ -74,7 +74,7 @@
     public EventCallback CloseRequested { get; set; }
 
     private string FormatProgramTime(long unixTime) =>
-        TimeZone.ConvertFromUtc(DateTimeOffset.FromUnixTimeSeconds(unixTime).UtcDateTime).ToString("h:mm tt");
+        GuideTimeline.FormatTime(DateTimeOffset.FromUnixTimeSeconds(unixTime), TimeZone.TimeZone);
 
     private string FormatOriginalAirdate(long unixTime) =>
         TimeZone.ConvertFromUtc(DateTimeOffset.FromUnixTimeSeconds(unixTime).UtcDateTime).ToString("yyyy-MM-dd");

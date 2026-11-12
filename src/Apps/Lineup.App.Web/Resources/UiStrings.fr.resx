@@ -1144,4 +1144,21 @@
   <data name="Settings_WorkerWaiting" xml:space="preserve"><value>Le processus n'a pas signalé un état prêt et sain. Actualisez pour vérifier son état.</value></data>
   <data name="Watch_Reconnecting" xml:space="preserve"><value>Reconnexion à la télévision en direct. Vous pouvez arrêter ou choisir une autre chaîne.</value></data>
   <data name="Watch_ReconnectExhausted" xml:space="preserve"><value>La reconnexion automatique a atteint sa limite de tentatives ou de 60 secondes. Sélectionnez à nouveau la chaîne pour réessayer.</value></data>
+  <data name="Channels_ManageGroup" xml:space="preserve"><value>Sources de la même chaîne</value></data>
+  <data name="Channels_GroupRenumberHelp" xml:space="preserve"><value>Retirez cette source du groupe avant de la renuméroter.</value></data>
+  <data name="Channels_GroupHelp" xml:space="preserve"><value>Utilisez des numéros globaux enregistrés identiques ; enregistrez toute renumérotation séparément. Les numéros et noms ne prouvent pas un contenu identique. Ouvrez un membre existant pour ajouter des sources ; les groupes ne peuvent pas être fusionnés.</value></data>
+  <data name="Channels_GroupPolicy" xml:space="preserve"><value>La priorité reste définie par appareil. Le basculement a lieu au démarrage du flux, pas sans interruption en cours de lecture. Les associations de guide restent inchangées ; la première source associée admissible fournit le guide. Les sources désactivées ou non abonnées sont exclues des aperçus. Ceux-ci décrivent la topologie enregistrée, pas l’état réel des sources.</value></data>
+  <data name="Channels_GroupAlready" xml:space="preserve"><value>Déjà dans un autre groupe</value></data>
+  <data name="Channels_GroupRemove" xml:space="preserve"><value>Retirer cette source du groupe</value></data>
+  <data name="Channels_GroupGlobalGuide" xml:space="preserve"><value>Guide global / Regarder</value></data>
+  <data name="Channels_GroupCurrent" xml:space="preserve"><value>Actuel</value></data>
+  <data name="Channels_GroupProposed" xml:space="preserve"><value>Après confirmation</value></data>
+  <data name="Channels_GroupUnavailable" xml:space="preserve"><value>Aucune source admissible pour cette sortie</value></data>
+  <data name="Channels_GroupConflicts" xml:space="preserve"><value>Conflits de numéro : {0}</value></data>
+  <data name="Channels_GroupPublications" xml:space="preserve"><value>Publications de guide recréées après enregistrement : {0}</value></data>
+  <data name="Channels_GroupConfirm" xml:space="preserve"><value>Je confirme que les sources sélectionnées diffusent le même contenu de chaîne.</value></data>
+  <data name="Channels_GroupRemoveConfirm" xml:space="preserve"><value>Je comprends que cette source ne sera plus un membre de secours de ce groupe.</value></data>
+  <data name="Channels_GroupAction" xml:space="preserve"><value>Traiter comme la même chaîne</value></data>
+  <data name="Channels_GroupSaved" xml:space="preserve"><value>Sources de la même chaîne enregistrées.</value></data>
+  <data name="Channels_GroupPreviewChanged" xml:space="preserve"><value>Les paramètres ou les choix de guide ont changé. Fermez puis rouvrez l’aperçu avant d’enregistrer.</value></data>
 </root>

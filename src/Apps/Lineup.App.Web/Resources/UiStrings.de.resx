@@ -1144,4 +1144,21 @@
   <data name="Settings_WorkerWaiting" xml:space="preserve"><value>Der Worker hat noch keine fehlerfreie Bereitschaft gemeldet. Aktualisieren Sie den Status.</value></data>
   <data name="Watch_Reconnecting" xml:space="preserve"><value>Die Verbindung zum Live-TV wird wiederhergestellt. Sie können stoppen oder einen anderen Sender auswählen.</value></data>
   <data name="Watch_ReconnectExhausted" xml:space="preserve"><value>Die automatische Wiederverbindung wurde nach Erreichen des Versuchslimits oder nach 60 Sekunden beendet. Wählen Sie den Sender erneut aus.</value></data>
+  <data name="Channels_ManageGroup" xml:space="preserve"><value>Quellen desselben Senders</value></data>
+  <data name="Channels_GroupRenumberHelp" xml:space="preserve"><value>Entfernen Sie diese Quelle vor dem Umnummerieren aus der Gruppe.</value></data>
+  <data name="Channels_GroupHelp" xml:space="preserve"><value>Verwenden Sie gespeicherte, übereinstimmende globale Nummern; speichern Sie Umnummerierungen zuerst separat. Nummern und Namen belegen keine gleichen Inhalte. Öffnen Sie ein vorhandenes Mitglied, um Quellen hinzuzufügen; Gruppen können nicht zusammengeführt werden.</value></data>
+  <data name="Channels_GroupPolicy" xml:space="preserve"><value>Die Priorität gilt weiterhin geräteweit. Ein Ausweichen erfolgt beim Streamstart, nicht nahtlos während der Wiedergabe. Programmführerzuordnungen bleiben unverändert; die erste geeignete zugeordnete Quelle liefert den Programmführer. Deaktivierte oder nicht abonnierte Quellen werden ausgeschlossen. Die Vorschau zeigt die gespeicherte Topologie, nicht die aktuelle Funktionsfähigkeit.</value></data>
+  <data name="Channels_GroupAlready" xml:space="preserve"><value>Bereits in einer anderen Gruppe</value></data>
+  <data name="Channels_GroupRemove" xml:space="preserve"><value>Diese Quelle aus der Gruppe entfernen</value></data>
+  <data name="Channels_GroupGlobalGuide" xml:space="preserve"><value>Globaler Programmführer / Fernsehen</value></data>
+  <data name="Channels_GroupCurrent" xml:space="preserve"><value>Aktuell</value></data>
+  <data name="Channels_GroupProposed" xml:space="preserve"><value>Nach Bestätigung</value></data>
+  <data name="Channels_GroupUnavailable" xml:space="preserve"><value>Keine geeignete Quelle für diese Ausgabe</value></data>
+  <data name="Channels_GroupConflicts" xml:space="preserve"><value>Nummernkonflikte: {0}</value></data>
+  <data name="Channels_GroupPublications" xml:space="preserve"><value>Nach dem Speichern neu erstellte Programmführerausgaben: {0}</value></data>
+  <data name="Channels_GroupConfirm" xml:space="preserve"><value>Ich bestätige, dass die ausgewählten Quellen denselben Senderinhalt übertragen.</value></data>
+  <data name="Channels_GroupRemoveConfirm" xml:space="preserve"><value>Ich verstehe, dass diese Quelle nicht mehr als Ausweichquelle dieser Gruppe dient.</value></data>
+  <data name="Channels_GroupAction" xml:space="preserve"><value>Als denselben Sender behandeln</value></data>
+  <data name="Channels_GroupSaved" xml:space="preserve"><value>Quellen desselben Senders gespeichert.</value></data>
+  <data name="Channels_GroupPreviewChanged" xml:space="preserve"><value>Einstellungen oder Programmführerauswahl wurden geändert. Schließen und öffnen Sie die Vorschau vor dem Speichern erneut.</value></data>
 </root>

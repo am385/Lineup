@@ -100,8 +100,6 @@ public sealed class ChannelIdentityEdit
     /// <summary>Gets or sets the global channel name override.</summary>
     public string NameOverride { get; set; } = string.Empty;
 
-    /// <summary>Gets or sets the optional equivalence-group identifier.</summary>
-    public string EquivalenceGroup { get; set; } = string.Empty;
 }
 
 /// <summary>Requests an enabled-state change for one channel.</summary>

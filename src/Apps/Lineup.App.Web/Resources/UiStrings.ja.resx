@@ -1144,4 +1144,21 @@
   <data name="Settings_WorkerWaiting" xml:space="preserve"><value>ワーカーから正常な準備完了の報告がありません。更新して状態を確認してください。</value></data>
   <data name="Watch_Reconnecting" xml:space="preserve"><value>ライブテレビに再接続しています。停止するか、別のチャンネルを選択できます。</value></data>
   <data name="Watch_ReconnectExhausted" xml:space="preserve"><value>再試行回数の上限または60秒の制限に達したため、自動再接続を停止しました。再試行するにはチャンネルを選び直してください。</value></data>
+  <data name="Channels_ManageGroup" xml:space="preserve"><value>同じチャンネルのソース</value></data>
+  <data name="Channels_GroupRenumberHelp" xml:space="preserve"><value>番号を変更する前に、このソースをグループから外してください。</value></data>
+  <data name="Channels_GroupHelp" xml:space="preserve"><value>保存済みの同じグローバル番号を使用してください。番号変更は先に別途保存します。番号や名前だけでは同じ内容と確認できません。既存のメンバーを開いてソースを追加してください。グループ同士の統合はできません。</value></data>
+  <data name="Channels_GroupPolicy" xml:space="preserve"><value>優先順位は引き続きデバイス単位です。フェイルオーバーはストリーム開始時に行われ、再生中のシームレスな切り替えではありません。番組ガイドの関連付けは変わらず、最初の利用可能な関連付け済みソースがガイドを提供します。無効または未登録のソースはプレビューから除外されます。プレビューは保存済みの構成を示し、ソースの現在の稼働状態ではありません。</value></data>
+  <data name="Channels_GroupAlready" xml:space="preserve"><value>別のグループに所属しています</value></data>
+  <data name="Channels_GroupRemove" xml:space="preserve"><value>このソースをグループから外す</value></data>
+  <data name="Channels_GroupGlobalGuide" xml:space="preserve"><value>全体の番組ガイド / 視聴</value></data>
+  <data name="Channels_GroupCurrent" xml:space="preserve"><value>現在</value></data>
+  <data name="Channels_GroupProposed" xml:space="preserve"><value>確認後</value></data>
+  <data name="Channels_GroupUnavailable" xml:space="preserve"><value>この出力で利用可能なソースがありません</value></data>
+  <data name="Channels_GroupConflicts" xml:space="preserve"><value>番号の競合: {0}</value></data>
+  <data name="Channels_GroupPublications" xml:space="preserve"><value>保存後に再生成されるガイド出力: {0}</value></data>
+  <data name="Channels_GroupConfirm" xml:space="preserve"><value>選択したソースが同じチャンネル内容を配信していることを確認しました。</value></data>
+  <data name="Channels_GroupRemoveConfirm" xml:space="preserve"><value>このソースがこのグループの予備メンバーではなくなることを理解しています。</value></data>
+  <data name="Channels_GroupAction" xml:space="preserve"><value>同じチャンネルとして扱う</value></data>
+  <data name="Channels_GroupSaved" xml:space="preserve"><value>同じチャンネルのソースを保存しました。</value></data>
+  <data name="Channels_GroupPreviewChanged" xml:space="preserve"><value>設定またはガイドの選択が変更されました。保存前にプレビューを閉じて開き直してください。</value></data>
 </root>

@@ -65,5 +65,18 @@ else
                           SortRequested="SetSort"
                           EnabledChanged="change => SetChannelEnabled(change.ChannelId, change.Enabled)"
                           GuideBindingChanged="change => SetGuideBinding(change.ChannelId, change.GuideIdentity)"
-                          SaveRequested="SaveIdentity" />
+                          SaveRequested="SaveIdentity"
+                          GroupRequested="OpenEquivalence" />
+    @if (_equivalenceAnchor is not null && _equivalenceConfiguration is not null)
+    {
+        <ChannelEquivalenceEditor @key="_equivalenceAnchor"
+                                  Anchor="_equivalenceAnchor"
+                                  Channels="_equivalenceSnapshot"
+                                  GuideBindings="_equivalenceBindings"
+                                  Configuration="_equivalenceConfiguration"
+                                  Saving="_savingEquivalence"
+                                  GroupRequested="GroupChannels"
+                                  RemoveRequested="RemoveFromGroup"
+                                  CloseRequested="CloseEquivalence" />
+    }
 }

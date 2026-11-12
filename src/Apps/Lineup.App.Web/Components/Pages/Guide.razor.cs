@@ -7,7 +7,7 @@ using System.Globalization;
 namespace Lineup.App.Web.Components.Pages;
 
 /// <summary>
-/// Represents guide.
+/// Displays a time-windowed guide with elapsed-time navigation and independently cancellable reads.
 /// </summary>
 public partial class Guide : IAsyncDisposable
 {
@@ -20,6 +20,12 @@ public partial class Guide : IAsyncDisposable
     [Inject]
     private ITimeZoneService Tz { get; set; } = default!;
 
+    [Inject]
+    private TimeProvider Clock { get; set; } = default!;
+
+    [Inject]
+    private ILogger<Guide> Logger { get; set; } = default!;
+
     private const int SlotWidthPx = 120; // Width of each 30-minute time slot in pixels
     private const int ChannelColumnWidth = 100; // Width of channel column
     private const int MinSlots = 2; // Minimum 2 slots = 1 hour
@@ -30,30 +36,32 @@ public partial class Guide : IAsyncDisposable
     private List<GuideChannelSegment> _channels = [];
     private List<GuideCacheProgram> _programs = [];
     private IReadOnlyList<GuideSourceDiagnostic> _sourceDiagnostics = [];
-    private List<DateTime> _timeSlots = [];
+    private List<DateTimeOffset> _timeSlots = [];
     private DateTime _selectedDate;
-    private int _startHour;
+    private DateTimeOffset _windowStartUtc;
+    private TimeZoneInfo _displayTimeZone = TimeZoneInfo.Utc;
     private int _slotsToShow = 8; // Number of 30-minute slots to show
     private int _containerWidth = 0; // Start at 0 to indicate not yet measured
     private bool _isLoading = true;
-    private bool _isInitialized = false;
+    private bool _loadFailed;
+    private bool _disposed;
+    private long _loadVersion;
+    private CancellationTokenSource? _activeLoad;
     private GuideCacheProgram? _selectedProgram;
 
-    // Calculate hours from slots for navigation
-    private int _hoursToShow => Math.Max(1, _slotsToShow / 2);
-
+    private TimeSpan WindowDuration => TimeSpan.FromMinutes(_slotsToShow * 30);
+    private DateTime Today => TimeZoneInfo.ConvertTime(Clock.GetUtcNow(), _displayTimeZone).Date;
+    private DateTimeOffset DayStartUtc => GuideTimeline.ResolveLocalTime(_selectedDate, _displayTimeZone);
+    private DateTimeOffset LastWindowStartUtc => DayEndUtc - WindowDuration;
+    private DateTimeOffset DayEndUtc => GuideTimeline.ResolveLocalTime(_selectedDate.AddDays(1), _displayTimeZone);
 
     /// <summary>
-    /// Performs the on initialized operation.
+    /// Initializes the selected local date without loading an unmeasured guide window.
     /// </summary>
-    protected override async Task OnInitializedAsync()
+    protected override void OnInitialized()
     {
-        _selectedDate = Tz.Today;
-        _startHour = (Tz.Now.Hour / 2) * 2;
+        SelectCurrentWindow();
         _dotNetRef = DotNetObjectReference.Create(this);
-        // Load channels but defer full data load until we know the container width
-        _channels = SortChannels(await GuideReader.GetChannelDirectoryAsync());
-        _sourceDiagnostics = GuideReader.GetSourceDiagnostics();
     }
 
     /// <summary>
@@ -61,30 +69,54 @@ public partial class Guide : IAsyncDisposable
     /// </summary>
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
+        if (!firstRender || _disposed)
         {
-            try
-            {
-                // Get initial width from the main content area (not the guide container which can grow)
-                _containerWidth = await JS.GetGuideViewportWidthAsync();
-
-                // Calculate slots based on actual width
-                await CalculateSlotsToShowAndLoad();
-                _isInitialized = true;
-
-                // Set up resize observer that calls back to this instance
-                await JS.SetupGuideResizeObserverAsync(_dotNetRef!);
-
-                StateHasChanged();
-            }
-            catch
-            {
-                // Fallback if JS fails - use reasonable default
-                _containerWidth = 800;
-                await CalculateSlotsToShowAndLoad();
-                _isInitialized = true;
-                StateHasChanged();
-            }
+            return;
+        }
+        var initialVersion = _loadVersion;
+        int width;
+        try
+        {
+            width = await JS.GetGuideViewportWidthAsync();
+        }
+        catch (JSException exception)
+        {
+            Logger.LogWarning(exception, "Unable to measure the guide viewport; using the default width");
+            width = 800;
+        }
+        if (_disposed)
+        {
+            return;
+        }
+        if (_containerWidth == 0)
+        {
+            _containerWidth = width;
+        }
+        _slotsToShow = GetSlotCount(_containerWidth);
+        if (_loadVersion == initialVersion)
+        {
+            SelectCurrentWindow();
+        }
+        else
+        {
+            ClampWindowStart();
+        }
+        await LoadDataAsync();
+        if (_disposed)
+        {
+            return;
+        }
+        try
+        {
+            await JS.SetupGuideResizeObserverAsync(_dotNetRef!);
+        }
+        catch (JSException exception)
+        {
+            Logger.LogWarning(exception, "Unable to observe guide viewport changes");
+        }
+        if (!_disposed)
+        {
+            StateHasChanged();
         }
     }
 
@@ -94,95 +126,82 @@ public partial class Guide : IAsyncDisposable
     [JSInvokable]
     public async Task OnContainerResize(int width)
     {
-        if (width > 0 && width != _containerWidth)
+        if (!_disposed && width > 0 && width != _containerWidth)
         {
             _containerWidth = width;
-            await CalculateSlotsToShow();
-            StateHasChanged();
-        }
-    }
-
-    /// <summary>
-    /// Calculate slots and load data - used on initial render
-    /// </summary>
-    private async Task CalculateSlotsToShowAndLoad()
-    {
-        // Calculate how many 30-minute slots fit based on container width
-        var availableWidth = _containerWidth - ChannelColumnWidth - 20;
-        var possibleSlots = (int)(availableWidth / SlotWidthPx);
-        _slotsToShow = Math.Clamp(possibleSlots, MinSlots, MaxSlots);
-
-        // Now load the data with the correct slot count
-        await LoadDataAsync();
-    }
-
-    /// <summary>
-    /// Calculate slots and update data - used on resize
-    /// </summary>
-    private async Task CalculateSlotsToShow()
-    {
-        // Calculate how many 30-minute slots fit based on container width
-        var availableWidth = _containerWidth - ChannelColumnWidth - 20; // Some padding
-        var possibleSlots = (int)(availableWidth / SlotWidthPx);
-
-        // Clamp to min/max
-        var newSlotsToShow = Math.Clamp(possibleSlots, MinSlots, MaxSlots);
-
-
-        if (newSlotsToShow != _slotsToShow)
-        {
-            _slotsToShow = newSlotsToShow;
-
-            // Update time slots
-            var startTime = _selectedDate.Date.AddHours(_startHour);
-            _timeSlots = [];
-            for (int i = 0; i < _slotsToShow; i++)
+            var slots = GetSlotCount(width);
+            if (slots != _slotsToShow)
             {
-                _timeSlots.Add(startTime.AddMinutes(i * 30));
-            }
-
-            // Only reload data if we need more programs for expanded time range
-            if (_isInitialized)
-            {
-                var endTime = startTime.AddMinutes(_slotsToShow * 30);
-                _programs = (await GuideReader.GetProgramsAsync(
-                    Tz.ConvertToUtc(startTime),
-                    Tz.ConvertToUtc(endTime))).ToList();
-                _sourceDiagnostics = GuideReader.GetSourceDiagnostics();
+                _slotsToShow = slots;
+                ClampWindowStart();
+                await LoadDataAsync();
+                if (!_disposed)
+                {
+                    StateHasChanged();
+                }
             }
         }
     }
+
+    private static int GetSlotCount(int width) => Math.Clamp((width - ChannelColumnWidth - 20) / SlotWidthPx, MinSlots, MaxSlots);
 
     private async Task LoadDataAsync()
     {
+        if (_disposed)
+        {
+            return;
+        }
+        var previous = _activeLoad;
+        using var cancellation = new CancellationTokenSource();
+        _activeLoad = cancellation;
+        var version = ++_loadVersion;
+        previous?.Cancel();
+        var startUtc = _windowStartUtc;
+        var slots = _slotsToShow;
         _isLoading = true;
+        _loadFailed = false;
         StateHasChanged();
 
         try
         {
-            _channels = SortChannels(await GuideReader.GetChannelDirectoryAsync());
-
-            var startTime = _selectedDate.Date.AddHours(_startHour);
-            var endTime = startTime.AddMinutes(_slotsToShow * 30);
-
-            _programs = (await GuideReader.GetProgramsAsync(
-                Tz.ConvertToUtc(startTime),
-                Tz.ConvertToUtc(endTime))).ToList();
-            _sourceDiagnostics = GuideReader.GetSourceDiagnostics();
-
-            // Generate time slots (every 30 minutes)
-            _timeSlots = [];
-            for (int i = 0; i < _slotsToShow; i++)
+            var channels = await GuideReader.GetChannelDirectoryAsync(cancellation.Token);
+            if (!IsCurrentLoad(version))
             {
-                _timeSlots.Add(startTime.AddMinutes(i * 30));
+                return;
             }
-
+            var programs = await GuideReader.GetProgramsAsync(startUtc, startUtc.AddMinutes(slots * 30), cancellation.Token);
+            if (!IsCurrentLoad(version))
+            {
+                return;
+            }
+            var diagnostics = GuideReader.GetSourceDiagnostics();
+            _channels = SortChannels(channels);
+            _programs = programs.ToList();
+            _sourceDiagnostics = diagnostics;
+            _timeSlots = Enumerable.Range(0, slots).Select(index => startUtc.AddMinutes(index * 30)).ToList();
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Unable to load the program guide");
+            if (IsCurrentLoad(version))
+            {
+                _loadFailed = true;
+            }
         }
         finally
         {
-            _isLoading = false;
+            if (IsCurrentLoad(version))
+            {
+                _isLoading = false;
+                _activeLoad = null;
+            }
         }
     }
+
+    private bool IsCurrentLoad(long version) => !_disposed && version == _loadVersion;
 
     private static List<GuideChannelSegment> SortChannels(IEnumerable<GuideChannelSegment> channels) =>
         channels
@@ -195,54 +214,70 @@ public partial class Guide : IAsyncDisposable
             ? value
             : decimal.MaxValue;
 
-    private string FormatTimeRange()
-    {
-        var startTime = _selectedDate.Date.AddHours(_startHour);
-        var endTime = startTime.AddMinutes(_slotsToShow * 30);
-        return $"{startTime:h:mm tt} - {endTime:h:mm tt}";
-    }
+    private string FormatTimeRange() =>
+        $"{GuideTimeline.FormatTime(_windowStartUtc, _displayTimeZone)} - {GuideTimeline.FormatTime(_windowStartUtc + WindowDuration, _displayTimeZone)}";
 
     private async Task SelectDate(DateTime date)
     {
-        _selectedDate = date;
-        if (date == Tz.Today)
+        _displayTimeZone = Tz.TimeZone;
+        _selectedDate = date.Date;
+        if (_selectedDate == Today)
         {
-            _startHour = (Tz.Now.Hour / 2) * 2;
+            SelectCurrentWindow();
         }
         else
         {
-            _startHour = 6; // Start at 6 AM for future dates
+            _windowStartUtc = GuideTimeline.ResolveLocalTime(_selectedDate.AddHours(6), _displayTimeZone);
+            ClampWindowStart();
         }
         await LoadDataAsync();
     }
 
     private async Task PreviousTimeBlock()
     {
-        // Move back by the number of hours currently shown
-        _startHour = Math.Max(0, _startHour - _hoursToShow);
+        _windowStartUtc -= WindowDuration;
+        ClampWindowStart();
         await LoadDataAsync();
     }
 
     private async Task NextTimeBlock()
     {
-        // Move forward by the number of hours currently shown
-        _startHour = Math.Min(24 - _hoursToShow, _startHour + _hoursToShow);
+        _windowStartUtc += WindowDuration;
+        ClampWindowStart();
         await LoadDataAsync();
     }
 
     private async Task JumpToNow()
     {
-        _selectedDate = Tz.Today;
-        _startHour = (Tz.Now.Hour / 2) * 2; // Round to nearest even hour
+        SelectCurrentWindow();
         await LoadDataAsync();
     }
 
     private bool IsShowingCurrentTime()
     {
-        var now = Tz.Now;
-        var windowStart = _selectedDate.Date.AddHours(_startHour);
-        var windowEnd = windowStart.AddMinutes(_slotsToShow * 30);
-        return now >= windowStart && now < windowEnd;
+        var now = Clock.GetUtcNow();
+        return now >= _windowStartUtc && now < _windowStartUtc + WindowDuration;
+    }
+
+    private void SelectCurrentWindow()
+    {
+        _displayTimeZone = Tz.TimeZone;
+        var now = Clock.GetUtcNow();
+        var local = TimeZoneInfo.ConvertTime(now, _displayTimeZone);
+        _selectedDate = local.Date;
+        _windowStartUtc = GuideTimeline.ResolveLocalTime(_selectedDate.AddHours(local.Hour / 2 * 2), _displayTimeZone);
+        if (now >= _windowStartUtc + WindowDuration)
+        {
+            _windowStartUtc = now.AddTicks(-(local.TimeOfDay.Ticks % TimeSpan.FromMinutes(30).Ticks));
+        }
+        ClampWindowStart();
+    }
+
+    private void ClampWindowStart()
+    {
+        var first = DayStartUtc;
+        var last = LastWindowStartUtc;
+        _windowStartUtc = _windowStartUtc < first ? first : _windowStartUtc > last ? last : _windowStartUtc;
     }
 
     private void ShowProgramDetails(GuideCacheProgram program)
@@ -260,13 +295,21 @@ public partial class Guide : IAsyncDisposable
     /// </summary>
     public async ValueTask DisposeAsync()
     {
+        if (_disposed)
+        {
+            return;
+        }
+        _disposed = true;
+        var active = _activeLoad;
+        _activeLoad = null;
+        active?.Cancel();
         try
         {
             await JS.DisposeGuideResizeObserverAsync();
         }
-        catch
+        catch (Exception exception) when (exception is JSException or ObjectDisposedException)
         {
-            // Ignore disposal errors
+            Logger.LogDebug(exception, "Guide resize observation ended during disposal");
         }
 
         _dotNetRef?.Dispose();

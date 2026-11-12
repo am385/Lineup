@@ -1144,4 +1144,21 @@
   <data name="Settings_WorkerWaiting" xml:space="preserve"><value>工作进程尚未报告正常就绪。请刷新以检查其状态。</value></data>
   <data name="Watch_Reconnecting" xml:space="preserve"><value>正在重新连接直播电视。您可以停止或选择其他频道。</value></data>
   <data name="Watch_ReconnectExhausted" xml:space="preserve"><value>自动重连已达到重试次数或60秒时限。请重新选择频道以重试。</value></data>
+  <data name="Channels_ManageGroup" xml:space="preserve"><value>同一频道的来源</value></data>
+  <data name="Channels_GroupRenumberHelp" xml:space="preserve"><value>更改编号前，请先将此来源移出分组。</value></data>
+  <data name="Channels_GroupHelp" xml:space="preserve"><value>请使用已保存且相同的全局编号；编号更改须先单独保存。编号和名称不能证明内容相同。打开现有成员以添加来源；不支持合并分组。</value></data>
+  <data name="Channels_GroupPolicy" xml:space="preserve"><value>优先级仍按设备设置。故障转移仅在启动流时进行，不会在播放中无缝切换。节目指南绑定保持不变；首个符合条件且已绑定的来源提供指南。已禁用或未订阅的来源不计入输出预览。预览描述已保存的拓扑，而非来源的实时健康状态。</value></data>
+  <data name="Channels_GroupAlready" xml:space="preserve"><value>已属于其他分组</value></data>
+  <data name="Channels_GroupRemove" xml:space="preserve"><value>将此来源移出分组</value></data>
+  <data name="Channels_GroupGlobalGuide" xml:space="preserve"><value>全局节目指南 / 观看</value></data>
+  <data name="Channels_GroupCurrent" xml:space="preserve"><value>当前</value></data>
+  <data name="Channels_GroupProposed" xml:space="preserve"><value>确认后</value></data>
+  <data name="Channels_GroupUnavailable" xml:space="preserve"><value>此输出没有符合条件的来源</value></data>
+  <data name="Channels_GroupConflicts" xml:space="preserve"><value>编号冲突：{0}</value></data>
+  <data name="Channels_GroupPublications" xml:space="preserve"><value>保存后将重新生成的指南发布：{0}</value></data>
+  <data name="Channels_GroupConfirm" xml:space="preserve"><value>我确认所选来源传输相同的频道内容。</value></data>
+  <data name="Channels_GroupRemoveConfirm" xml:space="preserve"><value>我理解此来源将不再作为本组的备用成员。</value></data>
+  <data name="Channels_GroupAction" xml:space="preserve"><value>视为同一频道</value></data>
+  <data name="Channels_GroupSaved" xml:space="preserve"><value>已保存同一频道的来源。</value></data>
+  <data name="Channels_GroupPreviewChanged" xml:space="preserve"><value>设置或指南选择已更改。保存前请关闭并重新打开预览。</value></data>
 </root>

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using Lineup.Plugin.SiliconDust.HDHomeRun.Device.Models;
 using Lineup.Plugin.SiliconDust.HDHomeRun.Device.Protocol;
 using Microsoft.Extensions.Logging;
 
@@ -313,12 +314,53 @@ public class HDHomeRunService : IDisposable
     }
 
     /// <summary>
+    /// Gets a cached control device from an existing HTTP discovery result, resolving only the configured host without repeating discovery.
+    /// </summary>
+    public virtual async Task<HDHomeRunDevice?> GetDeviceFromDiscoveryAsync(string addressOrHostname, HDHomeRunDeviceInfo deviceInfo, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(deviceInfo);
+        var ip = await ResolveAddressAsync(addressOrHostname, cancellationToken);
+        return ip is null ? null : GetDeviceFromDiscovery(ip, deviceInfo.DeviceID, deviceInfo.TunerCount, deviceInfo.BaseURL, deviceInfo.LineupURL);
+    }
+
+    /// <summary>
     /// Gets device information by IP address or hostname.
     /// Uses HTTP API as the primary method (most reliable for modern devices),
     /// with fallbacks to native protocols for older devices.
     /// </summary>
     public virtual async Task<HDHomeRunDevice?> GetDeviceByIpAsync(string addressOrHostname, CancellationToken cancellationToken = default)
     {
+        var ip = await ResolveAddressAsync(addressOrHostname, cancellationToken);
+        if (ip is null)
+        {
+            return null;
+        }
+
+        // PRIMARY: Try HTTP API first (works reliably on all modern devices like FLEX, CONNECT, etc.)
+        _logger.LogDebug("Trying HTTP API connection to {IpAddress}", ip);
+        var device = await ConnectViaHttpAsync(ip, cancellationToken);
+        if (device != null)
+        {
+            return device;
+        }
+
+        // FALLBACK 1: Try UDP discovery (for older devices)
+        _logger.LogDebug("HTTP API failed, trying UDP discovery for {IpAddress}", ip);
+        var deviceInfo = await GetDiscovery().DiscoverByIpAsync(ip, TimeSpan.FromSeconds(2), cancellationToken);
+
+        if (deviceInfo != null)
+        {
+            return GetDevice(deviceInfo);
+        }
+
+        // FALLBACK 2: Try direct TCP connection (for very old devices)
+        _logger.LogDebug("UDP discovery failed, trying direct TCP connection to {IpAddress}", ip);
+        return await ConnectDirectAsync(ip, cancellationToken);
+    }
+
+    private async Task<IPAddress?> ResolveAddressAsync(string addressOrHostname, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         // Try to parse as IP address first
         IPAddress? ip = null;
         if (!IPAddress.TryParse(addressOrHostname, out ip))
@@ -345,26 +387,30 @@ public class HDHomeRunService : IDisposable
             }
         }
 
-        // PRIMARY: Try HTTP API first (works reliably on all modern devices like FLEX, CONNECT, etc.)
-        _logger.LogDebug("Trying HTTP API connection to {IpAddress}", ip);
-        var device = await ConnectViaHttpAsync(ip, cancellationToken);
-        if (device != null)
+        return ip;
+    }
+
+    private HDHomeRunDevice GetDeviceFromDiscovery(IPAddress ipAddress, string? identifier, int tunerCount, string? baseUrl, string? lineupUrl)
+    {
+        uint deviceId = 0;
+        if (!string.IsNullOrEmpty(identifier))
         {
-            return device;
+            uint.TryParse(identifier, System.Globalization.NumberStyles.HexNumber, null, out deviceId);
+        }
+        if (deviceId == 0)
+        {
+            deviceId = BitConverter.ToUInt32(ipAddress.GetAddressBytes(), 0);
         }
 
-        // FALLBACK 1: Try UDP discovery (for older devices)
-        _logger.LogDebug("HTTP API failed, trying UDP discovery for {IpAddress}", ip);
-        var deviceInfo = await GetDiscovery().DiscoverByIpAsync(ip, TimeSpan.FromSeconds(2), cancellationToken);
-
-        if (deviceInfo != null)
+        return GetDevice(new HDHomeRunDiscoveredDevice
         {
-            return GetDevice(deviceInfo);
-        }
-
-        // FALLBACK 2: Try direct TCP connection (for very old devices)
-        _logger.LogDebug("UDP discovery failed, trying direct TCP connection to {IpAddress}", ip);
-        return await ConnectDirectAsync(ip, cancellationToken);
+            IpAddress = ipAddress,
+            DeviceId = deviceId,
+            DeviceType = HDHomeRunDeviceType.Tuner,
+            TunerCount = tunerCount,
+            BaseUrl = baseUrl ?? $"http://{ipAddress}",
+            LineupUrl = lineupUrl
+        });
     }
 
     /// <summary>
@@ -384,30 +430,8 @@ public class HDHomeRunService : IDisposable
                 return null;
             }
 
-            // Parse device ID
-            uint deviceId = 0;
-            if (!string.IsNullOrEmpty(discover.DeviceID))
-            {
-                uint.TryParse(discover.DeviceID, System.Globalization.NumberStyles.HexNumber, null, out deviceId);
-            }
-            if (deviceId == 0)
-            {
-                var ipBytes = ipAddress.GetAddressBytes();
-                deviceId = BitConverter.ToUInt32(ipBytes, 0);
-            }
-
-            var deviceInfo = new HDHomeRunDiscoveredDevice
-            {
-                IpAddress = ipAddress,
-                DeviceId = deviceId,
-                DeviceType = HDHomeRunDeviceType.Tuner,
-                TunerCount = discover.TunerCount,
-                BaseUrl = discover.BaseURL ?? $"http://{ipAddress}",
-                LineupUrl = discover.LineupURL
-            };
-
             _logger.LogInformation("Connected via HTTP API to {IpAddress}: {Model}", ipAddress, discover.ModelNumber);
-            return GetDevice(deviceInfo);
+            return GetDeviceFromDiscovery(ipAddress, discover.DeviceID, discover.TunerCount, discover.BaseURL, discover.LineupURL);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {

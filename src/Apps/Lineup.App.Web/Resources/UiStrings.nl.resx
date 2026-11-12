@@ -1144,4 +1144,21 @@
   <data name="Settings_WorkerWaiting" xml:space="preserve"><value>De worker heeft geen gezonde gereedheid gemeld. Vernieuw om de status te controleren.</value></data>
   <data name="Watch_Reconnecting" xml:space="preserve"><value>Opnieuw verbinden met live-tv. U kunt stoppen of een andere zender kiezen.</value></data>
   <data name="Watch_ReconnectExhausted" xml:space="preserve"><value>Automatisch opnieuw verbinden is gestopt na het maximale aantal pogingen of 60 seconden. Selecteer de zender opnieuw om het nogmaals te proberen.</value></data>
+  <data name="Channels_ManageGroup" xml:space="preserve"><value>Bronnen van dezelfde zender</value></data>
+  <data name="Channels_GroupRenumberHelp" xml:space="preserve"><value>Verwijder deze bron uit de groep voordat u het nummer wijzigt.</value></data>
+  <data name="Channels_GroupHelp" xml:space="preserve"><value>Gebruik gelijke opgeslagen globale nummers; sla nummerwijzigingen eerst apart op. Nummers en namen bewijzen geen gelijke inhoud. Open een bestaand lid om bronnen toe te voegen; groepen kunnen niet worden samengevoegd.</value></data>
+  <data name="Channels_GroupPolicy" xml:space="preserve"><value>Prioriteit blijft per apparaat gelden. Overschakelen gebeurt bij het starten, niet naadloos tijdens de stream. Gidskoppelingen blijven ongewijzigd; de eerste geschikte gekoppelde bron levert de gids. Uitgeschakelde of niet-geabonneerde bronnen zijn uitgesloten van de voorbeelden. De voorbeelden tonen de opgeslagen topologie, niet de actuele bronstatus.</value></data>
+  <data name="Channels_GroupAlready" xml:space="preserve"><value>Al in een andere groep</value></data>
+  <data name="Channels_GroupRemove" xml:space="preserve"><value>Deze bron uit de groep verwijderen</value></data>
+  <data name="Channels_GroupGlobalGuide" xml:space="preserve"><value>Globale gids / Kijken</value></data>
+  <data name="Channels_GroupCurrent" xml:space="preserve"><value>Huidig</value></data>
+  <data name="Channels_GroupProposed" xml:space="preserve"><value>Na bevestiging</value></data>
+  <data name="Channels_GroupUnavailable" xml:space="preserve"><value>Geen geschikte bron voor deze uitvoer</value></data>
+  <data name="Channels_GroupConflicts" xml:space="preserve"><value>Nummerconflicten: {0}</value></data>
+  <data name="Channels_GroupPublications" xml:space="preserve"><value>Opnieuw opgebouwde gidspublicaties na opslaan: {0}</value></data>
+  <data name="Channels_GroupConfirm" xml:space="preserve"><value>Ik bevestig dat de geselecteerde bronnen dezelfde zenderinhoud uitzenden.</value></data>
+  <data name="Channels_GroupRemoveConfirm" xml:space="preserve"><value>Ik begrijp dat deze bron niet langer als reservebron van deze groep dient.</value></data>
+  <data name="Channels_GroupAction" xml:space="preserve"><value>Als dezelfde zender behandelen</value></data>
+  <data name="Channels_GroupSaved" xml:space="preserve"><value>Bronnen van dezelfde zender opgeslagen.</value></data>
+  <data name="Channels_GroupPreviewChanged" xml:space="preserve"><value>Instellingen of gidskeuzes zijn gewijzigd. Sluit en heropen het voorbeeld voordat u opslaat.</value></data>
 </root>

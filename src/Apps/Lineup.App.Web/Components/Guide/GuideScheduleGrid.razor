@@ -1,5 +1,4 @@
 @using Lineup.Core.Guides
-@inject ITimeZoneService Tz
 
 <div class="guide-container">
     <div class="guide-header">
@@ -8,7 +7,7 @@
             @foreach (var slot in TimeSlots)
             {
                 <div class="guide-time-slot" style="width: @(SlotWidthPx)px;">
-                    @slot.ToString("h:mm tt")
+                    @GuideTimeline.FormatTime(slot, DisplayTimeZone)
                 </div>
             }
         </div>
@@ -67,21 +66,13 @@
     [Parameter, EditorRequired]
     public IReadOnlyList<GuideCacheProgram> Programs { get; set; } = [];
 
-    /// <summary>Gets or sets the displayed time slots.</summary>
+    /// <summary>Gets or sets the elapsed half-hour slot instants.</summary>
     [Parameter, EditorRequired]
-    public IReadOnlyList<DateTime> TimeSlots { get; set; } = [];
+    public IReadOnlyList<DateTimeOffset> TimeSlots { get; set; } = [];
 
-    /// <summary>Gets or sets the selected date.</summary>
-    [Parameter]
-    public DateTime SelectedDate { get; set; }
-
-    /// <summary>Gets or sets the first displayed hour.</summary>
-    [Parameter]
-    public int StartHour { get; set; }
-
-    /// <summary>Gets or sets the number of displayed half-hour slots.</summary>
-    [Parameter]
-    public int SlotsToShow { get; set; }
+    /// <summary>Gets or sets the timezone captured for this guide projection.</summary>
+    [Parameter, EditorRequired]
+    public TimeZoneInfo DisplayTimeZone { get; set; } = TimeZoneInfo.Utc;
 
     /// <summary>Gets or sets the callback raised when a program is selected.</summary>
     [Parameter]
@@ -92,16 +83,18 @@
     private static bool IsChannelEnabled(string? guideNumber) => !string.IsNullOrWhiteSpace(guideNumber);
 
     private IEnumerable<GuideCacheProgram> GetProgramsForChannel(string? guideNumber) =>
-        string.IsNullOrEmpty(guideNumber)
+        string.IsNullOrEmpty(guideNumber) || TimeSlots.Count == 0
             ? []
-            : Programs.Where(program => program.GuideNumber == guideNumber).OrderBy(program => program.StartTime);
+            : Programs.Where(program => program.GuideNumber == guideNumber &&
+                program.StartTime < TimeSlots[^1].AddMinutes(30).ToUnixTimeSeconds() && program.EndTime > TimeSlots[0].ToUnixTimeSeconds())
+                .OrderBy(program => program.StartTime);
 
     private (string Style, double WidthPx) GetProgramLayout(GuideCacheProgram program)
     {
-        var windowStart = SelectedDate.Date.AddHours(StartHour);
-        var windowEnd = windowStart.AddMinutes(SlotsToShow * 30);
-        var programStart = Tz.ConvertFromUtc(DateTimeOffset.FromUnixTimeSeconds(program.StartTime).UtcDateTime);
-        var programEnd = Tz.ConvertFromUtc(DateTimeOffset.FromUnixTimeSeconds(program.EndTime).UtcDateTime);
+        var windowStart = TimeSlots[0];
+        var windowEnd = TimeSlots[^1].AddMinutes(30);
+        var programStart = DateTimeOffset.FromUnixTimeSeconds(program.StartTime);
+        var programEnd = DateTimeOffset.FromUnixTimeSeconds(program.EndTime);
         var displayStart = programStart < windowStart ? windowStart : programStart;
         var displayEnd = programEnd > windowEnd ? windowEnd : programEnd;
         var offsetMinutes = (displayStart - windowStart).TotalMinutes;
@@ -126,9 +119,11 @@
 
     private string GetProgramTooltip(GuideCacheProgram program)
     {
-        var start = Tz.ConvertFromUtc(DateTimeOffset.FromUnixTimeSeconds(program.StartTime).UtcDateTime);
-        var end = Tz.ConvertFromUtc(DateTimeOffset.FromUnixTimeSeconds(program.EndTime).UtcDateTime);
-        var tooltip = Text["Guide_ProgramTooltip", program.Title ?? string.Empty, start.ToString("h:mm tt"), end.ToString("h:mm tt"), (end - start).TotalMinutes];
+        var start = DateTimeOffset.FromUnixTimeSeconds(program.StartTime);
+        var end = DateTimeOffset.FromUnixTimeSeconds(program.EndTime);
+        var startLabel = GuideTimeline.FormatTime(start, DisplayTimeZone);
+        var endLabel = GuideTimeline.FormatTime(end, DisplayTimeZone);
+        var tooltip = Text["Guide_ProgramTooltip", program.Title ?? string.Empty, startLabel, endLabel, (end - start).TotalMinutes];
 
         return string.IsNullOrEmpty(program.EpisodeTitle) ? tooltip : $"{tooltip}\n{program.EpisodeTitle}";
     }

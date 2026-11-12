@@ -1144,4 +1144,21 @@
   <data name="Settings_WorkerWaiting" xml:space="preserve"><value>El proceso no ha informado de una disponibilidad correcta. Actualice para consultar su estado.</value></data>
   <data name="Watch_Reconnecting" xml:space="preserve"><value>Reconectando a la televisión en directo. Puede detener la reproducción o seleccionar otro canal.</value></data>
   <data name="Watch_ReconnectExhausted" xml:space="preserve"><value>La reconexión automática se detuvo al alcanzar el límite de intentos o de 60 segundos. Seleccione el canal de nuevo para reintentar.</value></data>
+  <data name="Channels_ManageGroup" xml:space="preserve"><value>Fuentes del mismo canal</value></data>
+  <data name="Channels_GroupRenumberHelp" xml:space="preserve"><value>Quite esta fuente del grupo antes de cambiar su número.</value></data>
+  <data name="Channels_GroupHelp" xml:space="preserve"><value>Use números globales guardados que coincidan; guarde cualquier cambio de número por separado. Los números y nombres no demuestran que el contenido sea idéntico. Abra un miembro existente para añadir fuentes; no se pueden combinar grupos.</value></data>
+  <data name="Channels_GroupPolicy" xml:space="preserve"><value>La prioridad sigue siendo por dispositivo. La conmutación ocurre al iniciar el flujo, no durante su reproducción sin interrupciones. Las asignaciones de guía no cambian; la primera fuente vinculada elegible proporciona la guía. Las fuentes deshabilitadas o no suscritas se excluyen de las vistas previas. Estas muestran la topología guardada, no el estado en vivo.</value></data>
+  <data name="Channels_GroupAlready" xml:space="preserve"><value>Ya pertenece a otro grupo</value></data>
+  <data name="Channels_GroupRemove" xml:space="preserve"><value>Quitar esta fuente del grupo</value></data>
+  <data name="Channels_GroupGlobalGuide" xml:space="preserve"><value>Guía global / Ver</value></data>
+  <data name="Channels_GroupCurrent" xml:space="preserve"><value>Actual</value></data>
+  <data name="Channels_GroupProposed" xml:space="preserve"><value>Después de confirmar</value></data>
+  <data name="Channels_GroupUnavailable" xml:space="preserve"><value>No hay fuentes elegibles para esta salida</value></data>
+  <data name="Channels_GroupConflicts" xml:space="preserve"><value>Conflictos de número: {0}</value></data>
+  <data name="Channels_GroupPublications" xml:space="preserve"><value>Publicaciones de guía regeneradas al guardar: {0}</value></data>
+  <data name="Channels_GroupConfirm" xml:space="preserve"><value>Confirmo que las fuentes seleccionadas transmiten el mismo contenido de canal.</value></data>
+  <data name="Channels_GroupRemoveConfirm" xml:space="preserve"><value>Entiendo que esta fuente dejará de ser un miembro de respaldo de este grupo.</value></data>
+  <data name="Channels_GroupAction" xml:space="preserve"><value>Tratar como el mismo canal</value></data>
+  <data name="Channels_GroupSaved" xml:space="preserve"><value>Fuentes del mismo canal guardadas.</value></data>
+  <data name="Channels_GroupPreviewChanged" xml:space="preserve"><value>La configuración o las selecciones de guía cambiaron. Cierre y vuelva a abrir la vista previa antes de guardar.</value></data>
 </root>

@@ -1144,4 +1144,21 @@
   <data name="Settings_WorkerWaiting" xml:space="preserve"><value>Il processo non ha segnalato uno stato pronto e funzionante. Aggiorna per verificarne lo stato.</value></data>
   <data name="Watch_Reconnecting" xml:space="preserve"><value>Riconnessione alla TV in diretta. Puoi interrompere o selezionare un altro canale.</value></data>
   <data name="Watch_ReconnectExhausted" xml:space="preserve"><value>La riconnessione automatica si è interrotta al limite di tentativi o di 60 secondi. Seleziona nuovamente il canale per riprovare.</value></data>
+  <data name="Channels_ManageGroup" xml:space="preserve"><value>Sorgenti dello stesso canale</value></data>
+  <data name="Channels_GroupRenumberHelp" xml:space="preserve"><value>Rimuovere questa sorgente dal gruppo prima di rinumerarla.</value></data>
+  <data name="Channels_GroupHelp" xml:space="preserve"><value>Usare numeri globali salvati e uguali; salvare separatamente le modifiche ai numeri. Numeri e nomi non dimostrano contenuti identici. Aprire un membro esistente per aggiungere sorgenti; i gruppi non possono essere uniti.</value></data>
+  <data name="Channels_GroupPolicy" xml:space="preserve"><value>La priorità resta a livello di dispositivo. Il passaggio a una sorgente alternativa avviene all’avvio, non senza interruzioni durante il flusso. Le associazioni della guida non cambiano; la prima sorgente associata idonea fornisce la guida. Le sorgenti disabilitate o non sottoscritte sono escluse dalle anteprime. Le anteprime mostrano la topologia salvata, non lo stato in tempo reale.</value></data>
+  <data name="Channels_GroupAlready" xml:space="preserve"><value>Già in un altro gruppo</value></data>
+  <data name="Channels_GroupRemove" xml:space="preserve"><value>Rimuovi questa sorgente dal gruppo</value></data>
+  <data name="Channels_GroupGlobalGuide" xml:space="preserve"><value>Guida globale / Guarda</value></data>
+  <data name="Channels_GroupCurrent" xml:space="preserve"><value>Attuale</value></data>
+  <data name="Channels_GroupProposed" xml:space="preserve"><value>Dopo la conferma</value></data>
+  <data name="Channels_GroupUnavailable" xml:space="preserve"><value>Nessuna sorgente idonea per questa uscita</value></data>
+  <data name="Channels_GroupConflicts" xml:space="preserve"><value>Conflitti di numero: {0}</value></data>
+  <data name="Channels_GroupPublications" xml:space="preserve"><value>Pubblicazioni della guida ricreate dopo il salvataggio: {0}</value></data>
+  <data name="Channels_GroupConfirm" xml:space="preserve"><value>Confermo che le sorgenti selezionate trasmettono lo stesso contenuto del canale.</value></data>
+  <data name="Channels_GroupRemoveConfirm" xml:space="preserve"><value>Comprendo che questa sorgente non sarà più un membro di riserva del gruppo.</value></data>
+  <data name="Channels_GroupAction" xml:space="preserve"><value>Considera come lo stesso canale</value></data>
+  <data name="Channels_GroupSaved" xml:space="preserve"><value>Sorgenti dello stesso canale salvate.</value></data>
+  <data name="Channels_GroupPreviewChanged" xml:space="preserve"><value>Le impostazioni o le scelte della guida sono cambiate. Chiudere e riaprire l’anteprima prima di salvare.</value></data>
 </root>
