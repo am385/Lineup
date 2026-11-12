@@ -17,6 +17,64 @@ namespace Lineup.Core.Tests.Guides;
 /// </summary>
 public sealed class GuideOrchestratorTests
 {
+    /// <summary>Verifies explicit source selection and the network-concurrency bound without dropping queued refreshes.</summary>
+    [Fact]
+    public async Task RefreshSourcesAsync_SelectedSources_BoundsConcurrencyAndCompletesEverySelectedSource()
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-guide-concurrency-");
+        try
+        {
+            var factory = new TestContextFactory(Path.Combine(root.FullName, "guides.db"));
+            var device = PhysicalDeviceId.New();
+            var ids = Enumerable.Range(0, 7).Select(_ => GuideSourceId.New()).ToArray();
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var firstWave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var observed = new System.Collections.Concurrent.ConcurrentQueue<int>();
+            var active = 0;
+            var driver = new FakeGuideDriver(ids.ToDictionary(id => id, id => (Func<Task<GuideImport>>)(async () =>
+            {
+                var count = Interlocked.Increment(ref active);
+                observed.Enqueue(count);
+                if (count == 4)
+                {
+                    firstWave.TrySetResult();
+                }
+                await release.Task;
+                Interlocked.Decrement(ref active);
+                return Import(id, "7", "Fetched");
+            })));
+            var orchestrator = new GuideOrchestrator(new StreamingAdapterRegistry([], [], [driver]), new DeviceGuideStore(factory), new StreamingTopologyStore(factory));
+            var configuration = Configuration([PhysicalDefinition(device, 0)], ids.Select(id => GuideDefinition(id, device)).ToArray(), []);
+            var selected = ids.Take(6).ToHashSet();
+
+            // Act
+            var refresh = orchestrator.RefreshSourcesAsync(configuration, selected, TestContext.Current.CancellationToken);
+            try
+            {
+                await firstWave.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+                Assert.Equal(4, driver.RefreshCount);
+            }
+            finally
+            {
+                release.TrySetResult();
+                await refresh;
+            }
+            var results = await refresh;
+
+            // Assert
+            Assert.Equal(6, driver.RefreshCount);
+            Assert.Equal(4, observed.Max());
+            Assert.Equal(selected, results.Select(result => result.SourceId).ToHashSet());
+            Assert.All(results, result => Assert.True(result.Succeeded));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            root.Delete(recursive: true);
+        }
+    }
+
     /// <summary>Verifies eligible committed guide data survives source activation failures and is replaced after recovery.</summary>
     [Theory]
     [InlineData("io")]

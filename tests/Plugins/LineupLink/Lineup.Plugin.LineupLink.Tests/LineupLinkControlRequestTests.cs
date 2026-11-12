@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using Lineup.Core.Common.Guides;
 using Lineup.Plugin.LineupLink.Physical;
 using Lineup.Plugin.LineupLink.Protocol;
 using Xunit;
@@ -12,6 +13,57 @@ namespace Lineup.Plugin.LineupLink.Tests;
 public sealed class LineupLinkControlRequestTests
 {
     private static readonly TimeSpan Watchdog = TimeSpan.FromSeconds(3);
+
+    /// <summary>Both declared and chunked over-limit guides fail as whole documents and do not poison a later refresh.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task GetGuideAsync_OverEnvelope_RejectsAndRecovers(bool declaredBytes)
+    {
+        // Arrange
+        var id = Guid.NewGuid();
+        var reject = true;
+        var releaseHeaders = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var channel = new LineupLinkGuideChannel { Key = "1", Number = "1", Name = "Example" };
+        await using var server = new LoopbackServer(async (context, cancellationToken) =>
+        {
+            if (reject && declaredBytes)
+            {
+                context.Response.ContentType = "application/json";
+                context.Response.ContentLength64 = GuideTransfer.MaximumBytes + 1L;
+                await context.Response.OutputStream.WriteAsync(new byte[] { (byte)' ' }, cancellationToken);
+                await context.Response.OutputStream.FlushAsync(cancellationToken);
+                try { await releaseHeaders.Task.WaitAsync(cancellationToken); }
+                finally { context.Response.Abort(); }
+                return;
+            }
+            var payload = JsonSerializer.SerializeToUtf8Bytes(new LineupLinkGuide
+            {
+                VirtualDeviceId = id,
+                Channels = reject ? Enumerable.Repeat(channel, GuideTransfer.MaximumChannels + 1).ToArray() : [channel]
+            }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            context.Response.ContentType = "application/json";
+            context.Response.SendChunked = true;
+            await context.Response.OutputStream.WriteAsync(payload, cancellationToken);
+        });
+        using var client = new LineupLinkClient(CreateConfiguration(server.BaseUri) with { VirtualDeviceId = id });
+
+        // Act
+        try
+        {
+            await Assert.ThrowsAsync<GuideTransferLimitException>(() => client.GetGuideAsync(TestContext.Current.CancellationToken).WaitAsync(Watchdog, TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            releaseHeaders.TrySetResult();
+        }
+        reject = false;
+        var recovered = await client.GetGuideAsync(TestContext.Current.CancellationToken).WaitAsync(Watchdog, TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(id, recovered.VirtualDeviceId);
+        Assert.Equal("1", Assert.Single(recovered.Channels).Key);
+    }
 
     /// <summary>Verifies invalid remote control payloads are recoverable failures and do not poison subsequent requests.</summary>
     [Theory]

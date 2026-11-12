@@ -113,9 +113,13 @@ public sealed class LineupLinkController : ControllerBase
         try
         {
             var snapshot = await _guides.BuildSnapshotAsync(new VirtualDeviceId(virtualDeviceId), cancellationToken);
-            return LineupLinkGuideExporter.Create(snapshot, _settings.Settings.ProtectedContentMode != ProtectedContentMode.StreamSlate);
+            return await LineupLinkGuideExporter.CreateForTransferAsync(snapshot, _settings.Settings.ProtectedContentMode != ProtectedContentMode.StreamSlate, cancellationToken);
         }
-
+        catch (Lineup.Core.Common.Guides.GuideTransferLimitException exception)
+        {
+            _logger.LogWarning("Lineup Link guide transfer rejected: {Error}", exception.Message);
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new LineupLinkError { Code = "guide_limit", Message = exception.Message });
+        }
         catch (InvalidOperationException)
         {
             return NotFound(UnavailableDevice());

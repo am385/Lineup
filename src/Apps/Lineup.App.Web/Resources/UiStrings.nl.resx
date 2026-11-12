@@ -257,7 +257,7 @@
   <data name="Settings_ApiRedactUrlsHelpPrefix" xml:space="preserve"><value>Retourneert URL’s van apparaten, kanaallijsten, tunerdoelen, publicaties en XMLTV als</value></data>
   <data name="Settings_ApiRedactUrlsLabel" xml:space="preserve"><value>URL’s redigeren</value></data>
   <data name="Settings_ApplicationLogFiltersHeading" xml:space="preserve"><value>Filters voor toepassingslogboeken</value></data>
-  <data name="Settings_AutoFetchGuideHelp" xml:space="preserve"><value>Downloadt de volledige SiliconDust-gids met een willekeurig interval tussen 20 en 28 uur, zoals vereist door de API. De beschikbaarheid is 2 dagen voor iedereen of 14 dagen met een HDHomeRun DVR-gidsabonnement.</value></data>
+  <data name="Settings_AutoFetchGuideHelp" xml:space="preserve"><value>Elke bron heeft een eigen schema. SiliconDust gebruikt willekeurige intervallen van 20-28 uur, met 2 dagen gidsgegevens of 14 dagen met een DVR-abonnement. Lineup Link gebruikt het ingestelde interval (standaard 24 uur). Mislukte bronnen en publicaties worden na een uur onafhankelijk opnieuw geprobeerd.</value></data>
   <data name="Settings_AutoFetchGuideLabel" xml:space="preserve"><value>Gidsgegevens automatisch vernieuwen</value></data>
   <data name="Settings_BindAddressesHelp" xml:space="preserve"><value>Door komma’s gescheiden IP-adressen, localhost of * voor alle interfaces.</value></data>
   <data name="Settings_BindAddressesLabel" xml:space="preserve"><value>Bindingsadressen</value></data>
@@ -587,7 +587,7 @@
   <data name="Channels_RefreshChannels" xml:space="preserve"><value>Kanalen vernieuwen</value></data>
   <data name="Channels_RefreshedChannels" xml:space="preserve"><value>{0} fysieke bronkanalen vernieuwd.</value></data>
   <data name="Channels_RefreshedChannelsWithFailures" xml:space="preserve"><value>{0} fysieke bronkanalen vernieuwd met {1} apparaatfout(en); de vorige status is behouden.</value></data>
-  <data name="Channels_SavedButXmltvUpdateFailed" xml:space="preserve"><value>De kanaalinstelling is opgeslagen, maar de gepubliceerde XMLTV-gids kon niet worden bijgewerkt: {0}</value></data>
+  <data name="Channels_SavedButXmltvUpdateFailed" xml:space="preserve"><value>De kanaalinstelling is opgeslagen, maar een gepubliceerde gids kon niet volledig worden bijgewerkt. Een nieuwe poging met gegevens uit de cache is gepland: {0}</value></data>
   <data name="Channels_SavedGlobalIdentity" xml:space="preserve"><value>Algemene identiteit voor kanaal {0} opgeslagen.</value></data>
   <data name="Channels_SavedGuideUnavailableHelp" xml:space="preserve"><value>Het opgeslagen handmatige gidskanaal is niet meer actief. Kies een ander kanaal of gebruik weer automatische koppeling.</value></data>
   <data name="Channels_SearchPlaceholder" xml:space="preserve"><value>Nummer, naam, apparaat, codec of providersleutel</value></data>
@@ -654,7 +654,7 @@
   <data name="Dashboard_AutoFetchDisabled" xml:space="preserve"><value>automatisch ophalen uitgeschakeld</value></data>
   <data name="Dashboard_AutoFetchHeading" xml:space="preserve"><value>Automatisch ophalen</value></data>
   <data name="Dashboard_AutoFetchInProgress" xml:space="preserve"><value>Automatisch ophalen wordt uitgevoerd</value></data>
-  <data name="Dashboard_AutoFetchInterval" xml:space="preserve"><value>20-28 u (willekeurig)</value></data>
+  <data name="Dashboard_AutoFetchInterval" xml:space="preserve"><value>Onafhankelijke bron- en publicatieschema’s</value></data>
   <data name="Dashboard_AutoFetchPending" xml:space="preserve"><value>automatisch ophalen in behandeling</value></data>
   <data name="Dashboard_AutoFetchRunning" xml:space="preserve"><value>automatisch ophalen actief</value></data>
   <data name="Dashboard_AutoRefreshDisabled" xml:space="preserve"><value>automatisch vernieuwen uitgeschakeld</value></data>
@@ -1132,4 +1132,16 @@
   <data name="Settings_TopologyRevisions" xml:space="preserve"><value>Gewenst: {0}. Geprobeerd: {1}. Laatst volledig toegepast: {2}.</value></data>
   <data name="Settings_TopologyDeviceFailure" xml:space="preserve"><value>Het fysieke apparaat {0} kon niet worden toegepast.</value></data>
   <data name="Settings_TopologyOutputFailure" xml:space="preserve"><value>Gidsuitvoer {0} is mislukt of gedeeltelijk.</value></data>
+  <data name="Settings_WorkerRecoveryHeading" xml:space="preserve"><value>Workerherstel</value></data>
+  <data name="Settings_WorkerRecoveryHelp" xml:space="preserve"><value>Gebruikt opgeslagen instellingen, niet de niet-opgeslagen wijzigingen. Actieve workers worden nooit opnieuw gestart.</value></data>
+  <data name="Settings_WorkerRetry" xml:space="preserve"><value>Worker opnieuw valideren en proberen</value></data>
+  <data name="Settings_WorkerRetrying" xml:space="preserve"><value>Worker wordt opnieuw gevalideerd...</value></data>
+  <data name="Settings_WorkerRetryAccepted" xml:space="preserve"><value>Herstel geaccepteerd. Vernieuw om de beschikbaarheid te controleren. Extern bewaakte workers moeten zich opnieuw aanmelden.</value></data>
+  <data name="Settings_WorkerRetryRejected" xml:space="preserve"><value>Opnieuw proberen vereist een mislukte worker met ingeschakelde, opgeslagen toegewezen hosting. Actieve workers worden nooit opnieuw gestart.</value></data>
+  <data name="Settings_WorkerRetryFailed" xml:space="preserve"><value>De worker is niet beschikbaar. Controleer de fout voordat u het opnieuw probeert.</value></data>
+  <data name="Settings_WorkerPreviousFailure" xml:space="preserve"><value>Fout vóór de laatste herstelpoging</value></data>
+  <data name="Settings_WorkerReady" xml:space="preserve"><value>De worker is gereed.</value></data>
+  <data name="Settings_WorkerWaiting" xml:space="preserve"><value>De worker heeft geen gezonde gereedheid gemeld. Vernieuw om de status te controleren.</value></data>
+  <data name="Watch_Reconnecting" xml:space="preserve"><value>Opnieuw verbinden met live-tv. U kunt stoppen of een andere zender kiezen.</value></data>
+  <data name="Watch_ReconnectExhausted" xml:space="preserve"><value>Automatisch opnieuw verbinden is gestopt na het maximale aantal pogingen of 60 seconden. Selecteer de zender opnieuw om het nogmaals te proberen.</value></data>
 </root>

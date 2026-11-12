@@ -4,6 +4,7 @@ using System.Text.Json;
 using Lineup.Core.Common.Configuration;
 using Lineup.Core.Extensibility.Configuration;
 using Lineup.Core.VirtualOutputs.Runtime;
+using Lineup.Core.Hosting;
 
 namespace Lineup.App.Web.Services;
 
@@ -28,8 +29,14 @@ internal sealed record LineupStatusResponse(
     /// <summary>Gets authoritative deployment plugin admission usage, or null when the authority is unavailable.</summary>
     public PluginConnectionBudgetStatusResponse? PluginConnections { get; init; }
 
+    /// <summary>Gets deployment-wide producer/processing usage, restart-scoped limits, and the per-workspace storage watermark.</summary>
+    public MediaWorkDiagnostics? MediaResources { get; init; }
+
     /// <summary>Gets observation intervals; sections are eventually consistent, not one atomic system snapshot.</summary>
     public StatusObservationResponse? Observation { get; init; }
+
+    /// <summary>Gets reason-coded operational conditions, derived without additional provider or storage calls.</summary>
+    public OperationalStatusResponse? Operations { get; init; }
 }
 
 /// <summary>Describes independently observed status sections and captured configuration identities.</summary>
@@ -344,6 +351,9 @@ internal sealed class StatusApiService
     private readonly DeviceGuideStore? _guideStore;
     private readonly IStreamingFlowSnapshotService? _streamingFlows;
     private readonly IPluginConnectionBudget? _pluginConnections;
+    private readonly MediaWorkAdmission? _mediaWork;
+    private readonly IStreamingTopologyRuntime? _topologyRuntime;
+    private readonly ITopologyGuideService? _topologyGuides;
 
     /// <summary>
     /// Initializes the status aggregation service.
@@ -366,7 +376,10 @@ internal sealed class StatusApiService
         StreamingTopologyStore? topologyStore = null,
         DeviceGuideStore? guideStore = null,
         IStreamingFlowSnapshotService? streamingFlows = null,
-        IPluginConnectionBudget? pluginConnections = null)
+        IPluginConnectionBudget? pluginConnections = null,
+        MediaWorkAdmission? mediaWork = null,
+        IStreamingTopologyRuntime? topologyRuntime = null,
+        ITopologyGuideService? topologyGuides = null)
     {
         _guideReader = guideReader;
         _settings = settings;
@@ -386,6 +399,9 @@ internal sealed class StatusApiService
         _guideStore = guideStore;
         _streamingFlows = streamingFlows;
         _pluginConnections = pluginConnections;
+        _mediaWork = mediaWork;
+        _topologyRuntime = topologyRuntime;
+        _topologyGuides = topologyGuides;
     }
 
     /// <summary>
@@ -427,7 +443,7 @@ internal sealed class StatusApiService
             : GetChannelsStatusAsync(settings.Streaming, webSettings, cancellationToken));
 
         long uptimeSeconds = Math.Max(0, (long)(generatedAtUtc - _runtime.StartedAtUtc).TotalSeconds);
-        return new LineupStatusResponse(
+        var response = new LineupStatusResponse(
             "3.0",
             generatedAtUtc,
             new ApplicationStatusResponse(
@@ -450,9 +466,19 @@ internal sealed class StatusApiService
             Observe("streamingFlows", () => GetStreamingFlowsStatus(webSettings)))
         {
             PluginConnections = Observe("pluginConnections", GetPluginConnectionStatus),
+            MediaResources = Observe("mediaResources", () => _mediaWork?.GetDiagnostics()),
             Observation = new StatusObservationResponse("eventual", coreRevision, webRevision,
                 ConfigurationRevision.Create(settings.Streaming),
                 coreRevision != ConfigurationRevision.ForSettings(_settings.Settings) || webRevision != ConfigurationRevision.Create(_webSettings.Settings), observations)
+        };
+        var operations = Observe("operations", () => OperationalStatusSummary.Create(response, settings, _topologyRuntime?.Application, _topologyGuides?.SourceRefreshes ?? [], DateTime.UtcNow));
+        return response with
+        {
+            Operations = operations,
+            Observation = response.Observation with
+            {
+                ConfigurationChangedDuringRead = coreRevision != ConfigurationRevision.ForSettings(_settings.Settings) || webRevision != ConfigurationRevision.Create(_webSettings.Settings)
+            }
         };
     }
 

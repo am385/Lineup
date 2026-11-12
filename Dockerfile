@@ -34,6 +34,12 @@ COPY src/Plugins/WebPlayer/Lineup.Plugin.WebPlayer.FFmpeg/Lineup.Plugin.WebPlaye
 # Restore dependencies
 RUN dotnet restore src/Apps/Lineup.App.Web/Lineup.App.Web.csproj
 
+# Cache browser downloads independently of application source changes.
+COPY build/browser-assets.json ./build/browser-assets.json
+COPY scripts/Lineup.Tools.BrowserAssets/ ./scripts/Lineup.Tools.BrowserAssets/
+RUN dotnet run --project scripts/Lineup.Tools.BrowserAssets --configuration Release --no-launch-profile \
+    -p:SourceRevisionId="${GIT_HASH}" -- build/browser-assets.json out/browser-assets
+
 # Copy remaining source code
 COPY src/ ./src/
 COPY build/ ./build/

@@ -11,6 +11,104 @@ namespace Lineup.Core.Tests.Streaming;
 /// </summary>
 public sealed class StreamingSessionGraphTests
 {
+    /// <summary>Equivalent acquisitions join at saturation, but a new retained transform cannot bypass the producer budget.</summary>
+    [Fact]
+    public async Task AcquirePipelineAsync_ProducerLimit_AllowsOnlyExistingProducerJoins()
+    {
+        // Arrange
+        using var watchdog = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        watchdog.CancelAfter(TimeSpan.FromSeconds(10));
+        var resources = new StreamingResourceOptions { MaximumProducers = 1 };
+        var admission = new MediaWorkAdmission(resources);
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance, TimeProvider.System, null, resources, admission);
+        var descriptor = CreateDescriptor(PhysicalDeviceId.New(), "7.1", 1);
+        StreamAcquisitionFactory open = _ => ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(new ControlledSourceStream()));
+        await using var first = await graph.AcquireAsync(descriptor, open, watchdog.Token);
+        await using var joined = await graph.AcquireAsync(descriptor, open, watchdog.Token);
+
+        // Act
+        var failure = await Assert.ThrowsAsync<MediaResourceLimitException>(() => graph.AcquirePipelineAsync(descriptor, open,
+            [new(new StreamTransformKey("mpegts", "new-output"), new PassthroughTransform())], TimeSpan.Zero, watchdog.Token).AsTask());
+
+        // Assert
+        Assert.Equal("media_producer_limit", failure.Code);
+        Assert.Equal(first.ProducerNodeId, joined.ProducerNodeId);
+        Assert.Equal(1, admission.GetDiagnostics().Producers);
+        await joined.DisposeAsync();
+        await first.DisposeAsync();
+        await graph.StopAsync(watchdog.Token);
+        Assert.Equal(0, admission.GetDiagnostics().Producers);
+    }
+
+    /// <summary>Capacity pressure retires an idle transform chain and awaits physical cleanup before tuning a distinct source.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AcquireAsync_OneTuner_ReclaimsWarmOwnerBeforeOpeningReplacement(bool transform)
+    {
+        // Arrange
+        using var watchdog = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        watchdog.CancelAfter(TimeSpan.FromSeconds(10));
+        var admission = new MediaWorkAdmission(new());
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance, TimeProvider.System, null, mediaWork: admission);
+        var descriptor = CreateDescriptor(PhysicalDeviceId.New(), "7.1", 1);
+        var source = new ControlledSourceStream();
+        var disposed = false;
+        var first = await graph.AcquirePipelineAsync(descriptor,
+            _ => ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(source, () => disposed = true)),
+            transform ? [new(new StreamTransformKey("mpegts", "warm"), new PassthroughTransform())] : [],
+            TimeSpan.FromMinutes(1), watchdog.Token);
+        await first.DisposeAsync();
+        var openedBeforeCleanup = false;
+
+        // Act
+        await using var replacement = await graph.AcquireAsync(CreateDescriptor(descriptor.DeviceId, "9.1", 1), _ =>
+        {
+            openedBeforeCleanup = !disposed;
+            return ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(new ControlledSourceStream()));
+        }, watchdog.Token);
+
+        // Assert
+        Assert.True(disposed);
+        Assert.False(openedBeforeCleanup);
+        Assert.Single(graph.GetDiagnostics().Capacity);
+        Assert.Equal(1, admission.GetDiagnostics().Producers);
+        await replacement.DisposeAsync();
+        await graph.StopAsync(watchdog.Token);
+        Assert.Equal(0, admission.GetDiagnostics().Producers);
+    }
+
+    /// <summary>An idle leaf cannot release a physical acquisition while an independently active sibling still needs it.</summary>
+    [Fact]
+    public async Task AcquireAsync_ActiveSharedPrefix_CannotBePreempted()
+    {
+        // Arrange
+        using var watchdog = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        watchdog.CancelAfter(TimeSpan.FromSeconds(10));
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance);
+        var descriptor = CreateDescriptor(PhysicalDeviceId.New(), "7.1", 1);
+        var source = new ControlledSourceStream();
+        StreamAcquisitionFactory open = _ => ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(source));
+        await using var active = await graph.AcquireAsync(descriptor, open, watchdog.Token);
+        var warm = await graph.AcquirePipelineAsync(descriptor, open,
+            [new(new StreamTransformKey("mpegts", "idle-leaf"), new PassthroughTransform())], TimeSpan.FromMinutes(1), watchdog.Token);
+        await warm.DisposeAsync();
+
+        // Act
+        await Assert.ThrowsAsync<StreamCapacityExceededException>(() => graph.AcquireAsync(
+            CreateDescriptor(descriptor.DeviceId, "9.1", 1), _ => throw new InvalidOperationException("The tuner is still active."), watchdog.Token).AsTask());
+        source.Write([7, 9]);
+        var bytes = new byte[2];
+        var count = await active.Stream.ReadAsync(bytes, watchdog.Token);
+
+        // Assert
+        Assert.Equal(2, count);
+        Assert.Equal(new byte[] { 7, 9 }, bytes);
+        Assert.Single(graph.GetDiagnostics().Nodes);
+        await active.DisposeAsync();
+        await graph.StopAsync(watchdog.Token);
+    }
+
     /// <summary>Excludes transport abort exceptions caused by intentional shutdown from unexpected source-loss diagnostics.</summary>
     [Theory]
     [InlineData(false)]
@@ -985,11 +1083,13 @@ public sealed class StreamingSessionGraphTests
             await cleanupStarted.Task.WaitAsync(cancellation.Token);
             var reconnect = graph.AcquirePipelineAsync(descriptor, Open, stages, TimeSpan.Zero, cancellation.Token).AsTask();
             var sharing = graph.AcquirePipelineAsync(descriptor, Open, stages, TimeSpan.Zero, cancellation.Token).AsTask();
-            var capacityFailure = await Assert.ThrowsAsync<StreamCapacityExceededException>(async () =>
+            using var pressureDeadline = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);
+            pressureDeadline.CancelAfter(TimeSpan.FromMilliseconds(100));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
                 await graph.AcquireAsync(
                     CreateDescriptor(descriptor.DeviceId, "9.1", capacity: 1),
                     _ => throw new InvalidOperationException("A draining source still occupies physical capacity."),
-                    cancellation.Token));
+                    pressureDeadline.Token));
             await using (var independent = await graph.AcquireAsync(
                 CreateDescriptor(PhysicalDeviceId.New(), "10.1", capacity: 1),
                 _ => ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(new ControlledSourceStream())),
@@ -999,7 +1099,7 @@ public sealed class StreamingSessionGraphTests
             }
 
             // Assert
-            Assert.Equal(descriptor.DeviceId, capacityFailure.DeviceId);
+            Assert.True(pressureDeadline.IsCancellationRequested);
             Assert.False(reconnect.IsCompleted);
             Assert.False(sharing.IsCompleted);
             Assert.Equal(1, starts);

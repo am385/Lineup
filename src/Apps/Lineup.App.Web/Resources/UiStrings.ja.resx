@@ -257,7 +257,7 @@
   <data name="Settings_ApiRedactUrlsHelpPrefix" xml:space="preserve"><value>デバイス、ラインアップ、チューナーターゲット、公開、および XMLTV の URL を次の値として返します:</value></data>
   <data name="Settings_ApiRedactUrlsLabel" xml:space="preserve"><value>URL を編集</value></data>
   <data name="Settings_ApplicationLogFiltersHeading" xml:space="preserve"><value>アプリケーションログフィルター</value></data>
-  <data name="Settings_AutoFetchGuideHelp" xml:space="preserve"><value>API の要件に従い、SiliconDust の完全な番組ガイドを 20～28 時間のランダムな間隔でダウンロードします。利用可能期間は通常 2 日間、HDHomeRun DVR 番組ガイド購読がある場合は 14 日間です。</value></data>
+  <data name="Settings_AutoFetchGuideHelp" xml:space="preserve"><value>各ソースに独立したスケジュールがあります。SiliconDust は 20～28 時間のランダムな間隔で更新され、通常 2 日分、DVR 契約時は 14 日分のデータを取得します。Lineup Link は設定された間隔（既定は 24 時間）を使用します。失敗したソースとガイド公開は、それぞれ 1 時間後に再試行されます。</value></data>
   <data name="Settings_AutoFetchGuideLabel" xml:space="preserve"><value>番組ガイドデータを自動更新</value></data>
   <data name="Settings_BindAddressesHelp" xml:space="preserve"><value>コンマ区切りの IP アドレス、localhost、またはすべてのインターフェイスを表す * を指定します。</value></data>
   <data name="Settings_BindAddressesLabel" xml:space="preserve"><value>バインドアドレス</value></data>
@@ -587,7 +587,7 @@
   <data name="Channels_RefreshChannels" xml:space="preserve"><value>チャンネルを更新</value></data>
   <data name="Channels_RefreshedChannels" xml:space="preserve"><value>物理ソースチャンネル {0} 件を更新しました。</value></data>
   <data name="Channels_RefreshedChannelsWithFailures" xml:space="preserve"><value>物理ソースチャンネル {0} 件を更新しました。{1} 台のデバイスでエラーが発生したため、以前の状態を維持しました。</value></data>
-  <data name="Channels_SavedButXmltvUpdateFailed" xml:space="preserve"><value>チャンネル設定は保存されましたが、公開済み XMLTV 番組ガイドを更新できませんでした: {0}</value></data>
+  <data name="Channels_SavedButXmltvUpdateFailed" xml:space="preserve"><value>チャンネル設定は保存されましたが、公開済みガイドを完全に更新できませんでした。キャッシュからの再試行が予定されています: {0}</value></data>
   <data name="Channels_SavedGlobalIdentity" xml:space="preserve"><value>チャンネル {0} の共通 ID を保存しました。</value></data>
   <data name="Channels_SavedGuideUnavailableHelp" xml:space="preserve"><value>手動で指定した保存済み番組ガイドチャンネルは、現在無効です。別のチャンネルを選択するか、自動照合に戻してください。</value></data>
   <data name="Channels_SearchPlaceholder" xml:space="preserve"><value>番号、名前、デバイス、コーデック、またはプロバイダーキー</value></data>
@@ -654,7 +654,7 @@
   <data name="Dashboard_AutoFetchDisabled" xml:space="preserve"><value>自動取得は無効</value></data>
   <data name="Dashboard_AutoFetchHeading" xml:space="preserve"><value>自動取得</value></data>
   <data name="Dashboard_AutoFetchInProgress" xml:space="preserve"><value>自動取得を実行中</value></data>
-  <data name="Dashboard_AutoFetchInterval" xml:space="preserve"><value>20～28 時間（ランダム）</value></data>
+  <data name="Dashboard_AutoFetchInterval" xml:space="preserve"><value>ソースと公開の独立したスケジュール</value></data>
   <data name="Dashboard_AutoFetchPending" xml:space="preserve"><value>自動取得の待機中</value></data>
   <data name="Dashboard_AutoFetchRunning" xml:space="preserve"><value>自動取得を実行中</value></data>
   <data name="Dashboard_AutoRefreshDisabled" xml:space="preserve"><value>自動更新は無効</value></data>
@@ -1132,4 +1132,16 @@
   <data name="Settings_TopologyRevisions" xml:space="preserve"><value>要求: {0}。試行: {1}。最後に完全適用: {2}。</value></data>
   <data name="Settings_TopologyDeviceFailure" xml:space="preserve"><value>物理デバイス {0} を適用できませんでした。</value></data>
   <data name="Settings_TopologyOutputFailure" xml:space="preserve"><value>ガイド出力 {0} は失敗したか、一部のみ成功しました。</value></data>
+  <data name="Settings_WorkerRecoveryHeading" xml:space="preserve"><value>ワーカーの復旧</value></data>
+  <data name="Settings_WorkerRecoveryHelp" xml:space="preserve"><value>未保存の編集ではなく、保存済みの設定を使用します。実行中のワーカーは再起動されません。</value></data>
+  <data name="Settings_WorkerRetry" xml:space="preserve"><value>ワーカーを再検証して再試行</value></data>
+  <data name="Settings_WorkerRetrying" xml:space="preserve"><value>ワーカーを再検証しています...</value></data>
+  <data name="Settings_WorkerRetryAccepted" xml:space="preserve"><value>復旧を受け付けました。更新して準備状況を確認してください。外部で監視されているワーカーは再登録が必要です。</value></data>
+  <data name="Settings_WorkerRetryRejected" xml:space="preserve"><value>再試行には、保存済みの専用ホスティングが有効で、失敗状態のワーカーが必要です。実行中のワーカーは再起動されません。</value></data>
+  <data name="Settings_WorkerRetryFailed" xml:space="preserve"><value>ワーカーを利用できません。再試行する前に障害を確認してください。</value></data>
+  <data name="Settings_WorkerPreviousFailure" xml:space="preserve"><value>前回の復旧試行前の障害</value></data>
+  <data name="Settings_WorkerReady" xml:space="preserve"><value>ワーカーは準備完了です。</value></data>
+  <data name="Settings_WorkerWaiting" xml:space="preserve"><value>ワーカーから正常な準備完了の報告がありません。更新して状態を確認してください。</value></data>
+  <data name="Watch_Reconnecting" xml:space="preserve"><value>ライブテレビに再接続しています。停止するか、別のチャンネルを選択できます。</value></data>
+  <data name="Watch_ReconnectExhausted" xml:space="preserve"><value>再試行回数の上限または60秒の制限に達したため、自動再接続を停止しました。再試行するにはチャンネルを選び直してください。</value></data>
 </root>

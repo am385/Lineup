@@ -9,6 +9,152 @@ namespace Lineup.App.Web.Tests.Services;
 /// <summary>Verifies Web settings are published only after an atomic persistence operation succeeds.</summary>
 public sealed class WebSettingsServiceTests
 {
+    /// <summary>Verifies invalid primary or backup-only Web documents require recovery without replacing persisted state.</summary>
+    [Theory]
+    [InlineData("{}", false)]
+    [InlineData("{}", true)]
+    [InlineData("""{"SchemaVersion":0}""", false)]
+    [InlineData("""{"SchemaVersion":2}""", false)]
+    [InlineData("""{"SchemaVersion":"1"}""", false)]
+    [InlineData("""{"SchemaVersion":1.5}""", false)]
+    [InlineData("""{"SchemaVersion":1,"Theme":{}}""", false)]
+    [InlineData("""{"SchemaVersion":1""", false)]
+    [InlineData("null", false)]
+    [InlineData("[]", false)]
+    public async Task CheckStartup_InvalidWebDocuments_RequiresRecoveryAndBlocksWrites(string json, bool backupOnly)
+    {
+        // Arrange
+        using var fixture = new Fixture();
+        File.Delete(fixture.Path);
+        var path = backupOnly ? $"{fixture.Path}.bak" : fixture.Path;
+        File.WriteAllText(path, json);
+        if (!backupOnly)
+        {
+            File.WriteAllText($"{fixture.Path}.bak", json);
+        }
+        var filesBefore = Directory.GetFiles(fixture.Store.RootPath).Order().ToArray();
+        var mutationInvoked = false;
+
+        // Act
+        var state = WebSettingsService.CheckStartup(fixture.Store);
+        var service = new WebSettingsService(fixture.Store, NullLogger<WebSettingsService>.Instance, state);
+        var failure = await Assert.ThrowsAsync<FactoryResetRequiredException>(() => service.UpdateAsync(settings =>
+        {
+            mutationInvoked = true;
+            settings.Theme = "dark";
+        }));
+
+        // Assert
+        Assert.True(state.IsFactoryResetRequired);
+        Assert.Contains("Web settings", state.Reason, StringComparison.Ordinal);
+        Assert.Equal(state.Reason, failure.Message);
+        Assert.False(mutationInvoked);
+        Assert.Equal(filesBefore, Directory.GetFiles(fixture.Store.RootPath).Order().ToArray());
+        Assert.All(filesBefore, file => Assert.Equal(json, File.ReadAllText(file)));
+    }
+
+    /// <summary>Verifies absent Web settings allow first-run defaults and normal persistence.</summary>
+    [Fact]
+    public async Task CheckStartup_AbsentWebDocuments_AllowsFirstRunAndSave()
+    {
+        // Arrange
+        using var fixture = new Fixture();
+        File.Delete(fixture.Path);
+
+        // Act
+        var state = WebSettingsService.CheckStartup(fixture.Store);
+        var service = new WebSettingsService(fixture.Store, NullLogger<WebSettingsService>.Instance);
+        var setupComplete = service.Settings.IsSetupComplete;
+        await service.UpdateAsync(settings => settings.Theme = "dark");
+
+        // Assert
+        Assert.False(state.IsFactoryResetRequired);
+        Assert.False(setupComplete);
+        var saved = JsonSerializer.Deserialize<WebSettings>(File.ReadAllText(fixture.Path))!;
+        Assert.Equal(WebSettings.CurrentSchemaVersion, saved.SchemaVersion);
+        Assert.Equal("dark", saved.Theme);
+        Assert.False(File.Exists($"{fixture.Path}.bak"));
+    }
+
+    /// <summary>Verifies backup recovery rejects invalid schemas and preserves the valid backup on the first successful save.</summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("{}")]
+    [InlineData("""{"SchemaVersion":2}""")]
+    [InlineData("""{"SchemaVersion":1""")]
+    public async Task Load_ValidBackup_RecoversAndPreservesBackupOnSave(string? primary)
+    {
+        // Arrange
+        using var fixture = new Fixture();
+        File.Delete(fixture.Path);
+        if (primary is not null)
+        {
+            File.WriteAllText(fixture.Path, primary);
+        }
+        var backup = JsonSerializer.Serialize(new WebSettings { Theme = "dark", FileLogRetentionDays = 19 });
+        File.WriteAllText($"{fixture.Path}.bak", backup);
+
+        // Act
+        var state = WebSettingsService.CheckStartup(fixture.Store);
+        var service = new WebSettingsService(fixture.Store, NullLogger<WebSettingsService>.Instance);
+        var recoveredTheme = service.Settings.Theme;
+        var primaryBeforeSave = File.Exists(fixture.Path) ? File.ReadAllText(fixture.Path) : null;
+        await service.UpdateAsync(settings => settings.Theme = "light");
+        var backupAfterRecovery = File.ReadAllText($"{fixture.Path}.bak");
+        var firstSave = File.ReadAllText(fixture.Path);
+        await service.UpdateAsync(settings => settings.Theme = "auto");
+
+        // Assert
+        Assert.False(state.IsFactoryResetRequired);
+        Assert.Equal(primary, primaryBeforeSave);
+        Assert.Equal("dark", recoveredTheme);
+        Assert.Equal(19, service.Settings.FileLogRetentionDays);
+        Assert.Equal(backup, backupAfterRecovery);
+        Assert.Equal(firstSave, File.ReadAllText($"{fixture.Path}.bak"));
+        Assert.Equal("auto", JsonSerializer.Deserialize<WebSettings>(File.ReadAllText(fixture.Path))!.Theme);
+    }
+
+    /// <summary>Verifies an invalid unused backup does not force recovery when the primary is valid.</summary>
+    [Fact]
+    public void CheckStartup_ValidPrimaryWithInvalidBackup_UsesPrimary()
+    {
+        // Arrange
+        using var fixture = new Fixture();
+        const string backup = """{"SchemaVersion":2}""";
+        File.WriteAllText($"{fixture.Path}.bak", backup);
+
+        // Act
+        var state = WebSettingsService.CheckStartup(fixture.Store);
+        var service = new WebSettingsService(fixture.Store, NullLogger<WebSettingsService>.Instance);
+
+        // Assert
+        Assert.False(state.IsFactoryResetRequired);
+        Assert.Equal("light", service.Settings.Theme);
+        Assert.Equal(backup, File.ReadAllText($"{fixture.Path}.bak"));
+    }
+
+    /// <summary>Verifies Core recovery also blocks writes to otherwise valid Web settings.</summary>
+    [Fact]
+    public async Task UpdateAsync_CoreRecoveryRequired_PreservesValidWebSettings()
+    {
+        // Arrange
+        using var fixture = new Fixture();
+        File.WriteAllText(fixture.Store.SettingsPath, "{}");
+        var persisted = File.ReadAllText(fixture.Path);
+
+        // Act
+        var state = WebSettingsService.CheckStartup(fixture.Store);
+        var service = new WebSettingsService(fixture.Store, NullLogger<WebSettingsService>.Instance, state);
+        await Assert.ThrowsAsync<FactoryResetRequiredException>(() => service.UpdateAsync(settings => settings.Theme = "dark"));
+
+        // Assert
+        Assert.True(state.IsFactoryResetRequired);
+        Assert.Equal(StartupSchemaGate.Check(fixture.Store), state);
+        Assert.Equal(persisted, File.ReadAllText(fixture.Path));
+        Assert.Equal("{}", File.ReadAllText(fixture.Store.SettingsPath));
+        Assert.False(File.Exists($"{fixture.Path}.bak"));
+    }
+
     /// <summary>Verifies a partially applied mutation cannot alter the live settings or their nested collections.</summary>
     [Fact]
     public async Task UpdateAsync_MutationThrows_PreservesPublishedAndPersistedSettings()

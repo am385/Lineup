@@ -80,6 +80,9 @@ public interface IGuideOrchestrator
     /// <summary>Constructs and refreshes each eligible source independently, returning refresh and exclusion results.</summary>
     Task<IReadOnlyList<GuideRefreshResult>> RefreshAllAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Refreshes only selected sources from one captured topology without changing the active cached projection.</summary>
+    Task<IReadOnlyList<GuideRefreshResult>> RefreshSourcesAsync(StreamingConfiguration configuration, IReadOnlySet<GuideSourceId> sourceIds, CancellationToken cancellationToken = default);
+
     /// <summary>Builds one virtual guide filtered through its physical-device subscription.</summary>
     Task<VirtualGuideSnapshot> BuildSnapshotAsync(VirtualDeviceId virtualDeviceId, CancellationToken cancellationToken = default);
 }

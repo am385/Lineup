@@ -165,6 +165,14 @@ public class StreamController : ControllerBase
         isRunning = viewer.IsRunning
     }).ToList());
 
+    /// <summary>Reads passive viewer liveness and explicitly classified source loss.</summary>
+    [HttpGet("cmaf/status/{sessionId}")]
+    public IActionResult GetCmafStatus(string sessionId)
+    {
+        Response.Headers.CacheControl = "no-store";
+        return Ok(_playback.GetPlaybackStatus(sessionId));
+    }
+
     private IActionResult MapStartupResult(ManagementPlaybackStartResult result, string channel = "")
     {
         if (result.IsCanceled)
@@ -225,8 +233,8 @@ public class StreamController : ControllerBase
             _ => StatusCodes.Status500InternalServerError
         };
         return failure.Code is null
-            ? StatusCode(status, new { error = failure.Error })
-            : StatusCode(status, new { code = failure.Code, error = failure.Error, stage = failure.Stage });
+            ? StatusCode(status, new { error = failure.Error, retryable = false })
+            : StatusCode(status, new { code = failure.Code, error = failure.Error, stage = failure.Stage, retryable = failure.Code == "media_source_failed" });
     }
 
     private IActionResult CreateSourceAcquisitionResult(string channel, StreamAcquisitionException exception)
@@ -239,7 +247,7 @@ public class StreamController : ControllerBase
             failure.Code,
             exception.Retryable,
             StreamAcquisitionHttpMapper.FormatCandidates(exception));
-        return StatusCode(failure.StatusCode, new { code = failure.Code, error = failure.Error });
+        return StatusCode(failure.StatusCode, new { code = failure.Code, error = failure.Error, retryable = exception.Retryable });
     }
 
     /// <summary>

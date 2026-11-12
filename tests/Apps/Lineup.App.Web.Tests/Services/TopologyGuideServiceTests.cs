@@ -21,6 +21,44 @@ namespace Lineup.App.Web.Tests.Services;
 /// </summary>
 public sealed class TopologyGuideServiceTests
 {
+    /// <summary>Keeps bounded source-attempt observations across failures and recoveries without retaining provider error payloads or obsolete sources.</summary>
+    [Fact]
+    public async Task RefreshSourcesAsync_RetainsSafeRevisionCorrelatedObservations()
+    {
+        // Arrange
+        var source = new GuideSourceDefinition { Id = GuideSourceId.New(), Name = "Guide", Adapter = Adapter("guide") };
+        var current = new LineupSettings { Streaming = new() { GuideSources = [source] } };
+        var settings = Substitute.For<ILineupSettingsService>();
+        settings.Settings.Returns(current);
+        var guides = Substitute.For<IGuideOrchestrator>();
+        var succeeded = true;
+        guides.RefreshSourcesAsync(Arg.Any<StreamingConfiguration>(), Arg.Any<IReadOnlySet<GuideSourceId>>(), Arg.Any<CancellationToken>())
+            .Returns(_ => new[] { new GuideRefreshResult { SourceId = source.Id, Succeeded = succeeded, Error = succeeded ? null : "provider-secret-sentinel" } });
+        var service = new TopologyGuideService(settings, guides, Substitute.For<IGuideQueryService>(), new StreamingAdapterRegistry([], [], [], []), [], Substitute.For<IXmltvPublicationStore>());
+
+        // Act
+        await service.RefreshSourcesAsync(current.Streaming, new HashSet<GuideSourceId> { source.Id }, false, TestContext.Current.CancellationToken);
+        var success = Assert.Single(service.SourceRefreshes);
+        succeeded = false;
+        await service.RefreshSourcesAsync(current.Streaming, new HashSet<GuideSourceId> { source.Id }, false, TestContext.Current.CancellationToken);
+        var failed = Assert.Single(service.SourceRefreshes);
+        current.Streaming = current.Streaming with { GuideSources = [source with { Name = "Changed" }] };
+        await service.RefreshSourcesAsync(current.Streaming, new HashSet<GuideSourceId> { source.Id }, false, TestContext.Current.CancellationToken);
+        var changed = Assert.Single(service.SourceRefreshes);
+        current.Streaming = current.Streaming with { GuideSources = [] };
+        await service.RefreshSourcesAsync(current.Streaming, new HashSet<GuideSourceId>(), false, TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.True(success.Succeeded);
+        Assert.False(failed.Succeeded);
+        Assert.Equal(success.ObservedAtUtc, failed.LastSuccessUtc);
+        Assert.True(failed.ObservedAtUtc >= success.ObservedAtUtc);
+        Assert.Null(changed.LastSuccessUtc);
+        Assert.NotEqual(failed.SourceRevision, changed.SourceRevision);
+        Assert.DoesNotContain("provider-secret-sentinel", JsonSerializer.Serialize(failed), StringComparison.Ordinal);
+        Assert.Empty(service.SourceRefreshes);
+    }
+
     /// <summary>
     /// Verifies refresh applies the current topology so disabled guide sources cannot be bypassed by Web entry points.
     /// </summary>
@@ -67,7 +105,7 @@ public sealed class TopologyGuideServiceTests
         var settings = Substitute.For<ILineupSettingsService>();
         settings.Settings.Returns(new LineupSettings { Streaming = configuration, XmltvOutputPath = "epg.xml" });
         var guides = Substitute.For<IGuideOrchestrator>();
-        guides.RefreshAllAsync(Arg.Any<CancellationToken>()).Returns([]);
+        guides.RefreshSourcesAsync(Arg.Any<StreamingConfiguration>(), Arg.Any<IReadOnlySet<GuideSourceId>>(), Arg.Any<CancellationToken>()).Returns([]);
         var guideQueries = Substitute.For<IGuideQueryService>();
         IReadOnlyList<GuideSourceDiagnostic> diagnostics = partial
             ?
@@ -123,7 +161,7 @@ public sealed class TopologyGuideServiceTests
         await guides.Received(1).ApplyAsync(
             Arg.Is<StreamingConfiguration>(current => current.GuideSources.Count == 0),
             Arg.Any<CancellationToken>());
-        await guides.Received(1).RefreshAllAsync(Arg.Any<CancellationToken>());
+        await guides.Received(1).RefreshSourcesAsync(configuration, Arg.Any<IReadOnlySet<GuideSourceId>>(), Arg.Any<CancellationToken>());
         await guideQueries.Received(1).BuildOutputSnapshotAsync(
             configuration,
             configuration.GuideOutputs[0],
@@ -635,6 +673,290 @@ public sealed class TopologyGuideServiceTests
         }
     }
 
+    /// <summary>Verifies identity, manual guide binding and enablement changes regenerate a custom-only output from committed data.</summary>
+    [Theory]
+    [InlineData("identity")]
+    [InlineData("binding")]
+    [InlineData("enablement")]
+    public async Task ApplyChannelChangeAsync_CustomOnlyOutput_PublishesCommittedChange(string change)
+    {
+        // Arrange
+        using var fixture = new CachedPublicationFixture("json");
+        await fixture.SeedAsync();
+        var import = fixture.Import("Committed broadcast");
+        var alternate = new GuideChannelId(import.SourceId, "alternate");
+        await fixture.Store.ImportAsync(import with
+        {
+            Channels = [.. import.Channels, new GuideChannel { Id = alternate, Number = "9", Name = "Alternate" }],
+            Programs = [.. import.Programs, import.Programs[0] with { ChannelId = alternate, Title = "Alternate broadcast" }]
+        }, TestContext.Current.CancellationToken);
+        var topology = new StreamingTopologyStore(fixture);
+        var channel = new SourceChannelId(fixture.Configuration.PhysicalDevices[0].Id, "7");
+        Assert.False(File.Exists(fixture.OutputPath));
+
+        // Act
+        var results = await fixture.Service.ApplyChannelChangeAsync(token => change switch
+        {
+            "identity" => topology.SetIdentityAsync(channel, "27", "Renamed channel", null, token),
+            "binding" => fixture.Store.SetBindingAsync(channel, alternate, token),
+            "enablement" => topology.SetEnabledAsync(channel, false, token),
+            _ => throw new ArgumentOutOfRangeException(nameof(change))
+        }, TestContext.Current.CancellationToken);
+        await using var stream = File.OpenRead(fixture.OutputPath);
+        var document = Assert.IsType<JsonGuideDocument>(await JsonGuideSerialization.DeserializeAsync(stream, TestContext.Current.CancellationToken));
+
+        // Assert
+        Assert.True(Assert.Single(results).Succeeded);
+        Assert.Empty(fixture.SavedSettings.GuidePublicationRetries);
+        if (change == "enablement")
+        {
+            Assert.Empty(document.Channels);
+        }
+        else
+        {
+            var published = Assert.Single(document.Channels);
+            Assert.Equal(change == "identity" ? "27" : "7", published.Number);
+            Assert.Equal(change == "identity" ? "Renamed channel" : "Channel 7", published.Name);
+            Assert.Equal(change == "binding" ? "Alternate broadcast" : "Committed broadcast", Assert.Single(published.Programs).Title);
+        }
+        await fixture.AssertNoActivationAsync();
+    }
+
+    /// <summary>Verifies publication failures preserve the previous file and survive a real settings reload for cached-only retry.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ApplyChannelChangeAsync_PublicationFails_RetriesAfterRestartWithoutSourceFetch(bool cancelledBeforePublication)
+    {
+        // Arrange
+        using var fixture = new CachedPublicationFixture("json");
+        await fixture.SeedAsync();
+        var settings = new LineupSettingsService(NullLogger<LineupSettingsService>.Instance, fixture.SettingsPath);
+        await settings.UpdateAsync(saved => saved.Streaming = fixture.Configuration);
+        var service = fixture.CreateService(settings);
+        await service.PublishAsync(TestContext.Current.CancellationToken);
+        var before = await File.ReadAllBytesAsync(fixture.OutputPath, TestContext.Current.CancellationToken);
+        fixture.Publisher.PublishAsync(Arg.Any<VirtualGuideSnapshot>(), Arg.Any<Stream>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new IOException("Disk unavailable")));
+        var channel = new SourceChannelId(fixture.Configuration.PhysicalDevices[0].Id, "7");
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+
+        // Act
+        IReadOnlyList<GuideOutputPublicationResult> failed = [];
+        var exception = await Record.ExceptionAsync(async () => failed = await service.ApplyChannelChangeAsync(async token =>
+        {
+            await new StreamingTopologyStore(fixture).SetIdentityAsync(channel, "27", "Renamed", null, token);
+            if (cancelledBeforePublication)
+            {
+                cancellation.Cancel();
+            }
+        }, cancellation.Token));
+        var restartedSettings = new LineupSettingsService(NullLogger<LineupSettingsService>.Instance, fixture.SettingsPath);
+        var restarted = fixture.CreateService(restartedSettings);
+        var retryAt = restartedSettings.Settings.GuidePublicationRetries[fixture.Output.Id.Value];
+        var early = await restarted.RetryPublicationsAsync(retryAt.AddTicks(-1), TestContext.Current.CancellationToken);
+        var preserved = await File.ReadAllBytesAsync(fixture.OutputPath, TestContext.Current.CancellationToken);
+        var publisher = new JsonGuidePublisher();
+        fixture.Publisher.PublishAsync(Arg.Any<VirtualGuideSnapshot>(), Arg.Any<Stream>(), Arg.Any<CancellationToken>())
+            .Returns(call => publisher.PublishAsync(call.Arg<VirtualGuideSnapshot>(), call.Arg<Stream>(), call.Arg<CancellationToken>()));
+        var recovered = await restarted.RetryPublicationsAsync(retryAt, TestContext.Current.CancellationToken);
+        var reloaded = new LineupSettingsService(NullLogger<LineupSettingsService>.Instance, fixture.SettingsPath);
+
+        // Assert
+        if (cancelledBeforePublication)
+        {
+            Assert.IsAssignableFrom<OperationCanceledException>(exception);
+            Assert.Empty(failed);
+        }
+        else
+        {
+            Assert.Null(exception);
+            Assert.False(Assert.Single(failed).Succeeded);
+        }
+        Assert.Empty(early);
+        Assert.Equal(before, preserved);
+        Assert.True(Assert.Single(recovered).Succeeded);
+        Assert.Empty(reloaded.Settings.GuidePublicationRetries);
+        await using var stream = File.OpenRead(fixture.OutputPath);
+        var document = Assert.IsType<JsonGuideDocument>(await JsonGuideSerialization.DeserializeAsync(stream, TestContext.Current.CancellationToken));
+        Assert.Equal("27", Assert.Single(document.Channels).Number);
+        Assert.Equal(["Committed broadcast"], await fixture.ReadTitlesAsync());
+        await fixture.AssertNoActivationAsync();
+    }
+
+    /// <summary>Verifies overlapping channel commands cannot clear a later edit's invalidation or leave its publication stale.</summary>
+    [Fact]
+    public async Task ApplyChannelChangeAsync_ConcurrentEdits_PublishesLatestCommittedIdentity()
+    {
+        // Arrange
+        using var fixture = new CachedPublicationFixture("json");
+        await fixture.SeedAsync();
+        var topology = new StreamingTopologyStore(fixture);
+        var channel = new SourceChannelId(fixture.Configuration.PhysicalDevices[0].Id, "7");
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = fixture.Service.ApplyChannelChangeAsync(async token =>
+        {
+            await topology.SetIdentityAsync(channel, "27", "First", null, token);
+            entered.TrySetResult();
+            await release.Task;
+        }, TestContext.Current.CancellationToken);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        // Act
+        var second = fixture.Service.ApplyChannelChangeAsync(token => topology.SetIdentityAsync(channel, "28", "Second", null, token), TestContext.Current.CancellationToken);
+        release.TrySetResult();
+        var results = await Task.WhenAll(first, second);
+
+        // Assert
+        Assert.All(results, outputs => Assert.True(Assert.Single(outputs).Succeeded));
+        Assert.Empty(fixture.SavedSettings.GuidePublicationRetries);
+        await using var stream = File.OpenRead(fixture.OutputPath);
+        var document = Assert.IsType<JsonGuideDocument>(await JsonGuideSerialization.DeserializeAsync(stream, TestContext.Current.CancellationToken));
+        Assert.Equal("28", Assert.Single(document.Channels).Number);
+        Assert.Equal("Second", Assert.Single(document.Channels).Name);
+        await fixture.AssertNoActivationAsync();
+    }
+
+    /// <summary>Verifies invalidation persistence must succeed before a channel mutation is committed.</summary>
+    [Fact]
+    public async Task ApplyChannelChangeAsync_JournalWriteFails_DoesNotMutateChannels()
+    {
+        // Arrange
+        using var fixture = new CachedPublicationFixture("json");
+        await fixture.SeedAsync();
+        fixture.Settings.UpdateAsync(Arg.Any<Action<LineupSettings>>()).Returns(Task.FromException(new IOException("Settings unavailable")));
+        var mutated = false;
+
+        // Act
+        await Assert.ThrowsAsync<IOException>(() => fixture.Service.ApplyChannelChangeAsync(_ =>
+        {
+            mutated = true;
+            return Task.CompletedTask;
+        }, TestContext.Current.CancellationToken));
+
+        // Assert
+        Assert.False(mutated);
+        Assert.False(File.Exists(fixture.OutputPath));
+        await fixture.AssertNoActivationAsync();
+    }
+
+    /// <summary>Verifies a stalled provider never blocks cached publication and cannot republish an obsolete topology when it completes.</summary>
+    [Fact]
+    public async Task RefreshAndPublishAsync_StalledSource_AllowsCachedPublicationAndUsesLatestConfiguration()
+    {
+        // Arrange
+        using var fixture = new CachedPublicationFixture("json");
+        await fixture.SeedAsync();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<GuideImport>(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Driver.CreateAsync(Arg.Any<GuideSourceId>(), Arg.Any<AdapterConfiguration>(), Arg.Any<IReadOnlyList<PhysicalDeviceId>>(), Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<IGuideSource>(fixture.Source));
+        fixture.Source.RefreshAsync(Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            entered.TrySetResult();
+            return release.Task;
+        });
+        var refresh = fixture.Service.RefreshAndPublishAsync(TestContext.Current.CancellationToken);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        // Act
+        try
+        {
+            await fixture.PublishAsync(false, TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            Assert.Equal(["Committed broadcast"], await fixture.ReadTitlesAsync());
+            fixture.Configuration = fixture.Configuration with { GuideSources = [fixture.Configuration.GuideSources[0] with { Enabled = false }] };
+            fixture.SavedSettings.GuidePublicationRetries[fixture.Output.Id.Value] = DateTime.UtcNow.AddSeconds(-1);
+            var retried = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            fixture.Settings.UpdateAsync(Arg.Any<Action<LineupSettings>>()).Returns(call =>
+            {
+                call.Arg<Action<LineupSettings>>()(fixture.SavedSettings);
+                if (fixture.SavedSettings.GuidePublicationRetries.Count == 0)
+                {
+                    retried.TrySetResult();
+                }
+                return Task.CompletedTask;
+            });
+            var services = new ServiceCollection();
+            services.AddSingleton<ITopologyGuideService>(fixture.Service);
+            using var provider = services.BuildServiceProvider();
+            using var worker = new GuidePublicationRetryService(provider.GetRequiredService<IServiceScopeFactory>(), NullLogger<GuidePublicationRetryService>.Instance);
+            await worker.StartAsync(TestContext.Current.CancellationToken);
+            try
+            {
+                await retried.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            }
+            finally
+            {
+                await worker.StopAsync(TestContext.Current.CancellationToken);
+            }
+        }
+        finally
+        {
+            release.TrySetResult(fixture.Import("Refreshed broadcast"));
+            await refresh;
+        }
+
+        // Assert
+        Assert.True(Assert.Single((await refresh).Sources).Succeeded);
+        Assert.Empty(await fixture.ReadTitlesAsync());
+        await fixture.Source.Received(1).RefreshAsync(Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>Verifies the maintenance worker prunes and republishes cached data even with automatic fetching disabled.</summary>
+    [Fact]
+    public async Task HistoryMaintenance_AutoFetchDisabled_PrunesAndPublishesWithoutSourceFetch()
+    {
+        // Arrange
+        var policy = Substitute.For<IEpgRetentionPolicy>();
+        policy.HistoryRetention.Returns(TimeSpan.FromHours(720));
+        using var fixture = new CachedPublicationFixture("json", policy);
+        await fixture.SeedAsync();
+        var history = fixture.Import("Expired history");
+        await fixture.Store.ImportAsync(history with
+        {
+            CoverageStartUtc = history.CoverageStartUtc.AddDays(-2),
+            CoverageEndUtc = history.CoverageEndUtc.AddDays(-2),
+            Programs = history.Programs.Select(program => program with { StartUtc = program.StartUtc.AddDays(-2), EndUtc = program.EndUtc.AddDays(-2) }).ToArray()
+        }, TestContext.Current.CancellationToken);
+        var imports = await fixture.Store.ReadImportStatesAsync(TestContext.Current.CancellationToken);
+        fixture.SavedSettings.AutoFetchInterval = TimeSpan.Zero;
+        policy.HistoryRetention.Returns(TimeSpan.FromHours(24));
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Settings.UpdateAsync(Arg.Any<Action<LineupSettings>>()).Returns(call =>
+        {
+            call.Arg<Action<LineupSettings>>()(fixture.SavedSettings);
+            if (fixture.SavedSettings.GuidePublicationRetries.Count == 0)
+            {
+                completed.TrySetResult();
+            }
+            return Task.CompletedTask;
+        });
+        var services = new ServiceCollection();
+        services.AddSingleton(fixture.Store);
+        services.AddSingleton<ITopologyGuideService>(fixture.Service);
+        using var provider = services.BuildServiceProvider();
+        using var worker = new GuideHistoryMaintenanceService(provider.GetRequiredService<IServiceScopeFactory>(), NullLogger<GuideHistoryMaintenanceService>.Instance);
+
+        // Act
+        await worker.StartAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            await completed.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            await worker.StopAsync(TestContext.Current.CancellationToken);
+        }
+
+        // Assert
+        await using var context = fixture.CreateDbContext();
+        Assert.Equal("Committed broadcast", (await context.GuideSourcePrograms.SingleAsync(TestContext.Current.CancellationToken)).Title);
+        Assert.Equal(imports, await fixture.Store.ReadImportStatesAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(["Committed broadcast"], await fixture.ReadTitlesAsync());
+        await fixture.AssertNoActivationAsync();
+    }
+
     private sealed class CachedPublicationFixture : IDbContextFactory<EpgDbContext>, IDisposable
     {
         private readonly DirectoryInfo _root = Directory.CreateTempSubdirectory("lineup-cached-publication-");
@@ -642,7 +964,7 @@ public sealed class TopologyGuideServiceTests
         private readonly string _format;
 
         /// <summary>Initializes real cached storage and publishers with a source factory that must not run during publication.</summary>
-        internal CachedPublicationFixture(string format)
+        internal CachedPublicationFixture(string format, IEpgRetentionPolicy? retentionPolicy = null)
         {
             _format = format;
             _options = new DbContextOptionsBuilder<EpgDbContext>().UseSqlite($"Data Source={Path.Combine(_root.FullName, "guides.db")};Pooling=False").Options;
@@ -697,10 +1019,20 @@ public sealed class TopologyGuideServiceTests
                 .Returns(call => realPublications.PublishAsync(call.Arg<string>(), call.Arg<Func<Stream, CancellationToken, Task>>(), call.Arg<CancellationToken>()));
             Publications.Exists(Arg.Any<string>()).Returns(call => realPublications.Exists(call.Arg<string>()));
             Publications.OpenRead(Arg.Any<string>()).Returns(call => realPublications.OpenRead(call.Arg<string>()));
-            Store = new DeviceGuideStore(this);
+            Store = new DeviceGuideStore(this, retentionPolicy);
             var topology = new StreamingTopologyStore(this);
             Settings = Substitute.For<ILineupSettingsService>();
-            Settings.Settings.Returns(_ => new LineupSettings { Streaming = Configuration, XmltvOutputPath = OutputPath });
+            SavedSettings = new LineupSettings { Streaming = Configuration, XmltvOutputPath = OutputPath };
+            Settings.Settings.Returns(_ =>
+            {
+                SavedSettings.Streaming = Configuration;
+                return SavedSettings;
+            });
+            Settings.UpdateAsync(Arg.Any<Action<LineupSettings>>()).Returns(call =>
+            {
+                call.Arg<Action<LineupSettings>>()(SavedSettings);
+                return Task.CompletedTask;
+            });
             Guides = new GuideOrchestrator(adapters, Store, topology);
             Adapters = adapters;
             var queries = new GuideQueryService(topology, Store, adapters);
@@ -719,6 +1051,8 @@ public sealed class TopologyGuideServiceTests
         internal GuideOutputDefinition Output => Configuration.GuideOutputs[0];
         /// <summary>Gets the owned publication destination.</summary>
         internal string OutputPath => Path.Combine(_root.FullName, $"guide.{_format}");
+        /// <summary>Gets the owned settings document used for restart regressions.</summary>
+        internal string SettingsPath => Path.Combine(_root.FullName, "settings.json");
         /// <summary>Gets the persisted guide store.</summary>
         internal DeviceGuideStore Store { get; }
         /// <summary>Gets the production publication service.</summary>
@@ -727,6 +1061,8 @@ public sealed class TopologyGuideServiceTests
         internal StatusApiService Status { get; }
         /// <summary>Gets the current shared settings boundary.</summary>
         internal ILineupSettingsService Settings { get; }
+        /// <summary>Gets the persisted operational scheduling state shared across service instances.</summary>
+        internal LineupSettings SavedSettings { get; }
         /// <summary>Gets the adapters shared by publication and HTTP delivery.</summary>
         internal IStreamingAdapterRegistry Adapters { get; }
         /// <summary>Gets the virtual-guide projection used by management and dedicated exports.</summary>
@@ -783,10 +1119,15 @@ public sealed class TopologyGuideServiceTests
             await Source.DidNotReceive().RefreshAsync(Arg.Any<CancellationToken>());
         }
 
+        /// <summary>Creates a publication service against an independently loaded settings instance.</summary>
+        internal TopologyGuideService CreateService(ILineupSettingsService settings) =>
+            new(settings, Guides, new GuideQueryService(new StreamingTopologyStore(this), Store, Adapters), Adapters, [Publisher], Publications);
+
         /// <inheritdoc />
         public void Dispose() => _root.Delete(recursive: true);
 
-        private GuideImport Import(string title)
+        /// <summary>Builds a complete source import with one currently airing program.</summary>
+        internal GuideImport Import(string title)
         {
             var start = DateTimeOffset.UtcNow;
             var channel = new GuideChannelId(Source.Id, "7");

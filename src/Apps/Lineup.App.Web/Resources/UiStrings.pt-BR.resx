@@ -257,7 +257,7 @@
   <data name="Settings_ApiRedactUrlsHelpPrefix" xml:space="preserve"><value>Devuelve as URL do dispositivo, a lista de canais, o destino do sintonizador, as URL anunciadas e as de XMLTV como</value></data>
   <data name="Settings_ApiRedactUrlsLabel" xml:space="preserve"><value>Ocultar URL</value></data>
   <data name="Settings_ApplicationLogFiltersHeading" xml:space="preserve"><value>Filtros de log de aplicativos</value></data>
-  <data name="Settings_AutoFetchGuideHelp" xml:space="preserve"><value>Descarga a guia completa de SiliconDust em um intervalo aleatorio de entre 20 e 28 horas, según o exige a API. A disponibilidad é de 2 dias para todos o de 14 dias com uma assinatura de guia HDHomeRun DVR.</value></data>
+  <data name="Settings_AutoFetchGuideHelp" xml:space="preserve"><value>Cada fonte tem seu próprio agendamento. SiliconDust usa intervalos aleatórios de 20-28 horas, com 2 dias de dados ou 14 dias com assinatura DVR. Lineup Link usa o intervalo configurado (24 horas por padrão). Fontes e publicações com falha são tentadas novamente de forma independente após uma hora.</value></data>
   <data name="Settings_AutoFetchGuideLabel" xml:space="preserve"><value>Atualizar automaticamente os dados da guia</value></data>
   <data name="Settings_BindAddressesHelp" xml:space="preserve"><value>Endereços IP separadas por vírgulas, localhost o * para todas as interfaces.</value></data>
   <data name="Settings_BindAddressesLabel" xml:space="preserve"><value>Vincular endereços</value></data>
@@ -587,7 +587,7 @@
   <data name="Channels_RefreshChannels" xml:space="preserve"><value>Atualizar canais</value></data>
   <data name="Channels_RefreshedChannels" xml:space="preserve"><value>Canais de origem físicos {0} atualizados.</value></data>
   <data name="Channels_RefreshedChannelsWithFailures" xml:space="preserve"><value>Canais de origem físicos {0} atualizados com {1} fallas de dispositivo; Se conservó o status anterior.</value></data>
-  <data name="Channels_SavedButXmltvUpdateFailed" xml:space="preserve"><value>A configurações do canal se guardó, mas a guia XMLTV publicada não foi possível atualizar: {0}</value></data>
+  <data name="Channels_SavedButXmltvUpdateFailed" xml:space="preserve"><value>A configuração do canal foi salva, mas um guia publicado não pôde ser atualizado completamente. Uma nova tentativa com dados em cache está agendada: {0}</value></data>
   <data name="Channels_SavedGlobalIdentity" xml:space="preserve"><value>Identidade global salva para o canal {0}.</value></data>
   <data name="Channels_SavedGuideUnavailableHelp" xml:space="preserve"><value>O canal de guia manual salvo já não está ativo. Escolha outro canal o vuelva à correspondência automática.</value></data>
   <data name="Channels_SearchPlaceholder" xml:space="preserve"><value>Número, nome, dispositivo, códec o clave de provedor</value></data>
@@ -654,7 +654,7 @@
   <data name="Dashboard_AutoFetchDisabled" xml:space="preserve"><value>obtención automática desabilitada</value></data>
   <data name="Dashboard_AutoFetchHeading" xml:space="preserve"><value>Obtención automática</value></data>
   <data name="Dashboard_AutoFetchInProgress" xml:space="preserve"><value>Obtención automática em curso</value></data>
-  <data name="Dashboard_AutoFetchInterval" xml:space="preserve"><value>20-28h (aleatorizado)</value></data>
+  <data name="Dashboard_AutoFetchInterval" xml:space="preserve"><value>Agendamentos independentes de fontes e publicações</value></data>
   <data name="Dashboard_AutoFetchPending" xml:space="preserve"><value>obtención automática pendente</value></data>
   <data name="Dashboard_AutoFetchRunning" xml:space="preserve"><value>obtención automática em curso</value></data>
   <data name="Dashboard_AutoRefreshDisabled" xml:space="preserve"><value>atualização automática desabilitada</value></data>
@@ -1132,4 +1132,16 @@
   <data name="Settings_TopologyRevisions" xml:space="preserve"><value>Desejada: {0}. Tentada: {1}. Última totalmente aplicada: {2}.</value></data>
   <data name="Settings_TopologyDeviceFailure" xml:space="preserve"><value>Falha ao aplicar o dispositivo físico {0}.</value></data>
   <data name="Settings_TopologyOutputFailure" xml:space="preserve"><value>A saída de guia {0} falhou ou está parcial.</value></data>
+  <data name="Settings_WorkerRecoveryHeading" xml:space="preserve"><value>Recuperação do processo de trabalho</value></data>
+  <data name="Settings_WorkerRecoveryHelp" xml:space="preserve"><value>Usa as configurações salvas, não as alterações não salvas. Os processos em execução nunca são reiniciados.</value></data>
+  <data name="Settings_WorkerRetry" xml:space="preserve"><value>Revalidar e tentar novamente o processo</value></data>
+  <data name="Settings_WorkerRetrying" xml:space="preserve"><value>Revalidando o processo...</value></data>
+  <data name="Settings_WorkerRetryAccepted" xml:space="preserve"><value>Recuperação aceita. Atualize para verificar a disponibilidade. Os processos supervisionados externamente devem se registrar novamente.</value></data>
+  <data name="Settings_WorkerRetryRejected" xml:space="preserve"><value>A nova tentativa exige um processo com falha e hospedagem dedicada habilitada e salva. Os processos em execução nunca são reiniciados.</value></data>
+  <data name="Settings_WorkerRetryFailed" xml:space="preserve"><value>O processo está indisponível. Revise a falha antes de tentar novamente.</value></data>
+  <data name="Settings_WorkerPreviousFailure" xml:space="preserve"><value>Falha anterior à última tentativa de recuperação</value></data>
+  <data name="Settings_WorkerReady" xml:space="preserve"><value>O processo está pronto.</value></data>
+  <data name="Settings_WorkerWaiting" xml:space="preserve"><value>O processo não informou estar pronto e íntegro. Atualize para verificar seu estado.</value></data>
+  <data name="Watch_Reconnecting" xml:space="preserve"><value>Reconectando à TV ao vivo. Você pode parar ou selecionar outro canal.</value></data>
+  <data name="Watch_ReconnectExhausted" xml:space="preserve"><value>A reconexão automática parou após atingir o limite de tentativas ou de 60 segundos. Selecione o canal novamente para tentar outra vez.</value></data>
 </root>

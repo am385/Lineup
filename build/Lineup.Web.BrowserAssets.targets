@@ -1,0 +1,37 @@
+<Project>
+  <PropertyGroup>
+    <LineupBrowserAssetsRepositoryRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</LineupBrowserAssetsRepositoryRoot>
+    <LineupBrowserAssetsManifest Condition="'$(LineupBrowserAssetsManifest)' == ''">$(MSBuildThisFileDirectory)browser-assets.json</LineupBrowserAssetsManifest>
+    <LineupBrowserAssetsCacheRoot Condition="'$(LineupBrowserAssetsCacheRoot)' == ''">$([System.IO.Path]::Combine('$(LineupBrowserAssetsRepositoryRoot)', 'out', 'browser-assets'))</LineupBrowserAssetsCacheRoot>
+    <LineupBrowserAssetsTool>$([System.IO.Path]::Combine('$(LineupBrowserAssetsRepositoryRoot)', 'scripts', 'Lineup.Tools.BrowserAssets', 'Lineup.Tools.BrowserAssets.csproj'))</LineupBrowserAssetsTool>
+    <LineupBrowserAssetsManifest>$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', '$(LineupBrowserAssetsManifest)'))</LineupBrowserAssetsManifest>
+    <LineupBrowserAssetsCacheRoot>$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', '$(LineupBrowserAssetsCacheRoot)'))</LineupBrowserAssetsCacheRoot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <UpToDateCheckInput Include="$(LineupBrowserAssetsManifest);$(LineupBrowserAssetsTool);$(LineupBrowserAssetsRepositoryRoot)\scripts\Lineup.Tools.BrowserAssets\*.cs" Set="BrowserAssets" />
+  </ItemGroup>
+
+  <Target Name="PrepareLineupBrowserAssets"
+          BeforeTargets="PrepareForBuild;ComputeFilesToPublish">
+    <GetFileHash Files="$(LineupBrowserAssetsManifest)" Algorithm="SHA256">
+      <Output TaskParameter="Hash" PropertyName="_LineupBrowserAssetsManifestHash" />
+    </GetFileHash>
+    <PropertyGroup>
+      <_LineupBrowserAssetsDirectory>$([System.IO.Path]::Combine('$(LineupBrowserAssetsCacheRoot)', '$(_LineupBrowserAssetsManifestHash)'))</_LineupBrowserAssetsDirectory>
+    </PropertyGroup>
+    <Exec Condition="'$(DesignTimeBuild)' != 'true'"
+          Command="dotnet run --project &quot;$(LineupBrowserAssetsTool)&quot; --artifacts-path &quot;$(IntermediateOutputPath)browser-assets-tool&quot; --configuration Release --no-launch-profile -p:SourceRevisionId=&quot;$(SourceRevisionId)&quot; -- &quot;$(LineupBrowserAssetsManifest)&quot; &quot;$(LineupBrowserAssetsCacheRoot)&quot;" />
+    <ReadLinesFromFile File="$(_LineupBrowserAssetsDirectory)\assets.files" Condition="Exists('$(_LineupBrowserAssetsDirectory)\assets.files')">
+      <Output TaskParameter="Lines" ItemName="_LineupBrowserAsset" />
+    </ReadLinesFromFile>
+    <ItemGroup>
+      <Content Include="@(_LineupBrowserAsset->'$(_LineupBrowserAssetsDirectory)\%(Identity)')">
+        <Link>wwwroot\lib\%(_LineupBrowserAsset.Identity)</Link>
+        <ContentRoot>$(_LineupBrowserAssetsDirectory)\</ContentRoot>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </Content>
+      <UpToDateCheckOutput Include="@(_LineupBrowserAsset->'$(_LineupBrowserAssetsDirectory)\%(Identity)')" Set="BrowserAssets" />
+    </ItemGroup>
+  </Target>
+</Project>

@@ -15,6 +15,7 @@ internal sealed partial class DedicatedPlaybackRuntime : IAsyncDisposable
     private readonly VirtualOutputWorkerSession _worker;
     private readonly ILogger _logger;
     private readonly ICmafOutputCoordinator _outputs;
+    private readonly IMediaWorkAdmission _mediaWork;
     private readonly ConcurrentDictionary<StreamSessionId, Viewer> _viewers = new();
     private readonly ConcurrentDictionary<StreamSessionId, Viewer> _releasing = new();
     private readonly ConcurrentDictionary<Guid, Task> _background = new();
@@ -24,7 +25,9 @@ internal sealed partial class DedicatedPlaybackRuntime : IAsyncDisposable
     {
         _worker = worker;
         _logger = logger;
-        _outputs = outputs ?? new CmafOutputCoordinator(TimeProvider.System, CmafStreamPlanner.MinimumInactivityTimeout);
+        _mediaWork = new BrokerMediaWorkAdmission(worker.Broker, worker.Context ?? throw new InvalidOperationException("The worker must be registered before playback."),
+            () => Track(StopForAdmissionLossAsync()), logger);
+        _outputs = outputs ?? new CmafOutputCoordinator(TimeProvider.System, CmafStreamPlanner.MinimumInactivityTimeout, _mediaWork);
     }
 
     /// <summary>Gets active viewer identifiers without extending their inactivity lifetimes.</summary>
@@ -32,6 +35,10 @@ internal sealed partial class DedicatedPlaybackRuntime : IAsyncDisposable
 
     /// <summary>Gets the independently owned producer inventory, including idle warm producers.</summary>
     internal IReadOnlyList<CmafOutputDiagnostics> Producers => _outputs.GetDiagnostics();
+
+    /// <summary>Reads passive liveness without extending the viewer lease.</summary>
+    internal CmafPlaybackStatus GetPlaybackStatus(string id) =>
+        Guid.TryParseExact(id, "N", out var value) ? _outputs.GetPlaybackStatus(new StreamSessionId(value)) : new(false, "session_unavailable", false);
 
     /// <summary>Admits a viewer, selects an exact source and plan, and joins or starts one reusable producer.</summary>
     internal async Task<PlaybackView> StartAsync(string channel, CmafStreamRequest request, VirtualOutputClientContext client, CancellationToken cancellationToken)
@@ -53,13 +60,14 @@ internal sealed partial class DedicatedPlaybackRuntime : IAsyncDisposable
                 Client = client
             }, cancellationToken);
             stage = DedicatedWorkerStartupStage.Planning;
-            Directory.CreateDirectory(directory);
             var plan = DedicatedCmafSessionPlan.Create(source.Response, request, directory);
             var exactSource = string.IsNullOrWhiteSpace(source.Response.ProducerNodeId) ? source.RequestId.ToString() : source.Response.ProducerNodeId;
             var key = new StreamTransformKey("web-player-cmaf", $"{exactSource}|{channel}|{plan.SharingKey}");
             var producerSource = source;
             var lease = await _outputs.AcquireAsync(key, id, _ =>
             {
+                _mediaWork.CheckWorkspace(directory);
+                Directory.CreateDirectory(directory);
                 var producer = new Producer(this, producerSource, plan, directory);
                 return ValueTask.FromResult(new CmafOutputRegistration(producer, producer, ReleaseViewer));
             }, TimeSpan.FromSeconds(source.Response.KeepWarmPeriodSeconds), cancellationToken);
@@ -113,6 +121,11 @@ internal sealed partial class DedicatedPlaybackRuntime : IAsyncDisposable
             MediaProcessDiagnostics.LogFailure(_logger, exception, stage.ToString(), id.ToString(), source?.RequestId.ToString());
             throw new PlaybackStartupException(stage, exception);
         }
+    }
+
+    private async Task StopForAdmissionLossAsync()
+    {
+        await _outputs.StopAsync();
     }
 
     /// <summary>Resolves and touches only an active viewer; a warm producer is not a public media alias.</summary>
@@ -208,8 +221,20 @@ internal sealed partial class DedicatedPlaybackRuntime : IAsyncDisposable
                 await Task.Delay(TimeSpan.FromSeconds(1), viewer.Token);
                 if (viewer.Drain is { IsCompleted: true })
                 {
-                    await viewer.Drain;
-                    break;
+                    try
+                    {
+                        await viewer.Drain;
+                    }
+                    catch (IOException) when (!viewer.Token.IsCancellationRequested)
+                    {
+                        await _outputs.ReleaseViewerAsync(viewer.Id, "source_failure");
+                        return;
+                    }
+                    if (!viewer.Token.IsCancellationRequested)
+                    {
+                        await _outputs.ReleaseViewerAsync(viewer.Id, "source_eof");
+                    }
+                    return;
                 }
                 var producer = viewer.Producer;
                 var stage = producer.Ready.IsCompletedSuccessfully ? VirtualOutputStreamStartupStage.Ready : VirtualOutputStreamStartupStage.Starting;
@@ -396,7 +421,7 @@ internal sealed partial class DedicatedPlaybackRuntime : IAsyncDisposable
                 using var deadline = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
                 deadline.CancelAfter(TimeSpan.FromSeconds(20));
                 var plan = InitialPlan;
-                Session = await StartMediaSessionAsync(Id!, directory, Source, plan, owner._logger);
+                Session = await StartMediaSessionAsync(Id!, directory, Source, plan, owner._logger, owner._mediaWork);
                 stage = DedicatedWorkerStartupStage.Readiness;
                 try
                 {
@@ -415,7 +440,7 @@ internal sealed partial class DedicatedPlaybackRuntime : IAsyncDisposable
                     deadline.Token.ThrowIfCancellationRequested();
                     plan = plan.CreateFallback(directory);
                     stage = DedicatedWorkerStartupStage.Process;
-                    Session = await StartMediaSessionAsync(Id!, directory, Source, plan, owner._logger);
+                    Session = await StartMediaSessionAsync(Id!, directory, Source, plan, owner._logger, owner._mediaWork);
                     stage = DedicatedWorkerStartupStage.Readiness;
                     await WaitForOutputAsync(Session, TimeSpan.FromSeconds(20), deadline.Token);
                 }

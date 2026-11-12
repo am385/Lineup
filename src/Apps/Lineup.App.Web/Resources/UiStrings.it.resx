@@ -257,7 +257,7 @@
   <data name="Settings_ApiRedactUrlsHelpPrefix" xml:space="preserve"><value>Restituisce il dispositivo, la formazione, l'obiettivo di sintonizzatore, pubblicizzato e XMLTV URL come</value></data>
   <data name="Settings_ApiRedactUrlsLabel" xml:space="preserve"><value>URLs Redact</value></data>
   <data name="Settings_ApplicationLogFiltersHeading" xml:space="preserve"><value>Filtri di registro di applicazione</value></data>
-  <data name="Settings_AutoFetchGuideHelp" xml:space="preserve"><value>Scarica la guida completa di SiliconDust ad un intervallo randomizzato tra 20 e 28 ore, come richiesto dalla API. Disponibilità è di 2 giorni per tutti o 14 giorni con un abbonamento guida HDHomeRun DVR.</value></data>
+  <data name="Settings_AutoFetchGuideHelp" xml:space="preserve"><value>Ogni fonte ha una pianificazione indipendente. SiliconDust usa intervalli casuali di 20-28 ore, con 2 giorni di dati o 14 giorni con abbonamento DVR. Lineup Link usa l’intervallo configurato (24 ore per impostazione predefinita). Le fonti e le pubblicazioni non riuscite vengono ritentate indipendentemente dopo un’ora.</value></data>
   <data name="Settings_AutoFetchGuideLabel" xml:space="preserve"><value>Aggiorna automaticamente i dati della guida</value></data>
   <data name="Settings_BindAddressesHelp" xml:space="preserve"><value>Indirizzi IP separati, localhost o * per tutte le interfacce.</value></data>
   <data name="Settings_BindAddressesLabel" xml:space="preserve"><value>Gli indirizzi</value></data>
@@ -587,7 +587,7 @@
   <data name="Channels_RefreshChannels" xml:space="preserve"><value>Canali di raffreddamento</value></data>
   <data name="Channels_RefreshedChannels" xml:space="preserve"><value>Aggiornati canali di origine fisica {0}.</value></data>
   <data name="Channels_RefreshedChannelsWithFailures" xml:space="preserve"><value>Aggiornati canali di origine fisica {0} con guasto del dispositivo {1}; stato precedente è stato conservato.</value></data>
-  <data name="Channels_SavedButXmltvUpdateFailed" xml:space="preserve"><value>L'impostazione del canale è stata salvata, ma la guida XMLTV pubblicata non potrebbe essere aggiornata: {0}</value></data>
+  <data name="Channels_SavedButXmltvUpdateFailed" xml:space="preserve"><value>L’impostazione del canale è stata salvata, ma una guida pubblicata non è stata aggiornata completamente. È previsto un nuovo tentativo dalla cache: {0}</value></data>
   <data name="Channels_SavedGlobalIdentity" xml:space="preserve"><value>IdentitÃ globale salvata per canale {0}.</value></data>
   <data name="Channels_SavedGuideUnavailableHelp" xml:space="preserve"><value>Il canale di guida manuale salvato non è più attivo. Scegliere un altro canale o tornare alla corrispondenza automatica.</value></data>
   <data name="Channels_SearchPlaceholder" xml:space="preserve"><value>Numero, nome, dispositivo, codec o chiave del fornitore</value></data>
@@ -654,7 +654,7 @@
   <data name="Dashboard_AutoFetchDisabled" xml:space="preserve"><value>auto-fetch disattivato</value></data>
   <data name="Dashboard_AutoFetchHeading" xml:space="preserve"><value>Auto-Fetch</value></data>
   <data name="Dashboard_AutoFetchInProgress" xml:space="preserve"><value>Auto-Fetch in corso</value></data>
-  <data name="Dashboard_AutoFetchInterval" xml:space="preserve"><value>20-28h (radomizzato)</value></data>
+  <data name="Dashboard_AutoFetchInterval" xml:space="preserve"><value>Pianificazioni indipendenti per fonti e pubblicazioni</value></data>
   <data name="Dashboard_AutoFetchPending" xml:space="preserve"><value>auto-fetch in attesa</value></data>
   <data name="Dashboard_AutoFetchRunning" xml:space="preserve"><value>auto-fetch in esecuzione</value></data>
   <data name="Dashboard_AutoRefreshDisabled" xml:space="preserve"><value>auto-refresh disattivato</value></data>
@@ -1132,4 +1132,16 @@
   <data name="Settings_TopologyRevisions" xml:space="preserve"><value>Desiderata: {0}. Tentata: {1}. Ultima applicata completamente: {2}.</value></data>
   <data name="Settings_TopologyDeviceFailure" xml:space="preserve"><value>Impossibile applicare il dispositivo fisico {0}.</value></data>
   <data name="Settings_TopologyOutputFailure" xml:space="preserve"><value>L'output guida {0} è fallito o è parziale.</value></data>
+  <data name="Settings_WorkerRecoveryHeading" xml:space="preserve"><value>Ripristino del processo di lavoro</value></data>
+  <data name="Settings_WorkerRecoveryHelp" xml:space="preserve"><value>Usa le impostazioni salvate, non le modifiche non salvate. I processi in esecuzione non vengono mai riavviati.</value></data>
+  <data name="Settings_WorkerRetry" xml:space="preserve"><value>Convalida di nuovo e riprova il processo</value></data>
+  <data name="Settings_WorkerRetrying" xml:space="preserve"><value>Nuova convalida del processo...</value></data>
+  <data name="Settings_WorkerRetryAccepted" xml:space="preserve"><value>Ripristino accettato. Aggiorna per verificare la disponibilità. I processi supervisionati esternamente devono registrarsi di nuovo.</value></data>
+  <data name="Settings_WorkerRetryRejected" xml:space="preserve"><value>Il nuovo tentativo richiede un processo non riuscito con hosting dedicato abilitato e salvato. I processi in esecuzione non vengono mai riavviati.</value></data>
+  <data name="Settings_WorkerRetryFailed" xml:space="preserve"><value>Il processo non è disponibile. Esamina l'errore prima di riprovare.</value></data>
+  <data name="Settings_WorkerPreviousFailure" xml:space="preserve"><value>Errore precedente all'ultimo tentativo di ripristino</value></data>
+  <data name="Settings_WorkerReady" xml:space="preserve"><value>Il processo è pronto.</value></data>
+  <data name="Settings_WorkerWaiting" xml:space="preserve"><value>Il processo non ha segnalato uno stato pronto e funzionante. Aggiorna per verificarne lo stato.</value></data>
+  <data name="Watch_Reconnecting" xml:space="preserve"><value>Riconnessione alla TV in diretta. Puoi interrompere o selezionare un altro canale.</value></data>
+  <data name="Watch_ReconnectExhausted" xml:space="preserve"><value>La riconnessione automatica si è interrotta al limite di tentativi o di 60 secondi. Seleziona nuovamente il canale per riprovare.</value></data>
 </root>

@@ -50,7 +50,7 @@ public sealed class GuideQueryService : IGuideQueryService
             endUtc,
             configuration.PhysicalDevices.Where(device => device.Enabled).Select(device => device.Id).ToArray(),
             includePrograms,
-            cancellationToken);
+            cancellationToken: cancellationToken);
         return snapshot with
         {
             SourceDiagnostics = eligibility.Diagnostics,

@@ -62,7 +62,7 @@ app.MapPost("/media/start/{channel}", async (string channel, CmafStreamRequest r
             UserAgent = context.Request.Headers.UserAgent.ToString()
         }, cancellationToken);
         var publicBaseUri = VirtualOutputBindingResolver.ResolvePublicBaseUri(bindingsByPort, context.Connection.LocalPort);
-        return Results.Ok(viewer.Plan.CreateResponse(viewer.Id, publicBaseUri));
+        return Results.Ok(viewer.Plan.CreateResponse(viewer.Id, publicBaseUri) with { WorkerGeneration = bootstrap.Generation });
     }
     catch (PlaybackStartupException exception)
     {
@@ -96,6 +96,12 @@ app.MapGet("/health", () => Results.Ok(new { ready = true, activeSessions = play
 // This passive inventory uses the same listener network, TLS and rate-limit policies as media requests.
 app.MapGet("/media/sessions", () => Results.Ok(new { generation = bootstrap.Generation, sessionIds = playback.ViewerIds, producers = playback.Producers }))
     .WithMetadata(new PluginConnectionEndpointAttribute(false));
+
+app.MapGet("/media/status/{sessionId}", (string sessionId, HttpContext context) =>
+{
+    context.Response.Headers.CacheControl = "no-store";
+    return Results.Ok(playback.GetPlaybackStatus(sessionId));
+}).WithMetadata(new PluginConnectionEndpointAttribute(false));
 
 using var leaseCancellation = new CancellationTokenSource();
 var leaseTask = workerSession.RunLeaseLoopAsync(

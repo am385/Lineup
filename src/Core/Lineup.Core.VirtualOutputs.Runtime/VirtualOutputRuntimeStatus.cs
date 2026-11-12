@@ -41,6 +41,11 @@ public sealed class VirtualOutputRuntimeStatus : IVirtualOutputRuntimeStatus
         ArgumentNullException.ThrowIfNull(snapshot);
         lock (_gate)
         {
+            _snapshots.TryGetValue(snapshot.VirtualDeviceId, out var previous);
+            if (previous?.LastRecoveryAttemptUtc is not null && snapshot.LastRecoveryAttemptUtc is null)
+            {
+                snapshot = snapshot with { PreviousFailure = previous.PreviousFailure, LastRecoveryAttemptUtc = previous.LastRecoveryAttemptUtc };
+            }
             _snapshots[snapshot.VirtualDeviceId] = snapshot;
         }
     }

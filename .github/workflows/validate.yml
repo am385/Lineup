@@ -36,6 +36,12 @@ jobs:
       - name: Restore dependencies
         run: dotnet restore Lineup.slnx
 
+      - name: Restore browser asset cache
+        uses: actions/cache@v4
+        with:
+          path: out/browser-assets
+          key: browser-assets-${{ runner.os }}-${{ hashFiles('build/browser-assets.json') }}
+
       - name: Build
         run: dotnet build Lineup.slnx -c Release --no-restore
 

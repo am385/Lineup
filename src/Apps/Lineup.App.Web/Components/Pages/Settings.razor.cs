@@ -458,173 +458,83 @@ public partial class Settings : IDisposable
         StateHasChanged();
         var coreSaved = false;
         var webSaved = false;
+        void AcceptCommit(SettingsSaveResult result)
+        {
+            if (!coreSaved && result.CoreRevision is { } coreRevision)
+            {
+                coreSaved = true;
+                _coreRevision = coreRevision;
+                _restartRequired = Services.GetService<ReverseProxyConfiguration>() is null ? _restartRequired || result.RestartRequired : result.RestartRequired;
+                AcceptCommittedTopology(result.Configuration ?? throw new InvalidOperationException("The saved topology is unavailable."));
+            }
+            if (result.WebRevision is { } webRevision)
+            {
+                webSaved = true;
+                _webRevision = webRevision;
+                _cultureReloadRequired |= result.CultureChanged;
+                _fileLoggingApplyPending = result.FileLoggingApplyPending;
+                _applicationLoggingApplyPending = result.ApplicationLoggingApplyPending;
+            }
+        }
 
         try
         {
-            if (!ValidateGuideOutputPaths())
-            {
-                return;
-            }
-
-            var topologyErrors = _topologyEditor.TryBuild(
-                _topology,
-                out var streamingConfiguration,
-                GuideSourceDrivers,
-                PhysicalTunerDrivers,
-                VirtualTunerDrivers,
-                GuideOutputDrivers,
-                GetManagementListenerPorts());
-            if (topologyErrors.Count > 0)
-            {
-                Notifications.ShowError(string.Join(" ", topologyErrors));
-                return;
-            }
-
-            if (_deviceRefreshIntervalMinutes < 0 || _deviceRefreshIntervalMinutes > 60)
-            {
-                Notifications.ShowError(Text["Settings_DeviceRefreshValidation"]);
-                return;
-            }
-
-            if (_tunerRefreshIntervalSeconds < 0 || _tunerRefreshIntervalSeconds > 300)
-            {
-                Notifications.ShowError(Text["Settings_TunerRefreshValidation"]);
-                return;
-            }
-
-            if (_activeStreamRefreshIntervalSeconds < 0 || _activeStreamRefreshIntervalSeconds > 300)
-            {
-                Notifications.ShowError(Text["Settings_StreamRefreshValidation"]);
-                return;
-            }
-
-            if (_epgHistoryRetentionHours is < 0 or > 720)
-            {
-                Notifications.ShowError(Text["Settings_EpgRetentionValidation"]);
-                return;
-            }
-
-            if (_enableFileLogging && (_fileLogRetentionDays is < 1 or > 90 || _fileLogSizeLimitMb is < 1 or > 500))
-            {
-                Notifications.ShowError(Text["Settings_LogRetentionValidation"]);
-                return;
-            }
-
-            if (_overrideLoggingDefaults && !ValidateApplicationLogFilters())
-            {
-                return;
-            }
-
-            TrustedProxySet knownProxies;
-            try
-            {
-                knownProxies = TrustedProxySet.Parse([_knownProxies], Text["General_KnownProxiesLabel"]);
-            }
-            catch (InvalidOperationException ex)
-            {
-                Notifications.ShowError(ex.Message);
-                return;
-            }
-
-            var wasAutoFetchEnabled = SettingsService.Settings.IsAutoFetchEnabled;
-            var proxyConfiguration = Services.GetService<ReverseProxyConfiguration>();
-            var knownProxiesChanged = proxyConfiguration?.RequiresRestart(knownProxies.Values)
-                ?? !SettingsService.Settings.KnownProxies.SequenceEqual(knownProxies.Values, StringComparer.OrdinalIgnoreCase);
-            var uiCultureChanged = !string.Equals(WebSettingsService.Settings.UiCulture, _uiCulture, StringComparison.OrdinalIgnoreCase);
-            var fileLoggingChanged = FileLoggingSettingsChanged();
-            var applicationLoggingChanged = ApplicationLoggingSettingsChanged();
+            var command = Services.GetService<SettingsSaveCommand>() ?? new SettingsSaveCommand(
+                SettingsService, WebSettingsService, Text, GuideSourceDrivers, PhysicalTunerDrivers, VirtualTunerDrivers, GuideOutputDrivers,
+                Services.GetService<ReverseProxyConfiguration>(), LoggingRuntime, Services.GetService<LogFileService>());
             var completingInitialSetup = _isInitialSetup;
-            ConfigurationRevision.RequireMatch(_webRevision, GetWebRevision(WebSettingsService.Settings));
-            var savedCoreRevision = "";
-            await SettingsService.UpdateAsync(settings =>
+            var result = await command.SaveAsync(new SettingsSaveDraft
             {
-                ConfigurationRevision.RequireMatch(_coreRevision, ConfigurationRevision.ForSettings(settings));
-                settings.AutoFetchInterval = _autoFetchEnabled ? TimeSpan.FromHours(24) : TimeSpan.Zero;
-                settings.RefreshChannelsBeforeGuideFetch = _refreshChannelsBeforeGuideFetch;
-                settings.EpgHistoryRetentionHours = _epgHistoryRetentionHours;
-                if (!_autoFetchEnabled || !wasAutoFetchEnabled)
-                {
-                    settings.NextAutoFetchTime = null;
-                }
-                settings.Streaming = streamingConfiguration;
-                settings.DeviceRefreshIntervalMinutes = _deviceRefreshIntervalMinutes;
-                settings.TunerRefreshIntervalSeconds = _tunerRefreshIntervalSeconds;
-                settings.AutoGenerateXmltv = _autoGenerateXmltv;
-                settings.XmltvOutputPath = ReadXmltvOutputPath(streamingConfiguration) ?? _xmltvOutputPath.Trim();
-                settings.TimeZoneId = _timeZoneId;
-                settings.ProtectedContentMode = _protectedContentMode;
-                settings.DisabledChannelMode = _disabledChannelMode;
-                settings.MaximumConcurrentStreams = _maximumConcurrentStreams;
-                settings.KnownProxies = knownProxies.Values;
-                savedCoreRevision = ConfigurationRevision.ForSettings(settings);
-            });
-            coreSaved = true;
-            _coreRevision = savedCoreRevision;
-            _restartRequired = proxyConfiguration is null ? _restartRequired || knownProxiesChanged : knownProxiesChanged;
-            AcceptCommittedTopology(streamingConfiguration);
-            var savedWebRevision = "";
-            await WebSettingsService.UpdateAsync(settings =>
+                Topology = _topology,
+                CoreRevision = _coreRevision,
+                WebRevision = _webRevision,
+                AutoFetchEnabled = _autoFetchEnabled,
+                RefreshChannelsBeforeGuideFetch = _refreshChannelsBeforeGuideFetch,
+                EpgHistoryRetentionHours = _epgHistoryRetentionHours,
+                DeviceRefreshIntervalMinutes = _deviceRefreshIntervalMinutes,
+                TunerRefreshIntervalSeconds = _tunerRefreshIntervalSeconds,
+                ActiveStreamRefreshIntervalSeconds = _activeStreamRefreshIntervalSeconds,
+                AutoGenerateXmltv = _autoGenerateXmltv,
+                XmltvOutputPath = _xmltvOutputPath,
+                Theme = _theme,
+                TimeZoneId = _timeZoneId,
+                UiCulture = _uiCulture,
+                KnownProxies = _knownProxies,
+                ProtectedContentMode = _protectedContentMode,
+                DisabledChannelMode = _disabledChannelMode,
+                MaximumConcurrentStreams = _maximumConcurrentStreams,
+                RedactApiClientAddresses = _redactApiClientAddresses,
+                RedactApiDeviceAddresses = _redactApiDeviceAddresses,
+                RedactApiUrls = _redactApiUrls,
+                OverrideLoggingDefaults = _overrideLoggingDefaults,
+                ApplicationLogLevel = _applicationLogLevel,
+                LogCategoryOverrides = _logCategoryOverrides.Select(CloneLogCategory).ToArray(),
+                EnableFileLogging = _enableFileLogging,
+                FileLogLevel = _fileLogLevel,
+                FileLogRetentionDays = _fileLogRetentionDays,
+                FileLogSizeLimitMb = _fileLogSizeLimitMb,
+                EnableNetworkDiscovery = _enableNetworkDiscovery,
+                CompletingInitialSetup = completingInitialSetup,
+                FileLoggingApplyPending = _fileLoggingApplyPending,
+                ApplicationLoggingApplyPending = _applicationLoggingApplyPending
+            }, GetManagementListenerPorts(), AcceptCommit);
+            AcceptCommit(result);
+            if (result.ValidationErrors.Count > 0)
             {
-                ConfigurationRevision.RequireMatch(_webRevision, GetWebRevision(settings));
-                settings.EnableNetworkDiscovery = _enableNetworkDiscovery;
-                settings.ActiveStreamRefreshIntervalSeconds = _activeStreamRefreshIntervalSeconds;
-                settings.Theme = _theme;
-                settings.UiCulture = _uiCulture;
-                settings.RedactApiClientAddresses = _redactApiClientAddresses;
-                settings.RedactApiDeviceAddresses = _redactApiDeviceAddresses;
-                settings.RedactApiUrls = _redactApiUrls;
-                settings.OverrideLoggingDefaults = _overrideLoggingDefaults;
-                settings.ApplicationLogLevel = _applicationLogLevel;
-                settings.LogCategoryOverrides = _logCategoryOverrides.Select(CloneLogCategory).ToList();
-                settings.EnableFileLogging = _enableFileLogging;
-                settings.FileLogLevel = _fileLogLevel;
-                settings.FileLogRetentionDays = _fileLogRetentionDays;
-                settings.FileLogSizeLimitMb = _fileLogSizeLimitMb;
-                settings.IsSetupComplete = !completingInitialSetup;
-                savedWebRevision = GetWebRevision(settings);
-            });
-            webSaved = true;
-            _webRevision = savedWebRevision;
-            _cultureReloadRequired |= uiCultureChanged;
-            _fileLoggingApplyPending |= fileLoggingChanged;
-            _applicationLoggingApplyPending |= applicationLoggingChanged;
-
-            var applyErrors = new List<string>();
-            if (_applicationLoggingApplyPending)
-            {
-                try
-                {
-                    Services.GetRequiredService<LoggingRuntimeState>().ApplyApplicationFilter(WebSettingsService.Settings);
-                    _applicationLoggingApplyPending = false;
-                }
-                catch (Exception ex)
-                {
-                    applyErrors.Add(Text["Settings_ApplicationLogApplyFailure", ex.Message]);
-                }
-            }
-
-            if (_fileLoggingApplyPending)
-            {
-                try
-                {
-                    Services.GetRequiredService<LogFileService>().ApplySettings(WebSettingsService.Settings);
-                    _fileLoggingApplyPending = false;
-                }
-                catch (Exception ex)
-                {
-                    applyErrors.Add(Text["Settings_FileLogApplyFailure", ex.Message]);
-                }
-            }
-
-            // Apply theme immediately via JS
-            await JS.SetThemeAsync(_theme);
-
-            if (applyErrors.Count > 0)
-            {
-                Notifications.ShowError(Text["Settings_PartialSaveFailure", string.Join("; ", applyErrors)]);
+                Notifications.ShowError(string.Join(" ", result.ValidationErrors));
                 return;
             }
-
+            if (result.Failure is { } failure)
+            {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+            }
+            await JS.SetThemeAsync(_theme);
+            if (result.ApplyErrors.Count > 0)
+            {
+                Notifications.ShowError(Text["Settings_PartialSaveFailure", string.Join("; ", result.ApplyErrors)]);
+                return;
+            }
+            var streamingConfiguration = result.Configuration ?? throw new InvalidOperationException("The saved topology is unavailable.");
             if (completingInitialSetup)
             {
                 var deviceStatuses = Services.GetRequiredService<IPhysicalDeviceStatusService>();
@@ -659,6 +569,7 @@ public partial class Settings : IDisposable
                     }
                 }
                 ConfigurationRevision.RequireMatch(_coreRevision, ConfigurationRevision.ForSettings(SettingsService.Settings));
+                var savedWebRevision = "";
                 await WebSettingsService.UpdateAsync(settings =>
                 {
                     ConfigurationRevision.RequireMatch(_webRevision, GetWebRevision(settings));
@@ -707,8 +618,7 @@ public partial class Settings : IDisposable
     }
 
     private static string GetWebRevision(WebSettings settings) =>
-        // Header theme changes are already synchronized into the open draft.
-        ConfigurationRevision.Create(settings, nameof(WebSettings.Theme));
+        SettingsSaveCommand.GetWebRevision(settings);
 
     private void AcceptCommittedTopology(StreamingConfiguration configuration)
     {
@@ -801,56 +711,6 @@ public partial class Settings : IDisposable
         }
     }
 
-    private bool ValidateApplicationLogFilters()
-    {
-        if (_logCategoryOverrides.Any(level =>
-            string.IsNullOrWhiteSpace(level.Category) ||
-            level.Category.Length > 200 ||
-            string.Equals(level.Category, "Default", StringComparison.OrdinalIgnoreCase)))
-        {
-            Notifications.ShowError(Text["Settings_LogCategoryValidation"]);
-            return false;
-        }
-
-        if (_logCategoryOverrides.GroupBy(level => level.Category, StringComparer.OrdinalIgnoreCase).Any(group => group.Count() > 1))
-        {
-            Notifications.ShowError(Text["Settings_LogCategoryUniqueValidation"]);
-            return false;
-        }
-
-        return true;
-    }
-
-    private bool ApplicationLoggingSettingsChanged()
-    {
-        var persisted = WebSettingsService.Settings;
-        if (_overrideLoggingDefaults != persisted.OverrideLoggingDefaults)
-        {
-            return true;
-        }
-
-        var persistedChanged = _overrideLoggingDefaults &&
-            (!string.Equals(_applicationLogLevel, persisted.ApplicationLogLevel, StringComparison.OrdinalIgnoreCase) ||
-                !LogCategorySettingsEqual(_logCategoryOverrides, persisted.LogCategoryOverrides));
-        if (persistedChanged || LoggingRuntime is not { } runtime)
-        {
-            return persistedChanged;
-        }
-        var desired = _overrideLoggingDefaults
-            ? new ApplicationLogFilterSettings(_applicationLogLevel, _logCategoryOverrides)
-            : runtime.StartupApplicationFilter;
-        return !string.Equals(desired.DefaultLevel, runtime.ActiveApplicationFilter.DefaultLevel, StringComparison.OrdinalIgnoreCase)
-            || !LogCategorySettingsEqual(desired.CategoryLevels, runtime.ActiveApplicationFilter.CategoryLevels);
-    }
-
-    private static bool LogCategorySettingsEqual(IEnumerable<WebLogCategoryLevelSetting> left, IEnumerable<WebLogCategoryLevelSetting> right)
-    {
-        var leftLevels = left.GroupBy(level => level.Category, StringComparer.OrdinalIgnoreCase).ToDictionary(group => group.Key, group => group.Last().Level, StringComparer.OrdinalIgnoreCase);
-        var rightLevels = right.GroupBy(level => level.Category, StringComparer.OrdinalIgnoreCase).ToDictionary(group => group.Key, group => group.Last().Level, StringComparer.OrdinalIgnoreCase);
-        return leftLevels.Count == rightLevels.Count &&
-            leftLevels.All(pair => rightLevels.TryGetValue(pair.Key, out var level) && string.Equals(pair.Value, level, StringComparison.OrdinalIgnoreCase));
-    }
-
     private static IReadOnlyList<WebLogCategoryLevelSetting> MergeLogCategorySettings(IEnumerable<WebLogCategoryLevelSetting> startupLevels, IEnumerable<WebLogCategoryLevelSetting> overrideLevels)
     {
         var merged = startupLevels
@@ -864,20 +724,6 @@ public partial class Settings : IDisposable
     private static WebLogCategoryLevelSetting CloneLogCategory(WebLogCategoryLevelSetting level) => new() { Category = level.Category, Level = level.Level };
 
     private void RefreshRetainedLogFiles() => _retainedLogFiles = Services.GetService<LogFileService>()?.GetFiles() ?? [];
-
-    private bool FileLoggingSettingsChanged()
-    {
-        var persisted = WebSettingsService.Settings;
-        var persistedChanged = _enableFileLogging != persisted.EnableFileLogging ||
-            !string.Equals(_fileLogLevel, persisted.FileLogLevel, StringComparison.OrdinalIgnoreCase) ||
-            _fileLogRetentionDays != persisted.FileLogRetentionDays ||
-            _fileLogSizeLimitMb != persisted.FileLogSizeLimitMb;
-        return persistedChanged || LoggingRuntime is { } runtime &&
-            (_enableFileLogging != runtime.FileSettings.Enabled ||
-                !string.Equals(_fileLogLevel, runtime.FileSettings.MinimumLevel.ToString(), StringComparison.OrdinalIgnoreCase) ||
-                _fileLogRetentionDays != runtime.FileSettings.RetentionDays ||
-                _fileLogSizeLimitMb != runtime.FileSettings.FileSizeLimitMb);
-    }
 
     private void UndoUnsavedChanges()
     {
@@ -1003,29 +849,6 @@ public partial class Settings : IDisposable
         {
             return true;
         }
-    }
-
-    private bool ValidateGuideOutputPaths()
-    {
-        foreach (var output in _topology.GuideOutputs.Where(IsXmltvGuideOutput))
-        {
-            if (string.IsNullOrWhiteSpace(output.OutputPath))
-            {
-                Notifications.ShowError(Text["Settings_GuideOutputDestinationRequired", output.Name]);
-                return false;
-            }
-
-            try
-            {
-                _ = Path.GetFullPath(output.OutputPath);
-            }
-            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-            {
-                Notifications.ShowError(Text["Settings_GuideOutputDestinationInvalid", output.Name]);
-                return false;
-            }
-        }
-        return true;
     }
 
     internal void BrowseDirectory()
@@ -1422,17 +1245,6 @@ public partial class Settings : IDisposable
         setting.Value = null;
         setting.HasValue = false;
         setting.Action = AdapterSettingEditAction.Clear;
-    }
-
-    private static string? ReadXmltvOutputPath(StreamingConfiguration configuration)
-    {
-        var builtIn = configuration.GuideOutputs.FirstOrDefault(output =>
-            output.IsBuiltIn &&
-            string.Equals(output.Adapter.Kind, XmltvGuideOutputDriver.AdapterKind, StringComparison.OrdinalIgnoreCase));
-        return builtIn?.Adapter.Configuration.ValueKind == JsonValueKind.Object &&
-            builtIn.Adapter.Configuration.TryGetProperty("OutputPath", out var path)
-                ? path.GetString()
-                : null;
     }
 
     internal void SetGuideOutputVirtualDevice(GuideOutputSettingsModel output, VirtualDeviceId id, bool selected)

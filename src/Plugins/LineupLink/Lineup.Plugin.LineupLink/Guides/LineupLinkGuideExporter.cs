@@ -7,6 +7,15 @@ namespace Lineup.Plugin.LineupLink.Guides;
 /// <summary>Maps virtual guide snapshots to the shared management and dedicated Lineup Link wire contract.</summary>
 public static class LineupLinkGuideExporter
 {
+    /// <summary>Preflights the shared HTTP transfer envelope before either host begins its response.</summary>
+    public static async Task<LineupLinkGuide> CreateForTransferAsync(VirtualGuideSnapshot snapshot, bool publishProtection = true, CancellationToken cancellationToken = default)
+    {
+        GuideTransfer.Validate(snapshot);
+        var guide = Create(snapshot, publishProtection);
+        _ = await GuideTransfer.MeasureAsync(guide, cancellationToken);
+        return guide;
+    }
+
     /// <summary>Exports schedules and one merged root envelope; the first contributing source wins conflicting qualified root attributes.</summary>
     public static LineupLinkGuide Create(VirtualGuideSnapshot snapshot, bool publishProtection = true)
     {

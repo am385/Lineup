@@ -6,16 +6,16 @@ namespace Lineup.Core.Storage;
 /// <summary>Runs operator-invoked offline workflows before either frontend starts background services.</summary>
 public static class RecoveryCommand
 {
-    /// <summary>Handles --recovery backup|export|preview|restore path, or returns null for ordinary startup.</summary>
+    /// <summary>Handles --recovery backup|export|preview|preflight|restore path, or returns null for ordinary startup.</summary>
     public static async Task<int?> TryRunAsync(string[] args, string rootPath, string? databasePath = null, CancellationToken cancellationToken = default)
     {
         if (!args.Contains("--recovery", StringComparer.Ordinal))
         {
             return null;
         }
-        if (args.Length != 3 || args[0] != "--recovery" || args[1] is not ("backup" or "export" or "preview" or "restore") || string.IsNullOrWhiteSpace(args[2]))
+        if (args.Length != 3 || args[0] != "--recovery" || args[1] is not ("backup" or "export" or "preview" or "preflight" or "restore") || string.IsNullOrWhiteSpace(args[2]))
         {
-            Console.Error.WriteLine("Usage: --recovery backup|export|preview|restore <path>. Configure the data directory through the host environment.");
+            Console.Error.WriteLine("Usage: --recovery backup|export|preview|preflight|restore <path>. Configure the data directory through the host environment.");
             return 2;
         }
         if (databasePath is not null && !string.Equals(Path.GetFullPath(databasePath), new AppDataStore(rootPath, createRoot: false).DatabasePath,
@@ -39,6 +39,9 @@ public static class RecoveryCommand
                     break;
                 case "preview":
                     Console.WriteLine(JsonSerializer.Serialize(await service.PreviewAsync(args[2], cancellationToken)));
+                    break;
+                case "preflight":
+                    Console.WriteLine(JsonSerializer.Serialize(await service.PreflightAsync(args[2], cancellationToken)));
                     break;
                 case "restore":
                     await service.RestoreAsync(args[2], cancellationToken);

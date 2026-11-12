@@ -168,6 +168,8 @@ function registerLineupShakaUiElements(localizedText) {
         const playerToken = Symbol('lineupCmafPlayer');
         window.lineupMediaPlayerOwners.set(videoElementId, playerOwnerId);
         video._lineupPlayerToken = playerToken;
+        video._lineupSessionId = sessionId;
+        video._lineupSavedPreferences = null;
         const isCurrentPlayer = () => video._lineupPlayerToken === playerToken;
         await player.attach(video);
         if (!isCurrentPlayer()) {
@@ -230,6 +232,7 @@ function registerLineupShakaUiElements(localizedText) {
                 return;
             }
             sessionUnavailable = true;
+            video._lineupSavedPreferences = getCmafPlayerPreferences(videoElementId, sessionId);
             report('error', localizedText.sessionUnavailable, details);
             void stopMediaPlayer(videoElementId);
         };
@@ -301,6 +304,13 @@ function registerLineupShakaUiElements(localizedText) {
             return true;
         };
         let presentationLoaded = false;
+        const playbackPlaying = () => report('playback-playing', '');
+        const playbackWaiting = () => report('playback-waiting', '');
+        video.addEventListener('playing', playbackPlaying);
+        for (const event of ['pause', 'waiting', 'stalled', 'ended']) {
+            video.addEventListener(event, playbackWaiting);
+        }
+        video._lineupPlaybackListeners = { playbackPlaying, playbackWaiting };
         const tryVideoFallback = async error => {
             if (!presentationLoaded || videoFallbackApplied || preferredVideo === 'Fallback' || error?.category !== shaka.util.Error.Category.MEDIA) {
                 return false;
@@ -648,7 +658,9 @@ function registerLineupShakaUiElements(localizedText) {
                 const codePrefix = body?.code && !message.startsWith(`${body.code} `)
                     ? `${body.code} `
                     : '';
-                throw new Error(`${codePrefix}${message}`);
+                const error = new Error(`${codePrefix}${message}`);
+                error.startupFailure = { error: message, code: body?.code || null, retryable: body?.retryable === true };
+                throw error;
             }
             return body;
         } finally {
@@ -656,6 +668,57 @@ function registerLineupShakaUiElements(localizedText) {
                 window.lineupCmafStarts.delete(startupId);
             }
         }
+    }
+
+    async function tryStartCmafSession(startUrl, requestBody, startupId) {
+        try {
+            return { session: await startCmafSession(startUrl, requestBody, startupId), failure: null };
+        } catch (error) {
+            if (!error.startupFailure) {
+                throw error;
+            }
+            return { session: null, failure: error.startupFailure };
+        }
+    }
+
+    async function getCmafSessionStatus(statusUrl) {
+        const response = await fetch(statusUrl, { cache: 'no-store', signal: AbortSignal.timeout(5000) });
+        if (!response.ok) {
+            throw new Error(`CMAF session status failed: HTTP ${response.status}.`);
+        }
+        return await response.json();
+    }
+
+    function getCmafPlayerPreferences(videoElementId, sessionId) {
+        const video = document.getElementById(videoElementId);
+        if (!video || video._lineupSessionId !== sessionId) return null;
+        if (video._lineupSavedPreferences) return video._lineupSavedPreferences;
+        const audio = window.lineupCmafPlayers.get(videoElementId)?.getVariantTracks().find(track => track.active);
+        const subtitle = Array.from(video.textTracks || []).find(track => track.mode === 'showing');
+        return {
+            volume: video.volume, muted: video.muted,
+            audioLabel: audio?.label || null, audioLanguage: audio?.language || null,
+            subtitleLabel: subtitle?.label || null, subtitleLanguage: subtitle?.language || null
+        };
+    }
+
+    function restoreCmafPlayerPreferences(videoElementId, sessionId, preferences) {
+        const video = document.getElementById(videoElementId);
+        const player = window.lineupCmafPlayers.get(videoElementId);
+        if (!video || !player || video._lineupSessionId !== sessionId || !preferences) return;
+        video.volume = Math.min(1, Math.max(0, preferences.volume));
+        video.muted = preferences.muted;
+        const variants = player.getVariantTracks();
+        const active = variants.find(track => track.active);
+        const candidates = variants.filter(track => track.videoId === active?.videoId);
+        const audio = candidates.find(track => track.label === preferences.audioLabel && track.language === preferences.audioLanguage) ||
+            candidates.find(track => track.language === preferences.audioLanguage);
+        if (audio && !audio.active) player.selectVariantTrack(audio, true, 0);
+        for (const track of Array.from(video.textTracks || [])) {
+            track.mode = preferences.subtitleLabel && track.label === preferences.subtitleLabel &&
+                track.language === preferences.subtitleLanguage ? 'showing' : 'disabled';
+        }
+        video.dispatchEvent(new Event('lineuptexttrackschanged'));
     }
 
     function cancelCmafStart(startupId) {
@@ -677,7 +740,8 @@ function registerLineupShakaUiElements(localizedText) {
         const response = await fetch(stopUrl, {
             method: 'POST',
             cache: 'no-store',
-            keepalive: true
+            keepalive: true,
+            signal: AbortSignal.timeout(5000)
         });
         if (!response.ok && response.status !== 404) {
             throw new Error(`CMAF session stop failed: HTTP ${response.status}.`);
@@ -710,6 +774,13 @@ function registerLineupShakaUiElements(localizedText) {
         const videos = [...new Set([currentVideo, registeredVideo].filter(Boolean))];
         for (const video of videos) {
             video._lineupPlayerToken = null;
+            if (video._lineupPlaybackListeners) {
+                video.removeEventListener('playing', video._lineupPlaybackListeners.playbackPlaying);
+                for (const event of ['pause', 'waiting', 'stalled', 'ended']) {
+                    video.removeEventListener(event, video._lineupPlaybackListeners.playbackWaiting);
+                }
+                video._lineupPlaybackListeners = null;
+            }
             stopLineupSubtitlePolling(video);
             video.onerror = null;
             video.onloadedmetadata = null;

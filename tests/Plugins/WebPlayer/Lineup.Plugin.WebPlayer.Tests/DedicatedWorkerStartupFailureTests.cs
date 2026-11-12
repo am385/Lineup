@@ -59,6 +59,8 @@ public sealed class DedicatedWorkerStartupFailureTests
         Assert.Equal(expectedCode, failure.Code);
         Assert.Equal("Safe broker failure.", failure.Error);
         Assert.Equal("broker", failure.Stage);
+        Assert.Equal(failureCode is VirtualOutputFailureCode.SourceUnavailable or VirtualOutputFailureCode.SourceNoSignal or
+            VirtualOutputFailureCode.SourceNoData or VirtualOutputFailureCode.SourceCapacityExceeded, failure.Retryable);
     }
 
     /// <summary>Verifies a readiness timeout produces an actionable gateway-timeout response.</summary>

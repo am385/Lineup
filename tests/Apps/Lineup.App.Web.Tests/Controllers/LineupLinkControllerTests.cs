@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Lineup.Core.Common.Guides;
 using Lineup.Plugin.LineupLink.Protocol;
 using Lineup.Plugin.LineupLink.Virtual;
 using Lineup.App.Web.Controllers;
@@ -13,6 +14,30 @@ namespace Lineup.App.Web.Tests.Controllers;
 /// <summary>Verifies management-hosted Lineup Link endpoint selection.</summary>
 public sealed class LineupLinkControllerTests
 {
+    /// <summary>Oversized management guides fail explicitly without returning a partial guide document.</summary>
+    [Fact]
+    public async Task GetGuideAsync_OverEnvelope_ReturnsActionableUnavailable()
+    {
+        // Arrange
+        var guides = Substitute.For<IGuideOrchestrator>();
+        var id = new VirtualDeviceId(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
+        var channel = new VirtualGuideChannel { ChannelId = new(id, Guid.NewGuid()), Number = "1", Name = "Example", Programs = [] };
+        guides.BuildSnapshotAsync(id, Arg.Any<CancellationToken>()).Returns(new VirtualGuideSnapshot
+        {
+            VirtualDeviceId = id,
+            Channels = Enumerable.Repeat(channel, GuideTransfer.MaximumChannels + 1).ToArray()
+        });
+        var controller = CreateController(null, authenticated: true, guides: guides);
+
+        // Act
+        var result = await controller.GetGuideAsync(id.Value, TestContext.Current.CancellationToken);
+
+        // Assert
+        var response = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, response.StatusCode);
+        Assert.Equal("guide_limit", Assert.IsType<LineupLinkError>(response.Value).Code);
+    }
+
     /// <summary>Verifies authorized Lineup Link streams are rejected before source work when active or startup capacity is exhausted.</summary>
     [Theory]
     [InlineData(false)]
@@ -103,7 +128,8 @@ public sealed class LineupLinkControllerTests
         IActiveStreamRegistry? activeStreams = null,
         IVirtualMpegTsOutputService? streams = null,
         int maximum = 0,
-        bool authenticated = false
+        bool authenticated = false,
+        IGuideOrchestrator? guides = null
     )
     {
         var id = new VirtualDeviceId(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
@@ -141,7 +167,7 @@ public sealed class LineupLinkControllerTests
             adapters,
             Substitute.For<IPhysicalDeviceCatalog>(),
             Substitute.For<IStreamingRouteResolver>(),
-            Substitute.For<IGuideOrchestrator>(),
+            guides ?? Substitute.For<IGuideOrchestrator>(),
             streams ?? Substitute.For<IVirtualMpegTsOutputService>(),
             activeStreams ?? new ActiveStreamRegistry(),
             NullLogger<LineupLinkController>.Instance)

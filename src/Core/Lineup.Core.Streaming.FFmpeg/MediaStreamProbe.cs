@@ -65,6 +65,7 @@ public sealed class MediaStreamProbe
                 process.Kill(entireProcessTree: true);
                 await process.WaitForExitAsync(CancellationToken.None);
             }
+            await MediaProcessAdmission.WaitForReleaseAsync(process);
 
             await ObserveTaskAsync(outputTask);
             await ObserveTaskAsync(errorTask);

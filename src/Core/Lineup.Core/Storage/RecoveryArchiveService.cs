@@ -15,6 +15,13 @@ namespace Lineup.Core.Storage;
 /// <param name="ContainsSensitiveData">Whether operator-controlled secrets and keys may be present.</param>
 public sealed record RecoveryPreview(string Release, DateTimeOffset CreatedAtUtc, IReadOnlyList<string> Files, bool ContainsSensitiveData = true);
 
+/// <summary>Reports completed archive/target checks separately from deployment requirements that only the operator can verify.</summary>
+/// <param name="Archive">Validated inventory without file contents or credentials.</param>
+/// <param name="ArchiveValidated">Whether the entire archive passed the existing exact-build, integrity and schema validation.</param>
+/// <param name="TargetEmpty">Whether the target was absent or empty when checked.</param>
+/// <param name="ExternalRequirements">Unverified requirements outside the archive, not assertions about deployment readiness.</param>
+public sealed record RecoveryPreflight(RecoveryPreview Archive, bool ArchiveValidated, bool TargetEmpty, IReadOnlyList<string> ExternalRequirements);
+
 /// <summary>Creates offline same-release backups and validates an entire staged restore before atomic directory installation.</summary>
 public sealed class RecoveryArchiveService
 {
@@ -131,6 +138,33 @@ public sealed class RecoveryArchiveService
         try
         {
             return await StageArchiveAsync(archivePath, stage, cancellationToken);
+        }
+        finally
+        {
+            Directory.Delete(stage, recursive: true);
+        }
+    }
+
+    /// <summary>Validates an offline archive and empty destination without installing data; restore still repeats all checks under its own ownership fence.</summary>
+    public async Task<RecoveryPreflight> PreflightAsync(string archivePath, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        using var ownership = ApplicationDataOwnership.Acquire(_store.RootPath);
+        RequireEmpty();
+        var stage = CreateStage();
+        try
+        {
+            var preview = await StageArchiveAsync(archivePath, stage, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            RequireEmpty();
+            return new(preview, true, true,
+            [
+                "Keep all hosts, supervisors and external database writers stopped until restore and deployment cutover finish.",
+                "Provision external certificates, passwords, environment variables, host configuration and output destinations separately; they have not been verified.",
+                "Verify filesystem permissions and access to any OS-account/machine-protected Data Protection keys.",
+                "For containers, select a new subdirectory below a writable volume, not the mounted volume root, so restore can rename its staging directory.",
+                "Retain the original deployment and private backup until the restored instance, configured inputs and enabled outputs have been verified."
+            ]);
         }
         finally
         {

@@ -1,6 +1,7 @@
 using ProviderWebPlayer = Lineup.Plugin.WebPlayer;
 using System.Diagnostics;
 using System.Collections.Concurrent;
+using System.Text.Json;
 
 namespace Lineup.App.Web.Services.Playback;
 
@@ -24,6 +25,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
     private readonly ILogger _logger;
     private readonly ITransientDataStore _transientData;
     private readonly IMediaProcessFactory _mediaProcessFactory;
+    private readonly IMediaWorkAdmission? _mediaWork;
     private readonly IStreamingRouteResolver? _streamRoutes;
     private readonly ICmafOutputCoordinator _cmafOutputs;
     private readonly TimeSpan _cmafStartupTimeout;
@@ -50,6 +52,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
     /// <param name="streamRoutes">Resolves configured topology routes.</param>
     /// <param name="cmafOutputs">Owns shared CMAF outputs and viewer aliases.</param>
     /// <param name="cmafStartupTimeout">Overrides the complete management-hosted CMAF startup deadline.</param>
+    /// <param name="mediaWork">Admits deployment-wide media ownership and actual workspace allocation.</param>
     public ManagementPlaybackService(
         IHttpClientFactory httpClientFactory,
         ILineupGuideReader guideReader,
@@ -67,7 +70,8 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         IMediaProcessFactory? mediaProcessFactory = null,
         IStreamingRouteResolver? streamRoutes = null,
         ICmafOutputCoordinator? cmafOutputs = null,
-        TimeSpan? cmafStartupTimeout = null)
+        TimeSpan? cmafStartupTimeout = null,
+        IMediaWorkAdmission? mediaWork = null)
     {
         _httpClientFactory = httpClientFactory;
         _guideReader = guideReader;
@@ -81,8 +85,9 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         _transientData = transientData ?? TransientDataStore.CreateDefault();
         _compatibilityTestService = compatibilityTestService ?? new CmafCompatibilityTestService();
         _mediaProcessFactory = mediaProcessFactory ?? new MediaProcessFactory();
+        _mediaWork = mediaWork;
         _streamRoutes = streamRoutes;
-        _cmafOutputs = cmafOutputs ?? new CmafOutputCoordinator(timeProvider, cmafInactivityTimeout);
+        _cmafOutputs = cmafOutputs ?? new CmafOutputCoordinator(timeProvider, cmafInactivityTimeout, mediaWork);
         _ownsCmafOutputs = cmafOutputs is null;
         _cmafStartupTimeout = cmafStartupTimeout ?? DefaultCmafStartupTimeout;
         if (_cmafStartupTimeout <= TimeSpan.Zero)
@@ -154,9 +159,20 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         var directory = _transientData.CreateSessionDirectory(WebPlayerTransientWorkspaces.Cmaf, sessionId);
         Process? process = null;
         CmafSession? session = null;
+        PendingCmafOutput? pending = null;
+        ICmafOutputLease? outputLease = null;
         var ownershipTransferred = false;
         try
         {
+            outputLease = await _cmafOutputs.AcquireAsync(
+                new StreamTransformKey("web-player-compatibility", sessionId),
+                new StreamSessionId(Guid.ParseExact(sessionId, "N")),
+                _ =>
+                {
+                    _mediaWork?.CheckWorkspace(directory);
+                    pending = new PendingCmafOutput(this, directory);
+                    return ValueTask.FromResult(new CmafOutputRegistration(pending, pending));
+                }, cancellationToken);
             var manifestPath = _transientData.GetFilePath(directory, CmafStreamPlanner.DashManifestName);
             var subtitlePath = request.SubtitleMode == CmafTestSubtitleMode.WebVttSidecar
                 ? _transientData.GetFilePath(directory, "captions-0.vtt")
@@ -179,6 +195,8 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                 PlaylistPath = manifestPath,
                 StartTime = DateTime.UtcNow
             };
+            session.OutputId = outputLease.OutputId;
+            pending!.Complete(session);
             var errors = new ConcurrentQueue<string>();
             var outputVideoBitRate = WebVideoTranscodePlanner.GetMaximumBitRate(
                 _settingsService.Settings.Streaming.VirtualDefaults,
@@ -210,7 +228,6 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                         await Task.Delay(100, cancellationToken);
                         continue;
                     }
-                    session = await RegisterCmafSessionAsync(session, cancellationToken);
                     Volatile.Write(ref session.IsStarting, 0);
                     if (!session.IsActive || process.HasExited)
                     {
@@ -239,6 +256,11 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         {
             return new ManagementPlaybackStartResult { IsCanceled = true };
         }
+        catch (MediaResourceLimitException ex)
+        {
+            _logger.LogWarning(ex, "Watch Test media admission rejected for session {SessionId}", sessionId);
+            return Failure(ManagementPlaybackFailureKind.AdmissionLimit, ex.Message, ex.Code, "admission");
+        }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or IOException)
         {
             _logger.LogError(ex, "Error starting Watch Test CMAF session {SessionId}", sessionId);
@@ -248,9 +270,9 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         {
             if (!ownershipTransferred)
             {
-                if (session is not null)
+                if (outputLease is not null)
                 {
-                    StopCmafSession(session);
+                    await _cmafOutputs.ReleaseOutputAsync(outputLease.OutputId);
                 }
                 else
                 {
@@ -354,6 +376,11 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                     }
                 }
             }
+            catch (MediaResourceLimitException ex)
+            {
+                _logger.LogWarning(ex, "CMAF source admission rejected for channel {Channel}", channel);
+                return Failure(ManagementPlaybackFailureKind.AdmissionLimit, ex.Message, ex.Code, "admission");
+            }
             catch (StreamCapacityExceededException ex)
             {
                 return Failure(ManagementPlaybackFailureKind.Unavailable, ex.Message);
@@ -440,11 +467,13 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
             return Failure(ManagementPlaybackFailureKind.AdmissionLimit, StreamLimitError);
         }
 
+        var sourceIdentity = selectedCandidate is null ? null : JsonSerializer.Serialize(new { Source = selectedCandidate.Acquisition.SourceIdentity, Normalization = selectedCandidate.PhysicalProfile });
+        var planKey = CmafStreamPlanner.CreatePlanKey(virtualProfile, source, selection, request);
         var transformKey = providerPlan is null
-            ? new StreamTransformKey("web-player-cmaf", $"{(protectedContent ? "protected" : "disabled")}:{channel}")
+            ? new StreamTransformKey("web-player-cmaf", $"{(protectedContent ? "protected" : "disabled")}:{channel}|{planKey}")
             : new StreamTransformKey(
                 providerPlan.TransformKey.Stage,
-                $"{selectedCandidate!.SourceChannelId.PhysicalDeviceId}:{selectedCandidate.SourceChannelId.ProviderKey}|{CmafStreamPlanner.CreatePlanKey(virtualProfile, source, selection, request)}");
+                $"{sourceIdentity}|{planKey}");
         var pendingOutput = new PendingCmafOutput(this, directory);
         ICmafOutputLease outputLease;
         try
@@ -452,10 +481,14 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
             outputLease = await _cmafOutputs.AcquireAsync(
                 transformKey,
                 new StreamSessionId(Guid.ParseExact(sessionId, "N")),
-                _ => ValueTask.FromResult(new CmafOutputRegistration(
+                _ =>
+                {
+                    _mediaWork?.CheckWorkspace(directory);
+                    return ValueTask.FromResult(new CmafOutputRegistration(
                     pendingOutput,
                     pendingOutput,
-                    released => _activeStreamRegistry.Unregister(released.ToString()))),
+                    released => _activeStreamRegistry.Unregister(released.ToString())));
+                },
                 TimeSpan.FromSeconds(_settingsService.Settings.Streaming.KeepWarmPeriodSeconds),
                 startupToken);
         }
@@ -467,6 +500,13 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
             return cancellationToken.IsCancellationRequested
                 ? new ManagementPlaybackStartResult { IsCanceled = true }
                 : CreateCmafStartupTimeoutResult();
+        }
+        catch (MediaResourceLimitException ex)
+        {
+            await pendingOutput.DisposeAsync();
+            _activeStreamRegistry.Unregister(sessionId);
+            _logger.LogWarning(ex, "CMAF media admission rejected for session {SessionId}", sessionId);
+            return Failure(ManagementPlaybackFailureKind.AdmissionLimit, ex.Message, ex.Code, "admission");
         }
         catch
         {
@@ -561,7 +601,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                 if (!usingSlate)
                 {
                     inputCancellation = pendingOutput.Tasks.CreateCancellation(pendingOutput.LifetimeToken);
-                    inputPumpTask = PumpEffectiveSourceAsync(selectedCandidate!, rawSource, sourceSettings, process, inputCancellation.Token);
+                    inputPumpTask = PumpEffectiveSourceAsync(selectedCandidate!, rawSource, sourceSettings, process, inputCancellation.Token, pendingOutput.Tasks);
                     pendingOutput.Tasks.Track(inputPumpTask, _logger, "media input");
                 }
                 var embeddedCaptions = selectableSubtitles.FirstOrDefault(subtitle => subtitle.IsEmbeddedClosedCaptions);
@@ -671,7 +711,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                             await ObserveInputPumpAsync(inputPumpTask!);
                             sourceSession.Process.Dispose();
                             inputCancellation = pendingOutput.Tasks.CreateCancellation(pendingOutput.LifetimeToken);
-                            inputPumpTask = PumpEffectiveSourceAsync(selectedCandidate!, rawSource, sourceSettings, process, inputCancellation.Token);
+                            inputPumpTask = PumpEffectiveSourceAsync(selectedCandidate!, rawSource, sourceSettings, process, inputCancellation.Token, pendingOutput.Tasks);
                             pendingOutput.Tasks.Track(inputPumpTask, _logger, "fallback media input");
                             UpdateCmafViewerPlans(outputLease.OutputId, ActiveStreamPlanFactory.CreateCmaf(
                                 sessionId,
@@ -821,6 +861,11 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                 MediaProcessDiagnostics.LogFailure(_logger, exception, "process", sessionId, streamSessionId: outputLease.OutputId.ToString());
                 return Failure(ManagementPlaybackFailureKind.MediaFailure, "The media processor could not start the presentation.", "media_process_failed", "process");
             }
+            catch (MediaResourceLimitException exception)
+            {
+                _logger.LogWarning(exception, "CMAF media processing admission rejected for session {SessionId}", sessionId);
+                return Failure(ManagementPlaybackFailureKind.AdmissionLimit, exception.Message, exception.Code, "admission");
+            }
             catch (Exception ex) when (ex is MediaProcessException or InvalidOperationException or IOException or StreamCapacityExceededException)
             {
                 _logger.LogError(ex, "Error starting CMAF stream for channel {Channel}", channel);
@@ -885,6 +930,10 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
 
     /// <summary>Releases one viewer alias and its final producer when no viewer remains.</summary>
     public bool Stop(string sessionId) => StopCmafSession(sessionId);
+
+    /// <summary>Reads classified viewer status without extending media ownership.</summary>
+    public CmafPlaybackStatus GetPlaybackStatus(string sessionId) =>
+        TryParseSessionId(sessionId, out var id) ? _cmafOutputs.GetPlaybackStatus(id) : new(false, "session_unavailable", false);
 
     /// <summary>Gets immutable artifact metadata and renews the viewer's inactivity lease.</summary>
     public bool TryGetArtifacts(string sessionId, out ManagementPlaybackArtifacts artifacts)
@@ -958,6 +1007,10 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                 }
             }
             session.Process?.WaitForExit();
+            if (session.Process is not null)
+            {
+                MediaProcessAdmission.WaitForReleaseAsync(session.Process).GetAwaiter().GetResult();
+            }
             session.Process?.Dispose();
         }
         catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
@@ -1002,6 +1055,10 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                 _logger.LogDebug(exception, "Unable to stop an incomplete CMAF process");
             }
         }
+        if (process is { HasExited: true })
+        {
+            MediaProcessAdmission.WaitForReleaseAsync(process).GetAwaiter().GetResult();
+        }
         process?.Dispose();
         StopCaptionProcess(captionProcess, captionErrorTask, "starting");
         if (directory is not null)
@@ -1031,6 +1088,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
             {
                 _logger.LogDebug("Embedded-caption extractor for CMAF session {SessionId} reported: {CaptionError}", sessionId, errorTask.Result.Trim());
             }
+            MediaProcessAdmission.WaitForReleaseAsync(process).GetAwaiter().GetResult();
             process.Dispose();
         }
         catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException or NotSupportedException or System.ComponentModel.Win32Exception)
@@ -1059,7 +1117,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         {
             if (session.OutputId is StreamSessionId outputId)
             {
-                _cmafOutputs.ReleaseOutputAsync(outputId).AsTask().GetAwaiter().GetResult();
+                _cmafOutputs.ReleaseOutputAsync(outputId, session.Tasks.SourceTerminationCode).AsTask().GetAwaiter().GetResult();
             }
             else
             {
@@ -1155,10 +1213,12 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         MediaProbeResult source,
         LineupSettings settings,
         Process process,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        CmafMediaTasks tasks)
     {
+        tasks.SourceTerminationCode = null;
         await using var input = await SubscribeEffectiveSourceAsync(candidate, source, settings, cancellationToken);
-        await MediaStreamPump.PumpAsync(input, process, _logger, candidate.DiagnosticUri.AbsoluteUri, cancellationToken);
+        await MediaStreamPump.PumpAsync(input, process, _logger, candidate.DiagnosticUri.AbsoluteUri, cancellationToken, code => tasks.SourceTerminationCode = code);
     }
 
     private async Task PumpSourceAsync(ResolvedStreamingCandidate candidate, Process process, CancellationToken cancellationToken)
@@ -1434,6 +1494,9 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
     /// <summary>Observes media task failures immediately and joins every owned task before artifact cleanup finishes.</summary>
     internal sealed class CmafMediaTasks
     {
+        /// <summary>Records only source read termination, never intentional cancellation or a closed processor pipe.</summary>
+        public volatile string? SourceTerminationCode;
+
         private readonly Lock _gate = new();
         private readonly List<Task> _observations = [];
         private readonly List<CancellationTokenSource> _cancellations = [];

@@ -73,7 +73,7 @@
                 }
             </select>
         }
-        @if (_isPlaying)
+        @if (_isPlaying || IsReconnecting)
         {
             <button class="btn btn-danger" @onclick="StopStreamAsync">
                 <span class="bi bi-stop-fill me-1"></span>@Text["Watch_Stop"]
@@ -81,6 +81,11 @@
         }
     </div>
 </div>
+
+@if (IsReconnecting)
+{
+    <div id="cmafReconnecting" class="alert alert-info" role="status" aria-live="polite">@Text["Watch_Reconnecting"]</div>
+}
 
 <div class="row">
     <div class="col-lg-9 mb-4">

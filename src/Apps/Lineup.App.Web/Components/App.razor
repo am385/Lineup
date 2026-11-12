@@ -7,20 +7,15 @@
     <base href="/" />
     <ResourcePreloader />
     <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
-    <link rel="stylesheet"
-          href="https://cdn.jsdelivr.net/npm/shaka-player@5.2.11/dist/controls.css"
-          integrity="sha384-U/1YJ0qAHHgnh2/Kn+KM9OTVDkUMy0VkOO1YWROI4ZsLuhhP7WZ48YYAYGeBVo+J"
-          crossorigin="anonymous" />
+    <link rel="stylesheet" href="@Assets["lib/bootstrap-icons/bootstrap-icons.min.css"]" />
+    <link rel="stylesheet" href="@Assets["lib/shaka-player/controls.css"]" />
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["Lineup.App.Web.styles.css"]" />
     <ImportMap />
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <HeadOutlet @rendermode="InteractiveServer" />
     <!-- Shaka provides shared CMAF HLS/DASH playback. -->
-    <script src="https://cdn.jsdelivr.net/npm/shaka-player@5.2.11/dist/shaka-player.ui.js"
-            integrity="sha384-ghyp/QciHlmviIclg7x6TA6ickR8CIKZTrHD0TLFcsm+CNLHnmUOCCmvguhuQydN"
-            crossorigin="anonymous"></script>
+    <script src="@Assets["lib/shaka-player/shaka-player.ui.js"]"></script>
     <script>
         // This must read localStorage before Blazor and BrowserDataStore are available to prevent a flash of the wrong theme.
         (function() {

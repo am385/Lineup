@@ -168,16 +168,52 @@ public sealed class WebSettingsService : IWebSettingsService
     private readonly SemaphoreSlim _lock = new(1, 1);
     private readonly string _path;
     private readonly string _backupPath;
+    private readonly LineupStartupState _startupState;
+    private bool _preserveBackupOnNextSave;
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     /// <summary>Initializes a Web settings service.</summary>
-    public WebSettingsService(IAppDataStore appDataStore, ILogger<WebSettingsService> logger)
+    public WebSettingsService(IAppDataStore appDataStore, ILogger<WebSettingsService> logger, LineupStartupState? startupState = null)
     {
         _appDataStore = appDataStore;
         _logger = logger;
         _path = appDataStore.GetPath(FileName);
         _backupPath = $"{_path}.bak";
-        Settings = Load();
+        _startupState = startupState ?? CheckStartup(appDataStore);
+        Settings = _startupState.IsFactoryResetRequired ? new WebSettings() : Load();
+        if (_startupState.IsFactoryResetRequired)
+        {
+            _logger.LogWarning("Web settings are restricted to recovery mode: {Reason}", _startupState.Reason);
+        }
+    }
+
+    /// <summary>Checks Core and Web persisted state without modifying files, accepting a valid Web backup when the primary cannot be loaded.</summary>
+    public static LineupStartupState CheckStartup(IAppDataStore appDataStore)
+    {
+        var startupState = StartupSchemaGate.Check(appDataStore);
+        if (startupState.IsFactoryResetRequired)
+        {
+            return startupState;
+        }
+
+        var path = appDataStore.GetPath(FileName);
+        var hasSettings = false;
+        foreach (var candidate in new[] { path, $"{path}.bak" })
+        {
+            if (!appDataStore.FileExists(candidate))
+            {
+                continue;
+            }
+            hasSettings = true;
+            if (TryLoadSettings(appDataStore, candidate) is not null)
+            {
+                return startupState;
+            }
+        }
+
+        return hasSettings
+            ? new LineupStartupState(LineupStartupStatus.FactoryResetRequired, "The persisted Web settings are invalid or do not use the schema required by this Lineup release.")
+            : startupState;
     }
 
     /// <inheritdoc />
@@ -190,6 +226,10 @@ public sealed class WebSettingsService : IWebSettingsService
     public async Task UpdateAsync(Action<WebSettings> updateAction)
     {
         ArgumentNullException.ThrowIfNull(updateAction);
+        if (_startupState.IsFactoryResetRequired)
+        {
+            throw new FactoryResetRequiredException(_startupState.Reason ?? "Factory reset is required before Web settings can be saved.");
+        }
         await _lock.WaitAsync();
         try
         {
@@ -199,8 +239,10 @@ public sealed class WebSettingsService : IWebSettingsService
             await _appDataStore.WriteAtomicallyAsync(
                 _path,
                 (stream, cancellationToken) => JsonSerializer.SerializeAsync(stream, updatedSettings, JsonOptions, cancellationToken),
-                _backupPath);
+                _backupPath,
+                _preserveBackupOnNextSave);
             Settings = updatedSettings;
+            _preserveBackupOnNextSave = false;
         }
         finally
         {
@@ -223,26 +265,50 @@ public sealed class WebSettingsService : IWebSettingsService
     {
         foreach (var path in new[] { _path, _backupPath })
         {
-            try
+            if (TryLoadSettings(_appDataStore, path, _logger) is { } settings)
             {
-                if (!_appDataStore.FileExists(path))
+                if (path == _backupPath)
                 {
-                    continue;
+                    _preserveBackupOnNextSave = _appDataStore.FileExists(_path);
+                    _logger.LogWarning("Recovered Web settings from backup {Path}", _backupPath);
                 }
-                var settings = JsonSerializer.Deserialize<WebSettings>(_appDataStore.ReadAllText(path));
-                if (settings is { SchemaVersion: WebSettings.CurrentSchemaVersion })
-                {
-                    return settings;
-                }
-            }
-
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
-            {
-                _logger.LogError(ex, "Unable to load Web settings from {Path}", path);
+                return settings;
             }
         }
 
+        if (_appDataStore.FileExists(_path) || _appDataStore.FileExists(_backupPath))
+        {
+            throw new FactoryResetRequiredException("The persisted Web settings changed and can no longer be loaded. Restart Lineup to enter recovery mode.");
+        }
         return new WebSettings();
+    }
+
+    private static WebSettings? TryLoadSettings(IAppDataStore appDataStore, string path, ILogger<WebSettingsService>? logger = null)
+    {
+        try
+        {
+            return appDataStore.FileExists(path) ? DeserializeSettings(appDataStore.ReadAllText(path)) : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or FactoryResetRequiredException)
+        {
+            logger?.LogError(ex, "Unable to load Web settings from {Path}", path);
+            return null;
+        }
+    }
+
+    /// <summary>Deserializes Web settings only after validating their explicitly declared schema.</summary>
+    internal static WebSettings DeserializeSettings(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        if (document.RootElement.ValueKind != JsonValueKind.Object ||
+            !document.RootElement.TryGetProperty(nameof(WebSettings.SchemaVersion), out var version) ||
+            version.ValueKind != JsonValueKind.Number ||
+            !version.TryGetInt32(out var schemaVersion) ||
+            schemaVersion != WebSettings.CurrentSchemaVersion)
+        {
+            throw new FactoryResetRequiredException("The persisted Web settings do not declare the schema required by this Lineup release.");
+        }
+        return document.RootElement.Deserialize<WebSettings>() ?? throw new JsonException("The Web settings document contained a null root value.");
     }
 
 }

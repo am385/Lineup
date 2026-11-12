@@ -101,6 +101,7 @@ public sealed class FfmpegStreamTransform
             try
             {
                 await process.WaitForExitAsync(CancellationToken.None);
+                await MediaProcessAdmission.WaitForReleaseAsync(process);
             }
             catch (Exception exception)
             {

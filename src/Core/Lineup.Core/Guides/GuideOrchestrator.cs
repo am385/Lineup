@@ -16,6 +16,7 @@ public sealed class GuideOrchestrator : IGuideOrchestrator
     private readonly DeviceGuideStore _guideStore;
     private readonly ILogger<GuideOrchestrator> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly SemaphoreSlim _refreshSlots = new(4, 4);
     private ActiveConfiguration _active = new(new StreamingConfiguration(), [], []);
 
     /// <summary>Initializes a guide orchestrator.</summary>
@@ -72,8 +73,27 @@ public sealed class GuideOrchestrator : IGuideOrchestrator
             _gate.Release();
         }
 
+        return await RefreshAsync(active, null, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<GuideRefreshResult>> RefreshSourcesAsync(StreamingConfiguration configuration, IReadOnlySet<GuideSourceId> sourceIds, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(sourceIds);
+        var errors = StreamingConfigurationValidator.ValidateForGuideConfiguration(configuration);
+        if (errors.Count > 0)
+        {
+            throw new InvalidOperationException(string.Join(Environment.NewLine, errors));
+        }
+        var eligibility = GuideSourceSubscriptionResolver.ResolveEligibleSources(configuration.GuideSources, configuration.PhysicalDevices, _adapters, cancellationToken);
+        return await RefreshAsync(new ActiveConfiguration(configuration, eligibility.Sources, eligibility.Diagnostics), sourceIds, cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<GuideRefreshResult>> RefreshAsync(ActiveConfiguration active, IReadOnlySet<GuideSourceId>? sourceIds, CancellationToken cancellationToken)
+    {
         var sources = new List<(IGuideSource Source, GuideSourceScope Scope)>();
-        var failures = active.SourceDiagnostics.Select(diagnostic => new GuideRefreshResult
+        var failures = active.SourceDiagnostics.Where(diagnostic => sourceIds is null || sourceIds.Contains(diagnostic.SourceId)).Select(diagnostic => new GuideRefreshResult
         {
             SourceId = diagnostic.SourceId,
             Succeeded = false,
@@ -82,6 +102,10 @@ public sealed class GuideOrchestrator : IGuideOrchestrator
         }).ToList();
         foreach (var eligible in active.Sources)
         {
+            if (sourceIds is not null && !sourceIds.Contains(eligible.Definition.Id))
+            {
+                continue;
+            }
             cancellationToken.ThrowIfCancellationRequested();
             var (definition, driver, scope) = eligible;
             try
@@ -115,8 +139,21 @@ public sealed class GuideOrchestrator : IGuideOrchestrator
             }
         }
 
-        var refreshed = await Task.WhenAll(sources.Select(source => RefreshAsync(source.Source, source.Scope, cancellationToken)));
+        var refreshed = await Task.WhenAll(sources.Select(source => RefreshBoundedAsync(source.Source, source.Scope, cancellationToken)));
         return [.. failures, .. refreshed];
+    }
+
+    private async Task<GuideRefreshResult> RefreshBoundedAsync(IGuideSource source, GuideSourceScope scope, CancellationToken cancellationToken)
+    {
+        await _refreshSlots.WaitAsync(cancellationToken);
+        try
+        {
+            return await RefreshAsync(source, scope, cancellationToken);
+        }
+        finally
+        {
+            _refreshSlots.Release();
+        }
     }
 
     /// <inheritdoc />
@@ -142,7 +179,8 @@ public sealed class GuideOrchestrator : IGuideOrchestrator
         var snapshot = await _guideStore.BuildResolvedSnapshotAsync(
             virtualDeviceId,
             identities => ChannelTopologyResolver.Resolve(virtualDevice, physicalDevices, identities).Channels,
-            active.Sources.Select(source => source.Scope).ToArray(), physicalDeviceIds: physicalDevices.Select(device => device.Id).ToArray(), cancellationToken: cancellationToken);
+            active.Sources.Select(source => source.Scope).ToArray(), physicalDeviceIds: physicalDevices.Select(device => device.Id).ToArray(),
+            enforceTransferLimits: true, cancellationToken: cancellationToken);
         return snapshot with
         {
             SourceDiagnostics = active.SourceDiagnostics,

@@ -257,7 +257,7 @@
   <data name="Settings_ApiRedactUrlsHelpPrefix" xml:space="preserve"><value>Gibt Geräte-, Senderlisten-, Tunerziel-, angekündigte und XMLTV-URLs zurück als</value></data>
   <data name="Settings_ApiRedactUrlsLabel" xml:space="preserve"><value>URLs schwärzen</value></data>
   <data name="Settings_ApplicationLogFiltersHeading" xml:space="preserve"><value>Anwendungsprotokollfilter</value></data>
-  <data name="Settings_AutoFetchGuideHelp" xml:space="preserve"><value>Lädt gemäß API-Vorgabe den vollständigen SiliconDust-Programmführer in einem zufälligen Intervall zwischen 20 und 28 Stunden herunter. Für alle Benutzer sind 2 Tage verfügbar, mit einem HDHomeRun-DVR-Programmführerabonnement 14 Tage.</value></data>
+  <data name="Settings_AutoFetchGuideHelp" xml:space="preserve"><value>Jede Quelle hat einen eigenen Zeitplan. SiliconDust verwendet zufällige Intervalle von 20-28 Stunden, mit 2 Tagen Programmdaten oder 14 Tagen mit DVR-Abonnement. Lineup Link verwendet das konfigurierte Intervall (standardmäßig 24 Stunden). Fehlgeschlagene Quellen und Veröffentlichungen werden unabhängig nach einer Stunde erneut versucht.</value></data>
   <data name="Settings_AutoFetchGuideLabel" xml:space="preserve"><value>Programmdaten automatisch aktualisieren</value></data>
   <data name="Settings_BindAddressesHelp" xml:space="preserve"><value>Durch Kommas getrennte IP-Adressen, localhost oder * für alle Schnittstellen.</value></data>
   <data name="Settings_BindAddressesLabel" xml:space="preserve"><value>Bindungsadressen</value></data>
@@ -587,7 +587,7 @@
   <data name="Channels_RefreshChannels" xml:space="preserve"><value>Sender aktualisieren</value></data>
   <data name="Channels_RefreshedChannels" xml:space="preserve"><value>{0} physische Quellsender wurden aktualisiert.</value></data>
   <data name="Channels_RefreshedChannelsWithFailures" xml:space="preserve"><value>{0} physische Quellsender wurden mit {1} Gerätefehler(n) aktualisiert; der vorherige Zustand wurde beibehalten.</value></data>
-  <data name="Channels_SavedButXmltvUpdateFailed" xml:space="preserve"><value>Die Sendereinstellung wurde gespeichert, der veröffentlichte XMLTV-Programmführer konnte jedoch nicht aktualisiert werden: {0}</value></data>
+  <data name="Channels_SavedButXmltvUpdateFailed" xml:space="preserve"><value>Die Sendereinstellung wurde gespeichert, ein veröffentlichter Programmführer konnte jedoch nicht vollständig aktualisiert werden. Ein erneuter Versuch mit zwischengespeicherten Daten ist vorgemerkt: {0}</value></data>
   <data name="Channels_SavedGlobalIdentity" xml:space="preserve"><value>Globale Identität für Sender {0} gespeichert.</value></data>
   <data name="Channels_SavedGuideUnavailableHelp" xml:space="preserve"><value>Der gespeicherte manuelle Programmführersender ist nicht mehr aktiv. Wählen Sie einen anderen Sender oder kehren Sie zur automatischen Zuordnung zurück.</value></data>
   <data name="Channels_SearchPlaceholder" xml:space="preserve"><value>Nummer, Name, Gerät, Codec oder Anbieterschlüssel</value></data>
@@ -654,7 +654,7 @@
   <data name="Dashboard_AutoFetchDisabled" xml:space="preserve"><value>automatischer Abruf deaktiviert</value></data>
   <data name="Dashboard_AutoFetchHeading" xml:space="preserve"><value>Automatischer Abruf</value></data>
   <data name="Dashboard_AutoFetchInProgress" xml:space="preserve"><value>Automatischer Abruf läuft</value></data>
-  <data name="Dashboard_AutoFetchInterval" xml:space="preserve"><value>20–28 Std. (zufällig)</value></data>
+  <data name="Dashboard_AutoFetchInterval" xml:space="preserve"><value>Unabhängige Quellen- und Veröffentlichungszeitpläne</value></data>
   <data name="Dashboard_AutoFetchPending" xml:space="preserve"><value>automatischer Abruf ausstehend</value></data>
   <data name="Dashboard_AutoFetchRunning" xml:space="preserve"><value>automatischer Abruf läuft</value></data>
   <data name="Dashboard_AutoRefreshDisabled" xml:space="preserve"><value>automatische Aktualisierung deaktiviert</value></data>
@@ -1132,4 +1132,16 @@
   <data name="Settings_TopologyRevisions" xml:space="preserve"><value>Gewünscht: {0}. Versucht: {1}. Zuletzt vollständig angewendet: {2}.</value></data>
   <data name="Settings_TopologyDeviceFailure" xml:space="preserve"><value>Das physische Gerät {0} konnte nicht angewendet werden.</value></data>
   <data name="Settings_TopologyOutputFailure" xml:space="preserve"><value>Die Programmausgabe {0} ist fehlgeschlagen oder unvollständig.</value></data>
+  <data name="Settings_WorkerRecoveryHeading" xml:space="preserve"><value>Worker-Wiederherstellung</value></data>
+  <data name="Settings_WorkerRecoveryHelp" xml:space="preserve"><value>Verwendet gespeicherte Einstellungen, keine ungespeicherten Änderungen. Laufende Worker werden niemals neu gestartet.</value></data>
+  <data name="Settings_WorkerRetry" xml:space="preserve"><value>Worker erneut prüfen und starten</value></data>
+  <data name="Settings_WorkerRetrying" xml:space="preserve"><value>Worker wird erneut geprüft...</value></data>
+  <data name="Settings_WorkerRetryAccepted" xml:space="preserve"><value>Wiederherstellung angenommen. Zum Prüfen der Bereitschaft aktualisieren. Extern überwachte Worker müssen sich erneut registrieren.</value></data>
+  <data name="Settings_WorkerRetryRejected" xml:space="preserve"><value>Ein erneuter Versuch erfordert einen fehlgeschlagenen Worker mit aktiviertem, gespeichertem dediziertem Hosting. Laufende Worker werden niemals neu gestartet.</value></data>
+  <data name="Settings_WorkerRetryFailed" xml:space="preserve"><value>Der Worker ist nicht verfügbar. Prüfen Sie den Fehler vor einem erneuten Versuch.</value></data>
+  <data name="Settings_WorkerPreviousFailure" xml:space="preserve"><value>Fehler vor dem letzten Wiederherstellungsversuch</value></data>
+  <data name="Settings_WorkerReady" xml:space="preserve"><value>Der Worker ist bereit.</value></data>
+  <data name="Settings_WorkerWaiting" xml:space="preserve"><value>Der Worker hat noch keine fehlerfreie Bereitschaft gemeldet. Aktualisieren Sie den Status.</value></data>
+  <data name="Watch_Reconnecting" xml:space="preserve"><value>Die Verbindung zum Live-TV wird wiederhergestellt. Sie können stoppen oder einen anderen Sender auswählen.</value></data>
+  <data name="Watch_ReconnectExhausted" xml:space="preserve"><value>Die automatische Wiederverbindung wurde nach Erreichen des Versuchslimits oder nach 60 Sekunden beendet. Wählen Sie den Sender erneut aus.</value></data>
 </root>

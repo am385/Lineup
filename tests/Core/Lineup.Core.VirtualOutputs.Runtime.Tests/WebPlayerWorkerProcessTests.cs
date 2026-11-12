@@ -21,6 +21,105 @@ namespace Lineup.Core.VirtualOutputs.Runtime.Tests;
 /// <summary>Verifies the real dedicated Web Player executable across its HTTP, IPC, FFmpeg, and cleanup boundaries.</summary>
 public sealed class WebPlayerWorkerProcessTests
 {
+    /// <summary>Worker workspace admission fails explicitly before launching media and leaves no reservation or viewer behind.</summary>
+    [Fact]
+    public async Task Worker_StorageWatermark_RejectsBeforeMediaAllocation()
+    {
+        // Arrange
+        await using var harness = await WebPlayerWorkerHarness.StartAsync(
+            (request, _) => Task.FromResult(CreateBrokeredStream(request, new PacedPatternStream(), "storage-generation")),
+            TestContext.Current.CancellationToken, resources: new() { MinimumMediaFreeSpaceMib = int.MaxValue });
+        using var request = harness.CreateRequest(HttpMethod.Post, "/media/start/2.1", "{}");
+
+        // Act
+        using var response = await harness.Client.SendAsync(request, TestContext.Current.CancellationToken);
+        var failure = await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: TestContext.Current.CancellationToken);
+        await WaitUntilAsync(() => harness.MediaAdmission.GetDiagnostics().Producers == 0, TimeSpan.FromSeconds(10));
+
+        // Assert
+        Assert.Equal(HttpStatusCode.TooManyRequests, response.StatusCode);
+        Assert.Equal("media_storage_limit", failure!["code"]!.GetValue<string>());
+        Assert.Empty(harness.MediaStarts);
+        Assert.Empty(harness.ReportedStreams);
+        Assert.Equal(0, harness.MediaAdmission.GetDiagnostics().Processing);
+    }
+
+    /// <summary>Measures the retained full-rate IPC inputs while proving equivalent viewers use one encoder and independent admission slots.</summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(4)]
+    public async Task Worker_SharedProducer_MeasuresIndependentViewerDrainOverhead(int viewers)
+    {
+        // Arrange
+        var sources = new System.Collections.Concurrent.ConcurrentQueue<PacedPatternStream>();
+        await using var harness = await WebPlayerWorkerHarness.StartAsync((request, _) =>
+        {
+            var source = new PacedPatternStream(controlled: true);
+            sources.Enqueue(source);
+            return Task.FromResult(CreateBrokeredStream(request, source, "measured-generation"));
+        }, TestContext.Current.CancellationToken, resources: new() { MaximumProducers = 1, MaximumProcessingOperations = 2 });
+        var responses = new List<JsonObject>();
+        for (var index = 0; index < viewers; index++)
+        {
+            using var request = harness.CreateRequest(HttpMethod.Post, "/media/start/2.1", "{}");
+            using var response = await harness.Client.SendAsync(request, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            responses.Add((await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: TestContext.Current.CancellationToken))!);
+        }
+
+        // Act
+        foreach (var source in sources) { source.ReleasePackets(200); }
+        await WaitUntilAsync(() => sources.All(source => source.BytesRead == 200 * 188 * 7), TimeSpan.FromSeconds(10));
+        var usage = harness.MediaAdmission.GetDiagnostics();
+        var admittedViewers = harness.ReportedStreams.Count;
+        var ipcBytes = sources.Sum(source => source.BytesRead);
+        var cleanup = Stopwatch.StartNew();
+        foreach (var response in responses)
+        {
+            using var stopped = await harness.Client.PostAsync(new Uri(response["stopUrl"]!.GetValue<string>()), null, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, stopped.StatusCode);
+        }
+        await harness.AssertMediaReleasedAsync();
+        await WaitUntilAsync(() => harness.MediaAdmission.GetDiagnostics() is { Producers: 0, Processing: 0 }, TimeSpan.FromSeconds(10));
+        cleanup.Stop();
+
+        // Assert
+        Assert.Equal(viewers, admittedViewers);
+        Assert.Single(harness.MediaStarts);
+        Assert.Equal(1, usage.Producers);
+        Assert.Equal(2, usage.Processing);
+        Assert.Equal(viewers * 263200L, ipcBytes);
+        TestContext.Current.TestOutputHelper?.WriteLine($"Viewers={viewers}; producer=1; total IPC bytes={ipcBytes}; extra-viewer drain bytes={(viewers - 1) * 263200L}; cleanup={cleanup.Elapsed.TotalMilliseconds:0.0}ms.");
+    }
+
+    /// <summary>Real dedicated media can be reclaimed under host pressure only after its final viewer leaves, without waiting for warm expiry.</summary>
+    [Fact]
+    public async Task Worker_ProducerPressure_RetiresOnlyZeroViewerWarmOutput()
+    {
+        // Arrange
+        await using var harness = await WebPlayerWorkerHarness.StartAsync(
+            (request, _) => Task.FromResult(CreateBrokeredStream(request, new PacedPatternStream(), "retained-generation", keepWarmSeconds: 60)),
+            TestContext.Current.CancellationToken, resources: new() { MaximumProducers = 1, MaximumProcessingOperations = 2 });
+        using var request = harness.CreateRequest(HttpMethod.Post, "/media/start/2.1", "{}");
+        using var response = await harness.Client.SendAsync(request, TestContext.Current.CancellationToken);
+        var presentation = (await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: TestContext.Current.CancellationToken))!;
+
+        // Act
+        await Assert.ThrowsAsync<MediaResourceLimitException>(() =>
+            harness.MediaAdmission.AcquireAsync(MediaWorkKind.Producer, cancellationToken: TestContext.Current.CancellationToken).AsTask());
+        using var stop = await harness.Client.PostAsync(new Uri(presentation["stopUrl"]!.GetValue<string>()), null, TestContext.Current.CancellationToken);
+        await using var replacement = await harness.MediaAdmission.AcquireAsync(MediaWorkKind.Producer, cancellationToken: TestContext.Current.CancellationToken);
+        await harness.AssertMediaReleasedAsync();
+        await WaitUntilAsync(() => harness.MediaAdmission.GetDiagnostics().Processing == 0, TimeSpan.FromSeconds(10));
+
+        // Assert
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, stop.StatusCode);
+        Assert.Empty(harness.ReportedStreams);
+        Assert.Equal(1, harness.MediaAdmission.GetDiagnostics().Producers);
+    }
+
     /// <summary>Verifies process-start observations can read a live append-only writer and never expose its unfinished final record.</summary>
     [Fact]
     public void MediaStarts_ActiveWriter_ReadsOnlyCompleteRecords()
@@ -464,6 +563,47 @@ public sealed class WebPlayerWorkerProcessTests
         Assert.Equal(HttpStatusCode.NoContent, finalStop.StatusCode);
     }
 
+    /// <summary>A real broker EOF is reported through the worker's passive status route for every surviving alias.</summary>
+    [Fact]
+    public async Task Worker_SourceEof_ReportsRetryableStatusAndReleasesMedia()
+    {
+        // Arrange
+        var sources = new System.Collections.Concurrent.ConcurrentQueue<PacedPatternStream>();
+        await using var harness = await WebPlayerWorkerHarness.StartAsync((request, _) =>
+        {
+            var source = new PacedPatternStream();
+            sources.Enqueue(source);
+            return Task.FromResult(CreateBrokeredStream(request, source, "source-eof-generation"));
+        }, TestContext.Current.CancellationToken);
+        using var request = harness.CreateRequest(HttpMethod.Post, "/media/start/2.1", "{}");
+        using var response = await harness.Client.SendAsync(request, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var presentation = (await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: TestContext.Current.CancellationToken))!;
+        var id = presentation["sessionId"]!.GetValue<string>();
+        using var secondRequest = harness.CreateRequest(HttpMethod.Post, "/media/start/2.1", "{}");
+        using var secondResponse = await harness.Client.SendAsync(secondRequest, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, secondResponse.StatusCode);
+        var second = (await secondResponse.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: TestContext.Current.CancellationToken))!;
+        var secondId = second["sessionId"]!.GetValue<string>();
+
+        // Act
+        sources.First().End();
+        await WaitUntilAsync(async () =>
+        {
+            var status = await harness.Client.GetFromJsonAsync<JsonObject>($"/media/status/{id}", TestContext.Current.CancellationToken);
+            return status!["isActive"]!.GetValue<bool>() == false;
+        }, TimeSpan.FromSeconds(10));
+        var ended = await harness.Client.GetFromJsonAsync<JsonObject>($"/media/status/{id}", TestContext.Current.CancellationToken);
+        var secondEnded = await harness.Client.GetFromJsonAsync<JsonObject>($"/media/status/{secondId}", TestContext.Current.CancellationToken);
+        await harness.AssertMediaReleasedAsync();
+
+        // Assert
+        Assert.True(ended!["retryable"]!.GetValue<bool>());
+        Assert.Equal("source_eof", ended["code"]!.GetValue<string>());
+        Assert.True(secondEnded!["retryable"]!.GetValue<bool>());
+        Assert.Single(harness.MediaStarts);
+    }
+
     /// <summary>Verifies canceling the initiating HTTP request does not cancel a producer another admitted viewer is still starting.</summary>
     [Fact]
     public async Task Worker_InitiatingViewerDisconnects_DoesNotCancelSharedStartup()
@@ -671,7 +811,8 @@ public sealed class WebPlayerWorkerProcessTests
             Process worker,
             HttpClient client,
             IActiveStreamRegistry activeStreams,
-            string startLog)
+            string startLog,
+            MediaWorkAdmission mediaAdmission)
         {
             _server = server;
             _authority = authority;
@@ -679,6 +820,7 @@ public sealed class WebPlayerWorkerProcessTests
             Client = client;
             ActiveStreams = activeStreams;
             _startLog = startLog;
+            MediaAdmission = mediaAdmission;
             _workerOutput = worker.StandardOutput.ReadToEndAsync();
             _workerError = worker.StandardError.ReadToEndAsync();
         }
@@ -688,6 +830,9 @@ public sealed class WebPlayerWorkerProcessTests
         internal HttpClient Client { get; }
 
         internal IActiveStreamRegistry ActiveStreams { get; }
+
+        /// <summary>Gets authoritative resource accounting shared with the real dedicated process.</summary>
+        internal MediaWorkAdmission MediaAdmission { get; }
 
         internal IReadOnlyList<ActiveStreamSnapshot> ReportedStreams => ActiveStreams.GetActiveStreams();
 
@@ -724,7 +869,8 @@ public sealed class WebPlayerWorkerProcessTests
             TimeSpan? leaseLifetime = null,
             bool mediaProcessorFails = false,
             string? startupMode = null,
-            string? workerPath = null)
+            string? workerPath = null,
+            StreamingResourceOptions? resources = null)
         {
             var endpoint = CreateEndpoint();
             var authority = new VirtualOutputSessionAuthority();
@@ -761,6 +907,7 @@ public sealed class WebPlayerWorkerProcessTests
                     VirtualOutputWorkerPolicies = [policy]
                 }
             });
+            var mediaAdmission = new MediaWorkAdmission(resources ?? new());
             var server = new VirtualOutputIpcServer(
                 endpoint,
                 authority,
@@ -769,7 +916,8 @@ public sealed class WebPlayerWorkerProcessTests
                 settings,
                 activeStreams,
                 NullLogger<VirtualOutputIpcServer>.Instance,
-                new PluginConnectionBudget(settings));
+                new PluginConnectionBudget(settings),
+                mediaAdmission, resources);
             await server.StartAsync(cancellationToken);
             var bootstrap = new VirtualOutputWorkerBootstrap
             {
@@ -797,7 +945,7 @@ public sealed class WebPlayerWorkerProcessTests
                 BaseAddress = new Uri($"http://127.0.0.1:{port}"),
                 Timeout = TimeSpan.FromSeconds(35)
             };
-            var harness = new WebPlayerWorkerHarness(server, authority, worker, client, activeStreams, startLog);
+            var harness = new WebPlayerWorkerHarness(server, authority, worker, client, activeStreams, startLog, mediaAdmission);
             try
             {
                 await harness.WaitForReadyAsync(cancellationToken);
@@ -987,6 +1135,20 @@ public sealed class WebPlayerWorkerProcessTests
     private sealed class PacedPatternStream : Stream
     {
         private readonly CancellationTokenSource _disposed = new();
+        private readonly SemaphoreSlim? _packets;
+        private long _bytesRead;
+
+        /// <summary>Creates a paced source, or a deterministic packet-gated source for IPC measurement.</summary>
+        internal PacedPatternStream(bool controlled = false) => _packets = controlled ? new(0) : null;
+
+        /// <summary>Gets actual bytes consumed by the broker's IPC pump.</summary>
+        internal long BytesRead => Interlocked.Read(ref _bytesRead);
+
+        /// <summary>Allows exactly this many transport packets to cross the real IPC channel.</summary>
+        internal void ReleasePackets(int count) => _packets!.Release(count);
+
+        /// <summary>Ends upstream input independently of viewer stop or worker disposal.</summary>
+        internal void End() => _disposed.Cancel();
 
         public override bool CanRead => true;
 
@@ -1013,7 +1175,8 @@ public sealed class WebPlayerWorkerProcessTests
             using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _disposed.Token);
             try
             {
-                await Task.Delay(10, linkedCancellation.Token);
+                if (_packets is not null) { await _packets.WaitAsync(linkedCancellation.Token); }
+                else { await Task.Delay(10, linkedCancellation.Token); }
             }
             catch (OperationCanceledException) when (_disposed.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
             {
@@ -1025,6 +1188,7 @@ public sealed class WebPlayerWorkerProcessTests
             {
                 buffer.Span[offset] = 0x47;
             }
+            Interlocked.Add(ref _bytesRead, length);
             return length;
         }
 

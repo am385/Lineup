@@ -33,6 +33,9 @@ public sealed class StreamingResourceOptionsTests
     [InlineData("GraphBufferMib", "0")]
     [InlineData("MaximumBufferAgeSeconds", "0")]
     [InlineData("AcquisitionTimeoutSeconds", "301")]
+    [InlineData("MaximumProducers", "-1")]
+    [InlineData("MaximumProcessingOperations", "-1")]
+    [InlineData("MinimumMediaFreeSpaceMib", "-1")]
     public void Load_InvalidBudget_RejectsConfiguration(string key, string value)
     {
         // Arrange

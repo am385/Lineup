@@ -1,9 +1,11 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Net.Sockets;
 using System.Text.Json;
 using Lineup.Core.Common.Streaming;
+using Lineup.Core.Common.Guides;
 using Lineup.Core.Guides;
 using Lineup.Core.Settings;
 using Lineup.Core.Streaming;
@@ -22,6 +24,37 @@ namespace Lineup.Core.VirtualOutputs.Runtime.Tests;
 /// <summary>Verifies real HDHomeRun capacity and connection admission shared with a dedicated Lineup Link worker.</summary>
 public sealed class HdHomeRunWorkerProcessTests
 {
+    /// <summary>A real dedicated Lineup Link endpoint reports guide capacity explicitly and remains usable for a corrected snapshot.</summary>
+    [Fact]
+    public async Task LineupLink_GuideEnvelope_ReturnsStructuredFailureAndRecovers()
+    {
+        // Arrange
+        await using var harness = await Harness.StartAsync(null, false, lineupLink: true);
+        var channel = new VirtualGuideChannel { ChannelId = new(harness.DeviceId, Guid.NewGuid()), Number = "1", Name = "Example", Programs = [] };
+        var snapshot = new VirtualGuideSnapshot
+        {
+            VirtualDeviceId = harness.DeviceId,
+            Generation = new(DateTimeOffset.UtcNow, "coherent-guide"),
+            Channels = Enumerable.Repeat(channel, GuideTransfer.MaximumChannels + 1).ToArray()
+        };
+        harness.Guides.BuildSnapshotAsync(harness.DeviceId, Arg.Any<CancellationToken>()).Returns(_ => snapshot);
+        var path = LineupLinkProtocol.GuidePath(harness.DeviceId.Value);
+
+        // Act
+        using var rejected = await harness.Client.GetAsync(path, TestContext.Current.CancellationToken);
+        var error = await rejected.Content.ReadFromJsonAsync<LineupLinkError>(TestContext.Current.CancellationToken);
+        snapshot = snapshot with { Channels = [channel] };
+        using var recovered = await harness.Client.GetAsync(path, TestContext.Current.CancellationToken);
+        var guide = await recovered.Content.ReadFromJsonAsync<LineupLinkGuide>(TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, rejected.StatusCode);
+        Assert.Equal("guide_limit", Assert.IsType<LineupLinkError>(error).Code);
+        Assert.Equal(HttpStatusCode.OK, recovered.StatusCode);
+        Assert.Equal("1", Assert.Single(Assert.IsType<LineupLinkGuide>(guide).Channels).Key);
+        Assert.False(harness.HasExited);
+    }
+
     /// <summary>Verifies different production workers share admission, preserve authentication and return capacity after a process crash.</summary>
     [Fact]
     public async Task Admission_LineupLinkAndHdHomeRunProcesses_ShareBudgetAndRecoverAfterCrash()
@@ -206,11 +239,16 @@ public sealed class HdHomeRunWorkerProcessTests
             var activeStreams = new ActiveStreamRegistry();
             var broker = new VirtualOutputBroker(
                 _authority, settings, new StreamingAdapterRegistry([], [driver], []), catalog, Substitute.For<IStreamingRouteResolver>(),
-                Substitute.For<IGuideOrchestrator>(), Substitute.For<IVirtualMpegTsOutputService>(), activeStreams);
+                Guides, Substitute.For<IVirtualMpegTsOutputService>(), activeStreams);
             _server = new VirtualOutputIpcServer(endpoint, _authority, broker, new VirtualOutputRuntimeStatus(), settings, activeStreams,
                 NullLogger<VirtualOutputIpcServer>.Instance, budget ?? new PluginConnectionBudget(settings));
+            var capabilities = new HashSet<VirtualOutputCapability> { VirtualOutputCapability.ReadManifest, VirtualOutputCapability.ReportHealth, VirtualOutputCapability.AdmitConnection };
+            if (lineupLink)
+            {
+                capabilities.Add(VirtualOutputCapability.ReadGuide);
+            }
             var ticket = _authority.CreateActivation(
-                device.Id, driver.Kind, new HashSet<VirtualOutputCapability> { VirtualOutputCapability.ReadManifest, VirtualOutputCapability.ReportHealth, VirtualOutputCapability.AdmitConnection },
+                device.Id, driver.Kind, capabilities,
                 TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
             _bootstrap = new VirtualOutputWorkerBootstrap
             {
@@ -228,6 +266,9 @@ public sealed class HdHomeRunWorkerProcessTests
 
         /// <summary>Gets the current trusted-host settings.</summary>
         internal LineupSettings Settings { get; }
+
+        /// <summary>Gets the guide projection supplied through the real authenticated broker.</summary>
+        internal IGuideOrchestrator Guides { get; } = Substitute.For<IGuideOrchestrator>();
 
         /// <summary>Gets the worker's loopback HTTP client.</summary>
         internal HttpClient Client { get; }

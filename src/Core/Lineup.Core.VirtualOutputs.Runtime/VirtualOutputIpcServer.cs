@@ -22,6 +22,8 @@ public sealed class VirtualOutputIpcServer : BackgroundService
     private readonly IActiveStreamRegistry _activeStreams;
     private readonly ILogger<VirtualOutputIpcServer> _logger;
     private readonly IPluginConnectionBudget _connectionBudget;
+    private readonly IMediaWorkAdmission _mediaWork;
+    private readonly StreamingResourceOptions _resources;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<(VirtualOutputSessionContext Session, string ConnectionId), byte> _connectionOwners = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<VirtualDeviceId, int> _outstandingCalls = new();
     private readonly VirtualOutputBrokerStreamRegistry _brokerStreams;
@@ -38,7 +40,9 @@ public sealed class VirtualOutputIpcServer : BackgroundService
         ILineupSettingsService settings,
         IActiveStreamRegistry activeStreams,
         ILogger<VirtualOutputIpcServer> logger,
-        IPluginConnectionBudget connectionBudget)
+        IPluginConnectionBudget connectionBudget,
+        IMediaWorkAdmission? mediaWork = null,
+        StreamingResourceOptions? resources = null)
     {
         _endpoint = endpoint;
         _authority = authority;
@@ -48,6 +52,8 @@ public sealed class VirtualOutputIpcServer : BackgroundService
         _activeStreams = activeStreams;
         _logger = logger;
         _connectionBudget = connectionBudget ?? throw new ArgumentNullException(nameof(connectionBudget));
+        _resources = resources ?? new();
+        _mediaWork = mediaWork ?? new MediaWorkAdmission(_resources);
         _brokerStreams = new VirtualOutputBrokerStreamRegistry(authority, logger);
         ValidateEndpoint(endpoint);
     }
@@ -293,8 +299,133 @@ public sealed class VirtualOutputIpcServer : BackgroundService
             case VirtualOutputIpcOperation.AdmitConnection:
                 await AdmitConnectionAsync(stream, request.ReadPayload<VirtualOutputConnectionAdmissionRequest>(), cancellationToken);
                 break;
+            case VirtualOutputIpcOperation.ReserveMediaWork:
+                await ReserveMediaWorkAsync(stream, request.ReadPayload<VirtualOutputMediaWorkRequest>(), cancellationToken);
+                break;
             default:
                 throw new InvalidDataException($"Unsupported IPC operation {request.Operation}.");
+        }
+    }
+
+    private async Task ReserveMediaWorkAsync(Stream stream, VirtualOutputMediaWorkRequest request, CancellationToken cancellationToken)
+    {
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var responses = System.Threading.Channels.Channel.CreateBounded<bool>(1);
+        var control = new SemaphoreSlim(1, 1);
+        async Task<bool> RetireAsync(CancellationToken token)
+        {
+            if (finished.Task.IsCompleted)
+            {
+                return true;
+            }
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token, cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(5));
+            var entered = false;
+            try
+            {
+                await ready.Task.WaitAsync(timeout.Token);
+                entered = await control.WaitAsync(0, timeout.Token);
+                if (!entered)
+                {
+                    return false;
+                }
+                await stream.WriteAsync(new byte[] { 1 }, timeout.Token);
+                await stream.FlushAsync(timeout.Token);
+                var reply = responses.Reader.ReadAsync(timeout.Token).AsTask();
+                if (await Task.WhenAny(reply, finished.Task) == finished.Task)
+                {
+                    return true;
+                }
+                return await reply;
+            }
+            catch (OperationCanceledException) when (!token.IsCancellationRequested)
+            {
+                return false;
+            }
+            catch (Exception exception) when (exception is IOException or ObjectDisposedException)
+            {
+                await finished.Task.WaitAsync(token);
+                return true;
+            }
+            finally
+            {
+                if (entered)
+                {
+                    control.Release();
+                }
+            }
+        }
+        try
+        {
+            using var call = AcquireBrokerCall(request.Session, VirtualOutputCapability.OpenStream);
+            await using var permit = await _mediaWork.AcquireAsync(request.IsProcessing ? MediaWorkKind.Processing : MediaWorkKind.Producer,
+                request.Reclaimable ? RetireAsync : null, cancellationToken);
+            await WriteAsync(stream, new VirtualOutputMediaWorkResponse(_resources.MinimumMediaFreeSpaceMib), cancellationToken);
+            call.Dispose();
+            ready.TrySetResult();
+            var revocation = ObserveConnectionRevocationAsync(request.Session, lifetime.Token, VirtualOutputCapability.OpenStream);
+            var command = new byte[1];
+            try
+            {
+                while (true)
+                {
+                    var read = stream.ReadAsync(command, lifetime.Token).AsTask();
+                    if (await Task.WhenAny(read, revocation) == revocation)
+                    {
+                        await revocation;
+                        await stream.WriteAsync(new byte[] { 2 }, cancellationToken);
+                        await stream.FlushAsync(cancellationToken);
+                        while (await read != 0)
+                        {
+                            if (command[0] == 3)
+                            {
+                                await permit.DisposeAsync();
+                                await stream.WriteAsync(new byte[] { 3 }, cancellationToken);
+                                await stream.FlushAsync(cancellationToken);
+                                break;
+                            }
+                            read = stream.ReadAsync(command, lifetime.Token).AsTask();
+                        }
+                        break;
+                    }
+                    if (await read == 0)
+                    {
+                        break;
+                    }
+                    if (command[0] == 3)
+                    {
+                        await permit.DisposeAsync();
+                        await stream.WriteAsync(new byte[] { 3 }, cancellationToken);
+                        await stream.FlushAsync(cancellationToken);
+                        break;
+                    }
+                    if (command[0] > 1)
+                    {
+                        throw new InvalidDataException("Invalid media retirement acknowledgement.");
+                    }
+                    if (!responses.Writer.TryWrite(command[0] == 1))
+                    {
+                        throw new InvalidDataException("Unexpected media retirement acknowledgement.");
+                    }
+                }
+            }
+            finally
+            {
+                lifetime.Cancel();
+                try { await revocation; }
+                catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+            }
+        }
+        catch (MediaResourceLimitException exception)
+        {
+            throw new VirtualOutputBrokerException(VirtualOutputFailureCode.ResourceLimit, exception.Message, exception);
+        }
+        finally
+        {
+            ready.TrySetCanceled();
+            finished.TrySetResult();
         }
     }
 
@@ -360,9 +491,9 @@ public sealed class VirtualOutputIpcServer : BackgroundService
         return authorization;
     }
 
-    private async Task ObserveConnectionRevocationAsync(VirtualOutputSessionContext session, CancellationToken cancellationToken)
+    private async Task ObserveConnectionRevocationAsync(VirtualOutputSessionContext session, CancellationToken cancellationToken, VirtualOutputCapability capability = VirtualOutputCapability.AdmitConnection)
     {
-        while (_authority.Authorize(session, VirtualOutputCapability.AdmitConnection).Authorized)
+        while (_authority.Authorize(session, capability).Authorized)
         {
             await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
         }
@@ -401,11 +532,43 @@ public sealed class VirtualOutputIpcServer : BackgroundService
             CancellationToken cancellationToken)
     {
         using var lease = AcquireBrokerCall(request.Session, VirtualOutputCapability.ReadGuide);
-        await VirtualOutputWireProtocol.WriteAsync(
-            stream,
-            VirtualOutputIpcResponse.Success(await _broker.GetGuideAsync(request, cancellationToken)),
-            VirtualOutputProtocol.MaximumGuideMessageBytes,
-            cancellationToken);
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var disconnected = CancelGuideOnDisconnectAsync(stream, lifetime);
+        try
+        {
+            var response = await _broker.GetGuideAsync(request, lifetime.Token);
+            await VirtualOutputWireProtocol.WriteGuideAsync(stream, response, lifetime.Token);
+        }
+        catch (Lineup.Core.Common.Guides.GuideTransferLimitException exception)
+        {
+            _logger.LogWarning("Guide transfer rejected: {Error}", exception.Message);
+            throw new VirtualOutputBrokerException(VirtualOutputFailureCode.ResourceLimit, exception.Message, exception);
+        }
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new IOException("The guide client disconnected before the transfer completed.", exception);
+        }
+        finally
+        {
+            await lifetime.CancelAsync();
+            await disconnected;
+        }
+    }
+
+    private static async Task CancelGuideOnDisconnectAsync(Stream stream, CancellationTokenSource lifetime)
+    {
+        try
+        {
+            _ = await stream.ReadAsync(new byte[1], lifetime.Token);
+            await lifetime.CancelAsync();
+        }
+        catch (IOException)
+        {
+            await lifetime.CancelAsync();
+        }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
+        {
+        }
     }
 
     private async Task RegisterAsync(

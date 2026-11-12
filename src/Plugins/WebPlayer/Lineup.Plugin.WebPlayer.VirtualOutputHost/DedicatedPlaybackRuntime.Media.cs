@@ -10,7 +10,7 @@ namespace Lineup.Plugin.WebPlayer.VirtualOutputHost;
 
 internal sealed partial class DedicatedPlaybackRuntime
 {
-    private static Process StartMediaProcess(string directory, IReadOnlyList<string> arguments)
+    private static Process StartMediaProcess(string directory, IReadOnlyList<string> arguments, IMediaWorkAdmission? admission = null)
     {
         var configuredExecutable = Environment.GetEnvironmentVariable("LINEUP_FFMPEG_EXECUTABLE");
         var executable = string.IsNullOrWhiteSpace(configuredExecutable) ? "ffmpeg" : configuredExecutable;
@@ -31,18 +31,25 @@ internal sealed partial class DedicatedPlaybackRuntime
         {
             startInfo.ArgumentList.Add(argument);
         }
-        return Process.Start(startInfo) ?? throw new InvalidOperationException("Unable to start FFmpeg for the Web Player output.");
+        return MediaProcessAdmission.Start(
+            () => Process.Start(startInfo) ?? throw new InvalidOperationException("Unable to start FFmpeg for the Web Player output."), admission, directory);
     }
 
-    private static async Task<MediaSession> StartMediaSessionAsync(string id, string directory, VirtualOutputClientStream source, DedicatedCmafSessionPlan plan, ILogger logger)
+    private static async Task<MediaSession> StartMediaSessionAsync(
+        string id,
+        string directory,
+        VirtualOutputClientStream source,
+        DedicatedCmafSessionPlan plan,
+        ILogger logger,
+        IMediaWorkAdmission? admission = null)
     {
         await using var guard = new MediaSessionStartupGuard(directory, source);
-        var process = StartMediaProcess(directory, plan.Arguments);
+        var process = StartMediaProcess(directory, plan.Arguments, admission);
         guard.RegisterProcess(process);
         Process? captionProcess = null;
         if (plan.EmbeddedCaptions is not null)
         {
-            captionProcess = StartMediaProcess(directory, WebPlayerTrackPlanner.CreateEmbeddedCaptionArguments(plan.SubtitlePaths[plan.EmbeddedCaptions.Index]));
+            captionProcess = StartMediaProcess(directory, WebPlayerTrackPlanner.CreateEmbeddedCaptionArguments(plan.SubtitlePaths[plan.EmbeddedCaptions.Index]), admission);
             guard.RegisterProcess(captionProcess);
         }
         var session = new MediaSession(id, directory, process, captionProcess, source, plan, new CancellationTokenSource(), logger);
@@ -59,9 +66,22 @@ internal sealed partial class DedicatedPlaybackRuntime
         {
             while (true)
             {
-                var bytesRead = await session.Source.Stream.ReadAsync(buffer, session.Lifetime.Token);
+                int bytesRead;
+                try
+                {
+                    bytesRead = await session.Source.Stream.ReadAsync(buffer, session.Lifetime.Token);
+                }
+                catch (IOException) when (!session.Lifetime.IsCancellationRequested)
+                {
+                    session.SourceTerminationCode = "source_failure";
+                    throw;
+                }
                 if (bytesRead == 0)
                 {
+                    if (!session.Lifetime.IsCancellationRequested)
+                    {
+                        session.SourceTerminationCode = "source_eof";
+                    }
                     break;
                 }
                 try
@@ -104,7 +124,7 @@ internal sealed partial class DedicatedPlaybackRuntime
     private static async Task ObserveProcessAsync(MediaSession session, ICmafOutputCoordinator sessions)
     {
         await session.Process.WaitForExitAsync();
-        await sessions.ReleaseOutputAsync(new StreamSessionId(Guid.ParseExact(session.Id, "N")));
+        await sessions.ReleaseOutputAsync(new StreamSessionId(Guid.ParseExact(session.Id, "N")), session.SourceTerminationCode);
     }
 
     private static Task WaitForOutputAsync(MediaSession session, TimeSpan timeout, CancellationToken cancellationToken) =>
@@ -141,6 +161,9 @@ internal sealed partial class DedicatedPlaybackRuntime
     /// <summary>Owns one FFmpeg attempt, its caption process, input pump, diagnostics, broker source, and artifacts.</summary>
     internal sealed class MediaSession : IAsyncDisposable
     {
+        /// <summary>Records source read termination independently of processor failure and intentional shutdown.</summary>
+        internal volatile string? SourceTerminationCode;
+
         private int _disposed;
         private bool _mediaStopped;
 
@@ -243,10 +266,12 @@ internal sealed partial class DedicatedPlaybackRuntime
                     CaptionProcess.Kill(entireProcessTree: true);
                 }
                 await Process.WaitForExitAsync();
+                await MediaProcessAdmission.WaitForReleaseAsync(Process);
                 ExitCode = Process.ExitCode;
                 if (CaptionProcess is not null)
                 {
                     await CaptionProcess.WaitForExitAsync();
+                    await MediaProcessAdmission.WaitForReleaseAsync(CaptionProcess);
                 }
                 if (PumpTask is not null)
                 {

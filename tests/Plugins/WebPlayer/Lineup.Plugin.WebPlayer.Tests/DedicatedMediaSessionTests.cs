@@ -7,6 +7,81 @@ namespace Lineup.Plugin.WebPlayer.Tests;
 /// <summary>Verifies dedicated Web Player session ownership and inactivity cleanup.</summary>
 public sealed class DedicatedMediaSessionTests
 {
+    /// <summary>Only classified source completion is retryable; explicit stops and unknown aliases remain terminal.</summary>
+    [Theory]
+    [InlineData("source_eof", true)]
+    [InlineData("source_failure", true)]
+    [InlineData("media_process_failed", false)]
+    [InlineData(null, false)]
+    public async Task PlaybackStatus_ClassifiesSourceLossWithoutRevivingStoppedViewers(string? code, bool retryable)
+    {
+        // Arrange
+        var clock = new MutableTimeProvider();
+        await using var coordinator = new CmafOutputCoordinator(clock);
+        var stopped = await coordinator.AcquireAsync(new StreamTransformKey("cmaf", "shared"),
+            _ => ValueTask.FromResult<IAsyncDisposable>(new TestSession()), TestContext.Current.CancellationToken);
+        var survivor = await coordinator.AcquireAsync(new StreamTransformKey("cmaf", "shared"),
+            _ => ValueTask.FromException<IAsyncDisposable>(new InvalidOperationException("Must share.")), TestContext.Current.CancellationToken);
+        await coordinator.ReleaseViewerAsync(stopped.ViewerSessionId);
+
+        // Act
+        await coordinator.ReleaseOutputAsync(survivor.OutputId, code);
+        var status = coordinator.GetPlaybackStatus(survivor.ViewerSessionId);
+
+        // Assert
+        Assert.False(status.IsActive);
+        Assert.Equal(retryable, status.Retryable);
+        Assert.False(coordinator.GetPlaybackStatus(stopped.ViewerSessionId).Retryable);
+        Assert.False(coordinator.GetPlaybackStatus(StreamSessionId.New()).Retryable);
+        clock.Advance(TimeSpan.FromMinutes(2));
+        Assert.False(coordinator.GetPlaybackStatus(survivor.ViewerSessionId).Retryable);
+    }
+
+    /// <summary>A late explicit stop suppresses an earlier source-loss outcome, and shutdown drops recovery history.</summary>
+    [Fact]
+    public async Task PlaybackStatus_ExplicitStopAndShutdown_SuppressRecovery()
+    {
+        // Arrange
+        await using var coordinator = new CmafOutputCoordinator();
+        var first = await coordinator.AcquireAsync(new StreamTransformKey("cmaf", "one"),
+            _ => ValueTask.FromResult<IAsyncDisposable>(new TestSession()), TestContext.Current.CancellationToken);
+        var second = await coordinator.AcquireAsync(new StreamTransformKey("cmaf", "two"),
+            _ => ValueTask.FromResult<IAsyncDisposable>(new TestSession()), TestContext.Current.CancellationToken);
+        await coordinator.ReleaseOutputAsync(first.OutputId, "source_eof");
+        await coordinator.ReleaseOutputAsync(second.OutputId, "source_failure");
+
+        // Act
+        await coordinator.ReleaseViewerAsync(first.ViewerSessionId);
+        var stopped = coordinator.GetPlaybackStatus(first.ViewerSessionId);
+        await coordinator.StopAsync();
+
+        // Assert
+        Assert.False(stopped.Retryable);
+        Assert.False(coordinator.GetPlaybackStatus(second.ViewerSessionId).Retryable);
+    }
+
+    /// <summary>Source-loss history never grows beyond the advertised per-host alias bound.</summary>
+    [Fact]
+    public async Task PlaybackStatus_ManySourceLosses_RetainsAtMost2048Aliases()
+    {
+        // Arrange
+        await using var coordinator = new CmafOutputCoordinator();
+        var viewers = new List<ICmafOutputLease>();
+        var key = new StreamTransformKey("cmaf", "many-viewers");
+        for (var index = 0; index < 2049; index++)
+        {
+            viewers.Add(await coordinator.AcquireAsync(key, _ => ValueTask.FromResult<IAsyncDisposable>(new TestSession()), TestContext.Current.CancellationToken));
+        }
+
+        // Act
+        await coordinator.ReleaseOutputAsync(viewers[0].OutputId, "source_eof");
+        var retained = viewers.Count(viewer => coordinator.GetPlaybackStatus(viewer.ViewerSessionId).Retryable);
+
+        // Assert
+        Assert.Equal(2048, retained);
+        Assert.Empty(coordinator.GetViewers());
+    }
+
     /// <summary>Verifies wall-clock corrections cannot expire active media or indefinitely retain abandoned sessions.</summary>
     [Theory]
     [InlineData(3600)]
@@ -45,11 +120,13 @@ public sealed class DedicatedMediaSessionTests
 
         // Act
         var snapshots = await Task.WhenAll(Enumerable.Range(0, 20).Select(_ => Task.Run(coordinator.GetViewers)));
+        var passiveStatus = coordinator.GetPlaybackStatus(lease.ViewerSessionId);
         clock.Advance(TimeSpan.FromMilliseconds(1));
         await session.Disposed.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         // Assert
         Assert.All(snapshots, snapshot => Assert.Equal(lease.ViewerSessionId, Assert.Single(snapshot).ViewerSessionId));
+        Assert.True(passiveStatus.IsActive);
         Assert.Empty(coordinator.GetViewers());
         Assert.True(session.IsDisposed);
     }

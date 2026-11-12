@@ -15,7 +15,7 @@ namespace Lineup.App.Web.Tests.Components.Pages;
 /// <summary>
 /// Verifies the Watch page lifecycle and independent preferences.
 /// </summary>
-public class WatchTests
+public partial class WatchTests
 {
     private const string PreferencesStorageKey = "lineup-watch-cmaf-preferences-v2";
 

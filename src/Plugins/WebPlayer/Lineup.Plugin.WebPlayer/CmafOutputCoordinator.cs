@@ -12,6 +12,9 @@ public sealed record CmafViewerSnapshot(StreamSessionId ViewerSessionId, StreamS
 /// <summary>Immutable diagnostic state for one reusable CMAF producer.</summary>
 public sealed record CmafOutputDiagnostics(StreamSessionId OutputId, StreamTransformKey TransformKey, int ViewerCount, bool IsWarm);
 
+/// <summary>Reports passive viewer liveness or a bounded, explicitly classified terminal outcome.</summary>
+public sealed record CmafPlaybackStatus(bool IsActive, string? Code, bool Retryable);
+
 /// <summary>Owns one viewer alias reference to a reusable CMAF output.</summary>
 public interface ICmafOutputLease : IAsyncDisposable
 {
@@ -59,10 +62,13 @@ public interface ICmafOutputCoordinator : IAsyncDisposable, IStreamingProducerDi
     bool TryGetViewer(StreamSessionId viewerSessionId, out CmafViewerSnapshot? viewer);
 
     /// <summary>Releases one viewer alias; the final release disposes its output owner.</summary>
-    ValueTask<bool> ReleaseViewerAsync(StreamSessionId viewerSessionId);
+    ValueTask<bool> ReleaseViewerAsync(StreamSessionId viewerSessionId, string? terminationCode = null);
 
     /// <summary>Releases every viewer of a completed output.</summary>
-    ValueTask ReleaseOutputAsync(StreamSessionId outputId);
+    ValueTask ReleaseOutputAsync(StreamSessionId outputId, string? terminationCode = null);
+
+    /// <summary>Reads viewer status without renewing its inactivity lease.</summary>
+    CmafPlaybackStatus GetPlaybackStatus(StreamSessionId viewerSessionId);
 
     /// <summary>Gets all active viewer aliases.</summary>
     IReadOnlyList<CmafViewerSnapshot> GetViewers();
@@ -82,17 +88,21 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
 {
     private static readonly TimeSpan DefaultInactivityTimeout = TimeSpan.FromMinutes(2);
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly SemaphoreSlim _creationGate = new(1, 1);
+    private readonly IMediaWorkAdmission? _mediaWork;
     private readonly Dictionary<StreamTransformKey, OutputEntry> _outputs = [];
     private readonly Dictionary<StreamSessionId, ViewerEntry> _viewers = [];
+    private readonly Dictionary<StreamSessionId, (string Code, long Timestamp)> _terminations = [];
     private readonly TimeProvider _timeProvider;
     private readonly TimeSpan _inactivityTimeout;
     private bool _stopping;
 
     /// <summary>Initializes a coordinator.</summary>
-    public CmafOutputCoordinator(TimeProvider? timeProvider = null, TimeSpan? inactivityTimeout = null)
+    public CmafOutputCoordinator(TimeProvider? timeProvider = null, TimeSpan? inactivityTimeout = null, IMediaWorkAdmission? mediaWork = null)
     {
         _timeProvider = timeProvider ?? TimeProvider.System;
         _inactivityTimeout = NormalizeTimeout(inactivityTimeout);
+        _mediaWork = mediaWork;
     }
 
     /// <inheritdoc />
@@ -159,32 +169,133 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
             throw new ArgumentOutOfRangeException(nameof(keepWarmPeriod), keepWarmPeriod, "Keep-warm period must be between zero and five minutes.");
         }
 
-        await _gate.WaitAsync(cancellationToken);
+        await _creationGate.WaitAsync(cancellationToken);
+        IAsyncDisposable? reservation = null;
+        OutputEntry? reservedOutput = null;
         try
         {
-            ObjectDisposedException.ThrowIf(_stopping, this);
-            if (!_outputs.TryGetValue(transformKey, out var output))
+            await _gate.WaitAsync(cancellationToken);
+            try
             {
+                ObjectDisposedException.ThrowIf(_stopping, this);
+                if (_viewers.ContainsKey(viewerSessionId))
+                {
+                    throw new InvalidOperationException($"CMAF viewer {viewerSessionId} already exists.");
+                }
+                if (_outputs.TryGetValue(transformKey, out var existing))
+                {
+                    return AddViewer(transformKey, viewerSessionId, existing, keepWarmPeriod);
+                }
+            }
+            finally
+            {
+                _gate.Release();
+            }
+            if (_mediaWork is not null)
+            {
+                reservation = await _mediaWork.AcquireAsync(MediaWorkKind.Producer, token => RetireIdleAsync(transformKey, reservedOutput, token), cancellationToken);
+            }
+            await _gate.WaitAsync(cancellationToken);
+            try
+            {
+                ObjectDisposedException.ThrowIf(_stopping, this);
                 var registration = await startOutput(cancellationToken);
-                output = new OutputEntry(StreamSessionId.New(), registration.Owner, registration.State, registration.ViewerReleased);
+                var output = new OutputEntry(StreamSessionId.New(), new ReservedOwner(registration.Owner, reservation), registration.State, registration.ViewerReleased);
+                reservedOutput = output;
+                reservation = null;
                 _outputs.Add(transformKey, output);
                 Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.CmafProducers.Add(1);
+                return AddViewer(transformKey, viewerSessionId, output, keepWarmPeriod);
             }
-            CancelWarmExpiration(output);
-
-            if (_viewers.ContainsKey(viewerSessionId))
+            finally
             {
-                throw new InvalidOperationException($"CMAF viewer {viewerSessionId} already exists.");
+                _gate.Release();
             }
-            var viewer = new ViewerEntry(viewerSessionId, transformKey, output, _timeProvider.GetTimestamp(), keepWarmPeriod);
-            output.ReferenceCount++;
-            _viewers.Add(viewerSessionId, viewer);
-            viewer.ExpirationTask = ExpireAsync(viewer, viewer.ExpirationCancellation.Token);
-            return new OutputLease(this, viewer);
+        }
+        finally
+        {
+            try
+            {
+                if (reservation is not null)
+                {
+                    await reservation.DisposeAsync();
+                }
+            }
+            finally
+            {
+                _creationGate.Release();
+            }
+        }
+    }
+
+    private OutputLease AddViewer(StreamTransformKey key, StreamSessionId viewerId, OutputEntry output, TimeSpan keepWarmPeriod)
+    {
+        CancelWarmExpiration(output);
+        var viewer = new ViewerEntry(viewerId, key, output, _timeProvider.GetTimestamp(), keepWarmPeriod);
+        output.ReferenceCount++;
+        _terminations.Remove(viewerId);
+        _viewers.Add(viewerId, viewer);
+        viewer.ExpirationTask = ExpireAsync(viewer, viewer.ExpirationCancellation.Token);
+        return new OutputLease(this, viewer);
+    }
+
+    private async Task<bool> RetireIdleAsync(StreamTransformKey key, OutputEntry? reservedOutput, CancellationToken cancellationToken)
+    {
+        if (reservedOutput is null)
+        {
+            return false;
+        }
+        IAsyncDisposable? owner = null;
+        if (!await _gate.WaitAsync(0, cancellationToken))
+        {
+            return false;
+        }
+        try
+        {
+            if (!_outputs.TryGetValue(key, out var output) || !ReferenceEquals(output, reservedOutput))
+            {
+                owner = reservedOutput.Owner;
+            }
+            else if (output.ReferenceCount == 0 && output.WarmExpirationCancellation is not null)
+            {
+                _outputs.Remove(key);
+                CancelWarmExpiration(output);
+                Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.CmafProducers.Add(-1);
+                owner = output.Owner;
+            }
         }
         finally
         {
             _gate.Release();
+        }
+        if (owner is null)
+        {
+            return false;
+        }
+        await owner.DisposeAsync().AsTask().WaitAsync(cancellationToken);
+        return true;
+    }
+
+    private sealed class ReservedOwner(IAsyncDisposable owner, IAsyncDisposable? reservation) : IAsyncDisposable
+    {
+        private readonly Lock _gate = new();
+        private Task? _disposal;
+
+        public ValueTask DisposeAsync()
+        {
+            lock (_gate)
+            {
+                return new(_disposal ??= DisposeCoreAsync());
+            }
+        }
+
+        private async Task DisposeCoreAsync()
+        {
+            await owner.DisposeAsync();
+            if (reservation is not null)
+            {
+                await reservation.DisposeAsync();
+            }
         }
     }
 
@@ -211,16 +322,21 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
     }
 
     /// <inheritdoc />
-    public async ValueTask<bool> ReleaseViewerAsync(StreamSessionId viewerSessionId)
+    public async ValueTask<bool> ReleaseViewerAsync(StreamSessionId viewerSessionId, string? terminationCode = null)
     {
         IAsyncDisposable? outputOwner = null;
         await _gate.WaitAsync();
         try
         {
+            if (terminationCode is null)
+            {
+                _terminations.Remove(viewerSessionId);
+            }
             if (!_viewers.Remove(viewerSessionId, out var viewer))
             {
                 return false;
             }
+            RememberTermination(viewerSessionId, terminationCode);
             viewer.ExpirationCancellation.Cancel();
             viewer.Output.ViewerReleased?.Invoke(viewerSessionId);
             if (--viewer.Output.ReferenceCount == 0)
@@ -241,7 +357,7 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
     }
 
     /// <inheritdoc />
-    public async ValueTask ReleaseOutputAsync(StreamSessionId outputId)
+    public async ValueTask ReleaseOutputAsync(StreamSessionId outputId, string? terminationCode = null)
     {
         IAsyncDisposable? owner = null;
         await _gate.WaitAsync();
@@ -253,6 +369,7 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
             foreach (var viewer in viewers)
             {
                 _viewers.Remove(viewer.ViewerSessionId);
+                RememberTermination(viewer.ViewerSessionId, terminationCode);
                 viewer.ExpirationCancellation.Cancel();
                 viewer.Output.ViewerReleased?.Invoke(viewer.ViewerSessionId);
             }
@@ -273,6 +390,47 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
         {
             await owner.DisposeAsync();
         }
+    }
+
+    /// <inheritdoc />
+    public CmafPlaybackStatus GetPlaybackStatus(StreamSessionId viewerSessionId)
+    {
+        _gate.Wait();
+        try
+        {
+            PruneTerminations();
+            return _viewers.ContainsKey(viewerSessionId)
+                ? new(true, null, false)
+                : _terminations.TryGetValue(viewerSessionId, out var termination)
+                    ? new(false, termination.Code, true)
+                    : new(false, "session_unavailable", false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private void PruneTerminations()
+    {
+        foreach (var id in _terminations.Where(pair => _timeProvider.GetElapsedTime(pair.Value.Timestamp) >= TimeSpan.FromMinutes(2)).Select(pair => pair.Key).ToArray())
+        {
+            _terminations.Remove(id);
+        }
+    }
+
+    private void RememberTermination(StreamSessionId viewerId, string? code)
+    {
+        if (code is not ("source_eof" or "source_failure"))
+        {
+            return;
+        }
+        PruneTerminations();
+        if (_terminations.Count >= 2048)
+        {
+            _terminations.Remove(_terminations.MinBy(pair => pair.Value.Timestamp).Key);
+        }
+        _terminations[viewerId] = (code, _timeProvider.GetTimestamp());
     }
 
     /// <inheritdoc />
@@ -343,6 +501,7 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
             }
             owners = _outputs.Values.Select(output => output.Owner).ToArray();
             _viewers.Clear();
+            _terminations.Clear();
             Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.CmafProducers.Add(-_outputs.Count);
             _outputs.Clear();
         }

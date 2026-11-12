@@ -38,7 +38,7 @@ public interface IMediaProcessFactory
 /// <summary>
 /// Default FFmpeg and FFprobe process factory.
 /// </summary>
-public sealed class MediaProcessFactory : IMediaProcessFactory
+public sealed class MediaProcessFactory(Lineup.Core.Common.Streaming.IMediaWorkAdmission? admission = null) : IMediaProcessFactory
 {
     /// <inheritdoc />
     public Process Start(MediaProcessRequest request)
@@ -61,7 +61,8 @@ public sealed class MediaProcessFactory : IMediaProcessFactory
 
         try
         {
-            return Process.Start(startInfo) ?? throw new MediaProcessException($"Failed to start {request.FileName}.");
+            return MediaProcessAdmission.Start(
+                () => Process.Start(startInfo) ?? throw new MediaProcessException($"Failed to start {request.FileName}."), admission, request.WorkingDirectory);
         }
         catch (System.ComponentModel.Win32Exception ex)
         {
@@ -113,14 +114,14 @@ public sealed class MediaProcessException : Exception
 public static class MediaStreamPump
 {
     /// <summary>Pumps input until the source closes, the process exits, or cancellation is requested.</summary>
-    public static async Task PumpAsync(Stream source, Process process, ILogger logger, string sourceName, CancellationToken cancellationToken)
+    public static async Task PumpAsync(Stream source, Process process, ILogger logger, string sourceName, CancellationToken cancellationToken, Action<string>? sourceTerminated = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(process);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         try
         {
-            var copyTask = CopyToProcessAsync(source, process, logger, sourceName, lifetime.Token);
+            var copyTask = CopyToProcessAsync(source, process, logger, sourceName, lifetime.Token, sourceTerminated);
             var exitTask = process.WaitForExitAsync(lifetime.Token);
             await Task.WhenAny(copyTask, exitTask);
             await lifetime.CancelAsync();
@@ -144,14 +145,27 @@ public static class MediaStreamPump
         }
     }
 
-    private static async Task CopyToProcessAsync(Stream source, Process process, ILogger logger, string sourceName, CancellationToken cancellationToken)
+    private static async Task CopyToProcessAsync(Stream source, Process process, ILogger logger, string sourceName, CancellationToken cancellationToken, Action<string>? sourceTerminated)
     {
         var buffer = new byte[64 * 1024];
         while (true)
         {
-            var count = await source.ReadAsync(buffer, cancellationToken);
+            int count;
+            try
+            {
+                count = await source.ReadAsync(buffer, cancellationToken);
+            }
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested && exception is IOException or MediaProcessException)
+            {
+                sourceTerminated?.Invoke("source_failure");
+                throw;
+            }
             if (count == 0)
             {
+                if (!cancellationToken.IsCancellationRequested)
+                {
+                    sourceTerminated?.Invoke("source_eof");
+                }
                 return;
             }
             try

@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -49,7 +50,7 @@ public class EpgAutoFetchServiceTests
         Assert.Contains("1 published partial guides", failure.Message, StringComparison.Ordinal);
         Assert.Equal(previous, fixture.Settings.LastAutoFetchTime);
         Assert.Null(fixture.State.LastFetchTime);
-        await fixture.SettingsService.DidNotReceive().UpdateAsync(Arg.Any<Action<LineupSettings>>());
+        Assert.Equal(fixture.Now.AddHours(24), fixture.Settings.GuideSourceSchedules[fixture.SourceId.Value].NextRefreshUtc);
     }
 
     /// <summary>Verifies failed publication is not recorded as a successful automatic fetch.</summary>
@@ -71,10 +72,10 @@ public class EpgAutoFetchServiceTests
         Assert.Contains("output", failure.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(previous, fixture.Settings.LastAutoFetchTime);
         Assert.Null(fixture.State.LastFetchTime);
-        await fixture.SettingsService.DidNotReceive().UpdateAsync(Arg.Any<Action<LineupSettings>>());
+        Assert.Equal(fixture.Now.AddHours(sourceAlsoFails ? 1 : 24), fixture.Settings.GuideSourceSchedules[fixture.SourceId.Value].NextRefreshUtc);
     }
 
-    /// <summary>Verifies successful publication and refresh-only operations retain their successful randomized schedule.</summary>
+    /// <summary>Verifies successful publication and refresh-only operations retain their provider's successful schedule.</summary>
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -84,7 +85,6 @@ public class EpgAutoFetchServiceTests
         using var fixture = new FetchFixture();
         fixture.Settings.AutoGenerateXmltv = publish;
         fixture.Result = Result(sourceFails: false, outputFails: false);
-        var before = DateTime.UtcNow;
 
         // Act
         await fixture.FetchAsync(TestContext.Current.CancellationToken);
@@ -92,14 +92,15 @@ public class EpgAutoFetchServiceTests
         // Assert
         Assert.False(fixture.State.IsRunning);
         Assert.Null(fixture.State.CurrentProgress);
-        Assert.InRange(fixture.Settings.LastAutoFetchTime!.Value, before, DateTime.UtcNow);
-        var interval = fixture.Settings.NextAutoFetchTime!.Value - fixture.Settings.LastAutoFetchTime.Value;
-        Assert.InRange(interval, TimeSpan.FromHours(20), TimeSpan.FromHours(28));
-        await fixture.Guides.Received(publish ? 1 : 0).RefreshAndPublishAsync(Arg.Any<CancellationToken>());
-        await fixture.Guides.Received(publish ? 0 : 1).RefreshAsync(Arg.Any<CancellationToken>());
+        Assert.Equal(fixture.Now, fixture.Settings.LastAutoFetchTime);
+        var interval = fixture.Settings.NextAutoFetchTime!.Value - Assert.IsType<DateTime>(fixture.Settings.LastAutoFetchTime);
+        Assert.Equal(TimeSpan.FromHours(24), interval);
+        await fixture.Guides.Received(1).RefreshSourcesAsync(fixture.Settings.Streaming,
+            Arg.Is<IReadOnlySet<GuideSourceId>>(ids => ids.SetEquals(new[] { fixture.SourceId })), false, Arg.Any<CancellationToken>());
+        await fixture.Guides.Received(publish ? 1 : 0).PublishAsync(Arg.Any<CancellationToken>());
     }
 
-    /// <summary>Verifies publication failure reaches observable failure state and the existing one-hour retry without replacing the last success.</summary>
+    /// <summary>Verifies publication failure reports failure without replacing the last success or shortening a healthy source's cadence.</summary>
     [Fact]
     public async Task ExecuteAsync_PublicationFailure_ReportsFailureAndSchedulesRetry()
     {
@@ -108,17 +109,17 @@ public class EpgAutoFetchServiceTests
         fixture.Result = Result(sourceFails: false, outputFails: true);
         var previous = fixture.Settings.LastAutoFetchTime;
         fixture.Settings.NextAutoFetchTime = DateTime.UtcNow.AddSeconds(1);
-        var before = DateTime.UtcNow;
+        using var service = fixture.CreateService(TimeProvider.System);
 
         // Act
-        await fixture.Service.StartAsync(TestContext.Current.CancellationToken);
+        await service.StartAsync(TestContext.Current.CancellationToken);
         try
         {
-            await fixture.Updated.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            await fixture.Failed.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
         }
         finally
         {
-            await fixture.Service.StopAsync(TestContext.Current.CancellationToken);
+            await service.StopAsync(TestContext.Current.CancellationToken);
         }
 
         // Assert
@@ -127,8 +128,165 @@ public class EpgAutoFetchServiceTests
         Assert.Contains("output", fixture.State.CurrentProgress?.ErrorMessage, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(previous, fixture.Settings.LastAutoFetchTime);
         Assert.Null(fixture.State.LastFetchTime);
-        Assert.InRange(fixture.Settings.NextAutoFetchTime!.Value, before.AddHours(1), DateTime.UtcNow.AddHours(1));
-        Assert.InRange(fixture.State.NextFetchTime!.Value, before.AddHours(1), DateTime.UtcNow.AddHours(1));
+        Assert.InRange(Assert.IsType<DateTime>(fixture.Settings.NextAutoFetchTime), fixture.Now.AddHours(24), DateTime.UtcNow.AddHours(24));
+        Assert.InRange(fixture.Settings.GuideSourceSchedules[fixture.SourceId.Value].NextRefreshUtc, fixture.Now.AddHours(24), DateTime.UtcNow.AddHours(24));
+        Assert.InRange(Assert.IsType<DateTime>(fixture.State.NextFetchTime), fixture.Now.AddHours(24), DateTime.UtcNow.AddHours(24));
+        Assert.Equal(fixture.Now.AddHours(1), Assert.Single(fixture.Settings.GuidePublicationRetries).Value);
+    }
+
+    /// <summary>Verifies restarting the scheduler retries a failed output without refetching a healthy source before its persisted cadence.</summary>
+    [Fact]
+    public async Task FetchEpgDataAsync_OutputRetryAfterRestart_DoesNotRefetchHealthySource()
+    {
+        // Arrange
+        using var fixture = new FetchFixture();
+        fixture.Result = Result(sourceFails: false, outputFails: true);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.FetchAsync(TestContext.Current.CancellationToken));
+        var sourceNext = fixture.Settings.GuideSourceSchedules[fixture.SourceId.Value].NextRefreshUtc;
+        fixture.Now = fixture.Now.AddHours(1);
+        fixture.Guides.ClearReceivedCalls();
+        var retried = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Guides.RetryPublicationsAsync(Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            fixture.Settings.GuidePublicationRetries.Clear();
+            retried.TrySetResult();
+            return Task.FromResult<IReadOnlyList<GuideOutputPublicationResult>>([]);
+        });
+        using var restarted = fixture.CreateService();
+        using var publications = fixture.CreatePublicationWorker();
+
+        // Act
+        await restarted.StartAsync(TestContext.Current.CancellationToken);
+        await publications.StartAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            await retried.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            await publications.StopAsync(TestContext.Current.CancellationToken);
+            await restarted.StopAsync(TestContext.Current.CancellationToken);
+        }
+
+        // Assert
+        await fixture.Guides.DidNotReceive().RefreshSourcesAsync(Arg.Any<StreamingConfiguration>(), Arg.Any<IReadOnlySet<GuideSourceId>>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+        await fixture.Guides.Received(1).RetryPublicationsAsync(fixture.Now, Arg.Any<CancellationToken>());
+        Assert.Equal(sourceNext, fixture.Settings.NextAutoFetchTime);
+        Assert.Equal(sourceNext, fixture.Settings.GuideSourceSchedules[fixture.SourceId.Value].NextRefreshUtc);
+    }
+
+    /// <summary>Verifies disabled automatic source fetching does not disable durable cached-output recovery.</summary>
+    [Fact]
+    public async Task ExecuteAsync_AutoFetchDisabled_StillRetriesPendingPublications()
+    {
+        // Arrange
+        using var fixture = new FetchFixture();
+        fixture.Settings.AutoFetchInterval = TimeSpan.Zero;
+        fixture.Settings.GuidePublicationRetries[fixture.Settings.Streaming.GuideOutputs[0].Id.Value] = fixture.Now;
+        using var service = fixture.CreateService(TimeProvider.System);
+        using var publications = fixture.CreatePublicationWorker();
+        var retried = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Guides.RetryPublicationsAsync(Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            fixture.Settings.GuidePublicationRetries.Clear();
+            retried.TrySetResult();
+            return Task.FromResult<IReadOnlyList<GuideOutputPublicationResult>>([]);
+        });
+
+        // Act
+        await service.StartAsync(TestContext.Current.CancellationToken);
+        await publications.StartAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            await retried.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            await publications.StopAsync(TestContext.Current.CancellationToken);
+            await service.StopAsync(TestContext.Current.CancellationToken);
+        }
+
+        // Assert
+        await fixture.Guides.DidNotReceive().RefreshSourcesAsync(Arg.Any<StreamingConfiguration>(), Arg.Any<IReadOnlySet<GuideSourceId>>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+        await fixture.Guides.Received(1).RetryPublicationsAsync(Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+        Assert.False(fixture.State.IsEnabled);
+    }
+
+    /// <summary>Verifies one failed source retries independently while a healthy source retains its configured successful cadence.</summary>
+    [Fact]
+    public async Task FetchEpgDataAsync_MixedSourceResults_OnlyRetriesFailedSource()
+    {
+        // Arrange
+        using var fixture = new FetchFixture();
+        var otherId = GuideSourceId.New();
+        fixture.Settings.AutoFetchInterval = TimeSpan.FromMinutes(90);
+        fixture.Settings.Streaming = fixture.Settings.Streaming with
+        {
+            GuideSources = [.. fixture.Settings.Streaming.GuideSources, fixture.Settings.Streaming.GuideSources[0] with { Id = otherId, Name = "Other guide" }]
+        };
+        fixture.Result = new TopologyGuideRefreshResult
+        {
+            Sources =
+            [
+                new GuideRefreshResult { SourceId = fixture.SourceId, Succeeded = true },
+                new GuideRefreshResult { SourceId = otherId, Succeeded = false, Error = "Source unavailable" }
+            ]
+        };
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.FetchAsync(TestContext.Current.CancellationToken));
+        var healthyNext = fixture.Settings.GuideSourceSchedules[fixture.SourceId.Value].NextRefreshUtc;
+        Assert.Equal(fixture.Now.AddMinutes(90), healthyNext);
+        Assert.Equal(fixture.Now.AddHours(1), fixture.Settings.GuideSourceSchedules[otherId.Value].NextRefreshUtc);
+        fixture.Now = fixture.Now.AddHours(1);
+        fixture.Guides.ClearReceivedCalls();
+        fixture.Result = fixture.Result with { Sources = fixture.Result.Sources.Select(source => source with { Succeeded = true }).ToArray() };
+
+        // Act
+        await fixture.FetchAsync(TestContext.Current.CancellationToken);
+
+        // Assert
+        await fixture.Guides.Received(1).RefreshSourcesAsync(fixture.Settings.Streaming,
+            Arg.Is<IReadOnlySet<GuideSourceId>>(ids => ids.Count == 1 && ids.Contains(otherId)), false, Arg.Any<CancellationToken>());
+        Assert.Equal(healthyNext, fixture.Settings.GuideSourceSchedules[fixture.SourceId.Value].NextRefreshUtc);
+        Assert.Equal(fixture.Now.AddMinutes(90), fixture.Settings.GuideSourceSchedules[otherId.Value].NextRefreshUtc);
+        Assert.Equal(healthyNext, fixture.Settings.NextAutoFetchTime);
+    }
+
+    /// <summary>Verifies the scheduler honors provider-owned successful cadence instead of replacing it with the configured host interval.</summary>
+    [Fact]
+    public async Task FetchEpgDataAsync_ProviderPolicy_OverridesHostInterval()
+    {
+        // Arrange
+        using var fixture = new FetchFixture(TimeSpan.FromHours(22));
+        fixture.Settings.AutoFetchInterval = TimeSpan.FromMinutes(90);
+        fixture.Result = Result(sourceFails: false, outputFails: false);
+
+        // Act
+        await fixture.FetchAsync(TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(fixture.Now.AddHours(22), fixture.Settings.GuideSourceSchedules[fixture.SourceId.Value].NextRefreshUtc);
+        Assert.IsAssignableFrom<IGuideSourceRefreshPolicy>(fixture.Adapters.GetGuide("guide")).Received(1).GetRefreshInterval(TimeSpan.FromMinutes(90));
+    }
+
+    /// <summary>Verifies renaming a healthy source cannot bypass its existing successful-refresh cadence.</summary>
+    [Fact]
+    public async Task FetchEpgDataAsync_SourceRenamed_DoesNotRefetchBeforeSuccessfulCadence()
+    {
+        // Arrange
+        using var fixture = new FetchFixture();
+        fixture.Result = Result(sourceFails: false, outputFails: false);
+        await fixture.FetchAsync(TestContext.Current.CancellationToken);
+        var next = fixture.Settings.GuideSourceSchedules[fixture.SourceId.Value].NextRefreshUtc;
+        fixture.Now = fixture.Now.AddHours(1);
+        fixture.Settings.Streaming = fixture.Settings.Streaming with { GuideSources = [fixture.Settings.Streaming.GuideSources[0] with { Name = "Renamed guide" }] };
+        fixture.Guides.ClearReceivedCalls();
+
+        // Act
+        await fixture.FetchAsync(TestContext.Current.CancellationToken);
+
+        // Assert
+        await fixture.Guides.DidNotReceive().RefreshSourcesAsync(Arg.Any<StreamingConfiguration>(), Arg.Any<IReadOnlySet<GuideSourceId>>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+        Assert.Equal(next, fixture.Settings.NextAutoFetchTime);
     }
 
     private static TopologyGuideRefreshResult Result(bool sourceFails, bool outputFails) => new()
@@ -143,25 +301,70 @@ public class EpgAutoFetchServiceTests
 
     private sealed class FetchFixture : IDisposable
     {
-        internal FetchFixture()
+        internal FetchFixture(TimeSpan? providerInterval = null)
         {
+            using var adapter = JsonDocument.Parse("{}");
+            Settings.Streaming = new StreamingConfiguration
+            {
+                GuideSources = [new GuideSourceDefinition { Id = SourceId, Name = "Guide", Adapter = new AdapterConfiguration("guide", adapter.RootElement.Clone()) }],
+                GuideOutputs = [new GuideOutputDefinition { Id = GuideOutputId.New(), Name = "Output", Key = "guide", Adapter = new AdapterConfiguration("xmltv", adapter.RootElement.Clone()) }]
+            };
             SettingsService.Settings.Returns(Settings);
             SettingsService.UpdateAsync(Arg.Any<Action<LineupSettings>>()).Returns(call =>
             {
                 call.Arg<Action<LineupSettings>>()(Settings);
-                Updated.TrySetResult();
                 return Task.CompletedTask;
             });
-            Guides.RefreshAsync(Arg.Any<CancellationToken>()).Returns(_ => Task.FromResult(Result));
-            Guides.RefreshAndPublishAsync(Arg.Any<CancellationToken>()).Returns(_ => Task.FromResult(Result));
+            Guides.RefreshSourcesAsync(Arg.Any<StreamingConfiguration>(), Arg.Any<IReadOnlySet<GuideSourceId>>(), false, Arg.Any<CancellationToken>())
+                .Returns(call => Task.FromResult(Result with { Sources = Result.Sources.Where(source => call.Arg<IReadOnlySet<GuideSourceId>>().Contains(source.SourceId)).ToArray(), Outputs = [] }));
+            Guides.PublishAsync(Arg.Any<CancellationToken>()).Returns(_ =>
+            {
+                if (Result.Outputs.Any(output => !output.Succeeded || output.IsPartial))
+                {
+                    Settings.GuidePublicationRetries[Settings.Streaming.GuideOutputs[0].Id.Value] = Now.AddHours(1);
+                }
+                return Task.FromResult(Result.Outputs);
+            });
+            Guides.RetryPublicationsAsync(Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns(Array.Empty<GuideOutputPublicationResult>());
             var scope = Substitute.For<IServiceScope>();
             var provider = Substitute.For<IServiceProvider>();
             provider.GetService(typeof(ITopologyGuideService)).Returns(Guides);
             scope.ServiceProvider.Returns(provider);
             var scopes = Substitute.For<IServiceScopeFactory>();
             scopes.CreateScope().Returns(scope);
-            Service = new EpgAutoFetchService(scopes, NullLogger<EpgAutoFetchService>.Instance, State, SettingsService);
+            Scopes = scopes;
+            Clock = new AdjustableTimeProvider(() => Now);
+            var driver = providerInterval.HasValue ? Substitute.For<IGuideSourceDriver, IGuideSourceRefreshPolicy>() : Substitute.For<IGuideSourceDriver>();
+            driver.Kind.Returns("guide");
+            if (providerInterval.HasValue)
+            {
+                ((IGuideSourceRefreshPolicy)driver).GetRefreshInterval(Arg.Any<TimeSpan>()).Returns(providerInterval.Value);
+            }
+            Adapters = new StreamingAdapterRegistry([], [], [driver], []);
+            Service = CreateService();
+            State.OnStateChanged += () =>
+            {
+                if (State.CurrentProgress?.Status == FetchStatus.Failed)
+                {
+                    Failed.TrySetResult();
+                }
+            };
         }
+
+        /// <summary>Gets the configured source identity.</summary>
+        internal GuideSourceId SourceId { get; } = GuideSourceId.New();
+
+        /// <summary>Gets or sets the deterministic successful-completion clock.</summary>
+        internal DateTime Now { get; set; } = DateTime.UtcNow;
+
+        /// <summary>Gets the injectable clock used for direct scheduling checks.</summary>
+        internal TimeProvider Clock { get; }
+
+        /// <summary>Gets the reusable guide-service scope boundary.</summary>
+        internal IServiceScopeFactory Scopes { get; }
+
+        /// <summary>Gets the provider capabilities used for scheduling.</summary>
+        internal IStreamingAdapterRegistry Adapters { get; }
 
         internal LineupSettings Settings { get; } = new()
         {
@@ -178,15 +381,34 @@ public class EpgAutoFetchServiceTests
 
         internal EpgAutoFetchService Service { get; }
 
-        internal TopologyGuideRefreshResult Result { get; set; } = new() { Sources = [] };
+        private TopologyGuideRefreshResult _result = new() { Sources = [] };
 
-        internal TaskCompletionSource Updated { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal TopologyGuideRefreshResult Result
+        {
+            get => _result;
+            set => _result = value with { Sources = value.Sources.Count == 1 ? [value.Sources[0] with { SourceId = SourceId }] : value.Sources };
+        }
 
-        internal Task FetchAsync(CancellationToken token)
+        /// <summary>Gets completion signaled when a running service reports its failure.</summary>
+        internal TaskCompletionSource Failed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Creates a replacement scheduler using the saved operational state.</summary>
+        internal EpgAutoFetchService CreateService(TimeProvider? clock = null) => new(Scopes, NullLogger<EpgAutoFetchService>.Instance, State, SettingsService, Adapters, clock ?? Clock);
+
+        /// <summary>Creates the independent output retry worker with the same committed scheduling state.</summary>
+        internal GuidePublicationRetryService CreatePublicationWorker() => new(Scopes, NullLogger<GuidePublicationRetryService>.Instance, Clock);
+
+        internal Task FetchAsync(CancellationToken token, EpgAutoFetchService? service = null)
         {
             var method = typeof(EpgAutoFetchService).GetMethod("FetchEpgDataAsync", BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.NotNull(method);
-            return Assert.IsAssignableFrom<Task>(method.Invoke(Service, [token]));
+            return Assert.IsAssignableFrom<Task>(method.Invoke(service ?? Service, [token]));
+        }
+
+        private sealed class AdjustableTimeProvider(Func<DateTime> utcNow) : TimeProvider
+        {
+            /// <inheritdoc />
+            public override DateTimeOffset GetUtcNow() => new(utcNow());
         }
 
         /// <inheritdoc />
@@ -215,7 +437,7 @@ public class EpgAutoFetchServiceTests
             AutoFetchInterval = TimeSpan.FromHours(24),
             NextAutoFetchTime = DateTime.UtcNow.AddHours(1)
         });
-        using var service = new EpgAutoFetchService(scopeFactory, NullLogger<EpgAutoFetchService>.Instance, new AutoFetchStateService(), settingsService);
+        using var service = new EpgAutoFetchService(scopeFactory, NullLogger<EpgAutoFetchService>.Instance, new AutoFetchStateService(), settingsService, Substitute.For<IStreamingAdapterRegistry>());
         await service.StartAsync(TestContext.Current.CancellationToken);
 
         // Act

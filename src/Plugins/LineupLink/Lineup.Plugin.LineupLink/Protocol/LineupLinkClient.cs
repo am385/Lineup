@@ -1,10 +1,10 @@
 using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Net.Security;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
+using Lineup.Core.Common.Guides;
 using Lineup.Plugin.LineupLink.Physical;
 
 namespace Lineup.Plugin.LineupLink.Protocol;
@@ -12,7 +12,6 @@ namespace Lineup.Plugin.LineupLink.Protocol;
 /// <summary>Calls one authenticated remote Lineup Link virtual device with bounded control requests and non-buffered live streams.</summary>
 public sealed class LineupLinkClient : IDisposable
 {
-    private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
     private static readonly TimeSpan ControlRequestTimeout = TimeSpan.FromSeconds(30);
     private readonly HttpClient _httpClient;
     private readonly Guid _virtualDeviceId;
@@ -94,12 +93,17 @@ public sealed class LineupLinkClient : IDisposable
     /// <summary>Gets and validates the remote guide.</summary>
     public async Task<LineupLinkGuide> GetGuideAsync(CancellationToken cancellationToken = default)
     {
-        var guide = await GetJsonAsync<LineupLinkGuide>(LineupLinkProtocol.GuidePath(_virtualDeviceId), cancellationToken);
+        var guide = await GetJsonAsync<LineupLinkGuide>(LineupLinkProtocol.GuidePath(_virtualDeviceId), cancellationToken, GuideTransfer.MaximumBytes);
         ValidateProtocol(guide.ProtocolVersion);
         if (guide.VirtualDeviceId != _virtualDeviceId)
         {
             throw new InvalidDataException("The remote Lineup Link guide returned a different virtual-device identity.");
         }
+        if (guide.Channels is null || guide.Programs is null || guide.Channels.Any(channel => channel is null) || guide.Programs.Any(program => program is null))
+        {
+            throw new InvalidDataException("The remote Lineup Link guide contains null collections or entries.");
+        }
+        GuideTransfer.ValidateCounts(guide.Channels.Count, guide.Programs.Count);
         return guide;
     }
 
@@ -130,7 +134,7 @@ public sealed class LineupLinkClient : IDisposable
     public Uri CreateStreamUri(string channelKey) =>
         new(_httpClient.BaseAddress!, LineupLinkProtocol.StreamPath(_virtualDeviceId, channelKey));
 
-    private async Task<T> GetJsonAsync<T>(string path, CancellationToken cancellationToken)
+    private async Task<T> GetJsonAsync<T>(string path, CancellationToken cancellationToken, int maximumBytes = 1024 * 1024)
     {
         cancellationToken.ThrowIfCancellationRequested();
         using var deadline = new CancellationTokenSource(ControlRequestTimeout, _timeProvider);
@@ -144,8 +148,12 @@ public sealed class LineupLinkClient : IDisposable
             {
                 await ThrowRemoteErrorAsync(response, requestLifetime.Token);
             }
-            return await response.Content.ReadFromJsonAsync<T>(SerializerOptions, requestLifetime.Token)
-                ?? throw new InvalidDataException("The remote Lineup Link response was empty.");
+            if (response.Content.Headers.ContentLength > maximumBytes)
+            {
+                throw new GuideTransferLimitException($"The remote Lineup Link response exceeds the {maximumBytes} byte UTF-8 limit.");
+            }
+            await using var content = await response.Content.ReadAsStreamAsync(requestLifetime.Token);
+            return await GuideTransfer.ReadAsync<T>(content, requestLifetime.Token, maximumBytes: maximumBytes, enforceCollectionLimits: typeof(T) == typeof(LineupLinkGuide));
         }
         catch (OperationCanceledException exception) when (cancellationToken.IsCancellationRequested)
         {
@@ -175,7 +183,12 @@ public sealed class LineupLinkClient : IDisposable
         LineupLinkError? error = null;
         try
         {
-            error = await response.Content.ReadFromJsonAsync<LineupLinkError>(SerializerOptions, cancellationToken);
+            if (response.Content.Headers.ContentLength > 64 * 1024)
+            {
+                throw new GuideTransferLimitException("The remote Lineup Link error response exceeds 65536 bytes.");
+            }
+            await using var content = await response.Content.ReadAsStreamAsync(cancellationToken);
+            error = await GuideTransfer.ReadAsync<LineupLinkError>(content, cancellationToken, maximumBytes: 64 * 1024, enforceCollectionLimits: false);
         }
         catch (JsonException)
         {

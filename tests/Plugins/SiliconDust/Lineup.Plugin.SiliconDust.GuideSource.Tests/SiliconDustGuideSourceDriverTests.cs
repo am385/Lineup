@@ -18,6 +18,22 @@ public sealed class SiliconDustGuideSourceDriverTests
     private readonly ISiliconDustDeviceAuthorizationProvider _authorizationProvider = Substitute.For<ISiliconDustDeviceAuthorizationProvider>();
     private readonly MockHttpMessageHandler _http = new();
 
+    /// <summary>Verifies the SiliconDust cadence cannot be shortened or extended by the host's Lineup Link interval setting.</summary>
+    [Theory]
+    [InlineData(5)]
+    [InlineData(2880)]
+    public void GetRefreshInterval_ConfiguredInterval_UsesRequiredProviderWindow(int minutes)
+    {
+        // Arrange
+        IGuideSourceRefreshPolicy policy = CreateDriver();
+
+        // Act
+        var interval = policy.GetRefreshInterval(TimeSpan.FromMinutes(minutes));
+
+        // Assert
+        Assert.InRange(interval, TimeSpan.FromHours(20), TimeSpan.FromHours(28));
+    }
+
     /// <summary>
     /// Verifies that a multi-device source concatenates fresh authorization and creates stable station channels.
     /// </summary>

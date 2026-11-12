@@ -64,7 +64,7 @@ if (webEndpointConfiguration != null)
 
 var configuredGuideOutputDirectory = builder.Configuration[AppConstants.GuideOutputDirConfigKey];
 FactoryResetCoordinator.ApplyPendingReset(appDataStore, configuredGuideOutputDirectory, transientDataStore, xmltvPublicationStore);
-var startupState = StartupSchemaGate.Check(appDataStore);
+var startupState = WebSettingsService.CheckStartup(appDataStore);
 builder.Services.AddSingleton(startupState);
 if (!startupState.IsFactoryResetRequired)
 {
@@ -144,6 +144,7 @@ builder.Services.AddSingleton(provider => new OperationalHealthService(
     () => (provider.GetRequiredService<IPhysicalDeviceStatusService>().Devices.Count(device => device.Error is not null),
         provider.GetRequiredService<ILineupSettingsService>().Settings.LastAutoFetchTime)));
 builder.Services.AddScoped<StatusApiService>();
+builder.Services.AddScoped<SettingsSaveCommand>();
 builder.Services.AddSingleton<IProtectedContentSlateService, ProtectedContentSlateService>();
 builder.Services.AddSingleton<ICmafCompatibilityTestService, CmafCompatibilityTestService>();
 builder.Services.AddSingleton<ICmafOutputCoordinator, CmafOutputCoordinator>();
@@ -161,7 +162,8 @@ builder.Services.AddSingleton(services => new ManagementPlaybackService(
     compatibilityTestService: services.GetRequiredService<ICmafCompatibilityTestService>(),
     mediaProcessFactory: services.GetRequiredService<IMediaProcessFactory>(),
     streamRoutes: services.GetService<IStreamingRouteResolver>(),
-    cmafOutputs: services.GetRequiredService<ICmafOutputCoordinator>()));
+    cmafOutputs: services.GetRequiredService<ICmafOutputCoordinator>(),
+    mediaWork: services.GetRequiredService<Lineup.Core.Common.Streaming.IMediaWorkAdmission>()));
 builder.Services.AddSingleton<IStreamingProducerDiagnosticsContributor>(
     services => services.GetRequiredService<ICmafOutputCoordinator>());
 builder.Services.AddSingleton<SubtitleSidecarService>();

@@ -2,6 +2,7 @@ using Lineup.Core.Settings;
 using Lineup.Core.Storage;
 using Lineup.Core.Common.Streaming;
 using Lineup.Core.Extensibility.Streaming;
+using Lineup.Core.Common.Configuration;
 
 namespace Lineup.Core.Guides;
 
@@ -10,11 +11,23 @@ namespace Lineup.Core.Guides;
 /// </summary>
 public interface ITopologyGuideService
 {
+    /// <summary>Gets bounded process-local refresh observations, without provider errors, credentials or new source calls.</summary>
+    IReadOnlyList<GuideSourceRefreshObservation> SourceRefreshes => [];
+
     /// <summary>Refreshes every enabled guide source without publishing guide outputs.</summary>
     Task<TopologyGuideRefreshResult> RefreshAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Refreshes every enabled guide source and republishes enabled guide outputs.</summary>
     Task<TopologyGuideRefreshResult> RefreshAndPublishAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Refreshes selected sources from a captured configuration and optionally publishes the latest topology from committed cache.</summary>
+    Task<TopologyGuideRefreshResult> RefreshSourcesAsync(StreamingConfiguration configuration, IReadOnlySet<GuideSourceId> sourceIds, bool publish, CancellationToken cancellationToken = default);
+
+    /// <summary>Durably invalidates outputs before a channel mutation, then publishes its committed result without fetching providers.</summary>
+    Task<IReadOnlyList<GuideOutputPublicationResult>> ApplyChannelChangeAsync(Func<CancellationToken, Task> mutation, CancellationToken cancellationToken = default);
+
+    /// <summary>Retries due pending publications without refreshing guide sources.</summary>
+    Task<IReadOnlyList<GuideOutputPublicationResult>> RetryPublicationsAsync(DateTime utcNow, CancellationToken cancellationToken = default);
 
     /// <summary>Publishes enabled guide outputs from eligible cached data without activating guide-source runtimes.</summary>
     Task<IReadOnlyList<GuideOutputPublicationResult>> PublishAsync(CancellationToken cancellationToken = default);
@@ -27,6 +40,9 @@ public interface ITopologyGuideService
         GuideOutputId outputId,
         CancellationToken cancellationToken = default);
 }
+
+/// <summary>Retains the latest observed source attempt and successful refresh for its captured definition revision.</summary>
+public sealed record GuideSourceRefreshObservation(GuideSourceId SourceId, string SourceRevision, bool Succeeded, DateTimeOffset ObservedAtUtc, DateTimeOffset? LastSuccessUtc);
 
 /// <summary>
 /// Summarizes one topology-aware guide refresh.
@@ -97,6 +113,21 @@ public sealed class TopologyGuideService : ITopologyGuideService
     private readonly IReadOnlyDictionary<string, IGuidePublisher> _publishers;
     private readonly IXmltvPublicationStore _publications;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly SemaphoreSlim _refreshGate = new(1, 1);
+    private readonly Lock _observationsGate = new();
+    private readonly Dictionary<GuideSourceId, GuideSourceRefreshObservation> _sourceRefreshes = [];
+
+    /// <inheritdoc />
+    public IReadOnlyList<GuideSourceRefreshObservation> SourceRefreshes
+    {
+        get
+        {
+            lock (_observationsGate)
+            {
+                return _sourceRefreshes.Values.OrderBy(observation => observation.SourceId.Value).ToArray();
+            }
+        }
+    }
 
     /// <summary>Initializes a topology-aware guide service.</summary>
     public TopologyGuideService(
@@ -125,18 +156,97 @@ public sealed class TopologyGuideService : ITopologyGuideService
 
     private async Task<TopologyGuideRefreshResult> RefreshAsync(bool publish, CancellationToken cancellationToken)
     {
+        var configuration = _settings.Settings.Streaming;
+        var sourceIds = configuration.GuideSources.Where(source => source.Enabled).Select(source => source.Id).ToHashSet();
+        return await RefreshSourcesAsync(configuration, sourceIds, publish, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<TopologyGuideRefreshResult> RefreshSourcesAsync(StreamingConfiguration configuration, IReadOnlySet<GuideSourceId> sourceIds, bool publish, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(sourceIds);
+        await _refreshGate.WaitAsync(cancellationToken);
+        try
+        {
+            var results = await _guides.RefreshSourcesAsync(configuration, sourceIds, cancellationToken);
+            var observedAt = DateTimeOffset.UtcNow;
+            lock (_observationsGate)
+            {
+                var configured = configuration.GuideSources.ToDictionary(source => source.Id);
+                foreach (var removed in _sourceRefreshes.Keys.Where(id => !configured.ContainsKey(id)).ToArray())
+                {
+                    _sourceRefreshes.Remove(removed);
+                }
+                foreach (var result in results)
+                {
+                    if (configured.TryGetValue(result.SourceId, out var source))
+                    {
+                        var revision = ConfigurationRevision.Create(source);
+                        _sourceRefreshes.TryGetValue(result.SourceId, out var previous);
+                        _sourceRefreshes[result.SourceId] = new(result.SourceId, revision, result.Succeeded, observedAt,
+                            result.Succeeded ? observedAt : previous?.SourceRevision == revision ? previous.LastSuccessUtc : null);
+                    }
+                }
+            }
+            if (publish)
+            {
+                var outputs = await PublishAsync(cancellationToken);
+                return new TopologyGuideRefreshResult { Sources = results, Outputs = outputs };
+            }
+            await _gate.WaitAsync(cancellationToken);
+            try
+            {
+                await _guides.ApplyAsync(_settings.Settings.Streaming, cancellationToken);
+            }
+            finally
+            {
+                _gate.Release();
+            }
+            return new TopologyGuideRefreshResult { Sources = results };
+        }
+        finally
+        {
+            _refreshGate.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<GuideOutputPublicationResult>> ApplyChannelChangeAsync(Func<CancellationToken, Task> mutation, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(mutation);
         await _gate.WaitAsync(cancellationToken);
         try
         {
             var configuration = _settings.Settings.Streaming;
+            await MarkPendingAsync(configuration.GuideOutputs.Where(output => output.Enabled));
+            await mutation(cancellationToken);
+            configuration = _settings.Settings.Streaming;
             await _guides.ApplyAsync(configuration, cancellationToken);
-            var results = await _guides.RefreshAllAsync(cancellationToken);
-            if (publish)
+            await MarkPendingAsync(configuration.GuideOutputs.Where(output => output.Enabled));
+            return await PublishOutputsAsync(configuration, configuration.GuideOutputs.Where(output => output.Enabled), cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<GuideOutputPublicationResult>> RetryPublicationsAsync(DateTime utcNow, CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var configuration = _settings.Settings.Streaming;
+            var due = configuration.GuideOutputs.Where(output => output.Enabled &&
+                _settings.Settings.GuidePublicationRetries.TryGetValue(output.Id.Value, out var next) && next <= utcNow).ToArray();
+            if (due.Length == 0)
             {
-                var outputs = await PublishAsync(configuration, cancellationToken);
-                return new TopologyGuideRefreshResult { Sources = results, Outputs = outputs };
+                return [];
             }
-            return new TopologyGuideRefreshResult { Sources = results };
+            await _guides.ApplyAsync(configuration, cancellationToken);
+            return await PublishOutputsAsync(configuration, due, cancellationToken);
         }
         finally
         {
@@ -146,17 +256,25 @@ public sealed class TopologyGuideService : ITopologyGuideService
 
     /// <inheritdoc />
     public Task<IReadOnlyList<GuideOutputPublicationResult>> PublishAsync(CancellationToken cancellationToken = default) =>
-        PublishConfigurationAsync(_settings.Settings.Streaming, cancellationToken);
+        PublishConfigurationCoreAsync(null, cancellationToken);
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<GuideOutputPublicationResult>> PublishConfigurationAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<GuideOutputPublicationResult>> PublishConfigurationAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(configuration);
+        return PublishConfigurationCoreAsync(configuration, cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<GuideOutputPublicationResult>> PublishConfigurationCoreAsync(StreamingConfiguration? configuration, CancellationToken cancellationToken)
+    {
         await _gate.WaitAsync(cancellationToken);
         try
         {
+            configuration ??= _settings.Settings.Streaming;
             await _guides.ApplyAsync(configuration, cancellationToken);
-            return await PublishAsync(configuration, cancellationToken);
+            var outputs = configuration.GuideOutputs.Where(output => output.Enabled).ToArray();
+            await MarkPendingAsync(outputs);
+            return await PublishOutputsAsync(configuration, outputs, cancellationToken);
         }
         finally
         {
@@ -180,7 +298,8 @@ public sealed class TopologyGuideService : ITopologyGuideService
             }
 
             await _guides.ApplyAsync(configuration, cancellationToken);
-            return await PublishOutputAsync(configuration, output, cancellationToken);
+            await MarkPendingAsync([output]);
+            return (await PublishOutputsAsync(configuration, [output], cancellationToken)).Single();
         }
         finally
         {
@@ -188,14 +307,41 @@ public sealed class TopologyGuideService : ITopologyGuideService
         }
     }
 
-    private async Task<IReadOnlyList<GuideOutputPublicationResult>> PublishAsync(
-        StreamingConfiguration configuration,
-        CancellationToken cancellationToken)
+    private Task MarkPendingAsync(IEnumerable<GuideOutputDefinition> outputs)
+    {
+        var ids = outputs.Select(output => output.Id.Value).ToArray();
+        return ids.Length == 0 ? Task.CompletedTask : _settings.UpdateAsync(settings =>
+        {
+            foreach (var id in ids)
+            {
+                settings.GuidePublicationRetries[id] = DateTime.UtcNow;
+            }
+        });
+    }
+
+    private async Task<IReadOnlyList<GuideOutputPublicationResult>> PublishOutputsAsync(StreamingConfiguration configuration, IEnumerable<GuideOutputDefinition> outputs, CancellationToken cancellationToken)
     {
         var results = new List<GuideOutputPublicationResult>();
-        foreach (var output in configuration.GuideOutputs.Where(output => output.Enabled))
+        foreach (var output in outputs)
         {
             results.Add(await PublishOutputAsync(configuration, output, cancellationToken));
+        }
+        if (results.Count > 0)
+        {
+            await _settings.UpdateAsync(settings =>
+            {
+                foreach (var result in results)
+                {
+                    if (result.Succeeded && !result.IsPartial)
+                    {
+                        settings.GuidePublicationRetries.Remove(result.OutputId.Value);
+                    }
+                    else
+                    {
+                        settings.GuidePublicationRetries[result.OutputId.Value] = DateTime.UtcNow.AddHours(1);
+                    }
+                }
+            });
         }
         return results;
     }

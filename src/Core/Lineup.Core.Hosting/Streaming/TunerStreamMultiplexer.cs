@@ -159,6 +159,10 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
                     retryable: true));
                 _logger.LogWarning("Physical stream acquisition timed out for device {PhysicalDeviceId}, channel {SourceChannelId}", candidate.Acquisition.DeviceId, candidate.SourceChannelId);
             }
+            catch (MediaResourceLimitException)
+            {
+                throw;
+            }
             catch (StreamCapacityExceededException exception)
             {
                 failures.Add(exception);

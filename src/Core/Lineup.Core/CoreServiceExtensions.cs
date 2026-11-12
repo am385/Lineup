@@ -33,6 +33,8 @@ public static class CoreServiceExtensions
         services.AddSingleton<DeviceGuideStore>();
         services.AddSingleton<IPhysicalCapacityLeaseRegistry, PhysicalCapacityLeaseRegistry>();
         services.TryAddSingleton(provider => StreamingResourceOptions.Load(provider.GetService<Microsoft.Extensions.Configuration.IConfiguration>()));
+        services.TryAddSingleton<MediaWorkAdmission>();
+        services.TryAddSingleton<Lineup.Core.Common.Streaming.IMediaWorkAdmission>(provider => provider.GetRequiredService<MediaWorkAdmission>());
         services.TryAddSingleton(provider => PhysicalDeviceRefreshScheduler.Load(provider.GetService<Microsoft.Extensions.Configuration.IConfiguration>()));
         services.AddSingleton<IPluginConnectionBudget>(provider => new PluginConnectionBudget(provider.GetRequiredService<Lineup.Core.Settings.ILineupSettingsService>()));
         services.AddSingleton<IPhysicalLineupService, PhysicalLineupService>();
@@ -42,7 +44,8 @@ public static class CoreServiceExtensions
             provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<StreamingSessionGraph>>(),
             TimeProvider.System,
             provider.GetRequiredService<PhysicalDeviceRuntimeState>(),
-            provider.GetRequiredService<StreamingResourceOptions>()));
+            provider.GetRequiredService<StreamingResourceOptions>(),
+            provider.GetRequiredService<Lineup.Core.Common.Streaming.IMediaWorkAdmission>()));
         services.AddSingleton<IStreamingAdapterRegistry, StreamingAdapterRegistry>();
         services.AddSingleton<PhysicalDeviceRuntimeState>();
         services.AddSingleton<IPhysicalDeviceResolver>(provider => provider.GetRequiredService<PhysicalDeviceRuntimeState>());

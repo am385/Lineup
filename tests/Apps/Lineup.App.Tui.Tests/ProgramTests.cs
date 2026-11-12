@@ -15,6 +15,8 @@ using Lineup.Plugin.GuideOutputs.Xmltv.Plugin;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using NSubstitute;
 using System.Text.Json;
 using Xunit;
@@ -24,6 +26,57 @@ namespace Lineup.App.Tui.Tests;
 /// <summary>Verifies TUI plugin composition and topology activation ordering.</summary>
 public sealed class ProgramTests
 {
+    /// <summary>Verifies the production TUI composition applies persisted retention to actual guide imports.</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(48)]
+    public async Task AddCoreServices_ConfiguredRetention_PrunesImportedHistory(int retentionHours)
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-tui-retention-");
+        try
+        {
+            var store = new AppDataStore(root.FullName);
+            File.WriteAllText(store.SettingsPath, JsonSerializer.Serialize(new LineupSettings { EpgHistoryRetentionHours = retentionHours }));
+            var now = new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero);
+            var clock = Substitute.For<TimeProvider>();
+            clock.GetUtcNow().Returns(now);
+            var services = new ServiceCollection();
+            services.AddLogging();
+            services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
+            services.AddSingleton(clock);
+            Program.AddCoreServices(services, store, store.DatabasePath);
+            using var provider = services.BuildServiceProvider();
+            var sourceId = GuideSourceId.New();
+            var channelId = new GuideChannelId(sourceId, "7.1");
+            var import = new GuideImport
+            {
+                SourceId = sourceId,
+                Channels = [new GuideChannel { Id = channelId, Number = "7.1", Name = "News" }],
+                Programs =
+                [
+                    new GuideProgram { ChannelId = channelId, StartUtc = now.AddHours(-36), EndUtc = now.AddHours(-35), Title = "Older" },
+                    new GuideProgram { ChannelId = channelId, StartUtc = now.AddHours(-2), EndUtc = now.AddHours(-1), Title = "Recent" }
+                ],
+                CoverageStartUtc = now.AddDays(-2),
+                CoverageEndUtc = now
+            };
+
+            // Act
+            await provider.GetRequiredService<DeviceGuideStore>().ImportAsync(import, TestContext.Current.CancellationToken);
+            await using var context = await provider.GetRequiredService<IDbContextFactory<EpgDbContext>>().CreateDbContextAsync(TestContext.Current.CancellationToken);
+            var titles = await context.GuideSourcePrograms.OrderBy(program => program.Title).Select(program => program.Title).ToArrayAsync(TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.Equal(retentionHours == 0 ? [] : new[] { "Older", "Recent" }, titles);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            root.Delete(recursive: true);
+        }
+    }
+
     /// <summary>Verifies the TUI composes every Lineup Link adapter category.</summary>
     [Fact]
     public void AddStreamingAdapters_RegistersLineupLinkPhysicalVirtualAndGuideDrivers()

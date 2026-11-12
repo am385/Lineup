@@ -5,6 +5,15 @@ namespace Lineup.Core.Streaming;
 /// <summary>Defines startup-scoped host resource budgets, independent of active-viewer and physical-tuner limits.</summary>
 public sealed record StreamingResourceOptions
 {
+    /// <summary>Gets the deployment-wide retained-producer limit; zero is unlimited.</summary>
+    public int MaximumProducers { get; init; }
+
+    /// <summary>Gets the deployment-wide FFmpeg/FFprobe process limit; zero is unlimited.</summary>
+    public int MaximumProcessingOperations { get; init; }
+
+    /// <summary>Gets the minimum available MiB required before allocating media workspace; zero disables admission checks.</summary>
+    public int MinimumMediaFreeSpaceMib { get; init; }
+
     /// <summary>Gets the maximum number of concurrent pending stream startups.</summary>
     public int MaximumPendingStarts { get; init; } = 8;
 
@@ -29,6 +38,9 @@ public sealed record StreamingResourceOptions
             : fallback;
         var options = new StreamingResourceOptions
         {
+            MaximumProducers = Read(nameof(MaximumProducers), defaults.MaximumProducers),
+            MaximumProcessingOperations = Read(nameof(MaximumProcessingOperations), defaults.MaximumProcessingOperations),
+            MinimumMediaFreeSpaceMib = Read(nameof(MinimumMediaFreeSpaceMib), defaults.MinimumMediaFreeSpaceMib),
             MaximumPendingStarts = Read(nameof(MaximumPendingStarts), defaults.MaximumPendingStarts),
             SubscriberBufferMib = Read(nameof(SubscriberBufferMib), defaults.SubscriberBufferMib),
             GraphBufferMib = Read(nameof(GraphBufferMib), defaults.GraphBufferMib),
@@ -42,6 +54,9 @@ public sealed record StreamingResourceOptions
     /// <summary>Rejects invalid budgets rather than silently disabling enforcement.</summary>
     public void Validate()
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(MaximumProducers);
+        ArgumentOutOfRangeException.ThrowIfNegative(MaximumProcessingOperations);
+        ArgumentOutOfRangeException.ThrowIfNegative(MinimumMediaFreeSpaceMib);
         ArgumentOutOfRangeException.ThrowIfLessThan(MaximumPendingStarts, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(MaximumPendingStarts, 1024);
         ArgumentOutOfRangeException.ThrowIfLessThan(SubscriberBufferMib, 1);

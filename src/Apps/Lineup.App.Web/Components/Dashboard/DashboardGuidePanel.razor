@@ -55,18 +55,18 @@
                         else if (AutoFetchState.IsRunning)
                         {
                             <p class="h6 text-info"><span class="spinner-border spinner-border-sm me-1"></span>@Text["Dashboard_Running"]</p>
-                            <small class="text-muted"><span class="bi bi-arrow-repeat me-1"></span>@Text["Dashboard_EveryInterval", Text["Dashboard_AutoFetchInterval"]]</small>
+                            <small class="text-muted"><span class="bi bi-arrow-repeat me-1"></span>@Text["Dashboard_AutoFetchInterval"]</small>
                         }
                         else if (AutoFetchState.NextFetchTime.HasValue)
                         {
                             <p class="h6">@TimeZone.ConvertFromUtc(AutoFetchState.NextFetchTime.Value).ToString("HH:mm:ss")</p>
                             <p class="h5 text-primary mb-0">@FormatCountdown(Countdown)</p>
-                            <small class="text-muted"><span class="bi bi-arrow-repeat me-1"></span>@Text["Dashboard_EveryInterval", Text["Dashboard_AutoFetchInterval"]]</small>
+                            <small class="text-muted"><span class="bi bi-arrow-repeat me-1"></span>@Text["Dashboard_AutoFetchInterval"]</small>
                         }
                         else
                         {
                             <p class="h6">@Text["Dashboard_Pending"]</p>
-                            <small class="text-muted"><span class="bi bi-arrow-repeat me-1"></span>@Text["Dashboard_EveryInterval", Text["Dashboard_AutoFetchInterval"]]</small>
+                            <small class="text-muted"><span class="bi bi-arrow-repeat me-1"></span>@Text["Dashboard_AutoFetchInterval"]</small>
                         }
                     </div>
                 </div>

@@ -114,10 +114,25 @@ app.MapGet($"{deviceRoot}/lineup", async (CancellationToken cancellationToken) =
 
 app.MapGet($"{deviceRoot}/guide", async (CancellationToken cancellationToken) =>
 {
-    var guide = await session.Broker.GetGuideAsync(
-        new VirtualOutputGuideRequest { Session = sessionContext },
-        cancellationToken);
-    return Results.Ok(LineupLinkGuideExporter.Create(guide.Snapshot));
+    try
+    {
+        var guide = await session.Broker.GetGuideAsync(new VirtualOutputGuideRequest { Session = sessionContext }, cancellationToken);
+        return Results.Ok(await LineupLinkGuideExporter.CreateForTransferAsync(guide.Snapshot, cancellationToken: cancellationToken));
+    }
+    catch (Lineup.Core.Common.Guides.GuideTransferLimitException exception)
+    {
+        app.Logger.LogWarning("Lineup Link guide transfer rejected: {Error}", exception.Message);
+        return Results.Json(new LineupLinkError { Code = "guide_limit", Message = exception.Message }, statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+    catch (VirtualOutputClientException exception)
+    {
+        app.Logger.LogWarning("Lineup Link broker guide request rejected: {FailureCode}", exception.FailureCode);
+        return Results.Json(new LineupLinkError
+        {
+            Code = exception.FailureCode == VirtualOutputFailureCode.ResourceLimit ? "guide_limit" : GetFailureCode(exception.FailureCode),
+            Message = exception.Message
+        }, statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
 });
 
 app.MapGet($"{deviceRoot}/streams/{{channelKey}}", async (HttpContext context, string channelKey, CancellationToken cancellationToken) =>

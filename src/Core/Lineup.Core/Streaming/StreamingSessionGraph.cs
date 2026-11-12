@@ -4,6 +4,7 @@ using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Logging;
+using Lineup.Core.Common.Streaming;
 
 namespace Lineup.Core.Streaming;
 
@@ -31,6 +32,10 @@ public sealed record StreamAcquisitionDescriptor(
 
     /// <summary>Gets the host runtime captured when this route was resolved, without changing the plugin contract.</summary>
     internal IPhysicalTunerDevice? Runtime { get; init; }
+
+    /// <summary>Gets the exact source identity, including tune parameters and the captured adapter generation.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string SourceIdentity => System.Text.Json.JsonSerializer.Serialize(new { DeviceId, AcquisitionKey, RuntimeId = GetRuntimeId(Runtime) });
 
     /// <summary>Gets the process-local identity of one adapter instance.</summary>
     internal static Guid GetRuntimeId(IPhysicalTunerDevice? runtime) =>
@@ -226,6 +231,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
     private readonly ILogger<StreamingSessionGraph> _logger;
     private readonly TimeProvider _timeProvider;
     private readonly PhysicalDeviceRuntimeState? _runtimes;
+    private readonly IMediaWorkAdmission _mediaWork;
     private readonly ConcurrentDictionary<AcquisitionNodeKey, SharedNode> _acquisitions = [];
     private readonly ConcurrentDictionary<TransformNodeKey, SharedNode> _transforms = [];
     private readonly ConcurrentDictionary<AcquisitionMetadataKey, Lazy<Task<AcquisitionMetadataSnapshot>>> _metadata = [];
@@ -246,7 +252,13 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
     }
 
     /// <summary>Initializes the graph with catalog admission and retirement notifications.</summary>
-    internal StreamingSessionGraph(IPhysicalCapacityLeaseRegistry capacity, ILogger<StreamingSessionGraph> logger, TimeProvider timeProvider, PhysicalDeviceRuntimeState? runtimes, StreamingResourceOptions? resources = null)
+    internal StreamingSessionGraph(
+        IPhysicalCapacityLeaseRegistry capacity,
+        ILogger<StreamingSessionGraph> logger,
+        TimeProvider timeProvider,
+        PhysicalDeviceRuntimeState? runtimes,
+        StreamingResourceOptions? resources = null,
+        IMediaWorkAdmission? mediaWork = null)
     {
         ArgumentNullException.ThrowIfNull(timeProvider);
         _capacity = capacity;
@@ -254,6 +266,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         _timeProvider = timeProvider;
         _runtimes = runtimes;
         _buffers = new(resources ?? new(), timeProvider);
+        _mediaWork = mediaWork ?? new MediaWorkAdmission(resources ?? new());
         if (_runtimes is not null)
         {
             _runtimes.Retiring += RetireDevicesAsync;
@@ -667,7 +680,9 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                     var capacityLease = await _capacity.TryAcquireAsync(descriptor.DeviceId, capacityKey, descriptor.Capacity, lifetime);
                     if (capacityLease is null)
                     {
-                        throw new StreamCapacityExceededException(descriptor.DeviceId, descriptor.Capacity);
+                        await _mediaWork.ReclaimIdleAsync(lifetime);
+                        capacityLease = await _capacity.TryAcquireAsync(descriptor.DeviceId, capacityKey, descriptor.Capacity, lifetime)
+                            ?? throw new StreamCapacityExceededException(descriptor.DeviceId, descriptor.Capacity);
                     }
                     try
                     {
@@ -687,7 +702,8 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                     RecordTermination(completed);
                     RemoveAcquisitionNode(key, completed);
                 },
-                _buffers));
+                _buffers,
+                _mediaWork));
     }
 
     private SharedNode GetOrCreateTransformNode(SharedNode parent, TransformNodeKey key, IStreamTransform transform)
@@ -718,7 +734,8 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                     RecordTermination(completed);
                     _transforms.TryRemove(new KeyValuePair<TransformNodeKey, SharedNode>(key, completed));
                 },
-                _buffers));
+                _buffers,
+                _mediaWork));
     }
 
     private static async ValueTask<IStreamSessionLease> SubscribeNodeAsync(SharedNode node, CancellationToken cancellationToken)
@@ -821,6 +838,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         private readonly TimeProvider _timeProvider;
         private readonly Action<SharedNode> _onCompleted;
         private readonly StreamBufferBudget _buffers;
+        private readonly IMediaWorkAdmission _mediaWork;
         private readonly object _gate = new();
         private readonly Dictionary<Guid, Subscriber> _subscribers = [];
         private readonly CancellationTokenSource _lifetime = new();
@@ -842,7 +860,8 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
             ILogger logger,
             TimeProvider timeProvider,
             Action<SharedNode> onCompleted,
-            StreamBufferBudget buffers
+            StreamBufferBudget buffers,
+            IMediaWorkAdmission mediaWork
         )
         {
             _kind = kind;
@@ -852,6 +871,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
             _timeProvider = timeProvider;
             _onCompleted = onCompleted;
             _buffers = buffers;
+            _mediaWork = mediaWork;
             _lifetimeToken = _lifetime.Token;
         }
 
@@ -888,7 +908,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                 var subscription = _buffers.Subscribe(() => _ = RemoveEvictedSubscriberAsync(id));
                 _subscribers.Add(id, new Subscriber(subscription, keepWarmPeriod));
                 _totalSubscriptions++;
-                _runTask ??= RunAsync();
+                _runTask ??= Task.Run(RunAsync);
                 lease = new SessionLease(_key.NodeId, subscription, () => RemoveSubscriberAsync(id));
             }
             return true;
@@ -934,6 +954,22 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
             }
         }
 
+        private async Task<bool> RetireIdleAsync(CancellationToken cancellationToken)
+        {
+            Task completion;
+            lock (_gate)
+            {
+                if (!_completed && (_warmCancellation is null || _subscribers.Count != 0))
+                {
+                    return false;
+                }
+                Stop();
+                completion = Completion;
+            }
+            await completion.WaitAsync(cancellationToken);
+            return true;
+        }
+
         private async Task RunAsync()
         {
             using var operation = Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.Begin("producer", _traceParent, _lifetimeToken);
@@ -941,6 +977,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
             Exception? failure = null;
             try
             {
+                await using var reservation = await _mediaWork.AcquireAsync(MediaWorkKind.Producer, RetireIdleAsync, _lifetime.Token);
                 await using var source = await _sourceFactory(_lifetime.Token);
                 _started.TrySetResult();
                 while (!_lifetime.IsCancellationRequested)

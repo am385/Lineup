@@ -25,7 +25,9 @@ public static class VirtualOutputRuntimeServiceCollectionExtensions
         services.AddSingleton<IVirtualOutputWorkerLauncher, VirtualOutputWorkerLauncher>();
         services.AddSingleton<IVirtualOutputBroker, VirtualOutputBroker>();
         services.AddHostedService<VirtualOutputIpcServer>();
-        services.AddHostedService<VirtualOutputSupervisor>();
+        services.AddSingleton<VirtualOutputSupervisor>();
+        services.AddSingleton<IVirtualOutputWorkerRecovery>(provider => provider.GetRequiredService<VirtualOutputSupervisor>());
+        services.AddHostedService(provider => provider.GetRequiredService<VirtualOutputSupervisor>());
         return services;
     }
 }

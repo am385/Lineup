@@ -123,6 +123,7 @@ public sealed class ChannelSlateStreamFactory : IChannelSlateStreamFactory
                 _process.Kill(entireProcessTree: true);
             }
             await _process.WaitForExitAsync(CancellationToken.None);
+            await MediaProcessAdmission.WaitForReleaseAsync(_process);
             await ObserveErrorAsync();
             _process.Dispose();
             GC.SuppressFinalize(this);

@@ -17,7 +17,7 @@ public static class VirtualOutputProtocol
     public const int MaximumControlMessageBytes = 1024 * 1024;
 
     /// <summary>Gets the maximum serialized guide-response size.</summary>
-    public const int MaximumGuideMessageBytes = 32 * 1024 * 1024;
+    public const int MaximumGuideMessageBytes = GuideTransfer.MaximumBytes;
 
     /// <summary>Gets the maximum accepted channel-key length.</summary>
     public const int MaximumChannelKeyLength = 512;

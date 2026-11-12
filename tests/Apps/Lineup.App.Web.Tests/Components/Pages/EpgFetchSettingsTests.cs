@@ -12,6 +12,44 @@ namespace Lineup.App.Web.Tests.Components.Pages;
 /// </summary>
 public class EpgFetchSettingsTests
 {
+    /// <summary>Verifies unrelated saves preserve the configured interval and background bookkeeping does not invalidate an open draft.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Save_OperationalSchedulesChanged_PreservesConfiguredIntervalAndDraft(bool enabled)
+    {
+        // Arrange
+        using var context = new BunitContext();
+        var settings = new LineupSettings { IsSetupComplete = true, AutoFetchInterval = TimeSpan.FromMinutes(90) };
+        var settingsService = Substitute.For<ILineupSettingsService>();
+        settingsService.Settings.Returns(settings);
+        settingsService.UpdateAsync(Arg.Any<Action<LineupSettings>>()).Returns(call =>
+        {
+            call.Arg<Action<LineupSettings>>()(settings);
+            return Task.CompletedTask;
+        });
+        var timeZoneService = Substitute.For<ITimeZoneService>();
+        timeZoneService.TimeZone.Returns(TimeZoneInfo.Utc);
+        context.Services.AddSingleton(settingsService);
+        context.Services.AddSingleton(timeZoneService);
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        var component = context.Render<Settings>();
+        component.Find("#tab-guide").Click();
+        var sourceId = Guid.NewGuid();
+        settings.GuideSourceSchedules[sourceId] = new GuideSourceRefreshSchedule { ConfigurationRevision = "source-revision", NextRefreshUtc = DateTime.UtcNow.AddHours(1) };
+        settings.GuidePublicationRetries[Guid.NewGuid()] = DateTime.UtcNow.AddHours(1);
+
+        // Act
+        component.Find("#autoFetchEnabled").Change(enabled);
+        await component.Find("button.btn-primary").ClickAsync(new());
+
+        // Assert
+        Assert.Equal(enabled ? TimeSpan.FromMinutes(90) : TimeSpan.Zero, settings.AutoFetchInterval);
+        Assert.Single(settings.GuideSourceSchedules);
+        Assert.Single(settings.GuidePublicationRetries);
+        Assert.False(Assert.Single(context.Services.GetRequiredService<IStatusNotificationService>().Notifications).IsError);
+    }
+
     /// <summary>
     /// Verifies the channel refresh setting defaults to enabled and reports success only after delayed persistence completes.
     /// </summary>

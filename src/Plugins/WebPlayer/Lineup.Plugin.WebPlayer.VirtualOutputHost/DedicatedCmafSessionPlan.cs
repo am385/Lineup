@@ -186,4 +186,7 @@ internal sealed record DedicatedCmafStartResponse(string SessionId, string HlsMa
 
     /// <summary>Gets the endpoint used to stop the dedicated presentation.</summary>
     public string? StopUrl { get; init; }
+
+    /// <summary>Gets the authoritative worker generation that owns this presentation.</summary>
+    public long WorkerGeneration { get; init; }
 }

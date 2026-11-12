@@ -21,7 +21,8 @@ public static class ConfigurationRevision
 
     /// <summary>Returns a revision of editable Core settings, excluding operational schedule timestamps.</summary>
     public static string ForSettings(LineupSettings settings) =>
-        Create(settings, nameof(LineupSettings.NextAutoFetchTime), nameof(LineupSettings.LastAutoFetchTime));
+        Create(settings, nameof(LineupSettings.NextAutoFetchTime), nameof(LineupSettings.LastAutoFetchTime),
+            nameof(LineupSettings.GuideSourceSchedules), nameof(LineupSettings.GuidePublicationRetries));
 
     /// <summary>Returns a canonical content revision, preserving ordered collections and normalizing identifier sets.</summary>
     public static string Create<T>(T value, params string[] excludedRootProperties)

@@ -12,6 +12,115 @@ namespace Lineup.Core.Tests.Storage;
 /// <summary>Verifies offline backup boundaries, integrity and non-destructive recovery.</summary>
 public sealed class RecoveryArchiveServiceTests
 {
+    /// <summary>Exercises the shared offline command dispatcher through backup, preflight and restore into a fresh target.</summary>
+    [Fact]
+    public async Task RecoveryCommand_PreflightAndRestore_CompletesFreshTargetWorkflow()
+    {
+        // Arrange
+        using var fixture = new Fixture();
+        await fixture.SeedAsync();
+        var archive = Path.Combine(fixture.Root, "offline-command.zip");
+        var target = Path.Combine(fixture.Root, "restored");
+
+        // Act
+        var backup = await RecoveryCommand.TryRunAsync(["--recovery", "backup", archive], fixture.Store.RootPath, cancellationToken: TestContext.Current.CancellationToken);
+        var preflight = await RecoveryCommand.TryRunAsync(["--recovery", "preflight", archive], target, cancellationToken: TestContext.Current.CancellationToken);
+        var existedAfterPreflight = Directory.Exists(target);
+        var restore = await RecoveryCommand.TryRunAsync(["--recovery", "restore", archive], target, cancellationToken: TestContext.Current.CancellationToken);
+        var occupied = await RecoveryCommand.TryRunAsync(["--recovery", "preflight", archive], target, cancellationToken: TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(0, backup);
+        Assert.Equal(0, preflight);
+        Assert.False(existedAfterPreflight);
+        Assert.Equal(0, restore);
+        Assert.Equal(2, occupied);
+        Assert.Equal(await File.ReadAllTextAsync(fixture.Store.SettingsPath, TestContext.Current.CancellationToken),
+            await File.ReadAllTextAsync(Path.Combine(target, AppConstants.SettingsFileName), TestContext.Current.CancellationToken));
+        Assert.True(File.Exists(Path.Combine(target, AppConstants.DefaultDatabaseFileName)));
+        Assert.True(File.Exists(Path.Combine(target, "data-protection-keys", "key-test.xml")));
+    }
+
+    /// <summary>Cancellation cannot create a target or return a successful preflight.</summary>
+    [Fact]
+    public async Task Preflight_Canceled_DoesNotInstallOrReportSuccess()
+    {
+        // Arrange
+        using var fixture = new Fixture();
+        var target = Path.Combine(fixture.Root, "restored");
+        using var canceled = new CancellationTokenSource();
+        canceled.Cancel();
+
+        // Act
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new RecoveryArchiveService(target).PreflightAsync("unused.zip", canceled.Token));
+
+        // Assert
+        Assert.False(Directory.Exists(target));
+        Assert.Empty(Directory.GetDirectories(fixture.Root, ".lineup-recovery-*"));
+    }
+
+    /// <summary>Checks a fresh destination without installing sensitive files and keeps external deployment requirements explicitly unverified.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Preflight_ValidArchive_LeavesDestinationUnchanged(bool existingDirectory)
+    {
+        // Arrange
+        using var fixture = new Fixture();
+        await fixture.SeedAsync();
+        var archive = Path.Combine(fixture.Root, "backup.zip");
+        await new RecoveryArchiveService(fixture.Store.RootPath).BackupAsync(archive, TestContext.Current.CancellationToken);
+        var target = Path.Combine(fixture.Root, "restored");
+        if (existingDirectory)
+        {
+            Directory.CreateDirectory(target);
+        }
+        var recovery = new RecoveryArchiveService(target);
+
+        // Act
+        var report = await recovery.PreflightAsync(archive, TestContext.Current.CancellationToken);
+        var serialized = JsonSerializer.Serialize(report);
+        var existsAfterPreflight = Directory.Exists(target);
+        var filesAfterPreflight = existsAfterPreflight ? Directory.GetFileSystemEntries(target) : [];
+        await recovery.RestoreAsync(archive, TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(existingDirectory, existsAfterPreflight);
+        Assert.Empty(filesAfterPreflight);
+        Assert.DoesNotContain("credential-sentinel", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("private-key-sentinel", serialized, StringComparison.Ordinal);
+        Assert.Contains(report.ExternalRequirements, requirement => requirement.Contains("have not been verified", StringComparison.Ordinal));
+        Assert.Contains(report.ExternalRequirements, requirement => requirement.Contains("Data Protection", StringComparison.Ordinal));
+        Assert.True(File.Exists(Path.Combine(target, AppConstants.SettingsFileName)));
+        Assert.Empty(Directory.GetDirectories(fixture.Root, ".lineup-recovery-*"));
+    }
+
+    /// <summary>Refuses an occupied destination and repeats the empty-target check even after a previously successful preflight.</summary>
+    [Fact]
+    public async Task Preflight_TargetBecomesOccupied_RestoreAndLaterPreflightPreserveIt()
+    {
+        // Arrange
+        using var fixture = new Fixture();
+        await fixture.SeedAsync();
+        var archive = Path.Combine(fixture.Root, "backup.zip");
+        await new RecoveryArchiveService(fixture.Store.RootPath).BackupAsync(archive, TestContext.Current.CancellationToken);
+        var target = Path.Combine(fixture.Root, "restored");
+        var recovery = new RecoveryArchiveService(target);
+        await recovery.PreflightAsync(archive, TestContext.Current.CancellationToken);
+        Directory.CreateDirectory(target);
+        var sentinel = Path.Combine(target, "operator-owned.txt");
+        await File.WriteAllTextAsync(sentinel, "keep", TestContext.Current.CancellationToken);
+
+        // Act
+        await Assert.ThrowsAsync<IOException>(() => recovery.RestoreAsync(archive, TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<IOException>(() => recovery.PreflightAsync(archive, TestContext.Current.CancellationToken));
+
+        // Assert
+        Assert.Equal("keep", await File.ReadAllTextAsync(sentinel, TestContext.Current.CancellationToken));
+        Assert.Single(Directory.GetFiles(target));
+        Assert.Empty(Directory.GetDirectories(fixture.Root, ".lineup-recovery-*"));
+    }
+
     /// <summary>Round-trips settings, keys and a SQLite snapshot while excluding logs and transient artifacts.</summary>
     [Fact]
     public async Task BackupRestore_RoundTripsStateAndKeys_WithoutResetOwnedArtifacts()
@@ -122,6 +231,8 @@ public sealed class RecoveryArchiveServiceTests
         var target = Path.Combine(fixture.Root, "restored");
 
         // Act
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            new RecoveryArchiveService(target).PreflightAsync(archive, TestContext.Current.CancellationToken));
         await Assert.ThrowsAsync<InvalidDataException>(() =>
             new RecoveryArchiveService(target).RestoreAsync(archive, TestContext.Current.CancellationToken));
 

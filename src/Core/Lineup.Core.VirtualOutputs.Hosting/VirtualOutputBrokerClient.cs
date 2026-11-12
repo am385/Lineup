@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 namespace Lineup.Core.VirtualOutputs.Hosting;
 
 /// <summary>Calls the trusted Lineup capability broker over operating-system local IPC.</summary>
-public sealed class VirtualOutputBrokerClient
+public sealed partial class VirtualOutputBrokerClient
 {
     private readonly VirtualOutputIpcEndpoint _endpoint;
 
@@ -54,13 +54,17 @@ public sealed class VirtualOutputBrokerClient
             cancellationToken);
 
     /// <summary>Gets the assigned virtual-device guide.</summary>
-    public Task<VirtualOutputGuideResponse> GetGuideAsync(
-        VirtualOutputGuideRequest request,
-        CancellationToken cancellationToken = default) =>
-        SendAsync<VirtualOutputGuideRequest, VirtualOutputGuideResponse>(
-            VirtualOutputIpcOperation.GetGuide,
-            request,
-            cancellationToken);
+    public async Task<VirtualOutputGuideResponse> GetGuideAsync(VirtualOutputGuideRequest request, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await ConnectAsync(cancellationToken);
+        await VirtualOutputWireProtocol.WriteAsync(connection, VirtualOutputIpcRequest.Create(VirtualOutputIpcOperation.GetGuide, request), cancellationToken);
+        var response = await VirtualOutputWireProtocol.ReadGuideAsync(connection, cancellationToken);
+        if (!response.Succeeded)
+        {
+            throw new VirtualOutputClientException(response.FailureCode ?? VirtualOutputFailureCode.Unavailable, response.Failure ?? "The guide operation failed.");
+        }
+        return response.Payload ?? throw new InvalidDataException("The guide response payload is empty.");
+    }
 
     /// <summary>Reports safe worker readiness and listener health.</summary>
     public async Task ReportHealthAsync(VirtualOutputWorkerHealthReport report, CancellationToken cancellationToken = default)
@@ -160,10 +164,7 @@ public sealed class VirtualOutputBrokerClient
     {
         await using var connection = await ConnectAsync(cancellationToken);
         await VirtualOutputWireProtocol.WriteAsync(connection, VirtualOutputIpcRequest.Create(operation, request), cancellationToken);
-        var maximumResponseBytes = operation == VirtualOutputIpcOperation.GetGuide
-            ? VirtualOutputProtocol.MaximumGuideMessageBytes
-            : VirtualOutputProtocol.MaximumControlMessageBytes;
-        var response = await VirtualOutputWireProtocol.ReadAsync<VirtualOutputIpcResponse>(connection, maximumResponseBytes, cancellationToken);
+        var response = await VirtualOutputWireProtocol.ReadAsync<VirtualOutputIpcResponse>(connection, cancellationToken);
         ThrowIfFailed(response);
         return response.ReadPayload<TResponse>();
     }

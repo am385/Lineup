@@ -42,4 +42,7 @@
   <Import Project="..\..\..\build\Lineup.Host.VirtualOutputWorkers.targets"
           Condition="Exists('..\..\..\build\Lineup.Host.VirtualOutputWorkers.targets')" />
 
+  <Import Project="..\..\..\build\Lineup.Web.BrowserAssets.targets"
+          Condition="Exists('..\..\..\build\Lineup.Web.BrowserAssets.targets')" />
+
 </Project>

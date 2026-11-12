@@ -257,7 +257,7 @@
   <data name="Settings_ApiRedactUrlsHelpPrefix" xml:space="preserve"><value>Devuelve las URL del dispositivo, la lista de canales, el destino del sintonizador, las URL anunciadas y las de XMLTV como</value></data>
   <data name="Settings_ApiRedactUrlsLabel" xml:space="preserve"><value>Ocultar URL</value></data>
   <data name="Settings_ApplicationLogFiltersHeading" xml:space="preserve"><value>Filtros de registro de aplicaciones</value></data>
-  <data name="Settings_AutoFetchGuideHelp" xml:space="preserve"><value>Descarga la guía completa de SiliconDust en un intervalo aleatorio de entre 20 y 28 horas, según lo exige la API. La disponibilidad es de 2 días para todos o de 14 días con una suscripción de guía HDHomeRun DVR.</value></data>
+  <data name="Settings_AutoFetchGuideHelp" xml:space="preserve"><value>Cada fuente tiene su propio horario. SiliconDust usa intervalos aleatorios de 20-28 horas, con 2 días de datos o 14 días con suscripción DVR. Lineup Link usa el intervalo configurado (24 horas por defecto). Las fuentes y publicaciones fallidas se reintentan de forma independiente tras una hora.</value></data>
   <data name="Settings_AutoFetchGuideLabel" xml:space="preserve"><value>Actualizar automáticamente los datos de la guía</value></data>
   <data name="Settings_BindAddressesHelp" xml:space="preserve"><value>Direcciones IP separadas por comas, localhost o * para todas las interfaces.</value></data>
   <data name="Settings_BindAddressesLabel" xml:space="preserve"><value>Vincular direcciones</value></data>
@@ -587,7 +587,7 @@
   <data name="Channels_RefreshChannels" xml:space="preserve"><value>Actualizar canales</value></data>
   <data name="Channels_RefreshedChannels" xml:space="preserve"><value>Canales de origen físicos {0} actualizados.</value></data>
   <data name="Channels_RefreshedChannelsWithFailures" xml:space="preserve"><value>Canales de origen físicos {0} actualizados con {1} fallas de dispositivo; Se conservó el estado anterior.</value></data>
-  <data name="Channels_SavedButXmltvUpdateFailed" xml:space="preserve"><value>La configuración del canal se guardó, pero la guía XMLTV publicada no se pudo actualizar: {0}</value></data>
+  <data name="Channels_SavedButXmltvUpdateFailed" xml:space="preserve"><value>La configuración del canal se guardó, pero una guía publicada no se pudo actualizar por completo. Hay un reintento pendiente con datos en caché: {0}</value></data>
   <data name="Channels_SavedGlobalIdentity" xml:space="preserve"><value>Identidad global guardada para el canal {0}.</value></data>
   <data name="Channels_SavedGuideUnavailableHelp" xml:space="preserve"><value>El canal de guía manual guardado ya no está activo. Elija otro canal o vuelva a la coincidencia automática.</value></data>
   <data name="Channels_SearchPlaceholder" xml:space="preserve"><value>Número, nombre, dispositivo, códec o clave de proveedor</value></data>
@@ -654,7 +654,7 @@
   <data name="Dashboard_AutoFetchDisabled" xml:space="preserve"><value>obtención automática deshabilitada</value></data>
   <data name="Dashboard_AutoFetchHeading" xml:space="preserve"><value>Obtención automática</value></data>
   <data name="Dashboard_AutoFetchInProgress" xml:space="preserve"><value>Obtención automática en curso</value></data>
-  <data name="Dashboard_AutoFetchInterval" xml:space="preserve"><value>20-28h (aleatorizado)</value></data>
+  <data name="Dashboard_AutoFetchInterval" xml:space="preserve"><value>Horarios independientes de fuentes y publicaciones</value></data>
   <data name="Dashboard_AutoFetchPending" xml:space="preserve"><value>obtención automática pendiente</value></data>
   <data name="Dashboard_AutoFetchRunning" xml:space="preserve"><value>obtención automática en curso</value></data>
   <data name="Dashboard_AutoRefreshDisabled" xml:space="preserve"><value>actualización automática deshabilitada</value></data>
@@ -1132,4 +1132,16 @@
   <data name="Settings_TopologyRevisions" xml:space="preserve"><value>Deseada: {0}. Intentada: {1}. Última aplicada por completo: {2}.</value></data>
   <data name="Settings_TopologyDeviceFailure" xml:space="preserve"><value>No se pudo aplicar el dispositivo físico {0}.</value></data>
   <data name="Settings_TopologyOutputFailure" xml:space="preserve"><value>La salida de guía {0} falló o es parcial.</value></data>
+  <data name="Settings_WorkerRecoveryHeading" xml:space="preserve"><value>Recuperación del proceso de trabajo</value></data>
+  <data name="Settings_WorkerRecoveryHelp" xml:space="preserve"><value>Usa la configuración guardada, no los cambios sin guardar. Los procesos en ejecución nunca se reinician.</value></data>
+  <data name="Settings_WorkerRetry" xml:space="preserve"><value>Volver a validar y reintentar el proceso</value></data>
+  <data name="Settings_WorkerRetrying" xml:space="preserve"><value>Validando de nuevo el proceso...</value></data>
+  <data name="Settings_WorkerRetryAccepted" xml:space="preserve"><value>Recuperación aceptada. Actualice para comprobar la disponibilidad. Los procesos supervisados externamente deben registrarse de nuevo.</value></data>
+  <data name="Settings_WorkerRetryRejected" xml:space="preserve"><value>El reintento requiere un proceso fallido con alojamiento dedicado habilitado y guardado. Los procesos en ejecución nunca se reinician.</value></data>
+  <data name="Settings_WorkerRetryFailed" xml:space="preserve"><value>El proceso no está disponible. Revise el error antes de reintentar.</value></data>
+  <data name="Settings_WorkerPreviousFailure" xml:space="preserve"><value>Error anterior al último intento de recuperación</value></data>
+  <data name="Settings_WorkerReady" xml:space="preserve"><value>El proceso está listo.</value></data>
+  <data name="Settings_WorkerWaiting" xml:space="preserve"><value>El proceso no ha informado de una disponibilidad correcta. Actualice para consultar su estado.</value></data>
+  <data name="Watch_Reconnecting" xml:space="preserve"><value>Reconectando a la televisión en directo. Puede detener la reproducción o seleccionar otro canal.</value></data>
+  <data name="Watch_ReconnectExhausted" xml:space="preserve"><value>La reconexión automática se detuvo al alcanzar el límite de intentos o de 60 segundos. Seleccione el canal de nuevo para reintentar.</value></data>
 </root>

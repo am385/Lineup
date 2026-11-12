@@ -133,6 +133,13 @@ public interface IGuideSourceDriver
         CancellationToken cancellationToken = default);
 }
 
+/// <summary>Optionally supplies a provider's successful automatic refresh cadence.</summary>
+public interface IGuideSourceRefreshPolicy
+{
+    /// <summary>Returns the next successful-refresh interval using the configured host interval where appropriate.</summary>
+    TimeSpan GetRefreshInterval(TimeSpan configuredInterval);
+}
+
 /// <summary>
 /// Configures one guide-output adapter kind.
 /// </summary>

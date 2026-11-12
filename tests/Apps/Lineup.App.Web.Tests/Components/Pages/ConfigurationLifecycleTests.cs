@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Serilog.Events;
+using Microsoft.Extensions.Localization;
 using Xunit;
 using TestContext = Xunit.TestContext;
 
@@ -15,6 +16,81 @@ namespace Lineup.App.Web.Tests.Components.Pages;
 /// <summary>Verifies configuration lifecycle outcomes using real serialized stores and controlled persistence failures.</summary>
 public sealed class ConfigurationLifecycleTests
 {
+    /// <summary>Exercises the application command without a rendered editor, including a failed second commit and its successful retry.</summary>
+    [Fact]
+    public async Task Command_WebWriteFails_PreservesCommitAndSupportsNonComponentRetry()
+    {
+        // Arrange
+        using var fixture = new Fixture();
+        using var context = fixture.CreateContext();
+        var command = CreateCommand(fixture, context);
+        var draft = CreateDraft(fixture, context);
+        fixture.FailWebWrites = true;
+
+        // Act
+        var partial = await command.SaveAsync(draft, []);
+        var savedCore = File.ReadAllText(fixture.Store.SettingsPath);
+        fixture.FailWebWrites = false;
+        var completed = await command.SaveAsync(draft with { CoreRevision = Assert.IsType<string>(partial.CoreRevision) }, []);
+
+        // Assert
+        Assert.IsType<IOException>(partial.Failure);
+        Assert.Null(partial.WebRevision);
+        Assert.Equal(48, JsonSerializer.Deserialize<LineupSettings>(savedCore)!.EpgHistoryRetentionHours);
+        Assert.NotNull(partial.Configuration);
+        Assert.Null(completed.Failure);
+        Assert.NotNull(completed.WebRevision);
+        Assert.Empty(completed.ApplyErrors);
+        Assert.False(fixture.Web.Settings.RedactApiClientAddresses);
+    }
+
+    /// <summary>Validates raw values at the command boundary before clamping setters or either store can hide invalid input.</summary>
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(721)]
+    public async Task Command_InvalidRetention_RejectsWithoutWriting(int hours)
+    {
+        // Arrange
+        using var fixture = new Fixture();
+        using var context = fixture.CreateContext();
+        var command = CreateCommand(fixture, context);
+        var draft = CreateDraft(fixture, context) with { EpgHistoryRetentionHours = hours };
+
+        // Act
+        var result = await command.SaveAsync(draft, []);
+
+        // Assert
+        Assert.Single(result.ValidationErrors);
+        Assert.Null(result.CoreRevision);
+        Assert.Null(result.WebRevision);
+        Assert.Equal(0, fixture.CoreWriteCount);
+        Assert.Equal(0, fixture.WebWriteCount);
+        Assert.Equal(24, fixture.Core.Settings.EpgHistoryRetentionHours);
+    }
+
+    /// <summary>Checks Web conflicts inside the second serialized write even when a non-component caller invokes the command.</summary>
+    [Fact]
+    public async Task Command_WebChangesDuringCoreWrite_ReturnsPartialConflict()
+    {
+        // Arrange
+        using var fixture = new Fixture();
+        using var context = fixture.CreateContext();
+        var command = CreateCommand(fixture, context);
+        var draft = CreateDraft(fixture, context);
+        fixture.BeforeCoreWrite = () => fixture.Web.UpdateAsync(settings => settings.RedactApiDeviceAddresses = true);
+
+        // Act
+        var result = await command.SaveAsync(draft, []);
+
+        // Assert
+        Assert.IsType<SettingsConflictException>(result.Failure);
+        Assert.NotNull(result.CoreRevision);
+        Assert.Null(result.WebRevision);
+        Assert.Equal(48, fixture.Core.Settings.EpgHistoryRetentionHours);
+        Assert.True(fixture.Web.Settings.RedactApiDeviceAddresses);
+        Assert.True(fixture.Web.Settings.RedactApiClientAddresses);
+    }
+
     /// <summary>Verifies a failed second store reports the committed Core settings and supports a successful retry.</summary>
     [Fact]
     public async Task Save_WebWriteFails_ReportsPartialCommitAndRetries()
@@ -155,6 +231,28 @@ public sealed class ConfigurationLifecycleTests
         var notification = Assert.Single(context.Services.GetRequiredService<IStatusNotificationService>().Notifications);
         Assert.True(notification.IsError);
         Assert.Contains("Core settings were saved, but Web settings changed concurrently", notification.Message);
+    }
+
+    /// <summary>Unexpected second-store failures cannot hide a Core commit already reported by the command.</summary>
+    [Fact]
+    public async Task Save_UnexpectedWebFailure_StillReportsCommittedCore()
+    {
+        // Arrange
+        using var fixture = new Fixture();
+        using var context = fixture.CreateContext();
+        var component = context.Render<Settings>();
+        component.Find("#epgHistoryRetentionHours").Change(48);
+        fixture.WebWriteFailure = new Exception("Controlled unexpected second-store failure.");
+
+        // Act
+        await component.Find("button.btn-primary").ClickAsync(new());
+
+        // Assert
+        Assert.Equal(48, fixture.Core.Settings.EpgHistoryRetentionHours);
+        var notification = Assert.Single(context.Services.GetRequiredService<IStatusNotificationService>().Notifications);
+        Assert.True(notification.IsError);
+        Assert.Contains("Core settings were saved, but Web settings were not saved.", notification.Message);
+        Assert.DoesNotContain("Nothing was saved.", notification.Message);
     }
 
     /// <summary>Verifies a failed lineup result prevents setup completion and terminal success.</summary>
@@ -371,6 +469,26 @@ public sealed class ConfigurationLifecycleTests
         Assert.DoesNotContain(context.Services.GetRequiredService<IStatusNotificationService>().Notifications, notification => notification.IsError);
     }
 
+    /// <summary>Preserves independently synchronized theme changes while the command awaits Core persistence.</summary>
+    [Fact]
+    public async Task Save_HeaderThemeChangesDuringCoreWrite_PreservesNewTheme()
+    {
+        // Arrange
+        using var fixture = new Fixture();
+        using var context = fixture.CreateContext();
+        var component = context.Render<Settings>();
+        component.Find("#epgHistoryRetentionHours").Change(48);
+        fixture.BeforeCoreWrite = () => fixture.Web.UpdateAsync(settings => settings.Theme = "dark");
+
+        // Act
+        await component.Find("button.btn-primary").ClickAsync(new());
+
+        // Assert
+        Assert.Equal("dark", fixture.Web.Settings.Theme);
+        Assert.Equal(48, fixture.Core.Settings.EpgHistoryRetentionHours);
+        Assert.DoesNotContain(context.Services.GetRequiredService<IStatusNotificationService>().Notifications, notification => notification.IsError);
+    }
+
     /// <summary>Verifies a failed file-sink application can be retried after both settings documents have already committed.</summary>
     [Theory]
     [InlineData(false)]
@@ -467,6 +585,24 @@ public sealed class ConfigurationLifecycleTests
         await restart.Received(1).RestartAsync(Arg.Any<CancellationToken>());
     }
 
+    private static SettingsSaveCommand CreateCommand(Fixture fixture, BunitContext context) => new(
+        fixture.Core, fixture.Web, context.Services.GetRequiredService<IStringLocalizer<UiStrings>>(),
+        context.Services.GetServices<IGuideSourceDriver>(), context.Services.GetServices<IPhysicalTunerDriver>(),
+        context.Services.GetServices<IVirtualTunerDriver>(), context.Services.GetServices<IGuideOutputDriver>());
+
+    private static SettingsSaveDraft CreateDraft(Fixture fixture, BunitContext context) => new()
+    {
+        Topology = new TopologySettingsEditor().Edit(fixture.Core.Settings.Streaming, fixture.Core.ConfiguredXmltvOutputPath, context.Services.GetServices<IGuideOutputDriver>()),
+        CoreRevision = ConfigurationRevision.ForSettings(fixture.Core.Settings),
+        WebRevision = SettingsSaveCommand.GetWebRevision(fixture.Web.Settings),
+        EpgHistoryRetentionHours = 48,
+        DeviceRefreshIntervalMinutes = fixture.Core.Settings.DeviceRefreshIntervalMinutes,
+        TunerRefreshIntervalSeconds = fixture.Core.Settings.TunerRefreshIntervalSeconds,
+        ActiveStreamRefreshIntervalSeconds = fixture.Web.Settings.ActiveStreamRefreshIntervalSeconds,
+        XmltvOutputPath = fixture.Core.Settings.XmltvOutputPath,
+        RedactApiClientAddresses = false
+    };
+
     private sealed class Fixture : IDisposable
     {
         private readonly DirectoryInfo _root = Directory.CreateTempSubdirectory("lineup-configuration-lifecycle-");
@@ -502,6 +638,10 @@ public sealed class ConfigurationLifecycleTests
                     else
                     {
                         WebWriteCount++;
+                        if (WebWriteFailure is { } failure)
+                        {
+                            throw failure;
+                        }
                         if (FailWebWrites)
                         {
                             throw new IOException("Controlled Web settings write failure.");
@@ -532,6 +672,9 @@ public sealed class ConfigurationLifecycleTests
 
         /// <summary>Gets or sets the controlled Web write failure.</summary>
         internal bool FailWebWrites { get; set; }
+
+        /// <summary>Gets or sets an unexpected failure at the second-store persistence boundary.</summary>
+        internal Exception? WebWriteFailure { get; set; }
 
         /// <summary>Gets or sets a controlled asynchronous Core write boundary.</summary>
         internal Func<Task>? BeforeCoreWrite { get; set; }

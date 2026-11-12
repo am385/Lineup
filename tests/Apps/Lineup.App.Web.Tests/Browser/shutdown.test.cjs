@@ -10,6 +10,8 @@ function fixture(respond) {
     const requests = [];
     const sandbox = {
         window: {},
+        AbortController,
+        AbortSignal,
         Event: class {},
         document: { getElementById: () => null },
         fetch: async (url, options) => {
@@ -165,4 +167,82 @@ test('missing stop routing is explicit failure instead of a success-shaped no-op
     // Assert
     await assert.rejects(stopping, /stop URL is missing/);
     assert.equal(shutdown.requests.length, 0);
+});
+
+for (const [code, retryable] of [['source_unavailable', true], ['protected_content', false], ['source_invalid', false]]) {
+    test(`recovery startup preserves explicit ${code} classification`, async () => {
+        // Arrange
+        const shutdown = fixture(() => ({ ok: false, status: 503, json: async () => ({ error: 'Startup failed', code, retryable }) }));
+
+        // Act
+        const result = await shutdown.sandbox.tryStartCmafSession('/start', {}, 'owned');
+
+        // Assert
+        assert.equal(result.session, null);
+        assert.equal(result.failure.code, code);
+        assert.equal(result.failure.retryable, retryable);
+        assert.equal(shutdown.sandbox.window.lineupCmafStarts.size, 0);
+    });
+}
+
+test('network failure is not invented retryable startup metadata', async () => {
+    // Arrange
+    const shutdown = fixture(() => { throw new Error('Connection lost'); });
+
+    // Act
+    const starting = shutdown.sandbox.tryStartCmafSession('/start', {}, 'owned');
+
+    // Assert
+    await assert.rejects(starting, /Connection lost/);
+    assert.equal(shutdown.sandbox.window.lineupCmafStarts.size, 0);
+});
+
+test('passive session status does not infer a retryable outcome from an HTTP status', async () => {
+    // Arrange
+    const shutdown = fixture(() => ({ ok: false, status: 404 }));
+
+    // Act
+    const reading = shutdown.sandbox.getCmafSessionStatus('/status/owned');
+
+    // Assert
+    await assert.rejects(reading, /HTTP 404/);
+    assert.equal(shutdown.requests[0].options.cache, 'no-store');
+    assert.ok(shutdown.requests[0].options.signal instanceof AbortSignal);
+});
+
+test('fresh presentation restores volume, mute, audio and subtitles without undoing video fallback', () => {
+    // Arrange
+    const shutdown = fixture(() => assert.fail('No request expected'));
+    const video = attachPlayer(shutdown, async () => {});
+    video._lineupSessionId = 'original';
+    video.volume = 0.35;
+    video.muted = true;
+    video.textTracks = [{ label: 'English', language: 'eng', mode: 'showing' }];
+    const { window } = shutdown.sandbox;
+    window.lineupCmafPlayers.set('player', { getVariantTracks: () => [{ active: true, label: 'French', language: 'fra' }] });
+    const preferences = shutdown.sandbox.getCmafPlayerPreferences('player', 'original');
+    let selected;
+    const fallbackVideo = { active: true, videoId: 2, label: 'English', language: 'eng' };
+    const expectedAudio = { videoId: 2, label: 'French', language: 'fra' };
+    window.lineupCmafPlayers.set('player', {
+        getVariantTracks: () => [{ videoId: 1, label: 'French', language: 'fra' }, fallbackVideo, expectedAudio],
+        selectVariantTrack: track => { selected = track; }
+    });
+    video._lineupSessionId = 'replacement';
+    video.volume = 1;
+    video.muted = false;
+    video.textTracks[0].mode = 'hidden';
+
+    // Act
+    shutdown.sandbox.restoreCmafPlayerPreferences('player', 'replacement', preferences);
+
+    // Assert
+    assert.equal(video.volume, 0.35);
+    assert.equal(video.muted, true);
+    assert.equal(selected, expectedAudio);
+    assert.equal(video.textTracks[0].mode, 'showing');
+    assert.equal(shutdown.sandbox.getCmafPlayerPreferences('player', 'original'), null);
+    video.volume = 0.8;
+    shutdown.sandbox.restoreCmafPlayerPreferences('player', 'original', preferences);
+    assert.equal(video.volume, 0.8);
 });

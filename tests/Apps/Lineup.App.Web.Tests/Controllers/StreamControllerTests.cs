@@ -1001,8 +1001,8 @@ public sealed class StreamControllerTests
     private sealed class CompatibilityStartupFixture : IAsyncDisposable
     {
         private readonly DirectoryInfo _root = Directory.CreateDirectory(Path.Combine(AppContext.BaseDirectory, "watch-test-startup-artifacts", Guid.NewGuid().ToString("N")));
-        private readonly Process _encoder;
-        private readonly Process _observer;
+        private Process? _encoder;
+        private Process? _observer;
 
         /// <summary>Creates deterministic encoder ownership for HTTP-adapter or application-only tests.</summary>
         internal CompatibilityStartupFixture(string scenario, bool serviceOnly = false)
@@ -1019,8 +1019,6 @@ public sealed class StreamControllerTests
             };
             startInfo.ArgumentList.Add(executable);
             startInfo.ArgumentList.Add("hold");
-            _encoder = Process.Start(startInfo) ?? throw new InvalidOperationException("The deterministic compatibility encoder could not be started.");
-            _observer = Process.GetProcessById(_encoder.Id);
             var files = new TransientDataStore(_root.FullName);
             var transient = Substitute.For<ITransientDataStore>();
             transient.CreateSessionDirectory(Arg.Any<string>(), Arg.Any<string>()).Returns(call =>
@@ -1047,6 +1045,8 @@ public sealed class StreamControllerTests
             var service = Substitute.For<ICmafCompatibilityTestService>();
             service.Start(Arg.Any<VirtualTranscodeProfile>(), Arg.Any<CmafCompatibilityTestRequest>(), Arg.Any<string>()).Returns(call =>
             {
+                _encoder = Process.Start(startInfo) ?? throw new InvalidOperationException("The deterministic compatibility encoder could not be started.");
+                _observer = Process.GetProcessById(_encoder.Id);
                 if (scenario is "ready" or "partial" or "registration" or "unexpected")
                 {
                     File.WriteAllText(call.Arg<string>(), """
@@ -1101,20 +1101,20 @@ public sealed class StreamControllerTests
 
         internal int ManifestReads { get; private set; }
 
-        internal bool IsEncoderRunning => !_observer.HasExited;
+        internal bool IsEncoderRunning => _observer is { HasExited: false };
 
         /// <inheritdoc />
         public async ValueTask DisposeAsync()
         {
             await Outputs.DisposeAsync();
             await Playback.DisposeAsync();
-            if (!_observer.HasExited)
+            if (_observer is { HasExited: false })
             {
                 _observer.Kill(entireProcessTree: true);
                 await _observer.WaitForExitAsync(CancellationToken.None);
             }
-            _encoder.Dispose();
-            _observer.Dispose();
+            _encoder?.Dispose();
+            _observer?.Dispose();
             RequestCancellation.Dispose();
             _root.Delete(recursive: true);
         }

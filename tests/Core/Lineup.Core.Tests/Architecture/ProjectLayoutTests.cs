@@ -447,7 +447,7 @@ public sealed class ProjectLayoutTests
         var imports = hostProjects.Select(project =>
             XDocument.Load(project)
                 .Descendants()
-                .Single(element => element.Name.LocalName == "Import")
+                .Single(element => element.Name.LocalName == "Import" && element.Attribute("Project")?.Value == expectedImport)
                 .Attribute("Project")
                 ?.Value).ToArray();
         var targets = XDocument.Load(targetPath)

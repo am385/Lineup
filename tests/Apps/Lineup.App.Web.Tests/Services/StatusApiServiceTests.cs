@@ -4,6 +4,7 @@ using Lineup.Core.Common.Configuration;
 using Lineup.Core.Extensibility.Configuration;
 using Lineup.Core.VirtualOutputs.Protocol;
 using Lineup.Core.VirtualOutputs.Runtime;
+using Lineup.Core.Hosting;
 using Lineup.App.Web.Services;
 using Lineup.Plugin.GuideOutputs.Xmltv.Plugin;
 using Microsoft.AspNetCore.Builder;
@@ -24,6 +25,157 @@ namespace Lineup.App.Web.Tests.Services;
 public class StatusApiServiceTests
 {
     private static readonly JsonSerializerOptions WebJsonOptions = new(JsonSerializerDefaults.Web);
+
+    /// <summary>Names failed workers, sources, pending publications and capacity pressure without exposing provider failure payloads or initiating work.</summary>
+    [Fact]
+    public async Task GetStatusAsync_Operations_ReportsSafeCachedReasonsAndRecovery()
+    {
+        // Arrange
+        var runtime = Substitute.For<IStreamingTopologyRuntime>();
+        var guides = Substitute.For<ITopologyGuideService>();
+        var statuses = Substitute.For<IPhysicalDeviceStatusService>();
+        var admission = new MediaWorkAdmission(new() { MaximumProducers = 1 });
+        await using var producer = await admission.AcquireAsync(MediaWorkKind.Producer, cancellationToken: TestContext.Current.CancellationToken);
+        using var fixture = CreateFixture(statuses: statuses, mediaWork: admission, topologyRuntime: runtime, topologyGuides: guides);
+        var source = new GuideSourceDefinition { Id = GuideSourceId.New(), Name = "Household guide", Adapter = new AdapterConfiguration("guide", JsonSerializer.SerializeToElement(new { })) };
+        var output = XmltvGuideOutputDriver.CreateBuiltIn(fixture.Settings.XmltvOutputPath);
+        var guideDriver = CreateGuideDriver();
+        var guideSettings = CreateEmptySettingsProvider("guide");
+        fixture.Adapters.GetGuide("guide").Returns(guideDriver);
+        fixture.Adapters.GetGuideSettings("guide").Returns(guideSettings);
+        fixture.Adapters.GetGuideOutput(XmltvGuideOutputDriver.AdapterKind).Returns(new XmltvGuideOutputDriver());
+        fixture.Adapters.GetGuideOutputSettings(XmltvGuideOutputDriver.AdapterKind).Returns(new XmltvGuideOutputDriver());
+        fixture.Settings.Streaming = fixture.Settings.Streaming with
+        {
+            GuideSources = [source],
+            GuideOutputs = [output],
+            VirtualDevices = fixture.Settings.Streaming.VirtualDevices.Select(device => device with { Hosting = new() }).ToArray()
+        };
+        fixture.Settings.GuidePublicationRetries[output.Id.Value] = DateTime.UtcNow.AddMinutes(1);
+        var revision = ConfigurationRevision.Create(fixture.Settings.Streaming);
+        runtime.Application.Returns(new StreamingTopologyApplication { DesiredRevision = revision, AttemptedRevision = revision, AppliedRevision = "previous", Phase = TopologyApplicationPhase.Degraded });
+        var observed = DateTimeOffset.UtcNow.AddMinutes(-1);
+        var lastSuccess = observed.AddDays(-1);
+        guides.SourceRefreshes.Returns([new(source.Id, ConfigurationRevision.Create(source), false, observed, lastSuccess)]);
+        var virtualId = fixture.Settings.Streaming.VirtualDevices[0].Id;
+        fixture.VirtualOutputRuntime.Set(new() { VirtualDeviceId = virtualId, State = VirtualOutputRuntimeState.Failed, LastFailure = "private-provider-failure-sentinel" });
+
+        // Act
+        var failed = await fixture.Service.GetStatusAsync(TestContext.Current.CancellationToken);
+        var operations = Assert.IsType<OperationalStatusResponse>(failed.Operations);
+        var serialized = JsonSerializer.Serialize(operations, WebJsonOptions);
+        guides.SourceRefreshes.Returns([new(source.Id, ConfigurationRevision.Create(source), true, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)]);
+        fixture.VirtualOutputRuntime.Set(new() { VirtualDeviceId = virtualId, State = VirtualOutputRuntimeState.Healthy });
+        var recovered = await fixture.Service.GetStatusAsync(TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal("degraded", operations.Status);
+        Assert.Equal("eventual", operations.Consistency);
+        Assert.Equal(revision, operations.Topology?.DesiredRevision);
+        Assert.Equal("previous", operations.Topology?.AppliedRevision);
+        Assert.Contains(operations.Issues, issue => issue.Code == "worker_failed" && issue.ResourceName == "Lineup");
+        var sourceFailure = Assert.Single(operations.Issues, issue => issue.Code == "guide_source_failed");
+        Assert.Equal("Household guide", sourceFailure.ResourceName);
+        Assert.Equal(observed.UtcDateTime, sourceFailure.ObservedAtUtc);
+        Assert.Equal(lastSuccess.UtcDateTime, sourceFailure.LastSuccessUtc);
+        Assert.Contains(operations.Issues, issue => issue.Code == "guide_publication_pending" && issue.ResourceId == output.Id.ToString());
+        Assert.Contains(operations.Issues, issue => issue.Code == "media_producer_limit_reached");
+        Assert.DoesNotContain("private-provider-failure-sentinel", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("physical-secret", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("http://", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain(recovered.Operations!.Issues, issue => issue.Code is "worker_failed" or "guide_source_failed");
+        await statuses.DidNotReceive().RefreshAsync(Arg.Any<StreamingConfiguration>(), Arg.Any<CancellationToken>());
+        await guides.DidNotReceive().RefreshAsync(Arg.Any<CancellationToken>());
+        await guides.DidNotReceive().PublishAsync(Arg.Any<CancellationToken>());
+        await fixture.GuideReader.Received(2).GetStatisticsAsync(Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>Distinguishes successful, pending, degraded and unobserved application state rather than treating missing observations as healthy.</summary>
+    [Theory]
+    [InlineData(TopologyApplicationPhase.Applied, "healthy")]
+    [InlineData(TopologyApplicationPhase.Pending, "pending")]
+    [InlineData(TopologyApplicationPhase.Degraded, "degraded")]
+    [InlineData(null, "unknown")]
+    public async Task GetStatusAsync_Operations_DistinguishesApplicationState(TopologyApplicationPhase? phase, string expected)
+    {
+        // Arrange
+        var runtime = phase is null ? null : Substitute.For<IStreamingTopologyRuntime>();
+        using var fixture = CreateFixture(topologyRuntime: runtime);
+        if (runtime is not null)
+        {
+            var revision = ConfigurationRevision.Create(fixture.Settings.Streaming);
+            runtime.Application.Returns(new StreamingTopologyApplication { DesiredRevision = revision, Phase = phase!.Value, AppliedRevision = phase == TopologyApplicationPhase.Applied ? revision : null });
+        }
+
+        // Act
+        var result = await fixture.Service.GetStatusAsync(TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(expected, result.Operations?.Status);
+        Assert.Equal("eventual", result.Operations?.Consistency);
+        Assert.Equal(phase is null, result.Operations?.Topology is null);
+    }
+
+    /// <summary>Uses the committed source coverage boundary, not the age of a fetch or an arbitrary staleness threshold.</summary>
+    [Theory]
+    [InlineData(-1, true)]
+    [InlineData(1, false)]
+    public async Task GetStatusAsync_Operations_ReportsExpiredSourceCoverage(int hoursRemaining, bool expired)
+    {
+        // Arrange
+        using var fixture = CreateFixture();
+        var source = new GuideSourceDefinition { Id = GuideSourceId.New(), Name = "Coverage guide", Adapter = new AdapterConfiguration("guide", JsonSerializer.SerializeToElement(new { })) };
+        fixture.Settings.Streaming = fixture.Settings.Streaming with { GuideSources = [source] };
+        var driver = CreateGuideDriver();
+        var provider = CreateEmptySettingsProvider("guide");
+        fixture.Adapters.GetGuide("guide").Returns(driver);
+        fixture.Adapters.GetGuideSettings("guide").Returns(provider);
+        var fetched = DateTimeOffset.UtcNow.AddDays(-2);
+        await fixture.GuideStore.ImportAsync(new GuideImport
+        {
+            SourceId = source.Id,
+            Channels = [],
+            Programs = [],
+            FetchedAtUtc = fetched,
+            CoverageStartUtc = fetched,
+            CoverageEndUtc = DateTimeOffset.UtcNow.AddHours(hoursRemaining)
+        }, TestContext.Current.CancellationToken);
+
+        // Act
+        var result = await fixture.Service.GetStatusAsync(TestContext.Current.CancellationToken);
+        var reasons = Assert.IsType<OperationalStatusResponse>(result.Operations).Issues.Where(issue => issue.ResourceId == source.Id.ToString()).ToArray();
+
+        // Assert
+        Assert.Equal(expired, reasons.Any(issue => issue.Code == "guide_source_expired"));
+        Assert.DoesNotContain(reasons, issue => issue.Code is "guide_source_failed" or "guide_source_missing");
+        if (expired)
+        {
+            Assert.Equal(fetched.UtcDateTime, Assert.Single(reasons).LastSuccessUtc);
+        }
+    }
+
+    /// <summary>Reports effective deployment-wide media usage without conflating it with viewer admission.</summary>
+    [Fact]
+    public async Task GetStatusAsync_MediaResources_ReportsAuthoritativeUsageAndScope()
+    {
+        // Arrange
+        var admission = new MediaWorkAdmission(new() { MaximumProducers = 3, MaximumProcessingOperations = 2, MinimumMediaFreeSpaceMib = 512 });
+        await using var producer = await admission.AcquireAsync(MediaWorkKind.Producer, cancellationToken: TestContext.Current.CancellationToken);
+        await using var processing = await admission.AcquireAsync(MediaWorkKind.Processing, cancellationToken: TestContext.Current.CancellationToken);
+        using var fixture = CreateFixture(mediaWork: admission);
+
+        // Act
+        var response = await fixture.Service.GetStatusAsync(TestContext.Current.CancellationToken);
+        var json = JsonSerializer.SerializeToElement(response, WebJsonOptions).GetProperty("mediaResources");
+
+        // Assert
+        Assert.Equal(1, json.GetProperty("producers").GetInt32());
+        Assert.Equal(3, json.GetProperty("maximumProducers").GetInt32());
+        Assert.Equal(1, json.GetProperty("processing").GetInt32());
+        Assert.Equal(2, json.GetProperty("maximumProcessing").GetInt32());
+        Assert.Equal(512, json.GetProperty("minimumFreeSpaceMib").GetInt32());
+        Assert.Equal("deployment", json.GetProperty("enforcementScope").GetString());
+    }
 
     /// <summary>Verifies status reports independent observation intervals, guide generation and configuration drift honestly.</summary>
     [Theory]
@@ -54,7 +206,7 @@ public class StatusApiServiceTests
         Assert.NotEmpty(observation.WebConfigurationRevision);
         Assert.Same(generation, status.Guide.Generation);
         Assert.NotNull(status.Guide.SourceImportsObservedAtUtc);
-        Assert.Equal(12, observation.Sections.Count);
+        Assert.Equal(14, observation.Sections.Count);
         Assert.All(observation.Sections.Values, section =>
         {
             Assert.True(section.StartedAtUtc >= status.GeneratedAtUtc);
@@ -608,7 +760,10 @@ public class StatusApiServiceTests
         bool useRealStreamingFlows = false,
         string? clientAddress = "192.0.2.20:54321",
         IPhysicalDeviceStatusService? statuses = null,
-        IPluginConnectionBudget? pluginConnections = null
+        IPluginConnectionBudget? pluginConnections = null,
+        MediaWorkAdmission? mediaWork = null,
+        IStreamingTopologyRuntime? topologyRuntime = null,
+        ITopologyGuideService? topologyGuides = null
     )
     {
         var xmltvPath = Path.Combine(Path.GetTempPath(), $"lineup-status-{Guid.NewGuid():N}.xml");
@@ -848,7 +1003,10 @@ public class StatusApiServiceTests
             topologyStore: topologyStore,
             guideStore: guideStore,
             streamingFlows: flowService,
-            pluginConnections: pluginConnections);
+            pluginConnections: pluginConnections,
+            mediaWork: mediaWork,
+            topologyRuntime: topologyRuntime,
+            topologyGuides: topologyGuides);
         return new StatusApiFixture(settings, webSettings, guideReader, service, adapters, topologyStore, guideStore, physicalDeviceId, databasePath, flowService, virtualOutputRuntime);
     }
 

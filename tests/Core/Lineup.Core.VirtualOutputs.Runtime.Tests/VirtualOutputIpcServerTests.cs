@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Lineup.Core.Common.Guides;
 using Lineup.Core.Common.Streaming;
 using Lineup.Core.Settings;
 using Lineup.Core.Streaming;
@@ -14,6 +15,209 @@ namespace Lineup.Core.VirtualOutputs.Runtime.Tests;
 /// <summary>Verifies real local IPC framing, registration, authorization context, and typed broker dispatch.</summary>
 public sealed class VirtualOutputIpcServerTests
 {
+    /// <summary>Over-limit or canceled guide reads return no partial snapshot and do not poison a newer coherent response.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Client_GuideFailure_PreservesLaterGeneration(bool cancel)
+    {
+        // Arrange
+        using var watchdog = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        watchdog.CancelAfter(TimeSpan.FromSeconds(15));
+        using var requestCancellation = CancellationTokenSource.CreateLinkedTokenSource(watchdog.Token);
+        using var authority = new VirtualOutputSessionAuthority();
+        var id = VirtualDeviceId.New();
+        var ticket = authority.CreateActivation(id, "guide-worker", new HashSet<VirtualOutputCapability> { VirtualOutputCapability.ReadGuide },
+            TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+        var registration = authority.Register(new VirtualOutputWorkerRegistrationRequest
+        {
+            WorkerId = ticket.WorkerId,
+            VirtualDeviceId = id,
+            Generation = ticket.Generation,
+            BootstrapToken = ticket.BootstrapToken,
+            MinimumProtocolVersion = VirtualOutputProtocol.MinimumVersion,
+            MaximumProtocolVersion = VirtualOutputProtocol.MaximumVersion
+        });
+        var session = new VirtualOutputSessionContext { SessionId = registration.SessionId!.Value, Generation = ticket.Generation };
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var canceled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reject = true;
+        var channel = new VirtualGuideChannel { ChannelId = new(id, Guid.NewGuid()), Number = "1", Name = "Example", Programs = [] };
+        var broker = Substitute.For<IVirtualOutputBroker>();
+        broker.GetGuideAsync(Arg.Any<VirtualOutputGuideRequest>(), Arg.Any<CancellationToken>()).Returns(async call =>
+        {
+            if (reject && cancel)
+            {
+                entered.TrySetResult();
+                try { await Task.Delay(Timeout.InfiniteTimeSpan, call.Arg<CancellationToken>()); }
+                finally { canceled.TrySetResult(); }
+            }
+            return new VirtualOutputGuideResponse
+            {
+                Snapshot = new VirtualGuideSnapshot
+                {
+                    VirtualDeviceId = id,
+                    Generation = new(DateTimeOffset.UtcNow, reject ? "A" : "B"),
+                    Channels = reject ? Enumerable.Repeat(channel, GuideTransfer.MaximumChannels + 1).ToArray() : [channel]
+                }
+            };
+        });
+        var endpoint = CreateEndpoint();
+        using var server = new VirtualOutputIpcServer(endpoint, authority, broker, new VirtualOutputRuntimeStatus(), CreateSettings(id, maximumOutstandingBrokerCalls: 4),
+            new ActiveStreamRegistry(), NullLogger<VirtualOutputIpcServer>.Instance, Substitute.For<IPluginConnectionBudget>());
+        await server.StartAsync(watchdog.Token);
+        try
+        {
+            var client = new VirtualOutputBrokerClient(endpoint);
+            var request = new VirtualOutputGuideRequest { Session = session };
+
+            // Act
+            var first = client.GetGuideAsync(request, requestCancellation.Token);
+            if (cancel)
+            {
+                await entered.Task.WaitAsync(watchdog.Token);
+                await requestCancellation.CancelAsync();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
+                await canceled.Task.WaitAsync(watchdog.Token);
+            }
+            else
+            {
+                var failure = await Assert.ThrowsAsync<VirtualOutputClientException>(() => first);
+                Assert.Equal(VirtualOutputFailureCode.ResourceLimit, failure.FailureCode);
+            }
+            reject = false;
+            var responses = await Task.WhenAll(client.GetGuideAsync(request, watchdog.Token), client.GetGuideAsync(request, watchdog.Token));
+
+            // Assert
+            Assert.All(responses, response =>
+            {
+                Assert.Equal("B", response.Snapshot.Generation!.ImportRevision);
+                Assert.Single(response.Snapshot.Channels);
+            });
+        }
+        finally
+        {
+            await server.StopAsync(watchdog.Token);
+        }
+    }
+
+    /// <summary>Dedicated reservations share management limits and retire remotely only after the actual idle owner releases its channel.</summary>
+    [Fact]
+    public async Task Client_MediaAdmission_UsesDeploymentBudgetAndOwnerCheckedReclamation()
+    {
+        // Arrange
+        using var watchdog = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        watchdog.CancelAfter(TimeSpan.FromSeconds(15));
+        using var authority = new VirtualOutputSessionAuthority();
+        var id = VirtualDeviceId.New();
+        var ticket = authority.CreateActivation(id, "media-worker", new HashSet<VirtualOutputCapability> { VirtualOutputCapability.OpenStream },
+            TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+        var registered = authority.Register(new VirtualOutputWorkerRegistrationRequest
+        {
+            WorkerId = ticket.WorkerId,
+            VirtualDeviceId = id,
+            Generation = ticket.Generation,
+            BootstrapToken = ticket.BootstrapToken,
+            MinimumProtocolVersion = VirtualOutputProtocol.MinimumVersion,
+            MaximumProtocolVersion = VirtualOutputProtocol.MaximumVersion
+        });
+        var session = new VirtualOutputSessionContext { SessionId = registered.SessionId!.Value, Generation = ticket.Generation };
+        var endpoint = CreateEndpoint();
+        var options = new StreamingResourceOptions { MaximumProducers = 1, MaximumProcessingOperations = 1, MinimumMediaFreeSpaceMib = int.MaxValue };
+        var admission = new MediaWorkAdmission(options);
+        using var server = new VirtualOutputIpcServer(endpoint, authority, Substitute.For<IVirtualOutputBroker>(), new VirtualOutputRuntimeStatus(),
+            CreateSettings(id, maximumOutstandingBrokerCalls: 1), new ActiveStreamRegistry(), NullLogger<VirtualOutputIpcServer>.Instance,
+            Substitute.For<IPluginConnectionBudget>(), admission, options);
+        await server.StartAsync(watchdog.Token);
+        var lost = false;
+        var remote = new BrokerMediaWorkAdmission(new(endpoint), session, () => lost = true, NullLogger.Instance);
+        var active = true;
+        IAsyncDisposable? remoteOwner = null;
+        try
+        {
+            remoteOwner = await remote.AcquireAsync(MediaWorkKind.Producer, async _ =>
+            {
+                if (active) { return false; }
+                await remoteOwner!.DisposeAsync();
+                return true;
+            }, watchdog.Token);
+
+            // Act
+            var failure = await Assert.ThrowsAsync<MediaResourceLimitException>(() =>
+                admission.AcquireAsync(MediaWorkKind.Producer, cancellationToken: watchdog.Token).AsTask());
+            active = false;
+            await using var localOwner = await admission.AcquireAsync(MediaWorkKind.Producer, cancellationToken: watchdog.Token);
+            await using var remoteProcessing = await remote.AcquireAsync(MediaWorkKind.Processing, cancellationToken: watchdog.Token);
+            var storage = Assert.Throws<MediaResourceLimitException>(() => remote.CheckWorkspace(Path.GetTempPath()));
+            var saturated = await Assert.ThrowsAsync<MediaResourceLimitException>(() =>
+                admission.AcquireAsync(MediaWorkKind.Processing, cancellationToken: watchdog.Token).AsTask());
+
+            // Assert
+            Assert.Equal("media_producer_limit", failure.Code);
+            Assert.Equal("media_processing_limit", saturated.Code);
+            Assert.Equal("media_storage_limit", storage.Code);
+            Assert.Equal(1, admission.GetDiagnostics().Producers);
+            Assert.Equal(1, admission.GetDiagnostics().Processing);
+            Assert.False(lost);
+        }
+        finally
+        {
+            if (remoteOwner is not null) { await remoteOwner.DisposeAsync(); }
+            await server.StopAsync(watchdog.Token);
+        }
+    }
+
+    /// <summary>Revoking authenticated ownership requests fail-closed worker cleanup before returning the reservation to the deployment.</summary>
+    [Fact]
+    public async Task Client_MediaAdmission_RevocationWaitsForOwnedCleanup()
+    {
+        // Arrange
+        using var watchdog = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        watchdog.CancelAfter(TimeSpan.FromSeconds(15));
+        using var authority = new VirtualOutputSessionAuthority();
+        var id = VirtualDeviceId.New();
+        var ticket = authority.CreateActivation(id, "media-worker", new HashSet<VirtualOutputCapability> { VirtualOutputCapability.OpenStream },
+            TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+        var registered = authority.Register(new VirtualOutputWorkerRegistrationRequest
+        {
+            WorkerId = ticket.WorkerId,
+            VirtualDeviceId = id,
+            Generation = ticket.Generation,
+            BootstrapToken = ticket.BootstrapToken,
+            MinimumProtocolVersion = VirtualOutputProtocol.MinimumVersion,
+            MaximumProtocolVersion = VirtualOutputProtocol.MaximumVersion
+        });
+        var session = new VirtualOutputSessionContext { SessionId = registered.SessionId!.Value, Generation = ticket.Generation };
+        var endpoint = CreateEndpoint();
+        var admission = new MediaWorkAdmission(new() { MaximumProducers = 1 });
+        using var server = new VirtualOutputIpcServer(endpoint, authority, Substitute.For<IVirtualOutputBroker>(), new VirtualOutputRuntimeStatus(),
+            CreateSettings(id, maximumOutstandingBrokerCalls: 1), new ActiveStreamRegistry(), NullLogger<VirtualOutputIpcServer>.Instance,
+            Substitute.For<IPluginConnectionBudget>(), admission);
+        await server.StartAsync(watchdog.Token);
+        var lost = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var remote = new BrokerMediaWorkAdmission(new(endpoint), session, () => lost.TrySetResult(), NullLogger.Instance);
+        await using var owner = await remote.AcquireAsync(MediaWorkKind.Producer, cancellationToken: watchdog.Token);
+        try
+        {
+            // Act
+            authority.Revoke(id, "Synthetic media ownership revocation.");
+            await lost.Task.WaitAsync(watchdog.Token);
+            var beforeCleanup = admission.GetDiagnostics().Producers;
+            await owner.DisposeAsync();
+            while (admission.GetDiagnostics().Producers != 0) { await Task.Delay(10, watchdog.Token); }
+            await using var replacement = await admission.AcquireAsync(MediaWorkKind.Producer, cancellationToken: watchdog.Token);
+
+            // Assert
+            Assert.Equal(1, beforeCleanup);
+            Assert.Equal(1, admission.GetDiagnostics().Producers);
+        }
+        finally
+        {
+            await owner.DisposeAsync();
+            await server.StopAsync(watchdog.Token);
+        }
+    }
+
     /// <summary>Verifies an accepted old-generation status operation cannot overwrite a concurrently enrolled replacement.</summary>
     [Theory]
     [InlineData(VirtualOutputIpcOperation.Register)]

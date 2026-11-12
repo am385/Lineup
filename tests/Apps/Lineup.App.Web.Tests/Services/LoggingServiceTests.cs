@@ -235,6 +235,50 @@ public class LoggingServiceTests
         root.Delete(recursive: true);
     }
 
+    /// <summary>Verifies bootstrap logging cannot apply invalid Web documents and can recover a valid backup.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Configure_InvalidWebSchema_UsesOnlyValidBackup(bool hasValidBackup)
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-log-schema-");
+        try
+        {
+            const string invalid = """{"EnableFileLogging":true,"OverrideLoggingDefaults":true,"ApplicationLogLevel":"None"}""";
+            var path = Path.Combine(root.FullName, "web-settings.json");
+            File.WriteAllText(path, invalid);
+            var backup = JsonSerializer.Serialize(new WebSettings { EnableFileLogging = true, FileLogRetentionDays = 19 });
+            if (hasValidBackup)
+            {
+                File.WriteAllText($"{path}.bak", backup);
+            }
+            var builder = WebApplication.CreateBuilder(new WebApplicationOptions { ContentRootPath = root.FullName, EnvironmentName = "Production" });
+
+            // Act
+            var result = LoggingBootstrapper.Configure(builder, root.FullName);
+            var app = builder.Build();
+            app.Logger.LogWarning("Schema recovery logging remains available");
+            var events = result.EventStore.GetEvents(LogEventLevel.Warning, null, null, 10);
+            await app.DisposeAsync();
+
+            // Assert
+            Assert.Equal(hasValidBackup, result.RuntimeState.FileSettings.Enabled);
+            Assert.Equal(hasValidBackup ? 19 : 7, result.RuntimeState.FileSettings.RetentionDays);
+            Assert.Contains(events, entry => entry.Message == "Schema recovery logging remains available");
+            Assert.Equal(invalid, File.ReadAllText(path));
+            Assert.Equal(hasValidBackup, File.Exists($"{path}.bak"));
+            if (hasValidBackup)
+            {
+                Assert.Equal(backup, File.ReadAllText($"{path}.bak"));
+            }
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
     /// <summary>
     /// Verifies invalid external configuration is reported without exposing supplied values.
     /// </summary>

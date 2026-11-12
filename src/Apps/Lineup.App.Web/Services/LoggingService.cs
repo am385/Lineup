@@ -546,13 +546,9 @@ public static class LoggingBootstrapper
                     continue;
                 }
 
-                var settings = JsonSerializer.Deserialize<WebSettings>(appDataStore.ReadAllText(path));
-                if (settings != null)
-                {
-                    return settings;
-                }
+                return WebSettingsService.DeserializeSettings(appDataStore.ReadAllText(path));
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or FactoryResetRequiredException)
             {
                 Console.Error.WriteLine($"Unable to read logging settings from '{path}': {ex.Message}");
             }

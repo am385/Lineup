@@ -257,7 +257,7 @@
   <data name="Settings_ApiRedactUrlsHelpPrefix" xml:space="preserve"><value>Zwraca adresy URL urządzeń, list kanałów, celów tunerów, rozgłaszane oraz XMLTV jako</value></data>
   <data name="Settings_ApiRedactUrlsLabel" xml:space="preserve"><value>Redaguj adresy URL</value></data>
   <data name="Settings_ApplicationLogFiltersHeading" xml:space="preserve"><value>Filtry dziennika aplikacji</value></data>
-  <data name="Settings_AutoFetchGuideHelp" xml:space="preserve"><value>Pobiera kompletny przewodnik SiliconDust w losowym interwale od 20 do 28 godzin, zgodnie z wymaganiami API. Dostępność wynosi 2 dni dla wszystkich lub 14 dni z subskrypcją przewodnika HDHomeRun DVR.</value></data>
+  <data name="Settings_AutoFetchGuideHelp" xml:space="preserve"><value>Każde źródło ma własny harmonogram. SiliconDust stosuje losowe odstępy 20-28 godzin, z danymi na 2 dni lub 14 dni z subskrypcją DVR. Lineup Link używa skonfigurowanego odstępu (domyślnie 24 godziny). Nieudane pobrania i publikacje są ponawiane niezależnie po godzinie.</value></data>
   <data name="Settings_AutoFetchGuideLabel" xml:space="preserve"><value>Automatycznie odświeżaj dane przewodnika</value></data>
   <data name="Settings_BindAddressesHelp" xml:space="preserve"><value>Adresy IP rozdzielone przecinkami, localhost lub * dla wszystkich interfejsów.</value></data>
   <data name="Settings_BindAddressesLabel" xml:space="preserve"><value>Adresy powiązania</value></data>
@@ -587,7 +587,7 @@
   <data name="Channels_RefreshChannels" xml:space="preserve"><value>Odśwież kanały</value></data>
   <data name="Channels_RefreshedChannels" xml:space="preserve"><value>Odświeżono kanały źródeł fizycznych: {0}.</value></data>
   <data name="Channels_RefreshedChannelsWithFailures" xml:space="preserve"><value>Odświeżono kanały źródeł fizycznych: {0}; liczba awarii urządzeń: {1}. Zachowano poprzedni stan.</value></data>
-  <data name="Channels_SavedButXmltvUpdateFailed" xml:space="preserve"><value>Ustawienie kanału zostało zapisane, ale nie można było zaktualizować opublikowanego przewodnika XMLTV: {0}</value></data>
+  <data name="Channels_SavedButXmltvUpdateFailed" xml:space="preserve"><value>Ustawienie kanału zapisano, ale nie udało się w pełni zaktualizować opublikowanego przewodnika. Zaplanowano ponowienie z pamięci podręcznej: {0}</value></data>
   <data name="Channels_SavedGlobalIdentity" xml:space="preserve"><value>Zapisano globalną tożsamość kanału {0}.</value></data>
   <data name="Channels_SavedGuideUnavailableHelp" xml:space="preserve"><value>Zapisany ręcznie kanał przewodnika nie jest już aktywny. Wybierz inny kanał lub wróć do automatycznego dopasowania.</value></data>
   <data name="Channels_SearchPlaceholder" xml:space="preserve"><value>Numer, nazwa, urządzenie, kodek lub klucz dostawcy</value></data>
@@ -654,7 +654,7 @@
   <data name="Dashboard_AutoFetchDisabled" xml:space="preserve"><value>automatyczne pobieranie wyłączone</value></data>
   <data name="Dashboard_AutoFetchHeading" xml:space="preserve"><value>Automatyczne pobieranie</value></data>
   <data name="Dashboard_AutoFetchInProgress" xml:space="preserve"><value>Trwa automatyczne pobieranie</value></data>
-  <data name="Dashboard_AutoFetchInterval" xml:space="preserve"><value>20–28 godz. (losowo)</value></data>
+  <data name="Dashboard_AutoFetchInterval" xml:space="preserve"><value>Niezależne harmonogramy źródeł i publikacji</value></data>
   <data name="Dashboard_AutoFetchPending" xml:space="preserve"><value>automatyczne pobieranie oczekuje</value></data>
   <data name="Dashboard_AutoFetchRunning" xml:space="preserve"><value>automatyczne pobieranie trwa</value></data>
   <data name="Dashboard_AutoRefreshDisabled" xml:space="preserve"><value>automatyczne odświeżanie wyłączone</value></data>
@@ -1133,4 +1133,16 @@
   <data name="Settings_TopologyRevisions" xml:space="preserve"><value>Żądana: {0}. Próbowana: {1}. Ostatnia w pełni zastosowana: {2}.</value></data>
   <data name="Settings_TopologyDeviceFailure" xml:space="preserve"><value>Nie udało się zastosować urządzenia fizycznego {0}.</value></data>
   <data name="Settings_TopologyOutputFailure" xml:space="preserve"><value>Wyjście przewodnika {0} zakończyło się błędem lub jest częściowe.</value></data>
+  <data name="Settings_WorkerRecoveryHeading" xml:space="preserve"><value>Odzyskiwanie procesu roboczego</value></data>
+  <data name="Settings_WorkerRecoveryHelp" xml:space="preserve"><value>Używa zapisanych ustawień, a nie niezapisanych zmian. Działające procesy nigdy nie są uruchamiane ponownie.</value></data>
+  <data name="Settings_WorkerRetry" xml:space="preserve"><value>Sprawdź ponownie i ponów uruchomienie procesu</value></data>
+  <data name="Settings_WorkerRetrying" xml:space="preserve"><value>Ponowne sprawdzanie procesu...</value></data>
+  <data name="Settings_WorkerRetryAccepted" xml:space="preserve"><value>Zaakceptowano odzyskiwanie. Odśwież, aby sprawdzić gotowość. Procesy nadzorowane zewnętrznie muszą zarejestrować się ponownie.</value></data>
+  <data name="Settings_WorkerRetryRejected" xml:space="preserve"><value>Ponowienie wymaga niesprawnego procesu z włączonym i zapisanym hostingiem dedykowanym. Działające procesy nigdy nie są uruchamiane ponownie.</value></data>
+  <data name="Settings_WorkerRetryFailed" xml:space="preserve"><value>Proces jest niedostępny. Sprawdź błąd przed ponowieniem.</value></data>
+  <data name="Settings_WorkerPreviousFailure" xml:space="preserve"><value>Błąd przed ostatnią próbą odzyskiwania</value></data>
+  <data name="Settings_WorkerReady" xml:space="preserve"><value>Proces jest gotowy.</value></data>
+  <data name="Settings_WorkerWaiting" xml:space="preserve"><value>Proces nie zgłosił gotowości do prawidłowej pracy. Odśwież, aby sprawdzić jego stan.</value></data>
+  <data name="Watch_Reconnecting" xml:space="preserve"><value>Ponowne łączenie z telewizją na żywo. Możesz zatrzymać odtwarzanie lub wybrać inny kanał.</value></data>
+  <data name="Watch_ReconnectExhausted" xml:space="preserve"><value>Automatyczne łączenie zakończono po osiągnięciu limitu prób lub 60 sekund. Wybierz kanał ponownie, aby spróbować jeszcze raz.</value></data>
 </root>

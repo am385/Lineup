@@ -16,6 +16,83 @@ namespace Lineup.App.Web.Tests.Controllers;
 /// <summary>Verifies typed management playback and its HTTP adapter with real coordinator lifetimes, storage, and encoder processes.</summary>
 public sealed class CmafSharingTests
 {
+    /// <summary>Real input EOF/failure reaches passive viewer status without reviving an explicitly stopped peer.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Service_EstablishedSourceLoss_ClassifiesSurvivingViewer(bool failed)
+    {
+        // Arrange
+        await using var fixture = new Fixture();
+        var first = fixture.BeginServiceStart("stopped");
+        var stopped = Assert.IsType<ManagementPlaybackPresentation>((await first.Start).Presentation);
+        var second = fixture.BeginServiceStart("survivor");
+        var survivor = Assert.IsType<ManagementPlaybackPresentation>((await second.Start).Presentation);
+        Assert.True(first.Service.Stop(stopped.SessionId));
+
+        // Act
+        fixture.EndSource(failed ? new IOException("Synthetic source read failure.") : null);
+        await WaitUntilAsync(() => !second.Service.GetPlaybackStatus(survivor.SessionId).IsActive);
+        var status = second.Service.GetPlaybackStatus(survivor.SessionId);
+
+        // Assert
+        Assert.True(status.Retryable);
+        Assert.Equal(failed ? "source_failure" : "source_eof", status.Code);
+        Assert.False(first.Service.GetPlaybackStatus(stopped.SessionId).Retryable);
+        await WaitUntilAsync(() => fixture.ActiveInputs == 0 && !fixture.IsEncoderRunning);
+    }
+
+    /// <summary>Synthetic presentations also include their immutable quality/media plan in sharing identity.</summary>
+    [Fact]
+    public async Task Service_ProtectedSlates_DifferentPlansDoNotShare()
+    {
+        // Arrange
+        await using var fixture = new Fixture { ProtectedContent = true };
+        fixture.Settings.ProtectedContentMode = ProtectedContentMode.StreamSlate;
+        var first = fixture.BeginServiceStart("first");
+        await first.Start;
+
+        // Act
+        var second = fixture.BeginServiceStart("second", new CmafStreamRequest { Quality = WebPlayerQuality.Low });
+        var result = await second.Start;
+
+        // Assert
+        Assert.NotNull(result.Presentation);
+        Assert.Equal(2, fixture.EncoderCount);
+        Assert.Equal(2, fixture.Outputs.ActiveOutputCount);
+    }
+
+    /// <summary>A pending or warm output from a replaced adapter generation must not accept viewers for the new runtime.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Service_RuntimeReplacement_DoesNotJoinPendingOrWarmProducer(bool pending)
+    {
+        // Arrange
+        await using var fixture = new Fixture { HoldReadiness = pending };
+        fixture.Settings.Streaming = fixture.Settings.Streaming with { KeepWarmPeriodSeconds = 60 };
+        var first = fixture.BeginServiceStart("old-generation");
+        await fixture.EncoderStarted.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        if (!pending)
+        {
+            var old = Assert.IsType<ManagementPlaybackPresentation>((await first.Start).Presentation);
+            first.Service.Stop(old.SessionId);
+        }
+
+        // Act
+        fixture.PhysicalRuntime = Substitute.For<IPhysicalTunerDevice>();
+        var second = fixture.BeginServiceStart("new-generation");
+        await WaitUntilAsync(() => fixture.EncoderCount == 2);
+        fixture.PublishReadiness();
+        var result = await second.Start.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        await first.Start;
+
+        // Assert
+        Assert.NotNull(result.Presentation);
+        Assert.Equal(2, fixture.EncoderCount);
+        Assert.Equal(2, fixture.Outputs.ActiveOutputCount);
+    }
+
     /// <summary>Verifies typed application startup shares producers and independently owns viewers without constructing an MVC controller.</summary>
     [Fact]
     public async Task Service_EquivalentViewers_ShareProducerAndStopIndependently()
@@ -707,6 +784,9 @@ public sealed class CmafSharingTests
     [InlineData("profile")]
     [InlineData("physical")]
     [InlineData("channel")]
+    [InlineData("tune")]
+    [InlineData("generation")]
+    [InlineData("normalization")]
     public async Task Start_DifferentPlanOrSource_DoesNotShare(string change)
     {
         // Arrange
@@ -722,6 +802,9 @@ public sealed class CmafSharingTests
             case "profile": fixture.Settings.Streaming = fixture.Settings.Streaming with { VirtualDefaults = new VirtualTranscodeProfile { VideoQuality = 18 } }; break;
             case "physical": fixture.PhysicalId = PhysicalDeviceId.New(); break;
             case "channel": channel = "9.1"; break;
+            case "tune": fixture.TuneKey = "replacement-frequency"; break;
+            case "generation": fixture.PhysicalRuntime = Substitute.For<IPhysicalTunerDevice>(); break;
+            case "normalization": fixture.Settings.Streaming = fixture.Settings.Streaming with { PhysicalDefaults = new PhysicalTranscodeProfile { VideoQuality = 18 } }; break;
             default: throw new ArgumentOutOfRangeException(nameof(change));
         }
 
@@ -760,6 +843,7 @@ public sealed class CmafSharingTests
         private readonly ConcurrentQueue<(Process Observer, string Directory)> _encoders = new();
         private readonly ConcurrentQueue<MediaProcessRequest> _encoderRequests = new();
         private readonly TaskCompletionSource _encoderStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<Exception?> _sourceCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly List<CancellationTokenSource> _cancellations = [];
         private readonly List<Task<IActionResult>> _starts = [];
         private readonly List<Task<ManagementPlaybackStartResult>> _serviceStarts = [];
@@ -775,6 +859,12 @@ public sealed class CmafSharingTests
         private int _activeInputs;
         private int _subscriptions;
         private ManagementPlaybackService? _playback;
+
+        /// <summary>Gets or sets the captured physical generation used by resolved routes.</summary>
+        internal IPhysicalTunerDevice PhysicalRuntime { get; set; } = Substitute.For<IPhysicalTunerDevice>();
+
+        /// <summary>Gets or sets the exact physical tune identity.</summary>
+        internal string TuneKey { get; set; } = "none";
 
         /// <summary>Creates isolated SQLite storage, deterministic source capabilities, and real process ownership.</summary>
         internal Fixture()
@@ -799,7 +889,7 @@ public sealed class CmafSharingTests
                     throw InputFailure;
                 }
                 Interlocked.Increment(ref _activeInputs);
-                return new BlockingInput(() => Interlocked.Decrement(ref _activeInputs));
+                return new BlockingInput(() => Interlocked.Decrement(ref _activeInputs), _sourceCompletion.Task);
             });
             var effective = (IEffectiveTunerStreamMultiplexer)_multiplexer;
             effective.GetEffectiveSource(Arg.Any<MediaProbeResult>(), Arg.Any<PhysicalTranscodeProfile>())
@@ -832,6 +922,9 @@ public sealed class CmafSharingTests
 
         /// <summary>Gets the controllable logical inactivity clock.</summary>
         internal LogicalClock Clock { get; } = new();
+
+        /// <summary>Completes the retained input independently of viewer and process cancellation.</summary>
+        internal void EndSource(Exception? failure) => _sourceCompletion.TrySetResult(failure);
 
         /// <summary>Gets the real shared-output coordinator.</summary>
         internal CmafOutputCoordinator Outputs { get; }
@@ -892,7 +985,7 @@ public sealed class CmafSharingTests
         internal int ActiveInputs => Volatile.Read(ref _activeInputs);
 
         /// <summary>Starts the application service directly, with no controller, HTTP context, or action result.</summary>
-        internal (ManagementPlaybackService Service, CancellationTokenSource Cancellation, Task<ManagementPlaybackStartResult> Start) BeginServiceStart(string clientId)
+        internal (ManagementPlaybackService Service, CancellationTokenSource Cancellation, Task<ManagementPlaybackStartResult> Start) BeginServiceStart(string clientId, CmafStreamRequest? request = null)
         {
             var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
             _cancellations.Add(cancellation);
@@ -902,7 +995,8 @@ public sealed class CmafSharingTests
                 httpClients, Substitute.For<ILineupGuideReader>(), _settings, _topology, _probe, ActiveStreams,
                 _slates, _multiplexer, NullLogger<ManagementPlaybackService>.Instance,
                 transientData: _files, mediaProcessFactory: _processes, streamRoutes: _routes, cmafOutputs: Outputs, cmafStartupTimeout: StartupTimeout);
-            var start = _playback.StartAsync("7.1", new CmafStreamRequest { ClientId = clientId }, $"127.0.0.1:{10_000 + _cancellations.Count}", cancellationToken: cancellation.Token);
+            var start = _playback.StartAsync("7.1", (request ?? new CmafStreamRequest()) with { ClientId = clientId },
+                $"127.0.0.1:{10_000 + _cancellations.Count}", cancellationToken: cancellation.Token);
             _serviceStarts.Add(start);
             return (_playback, cancellation, start);
         }
@@ -1025,10 +1119,11 @@ public sealed class CmafSharingTests
 
         private ResolvedStreamingRoute Route(string channel)
         {
-            var physical = Substitute.For<IPhysicalTunerDevice>();
+            var physical = PhysicalRuntime;
             physical.Snapshot.Returns(new PhysicalDeviceSnapshot { Id = PhysicalId, Kind = "test", Name = "Source", Capacity = new PhysicalTunerCapacity(2) });
             var source = new SourceChannelId(PhysicalId, channel);
-            var acquisition = new StreamAcquisitionDescriptor(PhysicalId, new PhysicalAcquisitionKey(source, "none"), new PhysicalTunerCapacity(2));
+            var acquisition = new StreamAcquisitionDescriptor(PhysicalId, new PhysicalAcquisitionKey(source, TuneKey), new PhysicalTunerCapacity(2));
+            typeof(StreamAcquisitionDescriptor).GetProperty("Runtime", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(acquisition, physical);
             var candidate = new ResolvedStreamingCandidate
             {
                 PhysicalDevice = physical,
@@ -1120,7 +1215,7 @@ public sealed class CmafSharingTests
         internal void Advance(TimeSpan duration) => Interlocked.Add(ref _timestamp, duration.Ticks);
     }
 
-    private sealed class BlockingInput(Action? disposed = null) : Stream
+    private sealed class BlockingInput(Action? disposed = null, Task<Exception?>? completion = null) : Stream
     {
         private int _disposed;
 
@@ -1148,7 +1243,14 @@ public sealed class CmafSharingTests
         /// <inheritdoc />
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            if (completion is null)
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+            else if (await completion.WaitAsync(cancellationToken) is { } failure)
+            {
+                throw failure;
+            }
             return 0;
         }
 

@@ -65,17 +65,11 @@ class Program
         builder.Services.AddSerilog(config => config
             .ReadFrom.Configuration(builder.Configuration));
 
-        builder.Services.AddSingleton<IAppDataStore>(appDataStore);
         builder.Services.AddSingleton(appDataStore);
         builder.Services.AddSingleton<ITransientDataStore>(transientDataStore);
         builder.Services.AddSingleton(transientDataStore);
         builder.Services.AddSingleton(startupState);
-        builder.Services.AddEpgCore(resolvedDatabasePath, appDataStore);
-        builder.Services.AddSingleton<ITopologyGuideService, TopologyGuideService>();
-        builder.Services.AddHttpClient();
-        AddStreamingAdapters(builder.Services);
-        builder.Services.AddSingleton<LineupSettingsService>();
-        builder.Services.AddSingleton<ILineupSettingsService>(provider => provider.GetRequiredService<LineupSettingsService>());
+        AddCoreServices(builder.Services, appDataStore, resolvedDatabasePath);
         builder.Services.AddLineupMpegTsStreaming();
         builder.Services.AddLineupStreamShutdownWorker();
         builder.Services.AddLineupVirtualOutputRuntime(CreateVirtualOutputRuntimeOptions(builder.Configuration, transientDataStore));
@@ -192,6 +186,22 @@ class Program
                 : Path.GetFullPath(configuredWorkerPath),
             IpcEndpoint = endpoint
         };
+    }
+
+    /// <summary>Composes TUI Core services with settings-backed guide retention and topology.</summary>
+    /// <param name="services">Application service collection.</param>
+    /// <param name="appDataStore">Authoritative settings and application-data store.</param>
+    /// <param name="databasePath">Resolved guide database path.</param>
+    internal static void AddCoreServices(IServiceCollection services, IAppDataStore appDataStore, string databasePath)
+    {
+        services.AddSingleton(appDataStore);
+        services.AddEpgCore(databasePath, appDataStore);
+        services.AddSingleton<ITopologyGuideService, TopologyGuideService>();
+        services.AddHttpClient();
+        AddStreamingAdapters(services);
+        services.AddSingleton<LineupSettingsService>();
+        services.AddSingleton<ILineupSettingsService>(provider => provider.GetRequiredService<LineupSettingsService>());
+        services.AddSingleton<IEpgRetentionPolicy>(provider => provider.GetRequiredService<LineupSettingsService>());
     }
 
     /// <summary>Registers every physical, virtual, and guide adapter supported by the TUI.</summary>

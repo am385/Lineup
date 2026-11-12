@@ -257,7 +257,7 @@
   <data name="Settings_ApiRedactUrlsHelpPrefix" xml:space="preserve"><value>Returns device, lineup, tuner target, advertised, and XMLTV URLs as</value></data>
   <data name="Settings_ApiRedactUrlsLabel" xml:space="preserve"><value>Redact URLs</value></data>
   <data name="Settings_ApplicationLogFiltersHeading" xml:space="preserve"><value>Application Log Filters</value></data>
-  <data name="Settings_AutoFetchGuideHelp" xml:space="preserve"><value>Downloads SiliconDust&apos;s complete guide at a randomized interval between 20 and 28 hours, as required by the API. Availability is 2 days for everyone or 14 days with an HDHomeRun DVR guide subscription.</value></data>
+  <data name="Settings_AutoFetchGuideHelp" xml:space="preserve"><value>Each source has its own schedule. SiliconDust uses a randomized 20-28 hour interval, with 2 days of guide data or 14 days with a DVR guide subscription. Lineup Link uses the configured interval (24 hours by default). Failed sources and guide publications retry independently after one hour.</value></data>
   <data name="Settings_AutoFetchGuideLabel" xml:space="preserve"><value>Automatically refresh guide data</value></data>
   <data name="Settings_BindAddressesHelp" xml:space="preserve"><value>Comma-separated IP addresses, localhost, or * for all interfaces.</value></data>
   <data name="Settings_BindAddressesLabel" xml:space="preserve"><value>Bind addresses</value></data>
@@ -587,7 +587,7 @@
   <data name="Channels_RefreshChannels" xml:space="preserve"><value>Refresh Channels</value></data>
   <data name="Channels_RefreshedChannels" xml:space="preserve"><value>Refreshed {0} physical source channels.</value></data>
   <data name="Channels_RefreshedChannelsWithFailures" xml:space="preserve"><value>Refreshed {0} physical source channels with {1} device failure(s); prior state was preserved.</value></data>
-  <data name="Channels_SavedButXmltvUpdateFailed" xml:space="preserve"><value>The channel setting was saved, but the published XMLTV guide could not be updated: {0}</value></data>
+  <data name="Channels_SavedButXmltvUpdateFailed" xml:space="preserve"><value>The channel setting was saved, but a published guide could not be completely updated. A cached-guide retry is pending: {0}</value></data>
   <data name="Channels_SavedGlobalIdentity" xml:space="preserve"><value>Saved global identity for channel {0}.</value></data>
   <data name="Channels_SavedGuideUnavailableHelp" xml:space="preserve"><value>The saved manual guide channel is no longer active. Choose another channel or return to automatic matching.</value></data>
   <data name="Channels_SearchPlaceholder" xml:space="preserve"><value>Number, name, device, codec, or provider key</value></data>
@@ -654,7 +654,7 @@
   <data name="Dashboard_AutoFetchDisabled" xml:space="preserve"><value>auto-fetch disabled</value></data>
   <data name="Dashboard_AutoFetchHeading" xml:space="preserve"><value>Auto-Fetch</value></data>
   <data name="Dashboard_AutoFetchInProgress" xml:space="preserve"><value>Auto-Fetch in Progress</value></data>
-  <data name="Dashboard_AutoFetchInterval" xml:space="preserve"><value>20-28h (randomized)</value></data>
+  <data name="Dashboard_AutoFetchInterval" xml:space="preserve"><value>Independent source and publication schedules</value></data>
   <data name="Dashboard_AutoFetchPending" xml:space="preserve"><value>auto-fetch pending</value></data>
   <data name="Dashboard_AutoFetchRunning" xml:space="preserve"><value>auto-fetch running</value></data>
   <data name="Dashboard_AutoRefreshDisabled" xml:space="preserve"><value>auto-refresh disabled</value></data>
@@ -1132,4 +1132,16 @@
   <data name="Settings_TopologyRevisions" xml:space="preserve"><value>Desired: {0}. Attempted: {1}. Last fully applied: {2}.</value></data>
   <data name="Settings_TopologyDeviceFailure" xml:space="preserve"><value>Physical device {0} failed to apply.</value></data>
   <data name="Settings_TopologyOutputFailure" xml:space="preserve"><value>Guide output {0} failed or is partial.</value></data>
+  <data name="Settings_WorkerRecoveryHeading" xml:space="preserve"><value>Worker recovery</value></data>
+  <data name="Settings_WorkerRecoveryHelp" xml:space="preserve"><value>Uses saved settings, not unsaved edits. Running workers are never restarted.</value></data>
+  <data name="Settings_WorkerRetry" xml:space="preserve"><value>Revalidate and retry worker</value></data>
+  <data name="Settings_WorkerRetrying" xml:space="preserve"><value>Revalidating worker...</value></data>
+  <data name="Settings_WorkerRetryAccepted" xml:space="preserve"><value>Recovery accepted. Refresh to check readiness. Externally supervised workers must enroll again.</value></data>
+  <data name="Settings_WorkerRetryRejected" xml:space="preserve"><value>Retry requires a failed worker with enabled saved dedicated hosting. Running workers are never restarted.</value></data>
+  <data name="Settings_WorkerRetryFailed" xml:space="preserve"><value>The worker is unavailable. Review the failure before retrying.</value></data>
+  <data name="Settings_WorkerPreviousFailure" xml:space="preserve"><value>Failure before the last recovery attempt</value></data>
+  <data name="Settings_WorkerReady" xml:space="preserve"><value>The worker is ready.</value></data>
+  <data name="Settings_WorkerWaiting" xml:space="preserve"><value>The worker has not reported healthy readiness. Refresh to check its status.</value></data>
+  <data name="Watch_Reconnecting" xml:space="preserve"><value>Reconnecting to live TV. You can stop or select another channel.</value></data>
+  <data name="Watch_ReconnectExhausted" xml:space="preserve"><value>Automatic reconnect stopped after its retry limit or 60-second deadline. Select the channel again to retry.</value></data>
 </root>

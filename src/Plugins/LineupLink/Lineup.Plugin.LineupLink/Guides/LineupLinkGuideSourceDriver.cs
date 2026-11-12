@@ -11,9 +11,12 @@ using Lineup.Plugin.LineupLink.Protocol;
 namespace Lineup.Plugin.LineupLink.Guides;
 
 /// <summary>Creates guide sources backed by active Lineup Link physical devices.</summary>
-public sealed class LineupLinkGuideSourceDriver : IGuideSourceDriver, IAdapterSettingsProvider
+public sealed class LineupLinkGuideSourceDriver : IGuideSourceDriver, IAdapterSettingsProvider, IGuideSourceRefreshPolicy
 {
     private readonly IPhysicalDeviceResolver _devices;
+
+    /// <inheritdoc />
+    public TimeSpan GetRefreshInterval(TimeSpan configuredInterval) => configuredInterval;
 
     /// <summary>Initializes the Lineup Link guide driver.</summary>
     public LineupLinkGuideSourceDriver(IPhysicalDeviceResolver devices)

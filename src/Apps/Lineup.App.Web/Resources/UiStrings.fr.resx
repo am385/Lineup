@@ -257,7 +257,7 @@
   <data name="Settings_ApiRedactUrlsHelpPrefix" xml:space="preserve"><value>Renvoie les URL des appareils, des listes de chaînes, des cibles de tuner, des annonces et du XMLTV sous la forme</value></data>
   <data name="Settings_ApiRedactUrlsLabel" xml:space="preserve"><value>Masquer les URL</value></data>
   <data name="Settings_ApplicationLogFiltersHeading" xml:space="preserve"><value>Filtres des journaux de l’application</value></data>
-  <data name="Settings_AutoFetchGuideHelp" xml:space="preserve"><value>Télécharge le guide complet de SiliconDust à un intervalle aléatoire compris entre 20 et 28 heures, comme l’exige l’API. La disponibilité est de 2 jours pour tous ou de 14 jours avec un abonnement au guide HDHomeRun DVR.</value></data>
+  <data name="Settings_AutoFetchGuideHelp" xml:space="preserve"><value>Chaque source a son propre calendrier. SiliconDust utilise un intervalle aléatoire de 20 à 28 heures, avec 2 jours de données ou 14 jours avec un abonnement DVR. Lineup Link utilise l’intervalle configuré (24 heures par défaut). Les sources et publications en échec sont réessayées indépendamment après une heure.</value></data>
   <data name="Settings_AutoFetchGuideLabel" xml:space="preserve"><value>Actualiser automatiquement les données du guide</value></data>
   <data name="Settings_BindAddressesHelp" xml:space="preserve"><value>Adresses IP séparées par des virgules, localhost ou * pour toutes les interfaces.</value></data>
   <data name="Settings_BindAddressesLabel" xml:space="preserve"><value>Adresses de liaison</value></data>
@@ -587,7 +587,7 @@
   <data name="Channels_RefreshChannels" xml:space="preserve"><value>Actualiser les chaînes</value></data>
   <data name="Channels_RefreshedChannels" xml:space="preserve"><value>{0} chaînes de sources physiques actualisées.</value></data>
   <data name="Channels_RefreshedChannelsWithFailures" xml:space="preserve"><value>{0} chaînes de sources physiques actualisées avec {1} échec(s) d’appareil ; l’état précédent a été conservé.</value></data>
-  <data name="Channels_SavedButXmltvUpdateFailed" xml:space="preserve"><value>Le paramètre de la chaîne a été enregistré, mais le guide XMLTV publié n’a pas pu être mis à jour : {0}</value></data>
+  <data name="Channels_SavedButXmltvUpdateFailed" xml:space="preserve"><value>Le paramètre de la chaîne a été enregistré, mais un guide publié n’a pas pu être entièrement mis à jour. Une nouvelle tentative depuis le cache est prévue : {0}</value></data>
   <data name="Channels_SavedGlobalIdentity" xml:space="preserve"><value>Identité globale enregistrée pour la chaîne {0}.</value></data>
   <data name="Channels_SavedGuideUnavailableHelp" xml:space="preserve"><value>La chaîne de guide manuelle enregistrée n’est plus active. Choisissez une autre chaîne ou revenez à la correspondance automatique.</value></data>
   <data name="Channels_SearchPlaceholder" xml:space="preserve"><value>Numéro, nom, appareil, codec ou clé de fournisseur</value></data>
@@ -654,7 +654,7 @@
   <data name="Dashboard_AutoFetchDisabled" xml:space="preserve"><value>récupération automatique désactivée</value></data>
   <data name="Dashboard_AutoFetchHeading" xml:space="preserve"><value>Récupération automatique</value></data>
   <data name="Dashboard_AutoFetchInProgress" xml:space="preserve"><value>Récupération automatique en cours</value></data>
-  <data name="Dashboard_AutoFetchInterval" xml:space="preserve"><value>20 à 28 h (aléatoire)</value></data>
+  <data name="Dashboard_AutoFetchInterval" xml:space="preserve"><value>Calendriers indépendants des sources et publications</value></data>
   <data name="Dashboard_AutoFetchPending" xml:space="preserve"><value>récupération automatique en attente</value></data>
   <data name="Dashboard_AutoFetchRunning" xml:space="preserve"><value>récupération automatique en cours</value></data>
   <data name="Dashboard_AutoRefreshDisabled" xml:space="preserve"><value>actualisation automatique désactivée</value></data>
@@ -1132,4 +1132,16 @@
   <data name="Settings_TopologyRevisions" xml:space="preserve"><value>Souhaitée : {0}. Tentée : {1}. Dernière entièrement appliquée : {2}.</value></data>
   <data name="Settings_TopologyDeviceFailure" xml:space="preserve"><value>Échec de l'application du périphérique physique {0}.</value></data>
   <data name="Settings_TopologyOutputFailure" xml:space="preserve"><value>La sortie de guide {0} a échoué ou est partielle.</value></data>
+  <data name="Settings_WorkerRecoveryHeading" xml:space="preserve"><value>Récupération du processus de travail</value></data>
+  <data name="Settings_WorkerRecoveryHelp" xml:space="preserve"><value>Utilise les paramètres enregistrés, pas les modifications non enregistrées. Les processus en cours ne sont jamais redémarrés.</value></data>
+  <data name="Settings_WorkerRetry" xml:space="preserve"><value>Revalider et relancer le processus</value></data>
+  <data name="Settings_WorkerRetrying" xml:space="preserve"><value>Nouvelle validation du processus...</value></data>
+  <data name="Settings_WorkerRetryAccepted" xml:space="preserve"><value>Récupération acceptée. Actualisez pour vérifier la disponibilité. Les processus supervisés en externe doivent se réinscrire.</value></data>
+  <data name="Settings_WorkerRetryRejected" xml:space="preserve"><value>La relance exige un processus en échec avec un hébergement dédié activé et enregistré. Les processus en cours ne sont jamais redémarrés.</value></data>
+  <data name="Settings_WorkerRetryFailed" xml:space="preserve"><value>Le processus est indisponible. Examinez l'erreur avant de réessayer.</value></data>
+  <data name="Settings_WorkerPreviousFailure" xml:space="preserve"><value>Erreur avant la dernière tentative de récupération</value></data>
+  <data name="Settings_WorkerReady" xml:space="preserve"><value>Le processus est prêt.</value></data>
+  <data name="Settings_WorkerWaiting" xml:space="preserve"><value>Le processus n'a pas signalé un état prêt et sain. Actualisez pour vérifier son état.</value></data>
+  <data name="Watch_Reconnecting" xml:space="preserve"><value>Reconnexion à la télévision en direct. Vous pouvez arrêter ou choisir une autre chaîne.</value></data>
+  <data name="Watch_ReconnectExhausted" xml:space="preserve"><value>La reconnexion automatique a atteint sa limite de tentatives ou de 60 secondes. Sélectionnez à nouveau la chaîne pour réessayer.</value></data>
 </root>

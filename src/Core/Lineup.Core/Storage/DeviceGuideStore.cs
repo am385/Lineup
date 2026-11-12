@@ -111,6 +111,34 @@ public sealed class DeviceGuideStore
         }).ToArray();
     }
 
+    /// <summary>Prunes expired ended programs across all cached sources without removing future programs, channels, bindings, or import metadata.</summary>
+    public async Task<int> PruneExpiredProgramsAsync(CancellationToken cancellationToken = default)
+    {
+        var now = _timeProvider.GetUtcNow();
+        var cutoff = (now - _retentionPolicy.HistoryRetention).ToUnixTimeSeconds();
+        cutoff = Math.Min(cutoff, now.ToUnixTimeSeconds());
+        var total = 0;
+        const int batchSize = 1000;
+        int deleted;
+        do
+        {
+            await _gate.WaitAsync(cancellationToken);
+            try
+            {
+                await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+                await EpgDatabaseSchema.EnsureAsync(context, cancellationToken);
+                var ids = context.GuideSourcePrograms.Where(program => program.EndTime <= cutoff).OrderBy(program => program.Id).Take(batchSize).Select(program => program.Id);
+                deleted = await context.GuideSourcePrograms.Where(program => ids.Contains(program.Id)).ExecuteDeleteAsync(cancellationToken);
+                total += deleted;
+            }
+            finally
+            {
+                _gate.Release();
+            }
+        } while (deleted == batchSize);
+        return total;
+    }
+
     /// <summary>
     /// Reads binding choices for every active physical source channel.
     /// </summary>
@@ -337,7 +365,7 @@ public sealed class DeviceGuideStore
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
         await EpgDatabaseSchema.EnsureAsync(context, cancellationToken);
         await using var transaction = await EpgReadTransaction.BeginAsync(context, cancellationToken);
-        return await BuildSnapshotAsync(context, virtualDeviceId, channels, activeGuideScopes, startUtc, endUtc, true, cancellationToken);
+        return await BuildSnapshotAsync(context, virtualDeviceId, channels, activeGuideScopes, startUtc, endUtc, true, false, cancellationToken);
     }
 
     /// <summary>Resolves topology and projects guide data within one database read transaction.</summary>
@@ -349,6 +377,7 @@ public sealed class DeviceGuideStore
         DateTimeOffset? endUtc = null,
         IReadOnlyCollection<PhysicalDeviceId>? physicalDeviceIds = null,
         bool includePrograms = true,
+        bool enforceTransferLimits = false,
         CancellationToken cancellationToken = default
     )
     {
@@ -357,7 +386,7 @@ public sealed class DeviceGuideStore
         await EpgDatabaseSchema.EnsureAsync(context, cancellationToken);
         await using var transaction = await EpgReadTransaction.BeginAsync(context, cancellationToken);
         var channels = resolveChannels(await StreamingTopologyStore.ReadActiveAsync(context, cancellationToken, physicalDeviceIds));
-        return await BuildSnapshotAsync(context, virtualDeviceId, channels, activeGuideScopes, startUtc, endUtc, includePrograms, cancellationToken);
+        return await BuildSnapshotAsync(context, virtualDeviceId, channels, activeGuideScopes, startUtc, endUtc, includePrograms, enforceTransferLimits, cancellationToken);
     }
 
     /// <summary>Aggregates only authoritative contributing programs, without materializing program text or metadata.</summary>
@@ -462,9 +491,14 @@ public sealed class DeviceGuideStore
         DateTimeOffset? startUtc,
         DateTimeOffset? endUtc,
         bool includePrograms,
+        bool enforceTransferLimits,
         CancellationToken cancellationToken
     )
     {
+        if (enforceTransferLimits)
+        {
+            GuideTransfer.ValidateCounts(channels.Count, 0);
+        }
         var selected = await SelectGuidesAsync(context, channels, activeGuideScopes, cancellationToken);
         var guides = selected.OfType<StoredGuideSourceChannel>().DistinctBy(channel => channel.Id).ToDictionary(channel => channel.Id);
         var activeGuideIds = guides.Keys.ToArray();
@@ -481,8 +515,17 @@ public sealed class DeviceGuideStore
             var end = endUtc.Value.ToUnixTimeSeconds();
             programQuery = programQuery.Where(program => program.StartTime < end);
         }
-        var programs = includePrograms ? await programQuery.OrderBy(program => program.StartTime).ToArrayAsync(cancellationToken) : [];
+        var orderedPrograms = programQuery.OrderBy(program => program.StartTime).AsQueryable();
+        if (enforceTransferLimits)
+        {
+            orderedPrograms = orderedPrograms.Take(GuideTransfer.MaximumPrograms + 1);
+        }
+        var programs = includePrograms ? await orderedPrograms.ToArrayAsync(cancellationToken) : [];
         var programsByGuide = programs.ToLookup(program => program.GuideSourceChannelId);
+        if (enforceTransferLimits)
+        {
+            GuideTransfer.ValidateCounts(channels.Count, selected.Sum(guide => guide is null ? 0L : programsByGuide[guide.Id].Count()));
+        }
         var contributingGuideSources = guides.Values
             .Select(guide => guide.GuideSourceId)
             .Distinct()

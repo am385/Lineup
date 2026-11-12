@@ -127,6 +127,10 @@ public partial class Watch : IAsyncDisposable
 
         _lastRouteChannelNumber = ChannelNumber;
         _pendingRouteChannelNumber = ChannelNumber;
+        if (IsReconnecting || _isStarting)
+        {
+            await StopStreamAsync();
+        }
         await ProcessPendingRouteAsync();
     }
 
@@ -208,12 +212,32 @@ public partial class Watch : IAsyncDisposable
                             ? "H.264"
                             : "AAC Stereo";
                     Notifications.ShowError(Text["Watch_RetryingWithReplacement", unavailable, replacement]);
+                    if (IsReconnecting)
+                    {
+                        _runtimeVideoOverride = videoPreference;
+                        _runtimeAudioOverride = audioPreference;
+                        _runtimeFallbackAudioOverride = fallbackAudio;
+                        _reconnectStartupFailure = new(unavailable, "codec_fallback", true);
+                        _reconnectReady?.TrySetResult(false);
+                        return;
+                    }
                     await TuneChannelAsync(retryChannelNumber, _selectedChannel, fallbackAudio, videoPreference, audioPreference);
                     StateHasChanged();
                     return;
                 }
 
                 _errorMessage = result.Error ?? Text["Watch_UnableToInitializePlayback"];
+                if (IsReconnecting)
+                {
+                    var status = await GetPlaybackStatusAsync(initializingSession);
+                    if (!ReferenceEquals(_session, initializingSession))
+                    {
+                        return;
+                    }
+                    _reconnectStartupFailure = new(_errorMessage, status?.Code, status?.Retryable == true);
+                    _reconnectReady?.TrySetResult(false);
+                    return;
+                }
                 await StopStreamAsync();
             }
             else
@@ -221,13 +245,27 @@ public partial class Watch : IAsyncDisposable
                 _effectiveProtocol = string.Equals(result.ManifestUrl, initializingSession.DashManifestUrl, StringComparison.Ordinal) ? "DASH" : "HLS";
                 _playerAudio = result.Audio;
                 _playerVideo = result.Video;
+                if (_reconnectPlayerPreferences is { } preferences)
+                {
+                    await JS.InvokeVoidAsync("restoreCmafPlayerPreferences", "cmafVideoPlayer", initializingSession.SessionId, preferences);
+                    if (!ReferenceEquals(_session, initializingSession))
+                    {
+                        return;
+                    }
+                }
                 _isPlayerLoading = false;
+                _hasStartedPlayback = true;
+                _reconnectReady?.TrySetResult(true);
                 await DeviceStatuses.RefreshAsync(SettingsService.Settings.Streaming);
             }
             StateHasChanged();
         }
         catch (JSException ex)
         {
+            if (!ReferenceEquals(_session, initializingSession))
+            {
+                return;
+            }
             _errorMessage = Text["Watch_UnableToInitializePlaybackWithError", ex.Message];
             await StopStreamAsync();
             StateHasChanged();
@@ -243,7 +281,15 @@ public partial class Watch : IAsyncDisposable
             return;
         }
 
-        if (string.Equals(playerEvent.Kind, "audio-track-changed", StringComparison.Ordinal))
+        if (string.Equals(playerEvent.Kind, "playback-playing", StringComparison.Ordinal))
+        {
+            ReconnectPolicy.MarkPlaying();
+        }
+        else if (string.Equals(playerEvent.Kind, "playback-waiting", StringComparison.Ordinal))
+        {
+            ReconnectPolicy.MarkUnstable();
+        }
+        else if (string.Equals(playerEvent.Kind, "audio-track-changed", StringComparison.Ordinal))
         {
             _playerAudio = CmafPlayerAudio.FromDetails(playerEvent.Details);
         }
@@ -262,6 +308,13 @@ public partial class Watch : IAsyncDisposable
             _selectedChannelNumber is { } channelNumber)
         {
             Notifications.ShowError(playerEvent.Message);
+            if (IsReconnecting)
+            {
+                _runtimeVideoOverride = CmafPreferredVideo.Fallback;
+                _reconnectStartupFailure = new(playerEvent.Message, "codec_fallback", true);
+                _reconnectReady?.TrySetResult(false);
+                return;
+            }
             await TuneChannelAsync(channelNumber, _selectedChannel, _streamFallbackAudio, CmafPreferredVideo.Fallback);
         }
         else if (string.Equals(playerEvent.Kind, "protocol-fallback", StringComparison.Ordinal))
@@ -271,6 +324,33 @@ public partial class Watch : IAsyncDisposable
         }
         else if (string.Equals(playerEvent.Kind, "error", StringComparison.Ordinal))
         {
+            var session = _session;
+            if (IsReconnecting && session is not null)
+            {
+                var status = await GetPlaybackStatusAsync(session);
+                if (!ReferenceEquals(_session, session))
+                {
+                    return;
+                }
+                _reconnectStartupFailure = new(playerEvent.Message, status?.Code, status?.Retryable == true);
+                if (_reconnectReady?.TrySetResult(false) == true)
+                {
+                    return;
+                }
+                _errorMessage = playerEvent.Message;
+                await StopStreamAsync();
+                StateHasChanged();
+                return;
+            }
+            if (session is not null && await TryReconnectAsync(session))
+            {
+                StateHasChanged();
+                return;
+            }
+            if (!ReferenceEquals(_session, session))
+            {
+                return;
+            }
             _errorMessage = playerEvent.Message;
             await StopStreamAsync();
         }
@@ -318,18 +398,28 @@ public partial class Watch : IAsyncDisposable
         GuideChannelSegment? channel,
         CmafFallbackAudio? streamFallbackAudio = null,
         CmafPreferredVideo? streamPreferredVideo = null,
-        CmafPreferredAudio? streamPreferredAudio = null)
+        CmafPreferredAudio? streamPreferredAudio = null,
+        bool reconnect = false)
     {
-        if (_isStarting)
-        {
-            return;
-        }
-
         var normalized = channelNumber?.Trim();
         _manualChannelNumber = normalized ?? string.Empty;
         if (string.IsNullOrWhiteSpace(normalized) || (channel is null && !IsValidChannelNumber(normalized)))
         {
             _manualTuneValidationMessage = Text["Watch_InvalidChannelNumber"];
+            return;
+        }
+
+        if (!reconnect)
+        {
+            CancelReconnect();
+        }
+        if (_isStarting)
+        {
+            if (!reconnect)
+            {
+                _pendingRouteChannelNumber = normalized;
+                await StopStreamAsync();
+            }
             return;
         }
 
@@ -342,7 +432,7 @@ public partial class Watch : IAsyncDisposable
         try
         {
             var changed = !string.Equals(_selectedChannelNumber, normalized, StringComparison.Ordinal);
-            await StopStreamAsync(preserveLoadingIndicator: true);
+            await StopStreamAsync(preserveLoadingIndicator: true, preserveReconnect: reconnect);
             if (_disposed)
             {
                 return;
@@ -398,10 +488,31 @@ public partial class Watch : IAsyncDisposable
                 Notifications.ShowError(_errorMessage);
                 return;
             }
-            var startedSession = await JS.StartCmafSessionAsync<CmafStartResponse>(
-                startUrl,
-                BuildStartRequest(),
-                startupId);
+            CmafStartResponse? startedSession;
+            if (reconnect)
+            {
+                var attempt = await JS.InvokeAsync<CmafStartAttempt>("tryStartCmafSession", startUrl, BuildStartRequest(), startupId);
+                startedSession = attempt.Session;
+                if (_disposed || generation != Volatile.Read(ref _playbackGeneration) || !string.Equals(_pendingStartId, startupId, StringComparison.Ordinal))
+                {
+                    if (startedSession is not null)
+                    {
+                        await StopCmafSessionAsync(OwnSession(startedSession, player));
+                    }
+                    return;
+                }
+                _reconnectStartupFailure = attempt.Failure;
+                if (attempt.Failure is { } failure)
+                {
+                    _errorMessage = failure.Error;
+                    _isPlayerLoading = false;
+                    return;
+                }
+            }
+            else
+            {
+                startedSession = await JS.StartCmafSessionAsync<CmafStartResponse>(startUrl, BuildStartRequest(), startupId);
+            }
             if (startedSession is null)
             {
                 _isPlayerLoading = false;
@@ -409,13 +520,7 @@ public partial class Watch : IAsyncDisposable
                 Notifications.ShowError(_errorMessage);
                 return;
             }
-            if (managementHosted)
-            {
-                startedSession = startedSession with
-                {
-                    StopUrl = $"/api/stream/cmaf/stop/{Uri.EscapeDataString(startedSession.SessionId)}"
-                };
-            }
+            startedSession = OwnSession(startedSession, player);
             if (_disposed || generation != Volatile.Read(ref _playbackGeneration) || !string.Equals(_pendingStartId, startupId, StringComparison.Ordinal))
             {
                 await StopCmafSessionAsync(startedSession);
@@ -424,6 +529,8 @@ public partial class Watch : IAsyncDisposable
 
             _pendingStartId = null;
             _session = startedSession;
+            _sessionWorkerId = managementHosted ? null : player.Id;
+            _sessionWorkerGeneration = startedSession.WorkerGeneration;
             if (startedSession.SourceAudioFallbackApplied)
             {
                 Notifications.ShowError(Text["Watch_SourceAudioPackagingFallback", startedSession.FallbackAudioTitle ?? Text["Watch_FallbackAudioLower"]]);
@@ -443,6 +550,10 @@ public partial class Watch : IAsyncDisposable
 
             _isPlayerLoading = false;
             _errorMessage = ex.Message;
+            if (reconnect && GetWebPlayer() is { Hosting: not null } player && GetWorkerStatus(player.Id)?.State == VirtualOutputRuntimeState.Starting)
+            {
+                _reconnectStartupFailure = new(ex.Message, "worker_lost", true);
+            }
             Notifications.ShowError(Text["Watch_UnableToStartPlayback", ex.Message]);
         }
         finally
@@ -642,8 +753,12 @@ public partial class Watch : IAsyncDisposable
         }
     }
 
-    private async Task StopStreamAsync(bool preserveLoadingIndicator)
+    private async Task StopStreamAsync(bool preserveLoadingIndicator, bool preserveReconnect = false)
     {
+        if (!preserveReconnect)
+        {
+            CancelReconnect();
+        }
         Interlocked.Increment(ref _playbackGeneration);
         var startupId = _pendingStartId;
         _pendingStartId = null;
@@ -676,7 +791,14 @@ public partial class Watch : IAsyncDisposable
                     }
                     foreach (var pending in _pendingStops.ToArray())
                     {
-                        await StopCmafSessionAsync(pending);
+                        try
+                        {
+                            await StopCmafSessionAsync(pending);
+                        }
+                        catch (JSException) when (preserveReconnect)
+                        {
+                            // A retired worker may no longer serve its stop URL; retain ownership and release its broker below.
+                        }
                     }
                 }
             }
@@ -729,6 +851,14 @@ public partial class Watch : IAsyncDisposable
     {
         if (_isJsInteropReady && session is not null)
         {
+            if (session.WorkerId is { } workerId && session.WorkerGeneration is { } generation &&
+                GetWorkerStatus(workerId) is { State: VirtualOutputRuntimeState.Healthy, Generation: { } current } && current > generation &&
+                !ActiveStreamRegistry.GetActiveStreams().Any(stream => MatchesWorkerSession(stream, session.SessionId)))
+            {
+                _pendingStops.Remove(session);
+                Logger.LogInformation("Released CMAF session {SessionId} from retired worker generation {Generation}; no broker viewer remains", session.SessionId, generation);
+                return;
+            }
             _pendingStops.Add(session);
             try
             {
@@ -783,6 +913,7 @@ public partial class Watch : IAsyncDisposable
 
         RefreshStreamInfo();
         StateHasChanged();
+        await CheckPlaybackAsync();
         if (_isPlaying && DateTime.UtcNow - _lastTunerRefreshRequestUtc >= TimeSpan.FromSeconds(5))
         {
             _lastTunerRefreshRequestUtc = DateTime.UtcNow;
@@ -811,7 +942,7 @@ public partial class Watch : IAsyncDisposable
 
     private bool MatchesActiveStream(ActiveStreamSnapshot stream) =>
         !string.IsNullOrEmpty(stream.WorkerMediaSessionId)
-            ? MatchesWorkerSession(stream, _session?.SessionId)
+            ? MatchesWorkerSession(stream, _session?.SessionId) || IsReconnecting && MatchesWorkerSession(stream, _reconnectingSessionId)
             : string.Equals(stream.ClientId, _clientId, StringComparison.Ordinal);
 
     private static bool MatchesWorkerSession(ActiveStreamSnapshot stream, string? sessionId) =>
@@ -1114,7 +1245,14 @@ public partial class Watch : IAsyncDisposable
         bool HasSourceVideoRendition = false,
         string? SourceVideoCodec = null,
         string? FallbackAudioCodec = null,
-        string? StopUrl = null);
+        string? StopUrl = null)
+    {
+        /// <summary>Gets the local worker identity captured when this session was acquired.</summary>
+        internal VirtualDeviceId? WorkerId { get; init; }
+
+        /// <summary>Gets the worker generation whose resources own this alias.</summary>
+        public long? WorkerGeneration { get; init; }
+    }
 
     /// <summary>Describes one browser-selectable CMAF subtitle sidecar.</summary>
     /// <param name="SourceIndex">The absolute source subtitle index.</param>

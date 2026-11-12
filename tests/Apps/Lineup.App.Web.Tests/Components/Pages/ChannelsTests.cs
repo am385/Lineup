@@ -242,7 +242,14 @@ public sealed class ChannelsTests
             context.Services.AddSingleton(guides);
             context.Services.AddSingleton<IStreamingAdapterRegistry>(adapters);
             context.Services.AddSingleton(refresh);
-            context.Services.AddSingleton(Substitute.For<ITopologyGuideService>());
+            var topologyGuides = Substitute.For<ITopologyGuideService>();
+            topologyGuides.ApplyChannelChangeAsync(Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>()).Returns(async call =>
+            {
+                await call.Arg<Func<CancellationToken, Task>>()(call.Arg<CancellationToken>());
+                IReadOnlyList<GuideOutputPublicationResult> results = [];
+                return results;
+            });
+            context.Services.AddSingleton(topologyGuides);
             context.Services.AddSingleton(settings);
             context.Services.AddSingleton<IXmltvPublicationStore, XmltvPublicationStore>();
             context.Services.AddSingleton(timeZone);

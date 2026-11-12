@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using Lineup.Core.Common.Streaming;
 using Lineup.Core.Streaming.FFmpeg;
 using Lineup.Core.VirtualOutputs.Hosting;
 using Lineup.Core.VirtualOutputs.Protocol;
@@ -38,6 +39,9 @@ internal sealed record DedicatedWorkerStartupFailure
 
     /// <summary>Gets the startup stage that failed.</summary>
     public required string Stage { get; init; }
+
+    /// <summary>Gets whether a bounded recovery may retry this explicitly transient source outcome.</summary>
+    public bool Retryable => Code is "source_no_signal" or "source_no_video_data" or "source_capacity_exceeded" or "source_unavailable" or "media_source_failed";
 }
 
 /// <summary>Maps dedicated Web Player startup exceptions to stable client-facing failures.</summary>
@@ -51,6 +55,7 @@ internal static class DedicatedWorkerStartupFailureMapper
         return exception switch
         {
             VirtualOutputClientException brokerException => MapBrokerFailure(brokerException, stageName),
+            MediaResourceLimitException resourceException => Create(StatusCodes.Status429TooManyRequests, resourceException.Code, resourceException.Message, "admission"),
             MediaAudioDiscoveryException => Create(
                 StatusCodes.Status502BadGateway,
                 "media_audio_missing",

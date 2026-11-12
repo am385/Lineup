@@ -257,7 +257,7 @@
   <data name="Settings_ApiRedactUrlsHelpPrefix" xml:space="preserve"><value>将设备、频道阵容、调谐器目标、发布地址和 XMLTV URL 返回为</value></data>
   <data name="Settings_ApiRedactUrlsLabel" xml:space="preserve"><value>对 URL 进行脱敏</value></data>
   <data name="Settings_ApplicationLogFiltersHeading" xml:space="preserve"><value>应用程序日志筛选器</value></data>
-  <data name="Settings_AutoFetchGuideHelp" xml:space="preserve"><value>按照 API 要求，每隔 20 到 28 小时随机下载一次 SiliconDust 的完整节目指南。所有用户均可获取 2 天的数据；订阅 HDHomeRun DVR 节目指南后可获取 14 天的数据。</value></data>
+  <data name="Settings_AutoFetchGuideHelp" xml:space="preserve"><value>每个来源都有独立的计划。SiliconDust 按 20 到 28 小时的随机间隔更新，提供 2 天的数据，订阅 DVR 后提供 14 天的数据。Lineup Link 使用配置的间隔（默认为 24 小时）。失败的来源和指南发布将在一小时后独立重试。</value></data>
   <data name="Settings_AutoFetchGuideLabel" xml:space="preserve"><value>自动获取节目指南</value></data>
   <data name="Settings_BindAddressesHelp" xml:space="preserve"><value>以逗号分隔的 IP 地址、localhost，或使用 * 表示所有接口。</value></data>
   <data name="Settings_BindAddressesLabel" xml:space="preserve"><value>绑定地址</value></data>
@@ -587,7 +587,7 @@
   <data name="Channels_RefreshChannels" xml:space="preserve"><value>刷新频道</value></data>
   <data name="Channels_RefreshedChannels" xml:space="preserve"><value>已刷新 {0} 个物理源频道。</value></data>
   <data name="Channels_RefreshedChannelsWithFailures" xml:space="preserve"><value>已刷新 {0} 个物理源频道，但有 {1} 个设备失败；已保留先前状态。</value></data>
-  <data name="Channels_SavedButXmltvUpdateFailed" xml:space="preserve"><value>频道设置已保存，但无法更新已发布的 XMLTV 节目指南：{0}</value></data>
+  <data name="Channels_SavedButXmltvUpdateFailed" xml:space="preserve"><value>频道设置已保存，但未能完整更新已发布的节目指南。已安排从缓存重试：{0}</value></data>
   <data name="Channels_SavedGlobalIdentity" xml:space="preserve"><value>已保存频道 {0} 的全局标识。</value></data>
   <data name="Channels_SavedGuideUnavailableHelp" xml:space="preserve"><value>已保存的手动节目指南频道不再处于活动状态。请选择其他频道或恢复自动匹配。</value></data>
   <data name="Channels_SearchPlaceholder" xml:space="preserve"><value>编号、名称、设备、编解码器或提供商密钥</value></data>
@@ -654,7 +654,7 @@
   <data name="Dashboard_AutoFetchDisabled" xml:space="preserve"><value>自动获取已禁用</value></data>
   <data name="Dashboard_AutoFetchHeading" xml:space="preserve"><value>自动获取</value></data>
   <data name="Dashboard_AutoFetchInProgress" xml:space="preserve"><value>正在自动获取</value></data>
-  <data name="Dashboard_AutoFetchInterval" xml:space="preserve"><value>20-28 小时（随机）</value></data>
+  <data name="Dashboard_AutoFetchInterval" xml:space="preserve"><value>独立的来源和发布计划</value></data>
   <data name="Dashboard_AutoFetchPending" xml:space="preserve"><value>自动获取等待中</value></data>
   <data name="Dashboard_AutoFetchRunning" xml:space="preserve"><value>正在自动获取</value></data>
   <data name="Dashboard_AutoRefreshDisabled" xml:space="preserve"><value>自动刷新已禁用</value></data>
@@ -1132,4 +1132,16 @@
   <data name="Settings_TopologyRevisions" xml:space="preserve"><value>目标：{0}。已尝试：{1}。最近完整应用：{2}。</value></data>
   <data name="Settings_TopologyDeviceFailure" xml:space="preserve"><value>无法应用物理设备 {0}。</value></data>
   <data name="Settings_TopologyOutputFailure" xml:space="preserve"><value>指南输出 {0} 失败或仅部分成功。</value></data>
+  <data name="Settings_WorkerRecoveryHeading" xml:space="preserve"><value>工作进程恢复</value></data>
+  <data name="Settings_WorkerRecoveryHelp" xml:space="preserve"><value>使用已保存的设置，而非未保存的编辑。绝不会重启正在运行的工作进程。</value></data>
+  <data name="Settings_WorkerRetry" xml:space="preserve"><value>重新验证并重试工作进程</value></data>
+  <data name="Settings_WorkerRetrying" xml:space="preserve"><value>正在重新验证工作进程...</value></data>
+  <data name="Settings_WorkerRetryAccepted" xml:space="preserve"><value>已接受恢复请求。请刷新以检查就绪状态。由外部监督的工作进程必须重新注册。</value></data>
+  <data name="Settings_WorkerRetryRejected" xml:space="preserve"><value>重试要求工作进程处于失败状态，且已保存并启用专用托管。绝不会重启正在运行的工作进程。</value></data>
+  <data name="Settings_WorkerRetryFailed" xml:space="preserve"><value>工作进程不可用。请先查看故障，再重试。</value></data>
+  <data name="Settings_WorkerPreviousFailure" xml:space="preserve"><value>上次恢复尝试之前的故障</value></data>
+  <data name="Settings_WorkerReady" xml:space="preserve"><value>工作进程已就绪。</value></data>
+  <data name="Settings_WorkerWaiting" xml:space="preserve"><value>工作进程尚未报告正常就绪。请刷新以检查其状态。</value></data>
+  <data name="Watch_Reconnecting" xml:space="preserve"><value>正在重新连接直播电视。您可以停止或选择其他频道。</value></data>
+  <data name="Watch_ReconnectExhausted" xml:space="preserve"><value>自动重连已达到重试次数或60秒时限。请重新选择频道以重试。</value></data>
 </root>

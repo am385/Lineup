@@ -13,10 +13,13 @@ namespace Lineup.Plugin.SiliconDust.GuideSource;
 /// <summary>
 /// Creates SiliconDust guide sources backed by one or more HDHomeRun devices.
 /// </summary>
-public sealed class SiliconDustGuideSourceDriver : IGuideSourceDriver, IAdapterSettingsProvider
+public sealed class SiliconDustGuideSourceDriver : IGuideSourceDriver, IAdapterSettingsProvider, IGuideSourceRefreshPolicy
 {
     /// <summary>Gets the stable adapter kind.</summary>
     public const string DriverKind = "silicondust";
+
+    /// <inheritdoc />
+    public TimeSpan GetRefreshInterval(TimeSpan configuredInterval) => TimeSpan.FromHours(20) + TimeSpan.FromMinutes(Random.Shared.Next(0, 481));
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILoggerFactory _loggerFactory;

@@ -104,6 +104,12 @@ public class LineupSettings
     /// </summary>
     public DateTime? NextAutoFetchTime { get; set; }
 
+    /// <summary>Gets or sets operational per-source automatic refresh schedules.</summary>
+    public Dictionary<Guid, GuideSourceRefreshSchedule> GuideSourceSchedules { get; set; } = [];
+
+    /// <summary>Gets or sets pending guide-output identities and their next publication attempt in UTC.</summary>
+    public Dictionary<Guid, DateTime> GuidePublicationRetries { get; set; } = [];
+
     /// <summary>
     /// Interval in minutes between device info refreshes.
     /// Set to 0 to disable automatic device info refresh.
@@ -510,6 +516,8 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
     private void PrepareLoadedSettings(LineupSettings settings)
     {
         ValidateXmltvOutputPath(settings.XmltvOutputPath);
+        settings.GuideSourceSchedules ??= [];
+        settings.GuidePublicationRetries ??= [];
         settings.KnownProxies = TrustedProxySet.Parse(settings.KnownProxies, "Known proxies").Values;
     }
 

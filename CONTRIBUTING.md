@@ -24,6 +24,13 @@ dotnet build
 ```
 
 All project build outputs and intermediate files are centralized beneath the repository-level `out` directory.
+Web builds also restore hash-pinned browser dependencies into `out/browser-assets`, reusing verified cached files offline.
+An empty or corrupt cache requires network access. The .NET-only restore tool and `build/browser-assets.json` are checked in;
+downloaded libraries, fonts, licenses, and notices are not. Standard publishing includes these assets for offline playback.
+Browser-asset targets must evaluate with both `dotnet` MSBuild and Visual Studio's .NET Framework MSBuild; use
+MSBuild's cross-runtime path helpers rather than framework-specific overloads. Project-load evaluation does not download assets.
+Cached content must register its physical content root so development/F5 serves the same files as publishing.
+Browser-asset regressions exercise original and fingerprinted asset URLs over HTTP in both Debug and Release development hosts.
 
 ### Running Tests
 

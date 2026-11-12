@@ -32,6 +32,7 @@ internal sealed class MediaSessionStartupGuard(string directory, IAsyncDisposabl
                         process.Kill(entireProcessTree: true);
                     }
                     await process.WaitForExitAsync();
+                    await Lineup.Core.Streaming.FFmpeg.MediaProcessAdmission.WaitForReleaseAsync(process);
                 }
                 catch (InvalidOperationException)
                 {

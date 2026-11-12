@@ -392,6 +392,10 @@
                             }
                             @if (device.Enabled)
                             {
+                                @if (device.UseDedicatedListener)
+                                {
+                                    <VirtualOutputWorkerRecoveryPanel @key="device.Id" VirtualDeviceId="device.Id" />
+                                }
                                 <section class="card virtual-device-transcoder-settings">
                                     <div class="card-header">
                                         <h5 class="mb-0">@Text["Settings_TranscoderSettingsHeading"]</h5>

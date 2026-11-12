@@ -57,6 +57,8 @@ public sealed class PhysicalRuntimeReplacementTests
         var replacement = original with { Runtime = Substitute.For<IPhysicalTunerDevice>() };
         await using var first = await graph.AcquireAsync(original, fixture.OpenAsync, fixture.Token);
         Assert.Equal(JsonSerializer.Serialize(original), JsonSerializer.Serialize(original with { Runtime = null }));
+        Assert.NotEqual(original.SourceIdentity, replacement.SourceIdentity);
+        Assert.Equal(original.SourceIdentity, (original with { }).SourceIdentity);
 
         try
         {

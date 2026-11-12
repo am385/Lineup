@@ -9,6 +9,32 @@ namespace Lineup.Plugin.WebPlayer.Tests;
 /// <summary>Verifies presentation readiness observes terminal upstream failures rather than waiting for an unrelated timeout.</summary>
 public sealed class DedicatedMediaReadinessTests
 {
+    /// <summary>Only upstream EOF or read failure is classified, never cancellation or a closed processor pipe.</summary>
+    [Theory]
+    [InlineData("eof", "source_eof")]
+    [InlineData("failure", "source_failure")]
+    [InlineData("canceled", null)]
+    public async Task PumpAsync_SourceTermination_IsDistinctFromCancellation(string mode, string? expectedCode)
+    {
+        // Arrange
+        using var process = StartWaitingProcess();
+        var diagnostics = MediaProcessDiagnostics.ReadTailAsync(process.StandardError, TestContext.Current.CancellationToken);
+        using var input = mode == "failure" ? new ReadFailureStream() : new MemoryStream();
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        if (mode == "canceled") cancellation.Cancel();
+        string? code = null;
+
+        // Act
+        var pumping = MediaStreamPump.PumpAsync(input, process, NullLogger.Instance, "synthetic-source", cancellation.Token, value => code = value);
+        if (mode == "failure") await Assert.ThrowsAsync<IOException>(() => pumping);
+        else await pumping;
+        await process.WaitForExitAsync(TestContext.Current.CancellationToken);
+        await diagnostics;
+
+        // Assert
+        Assert.Equal(expectedCode, code);
+    }
+
     /// <summary>Verifies advertised audio is not considered ready while its initialization resource is still missing.</summary>
     [Fact]
     public async Task WaitAsync_AudioInitializationMissing_WaitsForInitialization()
@@ -63,8 +89,9 @@ public sealed class DedicatedMediaReadinessTests
         var diagnostics = MediaProcessDiagnostics.ReadTailAsync(process.StandardError, TestContext.Current.CancellationToken);
         await process.WaitForExitAsync(TestContext.Current.CancellationToken);
         using var input = new MemoryStream(new byte[64 * 1024]);
+        string? termination = null;
         var inputTask = pumpInput
-            ? MediaStreamPump.PumpAsync(input, process, NullLogger.Instance, "readiness-test", TestContext.Current.CancellationToken)
+            ? MediaStreamPump.PumpAsync(input, process, NullLogger.Instance, "readiness-test", TestContext.Current.CancellationToken, code => termination = code)
             : null;
         try
         {
@@ -78,6 +105,7 @@ public sealed class DedicatedMediaReadinessTests
             Assert.Contains("234", failure.Message, StringComparison.Ordinal);
             Assert.Equal(234, failure.Data["ExitCode"]);
             Assert.EndsWith("final-error", Assert.IsType<string>(failure.Data["Diagnostics"]), StringComparison.Ordinal);
+            Assert.Null(termination);
             if (inputTask is not null)
             {
                 await inputTask;
@@ -123,6 +151,12 @@ public sealed class DedicatedMediaReadinessTests
             await diagnostics;
             root.Delete(recursive: true);
         }
+    }
+
+    private sealed class ReadFailureStream : MemoryStream
+    {
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<int>(new IOException("Synthetic read failure."));
     }
 
     private static Process StartWaitingProcess(params string[] arguments)

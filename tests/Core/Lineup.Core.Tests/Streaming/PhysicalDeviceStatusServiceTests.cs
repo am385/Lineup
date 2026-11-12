@@ -420,8 +420,9 @@ public sealed class PhysicalDeviceStatusServiceTests
             {
                 return ValueTask.FromException<IPhysicalTunerDevice>(exception);
             }
-            Device = new FakePhysicalDevice(deviceId, name);
-            return ValueTask.FromResult<IPhysicalTunerDevice>(Device);
+            var device = new FakePhysicalDevice(deviceId, name);
+            Device = device;
+            return ValueTask.FromResult<IPhysicalTunerDevice>(device);
         }
 
         private static string? GetFailure(AdapterConfiguration configuration) =>

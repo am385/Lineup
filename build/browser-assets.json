@@ -1,0 +1,77 @@
+{
+  "shakaPlayerVersion": "5.2.11",
+  "bootstrapIconsVersion": "1.11.3",
+  "assets": [
+    {
+      "path": "shaka-player/shaka-player.ui.js",
+      "url": "https://cdn.jsdelivr.net/npm/shaka-player@5.2.11/dist/shaka-player.ui.js",
+      "sha256": "06f75d8c7728cf0e8b84f63d08b2ee003d1231d57ba9f2332dd3c9c31ba704c8"
+    },
+    {
+      "path": "shaka-player/controls.css",
+      "url": "https://cdn.jsdelivr.net/npm/shaka-player@5.2.11/dist/controls.css",
+      "sourceSha256": "13f6a8d837ef2d9792b342d7e5398b934054b23b5567cbf6ecf4040e23f9cb3b",
+      "sha256": "0570dc3958129defddea55cd87b326be92347b297043ac0a392ca6e1b1af1852",
+      "replacements": [
+        {
+          "from": " * SPDX-License-Identifier: Apache-2.0",
+          "to": " * SPDX-License-Identifier: Apache-2.0\n * Modified by Lineup: load the identical Roboto font from a local asset."
+        },
+        {
+          "from": "https://fonts.gstatic.com/s/roboto/v51/KFOMCnqEu92Fr1ME7kSn66aGLdTylUAMQXC89YmC2DPNWubEbVmUiA8.ttf",
+          "to": "fonts/roboto-v51.ttf"
+        }
+      ]
+    },
+    {
+      "path": "shaka-player/LICENSE",
+      "url": "https://cdn.jsdelivr.net/npm/shaka-player@5.2.11/LICENSE",
+      "sha256": "20ce2eba547fd0a8c4023511c003eabe510982a335cccd4e270f1f55ffbd2250"
+    },
+    {
+      "path": "shaka-player/third_party/cml-cmcd/LICENSE",
+      "url": "https://cdn.jsdelivr.net/npm/shaka-player@5.2.11/third_party/cml-cmcd/LICENSE",
+      "sha256": "95cdf13a152329c8a60cf739d442f578a172727f0584bff42406126719312f62"
+    },
+    {
+      "path": "shaka-player/third_party/cml-cmcd/NOTICE",
+      "url": "https://cdn.jsdelivr.net/npm/shaka-player@5.2.11/third_party/cml-cmcd/NOTICE",
+      "sha256": "ae55a4168482117b80b555f07b0b56a65d579a1910b7d38e1a4b0c81292976e5"
+    },
+    {
+      "path": "shaka-player/third_party/language-mapping-list/LICENSE",
+      "url": "https://cdn.jsdelivr.net/npm/shaka-player@5.2.11/third_party/language-mapping-list/LICENSE",
+      "sha256": "7113f6cf87ba13ed1700a35f033b9d448eb98ae7f80884b0f785b3a9cd640c23"
+    },
+    {
+      "path": "shaka-player/fonts/roboto-v51.ttf",
+      "url": "https://fonts.gstatic.com/s/roboto/v51/KFOMCnqEu92Fr1ME7kSn66aGLdTylUAMQXC89YmC2DPNWubEbVmUiA8.ttf",
+      "sha256": "e9ff3730797df6aaf76d37c48234a6c4875032eaad8f1aaccd7daefa6dca9e7a"
+    },
+    {
+      "path": "shaka-player/fonts/OFL.txt",
+      "url": "https://raw.githubusercontent.com/google/fonts/2e69e0bf1bd2662d6775bb54a398bded758e87cf/ofl/roboto/OFL.txt",
+      "sha256": "061402327a96aadb0bfb694a960ed289ecd38d383e396243831ab81feb109c41"
+    },
+    {
+      "path": "bootstrap-icons/bootstrap-icons.min.css",
+      "url": "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css",
+      "sha256": "f643d6fe7e679f9de3e16311600c5ef5cd6b098f7a3a8828fcc29255d2b33e62"
+    },
+    {
+      "path": "bootstrap-icons/fonts/bootstrap-icons.woff2",
+      "url": "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/fonts/bootstrap-icons.woff2",
+      "sha256": "476adf42b40325098fcfa8b36ab3e769186bb4f6ce6a249753e2e1a9c22bf99e"
+    },
+    {
+      "path": "bootstrap-icons/fonts/bootstrap-icons.woff",
+      "url": "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/fonts/bootstrap-icons.woff",
+      "sha256": "bb1de989b83970f6f4e54de1cd974c5cba55b73582da5e1b225a6d0edf029483"
+    },
+    {
+      "path": "bootstrap-icons/LICENSE",
+      "url": "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/LICENSE",
+      "sha256": "0fb3e11bd57e896c5a512afd64864d28a37de45d19835016c87ca1ad19ead969"
+    }
+  ]
+}

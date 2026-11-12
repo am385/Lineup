@@ -34,6 +34,8 @@ public static class CoreHostingServiceCollectionExtensions
     public static IServiceCollection AddLineupEpgAutoFetchWorker(this IServiceCollection services)
     {
         services.AddHostedService<EpgAutoFetchService>();
+        services.AddHostedService<GuidePublicationRetryService>();
+        services.AddHostedService<GuideHistoryMaintenanceService>();
         return services;
     }
 

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Reflection;
 using System.Text.Json;
 using Lineup.Core.Common.Streaming;
@@ -6,6 +7,7 @@ using Lineup.Core.VirtualOutputs.Protocol;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
+using NSubstitute.Extensions;
 using Xunit;
 
 namespace Lineup.Core.VirtualOutputs.Runtime.Tests;
@@ -13,6 +15,439 @@ namespace Lineup.Core.VirtualOutputs.Runtime.Tests;
 /// <summary>Verifies desired-versus-applied virtual-output worker supervision.</summary>
 public sealed class VirtualOutputSupervisorTests
 {
+    /// <summary>Verifies explicit recovery revalidates one unchanged quarantined output without disturbing its healthy sibling.</summary>
+    /// <param name="mode">The failed output's ownership mode.</param>
+    [Theory]
+    [InlineData(VirtualOutputExecutionMode.ManagedProcess)]
+    [InlineData(VirtualOutputExecutionMode.ExternalProcess)]
+    public async Task RetryAsync_QuarantinedWorker_PreservesHealthySibling(VirtualOutputExecutionMode mode)
+    {
+        // Arrange
+        await using var fixture = new OwnershipFixture();
+        var healthy = fixture.CreateDevice(VirtualOutputExecutionMode.ManagedProcess);
+        fixture.Configuration = fixture.Configuration with { VirtualDevices = [healthy] };
+        await fixture.ReconcileAsync();
+        var healthySession = fixture.Register(fixture.GetBootstrap(VirtualOutputExecutionMode.ManagedProcess, healthy.Id));
+        fixture.Status.Update(healthy.Id, current => current! with { State = VirtualOutputRuntimeState.Healthy });
+        var healthyProcess = fixture.GetProcess(healthy.Id)!;
+        var failed = fixture.CreateDevice(mode);
+        fixture.Configuration = fixture.Configuration with { VirtualDevices = [healthy, failed] };
+        fixture.FailActivation = true;
+        await fixture.ReconcileAsync();
+        var previous = Assert.Single(fixture.Status.GetSnapshots(), snapshot => snapshot.VirtualDeviceId == failed.Id);
+        fixture.FailActivation = false;
+
+        // Act
+        var recovery = await fixture.RetryAsync(failed.Id);
+        await fixture.ReconcileAsync();
+
+        // Assert
+        Assert.True(recovery.Accepted);
+        Assert.Equal(VirtualOutputRuntimeState.Starting, recovery.Snapshot!.State);
+        Assert.Equal(previous.LastFailure, recovery.Snapshot.PreviousFailure);
+        Assert.NotNull(recovery.Snapshot.LastRecoveryAttemptUtc);
+        Assert.Equal(0, recovery.Snapshot.RestartCount);
+        Assert.Equal(3, fixture.ActivationAttempts);
+        Assert.True(fixture.Authority.Authorize(healthySession, VirtualOutputCapability.ReportHealth).Authorized);
+        Assert.False(healthyProcess.Completion.IsCompleted);
+        await healthyProcess.DidNotReceive().StopAsync(Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>());
+        await healthyProcess.DidNotReceive().DisposeAsync();
+        Assert.Equal(VirtualOutputRuntimeState.Healthy, Assert.Single(fixture.Status.GetSnapshots(), snapshot => snapshot.VirtualDeviceId == healthy.Id).State);
+        Assert.NotNull(fixture.GetBootstrap(mode, failed.Id));
+    }
+
+    /// <summary>Verifies repeated failure after an operator retry re-enters the original budget and retains recovery diagnostics.</summary>
+    [Fact]
+    public async Task RetryAsync_PersistentFailure_RequarantinesWithoutBackgroundLoop()
+    {
+        // Arrange
+        await using var fixture = new OwnershipFixture { FailActivation = true };
+        var device = fixture.CreateDevice(VirtualOutputExecutionMode.ManagedProcess);
+        fixture.Configuration = fixture.Configuration with { VirtualDevices = [device] };
+        await fixture.ReconcileAsync();
+        var previous = Assert.Single(fixture.Status.GetSnapshots()).LastFailure;
+
+        // Act
+        var result = await fixture.RetryAsync(device.Id);
+        await fixture.ReconcileAsync();
+        await fixture.ReconcileAsync();
+
+        // Assert
+        Assert.True(result.Accepted);
+        Assert.Equal(2, fixture.ActivationAttempts);
+        Assert.Equal(VirtualOutputRuntimeState.Failed, result.Snapshot!.State);
+        Assert.Equal(1, result.Snapshot.RestartCount);
+        Assert.Contains("exceeded its restart budget", result.Snapshot.LastFailure, StringComparison.Ordinal);
+        Assert.Equal(previous, result.Snapshot.PreviousFailure);
+        Assert.NotNull(result.Snapshot.LastRecoveryAttemptUtc);
+    }
+
+    /// <summary>Verifies retry cannot weaken resource enforcement or launch an unsupported externally supervised policy.</summary>
+    [Fact]
+    public async Task RetryAsync_UnsupportedResourcePolicy_DoesNotLaunch()
+    {
+        // Arrange
+        await using var fixture = new OwnershipFixture();
+        var device = fixture.CreateDevice(VirtualOutputExecutionMode.ExternalProcess);
+        fixture.Configuration = fixture.Configuration with
+        {
+            VirtualDevices = [device],
+            VirtualOutputWorkerPolicies = [Assert.Single(fixture.Configuration.VirtualOutputWorkerPolicies) with { MaximumCpuPercent = 25 }]
+        };
+        await fixture.ReconcileAsync();
+
+        // Act
+        var result = await fixture.RetryAsync(device.Id);
+
+        // Assert
+        Assert.True(result.Accepted);
+        Assert.Equal(0, fixture.ActivationAttempts);
+        Assert.Equal(VirtualOutputRuntimeState.Failed, result.Snapshot!.State);
+        Assert.Equal(0, result.Snapshot.RestartCount);
+        Assert.Contains("externally launched", result.Snapshot.LastFailure, StringComparison.Ordinal);
+        Assert.NotNull(result.Snapshot.PreviousFailure);
+    }
+
+    /// <summary>Verifies recovery rejects running workers and outputs that no longer have enabled saved hosting.</summary>
+    /// <param name="state">The unsafe or unavailable recovery target.</param>
+    /// <param name="mode">The output's process-ownership mode.</param>
+    [Theory]
+    [InlineData("healthy", VirtualOutputExecutionMode.ManagedProcess)]
+    [InlineData("active-failed", VirtualOutputExecutionMode.ManagedProcess)]
+    [InlineData("disabled", VirtualOutputExecutionMode.ManagedProcess)]
+    [InlineData("management", VirtualOutputExecutionMode.ManagedProcess)]
+    [InlineData("missing", VirtualOutputExecutionMode.ManagedProcess)]
+    [InlineData("healthy", VirtualOutputExecutionMode.ExternalProcess)]
+    [InlineData("active-failed", VirtualOutputExecutionMode.ExternalProcess)]
+    [InlineData("disabled", VirtualOutputExecutionMode.ExternalProcess)]
+    [InlineData("management", VirtualOutputExecutionMode.ExternalProcess)]
+    [InlineData("missing", VirtualOutputExecutionMode.ExternalProcess)]
+    public async Task RetryAsync_IneligibleOutput_DoesNotChangeOwnership(string state, VirtualOutputExecutionMode mode)
+    {
+        // Arrange
+        await using var fixture = new OwnershipFixture();
+        var device = fixture.CreateDevice(mode);
+        fixture.Configuration = fixture.Configuration with { VirtualDevices = [device] };
+        await fixture.ReconcileAsync();
+        var session = fixture.Register(fixture.GetBootstrap(mode, device.Id));
+        fixture.Status.Update(device.Id, current => current! with { State = state == "healthy" ? VirtualOutputRuntimeState.Healthy : VirtualOutputRuntimeState.Failed });
+        fixture.Configuration = fixture.Configuration with
+        {
+            VirtualDevices = [device with { Enabled = state != "disabled", Hosting = state == "management" ? null : device.Hosting }]
+        };
+        var target = state == "missing" ? VirtualDeviceId.New() : device.Id;
+
+        // Act
+        var result = await fixture.RetryAsync(target);
+
+        // Assert
+        Assert.False(result.Accepted);
+        Assert.Equal(1, fixture.ActivationAttempts);
+        Assert.True(fixture.Authority.Authorize(session, VirtualOutputCapability.ReportHealth).Authorized);
+        if (mode == VirtualOutputExecutionMode.ManagedProcess)
+        {
+            Assert.False(fixture.GetProcess(device.Id)!.Completion.IsCompleted);
+        }
+        else
+        {
+            Assert.Empty(fixture.Processes);
+        }
+    }
+
+    /// <summary>Verifies cancellation before acceptance cannot reset a failed output's restart budget.</summary>
+    [Fact]
+    public async Task RetryAsync_CanceledBeforeAcceptance_PreservesFailure()
+    {
+        // Arrange
+        await using var fixture = new OwnershipFixture { FailActivation = true };
+        var device = fixture.CreateDevice(VirtualOutputExecutionMode.ManagedProcess);
+        fixture.Configuration = fixture.Configuration with { VirtualDevices = [device] };
+        await fixture.ReconcileAsync();
+        var before = Assert.Single(fixture.Status.GetSnapshots());
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        // Act
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => fixture.RetryAsync(device.Id, cancellation.Token));
+
+        // Assert
+        Assert.Same(before, Assert.Single(fixture.Status.GetSnapshots()));
+        Assert.Equal(1, fixture.ActivationAttempts);
+    }
+
+    /// <summary>Verifies closing the requesting page cannot strand an already accepted worker activation.</summary>
+    [Fact]
+    public async Task RetryAsync_CallerCancelsAfterAcceptance_CompletesUnderHostOwnership()
+    {
+        // Arrange
+        await using var fixture = new OwnershipFixture { FailActivation = true };
+        var device = fixture.CreateDevice(VirtualOutputExecutionMode.ManagedProcess);
+        fixture.Configuration = fixture.Configuration with { VirtualDevices = [device] };
+        await fixture.ReconcileAsync();
+        fixture.FailActivation = false;
+        fixture.BlockLaunch = true;
+        using var cancellation = new CancellationTokenSource();
+        var recovery = fixture.RetryAsync(device.Id, cancellation.Token);
+        try
+        {
+            await WaitUntilAsync(() => fixture.GetProcess(device.Id) is not null, TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+
+            // Act
+            cancellation.Cancel();
+            fixture.ReleaseLaunches();
+            var result = await recovery.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.True(result.Accepted);
+            Assert.Equal(VirtualOutputRuntimeState.Starting, result.Snapshot!.State);
+            Assert.False(fixture.GetProcess(device.Id)!.Completion.IsCompleted);
+            Assert.Equal(2, fixture.ActivationAttempts);
+        }
+        finally
+        {
+            fixture.ReleaseLaunches();
+        }
+    }
+
+    /// <summary>Verifies external re-enrollment cannot replace a generation while an output lifecycle transition owns it.</summary>
+    [Fact]
+    public async Task ExternalEnrollment_ConcurrentTransition_DefersRenewal()
+    {
+        // Arrange
+        var time = new ManualTimeProvider();
+        await using var fixture = new OwnershipFixture(time);
+        var device = fixture.CreateDevice(VirtualOutputExecutionMode.ExternalProcess);
+        fixture.Configuration = fixture.Configuration with { VirtualDevices = [device] };
+        await fixture.ReconcileAsync();
+        var old = fixture.GetBootstrap(VirtualOutputExecutionMode.ExternalProcess, device.Id);
+        fixture.Register(old);
+        time.Advance(TimeSpan.FromSeconds(16));
+        VirtualOutputExternalEnrollment? duringTransition = null;
+
+        // Act
+        await fixture.TransitionAsync(device.Id, _ =>
+        {
+            duringTransition = fixture.Enrollments.Take(device.Id);
+            return Task.CompletedTask;
+        });
+        var renewed = fixture.GetBootstrap(VirtualOutputExecutionMode.ExternalProcess, device.Id);
+        var session = fixture.Register(renewed);
+
+        // Assert
+        Assert.Null(duringTransition);
+        Assert.True(renewed.Generation > old.Generation);
+        Assert.True(fixture.Authority.Authorize(session, VirtualOutputCapability.ReportHealth).Authorized);
+        Assert.Empty(fixture.Processes);
+    }
+
+    /// <summary>Verifies unrelated lease renewals and dead-worker detection continue while another output has a stalled drain.</summary>
+    [Fact]
+    public async Task Reconcile_StalledDrain_DoesNotBlockSiblingLiveness()
+    {
+        // Arrange
+        var time = new ManualTimeProvider();
+        await using var fixture = new OwnershipFixture(time) { RegisterDuringLaunch = true };
+        var draining = fixture.CreateDevice(VirtualOutputExecutionMode.ManagedProcess);
+        var healthy = fixture.CreateDevice(VirtualOutputExecutionMode.ManagedProcess);
+        var expired = fixture.CreateDevice(VirtualOutputExecutionMode.ManagedProcess);
+        fixture.Configuration = fixture.Configuration with
+        {
+            VirtualDevices = [draining, healthy, expired],
+            VirtualOutputWorkerPolicies = [Assert.Single(fixture.Configuration.VirtualOutputWorkerPolicies) with { DrainTimeoutSeconds = 60 }]
+        };
+        await fixture.StartAsync();
+        try
+        {
+            await WaitUntilAsync(() => fixture.Status.GetSnapshots().Count(snapshot => snapshot.State == VirtualOutputRuntimeState.Healthy) == 3,
+                TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+            fixture.Configuration = fixture.Configuration with { VirtualDevices = [healthy, expired] };
+            fixture.SignalSettingsChanged();
+            await WaitUntilAsync(() => fixture.Status.GetSnapshots().Any(snapshot => snapshot.VirtualDeviceId == draining.Id && snapshot.State == VirtualOutputRuntimeState.Draining),
+                TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+
+            // Act
+            fixture.Authority.Revoke(expired.Id, "Synthetic sibling lease expiry.");
+            await time.WaitForTimerAsync(TimeSpan.FromSeconds(1));
+            time.Advance(TimeSpan.FromSeconds(1));
+            var renewal = fixture.Authority.Renew(new VirtualOutputLeaseRenewalRequest { Session = fixture.GetSession(healthy.Id), Ready = true });
+            await WaitUntilAsync(() => fixture.Status.GetSnapshots().Any(snapshot => snapshot.VirtualDeviceId == expired.Id && snapshot.State == VirtualOutputRuntimeState.Failed),
+                TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.True(renewal.Accepted);
+            Assert.False(fixture.GetProcess(draining.Id)!.Completion.IsCompleted);
+            Assert.False(fixture.GetProcess(healthy.Id)!.Completion.IsCompleted);
+            Assert.Equal(VirtualOutputRuntimeState.Healthy, Assert.Single(fixture.Status.GetSnapshots(), snapshot => snapshot.VirtualDeviceId == healthy.Id).State);
+        }
+        finally
+        {
+            foreach (var process in fixture.Processes)
+            {
+                fixture.ExitProcess(process);
+            }
+            await fixture.StopAsync();
+        }
+    }
+
+    /// <summary>Verifies one shutdown grace deadline cleans all sixteen workers even when every per-worker drain is longer.</summary>
+    [Fact]
+    public async Task StopAsync_SharedGraceBudget_CleansEveryWorker()
+    {
+        // Arrange
+        var time = new ManualTimeProvider();
+        await using var fixture = new OwnershipFixture(time) { RegisterDuringLaunch = true };
+        fixture.Configuration = fixture.Configuration with
+        {
+            VirtualDevices = Enumerable.Range(0, 16).Select(_ => fixture.CreateDevice(VirtualOutputExecutionMode.ManagedProcess)).ToArray(),
+            VirtualOutputWorkerPolicies = [Assert.Single(fixture.Configuration.VirtualOutputWorkerPolicies) with { DrainTimeoutSeconds = 60 }]
+        };
+        await fixture.StartAsync();
+        try
+        {
+            await WaitUntilAsync(() => fixture.Status.GetSnapshots().Count(snapshot => snapshot.State == VirtualOutputRuntimeState.Healthy) == 16,
+                TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+
+            // Act
+            var stopping = fixture.StopAsync();
+            await time.WaitForTimerAsync(TimeSpan.FromSeconds(30));
+            await WaitUntilAsync(() => fixture.Status.GetSnapshots().Count(snapshot => snapshot.State == VirtualOutputRuntimeState.Draining) == 16,
+                TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+            time.Advance(TimeSpan.FromSeconds(29));
+            var endedEarly = stopping.IsCompleted;
+            time.Advance(TimeSpan.FromSeconds(1));
+            await stopping.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.False(endedEarly);
+            Assert.All(fixture.Processes, process => Assert.True(process.Completion.IsCompletedSuccessfully));
+            Assert.All(fixture.Configuration.VirtualDevices, device =>
+                Assert.False(fixture.Authority.HasActiveSession(device.Id, fixture.GetBootstrap(VirtualOutputExecutionMode.ManagedProcess, device.Id).Generation)));
+        }
+        finally
+        {
+            foreach (var process in fixture.Processes)
+            {
+                fixture.ExitProcess(process);
+            }
+            await fixture.StopAsync();
+        }
+    }
+
+    /// <summary>Verifies an expired host deadline forces cleanup without returning while an owned child's disposal is still pending.</summary>
+    /// <param name="exitedBeforeStop">Whether the worker has already exited and its exit observer owns cleanup.</param>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StopAsync_HostDeadlineExpired_AwaitsOwnedCleanup(bool exitedBeforeStop)
+    {
+        // Arrange
+        await using var fixture = new OwnershipFixture { RegisterDuringLaunch = true };
+        fixture.Configuration = fixture.Configuration with
+        {
+            VirtualDevices = Enumerable.Range(0, 3).Select(_ => fixture.CreateDevice(VirtualOutputExecutionMode.ManagedProcess)).ToArray(),
+            VirtualOutputWorkerPolicies = [Assert.Single(fixture.Configuration.VirtualOutputWorkerPolicies) with { DrainTimeoutSeconds = 60 }]
+        };
+        await fixture.StartAsync();
+        await WaitUntilAsync(() => fixture.Status.GetSnapshots().Count(snapshot => snapshot.State == VirtualOutputRuntimeState.Healthy) == 3,
+            TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var target = fixture.Processes[0];
+        target.Configure().DisposeAsync().Returns(_ =>
+        {
+            entered.TrySetResult();
+            return new ValueTask(release.Task);
+        });
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var returnedBeforeCleanup = false;
+
+        // Act
+        Task stopping;
+        try
+        {
+            if (exitedBeforeStop)
+            {
+                fixture.ExitProcess(target);
+                await entered.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+            }
+            stopping = fixture.StopAsync(cancellation.Token);
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+            returnedBeforeCleanup = stopping.IsCompleted;
+        }
+        finally
+        {
+            release.TrySetResult();
+            foreach (var process in fixture.Processes)
+            {
+                fixture.ExitProcess(process);
+            }
+        }
+        await stopping.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.False(returnedBeforeCleanup);
+        Assert.All(fixture.Processes, process => Assert.True(process.Completion.IsCompletedSuccessfully));
+    }
+
+    /// <summary>Verifies stalled activations cannot exceed the concurrency budget and queued outputs are not launched during shutdown.</summary>
+    [Fact]
+    public async Task Reconcile_StalledStarts_EnforcesConcurrencyAndCancelsQueuedWork()
+    {
+        // Arrange
+        await using var fixture = new OwnershipFixture { BlockLaunch = true };
+        fixture.Configuration = fixture.Configuration with
+        {
+            VirtualDevices = Enumerable.Range(0, 16).Select(_ => fixture.CreateDevice(VirtualOutputExecutionMode.ManagedProcess)).ToArray()
+        };
+        await fixture.StartAsync();
+        await WaitUntilAsync(() => fixture.Processes.Count == 4, TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+
+        // Act
+        await fixture.StopAsync().WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(4, fixture.ActivationAttempts);
+        Assert.Equal(4, fixture.Processes.Count);
+        Assert.All(fixture.Processes, process => Assert.True(process.Completion.IsCompletedSuccessfully));
+    }
+
+    /// <summary>Verifies queued transitions do not launch outputs removed from saved settings while earlier starts are stalled.</summary>
+    [Fact]
+    public async Task Reconcile_QueuedOutputs_UsesLatestSavedConfiguration()
+    {
+        // Arrange
+        await using var fixture = new OwnershipFixture { BlockLaunch = true };
+        fixture.Configuration = fixture.Configuration with
+        {
+            VirtualDevices = Enumerable.Range(0, 16).Select(_ => fixture.CreateDevice(VirtualOutputExecutionMode.ManagedProcess)).ToArray()
+        };
+        await fixture.StartAsync();
+        try
+        {
+            await WaitUntilAsync(() => fixture.Configuration.VirtualDevices.Count(device => fixture.GetProcess(device.Id) is not null) == 4,
+                TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+
+            // Act
+            fixture.Configuration = fixture.Configuration with
+            {
+                VirtualDevices = fixture.Configuration.VirtualDevices.Where(device => fixture.GetProcess(device.Id) is not null).ToArray()
+            };
+            fixture.BlockLaunch = false;
+            fixture.ReleaseLaunches();
+            await fixture.ReconcileAsync();
+
+            // Assert
+            Assert.Equal(4, fixture.ActivationAttempts);
+            Assert.Equal(4, fixture.Processes.Count);
+            Assert.Equal(4, fixture.Status.GetSnapshots().Count);
+        }
+        finally
+        {
+            fixture.ReleaseLaunches();
+        }
+    }
+
     /// <summary>Verifies unsupported enforcement is rejected before activation, does not consume restart attempts, and recovers after correction.</summary>
     [Fact]
     public async Task Reconcile_UnenforceableExternalPolicy_RequiresOperatorCorrectionWithoutRestartLoop()
@@ -78,7 +513,7 @@ public sealed class VirtualOutputSupervisorTests
                 await fixture.ReconcileAsync();
                 healthySession = fixture.Register(fixture.GetBootstrap(mode, healthy.Id));
                 fixture.Status.Update(healthy.Id, current => current! with { State = VirtualOutputRuntimeState.Healthy });
-                replacedProcess = fixture.Processes.FirstOrDefault();
+                replacedProcess = fixture.GetProcess(device.Id);
             }
             fixture.Configuration = fixture.Configuration with { VirtualOutputSecurityPolicies = [security with { CertificateReference = "invalid\0certificate" }] };
 
@@ -123,7 +558,7 @@ public sealed class VirtualOutputSupervisorTests
             }
             else
             {
-                var sibling = fixture.Processes[replace ? 1 : 0];
+                var sibling = fixture.GetProcess(healthy.Id)!;
                 await sibling.DidNotReceive().StopAsync(Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>());
                 await sibling.DidNotReceive().DisposeAsync();
             }
@@ -432,6 +867,50 @@ public sealed class VirtualOutputSupervisorTests
         Assert.Single(fixture.Processes);
         Assert.Equal(1, fixture.ActivationAttempts);
         Assert.DoesNotContain(fixture.Status.GetSnapshots(), snapshot => snapshot.State == VirtualOutputRuntimeState.Failed);
+    }
+
+    /// <summary>Verifies stalled drains share lifecycle time instead of multiplying the wait by output count.</summary>
+    /// <param name="workerCount">The number of independently hosted outputs.</param>
+    /// <param name="shutdown">Whether to measure host shutdown rather than configuration reconciliation.</param>
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(8, false)]
+    [InlineData(16, false)]
+    [InlineData(1, true)]
+    [InlineData(8, true)]
+    [InlineData(16, true)]
+    public async Task Lifecycle_MultipleStalledDrains_DoesNotSerializeGracePeriods(int workerCount, bool shutdown)
+    {
+        // Arrange
+        await using var fixture = new OwnershipFixture { RegisterDuringLaunch = true };
+        var devices = Enumerable.Range(0, workerCount).Select(_ => fixture.CreateDevice(VirtualOutputExecutionMode.ManagedProcess)).ToArray();
+        fixture.Configuration = fixture.Configuration with
+        {
+            VirtualDevices = devices,
+            VirtualOutputWorkerPolicies = [Assert.Single(fixture.Configuration.VirtualOutputWorkerPolicies) with { DrainTimeoutSeconds = 1, LeaseGracePeriodSeconds = 60 }]
+        };
+        await fixture.StartAsync();
+        await WaitUntilAsync(() => fixture.Status.GetSnapshots().Count(snapshot => snapshot.State == VirtualOutputRuntimeState.Healthy) == workerCount,
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        // Act
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+        if (shutdown)
+        {
+            await fixture.StopAsync();
+        }
+        else
+        {
+            fixture.Configuration = fixture.Configuration with { VirtualDevices = [] };
+            await fixture.ReconcileAsync();
+        }
+        elapsed.Stop();
+
+        // Assert
+        Assert.All(fixture.Processes, process => Assert.True(process.Completion.IsCompletedSuccessfully));
+        var batches = shutdown ? 1 : (int)Math.Ceiling(workerCount / 4d);
+        Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(batches + 2),
+            $"{workerCount} stalled workers took {elapsed.Elapsed.TotalSeconds:F2}s to {(shutdown ? "shut down" : "reconcile")} with a 1s per-worker drain timeout.");
     }
 
     /// <summary>Verifies cancellation of reconciliation cannot strand a managed child removed from active ownership.</summary>
@@ -744,8 +1223,12 @@ public sealed class VirtualOutputSupervisorTests
     {
         private readonly VirtualOutputSupervisor _supervisor;
         private readonly ILineupSettingsService _settings;
-        private readonly Dictionary<IVirtualOutputWorkerProcess, TaskCompletionSource<int>> _completions = [];
-        private VirtualOutputWorkerBootstrap? _bootstrap;
+        private readonly ConcurrentDictionary<IVirtualOutputWorkerProcess, TaskCompletionSource<int>> _completions = new();
+        private readonly ConcurrentDictionary<VirtualDeviceId, VirtualOutputWorkerBootstrap> _bootstraps = new();
+        private readonly ConcurrentDictionary<VirtualDeviceId, IVirtualOutputWorkerProcess> _processesByDevice = new();
+        private readonly ConcurrentDictionary<VirtualDeviceId, VirtualOutputSessionContext> _sessions = new();
+        private readonly TaskCompletionSource _launchRelease = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _activationAttempts;
 
         internal OwnershipFixture(TimeProvider? timeProvider = null, TimeSpan? bootstrapLifetime = null, IVirtualOutputCertificateResolver? certificateResolver = null)
         {
@@ -757,7 +1240,7 @@ public sealed class VirtualOutputSupervisorTests
             var catalog = Substitute.For<IVirtualOutputWorkerCatalog>();
             catalog.ResolveAsync("ownership-test", Arg.Any<CancellationToken>()).Returns(_ =>
             {
-                ActivationAttempts++;
+                Interlocked.Increment(ref _activationAttempts);
                 return FailActivation
                     ? Task.FromException<VirtualOutputWorkerPackage>(new IOException("Synthetic activation failure."))
                     : Task.FromResult(new VirtualOutputWorkerPackage
@@ -778,10 +1261,12 @@ public sealed class VirtualOutputSupervisorTests
             var launcher = Substitute.For<IVirtualOutputWorkerLauncher>();
             launcher.StartAsync(Arg.Any<VirtualOutputWorkerPackage>(), Arg.Any<VirtualOutputWorkerBootstrap>(), Arg.Any<CancellationToken>()).Returns(async call =>
             {
-                _bootstrap = call.Arg<VirtualOutputWorkerBootstrap>();
+                var bootstrap = call.Arg<VirtualOutputWorkerBootstrap>();
+                _bootstraps[bootstrap.VirtualDevice.Id] = bootstrap;
                 var completion = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
                 var process = Substitute.For<IVirtualOutputWorkerProcess>();
-                _completions.Add(process, completion);
+                _completions[process] = completion;
+                _processesByDevice[bootstrap.VirtualDevice.Id] = process;
                 process.Completion.Returns(completion.Task);
                 process.StopAsync(Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>()).Returns(_ =>
                 {
@@ -793,21 +1278,25 @@ public sealed class VirtualOutputSupervisorTests
                     completion.TrySetResult(0);
                     return ValueTask.CompletedTask;
                 });
-                Processes.Add(process);
+                lock (Processes)
+                {
+                    Processes.Add(process);
+                }
                 if (RegisterDuringLaunch)
                 {
-                    Register(_bootstrap);
-                    Status.Update(_bootstrap.VirtualDevice.Id, current => current! with { State = VirtualOutputRuntimeState.Healthy, ProtocolVersion = VirtualOutputProtocol.MaximumVersion });
+                    Register(bootstrap);
+                    Status.Update(bootstrap.VirtualDevice.Id, current => current! with { State = VirtualOutputRuntimeState.Healthy, ProtocolVersion = VirtualOutputProtocol.MaximumVersion });
                 }
                 if (BlockLaunch)
                 {
                     try
                     {
-                        await Task.Delay(Timeout.InfiniteTimeSpan, call.Arg<CancellationToken>());
+                        await _launchRelease.Task.WaitAsync(call.Arg<CancellationToken>());
                     }
-                    finally
+                    catch (OperationCanceledException)
                     {
                         await process.DisposeAsync();
+                        throw;
                     }
                 }
                 return process;
@@ -857,13 +1346,34 @@ public sealed class VirtualOutputSupervisorTests
         /// <summary>Gets or sets whether the controlled worker reports readiness before the launcher returns.</summary>
         internal bool RegisterDuringLaunch { get; set; }
 
-        internal int ActivationAttempts { get; private set; }
+        internal int ActivationAttempts => Volatile.Read(ref _activationAttempts);
+
+        /// <summary>Returns the current controlled managed process for one output.</summary>
+        internal IVirtualOutputWorkerProcess? GetProcess(VirtualDeviceId deviceId) => _processesByDevice.GetValueOrDefault(deviceId);
+
+        /// <summary>Allows controlled blocked launches to finish successfully.</summary>
+        internal void ReleaseLaunches() => _launchRelease.TrySetResult();
+
+        /// <summary>Returns the last registered managed session for a controlled output.</summary>
+        internal VirtualOutputSessionContext GetSession(VirtualDeviceId deviceId) => _sessions[deviceId];
+
+        /// <summary>Retries one failed output through the operator recovery contract.</summary>
+        internal Task<VirtualOutputWorkerRecoveryResult> RetryAsync(VirtualDeviceId deviceId, CancellationToken? cancellationToken = null) =>
+            _supervisor.RetryAsync(deviceId, cancellationToken ?? TestContext.Current.CancellationToken);
+
+        /// <summary>Runs a controlled transition through the production per-output synchronization.</summary>
+        internal Task TransitionAsync(VirtualDeviceId deviceId, Func<CancellationToken, Task> transition)
+        {
+            var method = typeof(VirtualOutputSupervisor).GetMethod("RunTransitionAsync", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+            return Assert.IsAssignableFrom<Task>(method.Invoke(_supervisor, [deviceId, transition, TestContext.Current.CancellationToken]));
+        }
 
         /// <summary>Starts the hosted reconciliation loop.</summary>
         internal Task StartAsync() => _supervisor.StartAsync(TestContext.Current.CancellationToken);
 
         /// <summary>Stops the hosted loop and waits for its final cleanup.</summary>
-        internal Task StopAsync() => _supervisor.StopAsync(TestContext.Current.CancellationToken);
+        internal Task StopAsync(CancellationToken? cancellationToken = null) => _supervisor.StopAsync(cancellationToken ?? TestContext.Current.CancellationToken);
 
         /// <summary>Notifies the hosted loop of updated desired topology.</summary>
         internal void SignalSettingsChanged() => _settings.OnSettingsChanged += Raise.Event<Action>();
@@ -883,7 +1393,7 @@ public sealed class VirtualOutputSupervisorTests
         {
             if (mode == VirtualOutputExecutionMode.ManagedProcess)
             {
-                return Assert.IsType<VirtualOutputWorkerBootstrap>(_bootstrap);
+                return _bootstraps[deviceId];
             }
             var enrollment = Enrollments.Take(deviceId);
             Assert.NotNull(enrollment);
@@ -922,24 +1432,17 @@ public sealed class VirtualOutputSupervisorTests
                 MaximumProtocolVersion = VirtualOutputProtocol.MaximumVersion
             });
             Assert.True(registration.Accepted);
-            return new VirtualOutputSessionContext { SessionId = registration.SessionId!.Value, Generation = bootstrap.Generation };
+            var session = new VirtualOutputSessionContext { SessionId = registration.SessionId!.Value, Generation = bootstrap.Generation };
+            _sessions[bootstrap.VirtualDevice.Id] = session;
+            return session;
         }
 
         internal async Task ReconcileAsync(CancellationToken? cancellationToken = null)
         {
             var token = cancellationToken ?? TestContext.Current.CancellationToken;
-            var gate = Assert.IsType<SemaphoreSlim>(typeof(VirtualOutputSupervisor).GetField("_stateGate", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(_supervisor));
             var reconcile = typeof(VirtualOutputSupervisor).GetMethod("ReconcileAsync", BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.NotNull(reconcile);
-            await gate.WaitAsync(token);
-            try
-            {
-                await Assert.IsAssignableFrom<Task>(reconcile.Invoke(_supervisor, [token]));
-            }
-            finally
-            {
-                gate.Release();
-            }
+            await Assert.IsAssignableFrom<Task>(reconcile.Invoke(_supervisor, [token]));
         }
 
         /// <inheritdoc />

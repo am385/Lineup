@@ -195,6 +195,76 @@ public sealed class DeviceGuideRetentionTests
         Assert.Equal("7", (await context.GuideSourceChannels.SingleAsync(TestContext.Current.CancellationToken)).Number);
     }
 
+    /// <summary>Verifies independent maintenance removes only expired ended history, preserving dormant sources' future data and durable choices.</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(6)]
+    public async Task PruneExpiredProgramsAsync_DormantSources_PreservesFutureChannelsBindingsAndImports(int retentionHours)
+    {
+        // Arrange
+        using var fixture = new Fixture(720);
+        var cutoff = fixture.Now.AddHours(-retentionHours);
+        var initial = fixture.Import(
+        [
+            fixture.Program("Expired", cutoff.AddHours(-2), cutoff.AddHours(-1)),
+            fixture.Program("At cutoff", cutoff.AddHours(-1), cutoff),
+            fixture.Program("Running", fixture.Now.AddMinutes(-30), fixture.Now.AddMinutes(30)),
+            fixture.Program("Future", fixture.Now.AddDays(10), fixture.Now.AddDays(10).AddHours(1))
+        ], cutoff.AddHours(-2), fixture.Now.AddDays(11));
+        await fixture.Store.ImportAsync(initial, TestContext.Current.CancellationToken);
+        var otherId = GuideSourceId.New();
+        var otherChannel = new GuideChannelId(otherId, fixture.ChannelId.ProviderKey);
+        await fixture.Store.ImportAsync(initial with
+        {
+            SourceId = otherId,
+            Channels = [initial.Channels[0] with { Id = otherChannel }],
+            Programs = initial.Programs.Select(program => program with { ChannelId = otherChannel }).ToArray()
+        }, TestContext.Current.CancellationToken);
+        var physicalId = PhysicalDeviceId.New();
+        var sourceChannelId = new SourceChannelId(physicalId, "station");
+        await new StreamingTopologyStore(fixture.Factory).ReconcileAsync(physicalId,
+            [new PhysicalSourceChannel { Id = sourceChannelId, ProviderName = "News", ProviderNumber = "7" }], TestContext.Current.CancellationToken);
+        await fixture.Store.SetBindingAsync(sourceChannelId, fixture.ChannelId, TestContext.Current.CancellationToken);
+        var imports = await fixture.Store.ReadImportStatesAsync(TestContext.Current.CancellationToken);
+        fixture.Policy.HistoryRetention.Returns(TimeSpan.FromHours(retentionHours));
+
+        // Act
+        var removed = await fixture.Store.PruneExpiredProgramsAsync(TestContext.Current.CancellationToken);
+        var repeated = await fixture.Store.PruneExpiredProgramsAsync(TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(4, removed);
+        Assert.Equal(0, repeated);
+        Assert.Equal(["Future", "Future", "Running", "Running"], await fixture.ReadTitlesAsync());
+        Assert.Equal(imports, await fixture.Store.ReadImportStatesAsync(TestContext.Current.CancellationToken));
+        await using var context = fixture.Factory.CreateDbContext();
+        Assert.Equal(2, await context.GuideSourceChannels.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(1, await context.SourceGuideBindings.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(fixture.ChannelId, Assert.Single(await fixture.Store.ReadBindingStatesAsync(TestContext.Current.CancellationToken)).SelectedGuideChannelId);
+    }
+
+    /// <summary>Verifies maintenance traverses bounded deletion batches and honors cancellation without removing future programs.</summary>
+    [Fact]
+    public async Task PruneExpiredProgramsAsync_MultipleBatchesAndCancellation_PreservesFuture()
+    {
+        // Arrange
+        using var fixture = new Fixture(24);
+        var expired = Enumerable.Range(0, 1001).Select(index => fixture.Program($"History {index}", fixture.Now.AddHours(-2), fixture.Now.AddHours(-1)));
+        await fixture.Store.ImportAsync(fixture.Import([.. expired, fixture.Program("Future", fixture.Now, fixture.Now.AddHours(1))],
+            fixture.Now.AddHours(-2), fixture.Now.AddHours(1)), TestContext.Current.CancellationToken);
+        fixture.Policy.HistoryRetention.Returns(TimeSpan.Zero);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        // Act
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => fixture.Store.PruneExpiredProgramsAsync(cancellation.Token));
+        var removed = await fixture.Store.PruneExpiredProgramsAsync(TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(1001, removed);
+        Assert.Equal(["Future"], await fixture.ReadTitlesAsync());
+    }
+
     private sealed class Fixture : IDisposable
     {
         private readonly DirectoryInfo _directory = Directory.CreateTempSubdirectory("lineup-guide-retention-");

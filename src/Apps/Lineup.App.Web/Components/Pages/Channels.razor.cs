@@ -34,9 +34,6 @@ public partial class Channels
         WebSettingsServiceFallback.Get(SettingsService);
 
     [Inject]
-    private IXmltvPublicationStore Publications { get; set; } = default!;
-
-    [Inject]
     private ITimeZoneService Tz { get; set; } = default!;
 
     [Inject]
@@ -115,9 +112,12 @@ public partial class Channels
 
         try
         {
-            await TopologyStore.SetIdentityAsync(channel.Source.Id, edit.NumberOverride, edit.NameOverride, equivalenceGroup);
+            var published = await ApplyChannelChangeAsync(token => TopologyStore.SetIdentityAsync(channel.Source.Id, edit.NumberOverride, edit.NameOverride, equivalenceGroup, token));
             await LoadTopologyAsync();
-            Notifications.ShowSuccess(Text["Channels_SavedGlobalIdentity", channel.Source.ProviderNumber]);
+            if (published)
+            {
+                Notifications.ShowSuccess(Text["Channels_SavedGlobalIdentity", channel.Source.ProviderNumber]);
+            }
         }
         catch (Exception ex)
         {
@@ -129,16 +129,19 @@ public partial class Channels
     {
         try
         {
-            if (string.IsNullOrEmpty(guideIdentity))
+            await ApplyChannelChangeAsync(async token =>
             {
-                await GuideStore.ClearBindingAsync(sourceChannelId);
-            }
-            else
-            {
-                var state = _guideBindings[sourceChannelId];
-                var candidate = state.MatchingCandidates.Single(channel => GetGuideIdentity(channel.Id) == guideIdentity);
-                await GuideStore.SetBindingAsync(sourceChannelId, candidate.Id, activeGuideScopes: GetActiveGuideScopes());
-            }
+                if (string.IsNullOrEmpty(guideIdentity))
+                {
+                    await GuideStore.ClearBindingAsync(sourceChannelId, token);
+                }
+                else
+                {
+                    var state = _guideBindings[sourceChannelId];
+                    var candidate = state.MatchingCandidates.Single(channel => GetGuideIdentity(channel.Id) == guideIdentity);
+                    await GuideStore.SetBindingAsync(sourceChannelId, candidate.Id, token, GetActiveGuideScopes());
+                }
+            });
             await LoadTopologyAsync();
         }
         catch (Exception ex)
@@ -185,19 +188,8 @@ public partial class Channels
 
         try
         {
-            await TopologyStore.SetEnabledAsync(channelId, enabled);
+            await ApplyChannelChangeAsync(token => TopologyStore.SetEnabledAsync(channelId, enabled, token));
             await LoadTopologyAsync();
-            if (Publications.Exists(SettingsService.Settings.XmltvOutputPath))
-            {
-                try
-                {
-                    await Guides.PublishAsync();
-                }
-                catch (Exception ex)
-                {
-                    Notifications.ShowError(Text["Channels_SavedButXmltvUpdateFailed", ex.Message]);
-                }
-            }
         }
         catch (Exception ex)
         {
@@ -207,6 +199,31 @@ public partial class Channels
         {
             _updatingChannels.Remove(channelId);
         }
+    }
+
+    private async Task<bool> ApplyChannelChangeAsync(Func<CancellationToken, Task> mutation)
+    {
+        var saved = false;
+        try
+        {
+            var outputs = await Guides.ApplyChannelChangeAsync(async token =>
+            {
+                await mutation(token);
+                saved = true;
+            });
+            var failures = outputs.Where(output => !output.Succeeded || output.IsPartial)
+                .Select(output => $"{output.Name}: {output.Error ?? string.Join("; ", output.SourceDiagnostics.Select(diagnostic => diagnostic.Message))}").ToArray();
+            if (failures.Length == 0)
+            {
+                return true;
+            }
+            Notifications.ShowError(Text["Channels_SavedButXmltvUpdateFailed", string.Join("; ", failures)]);
+        }
+        catch (Exception ex) when (saved)
+        {
+            Notifications.ShowError(Text["Channels_SavedButXmltvUpdateFailed", ex.Message]);
+        }
+        return false;
     }
 
     private string GetDeviceName(PhysicalDeviceId deviceId) =>

@@ -14,6 +14,55 @@ namespace Lineup.Core.Tests.Storage;
 /// </summary>
 public sealed class DeviceGuideStoreTests
 {
+    /// <summary>Transfer program counts include virtual aliases; rejecting an export does not truncate or alter the stored guide.</summary>
+    [Fact]
+    public async Task BuildResolvedSnapshotAsync_TransferLimit_CountsAliasedProgramsWithoutTruncatingStorage()
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-guide-envelope-");
+        try
+        {
+            var factory = new TestContextFactory(Path.Combine(root.FullName, "lineup.db"));
+            var topology = new StreamingTopologyStore(factory);
+            var store = new DeviceGuideStore(factory);
+            var physical = PhysicalDeviceId.New();
+            var source = new SourceChannelId(physical, "1");
+            var guideId = new GuideChannelId(GuideSourceId.New(), "1");
+            var id = VirtualDeviceId.New();
+            var now = DateTimeOffset.UtcNow;
+            await topology.ReconcileAsync(physical, [new PhysicalSourceChannel { Id = source, ProviderNumber = "1", ProviderName = "Example" }], TestContext.Current.CancellationToken);
+            await store.ImportAsync(new GuideImport
+            {
+                SourceId = guideId.GuideSourceId,
+                Channels = [new GuideChannel { Id = guideId, Number = "1", Name = "Example" }],
+                Programs = Enumerable.Range(0, 51).Select(index => new GuideProgram
+                {
+                    ChannelId = guideId,
+                    StartUtc = now.AddHours(index),
+                    EndUtc = now.AddHours(index + 1),
+                    Title = $"Program {index}"
+                }).ToArray(),
+                CoverageStartUtc = now,
+                CoverageEndUtc = now.AddHours(51)
+            }, TestContext.Current.CancellationToken);
+            var aliases = Enumerable.Range(1, GuideTransfer.MaximumChannels).Select(index => new ResolvedVirtualChannel(index.ToString(), "Example", [source])).ToArray();
+
+            // Act
+            await Assert.ThrowsAsync<GuideTransferLimitException>(() => store.BuildResolvedSnapshotAsync(
+                id, _ => aliases, enforceTransferLimits: true, cancellationToken: TestContext.Current.CancellationToken));
+            var recovered = await store.BuildResolvedSnapshotAsync(id, _ => [aliases[0]], enforceTransferLimits: true, cancellationToken: TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.Equal(51, Assert.Single(recovered.Channels).Programs.Count);
+            Assert.Equal("Program 50", recovered.Channels[0].Programs[^1].Title);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            root.Delete(recursive: true);
+        }
+    }
+
     /// <summary>
     /// Verifies guide channels cannot bind outside their configured physical-device subscription.
     /// </summary>

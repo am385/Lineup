@@ -201,4 +201,10 @@ public sealed record VirtualOutputRuntimeSnapshot
 
     /// <summary>Gets a sanitized operator-facing failure description.</summary>
     public string? LastFailure { get; init; }
+
+    /// <summary>Gets the failure recorded before the most recent explicit recovery attempt.</summary>
+    public string? PreviousFailure { get; init; }
+
+    /// <summary>Gets when an operator last explicitly revalidated and retried this output.</summary>
+    public DateTimeOffset? LastRecoveryAttemptUtc { get; init; }
 }

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using Lineup.Core.Common.Streaming;
 using Lineup.Core.Settings;
@@ -21,6 +22,12 @@ public sealed record VirtualOutputRuntimeOptions
 
     /// <summary>Gets the lease lifetime for shared runtime services. Virtual-output workers use their configured worker-policy lease lifetime.</summary>
     public TimeSpan LeaseLifetime { get; init; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>Gets the maximum number of concurrent per-output reconciliation or recovery transitions.</summary>
+    public int MaximumConcurrentTransitions { get; init; } = 4;
+
+    /// <summary>Gets the shared graceful-drain budget before all remaining managed children are forcibly cleaned up.</summary>
+    public TimeSpan ShutdownGracePeriod { get; init; } = TimeSpan.FromSeconds(30);
 }
 
 /// <summary>Contains a one-time bootstrap descriptor for an externally supervised worker.</summary>
@@ -114,7 +121,7 @@ public sealed class VirtualOutputExternalEnrollmentStore : IVirtualOutputExterna
 }
 
 /// <summary>Reconciles configured virtual outputs with isolated managed or external workers.</summary>
-public sealed class VirtualOutputSupervisor : BackgroundService
+public sealed class VirtualOutputSupervisor : BackgroundService, IVirtualOutputWorkerRecovery
 {
     private static readonly TimeSpan LivenessCheckInterval = TimeSpan.FromSeconds(1);
     private static readonly IReadOnlySet<VirtualOutputCapability> WorkerCapabilities = new HashSet<VirtualOutputCapability>
@@ -139,13 +146,16 @@ public sealed class VirtualOutputSupervisor : BackgroundService
     private readonly TimeProvider _timeProvider;
     private readonly SemaphoreSlim _changed = new(0, 1);
     private readonly SemaphoreSlim _stateGate = new(1, 1);
+    private readonly SemaphoreSlim _transitionSlots;
+    private readonly ConcurrentDictionary<VirtualDeviceId, SemaphoreSlim> _outputGates = new();
     private readonly CancellationTokenSource _retryCancellation = new();
-    private readonly Dictionary<VirtualDeviceId, ActiveWorker> _active = [];
-    private readonly Dictionary<VirtualDeviceId, ExternalWorker> _externalActive = [];
-    private readonly HashSet<VirtualDeviceId> _ownedOutputs = [];
-    private readonly Dictionary<VirtualDeviceId, VirtualOutputWorkerRestartBudget> _restartBudgets = [];
-    private readonly Dictionary<VirtualDeviceId, PendingRetry> _pendingRetries = [];
-    private readonly Dictionary<VirtualDeviceId, string> _quarantinedFingerprints = [];
+    private readonly ConcurrentDictionary<VirtualDeviceId, ActiveWorker> _active = new();
+    private readonly ConcurrentDictionary<VirtualDeviceId, ExternalWorker> _externalActive = new();
+    private readonly ConcurrentDictionary<VirtualDeviceId, byte> _ownedOutputs = new();
+    private readonly ConcurrentDictionary<VirtualDeviceId, VirtualOutputWorkerRestartBudget> _restartBudgets = new();
+    private readonly ConcurrentDictionary<VirtualDeviceId, PendingRetry> _pendingRetries = new();
+    private readonly ConcurrentDictionary<VirtualDeviceId, string> _quarantinedFingerprints = new();
+    private CancellationToken _shutdownToken;
 
     /// <summary>Initializes the desired-versus-applied worker reconciler.</summary>
     public VirtualOutputSupervisor(
@@ -170,6 +180,12 @@ public sealed class VirtualOutputSupervisor : BackgroundService
         _externalEnrollments = externalEnrollments;
         _logger = logger;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.MaximumConcurrentTransitions);
+        if (options.ShutdownGracePeriod <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options), "The shared shutdown grace period must be positive.");
+        }
+        _transitionSlots = new SemaphoreSlim(options.MaximumConcurrentTransitions, options.MaximumConcurrentTransitions);
     }
 
     /// <inheritdoc />
@@ -183,46 +199,119 @@ public sealed class VirtualOutputSupervisor : BackgroundService
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
         _settings.OnSettingsChanged -= SettingsChanged;
+        _shutdownToken = cancellationToken;
         _retryCancellation.Cancel();
         await base.StopAsync(cancellationToken);
+        if (ExecuteTask is { } execution)
+        {
+            await execution;
+        }
     }
 
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var reconcile = true;
+        Task? reconciliation = null;
         try
         {
             while (!stoppingToken.IsCancellationRequested)
             {
-                await _stateGate.WaitAsync(stoppingToken);
-                try
+                if (reconciliation is { IsCompleted: true })
                 {
-                    if (reconcile)
-                    {
-                        await ReconcileAsync(stoppingToken);
-                    }
-                    await CheckManagedWorkerLivenessAsync(stoppingToken);
-                    CheckExternalWorkerLiveness();
+                    await reconciliation;
+                    reconciliation = null;
                 }
-                finally
+                if (reconcile && reconciliation is null)
                 {
-                    _stateGate.Release();
+                    reconcile = false;
+                    reconciliation = ReconcileAsync(stoppingToken);
                 }
-                reconcile = await WaitForChangesAsync(stoppingToken);
+                await CheckManagedWorkerLivenessAsync(stoppingToken);
+                CheckExternalWorkerLiveness();
+                reconcile |= await WaitForChangesAsync(stoppingToken);
+            }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            _retryCancellation.Cancel();
+            try
+            {
+                if (reconciliation is not null)
+                {
+                    await reconciliation;
+                }
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+            }
+            finally
+            {
+                using var grace = new CancellationTokenSource(_options.ShutdownGracePeriod, _timeProvider);
+                using var cleanup = CancellationTokenSource.CreateLinkedTokenSource(grace.Token, _shutdownToken);
+                await StopAllAsync(cleanup.Token);
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<VirtualOutputWorkerRecoveryResult> RetryAsync(VirtualDeviceId virtualDeviceId, CancellationToken cancellationToken = default)
+    {
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _retryCancellation.Token);
+        VirtualOutputWorkerRecoveryResult? result = null;
+        await RunTransitionAsync(virtualDeviceId, async token =>
+        {
+            token.ThrowIfCancellationRequested();
+            var snapshot = _status.GetSnapshots().SingleOrDefault(item => item.VirtualDeviceId == virtualDeviceId);
+            var configuration = _settings.Settings.Streaming;
+            var device = configuration.VirtualDevices.SingleOrDefault(item => item.Id == virtualDeviceId && item.Enabled && item.Hosting is not null);
+            if (device is null || snapshot?.State != VirtualOutputRuntimeState.Failed || _active.ContainsKey(virtualDeviceId)
+                || snapshot.Generation is { } generation && _authority.HasActiveSession(virtualDeviceId, generation))
+            {
+                _logger.LogWarning("Rejected recovery for virtual output {VirtualDeviceId}: the saved output is not an unavailable worker", virtualDeviceId);
+                result = new(false, snapshot);
+                return;
+            }
+            _logger.LogInformation("Operator revalidating virtual output {VirtualDeviceId}; previous failure: {PreviousFailure}", virtualDeviceId, snapshot.LastFailure);
+            _status.Update(virtualDeviceId, current => (current ?? snapshot) with
+            {
+                PreviousFailure = snapshot.LastFailure,
+                LastRecoveryAttemptUtc = _timeProvider.GetUtcNow()
+            });
+            ResetFailureState(virtualDeviceId);
+            _externalEnrollments.Remove(virtualDeviceId);
+            _externalActive.TryRemove(virtualDeviceId, out _);
+            _authority.Revoke(virtualDeviceId, "An operator requested revalidation of the failed worker.");
+            await ReconcileOutputAsync(device, configuration, _retryCancellation.Token);
+            result = new(true, _status.GetSnapshots().Single(item => item.VirtualDeviceId == virtualDeviceId));
+        }, lifetime.Token);
+        return result ?? throw new InvalidOperationException("The worker recovery transition did not produce an outcome.");
+    }
+
+    private SemaphoreSlim GetOutputGate(VirtualDeviceId deviceId) => _outputGates.GetOrAdd(deviceId, static _ => new SemaphoreSlim(1, 1));
+
+    private async Task RunTransitionAsync(VirtualDeviceId deviceId, Func<CancellationToken, Task> transition, CancellationToken cancellationToken)
+    {
+        await _transitionSlots.WaitAsync(cancellationToken);
+        try
+        {
+            var gate = GetOutputGate(deviceId);
+            await gate.WaitAsync(cancellationToken);
+            try
+            {
+                await transition(cancellationToken);
+            }
+            finally
+            {
+                gate.Release();
             }
         }
         finally
         {
-            await _stateGate.WaitAsync(CancellationToken.None);
-            try
-            {
-                await StopAllAsync(CancellationToken.None);
-            }
-            finally
-            {
-                _stateGate.Release();
-            }
+            _transitionSlots.Release();
         }
     }
 
@@ -246,36 +335,52 @@ public sealed class VirtualOutputSupervisor : BackgroundService
         var snapshots = _status.GetSnapshots();
         foreach (var (deviceId, worker) in _active.ToArray())
         {
-            if (worker.Process.Completion.IsCompleted)
+            var gate = GetOutputGate(deviceId);
+            if (!gate.Wait(0))
             {
                 continue;
             }
-            if (_authority.HasActiveSession(deviceId, worker.Generation))
-            {
-                worker.HasRegistered = true;
-                continue;
-            }
-            worker.HasRegistered |= snapshots.Any(snapshot =>
-                snapshot.VirtualDeviceId == deviceId && snapshot.Generation == worker.Generation && snapshot.ProtocolVersion is not null);
-            if (!worker.HasRegistered && _timeProvider.GetUtcNow() <= worker.BootstrapExpiresUtc)
-            {
-                continue;
-            }
-
-            var failure = worker.HasRegistered
-                ? "The worker session is no longer active or its lease has expired."
-                : "The worker did not register before its bootstrap credential expired.";
-            _active.Remove(deviceId);
-            _authority.Revoke(deviceId, failure);
-            RecordManagedWorkerFailure(deviceId, worker, failure);
-            _logger.LogWarning("Stopping unresponsive virtual-output worker for {VirtualDeviceId}: {Failure}", deviceId, failure);
             try
             {
-                await worker.Process.StopAsync(TimeSpan.Zero, cancellationToken);
+                if (!_active.TryGetValue(deviceId, out var current) || !ReferenceEquals(current, worker))
+                {
+                    continue;
+                }
+                if (worker.Process.Completion.IsCompleted)
+                {
+                    continue;
+                }
+                if (_authority.HasActiveSession(deviceId, worker.Generation))
+                {
+                    worker.HasRegistered = true;
+                    continue;
+                }
+                worker.HasRegistered |= snapshots.Any(snapshot =>
+                    snapshot.VirtualDeviceId == deviceId && snapshot.Generation == worker.Generation && snapshot.ProtocolVersion is not null);
+                if (!worker.HasRegistered && _timeProvider.GetUtcNow() <= worker.BootstrapExpiresUtc)
+                {
+                    continue;
+                }
+
+                var failure = worker.HasRegistered
+                    ? "The worker session is no longer active or its lease has expired."
+                    : "The worker did not register before its bootstrap credential expired.";
+                _active.TryRemove(deviceId, out _);
+                _authority.Revoke(deviceId, failure);
+                RecordManagedWorkerFailure(deviceId, worker, failure);
+                _logger.LogWarning("Stopping unresponsive virtual-output worker for {VirtualDeviceId}: {Failure}", deviceId, failure);
+                try
+                {
+                    await worker.Process.StopAsync(TimeSpan.Zero, cancellationToken);
+                }
+                finally
+                {
+                    await worker.Process.DisposeAsync();
+                }
             }
             finally
             {
-                await worker.Process.DisposeAsync();
+                gate.Release();
             }
         }
     }
@@ -284,105 +389,131 @@ public sealed class VirtualOutputSupervisor : BackgroundService
     {
         foreach (var snapshot in _status.GetSnapshots().Where(snapshot => _externalActive.ContainsKey(snapshot.VirtualDeviceId)))
         {
-            // Enrollment can replace this generation without a settings reconciliation.
-            _status.Update(snapshot.VirtualDeviceId, current =>
+            var gate = GetOutputGate(snapshot.VirtualDeviceId);
+            if (!gate.Wait(0))
             {
-                if (current is not { Generation: { } generation, ProtocolVersion: not null, State: VirtualOutputRuntimeState.Starting or VirtualOutputRuntimeState.Healthy or VirtualOutputRuntimeState.Degraded }
-                    || _authority.HasActiveSession(snapshot.VirtualDeviceId, generation))
+                continue;
+            }
+            try
+            {
+                // Enrollment can replace this generation without a settings reconciliation.
+                _status.Update(snapshot.VirtualDeviceId, current =>
                 {
-                    return current ?? snapshot;
-                }
+                    if (current is not { Generation: { } generation, ProtocolVersion: not null, State: VirtualOutputRuntimeState.Starting or VirtualOutputRuntimeState.Healthy or VirtualOutputRuntimeState.Degraded }
+                        || _authority.HasActiveSession(snapshot.VirtualDeviceId, generation))
+                    {
+                        return current ?? snapshot;
+                    }
 
-                const string failure = "The externally supervised worker session is no longer active or its lease has expired. Waiting for re-enrollment.";
-                _logger.LogWarning("External virtual-output worker for {VirtualDeviceId} is unavailable: {Failure}", snapshot.VirtualDeviceId, failure);
-                return current with
-                {
-                    State = VirtualOutputRuntimeState.Failed,
-                    ReadySinceUtc = null,
-                    LastFailure = failure
-                };
-            });
+                    const string failure = "The externally supervised worker session is no longer active or its lease has expired. Waiting for re-enrollment.";
+                    _logger.LogWarning("External virtual-output worker for {VirtualDeviceId} is unavailable: {Failure}", snapshot.VirtualDeviceId, failure);
+                    return current with
+                    {
+                        State = VirtualOutputRuntimeState.Failed,
+                        ReadySinceUtc = null,
+                        LastFailure = failure
+                    };
+                });
+            }
+            finally
+            {
+                gate.Release();
+            }
         }
     }
 
     private async Task ReconcileAsync(CancellationToken cancellationToken)
     {
-        var configuration = _settings.Settings.Streaming;
-        var desired = configuration.VirtualDevices
-            .Where(device => device.Enabled && device.Hosting is not null)
-            .ToDictionary(device => device.Id);
-
-        foreach (var obsoleteId in _ownedOutputs
-                     .Where(id => !desired.ContainsKey(id))
-                     .ToArray())
+        await _stateGate.WaitAsync(cancellationToken);
+        try
         {
-            await StopWorkerAsync(obsoleteId, cancellationToken);
-            _status.Remove(obsoleteId);
-            ResetFailureState(obsoleteId);
-            _ownedOutputs.Remove(obsoleteId);
-        }
+            var configuration = _settings.Settings.Streaming;
+            var desired = configuration.VirtualDevices
+                .Where(device => device.Enabled && device.Hosting is not null)
+                .ToDictionary(device => device.Id);
 
-        foreach (var device in desired.Values)
-        {
-            _ownedOutputs.Add(device.Id);
-            string fingerprint;
-            try
+            var outputs = _ownedOutputs.Keys.Union(desired.Keys).ToArray();
+            await Task.WhenAll(outputs.Select(id => RunTransitionAsync(id, async token =>
             {
-                fingerprint = CreateFingerprint(device, configuration);
-            }
-            catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException or System.Security.SecurityException)
-            {
-                ResetFailureState(device.Id);
-                await StopWorkerAsync(device.Id, cancellationToken);
-                _logger.LogError(exception, "Unable to evaluate isolated virtual output {VirtualDeviceId} certificate configuration", device.Id);
-                _status.Set(new VirtualOutputRuntimeSnapshot
+                var currentConfiguration = _settings.Settings.Streaming;
+                var device = currentConfiguration.VirtualDevices.SingleOrDefault(item => item.Id == id && item.Enabled && item.Hosting is not null);
+                if (device is null)
                 {
-                    VirtualDeviceId = device.Id,
-                    State = VirtualOutputRuntimeState.Failed,
-                    Bindings = SafeBindings(device.Hosting!),
-                    LastFailure = "The virtual-output TLS certificate reference or file metadata could not be read. Correct the certificate configuration and retry."
-                });
-                continue;
-            }
-            if (_pendingRetries.TryGetValue(device.Id, out var pendingRetry))
-            {
-                if (!string.Equals(pendingRetry.Fingerprint, fingerprint, StringComparison.Ordinal))
-                {
-                    ResetFailureState(device.Id);
+                    await StopWorkerAsync(id, token);
+                    _status.Remove(id);
+                    ResetFailureState(id);
+                    _ownedOutputs.TryRemove(id, out _);
+                    return;
                 }
-                else if (_timeProvider.GetUtcNow() < pendingRetry.RetryUtc)
-                {
-                    continue;
-                }
-                else
-                {
-                    _pendingRetries.Remove(device.Id);
-                }
-            }
-            if (_quarantinedFingerprints.TryGetValue(device.Id, out var quarantinedFingerprint))
-            {
-                if (string.Equals(quarantinedFingerprint, fingerprint, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-                ResetFailureState(device.Id);
-            }
-            if (_active.TryGetValue(device.Id, out var active) && string.Equals(active.Fingerprint, fingerprint, StringComparison.Ordinal))
-            {
-                continue;
-            }
-            if (_externalActive.TryGetValue(device.Id, out var external) &&
-                string.Equals(external.Fingerprint, fingerprint, StringComparison.Ordinal))
-            {
-                continue;
-            }
-            if (active is not null || external is not null)
-            {
-                ResetFailureState(device.Id);
-                await StopWorkerAsync(device.Id, cancellationToken);
-            }
-            await StartWorkerAsync(device, configuration, fingerprint, cancellationToken);
+                await ReconcileOutputAsync(device, currentConfiguration, token);
+            }, cancellationToken)));
         }
+        finally
+        {
+            _stateGate.Release();
+        }
+    }
+
+    private async Task ReconcileOutputAsync(VirtualDeviceDefinition device, StreamingConfiguration configuration, CancellationToken cancellationToken)
+    {
+        _ownedOutputs[device.Id] = 0;
+        string fingerprint;
+        try
+        {
+            fingerprint = CreateFingerprint(device, configuration);
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException or System.Security.SecurityException)
+        {
+            ResetFailureState(device.Id);
+            await StopWorkerAsync(device.Id, cancellationToken);
+            _logger.LogError(exception, "Unable to evaluate isolated virtual output {VirtualDeviceId} certificate configuration", device.Id);
+            _status.Set(new VirtualOutputRuntimeSnapshot
+            {
+                VirtualDeviceId = device.Id,
+                State = VirtualOutputRuntimeState.Failed,
+                Bindings = SafeBindings(device.Hosting!),
+                LastFailure = "The virtual-output TLS certificate reference or file metadata could not be read. Correct the certificate configuration and retry."
+            });
+            return;
+        }
+        if (_pendingRetries.TryGetValue(device.Id, out var pendingRetry))
+        {
+            if (!string.Equals(pendingRetry.Fingerprint, fingerprint, StringComparison.Ordinal))
+            {
+                ResetFailureState(device.Id);
+            }
+            else if (_timeProvider.GetUtcNow() < pendingRetry.RetryUtc)
+            {
+                return;
+            }
+            else
+            {
+                _pendingRetries.TryRemove(device.Id, out _);
+            }
+        }
+        if (_quarantinedFingerprints.TryGetValue(device.Id, out var quarantinedFingerprint))
+        {
+            if (string.Equals(quarantinedFingerprint, fingerprint, StringComparison.Ordinal))
+            {
+                return;
+            }
+            ResetFailureState(device.Id);
+        }
+        if (_active.TryGetValue(device.Id, out var active) && string.Equals(active.Fingerprint, fingerprint, StringComparison.Ordinal))
+        {
+            return;
+        }
+        if (_externalActive.TryGetValue(device.Id, out var external) &&
+            string.Equals(external.Fingerprint, fingerprint, StringComparison.Ordinal))
+        {
+            return;
+        }
+        if (active is not null || external is not null)
+        {
+            ResetFailureState(device.Id);
+            await StopWorkerAsync(device.Id, cancellationToken);
+        }
+        await StartWorkerAsync(device, configuration, fingerprint, cancellationToken);
     }
 
     private async Task StartWorkerAsync(
@@ -447,37 +578,49 @@ public sealed class VirtualOutputSupervisor : BackgroundService
                     Bootstrap = bootstrap
                 }, () =>
                 {
-                    if (_authority.HasActiveSession(device.Id, currentGeneration))
+                    var gate = GetOutputGate(device.Id);
+                    if (!gate.Wait(0))
                     {
                         return null;
                     }
+                    try
+                    {
+                        if (_authority.HasActiveSession(device.Id, currentGeneration))
+                        {
+                            return null;
+                        }
 
-                    var renewedTicket = _authority.CreateActivation(
-                        device.Id,
-                        package.Manifest.WorkerId,
-                        WorkerCapabilities,
-                        _options.BootstrapLifetime,
-                        leaseLifetime);
-                    currentGeneration = renewedTicket.Generation;
-                    var renewedBootstrap = bootstrapTemplate with
+                        var renewedTicket = _authority.CreateActivation(
+                            device.Id,
+                            package.Manifest.WorkerId,
+                            WorkerCapabilities,
+                            _options.BootstrapLifetime,
+                            leaseLifetime);
+                        currentGeneration = renewedTicket.Generation;
+                        var renewedBootstrap = bootstrapTemplate with
+                        {
+                            Generation = renewedTicket.Generation,
+                            BootstrapToken = renewedTicket.BootstrapToken,
+                            BootstrapExpiresUtc = renewedTicket.ExpiresUtc
+                        };
+                        _status.Set(new VirtualOutputRuntimeSnapshot
+                        {
+                            VirtualDeviceId = device.Id,
+                            State = VirtualOutputRuntimeState.Starting,
+                            Generation = renewedTicket.Generation,
+                            Bindings = bindings,
+                            LastFailure = "Waiting for the externally supervised worker to enroll."
+                        });
+                        return new VirtualOutputExternalEnrollment
+                        {
+                            VirtualDeviceId = device.Id,
+                            Bootstrap = renewedBootstrap
+                        };
+                    }
+                    finally
                     {
-                        Generation = renewedTicket.Generation,
-                        BootstrapToken = renewedTicket.BootstrapToken,
-                        BootstrapExpiresUtc = renewedTicket.ExpiresUtc
-                    };
-                    _status.Set(new VirtualOutputRuntimeSnapshot
-                    {
-                        VirtualDeviceId = device.Id,
-                        State = VirtualOutputRuntimeState.Starting,
-                        Generation = renewedTicket.Generation,
-                        Bindings = bindings,
-                        LastFailure = "Waiting for the externally supervised worker to enroll."
-                    });
-                    return new VirtualOutputExternalEnrollment
-                    {
-                        VirtualDeviceId = device.Id,
-                        Bootstrap = renewedBootstrap
-                    };
+                        gate.Release();
+                    }
                 });
                 _externalActive[device.Id] = new ExternalWorker(fingerprint, ticket.Generation);
                 _status.Set(new VirtualOutputRuntimeSnapshot
@@ -553,7 +696,7 @@ public sealed class VirtualOutputSupervisor : BackgroundService
         {
             _logger.LogError(exception, "Unable to activate isolated virtual output {VirtualDeviceId}", device.Id);
             _externalEnrollments.Remove(device.Id);
-            _externalActive.Remove(device.Id);
+            _externalActive.TryRemove(device.Id, out _);
             _authority.Revoke(device.Id, "The virtual output worker could not be activated.");
             var policyUnavailable = exception is VirtualOutputResourcePolicyException;
             var decision = workerPolicy is null || policyUnavailable ? null : RecordFailure(device.Id, workerPolicy);
@@ -586,9 +729,9 @@ public sealed class VirtualOutputSupervisor : BackgroundService
     private async Task StopWorkerAsync(VirtualDeviceId deviceId, CancellationToken cancellationToken)
     {
         _externalEnrollments.Remove(deviceId);
-        _externalActive.Remove(deviceId);
+        _externalActive.TryRemove(deviceId, out _);
         _authority.Revoke(deviceId, "The virtual output worker is being replaced or stopped.");
-        if (!_active.Remove(deviceId, out var active))
+        if (!_active.TryRemove(deviceId, out var active))
         {
             return;
         }
@@ -602,8 +745,13 @@ public sealed class VirtualOutputSupervisor : BackgroundService
             Bindings = active.Bindings,
             RestartCount = active.RestartCount
         });
-        using var drainCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        drainCancellation.CancelAfter(TimeSpan.FromSeconds(active.Policy.DrainTimeoutSeconds));
+        using var drainDeadline = new CancellationTokenSource(
+            active.Policy.DrainTimeoutSeconds == 0 ? Timeout.InfiniteTimeSpan : TimeSpan.FromSeconds(active.Policy.DrainTimeoutSeconds), _timeProvider);
+        if (active.Policy.DrainTimeoutSeconds == 0)
+        {
+            drainDeadline.Cancel();
+        }
+        using var drainCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, drainDeadline.Token);
         try
         {
             try
@@ -624,22 +772,23 @@ public sealed class VirtualOutputSupervisor : BackgroundService
     private async Task ObserveExitAsync(VirtualDeviceId deviceId, ActiveWorker worker)
     {
         var exitCode = await worker.Process.Completion;
-        await _stateGate.WaitAsync();
+        var gate = GetOutputGate(deviceId);
+        await gate.WaitAsync();
         try
         {
             if (_active.TryGetValue(deviceId, out var current) && ReferenceEquals(current, worker))
             {
-                _active.Remove(deviceId);
+                _active.TryRemove(deviceId, out _);
                 _authority.Revoke(deviceId, "The virtual output worker exited.");
                 RecordManagedWorkerFailure(deviceId, worker, $"The worker exited with code {exitCode}.");
                 _logger.LogWarning("Virtual-output worker for {VirtualDeviceId} exited with code {ExitCode}", deviceId, exitCode);
             }
+            await worker.Process.DisposeAsync();
         }
         finally
         {
-            _stateGate.Release();
+            gate.Release();
         }
-        await worker.Process.DisposeAsync();
     }
 
     private void RecordManagedWorkerFailure(VirtualDeviceId deviceId, ActiveWorker worker, string failure)
@@ -669,10 +818,23 @@ public sealed class VirtualOutputSupervisor : BackgroundService
 
     private async Task StopAllAsync(CancellationToken cancellationToken)
     {
-        foreach (var deviceId in _active.Keys.ToArray())
+        var outputs = _ownedOutputs.Keys.Union(_active.Keys).Union(_externalActive.Keys).ToArray();
+        await Task.WhenAll(outputs.Select(async deviceId =>
         {
-            await StopWorkerAsync(deviceId, cancellationToken);
-        }
+            var gate = GetOutputGate(deviceId);
+            await gate.WaitAsync(CancellationToken.None);
+            try
+            {
+                await StopWorkerAsync(deviceId, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }));
     }
 
     private static string CreateFingerprint(VirtualDeviceDefinition device, StreamingConfiguration configuration)
@@ -752,9 +914,9 @@ public sealed class VirtualOutputSupervisor : BackgroundService
 
     private void ResetFailureState(VirtualDeviceId deviceId)
     {
-        _restartBudgets.Remove(deviceId);
-        _pendingRetries.Remove(deviceId);
-        _quarantinedFingerprints.Remove(deviceId);
+        _restartBudgets.TryRemove(deviceId, out _);
+        _pendingRetries.TryRemove(deviceId, out _);
+        _quarantinedFingerprints.TryRemove(deviceId, out _);
     }
 
     private void SettingsChanged()
