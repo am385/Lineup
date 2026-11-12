@@ -871,7 +871,7 @@ public sealed class VirtualOutputSupervisorTests
 
     /// <summary>Verifies stalled drains share lifecycle time instead of multiplying the wait by output count.</summary>
     /// <param name="workerCount">The number of independently hosted outputs.</param>
-    /// <param name="shutdown">Whether to measure host shutdown rather than configuration reconciliation.</param>
+    /// <param name="shutdown">Whether to exercise host shutdown rather than configuration reconciliation.</param>
     [Theory]
     [InlineData(1, false)]
     [InlineData(8, false)]
@@ -882,35 +882,64 @@ public sealed class VirtualOutputSupervisorTests
     public async Task Lifecycle_MultipleStalledDrains_DoesNotSerializeGracePeriods(int workerCount, bool shutdown)
     {
         // Arrange
-        await using var fixture = new OwnershipFixture { RegisterDuringLaunch = true };
+        var time = new ManualTimeProvider();
+        await using var fixture = new OwnershipFixture(time) { RegisterDuringLaunch = true };
         var devices = Enumerable.Range(0, workerCount).Select(_ => fixture.CreateDevice(VirtualOutputExecutionMode.ManagedProcess)).ToArray();
         fixture.Configuration = fixture.Configuration with
         {
             VirtualDevices = devices,
-            VirtualOutputWorkerPolicies = [Assert.Single(fixture.Configuration.VirtualOutputWorkerPolicies) with { DrainTimeoutSeconds = 1, LeaseGracePeriodSeconds = 60 }]
+            VirtualOutputWorkerPolicies = [Assert.Single(fixture.Configuration.VirtualOutputWorkerPolicies) with { DrainTimeoutSeconds = 2, LeaseGracePeriodSeconds = 60 }]
         };
         await fixture.StartAsync();
         await WaitUntilAsync(() => fixture.Status.GetSnapshots().Count(snapshot => snapshot.State == VirtualOutputRuntimeState.Healthy) == workerCount,
             TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         // Act
-        var elapsed = System.Diagnostics.Stopwatch.StartNew();
-        if (shutdown)
+        var startedAt = time.GetUtcNow();
+        var processes = fixture.Processes.ToArray();
+        Task? lifecycle = null;
+        var batchSize = shutdown ? workerCount : Math.Min(workerCount, 4);
+        try
         {
-            await fixture.StopAsync();
-        }
-        else
-        {
-            fixture.Configuration = fixture.Configuration with { VirtualDevices = [] };
-            await fixture.ReconcileAsync();
-        }
-        elapsed.Stop();
+            if (shutdown)
+            {
+                lifecycle = fixture.StopAsync();
+            }
+            else
+            {
+                fixture.Configuration = fixture.Configuration with { VirtualDevices = [] };
+                lifecycle = fixture.ReconcileAsync();
+            }
+            for (var completed = 0; completed < workerCount; completed += batchSize)
+            {
+                var draining = Math.Min(batchSize, workerCount - completed);
+                await time.WaitForTimerAsync(TimeSpan.FromSeconds(2), draining);
+                Assert.Equal(draining, fixture.Status.GetSnapshots().Count(snapshot => snapshot.State == VirtualOutputRuntimeState.Draining));
+                Assert.Equal(completed, processes.Count(process => process.Completion.IsCompleted));
+                time.Advance(TimeSpan.FromSeconds(1));
+                Assert.False(lifecycle.IsCompleted);
+                Assert.Equal(completed, processes.Count(process => process.Completion.IsCompleted));
+                time.Advance(TimeSpan.FromSeconds(1));
+                await WaitUntilAsync(() => processes.Count(process => process.Completion.IsCompleted) == completed + draining,
+                    TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+            }
+            await lifecycle.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
 
-        // Assert
-        Assert.All(fixture.Processes, process => Assert.True(process.Completion.IsCompletedSuccessfully));
-        var batches = shutdown ? 1 : (int)Math.Ceiling(workerCount / 4d);
-        Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(batches + 2),
-            $"{workerCount} stalled workers took {elapsed.Elapsed.TotalSeconds:F2}s to {(shutdown ? "shut down" : "reconcile")} with a 1s per-worker drain timeout.");
+            // Assert
+            Assert.All(processes, process => Assert.True(process.Completion.IsCompletedSuccessfully));
+            Assert.Equal(TimeSpan.FromSeconds(2 * (int)Math.Ceiling(workerCount / (double)batchSize)), time.GetUtcNow() - startedAt);
+        }
+        finally
+        {
+            foreach (var process in processes)
+            {
+                fixture.ExitProcess(process);
+            }
+            if (lifecycle is not null)
+            {
+                await lifecycle.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+            }
+        }
     }
 
     /// <summary>Verifies cancellation of reconciliation cannot strand a managed child removed from active ownership.</summary>
@@ -1513,12 +1542,12 @@ public sealed class VirtualOutputSupervisorTests
             }
         }
 
-        /// <summary>Waits until the supervisor has installed a timer at the expected deadline.</summary>
-        public Task WaitForTimerAsync(TimeSpan dueTime) => WaitUntilAsync(() =>
+        /// <summary>Waits until the supervisor has installed the expected number of timers at the specified deadline.</summary>
+        public Task WaitForTimerAsync(TimeSpan dueTime, int count = 1) => WaitUntilAsync(() =>
         {
             lock (_timers)
             {
-                return _timers.Any(timer => timer.DueUtc == _utcNow + dueTime);
+                return _timers.Count(timer => timer.DueUtc == _utcNow + dueTime) >= count;
             }
         }, TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
 

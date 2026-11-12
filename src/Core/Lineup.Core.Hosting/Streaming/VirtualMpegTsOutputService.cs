@@ -1,3 +1,4 @@
+using Lineup.Core.Extensibility.Streaming;
 using Lineup.Core.Streaming.FFmpeg;
 
 namespace Lineup.Core.Hosting.Streaming;
@@ -82,19 +83,18 @@ public sealed class VirtualMpegTsOutputService : IVirtualMpegTsOutputService
             {
                 throw ProtectedContentDetector.CreateAcquisitionException(route);
             }
-            var media = ChannelSlatePlanner.CreateMedia();
-            return new VirtualMpegTsOutput(
-                _slates.OpenMpegTs(channelNumber.Trim()),
-                media,
-                media,
-                route.VirtualProfile,
-                new ActiveStreamFlowContext
-                {
-                    VirtualDeviceId = route.VirtualDevice.Id,
-                    SyntheticSource = "Protected content slate"
-                });
+            return OpenProtectedSlate(route, channelNumber, cancellationToken);
         }
-        var selected = await _multiplexer.SubscribeFirstAvailableAsync(route, cancellationToken);
+        ResolvedTunerStream selected;
+        try
+        {
+            selected = await _multiplexer.SubscribeFirstAvailableAsync(route, cancellationToken);
+        }
+        catch (StreamAcquisitionException exception) when (
+            exception.Category == PhysicalStreamFailureCategory.ProtectedContent && settings.ProtectedContentMode == ProtectedContentMode.StreamSlate)
+        {
+            return OpenProtectedSlate(route, channelNumber, cancellationToken);
+        }
         await using var reservation = selected.Stream;
         using var drainCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var drain = reservation.CopyToAsync(Stream.Null, drainCancellation.Token);
@@ -164,6 +164,22 @@ public sealed class VirtualMpegTsOutputService : IVirtualMpegTsOutputService
                 throw;
             }
         }
+    }
+
+    private VirtualMpegTsOutput OpenProtectedSlate(ResolvedStreamingRoute route, string channelNumber, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var media = ChannelSlatePlanner.CreateMedia();
+        return new VirtualMpegTsOutput(
+            _slates.OpenMpegTs(channelNumber.Trim()),
+            media,
+            media,
+            route.VirtualProfile,
+            new ActiveStreamFlowContext
+            {
+                VirtualDeviceId = route.VirtualDevice.Id,
+                SyntheticSource = "Protected content slate"
+            });
     }
 
     private async Task<MediaProbeResult> ProbeBestEffortAsync(

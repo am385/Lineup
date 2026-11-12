@@ -632,6 +632,10 @@ Jellyfin FFmpeg's AC-4 support is decoder-only and does not support every object
 
 When an HDHomeRun reports DRM error 811, API streams return a protected-content error by default. The Settings page's Streaming tab can instead enable a synthetic **Content Protected** slate. The fallback is generated locally as H.264 video with silent AAC audio in the requested MPEG-TS or CMAF format; protected programming is never decrypted. Synthetic DRM and disabled-channel slates count toward **Maximum Concurrent Streams** but do not consume physical tuner capacity. Web-only refresh settings for active-stream information are configured on the Dashboard tab.
 
+The slate policy also applies when protection is discovered during acquisition, even if cached DRM metadata is missing or stale.
+Equivalent sources are tried first: a healthy source wins, and only an all-protected acquisition failure becomes a slate.
+Mixed protection and availability failures remain explicit errors rather than being presented as protected content.
+
 ## Configuration
 
 Runtime application settings are configurable through the web UI's settings page and persisted to `settings.json`.

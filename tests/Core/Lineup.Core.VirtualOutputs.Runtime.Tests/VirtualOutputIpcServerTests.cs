@@ -335,6 +335,7 @@ public sealed class VirtualOutputIpcServerTests
         var entered = new TaskCompletionSource<CancellationToken>(TaskCreationOptions.RunContinuationsAsynchronously);
         var canceled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cleanupReleased = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var activeStreams = new ActiveStreamRegistry();
         var source = new BlockingReadStream();
         var streamId = StreamSessionId.New();
@@ -361,6 +362,7 @@ public sealed class VirtualOutputIpcServerTests
                 finally
                 {
                     await output.DisposeAsync();
+                    await cleanupReleased.Task.WaitAsync(watchdog.Token);
                 }
             }
             return output;
@@ -396,9 +398,28 @@ public sealed class VirtualOutputIpcServerTests
             await canceled.Task.WaitAsync(TimeSpan.FromSeconds(2), watchdog.Token);
             release.TrySetResult();
             await source.Disposed.WaitAsync(TimeSpan.FromSeconds(2), watchdog.Token);
-            var replacement = await client.GetManifestAsync(new VirtualOutputManifestRequest { Session = session }, watchdog.Token);
+            VirtualOutputManifest replacement;
+            var resourceLimitRetries = 0;
+            while (true)
+            {
+                try
+                {
+                    replacement = await client.GetManifestAsync(new VirtualOutputManifestRequest { Session = session }, watchdog.Token);
+                    break;
+                }
+                catch (VirtualOutputClientException exception) when (exception.FailureCode == VirtualOutputFailureCode.ResourceLimit)
+                {
+                    resourceLimitRetries++;
+                    cleanupReleased.TrySetResult();
+                    await Task.Delay(TimeSpan.FromMilliseconds(10), watchdog.Token);
+                }
+            }
 
             // Assert
+            if (!accepted && !lateAcceptance)
+            {
+                Assert.True(resourceLimitRetries > 0);
+            }
             Assert.Equal(deviceId, replacement.VirtualDeviceId);
             Assert.True(upstreamToken.IsCancellationRequested);
             Assert.True(source.IsDisposed);
@@ -408,6 +429,7 @@ public sealed class VirtualOutputIpcServerTests
         finally
         {
             release.TrySetResult();
+            cleanupReleased.TrySetResult();
             await server.StopAsync(TestContext.Current.CancellationToken);
         }
     }

@@ -546,11 +546,14 @@ public sealed class StreamingRouteFailoverTests
     }
 
     /// <summary>Verifies a failed preferred source releases capacity before the next equivalent source opens.</summary>
-    [Fact]
-    public async Task OpenAsync_PreferredSourceFails_UsesNextCandidateWithoutLeakingCapacity()
+    /// <param name="protectedContent">Whether the preferred source reports live content protection.</param>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OpenAsync_PreferredSourceFails_UsesNextCandidateWithoutLeakingCapacity(bool protectedContent)
     {
         // Arrange
-        var first = new FakeDevice(PhysicalDeviceId.New(), fail: true);
+        var first = new FakeDevice(PhysicalDeviceId.New(), fail: true) { ProtectedContent = protectedContent };
         var second = new FakeDevice(PhysicalDeviceId.New(), fail: false);
         var firstChannel = new SourceChannelId(first.Snapshot.Id, "7.1-a");
         var secondChannel = new SourceChannelId(second.Snapshot.Id, "7.1-b");
@@ -969,6 +972,9 @@ public sealed class StreamingRouteFailoverTests
 
         public List<SourceChannelId> Requests { get; } = [];
 
+        /// <summary>Gets whether acquisition reports confirmed content protection.</summary>
+        public bool ProtectedContent { get; init; }
+
         public Task<IReadOnlyList<PhysicalSourceChannel>> RefreshLineupAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<PhysicalSourceChannel>>(
                 _channelKey is null
@@ -979,7 +985,10 @@ public sealed class StreamingRouteFailoverTests
         {
             Requests.Add(request.ChannelId);
             return _fail
-                ? ValueTask.FromException<IPhysicalStreamLease>(new IOException("Unavailable"))
+                ? ValueTask.FromException<IPhysicalStreamLease>(ProtectedContent
+                    ? new PhysicalStreamAcquisitionException(
+                        PhysicalStreamFailureCategory.ProtectedContent, "protected_content", "Protected source.", false, Snapshot.Id, request.ChannelId)
+                    : new IOException("Unavailable"))
                 : ValueTask.FromResult<IPhysicalStreamLease>(new FakeLease(_streamFactory()));
         }
     }

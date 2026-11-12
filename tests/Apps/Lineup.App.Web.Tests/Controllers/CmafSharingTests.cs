@@ -258,6 +258,95 @@ public sealed class CmafSharingTests
         Assert.Empty(fixture.Outputs.GetViewers());
     }
 
+    /// <summary>Verifies live acquisition protection enters the synthetic startup path without hiding mixed failures or ReturnError.</summary>
+    /// <param name="useSlate">Whether protected sources should produce a slate.</param>
+    /// <param name="mixedFailure">Whether another candidate failed for a non-protection reason.</param>
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    public async Task Service_LiveProtection_AppliesSlatePolicy(bool useSlate, bool mixedFailure)
+    {
+        // Arrange
+        await using var fixture = new Fixture();
+        fixture.Settings.ProtectedContentMode = useSlate ? ProtectedContentMode.StreamSlate : ProtectedContentMode.ReturnError;
+        fixture.AcquisitionFailure = CreateAcquisitionFailure(
+            fixture.PhysicalId, mixedFailure ? PhysicalStreamFailureCategory.Unavailable : PhysicalStreamFailureCategory.ProtectedContent);
+        var started = fixture.BeginServiceStart("live-protection");
+
+        // Act
+        var result = await started.Start;
+
+        // Assert
+        if (useSlate && !mixedFailure)
+        {
+            Assert.Null(result.Failure);
+            var presentation = Assert.IsType<ManagementPlaybackPresentation>(result.Presentation);
+            Assert.Empty(presentation.Subtitles);
+            var active = Assert.Single(fixture.ActiveStreams.GetActiveStreams());
+            Assert.Equal("Protected content slate", active.Flow?.SyntheticSource);
+            Assert.Null(active.Flow?.PhysicalDeviceId);
+            fixture.AssertNoPhysicalInput(acquisitionAttempted: true);
+            Assert.True(started.Service.Stop(presentation.SessionId));
+        }
+        else
+        {
+            Assert.Null(result.Presentation);
+            var failure = Assert.IsType<ManagementPlaybackFailure>(result.Failure);
+            Assert.Equal(ManagementPlaybackFailureKind.SourceAcquisition, failure.Kind);
+            var acquisition = Assert.IsType<StreamAcquisitionException>(failure.Acquisition);
+            Assert.Same(fixture.AcquisitionFailure, acquisition);
+            Assert.Equal(mixedFailure ? "source_unavailable" : "protected_content", acquisition.Code);
+            Assert.Equal(0, fixture.EncoderCount);
+        }
+        Assert.Equal(0, fixture.ActiveInputs);
+        Assert.False(fixture.IsEncoderRunning);
+        Assert.False(fixture.HasEncoderDirectory);
+        Assert.Empty(fixture.Outputs.GetViewers());
+        Assert.Empty(fixture.ActiveStreams.GetActiveStreams());
+    }
+
+    /// <summary>Verifies cancellation and slate generation failures cannot turn a protected acquisition into successful playback.</summary>
+    /// <param name="cancel">Whether cancellation wins over the protected-content result.</param>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Service_LiveProtection_CancellationAndSlateFailureRemainExplicit(bool cancel)
+    {
+        // Arrange
+        await using var fixture = new Fixture
+        {
+            CancelDuringAcquisition = cancel,
+            ProcessFailure = cancel ? null : new MediaProcessException("PRIVATE slate generation failure.")
+        };
+        fixture.Settings.ProtectedContentMode = ProtectedContentMode.StreamSlate;
+        fixture.AcquisitionFailure = CreateAcquisitionFailure(fixture.PhysicalId, PhysicalStreamFailureCategory.ProtectedContent);
+        var started = fixture.BeginServiceStart("failed-slate");
+        ManagementPlaybackStartResult? result = null;
+
+        // Act
+        var failure = await Record.ExceptionAsync(async () => result = await started.Start);
+
+        // Assert
+        if (cancel)
+        {
+            Assert.IsAssignableFrom<OperationCanceledException>(failure);
+        }
+        else
+        {
+            Assert.Null(failure);
+            Assert.NotNull(result);
+            Assert.Null(result.Presentation);
+            var mediaFailure = Assert.IsType<ManagementPlaybackFailure>(result.Failure);
+            Assert.Equal("media_process_failed", mediaFailure.Code);
+            Assert.DoesNotContain("PRIVATE", mediaFailure.Error, StringComparison.Ordinal);
+        }
+        Assert.Equal(0, fixture.EncoderCount);
+        Assert.Equal(0, fixture.ActiveInputs);
+        Assert.Empty(fixture.Outputs.GetViewers());
+        Assert.Empty(fixture.ActiveStreams.GetActiveStreams());
+    }
+
     /// <summary>Verifies disabled-channel policy remains a typed application decision without acquiring physical input.</summary>
     [Theory]
     [InlineData(true)]
@@ -837,6 +926,21 @@ public sealed class CmafSharingTests
         }
     }
 
+    private static StreamAcquisitionException CreateAcquisitionFailure(PhysicalDeviceId preferredId, PhysicalStreamFailureCategory fallbackCategory)
+    {
+        var failures = new[] { (DeviceId: preferredId, Category: PhysicalStreamFailureCategory.ProtectedContent), (DeviceId: PhysicalDeviceId.New(), Category: fallbackCategory) }
+            .Select(candidate => new StreamAcquisitionCandidateFailure
+            {
+                DeviceId = candidate.DeviceId,
+                ChannelId = new SourceChannelId(candidate.DeviceId, "7.1"),
+                Category = candidate.Category,
+                Code = candidate.Category == PhysicalStreamFailureCategory.ProtectedContent ? "protected_content" : "source_unavailable",
+                Message = "Controlled physical source failure.",
+                Retryable = candidate.Category != PhysicalStreamFailureCategory.ProtectedContent
+            }).ToArray();
+        return StreamAcquisitionException.Create(failures, failures.Select(failure => new IOException(failure.Message)).ToArray());
+    }
+
     private sealed class Fixture : IAsyncDisposable
     {
         private readonly DirectoryInfo _root = Directory.CreateDirectory(Path.Combine(AppContext.BaseDirectory, "cmaf-sharing-artifacts", Guid.NewGuid().ToString("N")));
@@ -876,7 +980,18 @@ public sealed class CmafSharingTests
             Outputs = new CmafOutputCoordinator(Clock, TimeSpan.FromMilliseconds(200));
             _routes.ResolveVirtualAsync(Arg.Any<VirtualDeviceId>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(call => Route(call.Arg<string>()));
             _multiplexer.SubscribeFirstAvailableAsync(Arg.Any<ResolvedStreamingRoute>(), Arg.Any<CancellationToken>())
-                .Returns(call => new ResolvedTunerStream(call.Arg<ResolvedStreamingRoute>().Candidates[0], new BlockingInput()));
+                .Returns(call =>
+                {
+                    if (AcquisitionFailure is not null)
+                    {
+                        if (CancelDuringAcquisition)
+                        {
+                            _cancellations[^1].Cancel();
+                        }
+                        throw AcquisitionFailure;
+                    }
+                    return new ResolvedTunerStream(call.Arg<ResolvedStreamingRoute>().Candidates[0], new BlockingInput());
+                });
             _multiplexer.SubscribeAsync(Arg.Any<StreamAcquisitionDescriptor>(), Arg.Any<StreamAcquisitionFactory>(), Arg.Any<CancellationToken>()).Returns(_ =>
             {
                 var subscription = Interlocked.Increment(ref _subscriptions);
@@ -947,6 +1062,12 @@ public sealed class CmafSharingTests
 
         /// <summary>Gets or sets a terminal failure from the upstream producer subscription.</summary>
         internal Exception? InputFailure { get; set; }
+
+        /// <summary>Gets or sets the classified failure after equivalent source acquisition is exhausted.</summary>
+        internal StreamAcquisitionException? AcquisitionFailure { get; set; }
+
+        /// <summary>Gets or sets whether the viewer cancels immediately before acquisition reports protection.</summary>
+        internal bool CancelDuringAcquisition { get; set; }
 
         /// <summary>Gets or sets the embedded-caption input failure independently of the media input.</summary>
         internal Exception? CaptionInputFailure { get; set; }
@@ -1029,10 +1150,18 @@ public sealed class CmafSharingTests
             return (controller, cancellation, start);
         }
 
-        /// <summary>Verifies synthetic playback did not select, probe, or subscribe to any physical input.</summary>
-        internal void AssertNoPhysicalInput(ChannelSlateReason reason = ChannelSlateReason.ContentProtected)
+        /// <summary>Verifies synthetic playback did not probe or subscribe to physical input, optionally after a failed acquisition.</summary>
+        internal void AssertNoPhysicalInput(ChannelSlateReason reason = ChannelSlateReason.ContentProtected, bool acquisitionAttempted = false)
         {
-            Assert.Empty(_multiplexer.ReceivedCalls());
+            if (acquisitionAttempted)
+            {
+                Assert.Single(_multiplexer.ReceivedCalls());
+                _ = _multiplexer.Received(1).SubscribeFirstAvailableAsync(Arg.Any<ResolvedStreamingRoute>(), Arg.Any<CancellationToken>());
+            }
+            else
+            {
+                Assert.Empty(_multiplexer.ReceivedCalls());
+            }
             Assert.Empty(_probe.ReceivedCalls());
             _processes.DidNotReceive().Start(Arg.Any<MediaProcessRequest>());
             _slates.Received(1).StartCmaf(Arg.Any<string>(), Arg.Any<string>(), reason);

@@ -186,6 +186,14 @@ public class EpgAutoFetchServiceTests
         using var service = fixture.CreateService(TimeProvider.System);
         using var publications = fixture.CreatePublicationWorker();
         var retried = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var schedulerReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.State.OnStateChanged += () =>
+        {
+            if (!fixture.State.IsEnabled)
+            {
+                schedulerReady.TrySetResult();
+            }
+        };
         fixture.Guides.RetryPublicationsAsync(Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns(_ =>
         {
             fixture.Settings.GuidePublicationRetries.Clear();
@@ -198,7 +206,7 @@ public class EpgAutoFetchServiceTests
         await publications.StartAsync(TestContext.Current.CancellationToken);
         try
         {
-            await retried.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            await Task.WhenAll(schedulerReady.Task, retried.Task).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
         }
         finally
         {

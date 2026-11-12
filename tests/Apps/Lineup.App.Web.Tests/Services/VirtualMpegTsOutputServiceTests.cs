@@ -258,6 +258,134 @@ public sealed class VirtualMpegTsOutputServiceTests
         await multiplexer.DidNotReceive().SubscribeFirstAvailableAsync(Arg.Any<ResolvedStreamingRoute>(), Arg.Any<CancellationToken>());
     }
 
+    /// <summary>Verifies live protection applies the slate policy only after failover and preserves cancellation and explicit failures.</summary>
+    /// <param name="physicalOutput">Whether to open physical-stage output.</param>
+    /// <param name="outcome">The requested policy or terminal failure.</param>
+    [Theory]
+    [InlineData(false, "slate")]
+    [InlineData(true, "slate")]
+    [InlineData(false, "error")]
+    [InlineData(true, "error")]
+    [InlineData(false, "mixed")]
+    [InlineData(true, "mixed")]
+    [InlineData(false, "canceled")]
+    [InlineData(true, "canceled")]
+    [InlineData(false, "slate-failed")]
+    [InlineData(true, "slate-failed")]
+    public async Task OpenAsync_LiveProtection_PreservesPolicyAndFailureSemantics(bool physicalOutput, string outcome)
+    {
+        // Arrange
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var virtualId = VirtualDeviceId.New();
+        var route = CreateFailingRoute(
+            virtualId,
+            outcome == "mixed" ? PhysicalStreamFailureCategory.Unavailable : PhysicalStreamFailureCategory.ProtectedContent,
+            outcome == "canceled" ? cancellation.Cancel : null);
+        var routes = Substitute.For<IStreamingRouteResolver>();
+        routes.ResolveVirtualAsync(virtualId, "112.1", Arg.Any<CancellationToken>()).Returns(route);
+        var settings = Substitute.For<ILineupSettingsService>();
+        settings.Settings.Returns(new LineupSettings
+        {
+            ProtectedContentMode = outcome == "error" ? ProtectedContentMode.ReturnError : ProtectedContentMode.StreamSlate
+        });
+        var capacity = new PhysicalCapacityLeaseRegistry();
+        var graph = new StreamingSessionGraph(capacity, NullLogger<StreamingSessionGraph>.Instance);
+        var multiplexer = new TunerStreamMultiplexer(graph, Substitute.For<IMediaProcessFactory>(), NullLogger<TunerStreamMultiplexer>.Instance);
+        var probe = Substitute.For<IMediaProbeService>();
+        using var slate = new MemoryStream([1, 2, 3]);
+        var slateFailure = new MpegTsTranscodeException("Controlled slate failure.", new InvalidOperationException());
+        var slates = Substitute.For<IChannelSlateStreamFactory>();
+        slates.OpenMpegTs("112.1").Returns(_ => outcome == "slate-failed" ? throw slateFailure : slate);
+        var service = new VirtualMpegTsOutputService(routes, settings, probe, multiplexer, slates, NullLogger<VirtualMpegTsOutputService>.Instance);
+        VirtualMpegTsOutput? output = null;
+        try
+        {
+            // Act
+            var failure = await Record.ExceptionAsync(async () =>
+            {
+                output = physicalOutput
+                    ? await service.OpenPhysicalOutputAsync(virtualId, "112.1", cancellation.Token)
+                    : await service.OpenAsync(virtualId, "112.1", cancellation.Token);
+            });
+
+            // Assert
+            foreach (var candidate in route.Candidates)
+            {
+                await candidate.PhysicalDevice.Received(1).OpenStreamAsync(
+                    Arg.Is<PhysicalStreamRequest>(request => request.ChannelId == candidate.SourceChannelId), Arg.Any<CancellationToken>());
+            }
+            Assert.Empty(capacity.GetDiagnostics());
+            Assert.Empty(probe.ReceivedCalls());
+            if (outcome == "slate")
+            {
+                Assert.Null(failure);
+                Assert.NotNull(output);
+                Assert.Same(slate, output.Stream);
+                Assert.Equal(["h264", "aac"], output.Source.Tracks.Select(track => track.Codec));
+                Assert.Same(output.RawSource, output.Source);
+                Assert.Equal(route.VirtualProfile, output.Profile);
+                Assert.Equal(virtualId, output.Flow.VirtualDeviceId);
+                Assert.Equal("Protected content slate", output.Flow.SyntheticSource);
+                Assert.Null(output.Flow.PhysicalDeviceId);
+                Assert.Null(output.Flow.SourceChannelId);
+                await output.DisposeAsync();
+                Assert.False(slate.CanRead);
+            }
+            else if (outcome == "canceled")
+            {
+                Assert.IsAssignableFrom<OperationCanceledException>(failure);
+            }
+            else if (outcome == "slate-failed")
+            {
+                Assert.Same(slateFailure, failure);
+            }
+            else
+            {
+                var acquisition = Assert.IsType<StreamAcquisitionException>(failure);
+                Assert.Equal(outcome == "mixed" ? PhysicalStreamFailureCategory.Unavailable : PhysicalStreamFailureCategory.ProtectedContent, acquisition.Category);
+                Assert.Equal(2, acquisition.CandidateFailures.Count);
+                Assert.Equal(outcome == "mixed", acquisition.Retryable);
+            }
+            slates.Received(outcome is "slate" or "slate-failed" ? 1 : 0).OpenMpegTs("112.1");
+        }
+        finally
+        {
+            if (output is not null)
+            {
+                await output.DisposeAsync();
+            }
+            await graph.StopAsync(CancellationToken.None);
+        }
+    }
+
+    private static ResolvedStreamingRoute CreateFailingRoute(VirtualDeviceId virtualId, PhysicalStreamFailureCategory fallbackFailure, Action? beforeLastFailure = null)
+    {
+        var route = CreateRoute(virtualId, protectedContent: false);
+        var candidates = new[] { route.Candidates[0], CreateRoute(virtualId, protectedContent: false).Candidates[0] };
+        for (var index = 0; index < candidates.Length; index++)
+        {
+            var candidate = candidates[index];
+            var last = index == candidates.Length - 1;
+            var category = last ? fallbackFailure : PhysicalStreamFailureCategory.ProtectedContent;
+            candidate.PhysicalDevice.OpenStreamAsync(Arg.Any<PhysicalStreamRequest>(), Arg.Any<CancellationToken>())
+                .Returns<ValueTask<IPhysicalStreamLease>>(_ =>
+                {
+                    if (last)
+                    {
+                        beforeLastFailure?.Invoke();
+                    }
+                    throw new PhysicalStreamAcquisitionException(
+                        category,
+                        category == PhysicalStreamFailureCategory.ProtectedContent ? "protected_content" : "source_unavailable",
+                        "Controlled physical source failure.",
+                        category != PhysicalStreamFailureCategory.ProtectedContent,
+                        candidate.SourceChannelId.PhysicalDeviceId,
+                        candidate.SourceChannelId);
+                });
+        }
+        return route with { Candidates = candidates, SourceCandidates = candidates.Select(candidate => candidate.SourceChannelId).ToArray() };
+    }
+
     private static ResolvedStreamingRoute CreateRoute(VirtualDeviceId virtualId, bool protectedContent)
     {
         var physicalId = PhysicalDeviceId.New();

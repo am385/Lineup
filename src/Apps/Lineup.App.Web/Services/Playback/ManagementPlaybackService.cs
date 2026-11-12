@@ -344,8 +344,6 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                         return CreateProtectedContentResult(protection);
                     }
                     protectedContent = true;
-                    rawSource = ChannelSlatePlanner.CreateMedia();
-                    source = rawSource;
                 }
             }
             catch (KeyNotFoundException ex)
@@ -385,11 +383,22 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
             {
                 return Failure(ManagementPlaybackFailureKind.Unavailable, ex.Message);
             }
+            catch (StreamAcquisitionException exception) when (
+                exception.Category == PhysicalStreamFailureCategory.ProtectedContent && _settingsService.Settings.ProtectedContentMode == ProtectedContentMode.StreamSlate)
+            {
+                startupToken.ThrowIfCancellationRequested();
+                protectedContent = true;
+            }
             catch (StreamAcquisitionException exception)
             {
                 return CreateSourceAcquisitionResult(exception);
             }
-            if (!protectedContent)
+            if (protectedContent)
+            {
+                rawSource = ChannelSlatePlanner.CreateMedia();
+                source = rawSource;
+            }
+            else
             {
                 if (!MediaProbeResultPolicy.HasAudio(rawSource) &&
                     (rawSource.AudioDiscovery == AudioDiscoveryStatus.ExpectedMissing || MediaProbeResultPolicy.ExpectsAudio(selectedCandidate!.SourceMetadata)))
