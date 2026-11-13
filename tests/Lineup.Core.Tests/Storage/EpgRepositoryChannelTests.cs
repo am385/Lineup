@@ -276,17 +276,19 @@ public class EpgRepositoryChannelTests
     public async Task XmltvPipeline_SupplementalMetadata_SurvivesDatabasePublication()
     {
         // Arrange
-        const string xml = """
+        var start = DateTimeOffset.UtcNow.AddHours(1);
+        var stop = start.AddMinutes(30);
+        var xml = FormattableString.Invariant($"""
             <tv source-info-name="Provider">
               <channel id="station"><display-name>Guide Name</display-name><lcn>7.1</lcn><url>https://example.test/channel</url></channel>
-              <programme start="20260914220000 +0000" stop="20260914223000 +0000" channel="station">
+              <programme start="{start:yyyyMMddHHmmss} +0000" stop="{stop:yyyyMMddHHmmss} +0000" channel="station">
                 <title>Show</title>
                 <credits><director>Director</director></credits>
                 <episode-num system="xmltv_ns">0.1.0/1</episode-num>
                 <rating system="MPAA"><value>TV-14</value></rating>
               </programme>
             </tv>
-            """;
+            """);
         var parser = new SiliconDustXmltvParser();
         var parsed = parser.Parse(Encoding.UTF8.GetBytes(xml));
         var channel = new HDHomeRunChannel
@@ -306,7 +308,7 @@ public class EpgRepositoryChannelTests
         // Act
         await repository.ImportGuideAsync(projected, TimeSpan.FromDays(30), TestContext.Current.CancellationToken);
         var stored = await repository.GetGuideSnapshotAsync(cancellationToken: TestContext.Current.CancellationToken);
-        var content = new LineupXmltvWriter().Write(stored, [channel], DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(1));
+        var content = new LineupXmltvWriter().Write(stored, [channel], start, stop);
         var document = XDocument.Parse(Encoding.UTF8.GetString(content));
 
         // Assert
@@ -314,6 +316,7 @@ public class EpgRepositoryChannelTests
         Assert.Equal("Lineup", (string?)document.Root.Attribute("generator-info-name"));
         Assert.Equal("https://example.test/channel", document.Root.Element("channel")?.Element("url")?.Value);
         var programme = Assert.Single(document.Root.Elements("programme"));
+        Assert.Equal("Show", programme.Element("title")?.Value);
         Assert.Equal("Director", programme.Element("credits")?.Element("director")?.Value);
         Assert.Equal("0.1.0/1", programme.Elements("episode-num").Single().Value);
         Assert.Equal("TV-14", programme.Element("rating")?.Element("value")?.Value);
