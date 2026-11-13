@@ -237,7 +237,7 @@ public partial class Watch
         cancellation?.Cancel();
         _reconnectReady?.TrySetCanceled();
         _reconnectReady = null;
-        ReconnectPolicy.Reset();
+        _reconnectPolicy?.Reset();
         _hasStartedPlayback = false;
         _reconnectPlayerPreferences = null;
     }

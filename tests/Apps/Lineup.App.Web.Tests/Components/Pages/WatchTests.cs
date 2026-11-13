@@ -961,6 +961,50 @@ public partial class WatchTests
         }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
+    /// <summary>Verifies teardown after the prerender scope expires resets only existing reconnect state without resolving services.</summary>
+    /// <param name="initialized">Whether playback has already created and used a reconnect policy.</param>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Dispose_ExpiredServiceScope_DoesNotInitializeReconnectPolicy(bool initialized)
+    {
+        // Arrange
+        var registry = Substitute.For<IActiveStreamRegistry>();
+        registry.GetActiveStreams().Returns([]);
+        await using var context = CreateContext(registry: registry);
+        var component = context.Render<Watch>();
+        var instance = component.Instance;
+        var policyField = Assert.IsAssignableFrom<FieldInfo>(typeof(Watch).GetField("_reconnectPolicy", BindingFlags.Instance | BindingFlags.NonPublic));
+        Assert.Null(policyField.GetValue(instance));
+        PlaybackReconnectPolicy? policy = null;
+        if (initialized)
+        {
+            policy = new PlaybackReconnectPolicy(TimeProvider.System);
+            policy.MarkFailed();
+            Assert.True(policy.TryNextAttempt(out _));
+            policyField.SetValue(instance, policy);
+        }
+        using var expired = new ServiceCollection().BuildServiceProvider();
+        var servicesProperty = Assert.IsAssignableFrom<PropertyInfo>(typeof(Watch).GetProperty("Services", BindingFlags.Instance | BindingFlags.NonPublic));
+        servicesProperty.SetValue(instance, expired);
+        expired.Dispose();
+        registry.ClearReceivedCalls();
+
+        // Act
+        await context.DisposeComponentsAsync();
+        var failure = context.Renderer.UnhandledException.IsCompletedSuccessfully ? await context.Renderer.UnhandledException : null;
+
+        // Assert
+        Assert.Null(failure);
+        Assert.Same(policy, policyField.GetValue(instance));
+        registry.Received(1).RequestStopByClientId(Arg.Any<string>());
+        if (policy is not null)
+        {
+            Assert.True(policy.TryNextAttempt(out var delay));
+            Assert.Equal(TimeSpan.FromSeconds(1), delay);
+        }
+    }
+
     /// <summary>
     /// Verifies component disposal destroys the player and explicitly stops its CMAF session.
     /// </summary>
