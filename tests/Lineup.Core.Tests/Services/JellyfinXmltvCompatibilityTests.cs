@@ -1,5 +1,7 @@
+using System.Text;
 using Lineup.Core.Models.Xmltv;
 using Lineup.Core.Services;
+using Lineup.HDHomeRun.Device.Models;
 using Jellyfin.XmlTv;
 using Jellyfin.XmlTv.Entities;
 using Xunit;
@@ -8,7 +10,7 @@ namespace Lineup.Core.Tests.Services;
 
 /// <summary>
 /// Tests that verify Jellyfin's XmlTvReader can correctly deserialize
-/// XMLTV documents produced by <see cref="XmltvSerializer"/>.
+/// XMLTV documents produced by <see cref="XmltvSerializer"/> and <see cref="LineupXmltvWriter"/>.
 /// </summary>
 public class JellyfinXmltvCompatibilityTests : IDisposable
 {
@@ -80,8 +82,8 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
 
         var pbs = channels.Single(c => c.Id == "5.1");
         Assert.Equal("PBS NC", pbs.DisplayName);
-        Assert.NotNull(pbs.Icon);
-        Assert.Equal("http://example.com/pbs.png", pbs.Icon.Source);
+        Assert.NotNull(pbs.Icons);
+        Assert.Equal("http://example.com/pbs.png", Assert.Single(pbs.Icons).Source);
 
         var fox = channels.Single(c => c.Id == "11.1");
         Assert.Equal("FOX", fox.DisplayName);
@@ -146,8 +148,9 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
 
         // Assert
         Assert.Single(programmes);
-        Assert.NotNull(programmes[0].Episode);
-        Assert.Equal("The Pilot Episode", programmes[0].Episode.Title);
+        var episode = programmes[0].Episode;
+        Assert.NotNull(episode);
+        Assert.Equal("The Pilot Episode", episode.Title);
     }
 
     /// <summary>
@@ -192,8 +195,47 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
 
         // Assert
         Assert.Single(programmes);
-        Assert.NotNull(programmes[0].Icon);
-        Assert.Equal("http://example.com/show.jpg", programmes[0].Icon!.Source);
+        var icons = programmes[0].Icons;
+        Assert.NotNull(icons);
+        Assert.Equal("http://example.com/show.jpg", Assert.Single(icons).Source);
+    }
+
+    /// <summary>
+    /// Verifies Jellyfin retains programme artwork immediately following preserved language metadata.
+    /// </summary>
+    [Theory]
+    [InlineData("language")]
+    [InlineData("orig-language")]
+    public void Jellyfin_CanReadPublishedProgrammeIconAfterLanguage(string languageElement)
+    {
+        // Arrange
+        const string imageUrl = "https://example.test/program.jpg";
+        var input = $"""
+            <tv>
+              <channel id="station"><display-name>Example</display-name><lcn>7.1</lcn></channel>
+              <programme start="20261113180000 +0000" stop="20261113190000 +0000" channel="station">
+                <title>Evening News</title>
+                <{languageElement}>English</{languageElement}>
+                <icon src="{imageUrl}" />
+              </programme>
+            </tv>
+            """;
+        var snapshot = new SiliconDustXmltvParser().Parse(Encoding.UTF8.GetBytes(input));
+        var channel = new HDHomeRunChannel { GuideNumber = "7.1", GuideName = "Example", URL = "http://device/auto/v7.1" };
+        var start = new DateTimeOffset(2026, 11, 13, 18, 0, 0, TimeSpan.Zero);
+        var writer = new LineupXmltvWriter();
+
+        // Act
+        File.WriteAllBytes(_tempFile, writer.Write(snapshot, [channel], start, start.AddHours(1)));
+        var reader = new XmlTvReader(_tempFile, "en");
+        var publishedChannel = Assert.Single(reader.GetChannels());
+        var programme = Assert.Single(reader.GetProgrammes(publishedChannel.Id, start, start.AddHours(1), CancellationToken.None));
+
+        // Assert
+        Assert.Equal("Evening News", programme.Title);
+        Assert.Equal("English", languageElement == "language" ? programme.Language : programme.OriginalLanguage);
+        Assert.NotNull(programme.Icons);
+        Assert.Equal(imageUrl, Assert.Single(programme.Icons).Source);
     }
 
     /// <summary>
@@ -392,8 +434,8 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
         Assert.Equal("Walt faces the consequences.", prog.Description);
         Assert.Contains("Drama", prog.Categories);
         Assert.Contains("Thriller", prog.Categories);
-        Assert.NotNull(prog.Icon);
-        Assert.Equal("http://example.com/bb.jpg", prog.Icon.Source);
+        Assert.NotNull(prog.Icons);
+        Assert.Equal("http://example.com/bb.jpg", Assert.Single(prog.Icons).Source);
         Assert.Equal(5, prog.Episode.Series);
         Assert.Equal(14, prog.Episode.Episode);
         Assert.True(prog.IsPreviouslyShown);
