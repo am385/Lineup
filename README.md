@@ -476,6 +476,7 @@ Lineup stores the fields it queries as normalized SQLite values and preserves ad
 Published XMLTV retains provider source provenance, localized and repeated values, official optional fields, and provider extensions while identifying
 Lineup as the document generator. The Guide programme-details dialog projects recognized official programme metadata into typed ratings, credits,
 languages, identifiers, status, and advanced technical details. Raw supplemental XML and uninterpreted provider extensions remain internal.
+XMLTV publications are indented to preserve programme artwork in Jellyfin readers that incorrectly skip the node following language metadata.
 
 Lineup atomically limits HDHomeRun-compatible MPEG-TS routes to each profile's effective physical tuner count. Receivers for the exact same upstream
 channel and hardware-transcode source share one tuner lease through the stream multiplexer. Different channels consume separate slots. This includes
