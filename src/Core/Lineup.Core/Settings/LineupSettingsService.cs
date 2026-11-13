@@ -322,7 +322,7 @@ public interface ILineupSettingsService
 /// <summary>
 /// File-based implementation of settings service.
 /// </summary>
-public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
+public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy, IPhysicalConfigurationAuthority
 {
     private readonly ILogger<LineupSettingsService> _logger;
     private readonly IAppDataStore _appDataStore;
@@ -332,6 +332,7 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
     private readonly IReadOnlyList<IStreamingConfigurationNormalizer> _streamingNormalizers;
     private readonly IVirtualOutputResourcePolicyValidator? _resourcePolicies;
     private string _persistedStreamingRevision;
+    private string _persistedPhysicalRevision;
     private bool _preserveBackupOnNextSave;
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -382,6 +383,7 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
             LoadSettingsSync();
         }
         _persistedStreamingRevision = ConfigurationRevision.Create(Settings.Streaming);
+        _persistedPhysicalRevision = ConfigurationRevision.Create(Settings.Streaming.PhysicalDevices);
     }
 
     /// <summary>
@@ -484,6 +486,7 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
     {
         Settings = settings;
         _persistedStreamingRevision = ConfigurationRevision.Create(settings.Streaming);
+        Volatile.Write(ref _persistedPhysicalRevision, ConfigurationRevision.Create(settings.Streaming.PhysicalDevices));
     }
 
     private LineupSettings CreateDefaultSettings()
@@ -639,6 +642,7 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
         await WriteSettingsAtomicallyAsync(settings);
         Settings = settings;
         _persistedStreamingRevision = streamingRevision;
+        Volatile.Write(ref _persistedPhysicalRevision, ConfigurationRevision.Create(settings.Streaming.PhysicalDevices));
         _preserveBackupOnNextSave = false;
         _logger.LogInformation("Saved settings to {Path}", SettingsPath);
     }
@@ -692,6 +696,27 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
             {
                 _logger.LogError(exception, "Core settings were saved, but a settings-change subscriber failed");
             }
+        }
+    }
+
+    bool IPhysicalConfigurationAuthority.IsDesired(StreamingConfiguration configuration) =>
+        string.Equals(Volatile.Read(ref _persistedPhysicalRevision), ConfigurationRevision.Create(configuration.PhysicalDevices), StringComparison.Ordinal);
+
+    async Task<bool> IPhysicalConfigurationAuthority.TryPublishAsync(StreamingConfiguration configuration, Func<CancellationToken, Task> publish, CancellationToken cancellationToken)
+    {
+        await _lock.WaitAsync(cancellationToken);
+        try
+        {
+            if (!((IPhysicalConfigurationAuthority)this).IsDesired(configuration))
+            {
+                return false;
+            }
+            await publish(cancellationToken);
+            return true;
+        }
+        finally
+        {
+            _lock.Release();
         }
     }
 

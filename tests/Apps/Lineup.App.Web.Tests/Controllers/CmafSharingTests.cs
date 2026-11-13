@@ -815,6 +815,73 @@ public sealed class CmafSharingTests
         Assert.Empty(fixture.ActiveStreams.GetActiveStreams());
     }
 
+    /// <summary>A circuit stop returns while pending cleanup is held, and the service still observes and joins that cleanup.</summary>
+    [Fact]
+    public async Task Service_StopPendingViewerFromCircuit_DispatchesAndJoinsCleanupWithoutBlockingCaller()
+    {
+        // Arrange
+        await using var fixture = new Fixture { HoldReadiness = true };
+        var releaseEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var allowRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var outputs = Substitute.For<ICmafOutputCoordinator>();
+        outputs.AcquireAsync(Arg.Any<StreamTransformKey>(), Arg.Any<StreamSessionId>(), Arg.Any<Func<CancellationToken, ValueTask<CmafOutputRegistration>>>(),
+            Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>()).Returns(call => fixture.Outputs.AcquireAsync(
+                call.Arg<StreamTransformKey>(), call.Arg<StreamSessionId>(), call.Arg<Func<CancellationToken, ValueTask<CmafOutputRegistration>>>(),
+                call.Arg<TimeSpan>(), call.Arg<CancellationToken>()));
+        outputs.ReleaseViewerAsync(Arg.Any<StreamSessionId>(), Arg.Any<string?>()).Returns(call =>
+            new ValueTask<bool>(ReleaseViewerAsync(call.Arg<StreamSessionId>(), call.Arg<string?>())));
+        outputs.ReleaseOutputAsync(Arg.Any<StreamSessionId>(), Arg.Any<string?>()).Returns(call =>
+            fixture.Outputs.ReleaseOutputAsync(call.Arg<StreamSessionId>(), call.Arg<string?>()));
+        outputs.GetViewers().Returns(_ => fixture.Outputs.GetViewers());
+        fixture.PlaybackOutputs = outputs;
+        var started = fixture.BeginServiceStart("circuit");
+        await fixture.EncoderStarted.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        var id = Assert.Single(fixture.ActiveStreams.GetActiveStreams()).SessionId;
+
+        async Task<bool> ReleaseViewerAsync(StreamSessionId viewer, string? code)
+        {
+            releaseEntered.TrySetResult();
+            await allowRelease.Task;
+            return await fixture.Outputs.ReleaseViewerAsync(viewer, code);
+        }
+
+        // Act
+        var stop = Task.Run(() =>
+        {
+            var previous = SynchronizationContext.Current;
+            SynchronizationContext.SetSynchronizationContext(new SynchronizationContext());
+            try
+            {
+                return fixture.ActiveStreams.RequestStop(id);
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previous);
+            }
+        });
+        try
+        {
+            await releaseEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            var accepted = await stop.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            var disposal = started.Service.DisposeAsync().AsTask();
+
+            // Assert
+            Assert.True(accepted);
+            Assert.False(disposal.IsCompleted);
+            allowRelease.TrySetResult();
+            await disposal.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            Assert.True((await started.Start.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken)).IsCanceled);
+            await WaitUntilAsync(() => fixture.ActiveInputs == 0 && !fixture.IsEncoderRunning && !fixture.HasEncoderDirectory);
+            Assert.Empty(fixture.Outputs.GetViewers());
+            Assert.Empty(fixture.ActiveStreams.GetActiveStreams());
+        }
+        finally
+        {
+            allowRelease.TrySetResult();
+            await stop;
+        }
+    }
+
     /// <summary>Verifies producer-owned failure or deadline still reaches a surviving viewer after the initiator leaves.</summary>
     [Theory]
     [InlineData(true)]
@@ -1044,6 +1111,9 @@ public sealed class CmafSharingTests
         /// <summary>Gets the real shared-output coordinator.</summary>
         internal CmafOutputCoordinator Outputs { get; }
 
+        /// <summary>Gets or sets the service-only coordinator override for controlled asynchronous viewer release.</summary>
+        internal ICmafOutputCoordinator? PlaybackOutputs { get; set; }
+
         /// <summary>Gets independently admitted viewer diagnostics.</summary>
         internal ActiveStreamRegistry ActiveStreams { get; } = new();
 
@@ -1115,7 +1185,7 @@ public sealed class CmafSharingTests
             _playback ??= new ManagementPlaybackService(
                 httpClients, Substitute.For<ILineupGuideReader>(), _settings, _topology, _probe, ActiveStreams,
                 _slates, _multiplexer, NullLogger<ManagementPlaybackService>.Instance,
-                transientData: _files, mediaProcessFactory: _processes, streamRoutes: _routes, cmafOutputs: Outputs, cmafStartupTimeout: StartupTimeout);
+                transientData: _files, mediaProcessFactory: _processes, streamRoutes: _routes, cmafOutputs: PlaybackOutputs ?? Outputs, cmafStartupTimeout: StartupTimeout);
             var start = _playback.StartAsync("7.1", (request ?? new CmafStreamRequest()) with { ClientId = clientId },
                 $"127.0.0.1:{10_000 + _cancellations.Count}", cancellationToken: cancellation.Token);
             _serviceStarts.Add(start);

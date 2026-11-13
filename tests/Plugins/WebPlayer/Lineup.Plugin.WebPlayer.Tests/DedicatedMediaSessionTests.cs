@@ -196,7 +196,79 @@ public sealed class DedicatedMediaSessionTests
         Assert.Empty(coordinator.GetDiagnostics());
     }
 
-    private sealed class TestSession(bool failDisposal = false) : IAsyncDisposable
+    /// <summary>Shutdown releases both shared viewers before joining the producer's viewer-input and monitor cleanup.</summary>
+    [Fact]
+    public async Task StopAsync_SharedViewers_ReleasesEveryViewerBeforeJoiningProducerCleanup()
+    {
+        // Arrange
+        await using var coordinator = new CmafOutputCoordinator();
+        var cleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var owner = new TestSession(cleanup: cleanup.Task);
+        var released = new List<StreamSessionId>();
+        var key = new StreamTransformKey("cmaf", "shared-shutdown");
+        var first = await coordinator.AcquireAsync(key, _ => ValueTask.FromResult(new CmafOutputRegistration(owner, owner, viewer =>
+        {
+            released.Add(viewer);
+            if (released.Count == 2)
+            {
+                cleanup.TrySetResult();
+            }
+        })), TestContext.Current.CancellationToken);
+        var second = await coordinator.AcquireAsync(key, _ => ValueTask.FromException<IAsyncDisposable>(new InvalidOperationException("Must share.")),
+            TestContext.Current.CancellationToken);
+
+        // Act
+        var stopping = coordinator.StopAsync().AsTask();
+        try
+        {
+            await stopping.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.Equal(2, released.Count);
+            Assert.Contains(first.ViewerSessionId, released);
+            Assert.Contains(second.ViewerSessionId, released);
+            Assert.True(owner.IsDisposed);
+            Assert.Empty(coordinator.GetViewers());
+            Assert.Empty(coordinator.GetDiagnostics());
+            await coordinator.StopAsync();
+            Assert.Equal(2, released.Count);
+        }
+        finally
+        {
+            cleanup.TrySetResult();
+            await stopping;
+        }
+    }
+
+    /// <summary>A failed viewer callback cannot strand other viewers or skip independent producer disposal.</summary>
+    [Fact]
+    public async Task StopAsync_OneViewerReleaseFails_ReleasesOtherViewersAndEveryProducer()
+    {
+        // Arrange
+        await using var coordinator = new CmafOutputCoordinator();
+        var failed = new TestSession();
+        var independent = new TestSession();
+        var released = new List<StreamSessionId>();
+        var first = await coordinator.AcquireAsync(new StreamTransformKey("cmaf", "failed-viewer"),
+            _ => ValueTask.FromResult(new CmafOutputRegistration(failed, failed, _ => throw new IOException("Synthetic viewer cleanup failure."))),
+            TestContext.Current.CancellationToken);
+        var second = await coordinator.AcquireAsync(new StreamTransformKey("cmaf", "independent-viewer"),
+            _ => ValueTask.FromResult(new CmafOutputRegistration(independent, independent, released.Add)), TestContext.Current.CancellationToken);
+
+        // Act
+        var failure = await Assert.ThrowsAsync<AggregateException>(() => coordinator.StopAsync().AsTask());
+
+        // Assert
+        Assert.IsType<IOException>(Assert.Single(failure.InnerExceptions));
+        Assert.Equal(second.ViewerSessionId, Assert.Single(released));
+        Assert.True(failed.IsDisposed);
+        Assert.True(independent.IsDisposed);
+        Assert.False(coordinator.GetPlaybackStatus(first.ViewerSessionId).IsActive);
+        Assert.Empty(coordinator.GetViewers());
+        Assert.Empty(coordinator.GetDiagnostics());
+    }
+
+    private sealed class TestSession(bool failDisposal = false, Task? cleanup = null) : IAsyncDisposable
     {
         private readonly TaskCompletionSource _disposed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         /// <summary>Gets whether owned cleanup has completed.</summary>
@@ -206,11 +278,18 @@ public sealed class DedicatedMediaSessionTests
         internal Task Disposed => _disposed.Task;
 
         /// <inheritdoc />
-        public ValueTask DisposeAsync()
+        public async ValueTask DisposeAsync()
         {
+            if (cleanup is not null)
+            {
+                await cleanup;
+            }
             IsDisposed = true;
             _disposed.TrySetResult();
-            return failDisposal ? ValueTask.FromException(new IOException("Synthetic cleanup failure.")) : ValueTask.CompletedTask;
+            if (failDisposal)
+            {
+                throw new IOException("Synthetic cleanup failure.");
+            }
         }
     }
 

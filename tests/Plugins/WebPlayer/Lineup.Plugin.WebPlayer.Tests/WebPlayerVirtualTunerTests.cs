@@ -271,7 +271,8 @@ public sealed class WebPlayerVirtualTunerTests
     public async Task Coordinator_TryGetViewerTouch_DefeatsPendingExpiry()
     {
         // Arrange
-        await using var coordinator = new CmafOutputCoordinator(inactivityTimeout: TimeSpan.FromMilliseconds(200));
+        var time = new ManualTimeProvider();
+        await using var coordinator = new CmafOutputCoordinator(time, TimeSpan.FromMilliseconds(200));
         var owner = new TestOwner();
         var lease = await coordinator.AcquireAsync(
             new StreamTransformKey("web-player-cmaf", "touch"),
@@ -279,16 +280,24 @@ public sealed class WebPlayerVirtualTunerTests
             TestContext.Current.CancellationToken);
 
         // Act
-        await Task.Delay(150, TestContext.Current.CancellationToken);
+        await time.WaitForTimerAsync(TimeSpan.FromMilliseconds(200));
+        time.Advance(TimeSpan.FromMilliseconds(150));
         var found = coordinator.TryGetViewer(lease.ViewerSessionId, out var viewer);
-        await Task.Delay(100, TestContext.Current.CancellationToken);
+        time.Advance(TimeSpan.FromMilliseconds(100));
+        await time.WaitForTimerAsync(TimeSpan.FromMilliseconds(100));
 
         // Assert
         Assert.True(found);
         Assert.NotNull(viewer);
         Assert.Equal(1, coordinator.ActiveOutputCount);
         Assert.Equal(0, owner.DisposeCount);
-        await lease.DisposeAsync();
+
+        // Act
+        time.Advance(TimeSpan.FromMilliseconds(100));
+        await owner.Disposed.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(0, coordinator.ActiveOutputCount);
         Assert.Equal(1, owner.DisposeCount);
     }
 
@@ -362,13 +371,112 @@ public sealed class WebPlayerVirtualTunerTests
         new WebPlayerMediaTrack { Index = 1, Type = WebPlayerMediaType.Audio, Codec = audioCodec, IsDefault = true }
     ];
 
+    private sealed class ManualTimeProvider : TimeProvider
+    {
+        private readonly List<ManualTimer> _timers = [];
+        private readonly System.Threading.Channels.Channel<TimeSpan> _scheduled = global::System.Threading.Channels.Channel.CreateUnbounded<TimeSpan>();
+        private long _timestamp;
+
+        /// <inheritdoc />
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        /// <inheritdoc />
+        public override long GetTimestamp() => Interlocked.Read(ref _timestamp);
+
+        /// <inheritdoc />
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            var timer = new ManualTimer(this, callback, state);
+            timer.Change(dueTime, period);
+            return timer;
+        }
+
+        /// <summary>Advances monotonic time and fires elapsed one-shot timers.</summary>
+        public void Advance(TimeSpan duration)
+        {
+            ManualTimer[] elapsed;
+            lock (_timers)
+            {
+                Interlocked.Add(ref _timestamp, duration.Ticks);
+                elapsed = _timers.Where(timer => timer.DueTimestamp <= _timestamp).ToArray();
+                foreach (var timer in elapsed)
+                {
+                    _timers.Remove(timer);
+                }
+            }
+            foreach (var timer in elapsed)
+            {
+                timer.Callback(timer.State);
+            }
+        }
+
+        /// <summary>Waits for the expiration loop to schedule its next bounded delay.</summary>
+        public async Task WaitForTimerAsync(TimeSpan expected)
+        {
+            var dueTime = await _scheduled.Reader.ReadAsync(TestContext.Current.CancellationToken).AsTask()
+                .WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            Assert.Equal(expected, dueTime);
+        }
+
+        private sealed class ManualTimer(ManualTimeProvider owner, TimerCallback callback, object? state) : ITimer
+        {
+            /// <summary>Gets the scheduled callback.</summary>
+            public TimerCallback Callback { get; } = callback;
+            /// <summary>Gets the callback state.</summary>
+            public object? State { get; } = state;
+            /// <summary>Gets the monotonic timer deadline.</summary>
+            public long DueTimestamp { get; private set; }
+
+            /// <inheritdoc />
+            public bool Change(TimeSpan dueTime, TimeSpan period)
+            {
+                Assert.Equal(Timeout.InfiniteTimeSpan, period);
+                lock (owner._timers)
+                {
+                    owner._timers.Remove(this);
+                    if (dueTime != Timeout.InfiniteTimeSpan)
+                    {
+                        DueTimestamp = owner._timestamp + dueTime.Ticks;
+                        owner._timers.Add(this);
+                        owner._scheduled.Writer.TryWrite(dueTime);
+                    }
+                }
+                return true;
+            }
+
+            /// <inheritdoc />
+            public void Dispose()
+            {
+                lock (owner._timers)
+                {
+                    owner._timers.Remove(this);
+                }
+            }
+
+            /// <inheritdoc />
+            public ValueTask DisposeAsync()
+            {
+                Dispose();
+                return ValueTask.CompletedTask;
+            }
+        }
+    }
+
     private sealed class TestOwner : IAsyncDisposable
     {
+        private readonly TaskCompletionSource _disposed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Gets the completed disposal count.</summary>
         public int DisposeCount { get; private set; }
 
+        /// <summary>Gets completion of owned cleanup.</summary>
+        public Task Disposed => _disposed.Task;
+
+        /// <inheritdoc />
         public ValueTask DisposeAsync()
         {
             DisposeCount++;
+            _disposed.TrySetResult();
             return ValueTask.CompletedTask;
         }
     }

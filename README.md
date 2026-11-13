@@ -769,6 +769,9 @@ Both management-hosted and dedicated shared Watch startup own readiness and thei
 Canceling or stopping one pending viewer releases only that viewer; remaining viewers still receive the ready presentation or the producer's terminal failure.
 Releasing the final viewer cancels pending work and cleans its encoder, input, and files when keep-warm is zero. Dedicated host-initiated stops are
 acknowledged through worker status polling, normally within one second, without closing another viewer's shared input.
+Management-hosted Dashboard and Watch stop requests dispatch observed asynchronous cleanup without blocking the interactive circuit;
+service disposal joins that cleanup. Graceful CMAF shutdown releases every viewer before disposing its shared producer, including
+independently admitted viewer inputs and status monitors.
 
 Long-lived management playback ownership lives in a typed application service, not an MVC controller; dedicated playback uses a typed worker runtime.
 Both reuse the same host-neutral viewer/producer coordinator and portable CMAF planning primitives. HTTP adapters only map requests, results, media files,
@@ -1076,6 +1079,10 @@ The shared UDP/SSDP discovery supervisor also checks current physical-capacity s
 Lineup retries incomplete physical-lineup initialization on a later tune for a missing source, without requiring a settings save, including when status polling has already recovered device activation. Already-active sources with committed channels remain routable without awaiting a stalled sibling retry, including a retry running for another viewer. Background device refresh continues recovery attempts. Unchanged healthy runtime devices are retained across partial-activation retries; changed, disabled, or removed definitions are still reconciled. Fully successful initialization is reused.
 
 The Dashboard and runtime status API report every enabled physical device, including failed activations. An inactive device has a safe activation error and no receiver-control or restart actions. Its last successful status and capacity are retained when the adapter kind is unchanged; without a prior snapshot, capacity is zero and no observations are fabricated. Successful refresh clears the error, and disabled or removed devices are excluded.
+
+Hosted physical activation and lineup publication are fenced against successfully saved settings. A tune or refresh that captured older
+settings cannot replace a newer catalog or retire its active streams; obsolete tune resolutions restart against current settings.
+Settings saves wait for an already admitted catalog or lineup publication to finish before superseding its configuration.
 
 HDHomeRun status and control initialization reuse the successful activation discovery result instead of fetching device discovery a second time.
 Explicit device-information refreshes and fresh guide authorization requests still query the device; failed activations remain eligible for retry.

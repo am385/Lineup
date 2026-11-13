@@ -9,13 +9,13 @@ namespace Lineup.Core.Streaming;
 /// </summary>
 public interface IPhysicalDeviceCatalog : IPhysicalDeviceResolver
 {
-    /// <summary>Validates topology and returns whether the last published catalog, including partial activation, belongs to these enabled physical definitions.</summary>
+    /// <summary>Validates topology and checks published physical definitions, including partial activation and the saved desired configuration in hosted catalogs.</summary>
     bool IsConfigurationCurrent(StreamingConfiguration configuration);
 
-    /// <summary>Atomically creates and activates enabled physical devices.</summary>
+    /// <summary>Atomically activates enabled physical devices, discarding configurations superseded by saved settings in hosted catalogs.</summary>
     Task ApplyAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default);
 
-    /// <summary>Publishes a refresh only while the matching topology generation is still current.</summary>
+    /// <summary>Publishes a refresh only for the current topology generation, serializing hosted publication with saved configuration changes.</summary>
     Task<bool> TryPublishAsync(StreamingConfiguration configuration, Func<CancellationToken, Task> publish, CancellationToken cancellationToken = default);
 }
 
@@ -86,6 +86,7 @@ public sealed class PhysicalDeviceCatalog : IPhysicalDeviceCatalog
     private readonly SemaphoreSlim _publicationGate = new(1, 1);
     private readonly PhysicalDeviceRefreshScheduler _refresh;
     private readonly CoalescedRefresh<int> _applications;
+    private readonly IPhysicalConfigurationAuthority? _authority;
     private string? _requestedKey;
     private string? _activationKey;
     private Dictionary<PhysicalDeviceId, string> _deviceActivationKeys = [];
@@ -96,14 +97,20 @@ public sealed class PhysicalDeviceCatalog : IPhysicalDeviceCatalog
     {
     }
 
-    /// <summary>Initializes a catalog with shared graph runtime state and host-wide refresh admission.</summary>
-    internal PhysicalDeviceCatalog(IStreamingAdapterRegistry adapters, PhysicalDeviceRuntimeState state, ILogger<PhysicalDeviceCatalog>? logger = null, PhysicalDeviceRefreshScheduler? refresh = null)
+    /// <summary>Initializes a catalog with shared runtime state, refresh admission, and an optional saved-configuration publication fence.</summary>
+    internal PhysicalDeviceCatalog(
+        IStreamingAdapterRegistry adapters,
+        PhysicalDeviceRuntimeState state,
+        ILogger<PhysicalDeviceCatalog>? logger = null,
+        PhysicalDeviceRefreshScheduler? refresh = null,
+        IPhysicalConfigurationAuthority? authority = null)
     {
         _adapters = adapters;
         _state = state;
         _logger = logger ?? NullLogger<PhysicalDeviceCatalog>.Instance;
         _refresh = refresh ?? new PhysicalDeviceRefreshScheduler();
         _applications = new CoalescedRefresh<int>(_logger);
+        _authority = authority;
     }
 
     /// <inheritdoc />
@@ -116,7 +123,7 @@ public sealed class PhysicalDeviceCatalog : IPhysicalDeviceCatalog
     public bool IsConfigurationCurrent(StreamingConfiguration configuration)
     {
         ValidateConfiguration(configuration);
-        return _state.IsConfigurationCurrent(CreateActivationKey(configuration.PhysicalDevices));
+        return (_authority?.IsDesired(configuration) ?? true) && _state.IsConfigurationCurrent(CreateActivationKey(configuration.PhysicalDevices));
     }
 
     /// <inheritdoc />
@@ -125,7 +132,14 @@ public sealed class PhysicalDeviceCatalog : IPhysicalDeviceCatalog
         ValidateConfiguration(configuration);
         cancellationToken.ThrowIfCancellationRequested();
         var key = ConfigurationRevision.Create(configuration.PhysicalDevices);
-        Volatile.Write(ref _requestedKey, key);
+        if (_authority is null)
+        {
+            Volatile.Write(ref _requestedKey, key);
+        }
+        else if (!_authority.IsDesired(configuration))
+        {
+            return Task.CompletedTask;
+        }
         return _applications.RunAsync(key, token => ApplyCoreAsync(configuration, token), cancellationToken, waitForCancellationCleanup: true);
     }
 
@@ -135,13 +149,11 @@ public sealed class PhysicalDeviceCatalog : IPhysicalDeviceCatalog
         await _publicationGate.WaitAsync(cancellationToken);
         try
         {
-            var key = CreateActivationKey(configuration.PhysicalDevices);
-            if (!string.Equals(Volatile.Read(ref _requestedKey), ConfigurationRevision.Create(configuration.PhysicalDevices), StringComparison.Ordinal) || !_state.IsConfigurationCurrent(key))
+            if (!IsRequestedConfigurationCurrent(configuration) || !_state.IsConfigurationCurrent(CreateActivationKey(configuration.PhysicalDevices)))
             {
                 return false;
             }
-            await publish(cancellationToken);
-            return true;
+            return await PublishDesiredAsync(configuration, publish, cancellationToken);
         }
         finally
         {
@@ -154,7 +166,7 @@ public sealed class PhysicalDeviceCatalog : IPhysicalDeviceCatalog
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            if (!string.Equals(Volatile.Read(ref _requestedKey), ConfigurationRevision.Create(configuration.PhysicalDevices), StringComparison.Ordinal))
+            if (!IsRequestedConfigurationCurrent(configuration))
             {
                 return 0;
             }
@@ -235,12 +247,23 @@ public sealed class PhysicalDeviceCatalog : IPhysicalDeviceCatalog
             {
                 try
                 {
-                    if (!string.Equals(Volatile.Read(ref _requestedKey), ConfigurationRevision.Create(configuration.PhysicalDevices), StringComparison.Ordinal))
+                    if (!IsRequestedConfigurationCurrent(configuration))
                     {
                         await DisposeDevicesAsync(newlyCreated);
                         return 0;
                     }
-                    await _state.RetireAsync(retired);
+                    var published = await PublishDesiredAsync(configuration, async _ =>
+                    {
+                        await _state.RetireAsync(retired);
+                        _deviceActivationKeys = new Dictionary<PhysicalDeviceId, string>(deviceActivationKeys);
+                        _state.Replace(activationKey, activated);
+                        _activationKey = activationFailures == 0 ? activationKey : null;
+                    }, cancellationToken);
+                    if (!published)
+                    {
+                        await DisposeDevicesAsync(newlyCreated);
+                        return 0;
+                    }
                 }
                 catch
                 {
@@ -248,9 +271,6 @@ public sealed class PhysicalDeviceCatalog : IPhysicalDeviceCatalog
                     await DisposeDevicesAsync(newlyCreated);
                     throw;
                 }
-                _deviceActivationKeys = new Dictionary<PhysicalDeviceId, string>(deviceActivationKeys);
-                _state.Replace(activationKey, activated);
-                _activationKey = activationFailures == 0 ? activationKey : null;
             }
             finally
             {
@@ -263,6 +283,20 @@ public sealed class PhysicalDeviceCatalog : IPhysicalDeviceCatalog
         {
             _gate.Release();
         }
+    }
+
+    private bool IsRequestedConfigurationCurrent(StreamingConfiguration configuration) =>
+        _authority?.IsDesired(configuration)
+        ?? string.Equals(Volatile.Read(ref _requestedKey), ConfigurationRevision.Create(configuration.PhysicalDevices), StringComparison.Ordinal);
+
+    private async Task<bool> PublishDesiredAsync(StreamingConfiguration configuration, Func<CancellationToken, Task> publish, CancellationToken cancellationToken)
+    {
+        if (_authority is not null)
+        {
+            return await _authority.TryPublishAsync(configuration, publish, cancellationToken);
+        }
+        await publish(cancellationToken);
+        return true;
     }
 
     private static void ValidateConfiguration(StreamingConfiguration configuration)

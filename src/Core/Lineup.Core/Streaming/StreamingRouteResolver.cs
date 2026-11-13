@@ -90,7 +90,7 @@ public sealed record ResolvedStreamingCandidate
 }
 
 /// <summary>
-/// Lazily activates configured physical adapters, retries incomplete lineup initialization, and resolves virtual routes.
+/// Lazily activates physical adapters, retries incomplete lineup initialization and superseded resolutions, and resolves current virtual routes.
 /// </summary>
 public sealed class StreamingRouteResolver : IStreamingRouteResolver
 {
@@ -129,17 +129,24 @@ public sealed class StreamingRouteResolver : IStreamingRouteResolver
         VirtualDeviceId virtualDeviceId,
         CancellationToken cancellationToken = default)
     {
-        var configuration = _settings.Settings.Streaming;
-        var virtualDevice = configuration.VirtualDevices.SingleOrDefault(device => device.Enabled && device.Id == virtualDeviceId)
-            ?? throw new KeyNotFoundException("The requested configured virtual device was not found.");
-        var physicalDefinitions = _adapters is null
-            ? configuration.PhysicalDevices
-            : VirtualDeviceSubscriptionResolver.Resolve(
-                virtualDevice,
-                configuration.PhysicalDevices,
-                _adapters.GetVirtual(virtualDevice.Adapter.Kind));
-        var identities = await _topologyStore.ReadActiveAsync(cancellationToken);
-        return ChannelTopologyResolver.Resolve(virtualDevice, physicalDefinitions, identities).Channels;
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var configuration = _settings.Settings.Streaming;
+            var virtualDevice = configuration.VirtualDevices.SingleOrDefault(device => device.Enabled && device.Id == virtualDeviceId)
+                ?? throw new KeyNotFoundException("The requested configured virtual device was not found.");
+            var physicalDefinitions = _adapters is null
+                ? configuration.PhysicalDevices
+                : VirtualDeviceSubscriptionResolver.Resolve(
+                    virtualDevice,
+                    configuration.PhysicalDevices,
+                    _adapters.GetVirtual(virtualDevice.Adapter.Kind));
+            var identities = await _topologyStore.ReadActiveAsync(cancellationToken);
+            if (ReferenceEquals(configuration, _settings.Settings.Streaming))
+            {
+                return ChannelTopologyResolver.Resolve(virtualDevice, physicalDefinitions, identities).Channels;
+            }
+        }
     }
 
     private async Task<ResolvedStreamingRoute?> ResolveAsync(
@@ -148,7 +155,19 @@ public sealed class StreamingRouteResolver : IStreamingRouteResolver
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(channelNumber);
-        var configuration = _settings.Settings.Streaming;
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var route = await ResolveCurrentAsync(_settings.Settings.Streaming, virtualDeviceId, channelNumber, cancellationToken);
+            if (route is not null)
+            {
+                return route;
+            }
+        }
+    }
+
+    private async Task<ResolvedStreamingRoute?> ResolveCurrentAsync(StreamingConfiguration configuration, VirtualDeviceId virtualDeviceId, string channelNumber, CancellationToken cancellationToken)
+    {
         if (!configuration.PhysicalDevices.Any(device => device.Enabled))
         {
             throw new InvalidOperationException("No enabled physical streaming devices are configured.");
@@ -163,6 +182,10 @@ public sealed class StreamingRouteResolver : IStreamingRouteResolver
                 configuration.PhysicalDevices,
                 _adapters.GetVirtual(virtualDevice.Adapter.Kind));
         var identities = await _topologyStore.ReadActiveAsync(cancellationToken);
+        if (!ReferenceEquals(configuration, _settings.Settings.Streaming))
+        {
+            return null;
+        }
         var resolution = ChannelTopologyResolver.Resolve(virtualDevice, physicalDefinitions, identities);
         var channel = resolution.Channels.SingleOrDefault(candidate =>
             string.Equals(candidate.Number, channelNumber.Trim(), StringComparison.OrdinalIgnoreCase));
@@ -171,7 +194,15 @@ public sealed class StreamingRouteResolver : IStreamingRouteResolver
             !channel.Sources.Any(source => _catalog.Devices.Any(device => device.Snapshot.Id == source.PhysicalDeviceId)))
         {
             await EnsureCatalogAsync(configuration, cancellationToken);
+            if (!ReferenceEquals(configuration, _settings.Settings.Streaming))
+            {
+                return null;
+            }
             identities = await _topologyStore.ReadActiveAsync(cancellationToken);
+            if (!ReferenceEquals(configuration, _settings.Settings.Streaming))
+            {
+                return null;
+            }
             resolution = ChannelTopologyResolver.Resolve(virtualDevice, physicalDefinitions, identities);
             channel = resolution.Channels.SingleOrDefault(candidate =>
                 string.Equals(candidate.Number, channelNumber.Trim(), StringComparison.OrdinalIgnoreCase));
@@ -215,6 +246,10 @@ public sealed class StreamingRouteResolver : IStreamingRouteResolver
                 };
             })
             .ToArray();
+        if (!ReferenceEquals(configuration, _settings.Settings.Streaming))
+        {
+            return null;
+        }
         return new ResolvedStreamingRoute
         {
             VirtualDevice = virtualDevice,
@@ -239,6 +274,10 @@ public sealed class StreamingRouteResolver : IStreamingRouteResolver
         await _gate.WaitAsync(cancellationToken);
         try
         {
+            if (!ReferenceEquals(configuration, _settings.Settings.Streaming))
+            {
+                return;
+            }
             if (ReferenceEquals(_activeConfiguration, configuration) && _catalog.IsConfigurationCurrent(configuration))
             {
                 return;

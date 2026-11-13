@@ -53,7 +53,8 @@ public static class CoreServiceExtensions
             provider.GetRequiredService<IStreamingAdapterRegistry>(),
             provider.GetRequiredService<PhysicalDeviceRuntimeState>(),
             provider.GetService<Microsoft.Extensions.Logging.ILogger<PhysicalDeviceCatalog>>(),
-            provider.GetRequiredService<PhysicalDeviceRefreshScheduler>()));
+            provider.GetRequiredService<PhysicalDeviceRefreshScheduler>(),
+            provider.GetService<Lineup.Core.Settings.ILineupSettingsService>() as Lineup.Core.Settings.IPhysicalConfigurationAuthority));
         services.AddSingleton<IGuideOrchestrator, GuideOrchestrator>();
         services.AddSingleton<IGuideQueryService, GuideQueryService>();
         services.TryAddSingleton<IEpgRetentionPolicy, DefaultEpgRetentionPolicy>();

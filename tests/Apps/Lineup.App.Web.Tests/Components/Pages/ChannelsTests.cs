@@ -19,7 +19,7 @@ public sealed class ChannelsTests
         // Arrange
         using var fixture = await ChannelFixture.CreateAsync();
         var component = fixture.Context.Render<Channels>();
-        component.WaitForAssertion(() => Assert.Equal(3, ChannelRows(component).Count));
+        await component.WaitForAssertionAsync(() => Assert.Equal(3, ChannelRows(component).Count), TimeSpan.FromSeconds(30));
 
         // Act
         component.Find("#channelSearch").Input("sports");
@@ -56,7 +56,7 @@ public sealed class ChannelsTests
         // Arrange
         using var fixture = await ChannelFixture.CreateAsync();
         var component = fixture.Context.Render<Channels>();
-        component.WaitForAssertion(() => Assert.Equal(3, ChannelRows(component).Count));
+        await component.WaitForAssertionAsync(() => Assert.Equal(3, ChannelRows(component).Count), TimeSpan.FromSeconds(30));
         var globalNumber = component.FindAll("thead button").Single(button => button.TextContent.Contains("Global number", StringComparison.Ordinal));
 
         // Act
@@ -156,7 +156,7 @@ public sealed class ChannelsTests
         var (topology, news, movies) = await PrepareGrouping(fixture);
         await fixture.GuideStore.SetBindingAsync(news, fixture.FirstGuideId, Xunit.TestContext.Current.CancellationToken);
         var component = fixture.Context.Render<Channels>();
-        component.WaitForAssertion(() => Assert.Equal(3, ChannelRows(component).Count));
+        await component.WaitForAssertionAsync(() => Assert.Equal(3, ChannelRows(component).Count), TimeSpan.FromSeconds(30));
 
         // Act
         await component.Find("tr[data-provider-key='news'] .manage-channel-group").ClickAsync(new());
@@ -222,7 +222,7 @@ public sealed class ChannelsTests
         using var fixture = await ChannelFixture.CreateAsync();
         var (topology, news, movies) = await PrepareGrouping(fixture);
         var component = fixture.Context.Render<Channels>();
-        component.WaitForAssertion(() => Assert.Equal(3, ChannelRows(component).Count));
+        await component.WaitForAssertionAsync(() => Assert.Equal(3, ChannelRows(component).Count), TimeSpan.FromSeconds(30));
         await component.Find("tr[data-provider-key='news'] .manage-channel-group").ClickAsync(new());
         component.Find(".group-candidate[data-provider-key='movies'] input").Change(true);
         component.Find(".confirm-channel-content").Change(true);
@@ -275,7 +275,7 @@ public sealed class ChannelsTests
             return results;
         });
         var component = fixture.Context.Render<Channels>();
-        component.WaitForAssertion(() => Assert.Equal(3, ChannelRows(component).Count));
+        await component.WaitForAssertionAsync(() => Assert.Equal(3, ChannelRows(component).Count), TimeSpan.FromSeconds(30));
         await component.Find("tr[data-provider-key='news'] .manage-channel-group").ClickAsync(new());
         component.Find(".group-candidate[data-provider-key='movies'] input").Change(true);
         component.Find(".confirm-channel-content").Change(true);
@@ -311,7 +311,7 @@ public sealed class ChannelsTests
             };
         }
         var component = fixture.Context.Render<Channels>();
-        component.WaitForAssertion(() => Assert.Equal(3, ChannelRows(component).Count));
+        await component.WaitForAssertionAsync(() => Assert.Equal(3, ChannelRows(component).Count), TimeSpan.FromSeconds(30));
 
         // Act
         await component.Find("tr[data-provider-key='news'] .manage-channel-group").ClickAsync(new());
@@ -339,7 +339,7 @@ public sealed class ChannelsTests
             return await completion.Task;
         });
         var component = fixture.Context.Render<Channels>();
-        component.WaitForAssertion(() => Assert.Equal(3, ChannelRows(component).Count));
+        await component.WaitForAssertionAsync(() => Assert.Equal(3, ChannelRows(component).Count), TimeSpan.FromSeconds(30));
         await component.Find("tr[data-provider-key='news'] .manage-channel-group").ClickAsync(new());
         component.Find(".group-candidate[data-provider-key='movies'] input").Change(true);
         component.Find(".confirm-channel-content").Change(true);

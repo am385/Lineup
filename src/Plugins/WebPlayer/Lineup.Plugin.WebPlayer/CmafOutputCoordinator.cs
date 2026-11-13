@@ -483,6 +483,7 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
     public async ValueTask StopAsync()
     {
         IAsyncDisposable[] owners;
+        ViewerEntry[] viewers;
         await _gate.WaitAsync();
         try
         {
@@ -491,7 +492,8 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
                 return;
             }
             _stopping = true;
-            foreach (var viewer in _viewers.Values)
+            viewers = _viewers.Values.ToArray();
+            foreach (var viewer in viewers)
             {
                 viewer.ExpirationCancellation.Cancel();
             }
@@ -510,6 +512,17 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
             _gate.Release();
         }
         List<Exception>? failures = null;
+        foreach (var viewer in viewers)
+        {
+            try
+            {
+                viewer.Output.ViewerReleased?.Invoke(viewer.ViewerSessionId);
+            }
+            catch (Exception exception)
+            {
+                (failures ??= []).Add(exception);
+            }
+        }
         foreach (var owner in owners)
         {
             try
@@ -523,7 +536,7 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
         }
         if (failures is not null)
         {
-            throw new AggregateException("One or more CMAF producers could not be disposed during shutdown.", failures);
+            throw new AggregateException("One or more CMAF viewers or producers could not be released during shutdown.", failures);
         }
     }
 

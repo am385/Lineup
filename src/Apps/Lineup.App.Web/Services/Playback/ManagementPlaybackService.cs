@@ -469,7 +469,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         if (!startup.TryRegister(activeStream, () =>
             {
                 viewerStopped.TrySetResult();
-                StopCmafSession(sessionId);
+                _preflightTasks.Track(Task.Run(() => StopCmafSessionAsync(sessionId)), _logger, "viewer stop");
             }))
         {
             TryDeleteTransientDirectory(directory);
@@ -966,11 +966,10 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                 (DateTime.UtcNow - item.session.StartTime).TotalMinutes, item.session.Process is { HasExited: false }))
             .ToArray();
 
-    private bool StopCmafSession(string sessionId)
-    {
-        return TryParseSessionId(sessionId, out var parsed) &&
-            _cmafOutputs.ReleaseViewerAsync(parsed).AsTask().GetAwaiter().GetResult();
-    }
+    private bool StopCmafSession(string sessionId) => Task.Run(() => StopCmafSessionAsync(sessionId)).GetAwaiter().GetResult();
+
+    private async Task<bool> StopCmafSessionAsync(string sessionId) =>
+        TryParseSessionId(sessionId, out var parsed) && await _cmafOutputs.ReleaseViewerAsync(parsed);
 
     private bool StopCmafSession(CmafSession session)
     {
@@ -1549,7 +1548,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                 {
                     cancellation.Cancel();
                 }
-                await Task.WhenAll(observations);
+                await Task.WhenAll(observations).ConfigureAwait(false);
             }
             finally
             {
@@ -1564,7 +1563,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         {
             try
             {
-                await task;
+                await task.ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
