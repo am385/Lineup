@@ -9,6 +9,76 @@ namespace Lineup.Plugin.WebPlayer.Tests;
 /// <summary>Verifies presentation readiness observes terminal upstream failures rather than waiting for an unrelated timeout.</summary>
 public sealed class DedicatedMediaReadinessTests
 {
+    /// <summary>Producer cleanup cancellation cannot replace a known readiness failure with a generic startup error.</summary>
+    [Theory]
+    [InlineData(false, 502, "media_process_failed")]
+    [InlineData(true, 504, "media_startup_timeout")]
+    public async Task WaitForProducerAsync_ViewerCancellationWinsWait_PreservesProducerFailure(bool timeout, int expectedStatus, string expectedCode)
+    {
+        // Arrange
+        using var viewer = new CancellationTokenSource();
+        var readiness = new TaskCompletionSource<DedicatedPlaybackRuntime.MediaSession>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Exception cause = timeout ? new TimeoutException("Producer readiness expired.") : new MediaProcessException("Fallback processor failed.");
+        var failure = new PlaybackStartupException(DedicatedWorkerStartupStage.Readiness, cause);
+        var context = new QueuedSynchronizationContext();
+        var waiting = BeginProducerWait(context, readiness.Task, viewer.Token, TestContext.Current.CancellationToken);
+
+        // Act
+        await viewer.CancelAsync();
+        readiness.SetException(failure);
+        await context.RunContinuationAsync();
+        var actual = await Record.ExceptionAsync(() => waiting);
+
+        // Assert
+        Assert.Same(failure, actual);
+        var response = DedicatedWorkerStartupFailureMapper.Map(failure.InnerException!, failure.Stage);
+        Assert.Equal(expectedStatus, response.StatusCode);
+        Assert.Equal(expectedCode, response.Code);
+    }
+
+    /// <summary>An explicitly canceled request keeps cancellation semantics even if its producer has also failed.</summary>
+    [Fact]
+    public async Task WaitForProducerAsync_RequestCanceled_PreservesCancellation()
+    {
+        // Arrange
+        using var request = new CancellationTokenSource();
+        var readiness = new TaskCompletionSource<DedicatedPlaybackRuntime.MediaSession>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var context = new QueuedSynchronizationContext();
+        var waiting = BeginProducerWait(context, readiness.Task, request.Token, request.Token);
+
+        // Act
+        await request.CancelAsync();
+        readiness.SetException(new PlaybackStartupException(DedicatedWorkerStartupStage.Readiness, new TimeoutException()));
+        _ = readiness.Task.Exception;
+        await context.RunContinuationAsync();
+        var failure = await Record.ExceptionAsync(() => waiting);
+
+        // Assert
+        var cancellation = Assert.IsAssignableFrom<OperationCanceledException>(failure);
+        Assert.Equal(request.Token, cancellation.CancellationToken);
+    }
+
+    /// <summary>A viewer stopped before producer readiness still leaves promptly rather than waiting for its shared producer.</summary>
+    [Fact]
+    public async Task WaitForProducerAsync_ViewerStopped_PreservesCancellation()
+    {
+        // Arrange
+        using var viewer = new CancellationTokenSource();
+        var readiness = new TaskCompletionSource<DedicatedPlaybackRuntime.MediaSession>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var context = new QueuedSynchronizationContext();
+        var waiting = BeginProducerWait(context, readiness.Task, viewer.Token, TestContext.Current.CancellationToken);
+
+        // Act
+        await viewer.CancelAsync();
+        await context.RunContinuationAsync();
+        var failure = await Record.ExceptionAsync(() => waiting);
+
+        // Assert
+        var cancellation = Assert.IsAssignableFrom<OperationCanceledException>(failure);
+        Assert.Equal(viewer.Token, cancellation.CancellationToken);
+        Assert.False(readiness.Task.IsCompleted);
+    }
+
     /// <summary>Only upstream EOF or read failure is classified, never cancellation or a closed processor pipe.</summary>
     [Theory]
     [InlineData("eof", "source_eof")]
@@ -150,6 +220,41 @@ public sealed class DedicatedMediaReadinessTests
             await process.WaitForExitAsync(TestContext.Current.CancellationToken);
             await diagnostics;
             root.Delete(recursive: true);
+        }
+    }
+
+    private static Task<DedicatedPlaybackRuntime.MediaSession> BeginProducerWait(
+        SynchronizationContext context,
+        Task<DedicatedPlaybackRuntime.MediaSession> readiness,
+        CancellationToken waitingToken,
+        CancellationToken requestToken)
+    {
+        var previous = SynchronizationContext.Current;
+        SynchronizationContext.SetSynchronizationContext(context);
+        try
+        {
+            return DedicatedPlaybackRuntime.WaitForProducerAsync(readiness, waitingToken, requestToken);
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previous);
+        }
+    }
+
+    private sealed class QueuedSynchronizationContext : SynchronizationContext
+    {
+        private readonly System.Threading.Channels.Channel<(SendOrPostCallback Callback, object? State)> _continuations =
+            System.Threading.Channels.Channel.CreateUnbounded<(SendOrPostCallback, object?)>();
+
+        /// <inheritdoc />
+        public override void Post(SendOrPostCallback callback, object? state) => _continuations.Writer.TryWrite((callback, state));
+
+        /// <summary>Runs the held readiness continuation only after cancellation and producer failure have both occurred.</summary>
+        internal async Task RunContinuationAsync()
+        {
+            var continuation = await _continuations.Reader.ReadAsync(TestContext.Current.CancellationToken).AsTask()
+                .WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            continuation.Callback(continuation.State);
         }
     }
 

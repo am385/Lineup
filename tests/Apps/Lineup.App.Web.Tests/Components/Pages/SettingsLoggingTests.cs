@@ -18,10 +18,10 @@ public class SettingsLoggingTests
     /// Verifies dependent logging controls render only when their feature switches are enabled.
     /// </summary>
     [Fact]
-    public void Render_DisabledLoggingFeatures_CollapsesDependentControls()
+    public async Task Render_DisabledLoggingFeatures_CollapsesDependentControls()
     {
         // Arrange
-        using var context = CreateContext(out _);
+        await using var context = CreateContext(out _);
         var component = context.Render<Settings>();
         component.Find("#tab-logging").Click();
 
@@ -42,10 +42,10 @@ public class SettingsLoggingTests
     /// Verifies enabled file logging displays an empty retained-files state.
     /// </summary>
     [Fact]
-    public void Render_EnabledFileLoggingWithoutFiles_ShowsEmptyState()
+    public async Task Render_EnabledFileLoggingWithoutFiles_ShowsEmptyState()
     {
         // Arrange
-        using var context = CreateContext(out var settings);
+        await using var context = CreateContext(out var settings);
         settings.EnableFileLogging = true;
 
         // Act
@@ -60,10 +60,10 @@ public class SettingsLoggingTests
     /// Verifies Logging appears immediately before Reset and displays non-sensitive target status.
     /// </summary>
     [Fact]
-    public void Render_ConfiguredInstallation_ShowsLoggingBeforeReset()
+    public async Task Render_ConfiguredInstallation_ShowsLoggingBeforeReset()
     {
         // Arrange
-        using var context = CreateContext(out _);
+        await using var context = CreateContext(out _);
         var runtime = new LoggingRuntimeState("config", new FileLoggingSettings(false, LogEventLevel.Information, 7, 50),
             [new ExternalLogTargetStatus("OpenTelemetry (OTLP)", "Enabled", "Configured at startup.")]);
         context.Services.AddSingleton(runtime);
@@ -87,7 +87,7 @@ public class SettingsLoggingTests
     public async Task Save_ChangedFileLogging_PersistsAndAppliesImmediately()
     {
         // Arrange
-        using var context = CreateContext(out var settings);
+        await using var context = CreateContext(out var settings);
         var root = Directory.CreateTempSubdirectory("lineup-settings-logging-");
         using var manager = new FileLogManager(Path.Combine(root.FullName, "logs"), new FileLoggingSettings(false, LogEventLevel.Information, 7, 50), "{Message:lj}{NewLine}");
         var runtime = new LoggingRuntimeState(root.FullName, new FileLoggingSettings(false, LogEventLevel.Information, 7, 50), [], manager);
@@ -127,7 +127,7 @@ public class SettingsLoggingTests
     public async Task Save_ApplicationFilterOverride_PersistsAndAppliesImmediately()
     {
         // Arrange
-        using var context = CreateContext(out var settings);
+        await using var context = CreateContext(out var settings);
         var configuration = new ConfigurationManager();
         configuration["Logging:LogLevel:Default"] = "Information";
         configuration["Logging:LogLevel:Microsoft.AspNetCore"] = "Warning";
@@ -167,7 +167,7 @@ public class SettingsLoggingTests
     public async Task Save_ExistingApplicationFilterOverride_MergesNewStartupCategories()
     {
         // Arrange
-        using var context = CreateContext(out var settings);
+        await using var context = CreateContext(out var settings);
         settings.OverrideLoggingDefaults = true;
         settings.ApplicationLogLevel = "Debug";
         settings.LogCategoryOverrides = [new WebLogCategoryLevelSetting { Category = "Lineup.Noisy", Level = "None" }];
@@ -197,7 +197,7 @@ public class SettingsLoggingTests
     public async Task Save_DisabledApplicationFilterOverride_RestoresStartupFilters()
     {
         // Arrange
-        using var context = CreateContext(out var settings);
+        await using var context = CreateContext(out var settings);
         settings.OverrideLoggingDefaults = true;
         settings.ApplicationLogLevel = "Debug";
         settings.LogCategoryOverrides = [new WebLogCategoryLevelSetting { Category = "Lineup.Noisy", Level = "None" }];
@@ -230,7 +230,7 @@ public class SettingsLoggingTests
     public async Task Save_DuplicateApplicationFilterCategory_ShowsValidationError()
     {
         // Arrange
-        using var context = CreateContext(out var settings);
+        await using var context = CreateContext(out var settings);
         var configuration = new ConfigurationManager();
         configuration["Logging:LogLevel:Default"] = "Information";
         configuration["Logging:LogLevel:Microsoft.AspNetCore"] = "Warning";

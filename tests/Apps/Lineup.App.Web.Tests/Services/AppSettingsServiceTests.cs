@@ -380,27 +380,34 @@ public class LineupSettingsServiceTests
         var testDirectory = CreateTestDirectory();
         var settingsPath = Path.Combine(testDirectory, AppConstants.SettingsFileName);
         var service = new LineupSettingsService(NullLogger<LineupSettingsService>.Instance, settingsPath, testDirectory);
-        using var firstEntered = new ManualResetEventSlim();
+        var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseFirst = new ManualResetEventSlim();
         var firstUpdate = Task.Run(() => service.UpdateAsync(settings =>
         {
-            firstEntered.Set();
+            firstEntered.TrySetResult();
             releaseFirst.Wait(TestContext.Current.CancellationToken);
             settings.TargetDays = 5;
         }), TestContext.Current.CancellationToken);
-        Assert.True(firstEntered.Wait(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken));
         var secondCallbackEntered = false;
 
         // Act
-        var secondUpdate = Task.Run(() => service.UpdateAsync(settings =>
+        var secondUpdate = Task.CompletedTask;
+        bool secondWaitedForFirst;
+        try
         {
-            secondCallbackEntered = true;
-            settings.AutoGenerateXmltv = false;
-        }), TestContext.Current.CancellationToken);
-        await Task.Delay(50, TestContext.Current.CancellationToken);
-        var secondWaitedForFirst = !secondCallbackEntered;
-        releaseFirst.Set();
-        await Task.WhenAll(firstUpdate, secondUpdate);
+            await firstEntered.Task.WaitAsync(BunitContext.WaitTimeout, TestContext.Current.CancellationToken);
+            secondUpdate = service.UpdateAsync(settings =>
+            {
+                secondCallbackEntered = true;
+                settings.AutoGenerateXmltv = false;
+            });
+            secondWaitedForFirst = !secondUpdate.IsCompleted && !secondCallbackEntered;
+        }
+        finally
+        {
+            releaseFirst.Set();
+            await Task.WhenAll(firstUpdate, secondUpdate);
+        }
         var persisted = JsonSerializer.Deserialize<LineupSettings>(await File.ReadAllTextAsync(settingsPath, TestContext.Current.CancellationToken))!;
 
         // Assert

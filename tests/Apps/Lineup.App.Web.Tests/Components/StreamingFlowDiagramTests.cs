@@ -9,10 +9,10 @@ public sealed class StreamingFlowDiagramTests
 {
     /// <summary>Verifies a session path exposes compact metadata and contextual stage details.</summary>
     [Fact]
-    public void Render_ActiveSharedPath_OpensAndReplacesStageDetails()
+    public async Task Render_ActiveSharedPath_OpensAndReplacesStageDetails()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var startedAtUtc = DateTime.UtcNow.AddMinutes(-3);
         string? stoppedSessionId = null;
         var physical = new StreamingFlowNode(
@@ -113,10 +113,10 @@ public sealed class StreamingFlowDiagramTests
 
     /// <summary>Verifies topology details remain collapsed until selection and collapse when selected again.</summary>
     [Fact]
-    public void Render_ConfiguredTopology_TogglesSelectedNodeDetails()
+    public async Task Render_ConfiguredTopology_TogglesSelectedNodeDetails()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var snapshot = new StreamingFlowSnapshot(
             [
                 new StreamingFlowNode(
@@ -153,10 +153,10 @@ public sealed class StreamingFlowDiagramTests
 
     /// <summary>Verifies an empty snapshot provides configuration guidance.</summary>
     [Fact]
-    public void Render_EmptySnapshot_ShowsConfigurationGuidance()
+    public async Task Render_EmptySnapshot_ShowsConfigurationGuidance()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
 
         // Act
         var component = context.Render<StreamingFlowDiagram>(parameters =>

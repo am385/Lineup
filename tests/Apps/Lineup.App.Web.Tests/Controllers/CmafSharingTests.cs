@@ -1013,6 +1013,7 @@ public sealed class CmafSharingTests
         private readonly DirectoryInfo _root = Directory.CreateDirectory(Path.Combine(AppContext.BaseDirectory, "cmaf-sharing-artifacts", Guid.NewGuid().ToString("N")));
         private readonly ConcurrentQueue<(Process Observer, string Directory)> _encoders = new();
         private readonly ConcurrentQueue<MediaProcessRequest> _encoderRequests = new();
+        private readonly ConcurrentBag<Task> _outputCleanups = [];
         private readonly TaskCompletionSource _encoderStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource<Exception?> _sourceCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly List<CancellationTokenSource> _cancellations = [];
@@ -1286,6 +1287,13 @@ public sealed class CmafSharingTests
 
         private Process StartEncoder(MediaProcessRequest request)
         {
+            foreach (var viewer in Outputs.GetViewers())
+            {
+                if (viewer.State is ManagementPlaybackService.PendingCmafOutput output)
+                {
+                    _outputCleanups.Add(output.Stopped);
+                }
+            }
             if (ProcessFailure is not null)
             {
                 throw ProcessFailure;
@@ -1373,6 +1381,7 @@ public sealed class CmafSharingTests
                 {
                     await _playback.DisposeAsync();
                 }
+                await Task.WhenAll(_outputCleanups).WaitAsync(TimeSpan.FromSeconds(30));
                 foreach (var encoder in _encoders)
                 {
                     if (!encoder.Observer.HasExited)

@@ -25,28 +25,28 @@ public sealed class ChannelsTests
         component.Find("#channelSearch").Input("sports");
 
         // Assert
-        component.WaitForAssertion(() => Assert.Equal(["sports"], ProviderKeys(component)));
+        component.WaitForAssertion(() => Assert.Equal(["sports"], ProviderKeys(component)), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
         component.Find("#clearChannelFilters").Click();
         component.Find("#channelDeviceFilter").Change(fixture.BetaDeviceId.ToString());
 
         // Assert
-        component.WaitForAssertion(() => Assert.Equal(["movies"], ProviderKeys(component)));
+        component.WaitForAssertion(() => Assert.Equal(["movies"], ProviderKeys(component)), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
         component.Find("#clearChannelFilters").Click();
         component.Find("#channelStateFilter").Change("Disabled");
 
         // Assert
-        component.WaitForAssertion(() => Assert.Equal(["movies"], ProviderKeys(component)));
+        component.WaitForAssertion(() => Assert.Equal(["movies"], ProviderKeys(component)), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
         component.Find("#clearChannelFilters").Click();
         component.Find("#channelFlagFilter").Change("Favorite");
 
         // Assert
-        component.WaitForAssertion(() => Assert.Equal(["sports"], ProviderKeys(component)));
+        component.WaitForAssertion(() => Assert.Equal(["sports"], ProviderKeys(component)), timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>Verifies sortable headers toggle ascending and descending column order.</summary>
@@ -63,14 +63,14 @@ public sealed class ChannelsTests
         globalNumber.Click();
 
         // Assert
-        component.WaitForAssertion(() => Assert.Equal(["news", "movies", "sports"], ProviderKeys(component)));
+        component.WaitForAssertion(() => Assert.Equal(["news", "movies", "sports"], ProviderKeys(component)), timeout: LineupWebBunitContext.WaitTimeout);
         Assert.Equal("ascending", FindGlobalNumberHeader(component).ParentElement!.GetAttribute("aria-sort"));
 
         // Act
         FindGlobalNumberHeader(component).Click();
 
         // Assert
-        component.WaitForAssertion(() => Assert.Equal(["sports", "movies", "news"], ProviderKeys(component)));
+        component.WaitForAssertion(() => Assert.Equal(["sports", "movies", "news"], ProviderKeys(component)), timeout: LineupWebBunitContext.WaitTimeout);
         Assert.Equal("descending", FindGlobalNumberHeader(component).ParentElement!.GetAttribute("aria-sort"));
     }
 
@@ -85,7 +85,7 @@ public sealed class ChannelsTests
         var component = fixture.Context.Render<Channels>();
 
         // Assert
-        component.WaitForAssertion(() => Assert.DoesNotContain("table-light", component.Find("thead").ClassList));
+        component.WaitForAssertion(() => Assert.DoesNotContain("table-light", component.Find("thead").ClassList), timeout: LineupWebBunitContext.WaitTimeout);
         Assert.All(component.FindAll("thead button"), button => Assert.Contains("text-body", button.ClassList));
     }
 
@@ -96,7 +96,7 @@ public sealed class ChannelsTests
         // Arrange
         using var fixture = await ChannelFixture.CreateAsync();
         var component = fixture.Context.Render<Channels>();
-        component.WaitForAssertion(() => Assert.Contains("Multiple eligible guide channels match", component.Markup, StringComparison.Ordinal));
+        component.WaitForAssertion(() => Assert.Contains("Multiple eligible guide channels match", component.Markup, StringComparison.Ordinal), timeout: LineupWebBunitContext.WaitTimeout);
         var select = component.Find("tr[data-provider-key='news'] select.guide-binding");
         var firstValue = $"{fixture.FirstGuideId.GuideSourceId.Value:D}|{fixture.FirstGuideId.ProviderKey}";
         var secondValue = $"{fixture.SecondGuideId.GuideSourceId.Value:D}|{fixture.SecondGuideId.ProviderKey}";
@@ -105,7 +105,7 @@ public sealed class ChannelsTests
         select.Change(secondValue);
 
         // Assert
-        component.WaitForAssertion(() => Assert.Contains("Manual override.", component.Markup, StringComparison.Ordinal));
+        component.WaitForAssertion(() => Assert.Contains("Manual override.", component.Markup, StringComparison.Ordinal), timeout: LineupWebBunitContext.WaitTimeout);
         var binding = (await fixture.GuideStore.ReadBindingStatesAsync(Xunit.TestContext.Current.CancellationToken))
             .Single(state => state.SourceChannelId.ProviderKey == "news");
         Assert.NotEqual(firstValue, secondValue);
@@ -116,7 +116,7 @@ public sealed class ChannelsTests
         component.Find("tr[data-provider-key='news'] select.guide-binding").Change(string.Empty);
 
         // Assert
-        component.WaitForAssertion(() => Assert.Contains("Multiple eligible guide channels match", component.Markup, StringComparison.Ordinal));
+        component.WaitForAssertion(() => Assert.Contains("Multiple eligible guide channels match", component.Markup, StringComparison.Ordinal), timeout: LineupWebBunitContext.WaitTimeout);
         var restored = (await fixture.GuideStore.ReadBindingStatesAsync(Xunit.TestContext.Current.CancellationToken))
             .Single(state => state.SourceChannelId.ProviderKey == "news");
         Assert.Equal(GuideBindingState.NeedsGuideSelection, restored.State);
@@ -131,7 +131,7 @@ public sealed class ChannelsTests
         using var fixture = await ChannelFixture.CreateAsync();
         var component = fixture.Context.Render<Channels>();
         component.WaitForAssertion(() =>
-            Assert.Contains("No provider identity or number matched automatically", component.Markup, StringComparison.Ordinal));
+            Assert.Contains("No provider identity or number matched automatically", component.Markup, StringComparison.Ordinal), timeout: LineupWebBunitContext.WaitTimeout);
         var select = component.Find("tr[data-provider-key='sports'] select.guide-binding");
         var selectedValue = $"{fixture.FirstGuideId.GuideSourceId.Value:D}|{fixture.FirstGuideId.ProviderKey}";
 
@@ -140,7 +140,7 @@ public sealed class ChannelsTests
 
         // Assert
         component.WaitForAssertion(() =>
-            Assert.Contains("Manual override.", component.Find("tr[data-provider-key='sports']").TextContent, StringComparison.Ordinal));
+            Assert.Contains("Manual override.", component.Find("tr[data-provider-key='sports']").TextContent, StringComparison.Ordinal), timeout: LineupWebBunitContext.WaitTimeout);
         var binding = (await fixture.GuideStore.ReadBindingStatesAsync(Xunit.TestContext.Current.CancellationToken))
             .Single(state => state.SourceChannelId.ProviderKey == "sports");
         Assert.Equal(GuideBindingState.Manual, binding.State);
@@ -350,7 +350,7 @@ public sealed class ChannelsTests
         {
             Assert.True(component.Find(".save-channel-group").HasAttribute("disabled"));
             Assert.True(component.Find(".channel-equivalence-editor .btn-close").HasAttribute("disabled"));
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
         completion.SetResult([]);
         await saving;
 

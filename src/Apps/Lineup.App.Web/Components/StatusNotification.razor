@@ -2,6 +2,7 @@
 @using Lineup.App.Web.Services
 @inject IStatusNotificationService Notifications
 @inject NavigationManager Navigation
+@inject TimeProvider Clock
 
 @if (Notifications.Notifications.Count > 0)
 {
@@ -99,7 +100,7 @@
                     continue;
                 }
 
-                var timer = new Timer(UpdateCountdown, notification.Id, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+                var timer = Clock.CreateTimer(UpdateCountdown, notification.Id, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
                 _countdowns.Add(notification.Id, new NotificationCountdown(timer, DurationSeconds));
             }
         }
@@ -138,9 +139,9 @@
         });
     }
 
-    private sealed class NotificationCountdown(Timer timer, int secondsRemaining)
+    private sealed class NotificationCountdown(ITimer timer, int secondsRemaining)
     {
-        public Timer Timer { get; } = timer;
+        public ITimer Timer { get; } = timer;
 
         public int SecondsRemaining { get; set; } = secondsRemaining;
     }

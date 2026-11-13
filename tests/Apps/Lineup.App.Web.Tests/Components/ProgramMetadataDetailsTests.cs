@@ -13,10 +13,10 @@ public sealed class ProgramMetadataDetailsTests
     /// Verifies common program metadata is immediately visible.
     /// </summary>
     [Fact]
-    public void Metadata_CommonFields_RendersSummarySections()
+    public async Task Metadata_CommonFields_RendersSummarySections()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var metadata = new XmltvProgramMetadata
         {
             Ratings = [new XmltvRating("TV-14", "MPAA", [])],
@@ -58,10 +58,10 @@ public sealed class ProgramMetadataDetailsTests
     /// Verifies less common metadata is grouped inside the advanced disclosure.
     /// </summary>
     [Fact]
-    public void Metadata_AdvancedFields_RendersCollapsedDetails()
+    public async Task Metadata_AdvancedFields_RendersCollapsedDetails()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var metadata = new XmltvProgramMetadata
         {
             Credits = [new XmltvCredit("writer", "Writer Name", null, null)],
@@ -97,10 +97,10 @@ public sealed class ProgramMetadataDetailsTests
     /// Verifies empty metadata renders nothing and provider text is encoded when present.
     /// </summary>
     [Fact]
-    public void Metadata_EmptyAndProviderText_HidesEmptyStateAndEncodesText()
+    public async Task Metadata_EmptyAndProviderText_HidesEmptyStateAndEncodesText()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var emptyComponent = context.Render<ProgramMetadataDetails>(parameters => parameters.Add(item => item.Metadata, new XmltvProgramMetadata()));
         var metadata = new XmltvProgramMetadata
         {

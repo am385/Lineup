@@ -2,6 +2,7 @@ using Bunit;
 using Lineup.App.Web.Components;
 using Lineup.App.Web.Components.Layout;
 using Lineup.App.Web.Services;
+using Lineup.TestSupport;
 using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
@@ -18,10 +19,10 @@ public class StatusNotificationTests
     /// Verifies error notifications use the uniform floating presentation and can be dismissed manually.
     /// </summary>
     [Fact]
-    public void ErrorNotification_DismissButton_HidesNotification()
+    public async Task ErrorNotification_DismissButton_HidesNotification()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var notifications = new StatusNotificationService();
         var settings = Substitute.For<ILineupSettingsService>();
         settings.Settings.Returns(new LineupSettings { IsSetupComplete = true });
@@ -50,10 +51,12 @@ public class StatusNotificationTests
     /// Verifies notifications count down and dismiss themselves when their configured duration expires.
     /// </summary>
     [Fact]
-    public void Notification_DurationExpires_HidesNotification()
+    public async Task Notification_DurationExpires_HidesNotification()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
+        var clock = new ControlledTimeProvider();
+        context.Services.AddSingleton<TimeProvider>(clock);
         var notifications = new StatusNotificationService();
         context.Services.AddSingleton<IStatusNotificationService>(notifications);
         var component = context.Render<StatusNotification>(parameters => parameters
@@ -61,11 +64,11 @@ public class StatusNotificationTests
 
         // Act
         notifications.ShowSuccess("Saved.");
-        component.WaitForAssertion(
-            () => Assert.Empty(notifications.Notifications),
-            TimeSpan.FromSeconds(2));
+        await clock.WaitForTimerAsync(TimeSpan.FromSeconds(1), Xunit.TestContext.Current.CancellationToken);
+        await component.InvokeAsync(() => clock.Advance(TimeSpan.FromSeconds(1)));
 
         // Assert
+        Assert.Empty(notifications.Notifications);
         Assert.Empty(component.FindAll(".status-notification"));
     }
 
@@ -73,10 +76,10 @@ public class StatusNotificationTests
     /// Verifies navigating to another page clears a notification from the shared layout host.
     /// </summary>
     [Fact]
-    public void Notification_NavigationOccurs_HidesNotification()
+    public async Task Notification_NavigationOccurs_HidesNotification()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var notifications = new StatusNotificationService();
         context.Services.AddSingleton<IStatusNotificationService>(notifications);
         var component = context.Render<StatusNotification>();
@@ -95,10 +98,10 @@ public class StatusNotificationTests
     /// Verifies publishing more than five notifications evicts only the oldest notification.
     /// </summary>
     [Fact]
-    public void Notifications_CapacityExceeded_EvictsOldestNotification()
+    public async Task Notifications_CapacityExceeded_EvictsOldestNotification()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var notifications = new StatusNotificationService();
         context.Services.AddSingleton<IStatusNotificationService>(notifications);
         var component = context.Render<StatusNotification>();
@@ -123,7 +126,9 @@ public class StatusNotificationTests
     public async Task Notifications_PublishedAtDifferentTimes_ExpireIndependently()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
+        var clock = new ControlledTimeProvider();
+        context.Services.AddSingleton<TimeProvider>(clock);
         var notifications = new StatusNotificationService();
         context.Services.AddSingleton<IStatusNotificationService>(notifications);
         var component = context.Render<StatusNotification>(parameters => parameters
@@ -131,15 +136,22 @@ public class StatusNotificationTests
 
         // Act
         notifications.ShowSuccess("First");
-        await Task.Delay(TimeSpan.FromMilliseconds(1100), Xunit.TestContext.Current.CancellationToken);
+        await clock.WaitForTimerAsync(TimeSpan.FromSeconds(1), Xunit.TestContext.Current.CancellationToken);
+        await component.InvokeAsync(() => clock.Advance(TimeSpan.FromSeconds(1)));
         notifications.ShowSuccess("Second");
+        await clock.WaitForTimerAsync(TimeSpan.FromSeconds(1), Xunit.TestContext.Current.CancellationToken);
+        await component.InvokeAsync(() => clock.Advance(TimeSpan.FromSeconds(1)));
 
         // Assert
-        component.WaitForAssertion(() =>
-        {
-            var notification = Assert.Single(notifications.Notifications);
-            Assert.Equal("Second", notification.Message);
-            Assert.Single(component.FindAll(".status-notification"));
-        }, TimeSpan.FromSeconds(2));
+        var notification = Assert.Single(notifications.Notifications);
+        Assert.Equal("Second", notification.Message);
+        Assert.Single(component.FindAll(".status-notification"));
+
+        // Act
+        await component.InvokeAsync(() => clock.Advance(TimeSpan.FromSeconds(1)));
+
+        // Assert
+        Assert.Empty(notifications.Notifications);
+        Assert.Empty(component.FindAll(".status-notification"));
     }
 }

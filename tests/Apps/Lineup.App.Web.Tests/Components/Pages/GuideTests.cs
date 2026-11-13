@@ -19,7 +19,7 @@ public sealed class GuideTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void PartialGuide_ShowsSourceWarningEvenWhenEmpty(bool empty)
+    public async Task PartialGuide_ShowsSourceWarningEvenWhenEmpty(bool empty)
     {
         // Arrange
         var reader = Substitute.For<ILineupGuideReader>();
@@ -37,7 +37,7 @@ public sealed class GuideTests : IDisposable
                 Message = "Install the source plugin."
             }
         ]);
-        using var context = CreateContext(reader, TimeZoneInfo.Utc, new DateTimeOffset(2026, 10, 5, 15, 0, 0, TimeSpan.Zero));
+        await using var context = CreateContext(reader, TimeZoneInfo.Utc, new DateTimeOffset(2026, 10, 5, 15, 0, 0, TimeSpan.Zero));
 
         // Act
         var component = context.Render<Guide>();
@@ -50,13 +50,13 @@ public sealed class GuideTests : IDisposable
             Assert.Contains("Missing source: Install the source plugin.", warning.TextContent, StringComparison.Ordinal);
             Assert.Equal(sourceId.ToString(), component.Find("[data-guide-source-id]").GetAttribute("data-guide-source-id"));
             Assert.Equal(empty ? 0 : 1, component.FindAll(".channel-number").Count);
-        });
-        reader.DidNotReceive().GetStatisticsAsync(Arg.Any<CancellationToken>());
+        }, timeout: LineupWebBunitContext.WaitTimeout);
+        await reader.DidNotReceive().GetStatisticsAsync(Arg.Any<CancellationToken>());
     }
 
     /// <summary>Verifies channel rows are ordered by numeric channel components instead of alphabetically.</summary>
     [Fact]
-    public void ChannelRows_MixedChannelNumbers_OrdersByNumericValue()
+    public async Task ChannelRows_MixedChannelNumbers_OrdersByNumericValue()
     {
         // Arrange
         var reader = Substitute.For<ILineupGuideReader>();
@@ -70,7 +70,7 @@ public sealed class GuideTests : IDisposable
             new GuideChannelSegment { GuideNumber = "2", GuideName = "Two" }
         ]);
         reader.GetProgramsAsync(Arg.Any<DateTimeOffset?>(), Arg.Any<DateTimeOffset?>(), Arg.Any<CancellationToken>()).Returns([]);
-        using var context = CreateContext(reader, TimeZoneInfo.Utc, new DateTimeOffset(2026, 10, 5, 15, 0, 0, TimeSpan.Zero));
+        await using var context = CreateContext(reader, TimeZoneInfo.Utc, new DateTimeOffset(2026, 10, 5, 15, 0, 0, TimeSpan.Zero));
 
         // Act
         var component = context.Render<Guide>();
@@ -79,7 +79,7 @@ public sealed class GuideTests : IDisposable
         component.WaitForAssertion(() =>
             Assert.Equal(
                 ["2", "2.2", "7.10", "7.2", "10.1", "100.1"],
-                component.FindAll(".channel-number").Select(element => element.TextContent.Trim())));
+                component.FindAll(".channel-number").Select(element => element.TextContent.Trim())), timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>Verifies navigation cannot publish older programs or clear a newer request's loading indicator.</summary>
@@ -104,20 +104,20 @@ public sealed class GuideTests : IDisposable
                 _ => newer.Task
             };
         });
-        using var context = CreateContext(reader, TimeZoneInfo.Utc, new DateTimeOffset(2026, 10, 5, 15, 0, 0, TimeSpan.Zero));
+        await using var context = CreateContext(reader, TimeZoneInfo.Utc, new DateTimeOffset(2026, 10, 5, 15, 0, 0, TimeSpan.Zero));
         var component = context.Render<Guide>();
-        component.WaitForAssertion(() => Assert.Single(requests));
+        component.WaitForAssertion(() => Assert.Single(requests), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
         var olderNavigation = component.FindAll("button.btn-outline-primary")[1].ClickAsync(new());
-        component.WaitForAssertion(() => Assert.Equal(2, requests.Count));
+        component.WaitForAssertion(() => Assert.Equal(2, requests.Count), timeout: LineupWebBunitContext.WaitTimeout);
         var newerNavigation = component.FindAll("button.btn-outline-primary")[2].ClickAsync(new());
-        component.WaitForAssertion(() => Assert.Equal(3, requests.Count));
+        component.WaitForAssertion(() => Assert.Equal(3, requests.Count), timeout: LineupWebBunitContext.WaitTimeout);
         if (olderCompletesFirst)
         {
             older.SetResult([CreateProgram("Older", requests[1].Start)]);
             await olderNavigation;
-            component.WaitForAssertion(() => Assert.Single(component.FindAll(".spinner-border")));
+            component.WaitForAssertion(() => Assert.Single(component.FindAll(".spinner-border")), timeout: LineupWebBunitContext.WaitTimeout);
         }
         newer.SetResult([CreateProgram("Newest", requests[2].Start)]);
         await newerNavigation;
@@ -141,7 +141,7 @@ public sealed class GuideTests : IDisposable
             Assert.Empty(component.FindAll(".spinner-border"));
             Assert.Empty(component.FindAll("[role='alert']"));
             Assert.Contains("Wed", component.Find("button.active").TextContent, StringComparison.Ordinal);
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
         Assert.True(requests[1].Token.IsCancellationRequested);
     }
 
@@ -164,7 +164,7 @@ public sealed class GuideTests : IDisposable
             queryEnd = call.ArgAt<DateTimeOffset?>(1);
             return new[] { CreateProgram("Transition", midnight.AddMinutes(90)) };
         });
-        using var context = CreateContext(reader, zone, midnight, width);
+        await using var context = CreateContext(reader, zone, midnight, width);
 
         // Act
         var component = context.Render<Guide>();
@@ -192,7 +192,7 @@ public sealed class GuideTests : IDisposable
             var program = component.Find(".guide-program");
             Assert.Contains($"left: 360px; width: {programWidth}px;", program.GetAttribute("style"), StringComparison.Ordinal);
             Assert.Contains("(60 min)", program.GetAttribute("title"), StringComparison.Ordinal);
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
         await component.Find(".guide-program").ClickAsync(new());
         if (month == 11)
         {
@@ -207,7 +207,7 @@ public sealed class GuideTests : IDisposable
     [InlineData("America/New_York", 3, 8, 7, 15, 7, 0, "3:00 AM")]
     [InlineData("America/New_York", 11, 1, 6, 45, 6, 30, "1:30 AM (UTC-05:00)")]
     [InlineData("Asia/Kathmandu", 10, 5, 8, 0, 7, 45, "1:30 PM")]
-    public void Timeline_NarrowCurrentWindow_KeepsNowVisible(string zoneId, int month, int day, int nowHour, int nowMinute, int startHour, int startMinute, string firstLabel)
+    public async Task Timeline_NarrowCurrentWindow_KeepsNowVisible(string zoneId, int month, int day, int nowHour, int nowMinute, int startHour, int startMinute, string firstLabel)
     {
         // Arrange
         var reader = CreateReader();
@@ -220,7 +220,7 @@ public sealed class GuideTests : IDisposable
             end = call.ArgAt<DateTimeOffset?>(1);
             return Array.Empty<GuideCacheProgram>();
         });
-        using var context = CreateContext(reader, TimeZoneInfo.FindSystemTimeZoneById(zoneId), now, 360);
+        await using var context = CreateContext(reader, TimeZoneInfo.FindSystemTimeZoneById(zoneId), now, 360);
 
         // Act
         var component = context.Render<Guide>();
@@ -233,7 +233,7 @@ public sealed class GuideTests : IDisposable
             Assert.Equal(TimeSpan.FromHours(1), end - start);
             Assert.Equal(firstLabel, component.FindAll(".guide-time-slot")[0].TextContent.Trim());
             Assert.True(component.FindAll("button.btn-outline-primary")[7].HasAttribute("disabled"));
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>Verifies resizing and directory reads use the same latest-request guard as navigation.</summary>
@@ -261,13 +261,13 @@ public sealed class GuideTests : IDisposable
                 ? Task.FromResult<IReadOnlyList<GuideCacheProgram>>([CreateProgram("Resized", start)])
                 : programCalls == 1 ? Task.FromResult<IReadOnlyList<GuideCacheProgram>>([]) : programs.Task;
         });
-        using var context = CreateContext(reader, TimeZoneInfo.Utc, new DateTimeOffset(2026, 10, 5, 15, 0, 0, TimeSpan.Zero));
+        await using var context = CreateContext(reader, TimeZoneInfo.Utc, new DateTimeOffset(2026, 10, 5, 15, 0, 0, TimeSpan.Zero));
         var component = context.Render<Guide>();
-        component.WaitForAssertion(() => Assert.Equal(1, programCalls));
+        component.WaitForAssertion(() => Assert.Equal(1, programCalls), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
         var navigation = component.FindAll("button.btn-outline-primary")[1].ClickAsync(new());
-        component.WaitForAssertion(() => Assert.Equal(2, directoryCalls));
+        component.WaitForAssertion(() => Assert.Equal(2, directoryCalls), timeout: LineupWebBunitContext.WaitTimeout);
         await component.InvokeAsync(() => component.Instance.OnContainerResize(720));
         directory.SetResult([new GuideChannelSegment { GuideNumber = "99", GuideName = "Obsolete" }]);
         programs.SetResult([]);
@@ -280,7 +280,7 @@ public sealed class GuideTests : IDisposable
             Assert.Equal("Resized", component.Find(".program-title").TextContent.Trim());
             Assert.Equal("2", component.Find(".channel-number").TextContent.Trim());
             Assert.Empty(component.FindAll(".spinner-border"));
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
         Assert.Equal(blockDirectory ? 2 : 3, programCalls);
     }
 
@@ -311,13 +311,13 @@ public sealed class GuideTests : IDisposable
         });
         reader.GetProgramsAsync(Arg.Any<DateTimeOffset?>(), Arg.Any<DateTimeOffset?>(), Arg.Any<CancellationToken>())
             .Returns(_ => ++programCalls == 1 ? Task.FromResult<IReadOnlyList<GuideCacheProgram>>([]) : programs.Task);
-        using var context = CreateContext(reader, TimeZoneInfo.Utc, new DateTimeOffset(2026, 10, 5, 15, 0, 0, TimeSpan.Zero));
+        await using var context = CreateContext(reader, TimeZoneInfo.Utc, new DateTimeOffset(2026, 10, 5, 15, 0, 0, TimeSpan.Zero));
         var component = context.Render<Guide>();
-        component.WaitForAssertion(() => Assert.Equal(1, programCalls));
+        component.WaitForAssertion(() => Assert.Equal(1, programCalls), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
         var navigation = component.FindAll("button.btn-outline-primary")[1].ClickAsync(new());
-        component.WaitForAssertion(() => Assert.Equal(2, directoryCalls));
+        component.WaitForAssertion(() => Assert.Equal(2, directoryCalls), timeout: LineupWebBunitContext.WaitTimeout);
         await component.InvokeAsync(async () => await component.Instance.DisposeAsync());
         directory.SetResult([]);
         programs.SetResult([]);
@@ -346,9 +346,9 @@ public sealed class GuideTests : IDisposable
             end = call.ArgAt<DateTimeOffset?>(1);
             return Array.Empty<GuideCacheProgram>();
         });
-        using var context = CreateContext(reader, TimeZoneInfo.FindSystemTimeZoneById("America/New_York"), midnight, width);
+        await using var context = CreateContext(reader, TimeZoneInfo.FindSystemTimeZoneById("America/New_York"), midnight, width);
         var component = context.Render<Guide>();
-        component.WaitForAssertion(() => Assert.Equal(midnight, start));
+        component.WaitForAssertion(() => Assert.Equal(midnight, start), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
         for (var step = 0; step < 12 && !component.FindAll("button.btn-outline-secondary")[1].HasAttribute("disabled"); step++)
@@ -380,7 +380,7 @@ public sealed class GuideTests : IDisposable
             starts.Add(call.ArgAt<DateTimeOffset?>(0));
             return Array.Empty<GuideCacheProgram>();
         });
-        using var context = CreateContext(reader, TimeZoneInfo.Utc, new DateTimeOffset(2026, 10, 5, 15, 0, 0, TimeSpan.Zero), null);
+        await using var context = CreateContext(reader, TimeZoneInfo.Utc, new DateTimeOffset(2026, 10, 5, 15, 0, 0, TimeSpan.Zero), null);
         var viewport = context.JSInterop.Setup<int>("getGuideViewportWidth");
         var component = context.Render<Guide>();
 
@@ -394,7 +394,7 @@ public sealed class GuideTests : IDisposable
             Assert.Equal(2, starts.Count);
             Assert.All(starts, start => Assert.Equal(new DateTimeOffset(2026, 10, 6, 6, 0, 0, TimeSpan.Zero), start));
             Assert.Contains("Tomorrow", component.Find("button.active").TextContent, StringComparison.Ordinal);
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>Verifies a failed current read is explicit and can be retried without displaying old-window data.</summary>
@@ -412,9 +412,9 @@ public sealed class GuideTests : IDisposable
             }
             return new[] { CreateProgram("Current", call.ArgAt<DateTimeOffset?>(0)!.Value) };
         });
-        using var context = CreateContext(reader, TimeZoneInfo.Utc, new DateTimeOffset(2026, 10, 5, 15, 0, 0, TimeSpan.Zero));
+        await using var context = CreateContext(reader, TimeZoneInfo.Utc, new DateTimeOffset(2026, 10, 5, 15, 0, 0, TimeSpan.Zero));
         var component = context.Render<Guide>();
-        component.WaitForAssertion(() => Assert.Single(component.FindAll(".guide-program")));
+        component.WaitForAssertion(() => Assert.Single(component.FindAll(".guide-program")), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
         await component.FindAll("button.btn-outline-primary")[1].ClickAsync(new());

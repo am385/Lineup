@@ -18,7 +18,7 @@ public class TranscodingSettingsTests
     public async Task Save_DisabledChannelMode_PersistsValue()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var settings = new LineupSettings { IsSetupComplete = true };
         var settingsService = Substitute.For<ILineupSettingsService>();
         settingsService.Settings.Returns(settings);

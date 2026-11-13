@@ -767,6 +767,7 @@ Management-hosted Watch Test startup owns its encoder and transient files until 
 
 Both management-hosted and dedicated shared Watch startup own readiness and their bounded deadline at the producer, not at the initiating HTTP request.
 Canceling or stopping one pending viewer releases only that viewer; remaining viewers still receive the ready presentation or the producer's terminal failure.
+Dedicated startup preserves a known producer failure when cleanup cancels its viewers, retaining the specific process-failure or timeout response; explicit request cancellation remains cancellation.
 Releasing the final viewer cancels pending work and cleans its encoder, input, and files when keep-warm is zero. Dedicated host-initiated stops are
 acknowledged through worker status polling, normally within one second, without closing another viewer's shared input.
 Management-hosted Dashboard and Watch stop requests dispatch observed asynchronous cleanup without blocking the interactive circuit;

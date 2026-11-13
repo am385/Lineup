@@ -29,6 +29,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
     private readonly IStreamingRouteResolver? _streamRoutes;
     private readonly ICmafOutputCoordinator _cmafOutputs;
     private readonly TimeSpan _cmafStartupTimeout;
+    private readonly TimeProvider _timeProvider;
     private readonly CmafMediaTasks _preflightTasks = new();
     private readonly bool _ownsCmafOutputs;
 
@@ -44,7 +45,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
     /// <param name="protectedContentSlateService">Generates configured protected-content fallback streams.</param>
     /// <param name="tunerStreamMultiplexer">Shares tuner input among concurrent stream consumers.</param>
     /// <param name="logger">Logger used for stream lifecycle diagnostics.</param>
-    /// <param name="timeProvider">Provides time for CMAF inactivity expiration.</param>
+    /// <param name="timeProvider">Provides time for CMAF startup deadlines and inactivity expiration.</param>
     /// <param name="cmafInactivityTimeout">Overrides the internal CMAF inactivity timeout.</param>
     /// <param name="transientData">Provides the configured CMAF artifact root.</param>
     /// <param name="compatibilityTestService">Generates synthetic single-rendition CMAF compatibility tests.</param>
@@ -87,6 +88,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         _mediaProcessFactory = mediaProcessFactory ?? new MediaProcessFactory();
         _mediaWork = mediaWork;
         _streamRoutes = streamRoutes;
+        _timeProvider = timeProvider ?? TimeProvider.System;
         _cmafOutputs = cmafOutputs ?? new CmafOutputCoordinator(timeProvider, cmafInactivityTimeout, mediaWork);
         _ownsCmafOutputs = cmafOutputs is null;
         _cmafStartupTimeout = cmafStartupTimeout ?? DefaultCmafStartupTimeout;
@@ -122,8 +124,8 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
             return Failure(ManagementPlaybackFailureKind.InvalidRequest, exception.Message);
         }
         using var admissionCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        using var startupCancellation = CancellationTokenSource.CreateLinkedTokenSource(admissionCancellation.Token);
-        startupCancellation.CancelAfter(_cmafStartupTimeout);
+        using var startupDeadline = new CancellationTokenSource(_cmafStartupTimeout, _timeProvider);
+        using var startupCancellation = CancellationTokenSource.CreateLinkedTokenSource(admissionCancellation.Token, startupDeadline.Token);
         try
         {
             return await StartCmafStreamCore(channel, request, clientAddress, requestId, admissionCancellation.Cancel, cancellationToken, startupCancellation.Token);

@@ -1,6 +1,7 @@
 using System.Data;
 using System.Data.Common;
 using System.Diagnostics;
+using System.IO.MemoryMappedFiles;
 using Lineup.Core.Storage;
 using Lineup.Core.Storage.Entities;
 using Microsoft.Data.Sqlite;
@@ -412,7 +413,7 @@ public sealed class EpgDatabaseSchemaTests
                 await RunSchemaProcessAsync(path, stage, interrupt: true, deadline.Token);
 
                 // Assert
-                Assert.Empty(ReadTableNames(path));
+                Assert.Empty(await ReadTableNamesAfterProcessExitAsync(path, deadline.Token));
                 Assert.Equal(LineupStartupStatus.Ready, StartupSchemaGate.Check(null, null, path).Status);
 
                 // Act
@@ -427,6 +428,67 @@ public sealed class EpgDatabaseSchemaTests
         finally
         {
             root.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>Verifies crash inspection can recover after Windows releases a lingering WAL-index mapping without deleting database files.</summary>
+    [Fact]
+    public async Task ReadTableNamesAfterProcessExitAsync_LingeringWalMapping_AllowsRecoveryWhenReleased()
+    {
+        // Arrange
+        Assert.SkipWhen(!OperatingSystem.IsWindows(), "Requires Windows WAL-index memory-mapping semantics.");
+        var root = Directory.CreateTempSubdirectory("lineup-schema-mapping-");
+        try
+        {
+            var path = Path.Combine(root.FullName, "guide.db");
+            using (var connection = new SqliteConnection(ConnectionString(path)))
+            {
+                connection.Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = "PRAGMA journal_mode=WAL;";
+                Assert.Equal("wal", command.ExecuteScalar());
+            }
+            Task<string[]> inspection;
+            using (var file = new FileStream($"{path}-shm", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete))
+            {
+                file.SetLength(65_536);
+                using var mapping = MemoryMappedFile.CreateFromFile(file, null, file.Length, MemoryMappedFileAccess.ReadWrite, HandleInheritability.None, leaveOpen: true);
+                using var view = mapping.CreateViewAccessor();
+
+                // Act
+                inspection = ReadTableNamesAfterProcessExitAsync(path, TestContext.Current.CancellationToken);
+            }
+            var tables = await inspection.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            await using var context = new EpgDbContext(CreateOptions(path));
+            await EpgDatabaseSchema.EnsureAsync(context, TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.Empty(tables);
+            AssertCurrentSchema(path, context);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    private static async Task<string[]> ReadTableNamesAfterProcessExitAsync(string path, CancellationToken cancellationToken)
+    {
+        var elapsed = Stopwatch.StartNew();
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                return ReadTableNames(path);
+            }
+            catch (SqliteException exception) when (OperatingSystem.IsWindows() && exception.SqliteExtendedErrorCode == 1546 && elapsed.Elapsed < TimeSpan.FromSeconds(5))
+            {
+                // Windows can release a terminated writer's WAL locks before unmapping its shared-memory view (SQLITE_IOERR_TRUNCATE).
+                // https://sqlite.org/src/info/7c103a0b7d
+                TestContext.Current.TestOutputHelper?.WriteLine($"Waiting for Windows WAL-index mapping cleanup (SQLite extended error {exception.SqliteExtendedErrorCode}).");
+                await Task.Delay(TimeSpan.FromMilliseconds(25), cancellationToken);
+            }
         }
     }
 

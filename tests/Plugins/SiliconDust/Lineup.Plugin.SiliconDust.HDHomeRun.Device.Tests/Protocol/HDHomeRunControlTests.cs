@@ -27,22 +27,33 @@ public class HDHomeRunControlTests
         // Act
         var cancellationToken = TestContext.Current.CancellationToken;
         var firstExchange = control.SendAndReceiveAsync(request, cancellationToken);
-        await stream.WaitForWriteCountAsync(1);
-        var secondExchange = control.SendAndReceiveAsync(request, cancellationToken);
-        var secondWrite = stream.WaitForWriteCountAsync(2);
-        var timeout = Task.Delay(100, cancellationToken);
-        var requestsWereSerialized = await Task.WhenAny(secondWrite, timeout) == timeout;
-        stream.ReleaseResponse();
-        var firstResult = await firstExchange;
-        await secondWrite;
-        stream.ReleaseResponse();
-        var secondResult = await secondExchange;
+        Task<byte[]>? secondExchange = null;
+        Task? secondWrite = null;
+        try
+        {
+            await stream.WaitForWriteCountAsync(1);
+            secondExchange = control.SendAndReceiveAsync(request, cancellationToken);
+            secondWrite = stream.WaitForWriteCountAsync(2);
+            var requestsWereSerialized = !secondExchange.IsCompleted && !secondWrite.IsCompleted;
+            stream.ReleaseResponse();
+            var firstResult = await firstExchange;
+            await secondWrite;
+            stream.ReleaseResponse();
+            var secondResult = await secondExchange;
 
-        // Assert
-        Assert.True(requestsWereSerialized);
-        Assert.Equal(firstResponse, firstResult);
-        Assert.Equal(secondResponse, secondResult);
-        Assert.True(stream.ReadCount >= firstResponse.Length + secondResponse.Length);
+            // Assert
+            Assert.True(requestsWereSerialized);
+            Assert.Equal(firstResponse, firstResult);
+            Assert.Equal(secondResponse, secondResult);
+            Assert.True(stream.ReadCount >= firstResponse.Length + secondResponse.Length);
+        }
+        finally
+        {
+            stream.ReleaseResponse();
+            stream.ReleaseResponse();
+            await Task.WhenAll(firstExchange, secondExchange ?? Task.CompletedTask, secondWrite ?? Task.CompletedTask)
+                .WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
+        }
     }
 
     /// <summary>
@@ -417,9 +428,14 @@ public class HDHomeRunControlTests
 
         public async Task WaitForWriteCountAsync(int count)
         {
-            while (Volatile.Read(ref _writeCount) < count)
+            while (true)
             {
-                await Volatile.Read(ref _nextChange).Task.WaitAsync(TimeSpan.FromSeconds(2));
+                var change = Volatile.Read(ref _nextChange).Task;
+                if (Volatile.Read(ref _writeCount) >= count)
+                {
+                    return;
+                }
+                await change.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
             }
         }
 
@@ -431,9 +447,14 @@ public class HDHomeRunControlTests
 
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            while (Volatile.Read(ref _releasedResponseCount) <= _responseIndex)
+            while (true)
             {
-                await Volatile.Read(ref _nextChange).Task.WaitAsync(cancellationToken);
+                var change = Volatile.Read(ref _nextChange).Task;
+                if (Volatile.Read(ref _releasedResponseCount) > _responseIndex)
+                {
+                    break;
+                }
+                await change.WaitAsync(cancellationToken);
             }
 
             buffer.Span[0] = responses[_responseIndex][_responseOffset++];

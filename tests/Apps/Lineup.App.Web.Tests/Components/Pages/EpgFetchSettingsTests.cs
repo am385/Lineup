@@ -19,7 +19,7 @@ public class EpgFetchSettingsTests
     public async Task Save_OperationalSchedulesChanged_PreservesConfiguredIntervalAndDraft(bool enabled)
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var settings = new LineupSettings { IsSetupComplete = true, AutoFetchInterval = TimeSpan.FromMinutes(90) };
         var settingsService = Substitute.For<ILineupSettingsService>();
         settingsService.Settings.Returns(settings);
@@ -57,7 +57,7 @@ public class EpgFetchSettingsTests
     public async Task Save_RefreshChannelsBeforeGuideFetch_PersistsValue()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var settings = new LineupSettings { IsSetupComplete = true };
         var settingsService = Substitute.For<ILineupSettingsService>();
         settingsService.Settings.Returns(settings);
@@ -89,7 +89,7 @@ public class EpgFetchSettingsTests
         // Assert
         try
         {
-            component.WaitForAssertion(() => Assert.True(component.Find("button.btn-primary").HasAttribute("disabled")));
+            component.WaitForAssertion(() => Assert.True(component.Find("button.btn-primary").HasAttribute("disabled")), timeout: LineupWebBunitContext.WaitTimeout);
             Assert.False(saveClick.IsCompleted);
             Assert.True(settings.RefreshChannelsBeforeGuideFetch);
             Assert.Empty(context.Services.GetRequiredService<IStatusNotificationService>().Notifications);

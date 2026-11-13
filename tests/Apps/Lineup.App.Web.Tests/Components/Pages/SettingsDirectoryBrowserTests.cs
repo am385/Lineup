@@ -15,10 +15,10 @@ public class SettingsDirectoryBrowserTests
     /// Verifies that the XMLTV server directory browser opens at the saved path and can be closed.
     /// </summary>
     [Fact]
-    public void BrowseXmltvDirectories_ExistingSavedPath_OpensAtDirectoryAndCloses()
+    public async Task BrowseXmltvDirectories_ExistingSavedPath_OpensAtDirectoryAndCloses()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var temporaryDirectory = Directory.CreateTempSubdirectory("lineup-settings-browser-");
         var settingsService = Substitute.For<ILineupSettingsService>();
         settingsService.Settings.Returns(new LineupSettings { IsSetupComplete = true, XmltvOutputPath = Path.Combine(temporaryDirectory.FullName, "saved.xml") });
@@ -46,10 +46,10 @@ public class SettingsDirectoryBrowserTests
     /// Verifies that selecting a server directory updates the editable XMLTV path without persisting it.
     /// </summary>
     [Fact]
-    public void SelectXmltvPath_ChildDirectory_UpdatesFormWithoutSaving()
+    public async Task SelectXmltvPath_ChildDirectory_UpdatesFormWithoutSaving()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var temporaryDirectory = Directory.CreateTempSubdirectory("lineup-settings-browser-");
         var childDirectory = temporaryDirectory.CreateSubdirectory("guide-output");
         var settingsService = Substitute.For<ILineupSettingsService>();
@@ -71,7 +71,7 @@ public class SettingsDirectoryBrowserTests
         Assert.Equal(childDirectory.FullName, component.Find("#guideOutputDirectoryPath").GetAttribute("value"));
         Assert.Contains(Path.Combine(childDirectory.FullName, "saved.xml"), component.Find("#resolvedXmltvOutputPath").TextContent);
         Assert.Empty(component.FindAll("#xmltvDirectoryBrowser"));
-        settingsService.DidNotReceive().UpdateAsync(Arg.Any<Action<LineupSettings>>());
+        await settingsService.DidNotReceive().UpdateAsync(Arg.Any<Action<LineupSettings>>());
         temporaryDirectory.Delete(true);
     }
 }

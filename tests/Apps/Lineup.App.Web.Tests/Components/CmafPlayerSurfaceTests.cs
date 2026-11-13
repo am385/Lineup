@@ -14,10 +14,10 @@ public sealed class CmafPlayerSurfaceTests
     /// Verifies live playback renders the stable Shaka container, video element, and loading contract.
     /// </summary>
     [Fact]
-    public void LiveSurface_RendersShakaPlayerAndLoadingState()
+    public async Task LiveSurface_RendersShakaPlayerAndLoadingState()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         context.JSInterop.SetupVoid("stopMediaPlayer", _ => true).SetVoidResult();
 
         // Act
@@ -40,7 +40,7 @@ public sealed class CmafPlayerSurfaceTests
     public async Task InitializeLiveAsync_UsesSurfaceElementIdentifier()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         context.JSInterop.SetupVoid("stopMediaPlayer", _ => true).SetVoidResult();
         context.JSInterop.Setup<PlayerResult>("initCmafPlayer", _ => true).SetResult(new PlayerResult(true));
         var component = context.Render<CmafPlayerSurface>(parameters => parameters

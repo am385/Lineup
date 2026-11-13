@@ -21,7 +21,7 @@ public partial class WatchTests
 
     /// <summary>Verifies channel numbers are ordered numerically instead of alphabetically.</summary>
     [Fact]
-    public void ChannelList_MixedChannelNumbers_OrdersByNumericValue()
+    public async Task ChannelList_MixedChannelNumbers_OrdersByNumericValue()
     {
         // Arrange
         var repository = Substitute.For<ILineupGuideReader>();
@@ -35,7 +35,7 @@ public partial class WatchTests
             new GuideChannelSegment { GuideNumber = "2", GuideName = "Two" }
         ]);
         repository.GetProgramsAsync(Arg.Any<DateTimeOffset?>(), Arg.Any<DateTimeOffset?>(), Arg.Any<CancellationToken>()).Returns([]);
-        using var context = CreateContext(repository: repository);
+        await using var context = CreateContext(repository: repository);
 
         // Act
         var component = context.Render<Watch>();
@@ -44,17 +44,17 @@ public partial class WatchTests
         component.WaitForAssertion(() =>
             Assert.Equal(
                 ["2", "2.2", "7.10", "7.2", "10.1", "100.1"],
-                component.FindAll(".cmaf-channel-number").Select(element => element.TextContent.Trim())));
+                component.FindAll(".cmaf-channel-number").Select(element => element.TextContent.Trim())), timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
     /// Verifies a browser without a completed compatibility profile can launch the complete Watch Test suite.
     /// </summary>
     [Fact]
-    public void MissingCompatibilityProfile_ShowsRunAllWatchTestLink()
+    public async Task MissingCompatibilityProfile_ShowsRunAllWatchTestLink()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
 
         // Act
         var component = context.Render<Watch>();
@@ -65,18 +65,18 @@ public partial class WatchTests
             var link = component.Find("#runCmafCompatibilityTests");
             Assert.Equal("/watch-test?runAll=true", link.GetAttribute("href"));
             Assert.Contains("Run Compatibility Tests", link.TextContent, StringComparison.Ordinal);
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
     /// Verifies a valid compatibility profile for the current browser suppresses the Watch Test prompt.
     /// </summary>
     [Fact]
-    public void CurrentCompatibilityProfile_HidesRunAllWatchTestLink()
+    public async Task CurrentCompatibilityProfile_HidesRunAllWatchTestLink()
     {
         // Arrange
         var profile = CreateCompatibilityProfile();
-        using var context = CreateContext();
+        await using var context = CreateContext();
         context.JSInterop.Setup<string?>("localStorage.getItem", CmafCompatibilityProfile.StorageKey).SetResult(JsonSerializer.Serialize(profile));
         context.JSInterop.Setup<string>("getCmafBrowserIdentity").SetResult("test-browser");
 
@@ -84,17 +84,17 @@ public partial class WatchTests
         var component = context.Render<Watch>();
 
         // Assert
-        component.WaitForAssertion(() => Assert.Empty(component.FindAll("#runCmafCompatibilityTests")));
+        component.WaitForAssertion(() => Assert.Empty(component.FindAll("#runCmafCompatibilityTests")), timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
     /// Verifies the player area communicates that a CMAF stream is being prepared.
     /// </summary>
     [Fact]
-    public void StreamStartup_ShowsAccessibleLoadingOverlay()
+    public async Task StreamStartup_ShowsAccessibleLoadingOverlay()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         var component = context.Render<Watch>();
         var loadingField = typeof(Watch).GetField("_isPlayerLoading", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(loadingField);
@@ -116,15 +116,15 @@ public partial class WatchTests
     /// Verifies manual stream settings are hidden by default and reveal Browser profile choices when enabled.
     /// </summary>
     [Fact]
-    public void StreamOverrides_DefaultHiddenAndRevealBrowserProfileChoices()
+    public async Task StreamOverrides_DefaultHiddenAndRevealBrowserProfileChoices()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         var component = context.Render<Watch>();
         var initiallyHidden = component.Find("#cmafOverrideSettings").ClassList.Contains("d-none");
 
         // Act
-        component.Find("#cmafOverrideStreamSettings").Change(true);
+        await component.Find("#cmafOverrideStreamSettings").ChangeAsync(new ChangeEventArgs { Value = true });
 
         // Assert
         Assert.True(initiallyHidden);
@@ -137,27 +137,27 @@ public partial class WatchTests
                 context.JSInterop.Invocations,
                 invocation => invocation.Identifier == "localStorage.setItem" && Equals(invocation.Arguments[0], PreferencesStorageKey));
             Assert.Contains("\"Overrides\":{\"Enabled\":true", Assert.IsType<string>(storageWrite.Arguments[1]), StringComparison.Ordinal);
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
     /// Verifies an audio-only UI override keeps video on the measured browser profile in the typed request.
     /// </summary>
     [Fact]
-    public void StreamOverrides_AudioOnly_SendsMeasuredProfileWithVideoPreserved()
+    public async Task StreamOverrides_AudioOnly_SendsMeasuredProfileWithVideoPreserved()
     {
         // Arrange
         var profile = CreateCompatibilityProfile();
-        using var context = CreateContext();
+        await using var context = CreateContext();
         context.JSInterop.Setup<string?>("localStorage.getItem", CmafCompatibilityProfile.StorageKey).SetResult(JsonSerializer.Serialize(profile));
         context.JSInterop.Setup<string>("getCmafBrowserIdentity").SetResult("test-browser");
         ConfigureSuccessfulSession(context);
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
-        component.Find("#cmafOverrideStreamSettings").Change(true);
-        component.Find("#cmafPreferredAudio").Change(CmafPreferredAudio.Fallback.ToString());
+        await component.Find("#cmafOverrideStreamSettings").ChangeAsync(new ChangeEventArgs { Value = true });
+        await component.Find("#cmafPreferredAudio").ChangeAsync(new ChangeEventArgs { Value = CmafPreferredAudio.Fallback.ToString() });
 
         // Assert
         component.WaitForAssertion(() =>
@@ -168,18 +168,18 @@ public partial class WatchTests
             Assert.Equal(CmafPreferredAudio.Fallback, request.Overrides.Audio);
             Assert.Null(request.Overrides.Video);
             Assert.NotNull(request.CompatibilityProfile);
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
     /// Verifies a completed profile enables the typed Auto tune request.
     /// </summary>
     [Fact]
-    public void CompletedProfile_StartsTypedAutomaticSession()
+    public async Task CompletedProfile_StartsTypedAutomaticSession()
     {
         // Arrange
         var profile = CreateCompatibilityProfile();
-        using var context = CreateContext();
+        await using var context = CreateContext();
         context.JSInterop.Setup<string?>("localStorage.getItem", CmafCompatibilityProfile.StorageKey).SetResult(JsonSerializer.Serialize(profile));
         context.JSInterop.Setup<string>("getCmafBrowserIdentity").SetResult("test-browser");
         ConfigureSuccessfulSession(context);
@@ -196,14 +196,14 @@ public partial class WatchTests
             Assert.Equal(CmafPreferredVideo.Auto, request.PreferredVideo);
             Assert.Equal(CmafPreferredAudio.Auto, request.PreferredAudio);
             Assert.NotNull(request.CompatibilityProfile);
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>Verifies the Web Player can use the management host without a dedicated listener.</summary>
     [Theory]
     [InlineData("http")]
     [InlineData("https")]
-    public void ManagementHostedPlayer_StartsSessionOnManagementApi(string pageScheme)
+    public async Task ManagementHostedPlayer_StartsSessionOnManagementApi(string pageScheme)
     {
         // Arrange
         var settings = Substitute.For<ILineupSettingsService>();
@@ -214,7 +214,7 @@ public partial class WatchTests
                 VirtualDevices = [WebPlayerVirtualTunerDriver.CreateBuiltIn()]
             }
         });
-        using var context = CreateContext(settingsService: settings);
+        await using var context = CreateContext(settingsService: settings);
         context.Services.GetRequiredService<NavigationManager>().NavigateTo($"{pageScheme}://localhost/watch");
         ConfigureSuccessfulSession(context);
 
@@ -226,7 +226,7 @@ public partial class WatchTests
         {
             var start = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession");
             Assert.Equal("/api/stream/cmaf/start/42.1", start.Arguments[0]);
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>Verifies dedicated media selection uses public transport, preserves compatible binding order and normalizes prefixes.</summary>
@@ -238,7 +238,7 @@ public partial class WatchTests
     [InlineData("http", "http://media.example/media/start/42.1", "http://media.example/")]
     [InlineData("http", "http://media.example/media/start/42.1", "not-a-uri", "http://media.example/")]
     [InlineData("https", "https://media.example/media/start/42.1", "ftp://media.example/", "https://media.example/")]
-    public void DedicatedPlayer_CompatiblePublicBindings_StartsExpectedMediaUrl(string pageScheme, string expectedStartUrl, params string[] publicUris)
+    public async Task DedicatedPlayer_CompatiblePublicBindings_StartsExpectedMediaUrl(string pageScheme, string expectedStartUrl, params string[] publicUris)
     {
         // Arrange
         var configuration = CreateHostedWebPlayerSettings();
@@ -257,7 +257,7 @@ public partial class WatchTests
         };
         var settings = Substitute.For<ILineupSettingsService>();
         settings.Settings.Returns(configuration);
-        using var context = CreateContext(settingsService: settings);
+        await using var context = CreateContext(settingsService: settings);
         context.Services.GetRequiredService<NavigationManager>().NavigateTo($"{pageScheme}://localhost/watch");
         ConfigureSuccessfulSession(context);
 
@@ -270,7 +270,7 @@ public partial class WatchTests
             var start = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession");
             Assert.Equal(expectedStartUrl, start.Arguments[0]);
             Assert.NotNull(component.Find("#cmafVideoPlayer"));
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>Verifies incompatible dedicated transport fails before issuing a browser media request, including HTTP loopback on HTTPS pages.</summary>
@@ -280,7 +280,7 @@ public partial class WatchTests
     [InlineData("https", "")]
     [InlineData("http", "ftp://media.example/")]
     [InlineData("http", "not-a-uri")]
-    public void DedicatedPlayer_NoCompatiblePublicBinding_ShowsConfigurationError(string pageScheme, string publicUri)
+    public async Task DedicatedPlayer_NoCompatiblePublicBinding_ShowsConfigurationError(string pageScheme, string publicUri)
     {
         // Arrange
         var configuration = CreateHostedWebPlayerSettings();
@@ -296,7 +296,7 @@ public partial class WatchTests
         };
         var settings = Substitute.For<ILineupSettingsService>();
         settings.Settings.Returns(configuration);
-        using var context = CreateContext(settingsService: settings);
+        await using var context = CreateContext(settingsService: settings);
         context.Services.GetRequiredService<NavigationManager>().NavigateTo($"{pageScheme}://localhost/watch");
 
         // Act
@@ -311,18 +311,18 @@ public partial class WatchTests
             Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession");
             Assert.Empty(component.FindAll("#cmafVideoPlayer"));
             Assert.Empty(component.FindAll("#cmafStreamLoading"));
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
     /// Verifies a current stored source preference cannot bypass a measured browser profile when overrides are disabled.
     /// </summary>
     [Fact]
-    public void CompletedProfile_CurrentSourcePreferenceWithoutOverrides_StartsTypedAutomaticSession()
+    public async Task CompletedProfile_CurrentSourcePreferenceWithoutOverrides_StartsTypedAutomaticSession()
     {
         // Arrange
         var profile = CreateCompatibilityProfile();
-        using var context = CreateContext(
+        await using var context = CreateContext(
             """{"PolicyVersion":1,"Protocol":0,"Quality":0,"PreferredVideo":0,"PreferredAudio":0,"FallbackAudio":0,"Overrides":{"Enabled":false}}""");
         context.JSInterop.Setup<string?>("localStorage.getItem", CmafCompatibilityProfile.StorageKey).SetResult(JsonSerializer.Serialize(profile));
         context.JSInterop.Setup<string>("getCmafBrowserIdentity").SetResult("test-browser");
@@ -340,17 +340,17 @@ public partial class WatchTests
             Assert.Equal(CmafPreferredAudio.Auto, request.PreferredAudio);
             Assert.False(request.Overrides.Enabled);
             Assert.NotNull(request.CompatibilityProfile);
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
     /// Verifies Auto mode prefers DASH and provides HLS fallback for the same server session.
     /// </summary>
     [Fact]
-    public void DirectRoute_AutoModeStartsSharedDashAndCmafSession()
+    public async Task DirectRoute_AutoModeStartsSharedDashAndCmafSession()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         ConfigureSuccessfulSession(context);
 
         // Act
@@ -381,23 +381,23 @@ public partial class WatchTests
                 subtitles,
                 subtitle => Assert.Equal(2, subtitle.SourceIndex),
                 subtitle => Assert.Equal(3, subtitle.SourceIndex));
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
     /// Verifies selecting H.264 fallback persists the video preference and restarts the presentation.
     /// </summary>
     [Fact]
-    public void PreferredVideoChange_PersistsAndRestartsWithH264Fallback()
+    public async Task PreferredVideoChange_PersistsAndRestartsWithH264Fallback()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         ConfigureSuccessfulSession(context);
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "105.1"));
-        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
-        component.Find("#cmafPreferredVideo").Change(CmafPreferredVideo.Fallback.ToString());
+        await component.Find("#cmafPreferredVideo").ChangeAsync(new ChangeEventArgs { Value = CmafPreferredVideo.Fallback.ToString() });
 
         // Assert
         component.WaitForAssertion(() =>
@@ -409,7 +409,7 @@ public partial class WatchTests
                 context.JSInterop.Invocations,
                 invocation => invocation.Identifier == "localStorage.setItem" && Equals(invocation.Arguments[0], PreferencesStorageKey));
             Assert.Contains("\"PreferredVideo\":1", Assert.IsType<string>(storageWrite.Arguments[1]), StringComparison.Ordinal);
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
@@ -419,7 +419,7 @@ public partial class WatchTests
     public async Task ShakaAudioRenditionChange_UpdatesDetailsWithoutRestart()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         context.JSInterop
             .Setup<Watch.CmafStartResponse>("startCmafSession", _ => true)
             .SetResult(new(
@@ -435,7 +435,7 @@ public partial class WatchTests
                 Audio: new("eng · Fallback AAC Stereo", "mp4a.40.2", 2, "11", "eng"),
                 Video: new("avc1.64002a", 1920, 1080)));
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")), timeout: LineupWebBunitContext.WaitTimeout);
         using var details = JsonDocument.Parse("""{"id":"12","label":"spa · Source","language":"spa","codec":"ac-3","channels":2}""");
 
         // Act
@@ -450,7 +450,7 @@ public partial class WatchTests
             Assert.True(component.Find("#cmafVideoPlayer").ParentElement?.HasAttribute("data-lineup-cmaf-container"));
             Assert.Contains("spa · Source", component.Markup);
             Assert.Contains("ac-3", component.Markup);
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
@@ -460,10 +460,10 @@ public partial class WatchTests
     public async Task FatalPlayerFailure_StopsPlaybackSession()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         ConfigureSuccessfulSession(context);
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
         await component.InvokeAsync(() => component.Instance.OnCmafPlayerEvent(
@@ -479,7 +479,7 @@ public partial class WatchTests
             Assert.Contains(
                 context.JSInterop.Invocations,
                 invocation => invocation.Identifier == "stopCmafSession" && Equals(invocation.Arguments[0], "session-1"));
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
@@ -496,7 +496,8 @@ public partial class WatchTests
             new GuideChannelSegment { GuideNumber = "2.2", GuideName = "Second" }
         ]);
         repository.GetProgramsAsync(Arg.Any<DateTimeOffset?>(), Arg.Any<DateTimeOffset?>(), Arg.Any<CancellationToken>()).Returns([]);
-        using var context = CreateContext(repository: repository);
+        await using var context = CreateContext(repository: repository);
+        context.JSInterop.SetupVoid("stopCmafSession", "session-2").SetVoidResult();
         context.JSInterop
             .Setup<Watch.CmafStartResponse>(
                 "startCmafSession",
@@ -509,9 +510,9 @@ public partial class WatchTests
             .Setup<Watch.CmafPlayerResult>("initCmafPlayer", _ => true)
             .SetResult(new(true, null, "/api/stream/cmaf/session-1/manifest.mpd"));
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "2.1"));
-        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer"), timeout: LineupWebBunitContext.WaitTimeout);
         await component.InvokeAsync(() => component.Instance.OnCmafPlayerEvent(new("error", "First channel failed.", null, "session-1")));
-        component.WaitForAssertion(() => Assert.Contains("First channel failed.", component.Markup, StringComparison.Ordinal));
+        component.WaitForAssertion(() => Assert.Contains("First channel failed.", component.Markup, StringComparison.Ordinal), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
         var replacementTune = component.FindAll(".cmaf-channel-item")
@@ -525,7 +526,7 @@ public partial class WatchTests
                 context.JSInterop.Invocations,
                 invocation => invocation.Identifier == "startCmafSession" &&
                     Assert.IsType<string>(invocation.Arguments[0]).EndsWith("/media/start/2.2", StringComparison.Ordinal));
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
         replacementStart.SetResult(new("session-2", "/api/stream/cmaf/session-2/master.m3u8", "/api/stream/cmaf/session-2/manifest.mpd"));
         await replacementTune;
     }
@@ -534,10 +535,10 @@ public partial class WatchTests
     /// Verifies an unsupported source-video presentation retries H.264 without changing the saved Source preference.
     /// </summary>
     [Fact]
-    public void UnsupportedSourceVideo_RetriesWithH264WithoutChangingPreference()
+    public async Task UnsupportedSourceVideo_RetriesWithH264WithoutChangingPreference()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         context.JSInterop
             .Setup<Watch.CmafStartResponse>(
                 "startCmafSession",
@@ -584,18 +585,18 @@ public partial class WatchTests
             var notification = Assert.Single(context.Services.GetRequiredService<IStatusNotificationService>().Notifications);
             Assert.Equal("Source video is unavailable in this browser. Retrying this stream with H.264.", notification.Message);
             Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "localStorage.setItem");
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
     /// Verifies a source-video decoder failure during initialization retries H.264 without changing the saved Source preference.
     /// </summary>
     [Fact]
-    public void SourceVideoInitializationDecodeFailure_RetriesWithH264WithoutChangingPreference()
+    public async Task SourceVideoInitializationDecodeFailure_RetriesWithH264WithoutChangingPreference()
     {
         // Arrange
         var profile = CreateCompatibilityProfile();
-        using var context = CreateContext();
+        await using var context = CreateContext();
         context.JSInterop.Setup<string?>("localStorage.getItem", CmafCompatibilityProfile.StorageKey).SetResult(JsonSerializer.Serialize(profile));
         context.JSInterop.Setup<string>("getCmafBrowserIdentity").SetResult("test-browser");
         context.JSInterop
@@ -645,17 +646,17 @@ public partial class WatchTests
             Assert.Contains("avc1.64002a", component.Markup);
             Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "localStorage.setItem");
             Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "localStorage.removeItem");
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
     /// Verifies an H.264 fallback decoder failure during initialization does not start another fallback session.
     /// </summary>
     [Fact]
-    public void FallbackVideoInitializationDecodeFailure_DoesNotRetry()
+    public async Task FallbackVideoInitializationDecodeFailure_DoesNotRetry()
     {
         // Arrange
-        using var context = CreateContext("""{"Protocol":0,"Quality":0,"PreferredAudio":0,"PreferredVideo":1,"FallbackAudio":0,"SubtitleTrack":null}""");
+        await using var context = CreateContext("""{"Protocol":0,"Quality":0,"PreferredAudio":0,"PreferredVideo":1,"FallbackAudio":0,"SubtitleTrack":null}""");
         context.JSInterop
             .Setup<Watch.CmafStartResponse>(
                 "startCmafSession",
@@ -675,7 +676,7 @@ public partial class WatchTests
             var start = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession");
             Assert.Equal(CmafPreferredVideo.Fallback, GetStartRequest(start).PreferredVideo);
             Assert.Contains("Shaka Error 3016", component.Markup);
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
@@ -686,7 +687,7 @@ public partial class WatchTests
     {
         // Arrange
         var profile = CreateCompatibilityProfile();
-        using var context = CreateContext();
+        await using var context = CreateContext();
         context.JSInterop.Setup<string?>("localStorage.getItem", CmafCompatibilityProfile.StorageKey).SetResult(JsonSerializer.Serialize(profile));
         context.JSInterop.Setup<string>("getCmafBrowserIdentity").SetResult("test-browser");
         context.JSInterop
@@ -711,7 +712,7 @@ public partial class WatchTests
         context.JSInterop.SetupVoid("stopCmafSession", "source-session").SetVoidResult();
         context.JSInterop.SetupVoid("stopCmafSession", "fallback-session").SetVoidResult();
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "104.1"));
-        component.WaitForAssertion(() => Assert.Contains("avc1.4d401e", component.Markup));
+        component.WaitForAssertion(() => Assert.Contains("avc1.4d401e", component.Markup), timeout: LineupWebBunitContext.WaitTimeout);
         var initialize = Assert.Single(
             context.JSInterop.Invocations,
             invocation => invocation.Identifier == "initCmafPlayer" &&
@@ -734,17 +735,17 @@ public partial class WatchTests
             Assert.NotNull(fallbackRequest.CompatibilityProfile);
             Assert.Equal(nameof(CmafPreferredVideo.Source), component.Find("#cmafPreferredVideo").GetAttribute("value"));
             Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "localStorage.removeItem");
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
     /// Verifies explicit HLS mode does not silently provide a protocol fallback.
     /// </summary>
     [Fact]
-    public void StoredHlsMode_InitializesOnlyHlsManifest()
+    public async Task StoredHlsMode_InitializesOnlyHlsManifest()
     {
         // Arrange
-        using var context = CreateContext("""{"Protocol":1,"Quality":0,"PreferredAudio":0,"FallbackAudio":0,"SubtitleTrack":null}""");
+        await using var context = CreateContext("""{"Protocol":1,"Quality":0,"PreferredAudio":0,"FallbackAudio":0,"SubtitleTrack":null}""");
         ConfigureSuccessfulSession(context);
 
         // Act
@@ -757,17 +758,17 @@ public partial class WatchTests
             Assert.Equal("/api/stream/cmaf/session-1/master.m3u8", initialize.Arguments[1]);
             Assert.Null(initialize.Arguments[2]);
             Assert.Equal(nameof(CmafFallbackAudio.AacStereo), component.Find("#cmafFallbackAudio").GetAttribute("value"));
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
     /// Verifies a fallback-only server retry informs the user without changing the Source preference.
     /// </summary>
     [Fact]
-    public void SourceAudioMuxerFallback_NotifiesWithoutChangingPreference()
+    public async Task SourceAudioMuxerFallback_NotifiesWithoutChangingPreference()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         ConfigureSuccessfulSession(context, sourceAudioFallbackApplied: true);
 
         // Act
@@ -782,27 +783,27 @@ public partial class WatchTests
             Assert.DoesNotContain(
                 context.JSInterop.Invocations,
                 invocation => invocation.Identifier == "localStorage.setItem" && Equals(invocation.Arguments[0], PreferencesStorageKey));
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
     /// Verifies selecting fallback audio persists only the CMAF preference and restarts the presentation.
     /// </summary>
     [Fact]
-    public void PreferredAudioChange_PersistsAndRestartsWithFallback()
+    public async Task PreferredAudioChange_PersistsAndRestartsWithFallback()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         ConfigureSuccessfulSession(context);
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
         component.WaitForAssertion(() =>
         {
             Assert.NotNull(component.Find("#cmafVideoPlayer"));
             Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer");
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
-        component.Find("#cmafPreferredAudio").Change(CmafPreferredAudio.Fallback.ToString());
+        await component.Find("#cmafPreferredAudio").ChangeAsync(new ChangeEventArgs { Value = CmafPreferredAudio.Fallback.ToString() });
 
         // Assert
         component.WaitForAssertion(() =>
@@ -814,17 +815,17 @@ public partial class WatchTests
                 context.JSInterop.Invocations,
                 invocation => invocation.Identifier == "localStorage.setItem" && Equals(invocation.Arguments[0], PreferencesStorageKey));
             Assert.Contains("\"PreferredAudio\":1", Assert.IsType<string>(storageWrite.Arguments[1]), StringComparison.Ordinal);
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
     /// Verifies fallback choices are quality ordered while AAC Stereo remains the compatibility default.
     /// </summary>
     [Fact]
-    public void FallbackAudio_DefaultAndOptions_AreCompatibilityAware()
+    public async Task FallbackAudio_DefaultAndOptions_AreCompatibilityAware()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         ConfigureSuccessfulSession(context);
 
         // Act
@@ -838,23 +839,23 @@ public partial class WatchTests
             Assert.Equal(
                 ["Browser profile", "EAC3", "AC3", "AAC up to 7.1", "AAC up to 5.1", "AAC Stereo"],
                 select.QuerySelectorAll("option").Select(option => option.TextContent.Trim()).ToArray());
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
     /// Verifies selecting EAC3 persists the fallback profile and sends it to the CMAF API.
     /// </summary>
     [Fact]
-    public void FallbackAudioChange_PersistsAndRestartsWithEac3()
+    public async Task FallbackAudioChange_PersistsAndRestartsWithEac3()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         ConfigureSuccessfulSession(context);
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
-        component.Find("#cmafFallbackAudio").Change(CmafFallbackAudio.Eac3.ToString());
+        await component.Find("#cmafFallbackAudio").ChangeAsync(new ChangeEventArgs { Value = CmafFallbackAudio.Eac3.ToString() });
 
         // Assert
         component.WaitForAssertion(() =>
@@ -866,17 +867,17 @@ public partial class WatchTests
                 context.JSInterop.Invocations,
                 invocation => invocation.Identifier == "localStorage.setItem" && Equals(invocation.Arguments[0], PreferencesStorageKey));
             Assert.Contains("\"FallbackAudio\":4", Assert.IsType<string>(storageWrite.Arguments[1]), StringComparison.Ordinal);
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
     /// Verifies a browser that rejects the configured fallback gets a temporary AAC Stereo session without changing the saved preference.
     /// </summary>
     [Fact]
-    public void UnsupportedAc3Presentation_RetriesWithAacStereoWithoutChangingPreference()
+    public async Task UnsupportedAc3Presentation_RetriesWithAacStereoWithoutChangingPreference()
     {
         // Arrange
-        using var context = CreateContext("""{"Protocol":2,"Quality":0,"PreferredAudio":1,"FallbackAudio":3,"SubtitleTrack":null}""");
+        await using var context = CreateContext("""{"Protocol":2,"Quality":0,"PreferredAudio":1,"FallbackAudio":3,"SubtitleTrack":null}""");
         context.JSInterop
             .Setup<Watch.CmafStartResponse>(
                 "startCmafSession",
@@ -924,17 +925,17 @@ public partial class WatchTests
             Assert.DoesNotContain(
                 context.JSInterop.Invocations,
                 invocation => invocation.Identifier == "localStorage.setItem");
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
     /// Verifies a generic Shaka 4032 does not replace AC3 when the browser reports AC3 support.
     /// </summary>
     [Fact]
-    public void SupportedAc3Presentation_GenericUnsupportedError_DoesNotRetryAac()
+    public async Task SupportedAc3Presentation_GenericUnsupportedError_DoesNotRetryAac()
     {
         // Arrange
-        using var context = CreateContext("""{"Protocol":2,"Quality":0,"PreferredAudio":1,"FallbackAudio":3,"SubtitleTrack":null}""");
+        await using var context = CreateContext("""{"Protocol":2,"Quality":0,"PreferredAudio":1,"FallbackAudio":3,"SubtitleTrack":null}""");
         context.JSInterop
             .Setup<Watch.CmafStartResponse>("startCmafSession", _ => true)
             .SetResult(
@@ -957,7 +958,7 @@ public partial class WatchTests
             Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession");
             Assert.Contains("Shaka Error 4032", component.Markup, StringComparison.Ordinal);
             Assert.Empty(context.Services.GetRequiredService<IStatusNotificationService>().Notifications);
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
@@ -967,14 +968,14 @@ public partial class WatchTests
     public async Task Dispose_StopsPlayerAndServerSession()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         ConfigureSuccessfulSession(context);
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
         component.WaitForAssertion(() =>
         {
             Assert.NotNull(component.Find("#cmafVideoPlayer"));
             Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer");
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
         await component.Instance.DisposeAsync();
@@ -995,17 +996,17 @@ public partial class WatchTests
         // Arrange
         var registry = Substitute.For<IActiveStreamRegistry>();
         registry.GetActiveStreams().Returns([]);
-        using var context = CreateContext(registry: registry);
+        await using var context = CreateContext(registry: registry);
         ConfigureSuccessfulSession(context);
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer"), timeout: LineupWebBunitContext.WaitTimeout);
         var stopPlayer = context.JSInterop.SetupVoid("stopMediaPlayer", _ => true);
         var clientId = Assert.IsType<string>(typeof(Watch).GetField("_clientId", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(component.Instance));
         registry.ClearReceivedCalls();
 
         // Act
         var stopping = component.InvokeAsync(() => component.Instance.OnCmafPlayerEvent(new("error", "Playback failed.", null, "session-1")));
-        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopMediaPlayer"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopMediaPlayer"), timeout: LineupWebBunitContext.WaitTimeout);
         var serverStoppedBeforePlayer = context.JSInterop.Invocations.Any(invocation => invocation.Identifier == "stopCmafSession");
         var registryStoppedBeforePlayer = registry.ReceivedCalls().Any(call => call.GetMethodInfo().Name == nameof(IActiveStreamRegistry.RequestStopByClientId));
         var pending = !stopping.IsCompleted;
@@ -1030,10 +1031,10 @@ public partial class WatchTests
     public async Task Stop_PlayerDestructionFails_StillStopsServer(bool disconnected)
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         ConfigureSuccessfulSession(context);
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer"), timeout: LineupWebBunitContext.WaitTimeout);
         var stopPlayer = context.JSInterop.SetupVoid("stopMediaPlayer", _ => true);
         if (disconnected)
         {
@@ -1064,10 +1065,10 @@ public partial class WatchTests
     public async Task Stop_ServerStopFails_RetriesCapturedSessionDuringDisposal()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         ConfigureSuccessfulSession(context);
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer"), timeout: LineupWebBunitContext.WaitTimeout);
         var stopServer = context.JSInterop.SetupVoid("stopCmafSession", "session-1");
         stopServer.SetException(new JSException("CMAF session stop failed: HTTP 503."));
 
@@ -1091,10 +1092,10 @@ public partial class WatchTests
     public async Task Navigation_DelayedPlayerDestruction_StopsServerBeforeLeaving()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         ConfigureSuccessfulSession(context);
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer"), timeout: LineupWebBunitContext.WaitTimeout);
         var stopPlayer = context.JSInterop.SetupVoid("stopMediaPlayer", _ => true);
         var navigation = context.Services.GetRequiredService<NavigationManager>();
         var arrived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1102,7 +1103,7 @@ public partial class WatchTests
 
         // Act
         await component.InvokeAsync(() => navigation.NavigateTo("/next"));
-        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopCmafSession"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopCmafSession"), timeout: LineupWebBunitContext.WaitTimeout);
         var pendingUri = navigation.Uri;
         stopPlayer.SetVoidResult();
         await arrived.Task.WaitAsync(TimeSpan.FromSeconds(5), Xunit.TestContext.Current.CancellationToken);
@@ -1120,11 +1121,11 @@ public partial class WatchTests
     public async Task Dispose_DuringPendingStart_CancelsAndStopsLateSession()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         var start = context.JSInterop.Setup<Watch.CmafStartResponse>("startCmafSession", _ => true);
         context.JSInterop.SetupVoid("stopCmafSession", "late-session").SetVoidResult();
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession"), timeout: LineupWebBunitContext.WaitTimeout);
         var startInvocation = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession");
         var startupId = Assert.IsType<string>(startInvocation.Arguments[2]);
 
@@ -1142,7 +1143,7 @@ public partial class WatchTests
                 context.JSInterop.Invocations,
                 invocation => invocation.Identifier == "stopCmafSession" && Equals(invocation.Arguments[0], "late-session"));
             Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer");
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
@@ -1152,7 +1153,7 @@ public partial class WatchTests
     public async Task RouteChange_DuringPendingStart_TunesLatestChannel()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         var start = context.JSInterop.Setup<Watch.CmafStartResponse>("startCmafSession", _ => true);
         context.JSInterop
             .Setup<Watch.CmafPlayerResult>("initCmafPlayer", _ => true)
@@ -1161,7 +1162,7 @@ public partial class WatchTests
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
         component.WaitForAssertion(() => Assert.Single(
             context.JSInterop.Invocations,
-            invocation => invocation.Identifier == "startCmafSession"));
+            invocation => invocation.Identifier == "startCmafSession"), timeout: LineupWebBunitContext.WaitTimeout);
         var setParameters = typeof(Watch).GetMethod("OnParametersSetAsync", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(setParameters);
 
@@ -1178,7 +1179,7 @@ public partial class WatchTests
                 .ToArray();
             Assert.Equal(2, starts.Length);
             Assert.Contains("/105.1", Assert.IsType<string>(starts[1].Arguments[0]), StringComparison.Ordinal);
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
@@ -1188,15 +1189,16 @@ public partial class WatchTests
     public async Task Stop_WhenSessionIsReplacedDuringBrowserCleanup_StopsCapturedSession()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         ConfigureSuccessfulSession(context);
+        context.JSInterop.SetupVoid("stopCmafSession", "replacement-session").SetVoidResult();
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer"), timeout: LineupWebBunitContext.WaitTimeout);
         var stopPlayer = context.JSInterop.SetupVoid(
             "stopMediaPlayer",
             invocation => invocation.Arguments.Count == 2 && Equals(invocation.Arguments[0], "cmafVideoPlayer"));
         var stop = component.InvokeAsync(() => component.Instance.OnCmafPlayerEvent(new("error", "Playback failed.", null, "session-1")));
-        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopMediaPlayer"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopMediaPlayer"), timeout: LineupWebBunitContext.WaitTimeout);
         var sessionField = typeof(Watch).GetField("_session", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(sessionField);
         sessionField.SetValue(
@@ -1230,10 +1232,11 @@ public partial class WatchTests
     public async Task PlayerEvent_FromSupersededSession_DoesNotMutateReplacement(string kind, string message)
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         ConfigureSuccessfulSession(context);
+        context.JSInterop.SetupVoid("stopCmafSession", "replacement-session").SetVoidResult();
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer"), timeout: LineupWebBunitContext.WaitTimeout);
         var sessionField = typeof(Watch).GetField("_session", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(sessionField);
         sessionField.SetValue(
@@ -1257,16 +1260,17 @@ public partial class WatchTests
     /// Verifies a superseded player initialization cannot overwrite the replacement session state.
     /// </summary>
     [Fact]
-    public void PlayerInitialization_WhenSessionWasReplaced_IgnoresStaleResult()
+    public async Task PlayerInitialization_WhenSessionWasReplaced_IgnoresStaleResult()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
+        context.JSInterop.SetupVoid("stopCmafSession", "session-2").SetVoidResult();
         context.JSInterop
             .Setup<Watch.CmafStartResponse>("startCmafSession", _ => true)
             .SetResult(new("session-1", "/api/stream/cmaf/session-1/master.m3u8", "/api/stream/cmaf/session-1/manifest.mpd"));
         var initialization = context.JSInterop.Setup<Watch.CmafPlayerResult>("initCmafPlayer", _ => true);
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafPlayer"), timeout: LineupWebBunitContext.WaitTimeout);
         var sessionField = typeof(Watch).GetField("_session", BindingFlags.Instance | BindingFlags.NonPublic);
         var playerVideoField = typeof(Watch).GetField("_playerVideo", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(sessionField);
@@ -1282,7 +1286,7 @@ public partial class WatchTests
         initialization.SetResult(new(true, null, "/api/stream/cmaf/session-1/manifest.mpd", Video: new("stale-codec", 1920, 1080)));
 
         // Assert
-        component.WaitForAssertion(() => Assert.Null(playerVideoField.GetValue(component.Instance)));
+        component.WaitForAssertion(() => Assert.Null(playerVideoField.GetValue(component.Instance)), timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
@@ -1291,15 +1295,15 @@ public partial class WatchTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void PreparedSubtitles_ArePlayerControlledAndAbsentFromBurnInSelector(bool dedicated)
+    public async Task PreparedSubtitles_ArePlayerControlledAndAbsentFromBurnInSelector(bool dedicated)
     {
         // Arrange
         var settings = Substitute.For<ILineupSettingsService>();
         settings.Settings.Returns(CreateHostedWebPlayerSettings(dedicated));
-        using var context = CreateContext(settingsService: settings);
+        await using var context = CreateContext(settingsService: settings);
         ConfigureSuccessfulSession(context);
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")), timeout: LineupWebBunitContext.WaitTimeout);
         var clientIdField = typeof(Watch).GetField("_clientId", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(clientIdField);
         var clientId = Assert.IsType<string>(clientIdField.GetValue(component.Instance));
@@ -1343,7 +1347,7 @@ public partial class WatchTests
             Assert.Contains(subtitles, subtitle => subtitle.IsEmbeddedClosedCaptions && subtitle.SourceIndex == 3);
             Assert.Contains("WebVTT sidecar", component.Markup);
             Assert.Contains("sidecar", component.Markup);
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
@@ -1357,10 +1361,10 @@ public partial class WatchTests
         // Arrange
         var settings = Substitute.For<ILineupSettingsService>();
         settings.Settings.Returns(CreateHostedWebPlayerSettings(dedicated));
-        using var context = CreateContext(settingsService: settings);
+        await using var context = CreateContext(settingsService: settings);
         ConfigureSuccessfulSession(context);
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")), timeout: LineupWebBunitContext.WaitTimeout);
         var clientIdField = typeof(Watch).GetField("_clientId", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(clientIdField);
         var clientId = Assert.IsType<string>(clientIdField.GetValue(component.Instance));
@@ -1382,12 +1386,12 @@ public partial class WatchTests
             ClientId = dedicated ? null : clientId,
             WorkerMediaSessionId = dedicated ? "session-1" : null
         });
-        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafSubtitleTrack")));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafSubtitleTrack")), timeout: LineupWebBunitContext.WaitTimeout);
         component.WaitForAssertion(() =>
         {
             Assert.Contains("not included", component.Markup);
             Assert.DoesNotContain("not-mapped", component.Markup);
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
         await component.Find("#cmafSubtitleTrack").ChangeAsync(new ChangeEventArgs { Value = "4" });
@@ -1400,7 +1404,7 @@ public partial class WatchTests
             var request = GetStartRequest(starts[^1]);
             Assert.Equal(4, request.SubtitleTrack);
             Assert.Equal(SubtitlePresentation.BurnIn, request.SubtitlePresentation);
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>Verifies dedicated metadata matches the media ID rather than a broker ID, foreign viewer, or absent identity.</summary>
@@ -1408,10 +1412,10 @@ public partial class WatchTests
     public async Task DedicatedMetadata_ForeignAndMissingMediaIds_DoNotDisplaceOwnedStream()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         ConfigureSuccessfulSession(context);
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")), timeout: LineupWebBunitContext.WaitTimeout);
         var registry = context.Services.GetRequiredService<IActiveStreamRegistry>();
         var owned = new ActiveStreamSnapshot("broker-owned", "42.1", HostedStreamFormat.Cmaf, DateTime.UtcNow, null,
         [
@@ -1453,10 +1457,10 @@ public partial class WatchTests
         // Arrange
         var settings = Substitute.For<ILineupSettingsService>();
         settings.Settings.Returns(CreateHostedWebPlayerSettings(dedicated));
-        using var context = CreateContext(settingsService: settings);
+        await using var context = CreateContext(settingsService: settings);
         ConfigureSuccessfulSession(context);
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")), timeout: LineupWebBunitContext.WaitTimeout);
         var clientId = Assert.IsType<string>(typeof(Watch).GetField("_clientId", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(component.Instance));
         var registry = context.Services.GetRequiredService<IActiveStreamRegistry>();
         var stopped = 0;
@@ -1481,7 +1485,7 @@ public partial class WatchTests
             Assert.Empty(component.FindAll("#cmafVideoPlayer"));
             var serverStop = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopCmafSession");
             Assert.Equal("session-1", serverStop.Arguments[0]);
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>Verifies an old worker notification cannot stop replacement playback.</summary>
@@ -1489,13 +1493,13 @@ public partial class WatchTests
     public async Task ActiveStreamStopRequested_PreviousMediaSession_IgnoresStaleNotification()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         ConfigureSuccessfulSession(context);
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")), timeout: LineupWebBunitContext.WaitTimeout);
         ConfigureSuccessfulSession(context, sessionId: "session-2");
         component.Render(parameters => parameters.Add(page => page.ChannelNumber, "43.1"));
-        component.WaitForAssertion(() => Assert.Equal(2, context.JSInterop.Invocations.Count(invocation => invocation.Identifier == "startCmafSession")));
+        component.WaitForAssertion(() => Assert.Equal(2, context.JSInterop.Invocations.Count(invocation => invocation.Identifier == "startCmafSession")), timeout: LineupWebBunitContext.WaitTimeout);
         var registry = context.Services.GetRequiredService<IActiveStreamRegistry>();
         registry.Register(new ActiveStreamSnapshot("stale-broker", "42.1", HostedStreamFormat.Cmaf, DateTime.UtcNow, null, [])
         {
@@ -1521,10 +1525,10 @@ public partial class WatchTests
     public async Task Dispose_DedicatedServerStopFails_ReleasesOnlyOwnedBroker(bool disconnected)
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         ConfigureSuccessfulSession(context);
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")), timeout: LineupWebBunitContext.WaitTimeout);
         var registry = context.Services.GetRequiredService<IActiveStreamRegistry>();
         var ownedStops = 0;
         var foreignStops = 0;
@@ -1612,7 +1616,7 @@ public partial class WatchTests
         var settings = Substitute.For<ILineupSettingsService>();
         settings.Settings.Returns(CreateHostedWebPlayerSettings());
         var registry = new ActiveStreamRegistry();
-        using var context = CreateContext(repository: repository, deviceState: deviceState, settingsService: settings, registry: registry);
+        await using var context = CreateContext(repository: repository, deviceState: deviceState, settingsService: settings, registry: registry);
         ConfigureSuccessfulSession(context);
         var component = context.Render<Watch>();
         var clientIdField = typeof(Watch).GetField("_clientId", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -1644,7 +1648,7 @@ public partial class WatchTests
         });
 
         // Act
-        await component.WaitForElement(".cmaf-channel-item").ClickAsync(new());
+        await component.WaitForElement(".cmaf-channel-item", timeout: LineupWebBunitContext.WaitTimeout).ClickAsync(new());
 
         // Assert
         component.WaitForAssertion(() =>
@@ -1667,7 +1671,7 @@ public partial class WatchTests
             Assert.Contains("DASH", component.Markup);
             Assert.Contains("included", component.Markup);
             Assert.Contains("playing", component.Markup);
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     private static BunitContext CreateContext(
@@ -1677,7 +1681,6 @@ public partial class WatchTests
         ILineupSettingsService? settingsService = null,
         IActiveStreamRegistry? registry = null)
     {
-        BunitContext.DefaultWaitTimeout = TimeSpan.FromSeconds(5);
         var context = new BunitContext();
         if (repository is null)
         {

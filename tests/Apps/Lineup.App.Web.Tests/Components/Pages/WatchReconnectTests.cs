@@ -16,7 +16,7 @@ public partial class WatchTests
     public async Task Reconnect_SourceLoss_StartsFreshSessionAndPreservesPreferences()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         var clock = ConfigureReconnect(context);
         var preferences = new Watch.CmafPlayerPreferences(0.35, true, "French", "fra", "English", "eng");
         context.JSInterop.Setup<Watch.CmafPlayerPreferences?>("getCmafPlayerPreferences", _ => true).SetResult(preferences);
@@ -29,8 +29,8 @@ public partial class WatchTests
 
         // Act
         var recovering = BeginRecoveryAsync(component);
-        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafReconnecting")));
-        component.WaitForAssertion(() => Assert.Equal(2, clock.PendingTimers));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafReconnecting")), timeout: LineupWebBunitContext.WaitTimeout);
+        component.WaitForAssertion(() => Assert.Equal(2, clock.PendingTimers), timeout: LineupWebBunitContext.WaitTimeout);
         clock.Advance(TimeSpan.FromSeconds(1));
         await recovering;
 
@@ -53,11 +53,11 @@ public partial class WatchTests
     public async Task Reconnect_StopDuringBackoff_CancelsWithoutStarting()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         var clock = ConfigureReconnect(context);
         var component = RenderPlaying(context);
         var recovering = BeginRecoveryAsync(component);
-        component.WaitForAssertion(() => Assert.Equal(2, clock.PendingTimers));
+        component.WaitForAssertion(() => Assert.Equal(2, clock.PendingTimers), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
         await component.Find("button.btn-danger").ClickAsync(new());
@@ -77,11 +77,11 @@ public partial class WatchTests
         // Arrange
         var registry = Substitute.For<IActiveStreamRegistry>();
         registry.GetActiveStreams().Returns([]);
-        using var context = CreateContext(registry: registry);
+        await using var context = CreateContext(registry: registry);
         var clock = ConfigureReconnect(context);
         var component = RenderPlaying(context);
         var recovering = BeginRecoveryAsync(component);
-        component.WaitForAssertion(() => Assert.Equal(2, clock.PendingTimers));
+        component.WaitForAssertion(() => Assert.Equal(2, clock.PendingTimers), timeout: LineupWebBunitContext.WaitTimeout);
         var stopped = new ActiveStreamSnapshot("broker-owner", "42.1", HostedStreamFormat.Cmaf, DateTime.UtcNow, null, []) { WorkerMediaSessionId = "session-1" };
 
         // Act
@@ -99,18 +99,18 @@ public partial class WatchTests
     public async Task Reconnect_DeadlineDuringStartup_CancelsAndStopsLateOwnedSession()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         var clock = ConfigureReconnect(context);
         var pending = context.JSInterop.Setup<Watch.CmafStartAttempt>("tryStartCmafSession", _ => true);
         var component = RenderPlaying(context);
         var recovering = BeginRecoveryAsync(component);
-        component.WaitForAssertion(() => Assert.Equal(2, clock.PendingTimers));
+        component.WaitForAssertion(() => Assert.Equal(2, clock.PendingTimers), timeout: LineupWebBunitContext.WaitTimeout);
         clock.Advance(TimeSpan.FromSeconds(1));
-        component.WaitForAssertion(() => Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "tryStartCmafSession"));
+        component.WaitForAssertion(() => Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "tryStartCmafSession"), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
         clock.Advance(TimeSpan.FromSeconds(59));
-        component.WaitForAssertion(() => Assert.Contains("60-second deadline", component.Markup, StringComparison.Ordinal));
+        component.WaitForAssertion(() => Assert.Contains("60-second deadline", component.Markup, StringComparison.Ordinal), timeout: LineupWebBunitContext.WaitTimeout);
         pending.SetResult(new(new("late", "/late/master.m3u8", "/late/manifest.mpd"), null));
         await recovering;
 
@@ -126,20 +126,20 @@ public partial class WatchTests
     public async Task Reconnect_DeadlineDuringPlayerInitialization_RejectsLateInitialization()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         var clock = ConfigureReconnect(context);
         context.JSInterop.Setup<Watch.CmafStartAttempt>("tryStartCmafSession", _ => true).SetResult(new(new("replacement", "/new/master.m3u8", "/new/manifest.mpd"), null));
         var pending = context.JSInterop.Setup<Watch.CmafPlayerResult>("initCmafPlayer", invocation => invocation.Arguments.Any(argument => Equals(argument, "replacement")));
         var component = RenderPlaying(context);
         var recovering = BeginRecoveryAsync(component);
-        component.WaitForAssertion(() => Assert.Equal(2, clock.PendingTimers));
+        component.WaitForAssertion(() => Assert.Equal(2, clock.PendingTimers), timeout: LineupWebBunitContext.WaitTimeout);
         clock.Advance(TimeSpan.FromSeconds(1));
         component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations,
-            invocation => invocation.Identifier == "initCmafPlayer" && invocation.Arguments.Any(argument => Equals(argument, "replacement"))));
+            invocation => invocation.Identifier == "initCmafPlayer" && invocation.Arguments.Any(argument => Equals(argument, "replacement"))), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
         clock.Advance(TimeSpan.FromSeconds(59));
-        component.WaitForAssertion(() => Assert.Contains("60-second deadline", component.Markup, StringComparison.Ordinal));
+        component.WaitForAssertion(() => Assert.Contains("60-second deadline", component.Markup, StringComparison.Ordinal), timeout: LineupWebBunitContext.WaitTimeout);
         pending.SetResult(new(true, null, "/new/manifest.mpd"));
         await recovering;
 
@@ -156,14 +156,14 @@ public partial class WatchTests
     public async Task Reconnect_NewerRouteSupersedesPendingStartup(bool lateFailure)
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         var clock = ConfigureReconnect(context);
         var pending = context.JSInterop.Setup<Watch.CmafStartAttempt>("tryStartCmafSession", _ => true);
         var component = RenderPlaying(context);
         var recovering = BeginRecoveryAsync(component);
-        component.WaitForAssertion(() => Assert.Equal(2, clock.PendingTimers));
+        component.WaitForAssertion(() => Assert.Equal(2, clock.PendingTimers), timeout: LineupWebBunitContext.WaitTimeout);
         clock.Advance(TimeSpan.FromSeconds(1));
-        component.WaitForAssertion(() => Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "tryStartCmafSession"));
+        component.WaitForAssertion(() => Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "tryStartCmafSession"), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
         component.Render(parameters => parameters.Add(page => page.ChannelNumber, "43.1"));
@@ -177,7 +177,7 @@ public partial class WatchTests
             Assert.Equal("/api/stream/cmaf/start/43.1", context.JSInterop.Invocations.Last(invocation => invocation.Identifier == "startCmafSession").Arguments[0]);
             Assert.Equal("session-1", GetWatchSession(component).SessionId);
             Assert.Empty(component.FindAll("#cmafReconnecting"));
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
         Assert.DoesNotContain("Stale permanent failure.", component.Markup, StringComparison.Ordinal);
         if (!lateFailure) Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopCmafSession" && Equals(invocation.Arguments[0], "late"));
     }
@@ -187,7 +187,7 @@ public partial class WatchTests
     public async Task Reconnect_ThreeTransientFailures_ExhaustsBudget()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         var clock = ConfigureReconnect(context);
         context.JSInterop.Setup<Watch.CmafStartAttempt>("tryStartCmafSession", _ => true).SetResult(new(null, new("Source offline.", "source_unavailable", true)));
         var component = RenderPlaying(context);
@@ -196,10 +196,10 @@ public partial class WatchTests
         // Act
         for (var attempt = 0; attempt < 3; attempt++)
         {
-            component.WaitForAssertion(() => Assert.Equal(2, clock.PendingTimers));
+            component.WaitForAssertion(() => Assert.Equal(2, clock.PendingTimers), timeout: LineupWebBunitContext.WaitTimeout);
             clock.Advance(TimeSpan.FromSeconds(1 << attempt));
             var expected = attempt + 1;
-            component.WaitForAssertion(() => Assert.Equal(expected, context.JSInterop.Invocations.Count(invocation => invocation.Identifier == "tryStartCmafSession")));
+            component.WaitForAssertion(() => Assert.Equal(expected, context.JSInterop.Invocations.Count(invocation => invocation.Identifier == "tryStartCmafSession")), timeout: LineupWebBunitContext.WaitTimeout);
         }
         await recovering;
         clock.Advance(TimeSpan.FromMinutes(2));
@@ -219,12 +219,12 @@ public partial class WatchTests
     public async Task Reconnect_PermanentStartupFailure_DoesNotRetry(string code)
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         var clock = ConfigureReconnect(context);
         context.JSInterop.Setup<Watch.CmafStartAttempt>("tryStartCmafSession", _ => true).SetResult(new(null, new("Permanent failure.", code, true)));
         var component = RenderPlaying(context);
         var recovering = BeginRecoveryAsync(component);
-        component.WaitForAssertion(() => Assert.Equal(2, clock.PendingTimers));
+        component.WaitForAssertion(() => Assert.Equal(2, clock.PendingTimers), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
         clock.Advance(TimeSpan.FromSeconds(1));
@@ -242,11 +242,11 @@ public partial class WatchTests
     public async Task Reconnect_DisposeDuringBackoff_CancelsRecovery()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         var clock = ConfigureReconnect(context);
         var component = RenderPlaying(context);
         var recovering = BeginRecoveryAsync(component);
-        component.WaitForAssertion(() => Assert.Equal(2, clock.PendingTimers));
+        component.WaitForAssertion(() => Assert.Equal(2, clock.PendingTimers), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
         await component.InvokeAsync(() => component.Instance.DisposeAsync().AsTask());
@@ -268,7 +268,7 @@ public partial class WatchTests
         var configuration = CreateHostedWebPlayerSettings();
         var settings = Substitute.For<ILineupSettingsService>();
         settings.Settings.Returns(configuration);
-        using var context = CreateContext(settingsService: settings);
+        await using var context = CreateContext(settingsService: settings);
         var clock = ConfigureReconnect(context, management: false);
         var runtime = new VirtualOutputRuntimeStatus();
         var worker = new VirtualOutputRuntimeSnapshot { VirtualDeviceId = configuration.Streaming.VirtualDevices[0].Id, Generation = 1, State = VirtualOutputRuntimeState.Healthy };
@@ -282,7 +282,7 @@ public partial class WatchTests
         var failure = component.InvokeAsync(() => component.Instance.OnCmafPlayerEvent(new("error", "Worker connection lost.", null, "session-1")));
         if (!quarantined)
         {
-            component.WaitForAssertion(() => Assert.Equal(2, clock.PendingTimers));
+            component.WaitForAssertion(() => Assert.Equal(2, clock.PendingTimers), timeout: LineupWebBunitContext.WaitTimeout);
             clock.Advance(TimeSpan.FromSeconds(1));
         }
         await failure;
@@ -318,7 +318,8 @@ public partial class WatchTests
     private static IRenderedComponent<Watch> RenderPlaying(BunitContext context)
     {
         var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
-        component.WaitForAssertion(() => Assert.True((bool)typeof(Watch).GetField("_hasStartedPlayback", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(component.Instance)!));
+        component.WaitForAssertion(() => Assert.True((bool)typeof(Watch).GetField("_hasStartedPlayback", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(component.Instance)!),
+            timeout: LineupWebBunitContext.WaitTimeout);
         return component;
     }
 

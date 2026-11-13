@@ -27,14 +27,14 @@ public class DashboardComponentTests
     [InlineData("zh-Hans", true)]
     [InlineData("it", false)]
     [InlineData("it", true)]
-    public void GuidePanel_LocalizedDurations_RendersStatistics(string culture, bool collapsed)
+    public async Task GuidePanel_LocalizedDurations_RendersStatistics(string culture, bool collapsed)
     {
         // Arrange
         var originalCulture = CultureInfo.CurrentUICulture;
         try
         {
             CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(culture);
-            using var context = CreateContext();
+            await using var context = CreateContext();
             context.JSInterop.Setup<string?>("localStorage.getItem", StorageKey)
                 .SetResult(collapsed ? """{"GuideExpanded":false}""" : null);
             var start = DateTimeOffset.UtcNow;
@@ -60,7 +60,7 @@ public class DashboardComponentTests
     public async Task GuidePanel_PartialResults_ShowsWarningOutsideCollapsedContent()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         context.JSInterop.Setup<string?>("localStorage.getItem", StorageKey).SetResult(null);
         context.JSInterop.SetupVoid("localStorage.setItem", _ => true).SetVoidResult();
         context.Services.GetRequiredService<ILineupGuideReader>().GetStatisticsAsync(Arg.Any<CancellationToken>()).Returns(new GuideStatistics(12, 345, null, null, null)
@@ -102,7 +102,7 @@ public class DashboardComponentTests
             return true;
         });
         var statuses = new PhysicalDeviceStatusService(catalog);
-        using var context = CreateContext(deviceStatuses: statuses);
+        await using var context = CreateContext(deviceStatuses: statuses);
         context.JSInterop.Setup<string?>("localStorage.getItem", StorageKey).SetResult(null);
         var healthy = new PhysicalDeviceDefinition
         {
@@ -129,17 +129,17 @@ public class DashboardComponentTests
             Assert.Contains(healthy.Name, component.Find("#deviceSection").TextContent, StringComparison.Ordinal);
             Assert.Contains(failed.Name, component.Find("#deviceSection").TextContent, StringComparison.Ordinal);
             Assert.Contains("activation failed", Assert.Single(component.FindAll("#deviceSection .alert-danger")).TextContent, StringComparison.OrdinalIgnoreCase);
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
     /// Verifies dashboard disposal does not resolve services after the host service provider has shut down.
     /// </summary>
     [Fact]
-    public void Dispose_ServiceProviderUnavailable_DoesNotResolveServices()
+    public async Task Dispose_ServiceProviderUnavailable_DoesNotResolveServices()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         context.JSInterop.Setup<string?>("localStorage.getItem", StorageKey).SetResult(null);
         var component = context.Render<Dashboard>();
         var servicesProperty = typeof(Dashboard).GetProperty("Services", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -157,10 +157,10 @@ public class DashboardComponentTests
     /// Verifies a browser without saved preferences sees every persistent section expanded.
     /// </summary>
     [Fact]
-    public void Sections_NoSavedState_StartExpanded()
+    public async Task Sections_NoSavedState_StartExpanded()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         context.JSInterop.Setup<string?>("localStorage.getItem", StorageKey).SetResult(null);
 
         // Act
@@ -182,10 +182,10 @@ public class DashboardComponentTests
     /// Verifies independently saved collapsed sections restore with live header summaries.
     /// </summary>
     [Fact]
-    public void Sections_SavedCollapsedState_RestoresSummaries()
+    public async Task Sections_SavedCollapsedState_RestoresSummaries()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         var savedState = JsonSerializer.Serialize(new
         {
             ChannelsExpanded = false,
@@ -209,17 +209,17 @@ public class DashboardComponentTests
             Assert.Contains("12 channels · 345 programs · 2 days 3 hrs remaining", component.Markup);
             Assert.Contains("0 devices", component.Markup);
             Assert.Contains("0 active ·", component.Markup);
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
     /// Verifies each restored preference is mapped to its corresponding section.
     /// </summary>
     [Fact]
-    public void Sections_MixedSavedState_RestoresIndependently()
+    public async Task Sections_MixedSavedState_RestoresIndependently()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         var savedState = JsonSerializer.Serialize(new
         {
             ChannelsExpanded = false,
@@ -239,7 +239,7 @@ public class DashboardComponentTests
             Assert.False(component.Find("#guideSection").HasAttribute("hidden"));
             Assert.True(component.Find("#deviceSection").HasAttribute("hidden"));
             Assert.False(component.Find("#activeStreamsSection").HasAttribute("hidden"));
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
@@ -253,7 +253,7 @@ public class DashboardComponentTests
     public async Task ToggleSection_PersistsUpdatedState(string toggleId, string collapsedProperty)
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         context.JSInterop.Setup<string?>("localStorage.getItem", StorageKey).SetResult(null);
         context.JSInterop.SetupVoid("localStorage.setItem", _ => true).SetVoidResult();
         var component = context.Render<Dashboard>();
@@ -262,7 +262,7 @@ public class DashboardComponentTests
         await component.Find($"#{toggleId}").ClickAsync(new());
 
         // Assert
-        component.WaitForAssertion(() => Assert.Equal("false", component.Find($"#{toggleId}").GetAttribute("aria-expanded")));
+        component.WaitForAssertion(() => Assert.Equal("false", component.Find($"#{toggleId}").GetAttribute("aria-expanded")), timeout: LineupWebBunitContext.WaitTimeout);
         var invocation = Assert.Single(context.JSInterop.Invocations, item => item.Identifier == "localStorage.setItem");
         var state = JsonDocument.Parse(Assert.IsType<string>(invocation.Arguments[1])).RootElement;
         foreach (var property in new[] { "ChannelsExpanded", "GuideExpanded", "DeviceExpanded", "ActiveStreamsExpanded" })
@@ -275,10 +275,10 @@ public class DashboardComponentTests
     /// Verifies corrupt browser state does not prevent the expanded default dashboard.
     /// </summary>
     [Fact]
-    public void Sections_InvalidSavedState_FallBackToExpanded()
+    public async Task Sections_InvalidSavedState_FallBackToExpanded()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         context.JSInterop.Setup<string?>("localStorage.getItem", StorageKey).SetResult("{invalid");
 
         // Act
@@ -301,7 +301,7 @@ public class DashboardComponentTests
         var guides = Substitute.For<ITopologyGuideService>();
         guides.RefreshAndPublishAsync(Arg.Any<CancellationToken>())
             .Returns(new TopologyGuideRefreshResult { Sources = [] });
-        using var context = CreateContext(guides: guides);
+        await using var context = CreateContext(guides: guides);
         context.JSInterop.Setup<string?>("localStorage.getItem", StorageKey).SetResult(null);
         var component = context.Render<Dashboard>();
         var notifications = context.Services.GetRequiredService<IStatusNotificationService>();
@@ -314,7 +314,7 @@ public class DashboardComponentTests
         {
             guides.Received(1).RefreshAndPublishAsync(Arg.Any<CancellationToken>());
             Assert.Contains("No guide sources are enabled", Assert.Single(notifications.Notifications).Message, StringComparison.Ordinal);
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>Verifies manual refresh and generation never announce full success for partial publications.</summary>
@@ -346,7 +346,7 @@ public class DashboardComponentTests
         ];
         guides.RefreshAndPublishAsync(Arg.Any<CancellationToken>()).Returns(new TopologyGuideRefreshResult { Sources = [], Outputs = outputs });
         guides.PublishAsync(Arg.Any<CancellationToken>()).Returns(outputs);
-        using var context = CreateContext(guides: guides);
+        await using var context = CreateContext(guides: guides);
         context.JSInterop.Setup<string?>("localStorage.getItem", StorageKey).SetResult(null);
         var component = context.Render<Dashboard>();
         var notifications = context.Services.GetRequiredService<IStatusNotificationService>();
@@ -362,7 +362,7 @@ public class DashboardComponentTests
     /// Verifies shared CMAF presentations are not mislabeled as HLS-only sessions.
     /// </summary>
     [Fact]
-    public void ActiveStreams_CmafPresentation_UsesCmafLabel()
+    public async Task ActiveStreams_CmafPresentation_UsesCmafLabel()
     {
         // Arrange
         var activeStreams = Substitute.For<IActiveStreamRegistry>();
@@ -398,7 +398,7 @@ public class DashboardComponentTests
             1,
             1,
             0);
-        using var context = CreateContext(activeStreams: activeStreams, streamingFlow: snapshot);
+        await using var context = CreateContext(activeStreams: activeStreams, streamingFlow: snapshot);
         context.JSInterop.Setup<string?>("localStorage.getItem", StorageKey).SetResult(null);
 
         // Act

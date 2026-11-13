@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text.Json;
+using Lineup.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -430,8 +431,7 @@ public class EpgAutoFetchServiceTests
     public async Task SettingsChange_DuringInitialDelay_DoesNotFetchBeforePersistedSchedule()
     {
         // Arrange
-        var testDirectory = Path.Combine(Directory.GetCurrentDirectory(), "test-data", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(testDirectory);
+        var clock = new ControlledTimeProvider();
         var guides = Substitute.For<ITopologyGuideService>();
         var serviceProvider = Substitute.For<IServiceProvider>();
         serviceProvider.GetService(typeof(ITopologyGuideService)).Returns(guides);
@@ -443,20 +443,27 @@ public class EpgAutoFetchServiceTests
         settingsService.Settings.Returns(new LineupSettings
         {
             AutoFetchInterval = TimeSpan.FromHours(24),
-            NextAutoFetchTime = DateTime.UtcNow.AddHours(1)
+            NextAutoFetchTime = clock.GetUtcNow().UtcDateTime.AddHours(1)
         });
-        using var service = new EpgAutoFetchService(scopeFactory, NullLogger<EpgAutoFetchService>.Instance, new AutoFetchStateService(), settingsService, Substitute.For<IStreamingAdapterRegistry>());
+        using var service = new EpgAutoFetchService(
+            scopeFactory, NullLogger<EpgAutoFetchService>.Instance, new AutoFetchStateService(), settingsService, Substitute.For<IStreamingAdapterRegistry>(), clock);
         await service.StartAsync(TestContext.Current.CancellationToken);
 
         // Act
-        settingsService.OnSettingsChanged += Raise.Event<Action>();
-        await Task.Delay(TimeSpan.FromMilliseconds(100), TestContext.Current.CancellationToken);
-        await service.StopAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            await clock.WaitForTimerAsync(TimeSpan.FromHours(1), TestContext.Current.CancellationToken);
+            settingsService.OnSettingsChanged += Raise.Event<Action>();
+            await clock.WaitForTimerAsync(TimeSpan.FromHours(1), TestContext.Current.CancellationToken);
+            clock.Advance(TimeSpan.FromMinutes(59));
+        }
+        finally
+        {
+            await service.StopAsync(TestContext.Current.CancellationToken);
+        }
 
         // Assert
         scopeFactory.DidNotReceive().CreateScope();
         Assert.True(service.ExecuteTask?.IsCompletedSuccessfully);
-
-        Directory.Delete(testDirectory, recursive: true);
     }
 }

@@ -17,10 +17,10 @@ public class LogsTests
     /// Verifies the category and search filters initially display their placeholders without literal backing-field names.
     /// </summary>
     [Fact]
-    public void Render_InitialFilters_AreEmpty()
+    public async Task Render_InitialFilters_AreEmpty()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var root = Path.Combine(Path.GetTempPath(), $"lineup-logs-page-{Guid.NewGuid():N}");
         var store = new InMemoryLogEventStore();
         var runtime = new LoggingRuntimeState(root, new FileLoggingSettings(false, LogEventLevel.Information, 7, 50), []);
@@ -40,10 +40,10 @@ public class LogsTests
     /// Verifies the live viewer can display Trace events enabled by application filters.
     /// </summary>
     [Fact]
-    public void Render_MinimumLevelOptions_IncludeTrace()
+    public async Task Render_MinimumLevelOptions_IncludeTrace()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var root = Path.Combine(Path.GetTempPath(), $"lineup-logs-page-{Guid.NewGuid():N}");
         var store = new InMemoryLogEventStore();
         var runtime = new LoggingRuntimeState(root, new FileLoggingSettings(false, LogEventLevel.Information, 7, 50), []);
@@ -63,10 +63,10 @@ public class LogsTests
     /// Verifies that recent events render with their redacted structured details.
     /// </summary>
     [Fact]
-    public void Render_WithCurrentEvents_DisplaysSafeLogDetails()
+    public async Task Render_WithCurrentEvents_DisplaysSafeLogDetails()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var root = Path.Combine(Path.GetTempPath(), $"lineup-logs-page-{Guid.NewGuid():N}");
         var store = new InMemoryLogEventStore();
         using var logger = new LoggerConfiguration().WriteTo.Sink(store).CreateLogger();
@@ -91,10 +91,10 @@ public class LogsTests
     /// Verifies that the viewer presents a clear empty state.
     /// </summary>
     [Fact]
-    public void Render_WithoutEvents_DisplaysEmptyState()
+    public async Task Render_WithoutEvents_DisplaysEmptyState()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var root = Path.Combine(Path.GetTempPath(), $"lineup-logs-page-{Guid.NewGuid():N}");
         var store = new InMemoryLogEventStore();
         var runtime = new LoggingRuntimeState(root, new FileLoggingSettings(false, LogEventLevel.Information, 7, 50), []);
@@ -113,10 +113,10 @@ public class LogsTests
     /// Verifies that clearing the viewer removes all retained in-memory events.
     /// </summary>
     [Fact]
-    public void Clear_WithCurrentEvents_RemovesInMemoryHistory()
+    public async Task Clear_WithCurrentEvents_RemovesInMemoryHistory()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var root = Path.Combine(Path.GetTempPath(), $"lineup-logs-page-{Guid.NewGuid():N}");
         var store = new InMemoryLogEventStore();
         using var logger = new LoggerConfiguration().WriteTo.Sink(store).CreateLogger();

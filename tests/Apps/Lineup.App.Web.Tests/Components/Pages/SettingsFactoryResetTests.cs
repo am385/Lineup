@@ -17,10 +17,10 @@ public class SettingsFactoryResetTests
     /// Verifies recovery mode opens directly to the explicit factory-reset surface.
     /// </summary>
     [Fact]
-    public void FactoryResetRequired_InitialRender_ShowsRecoveryStatusAndResetSurface()
+    public async Task FactoryResetRequired_InitialRender_ShowsRecoveryStatusAndResetSurface()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var settingsService = Substitute.For<ILineupSettingsService>();
         settingsService.Settings.Returns(new LineupSettings());
         var timeZoneService = Substitute.For<ITimeZoneService>();
@@ -45,7 +45,7 @@ public class SettingsFactoryResetTests
     public async Task RestartLineup_Clicked_RequestsRestartAndShowsOverlay()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var settingsService = Substitute.For<ILineupSettingsService>();
         settingsService.Settings.Returns(new LineupSettings { IsSetupComplete = true });
         var restartService = Substitute.For<IApplicationRestartService>();
@@ -76,7 +76,7 @@ public class SettingsFactoryResetTests
     public async Task FactoryReset_ConfirmationChecked_RequestsResetAndShowsRestartOverlay()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var settingsService = Substitute.For<ILineupSettingsService>();
         settingsService.Settings.Returns(new LineupSettings { IsSetupComplete = true });
         var factoryResetService = Substitute.For<IFactoryResetService>();
@@ -116,10 +116,10 @@ public class SettingsFactoryResetTests
     /// Verifies that canceling confirmation leaves persistent state untouched.
     /// </summary>
     [Fact]
-    public void FactoryReset_Cancel_HidesConfirmationWithoutRequestingReset()
+    public async Task FactoryReset_Cancel_HidesConfirmationWithoutRequestingReset()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var settingsService = Substitute.For<ILineupSettingsService>();
         settingsService.Settings.Returns(new LineupSettings { IsSetupComplete = true });
         var factoryResetService = Substitute.For<IFactoryResetService>();
@@ -138,6 +138,6 @@ public class SettingsFactoryResetTests
         // Assert
         Assert.Empty(component.FindAll("#factoryResetConfirmation"));
         Assert.NotNull(component.Find("#showFactoryResetConfirmation"));
-        factoryResetService.DidNotReceive().RequestResetAsync(Arg.Any<CancellationToken>());
+        await factoryResetService.DidNotReceive().RequestResetAsync(Arg.Any<CancellationToken>());
     }
 }

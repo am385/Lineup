@@ -121,8 +121,13 @@ The app starts on `http://localhost:8080`.
 - Test the requested outcome directly, including meaningful failure and edge cases.
 - Keep tests deterministic and independent of execution order.
 - The Web UI's `Dashboard_RemainingDurationFormat` and `Dashboard_ChannelGapDurationFormat` resources are executable .NET `TimeSpan` formats, not ordinary translated text. Preserve `d`, `h`, and `m` numeric tokens and quote literal units, for example `h' hrs 'm' min'`. `UiLocalizationTests` exercises both formats with zero, hourly, and multi-day durations in every supported culture.
-- In bUnit tests, await `ClickAsync(new())` when the click handler performs asynchronous work before asserting completion. Use `Click()` only for synchronous handlers.
+- Own bUnit contexts with `await using` so component cleanup finishes before scoped services are disposed. The shared `LineupWebBunitContext` also surfaces renderer disposal failures.
+- In bUnit tests, await `ClickAsync(new())`, `ChangeAsync(...)`, and other async event dispatch when the handler performs asynchronous work before asserting completion. Use synchronous dispatch only for synchronous handlers.
 - When testing an in-flight operation, retain the `ClickAsync` task, assert the pending state, release any controlled dependency, and await the task before disposing the component.
+- Pass the shared `LineupWebBunitContext.WaitTimeout` explicitly to bUnit waits instead of mutating the process-wide `DefaultWaitTimeout`.
+- Use `ControlledTimeProvider` for elapsed-time behavior and wait for timer registration before advancing time. Use completion barriers or an operation's known pending state instead of sleeps to establish concurrency.
+- Release controlled dependencies in `finally` and observe all owned work before teardown. Keep real-time watchdogs bounded, but do not use elapsed-time performance thresholds to prove lifecycle ordering.
+- Unobserved task calls (`CS4014`) and unawaited async assertions (`xUnit2021`) are errors in test code; retain and eventually await tasks intentionally started in flight.
 
 #### Formatting
 

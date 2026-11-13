@@ -16,10 +16,10 @@ public sealed class NavMenuTests
     /// Verifies component disposal does not resolve services after the host service provider has shut down.
     /// </summary>
     [Fact]
-    public void Dispose_ServiceProviderUnavailable_DoesNotResolveServices()
+    public async Task Dispose_ServiceProviderUnavailable_DoesNotResolveServices()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var settingsService = Substitute.For<ILineupSettingsService>();
         settingsService.Settings.Returns(new LineupSettings());
         context.Services.AddSingleton(settingsService);
@@ -39,10 +39,10 @@ public sealed class NavMenuTests
     /// Verifies completing first-run setup reveals application navigation without recreating the layout.
     /// </summary>
     [Fact]
-    public void SettingsChanged_SetupCompleted_RevealsApplicationPages()
+    public async Task SettingsChanged_SetupCompleted_RevealsApplicationPages()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var settings = new LineupSettings
         {
             IsSetupComplete = false,
@@ -72,17 +72,17 @@ public sealed class NavMenuTests
             var watchLink = Assert.Single(component.FindAll("a.nav-link"), link => string.Equals(link.GetAttribute("href"), "watch", StringComparison.Ordinal));
             Assert.Equal("Watch", watchLink.TextContent.Trim());
             Assert.DoesNotContain(component.FindAll("a.nav-link"), link => string.Equals(link.GetAttribute("href"), "watch-cmaf", StringComparison.Ordinal));
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
     /// Verifies disabling the built-in Web Player removes both playback pages from navigation.
     /// </summary>
     [Fact]
-    public void SettingsChanged_WebPlayerDisabled_HidesWatchPages()
+    public async Task SettingsChanged_WebPlayerDisabled_HidesWatchPages()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var webPlayer = WebPlayerVirtualTunerDriver.CreateBuiltIn();
         var settings = new LineupSettings
         {
@@ -111,7 +111,7 @@ public sealed class NavMenuTests
         {
             Assert.DoesNotContain(component.FindAll("a.nav-link"), link => string.Equals(link.GetAttribute("href"), "watch", StringComparison.Ordinal));
             Assert.DoesNotContain(component.FindAll("a.nav-link"), link => string.Equals(link.GetAttribute("href"), "watch-test", StringComparison.Ordinal));
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     private sealed class DisposedServiceProvider : IServiceProvider

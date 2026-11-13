@@ -91,7 +91,7 @@ internal sealed partial class DedicatedPlaybackRuntime : IAsyncDisposable
             stage = DedicatedWorkerStartupStage.Readiness;
             Track(MonitorViewerAsync(viewer));
             using var waiting = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, viewer.Token);
-            var session = await shared.Ready.WaitAsync(waiting.Token);
+            var session = await WaitForProducerAsync(shared.Ready, waiting.Token, cancellationToken);
             if (await ReportAsync(viewer, session.Plan, VirtualOutputStreamStartupStage.Ready, release: false, waiting.Token))
             {
                 throw new OperationCanceledException("The viewer was stopped during startup.");
@@ -120,6 +120,19 @@ internal sealed partial class DedicatedPlaybackRuntime : IAsyncDisposable
             }
             MediaProcessDiagnostics.LogFailure(_logger, exception, stage.ToString(), id.ToString(), source?.RequestId.ToString());
             throw new PlaybackStartupException(stage, exception);
+        }
+    }
+
+    /// <summary>Preserves a known producer failure when viewer cleanup cancels readiness, without overriding explicit request cancellation.</summary>
+    internal static async Task<MediaSession> WaitForProducerAsync(Task<MediaSession> readiness, CancellationToken waitingToken, CancellationToken requestToken)
+    {
+        try
+        {
+            return await readiness.WaitAsync(waitingToken);
+        }
+        catch (OperationCanceledException) when (!requestToken.IsCancellationRequested && readiness.IsFaulted)
+        {
+            return await readiness;
         }
     }
 

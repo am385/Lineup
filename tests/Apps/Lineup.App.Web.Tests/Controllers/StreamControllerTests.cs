@@ -3,6 +3,7 @@ using System.Diagnostics;
 using Lineup.Core.Extensibility.Streaming;
 using Lineup.App.Web.Controllers;
 using Lineup.App.Web.Services.Playback;
+using Lineup.TestSupport;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Abstractions;
@@ -722,24 +723,47 @@ public sealed class StreamControllerTests
     public async Task StartCmafStream_StartupDeadlineExpires_ReturnsStructuredGatewayTimeout()
     {
         // Arrange
+        var clock = new ControlledTimeProvider();
+        var resolving = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var routes = Substitute.For<IStreamingRouteResolver>();
         routes.ResolveVirtualAsync(Arg.Any<VirtualDeviceId>(), "9.1", Arg.Any<CancellationToken>())
             .Returns(async call =>
             {
+                resolving.TrySetResult();
                 await Task.Delay(Timeout.InfiniteTimeSpan, call.Arg<CancellationToken>());
                 return (ResolvedStreamingRoute?)CreateResolvedRoute();
             });
-        var controller = CreateController(routes: routes, cmafStartupTimeout: TimeSpan.FromMilliseconds(50));
+        var timeout = TimeSpan.FromSeconds(24);
+        var controller = CreateController(routes: routes, cmafStartupTimeout: timeout, timeProvider: clock);
+        var pending = controller.StartCmafStream("9.1", new CmafStreamRequest());
 
         // Act
-        var result = await controller.StartCmafStream("9.1", new CmafStreamRequest());
+        try
+        {
+            await resolving.Task.WaitAsync(BunitContext.WaitTimeout, TestContext.Current.CancellationToken);
+            await clock.WaitForTimerAsync(timeout, TestContext.Current.CancellationToken);
+            clock.Advance(timeout);
+            var result = await pending.WaitAsync(BunitContext.WaitTimeout, TestContext.Current.CancellationToken);
 
-        // Assert
-        var error = Assert.IsType<ObjectResult>(result);
-        Assert.Equal(StatusCodes.Status504GatewayTimeout, error.StatusCode);
-        var json = System.Text.Json.JsonSerializer.Serialize(error.Value);
-        Assert.Contains("\"code\":\"cmaf_startup_timeout\"", json, StringComparison.Ordinal);
-        Assert.Contains("\"stage\":\"startup\"", json, StringComparison.Ordinal);
+            // Assert
+            var error = Assert.IsType<ObjectResult>(result);
+            Assert.Equal(StatusCodes.Status504GatewayTimeout, error.StatusCode);
+            var json = System.Text.Json.JsonSerializer.Serialize(error.Value);
+            Assert.Contains("\"code\":\"cmaf_startup_timeout\"", json, StringComparison.Ordinal);
+            Assert.Contains("\"stage\":\"startup\"", json, StringComparison.Ordinal);
+        }
+        finally
+        {
+            clock.Advance(timeout);
+            try
+            {
+                await pending.WaitAsync(BunitContext.WaitTimeout, TestContext.Current.CancellationToken);
+            }
+            finally
+            {
+                await controller.Playback.DisposeAsync();
+            }
+        }
     }
 
     /// <summary>Verifies a temporary source-drain pump cannot delay the structured startup timeout response.</summary>
@@ -747,12 +771,15 @@ public sealed class StreamControllerTests
     public async Task StartCmafStream_StartupDeadlineExpires_DoesNotWaitForSourceDrainPump()
     {
         // Arrange
+        var clock = new ControlledTimeProvider();
+        var source = new ControlledReadStream();
+        var probing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var route = CreateResolvedRoute();
         var routes = Substitute.For<IStreamingRouteResolver>();
         routes.ResolveVirtualAsync(Arg.Any<VirtualDeviceId>(), "9.1", Arg.Any<CancellationToken>()).Returns(route);
         var multiplexer = Substitute.For<ITunerStreamMultiplexer>();
         multiplexer.SubscribeFirstAvailableAsync(route, Arg.Any<CancellationToken>())
-            .Returns(new ResolvedTunerStream(route.Candidates[0], new DelayedReadStream(TimeSpan.FromSeconds(1))));
+            .Returns(new ResolvedTunerStream(route.Candidates[0], source));
         var mediaProbe = Substitute.For<IMediaProbeService>();
         mediaProbe.ProbeAsync(
                 Arg.Any<StreamAcquisitionDescriptor>(),
@@ -762,6 +789,7 @@ public sealed class StreamControllerTests
                 Arg.Any<CancellationToken>())
             .Returns(async call =>
             {
+                probing.TrySetResult();
                 await Task.Delay(Timeout.InfiniteTimeSpan, call.Arg<CancellationToken>());
                 return new MediaProbeResult([], null);
             });
@@ -769,15 +797,36 @@ public sealed class StreamControllerTests
             routes: routes,
             multiplexer: multiplexer,
             mediaProbe: mediaProbe,
-            cmafStartupTimeout: TimeSpan.FromMilliseconds(50));
-        var stopwatch = Stopwatch.StartNew();
+            cmafStartupTimeout: TimeSpan.FromSeconds(24),
+            timeProvider: clock);
+        var pending = controller.StartCmafStream("9.1", new CmafStreamRequest());
 
         // Act
-        var result = await controller.StartCmafStream("9.1", new CmafStreamRequest());
+        try
+        {
+            await probing.Task.WaitAsync(BunitContext.WaitTimeout, TestContext.Current.CancellationToken);
+            await source.Started.Task.WaitAsync(BunitContext.WaitTimeout, TestContext.Current.CancellationToken);
+            await clock.WaitForTimerAsync(TimeSpan.FromSeconds(24), TestContext.Current.CancellationToken);
+            clock.Advance(TimeSpan.FromSeconds(24));
+            var result = await pending.WaitAsync(BunitContext.WaitTimeout, TestContext.Current.CancellationToken);
 
-        // Assert
-        Assert.Equal(StatusCodes.Status504GatewayTimeout, Assert.IsType<ObjectResult>(result).StatusCode);
-        Assert.True(stopwatch.Elapsed < TimeSpan.FromMilliseconds(500), $"Startup timeout took {stopwatch.Elapsed}.");
+            // Assert
+            Assert.Equal(StatusCodes.Status504GatewayTimeout, Assert.IsType<ObjectResult>(result).StatusCode);
+            Assert.False(source.Completed.Task.IsCompleted);
+        }
+        finally
+        {
+            source.Release.TrySetResult();
+            clock.Advance(TimeSpan.FromSeconds(24));
+            try
+            {
+                await pending.WaitAsync(BunitContext.WaitTimeout, TestContext.Current.CancellationToken);
+            }
+            finally
+            {
+                await controller.Playback.DisposeAsync();
+            }
+        }
     }
 
     /// <summary>Verifies full active or startup admission rejects media before routing, acquiring, probing, or creating output state.</summary>
@@ -827,7 +876,8 @@ public sealed class StreamControllerTests
         ICmafOutputCoordinator? cmafOutputs = null,
         TimeSpan? cmafStartupTimeout = null,
         ICmafCompatibilityTestService? compatibilityTestService = null,
-        IVirtualMpegTsOutputService? virtualMpegTsOutputs = null)
+        IVirtualMpegTsOutputService? virtualMpegTsOutputs = null,
+        TimeProvider? timeProvider = null)
     {
         var settings = Substitute.For<ILineupSettingsService>();
         settings.Settings.Returns(new LineupSettings
@@ -861,6 +911,7 @@ public sealed class StreamControllerTests
             slate ?? Substitute.For<IProtectedContentSlateService>(),
             multiplexer ?? Substitute.For<ITunerStreamMultiplexer>(),
             NullLogger<StreamController>.Instance,
+            timeProvider: timeProvider,
             transientData: transientData ?? new TransientDataStore(Path.Combine(AppContext.BaseDirectory, "stream-controller-artifacts")),
             streamRoutes: routes,
             cmafOutputs: cmafOutputs,
@@ -976,8 +1027,15 @@ public sealed class StreamControllerTests
         return new CmafRegistration(sessionId, directory, playlistPath);
     }
 
-    private sealed class DelayedReadStream(TimeSpan delay) : Stream
+    private sealed class ControlledReadStream : Stream
     {
+        /// <summary>Gets the barrier indicating source reading has begun.</summary>
+        internal TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        /// <summary>Gets the controlled release for a source read that ignores cancellation.</summary>
+        internal TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        /// <summary>Gets the barrier indicating the held source read has finished.</summary>
+        internal TaskCompletionSource Completed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public override bool CanRead => true;
         public override bool CanSeek => false;
         public override bool CanWrite => false;
@@ -993,7 +1051,9 @@ public sealed class StreamControllerTests
         {
             _ = buffer;
             _ = cancellationToken;
-            await Task.Delay(delay);
+            Started.TrySetResult();
+            await Release.Task;
+            Completed.TrySetResult();
             return 0;
         }
     }

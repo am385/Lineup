@@ -55,16 +55,20 @@ public sealed class VirtualOutputLeasePolicyTests
     public async Task ExternalEnrollment_RenewedCredentials_KeepPolicyLease(int seconds)
     {
         // Arrange
-        await using var fixture = new Fixture(VirtualOutputExecutionMode.ExternalProcess, seconds);
+        await using var fixture = new Fixture(VirtualOutputExecutionMode.ExternalProcess, seconds, holdEnrollmentPublication: true);
         var original = await fixture.StartAsync();
         fixture.Time.Advance(TimeSpan.FromMinutes(2));
 
         // Act
-        var replacement = fixture.Enrollments.Take(original.VirtualDevice.Id)!.Bootstrap;
+        var pendingReplacement = fixture.TakeEnrollmentAsync();
+        var waitedForReconciliation = !pendingReplacement.IsCompleted;
+        fixture.ReleaseEnrollmentPublication();
+        var replacement = await pendingReplacement;
         var registration = fixture.Register(replacement);
         var activeReplacement = fixture.Enrollments.Take(original.VirtualDevice.Id);
 
         // Assert
+        Assert.True(waitedForReconciliation);
         Assert.True(replacement.Generation > original.Generation);
         Assert.NotEqual(original.BootstrapToken, replacement.BootstrapToken);
         Assert.Equal(fixture.Time.GetUtcNow().AddMinutes(1), replacement.BootstrapExpiresUtc);
@@ -78,10 +82,12 @@ public sealed class VirtualOutputLeasePolicyTests
         private readonly VirtualOutputSupervisor _supervisor;
         private readonly TaskCompletionSource<VirtualOutputWorkerBootstrap> _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource<int> _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _releaseEnrollmentPublication = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly VirtualDeviceId _deviceId = VirtualDeviceId.New();
         private readonly VirtualOutputExecutionMode _mode;
 
-        public Fixture(VirtualOutputExecutionMode mode, int seconds)
+        /// <summary>Creates controlled worker activation and optionally holds reconciliation after enrollment becomes visible.</summary>
+        public Fixture(VirtualOutputExecutionMode mode, int seconds, bool holdEnrollmentPublication = false)
         {
             _mode = mode;
             Authority = new VirtualOutputSessionAuthority(Time);
@@ -128,6 +134,17 @@ public sealed class VirtualOutputLeasePolicyTests
                     _started.TrySetResult(call.Arg<VirtualOutputWorkerBootstrap>());
                     return process;
                 });
+            IVirtualOutputExternalEnrollmentStore enrollments = Enrollments;
+            if (holdEnrollmentPublication)
+            {
+                enrollments = Substitute.For<IVirtualOutputExternalEnrollmentStore>();
+                enrollments.When(store => store.Set(Arg.Any<VirtualOutputExternalEnrollment>(), Arg.Any<Func<VirtualOutputExternalEnrollment?>>())).Do(call =>
+                {
+                    Enrollments.Set(call.Arg<VirtualOutputExternalEnrollment>(), call.Arg<Func<VirtualOutputExternalEnrollment?>>());
+                    _releaseEnrollmentPublication.Task.GetAwaiter().GetResult();
+                });
+                enrollments.Remove(Arg.Any<VirtualDeviceId>()).Returns(call => Enrollments.Remove(call.Arg<VirtualDeviceId>()));
+            }
             _supervisor = new VirtualOutputSupervisor(
                 settings,
                 new VirtualOutputRuntimeOptions
@@ -142,7 +159,7 @@ public sealed class VirtualOutputLeasePolicyTests
                 Substitute.For<IVirtualOutputCertificateResolver>(),
                 Authority,
                 new VirtualOutputRuntimeStatus(),
-                Enrollments,
+                enrollments,
                 NullLogger<VirtualOutputSupervisor>.Instance,
                 Time);
         }
@@ -155,15 +172,24 @@ public sealed class VirtualOutputLeasePolicyTests
 
         public VirtualOutputExternalEnrollmentStore Enrollments { get; }
 
+        /// <summary>Starts the supervisor and waits for its first managed bootstrap or external enrollment.</summary>
         public async Task<VirtualOutputWorkerBootstrap> StartAsync()
         {
             await _supervisor.StartAsync(TestContext.Current.CancellationToken);
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-            timeout.CancelAfter(TimeSpan.FromSeconds(5));
             if (_mode == VirtualOutputExecutionMode.ManagedProcess)
             {
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+                timeout.CancelAfter(TimeSpan.FromSeconds(5));
                 return await _started.Task.WaitAsync(timeout.Token);
             }
+            return await TakeEnrollmentAsync();
+        }
+
+        /// <summary>Waits for an enrollment while supervisor reconciliation temporarily holds its output gate.</summary>
+        public async Task<VirtualOutputWorkerBootstrap> TakeEnrollmentAsync()
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(5));
             while (true)
             {
                 if (Enrollments.Take(_deviceId) is { } enrollment)
@@ -173,6 +199,9 @@ public sealed class VirtualOutputLeasePolicyTests
                 await Task.Delay(10, timeout.Token);
             }
         }
+
+        /// <summary>Allows the supervisor to finish publishing the initial external enrollment and release its output gate.</summary>
+        public void ReleaseEnrollmentPublication() => _releaseEnrollmentPublication.TrySetResult();
 
         public VirtualOutputWorkerRegistrationResponse Register(VirtualOutputWorkerBootstrap bootstrap) =>
             Authority.Register(new VirtualOutputWorkerRegistrationRequest
@@ -185,8 +214,10 @@ public sealed class VirtualOutputLeasePolicyTests
                 MaximumProtocolVersion = VirtualOutputProtocol.MaximumVersion
             });
 
+        /// <inheritdoc />
         public async ValueTask DisposeAsync()
         {
+            _releaseEnrollmentPublication.TrySetResult();
             var stopping = _supervisor.StopAsync(CancellationToken.None);
             _completion.TrySetResult(0);
             await stopping;

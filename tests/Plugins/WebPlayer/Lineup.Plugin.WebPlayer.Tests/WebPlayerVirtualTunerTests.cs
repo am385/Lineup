@@ -4,6 +4,7 @@ using Lineup.Core.Extensibility.Configuration;
 using Lineup.Core.Common.Streaming;
 using Lineup.Core.Extensibility.Streaming;
 using Xunit;
+using Lineup.TestSupport;
 
 namespace Lineup.Plugin.WebPlayer.Tests;
 
@@ -188,7 +189,8 @@ public sealed class WebPlayerVirtualTunerTests
     public async Task Coordinator_KeepWarmPeriod_ReusesOutputUntilExpiry()
     {
         // Arrange
-        await using var coordinator = new CmafOutputCoordinator();
+        var clock = new ControlledTimeProvider();
+        await using var coordinator = new CmafOutputCoordinator(clock);
         var key = new StreamTransformKey("web-player-cmaf", "warm");
         var owner = new TestOwner();
         var firstViewer = StreamSessionId.New();
@@ -202,7 +204,8 @@ public sealed class WebPlayerVirtualTunerTests
         // Act
         await first.DisposeAsync();
         var warmDiagnostics = Assert.Single(coordinator.GetDiagnostics());
-        await Task.Delay(50, TestContext.Current.CancellationToken);
+        await clock.WaitForTimerAsync(TimeSpan.FromMilliseconds(200), TestContext.Current.CancellationToken);
+        clock.Advance(TimeSpan.FromMilliseconds(50));
         var second = await coordinator.AcquireAsync(
             key,
             StreamSessionId.New(),
@@ -210,7 +213,9 @@ public sealed class WebPlayerVirtualTunerTests
             TimeSpan.FromMilliseconds(200),
             TestContext.Current.CancellationToken);
         await second.DisposeAsync();
-        await Task.Delay(250, TestContext.Current.CancellationToken);
+        await clock.WaitForTimerAsync(TimeSpan.FromMilliseconds(200), TestContext.Current.CancellationToken);
+        clock.Advance(TimeSpan.FromMilliseconds(200));
+        await owner.Disposed.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
 
         // Assert
         Assert.True(warmDiagnostics.IsWarm);

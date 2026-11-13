@@ -26,7 +26,7 @@ public sealed class TopologySettingsTests
     public async Task Save_ThemeChange_WithIndependentSettings_PreservesSelection(string theme, string selector)
     {
         // Arrange
-        using var context = CreateContext(out var settingsService, out var settings);
+        await using var context = CreateContext(out var settingsService, out var settings);
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var webSettings = context.Services.GetRequiredService<IWebSettingsService>().Settings;
         webSettings.Theme = "dark";
@@ -52,7 +52,7 @@ public sealed class TopologySettingsTests
     public async Task WebSettingsChanged_ExternalThemeChange_PreservesOtherEdits()
     {
         // Arrange
-        using var context = CreateContext(out _, out var settings);
+        await using var context = CreateContext(out _, out var settings);
         var webSettings = context.Services.GetRequiredService<IWebSettingsService>();
         var component = context.Render<Settings>();
         component.Find("#tab-guide").Click();
@@ -69,10 +69,10 @@ public sealed class TopologySettingsTests
 
     /// <summary>Verifies the theme handler is owned by, and unsubscribed from, the Web settings event.</summary>
     [Fact]
-    public void Dispose_IndependentSettings_UnsubscribesWebThemeHandler()
+    public async Task Dispose_IndependentSettings_UnsubscribesWebThemeHandler()
     {
         // Arrange
-        using var context = CreateContext(out var settingsService, out _);
+        await using var context = CreateContext(out var settingsService, out _);
         var webSettings = context.Services.GetRequiredService<IWebSettingsService>();
         var component = context.Render<Settings>();
 
@@ -87,10 +87,10 @@ public sealed class TopologySettingsTests
 
     /// <summary>Verifies theme cleanup does not resolve dependencies after the prerender request's service scope has been disposed.</summary>
     [Fact]
-    public void Dispose_ExpiredServiceScope_UnsubscribesCapturedWebSettings()
+    public async Task Dispose_ExpiredServiceScope_UnsubscribesCapturedWebSettings()
     {
         // Arrange
-        using var context = CreateContext(out _, out _);
+        await using var context = CreateContext(out _, out _);
         var webSettings = context.Services.GetRequiredService<IWebSettingsService>();
         var component = context.Render<Settings>();
         using var expired = new ServiceCollection().BuildServiceProvider();
@@ -125,7 +125,7 @@ public sealed class TopologySettingsTests
         var root = Directory.CreateTempSubdirectory("lineup-settings-reset-");
         try
         {
-            using var context = CreateContext(out var settingsService, out var settings);
+            await using var context = CreateContext(out var settingsService, out var settings);
             context.JSInterop.Mode = JSRuntimeMode.Loose;
             var configuredPath = customPath ? Path.Combine(root.FullName, "configured.xml") : "xmltv.xml";
             settingsService.ConfiguredXmltvOutputPath.Returns(configuredPath);
@@ -177,7 +177,7 @@ public sealed class TopologySettingsTests
     public async Task Save_InvalidListenerAddress_PreservesEditsAndAllowsCorrection(string address)
     {
         // Arrange
-        using var context = CreateContext(out var settingsService, out var settings);
+        await using var context = CreateContext(out var settingsService, out var settings);
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var original = settings.Streaming;
         var component = context.Render<Settings>();
@@ -216,7 +216,7 @@ public sealed class TopologySettingsTests
     public async Task StreamingPluginConnectionLimit_Save_PersistsGlobalSetting(int maximum)
     {
         // Arrange
-        using var context = CreateContext(out var settingsService, out var settings);
+        await using var context = CreateContext(out var settingsService, out var settings);
         settings.Streaming = settings.Streaming with { MaximumPluginConnections = 4 };
         var component = context.Render<Settings>();
         component.Find("#tab-streaming").Click();
@@ -252,7 +252,7 @@ public sealed class TopologySettingsTests
     )
     {
         // Arrange
-        using var context = CreateContext(out var settingsService, out var settings);
+        await using var context = CreateContext(out var settingsService, out var settings);
         context.Services.AddSingleton<IVirtualTunerDriver, LineupLinkVirtualTunerDriver>();
         context.JSInterop.SetupVoid("downloadTextFile", _ => true).SetVoidResult();
         context.JSInterop.SetupVoid("copyTextToClipboard", _ => true).SetVoidResult();
@@ -337,7 +337,7 @@ public sealed class TopologySettingsTests
     public async Task Save_ListenerPortEditing_InvalidPort_PreservesEditsAndAllowsCorrection(string kind, bool manualOverride)
     {
         // Arrange
-        using var context = CreateContext(out var settingsService, out var settings);
+        await using var context = CreateContext(out var settingsService, out var settings);
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddSingleton<IVirtualTunerDriver, LineupLinkVirtualTunerDriver>();
         var component = context.Render<Settings>();
@@ -404,10 +404,10 @@ public sealed class TopologySettingsTests
     /// Verifies empty topology collections direct the user to the corresponding add action.
     /// </summary>
     [Fact]
-    public void Render_EmptyTopology_ShowsAddGuidance()
+    public async Task Render_EmptyTopology_ShowsAddGuidance()
     {
         // Arrange
-        using var context = CreateContext(out _, out _);
+        await using var context = CreateContext(out _, out _);
         var component = context.Render<Settings>();
 
         // Act
@@ -430,10 +430,10 @@ public sealed class TopologySettingsTests
     /// Verifies empty virtual-device guidance does not claim that a disabled Web Player is available.
     /// </summary>
     [Fact]
-    public void Render_EmptyVirtualDevicesWithDisabledWebPlayer_ShowsEnableGuidance()
+    public async Task Render_EmptyVirtualDevicesWithDisabledWebPlayer_ShowsEnableGuidance()
     {
         // Arrange
-        using var context = CreateContext(out _, out var settings);
+        await using var context = CreateContext(out _, out var settings);
         var editor = new TopologySettingsEditor();
         var model = editor.Edit(settings.Streaming);
         model.VirtualDevices.Single(device => device.IsWebPlayer).Enabled = false;
@@ -454,10 +454,10 @@ public sealed class TopologySettingsTests
     /// Verifies global physical settings appear first and inherited values remain visible on each device.
     /// </summary>
     [Fact]
-    public void Render_Topology_ShowsBuiltInPlayerAndInheritedPhysicalValue()
+    public async Task Render_Topology_ShowsBuiltInPlayerAndInheritedPhysicalValue()
     {
         // Arrange
-        using var context = CreateContext(out _, out var settings);
+        await using var context = CreateContext(out _, out var settings);
         var editor = new TopologySettingsEditor();
         var model = editor.Edit(settings.Streaming);
         model.PhysicalDefaults.ConvertHevcToH264 = true;
@@ -570,10 +570,10 @@ public sealed class TopologySettingsTests
     /// Verifies the add action discovers registered user-creatable virtual tuner drivers.
     /// </summary>
     [Fact]
-    public void AddVirtualDevice_RegisteredDrivers_PromptsForTypeAndAddsSelection()
+    public async Task AddVirtualDevice_RegisteredDrivers_PromptsForTypeAndAddsSelection()
     {
         // Arrange
-        using var context = CreateContext(out _, out _);
+        await using var context = CreateContext(out _, out _);
         context.Services.AddSingleton<IVirtualTunerDriver, M3uTestVirtualTunerDriver>();
         var component = context.Render<Settings>();
         component.Find("#tab-virtual-devices").Click();
@@ -604,7 +604,7 @@ public sealed class TopologySettingsTests
     public async Task ExportLineupLinkBundle_AvailableToken_DownloadsJsonFile()
     {
         // Arrange
-        using var context = CreateContext(out _, out _);
+        await using var context = CreateContext(out _, out _);
         context.Services.AddSingleton<IVirtualTunerDriver, LineupLinkVirtualTunerDriver>();
         context.JSInterop.SetupVoid("downloadTextFile", _ => true).SetVoidResult();
         var component = context.Render<Settings>();
@@ -629,7 +629,7 @@ public sealed class TopologySettingsTests
             Assert.Equal(2, json.RootElement.GetProperty("protocolVersion").GetInt32());
             Assert.Equal("https://lineup.example:8443", json.RootElement.GetProperty("baseUrl").GetString());
             Assert.False(string.IsNullOrWhiteSpace(json.RootElement.GetProperty("accessToken").GetString()));
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
         Assert.Empty(component.FindAll(".connection-bundle-json"));
         var showButton = component.Find(".lineup-link-access-grant button[id^='showLineupLinkBundle-']");
         Assert.Equal("false", showButton.GetAttribute("aria-expanded"));
@@ -641,7 +641,7 @@ public sealed class TopologySettingsTests
     public async Task ExportLineupLinkBundle_WithoutPublicUrl_UsesNullAddress()
     {
         // Arrange
-        using var context = CreateContext(out _, out _);
+        await using var context = CreateContext(out _, out _);
         context.Services.AddSingleton<IVirtualTunerDriver, LineupLinkVirtualTunerDriver>();
         context.JSInterop.SetupVoid("downloadTextFile", _ => true).SetVoidResult();
         var component = context.Render<Settings>();
@@ -660,7 +660,7 @@ public sealed class TopologySettingsTests
             var invocation = Assert.Single(context.JSInterop.Invocations, item => item.Identifier == "downloadTextFile");
             using var json = JsonDocument.Parse(Assert.IsType<string>(invocation.Arguments[2]));
             Assert.Equal(JsonValueKind.Null, json.RootElement.GetProperty("baseUrl").ValueKind);
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>Verifies dedicated Lineup Link outputs derive HTTP or HTTPS from the listener instead of presenting a second transport switch.</summary>
@@ -668,7 +668,7 @@ public sealed class TopologySettingsTests
     public async Task ConfigureDedicatedLineupLink_ListenerOwnsTransportSelection()
     {
         // Arrange
-        using var context = CreateContext(out _, out _);
+        await using var context = CreateContext(out _, out _);
         context.Services.AddSingleton<IVirtualTunerDriver, LineupLinkVirtualTunerDriver>();
         context.JSInterop.SetupVoid("downloadTextFile", _ => true).SetVoidResult();
         var component = context.Render<Settings>();
@@ -732,15 +732,15 @@ public sealed class TopologySettingsTests
             var bundle = LineupLinkConnectionBundleCodec.Deserialize(Assert.IsType<string>(invocation.Arguments[2]));
             Assert.Equal("https://lineup.example:8600/", bundle.BaseUrl);
             Assert.Equal(LineupLinkTransportSecurity.Https, bundle.TransportSecurity);
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>Verifies a selected access-grant expiration survives subsequent component rerenders.</summary>
     [Fact]
-    public void SetLineupLinkGrantExpiration_DateTimePicker_PersistsSelection()
+    public async Task SetLineupLinkGrantExpiration_DateTimePicker_PersistsSelection()
     {
         // Arrange
-        using var context = CreateContext(out _, out _);
+        await using var context = CreateContext(out _, out _);
         context.Services.AddSingleton<IVirtualTunerDriver, LineupLinkVirtualTunerDriver>();
         var component = context.Render<Settings>();
         component.Find("#tab-virtual-devices").Click();
@@ -765,7 +765,7 @@ public sealed class TopologySettingsTests
     public async Task ShowAndCopyLineupLinkBundle_GeneratedBundle_CopiesExactJson()
     {
         // Arrange
-        using var context = CreateContext(out _, out _);
+        await using var context = CreateContext(out _, out _);
         context.Services.AddSingleton<IVirtualTunerDriver, LineupLinkVirtualTunerDriver>();
         context.JSInterop.SetupVoid("copyTextToClipboard", _ => true).SetVoidResult();
         var component = context.Render<Settings>();
@@ -800,17 +800,17 @@ public sealed class TopologySettingsTests
             Assert.Equal(1, json.RootElement.GetProperty("bundleVersion").GetInt32());
             Assert.Equal(2, json.RootElement.GetProperty("protocolVersion").GetInt32());
             Assert.Equal("https://lineup.example:8443", json.RootElement.GetProperty("baseUrl").GetString());
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
     /// Verifies persisted Lineup Link devices can always show a bundle with the unavailable token redacted.
     /// </summary>
     [Fact]
-    public void ShowLineupLinkBundle_PersistedTokenHash_ShowsRedactedJson()
+    public async Task ShowLineupLinkBundle_PersistedTokenHash_ShowsRedactedJson()
     {
         // Arrange
-        using var context = CreateContext(out _, out var settings);
+        await using var context = CreateContext(out _, out var settings);
         var driver = new LineupLinkVirtualTunerDriver();
         context.Services.AddSingleton<IVirtualTunerDriver>(driver);
         var editor = new TopologySettingsEditor();
@@ -845,10 +845,10 @@ public sealed class TopologySettingsTests
 
     /// <summary>Verifies a final revoked grant can be permanently purged to disable remote access.</summary>
     [Fact]
-    public void ManageLineupLinkAccessGrants_PurgeFinalGrant_DisablesRemoteAccess()
+    public async Task ManageLineupLinkAccessGrants_PurgeFinalGrant_DisablesRemoteAccess()
     {
         // Arrange
-        using var context = CreateContext(out _, out _);
+        await using var context = CreateContext(out _, out _);
         context.Services.AddSingleton<IVirtualTunerDriver, LineupLinkVirtualTunerDriver>();
         var component = context.Render<Settings>();
         component.Find("#tab-virtual-devices").Click();
@@ -876,10 +876,10 @@ public sealed class TopologySettingsTests
     /// Verifies the built-in Web Player remains the first device tab regardless of persisted virtual-device order.
     /// </summary>
     [Fact]
-    public void Render_VirtualDeviceTabs_PinsWebPlayerBeforeConfiguredDevices()
+    public async Task Render_VirtualDeviceTabs_PinsWebPlayerBeforeConfiguredDevices()
     {
         // Arrange
-        using var context = CreateContext(out _, out var settings);
+        await using var context = CreateContext(out _, out var settings);
         var driver = new LineupLinkVirtualTunerDriver();
         context.Services.AddSingleton<IVirtualTunerDriver>(driver);
         var editor = new TopologySettingsEditor();
@@ -908,10 +908,10 @@ public sealed class TopologySettingsTests
     /// Verifies the add action discovers registered user-creatable physical tuner drivers.
     /// </summary>
     [Fact]
-    public void AddPhysicalDevice_RegisteredDrivers_PromptsForTypeAndAddsSelection()
+    public async Task AddPhysicalDevice_RegisteredDrivers_PromptsForTypeAndAddsSelection()
     {
         // Arrange
-        using var context = CreateContext(out _, out _);
+        await using var context = CreateContext(out _, out _);
         context.Services.AddSingleton<IPhysicalTunerDriver>(new TestPhysicalTunerDriver("m3u", "M3U Source", ""));
         var component = context.Render<Settings>();
         component.Find("#tab-physical-devices").Click();
@@ -940,10 +940,10 @@ public sealed class TopologySettingsTests
     /// Verifies guide sources use global and per-source tabs with compatible physical-device subscriptions.
     /// </summary>
     [Fact]
-    public void GuideSources_AddSource_DefaultsToAllAndSupportsSelectedDevices()
+    public async Task GuideSources_AddSource_DefaultsToAllAndSupportsSelectedDevices()
     {
         // Arrange
-        using var context = CreateContext(out _, out var settings);
+        await using var context = CreateContext(out _, out var settings);
         var editor = new TopologySettingsEditor();
         var model = editor.Edit(settings.Streaming);
         editor.AddPhysicalDevice(model, new TestPhysicalTunerDriver());
@@ -979,10 +979,10 @@ public sealed class TopologySettingsTests
     /// Verifies About Settings follows global and instance subtabs and identifies dynamically registered adapter types.
     /// </summary>
     [Fact]
-    public void AboutSettings_TopologySubtabs_ShowsSelectedAdapterContext()
+    public async Task AboutSettings_TopologySubtabs_ShowsSelectedAdapterContext()
     {
         // Arrange
-        using var context = CreateContext(out _, out _);
+        await using var context = CreateContext(out _, out _);
         context.Services.AddSingleton<IPhysicalTunerDriver>(new TestPhysicalTunerDriver("m3u", "M3U Source", ""));
         context.Services.AddSingleton<IVirtualTunerDriver, M3uTestVirtualTunerDriver>();
         context.Services.AddSingleton<IGuideSourceDriver, XmltvTestGuideSourceDriver>();
@@ -1047,10 +1047,10 @@ public sealed class TopologySettingsTests
     /// Verifies physical device tabs track creation, editing, disablement, and removal.
     /// </summary>
     [Fact]
-    public void PhysicalDeviceTabs_DeviceLifecycle_TracksSelectionAndLabel()
+    public async Task PhysicalDeviceTabs_DeviceLifecycle_TracksSelectionAndLabel()
     {
         // Arrange
-        using var context = CreateContext(out _, out _);
+        await using var context = CreateContext(out _, out _);
         var component = context.Render<Settings>();
         component.Find("#tab-physical-devices").Click();
 
@@ -1086,7 +1086,7 @@ public sealed class TopologySettingsTests
     public async Task TestPhysicalDevice_UnsavedAddress_ShowsIdentityAndOffersName()
     {
         // Arrange
-        using var context = CreateContext(out var settingsService, out var settings);
+        await using var context = CreateContext(out var settingsService, out var settings);
         var driver = Assert.IsType<TestPhysicalTunerDriver>(context.Services.GetServices<IPhysicalTunerDriver>().Single(candidate => candidate.Kind == "hdhomerun"));
         driver.Probe = (configuration, _) =>
         {
@@ -1116,7 +1116,7 @@ public sealed class TopologySettingsTests
             Assert.Contains("Connection successful", component.Find(".physical-device-probe-success").TextContent);
             Assert.Contains("ABCDEF01", component.Find(".physical-device-probe-success").TextContent);
             Assert.Contains("unsaved.local", component.Find(".physical-device-probe-success").TextContent);
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
         Assert.Equal("unsaved.local", driver.ProbedConfiguration?.Configuration.GetProperty("Address").GetString());
         Assert.Equal("HDHomeRun 1", component.Find("#physicalName-0").GetAttribute("value"));
         await settingsService.DidNotReceive().UpdateAsync(Arg.Any<Action<LineupSettings>>());
@@ -1135,7 +1135,7 @@ public sealed class TopologySettingsTests
     public async Task TestPhysicalDevice_FailureAndConnectionEdit_UpdatesInlineState()
     {
         // Arrange
-        using var context = CreateContext(out _, out _);
+        await using var context = CreateContext(out _, out _);
         var driver = Assert.IsType<TestPhysicalTunerDriver>(context.Services.GetServices<IPhysicalTunerDriver>().Single(candidate => candidate.Kind == "hdhomerun"));
         driver.Probe = (_, _) => ValueTask.FromException<PhysicalDeviceProbeResult>(new HttpRequestException("Device refused the connection."));
         var component = context.Render<Settings>();
@@ -1147,7 +1147,7 @@ public sealed class TopologySettingsTests
         await component.Find("#testPhysicalDevice-0").ClickAsync(new());
 
         // Assert
-        component.WaitForAssertion(() => Assert.Contains("Device refused the connection.", component.Find(".physical-device-probe-error").TextContent));
+        component.WaitForAssertion(() => Assert.Contains("Device refused the connection.", component.Find(".physical-device-probe-error").TextContent), timeout: LineupWebBunitContext.WaitTimeout);
         Assert.Contains("Test & Identify", component.Find("#aboutSettingsBody").TextContent);
 
         driver.Probe = (_, _) => ValueTask.FromResult(new PhysicalDeviceProbeResult
@@ -1155,7 +1155,7 @@ public sealed class TopologySettingsTests
             Details = [new PhysicalDeviceProbeDetail { Label = "Device ID", Value = "ABCDEF01" }]
         });
         await component.Find("#testPhysicalDevice-0").ClickAsync(new());
-        component.WaitForAssertion(() => Assert.NotNull(component.Find(".physical-device-probe-success")));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find(".physical-device-probe-success")), timeout: LineupWebBunitContext.WaitTimeout);
 
         component.Find("#physicalAddress-0").Change("changed.local");
 
@@ -1167,10 +1167,10 @@ public sealed class TopologySettingsTests
     /// Verifies global and effective per-device settings identify configurations that request transcoding.
     /// </summary>
     [Fact]
-    public void Render_TranscodingConfiguration_ShowsGlobalAndDeviceWarnings()
+    public async Task Render_TranscodingConfiguration_ShowsGlobalAndDeviceWarnings()
     {
         // Arrange
-        using var context = CreateContext(out _, out var settings);
+        await using var context = CreateContext(out _, out var settings);
         var editor = new TopologySettingsEditor();
         var model = editor.Edit(settings.Streaming);
         editor.AddPhysicalDevice(model, new TestPhysicalTunerDriver());
@@ -1216,10 +1216,10 @@ public sealed class TopologySettingsTests
     /// Verifies physical encoder controls appear only when the effective profile requests video transcoding.
     /// </summary>
     [Fact]
-    public void Render_PhysicalVideoTranscoding_ShowsEncoderControlsOnlyWhenApplicable()
+    public async Task Render_PhysicalVideoTranscoding_ShowsEncoderControlsOnlyWhenApplicable()
     {
         // Arrange
-        using var context = CreateContext(out _, out _);
+        await using var context = CreateContext(out _, out _);
         var component = context.Render<Settings>();
         component.Find("#tab-physical-devices").Click();
 
@@ -1261,10 +1261,10 @@ public sealed class TopologySettingsTests
     /// Verifies disabled physical and virtual devices collapse while their header toggles remain available.
     /// </summary>
     [Fact]
-    public void DisableDevice_CollapsesDetailsAndKeepsHeaderToggle()
+    public async Task DisableDevice_CollapsesDetailsAndKeepsHeaderToggle()
     {
         // Arrange
-        using var context = CreateContext(out _, out _);
+        await using var context = CreateContext(out _, out _);
         var component = context.Render<Settings>();
         component.Find("#tab-physical-devices").Click();
         component.Find("#addPhysicalDevice").Click();
@@ -1295,7 +1295,7 @@ public sealed class TopologySettingsTests
     public async Task Save_SelectedSubscription_PersistsSelection()
     {
         // Arrange
-        using var context = CreateContext(out var settingsService, out var settings);
+        await using var context = CreateContext(out var settingsService, out var settings);
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var component = context.Render<Settings>();
         component.Find("#tab-physical-devices").Click();
@@ -1323,7 +1323,7 @@ public sealed class TopologySettingsTests
     public async Task Save_NonXmltvGuideOutput_PersistsPortableSettings()
     {
         // Arrange
-        using var context = CreateContext(out var settingsService, out var settings);
+        await using var context = CreateContext(out var settingsService, out var settings);
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var component = context.Render<Settings>();
         component.Find("#tab-guide-outputs").Click();
@@ -1353,7 +1353,7 @@ public sealed class TopologySettingsTests
     public async Task Save_NonXmltvGuideOutput_RepeatedSavesPreservePortableSettings(bool existingOutput, bool failFirstSave)
     {
         // Arrange
-        using var context = CreateContext(out var settingsService, out var settings);
+        await using var context = CreateContext(out var settingsService, out var settings);
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var driver = new JsonGuideOutputDriver();
         if (existingOutput)
@@ -1420,7 +1420,7 @@ public sealed class TopologySettingsTests
     public async Task Save_SelectedSubscription_UnsavedEditsDoNotChangeLiveConfiguration()
     {
         // Arrange
-        using var context = CreateContext(out var settingsService, out var settings);
+        await using var context = CreateContext(out var settingsService, out var settings);
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var component = context.Render<Settings>();
         component.Find("#tab-physical-devices").Click();

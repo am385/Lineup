@@ -22,7 +22,7 @@ public sealed class ConfigurationLifecycleTests
     {
         // Arrange
         using var fixture = new Fixture();
-        using var context = fixture.CreateContext();
+        await using var context = fixture.CreateContext();
         var command = CreateCommand(fixture, context);
         var draft = CreateDraft(fixture, context);
         fixture.FailWebWrites = true;
@@ -52,7 +52,7 @@ public sealed class ConfigurationLifecycleTests
     {
         // Arrange
         using var fixture = new Fixture();
-        using var context = fixture.CreateContext();
+        await using var context = fixture.CreateContext();
         var command = CreateCommand(fixture, context);
         var draft = CreateDraft(fixture, context) with { EpgHistoryRetentionHours = hours };
 
@@ -74,7 +74,7 @@ public sealed class ConfigurationLifecycleTests
     {
         // Arrange
         using var fixture = new Fixture();
-        using var context = fixture.CreateContext();
+        await using var context = fixture.CreateContext();
         var command = CreateCommand(fixture, context);
         var draft = CreateDraft(fixture, context);
         fixture.BeforeCoreWrite = () => fixture.Web.UpdateAsync(settings => settings.RedactApiDeviceAddresses = true);
@@ -97,7 +97,7 @@ public sealed class ConfigurationLifecycleTests
     {
         // Arrange
         using var fixture = new Fixture();
-        using var context = fixture.CreateContext();
+        await using var context = fixture.CreateContext();
         var component = context.Render<Settings>();
         component.Find("#epgHistoryRetentionHours").Change(48);
         component.Find("#redactApiClientAddresses").Change(false);
@@ -127,7 +127,7 @@ public sealed class ConfigurationLifecycleTests
     {
         // Arrange
         using var fixture = new Fixture();
-        using var context = fixture.CreateContext();
+        await using var context = fixture.CreateContext();
         var component = context.Render<Settings>();
         component.Find("#epgHistoryRetentionHours").Change(48);
         component.Find("#redactApiClientAddresses").Change(false);
@@ -153,7 +153,7 @@ public sealed class ConfigurationLifecycleTests
     {
         // Arrange
         using var fixture = new Fixture();
-        using var context = fixture.CreateContext();
+        await using var context = fixture.CreateContext();
         var first = context.Render<Settings>();
         var second = context.Render<Settings>();
         first.Find("#epgHistoryRetentionHours").Change(48);
@@ -177,7 +177,7 @@ public sealed class ConfigurationLifecycleTests
     {
         // Arrange
         using var fixture = new Fixture();
-        using var context = fixture.CreateContext();
+        await using var context = fixture.CreateContext();
         var component = context.Render<Settings>();
         component.Find("#epgHistoryRetentionHours").Change(48);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -217,7 +217,7 @@ public sealed class ConfigurationLifecycleTests
     {
         // Arrange
         using var fixture = new Fixture();
-        using var context = fixture.CreateContext();
+        await using var context = fixture.CreateContext();
         var component = context.Render<Settings>();
         component.Find("#epgHistoryRetentionHours").Change(48);
         fixture.BeforeCoreWrite = () => fixture.Web.UpdateAsync(settings => settings.RedactApiDeviceAddresses = true);
@@ -239,7 +239,7 @@ public sealed class ConfigurationLifecycleTests
     {
         // Arrange
         using var fixture = new Fixture();
-        using var context = fixture.CreateContext();
+        await using var context = fixture.CreateContext();
         var component = context.Render<Settings>();
         component.Find("#epgHistoryRetentionHours").Change(48);
         fixture.WebWriteFailure = new Exception("Controlled unexpected second-store failure.");
@@ -261,7 +261,7 @@ public sealed class ConfigurationLifecycleTests
     {
         // Arrange
         using var fixture = new Fixture(setupComplete: false);
-        using var context = fixture.CreateContext();
+        await using var context = fixture.CreateContext();
         var statuses = Substitute.For<IPhysicalDeviceStatusService>();
         var lineups = Substitute.For<IPhysicalLineupService>();
         lineups.RefreshAsync(Arg.Any<StreamingConfiguration>(), Arg.Any<CancellationToken>()).Returns(
@@ -290,7 +290,7 @@ public sealed class ConfigurationLifecycleTests
     {
         // Arrange
         using var fixture = new Fixture(setupComplete: false);
-        using var context = fixture.CreateContext();
+        await using var context = fixture.CreateContext();
         context.Services.AddSingleton(Substitute.For<IPhysicalDeviceStatusService>());
         var runtime = Substitute.For<IStreamingTopologyRuntime>();
         runtime.Application.Returns(new StreamingTopologyApplication { DesiredRevision = "pending", Phase = TopologyApplicationPhase.Applying });
@@ -344,11 +344,11 @@ public sealed class ConfigurationLifecycleTests
     [InlineData(TopologyApplicationPhase.Pending)]
     [InlineData(TopologyApplicationPhase.Applying)]
     [InlineData(TopologyApplicationPhase.Applied)]
-    public void Settings_NonDegradedTopology_DoesNotDisplayApplicationNotice(TopologyApplicationPhase phase)
+    public async Task Settings_NonDegradedTopology_DoesNotDisplayApplicationNotice(TopologyApplicationPhase phase)
     {
         // Arrange
         using var fixture = new Fixture();
-        using var context = fixture.CreateContext();
+        await using var context = fixture.CreateContext();
         var runtime = Substitute.For<IStreamingTopologyRuntime>();
         runtime.Application.Returns(new StreamingTopologyApplication
         {
@@ -376,7 +376,7 @@ public sealed class ConfigurationLifecycleTests
     {
         // Arrange
         using var fixture = new Fixture();
-        using var context = fixture.CreateContext();
+        await using var context = fixture.CreateContext();
         var runtime = Substitute.For<IStreamingTopologyRuntime>();
         runtime.Application.Returns(new StreamingTopologyApplication
         {
@@ -421,7 +421,7 @@ public sealed class ConfigurationLifecycleTests
     {
         // Arrange
         using var fixture = new Fixture();
-        using var context = fixture.CreateContext();
+        await using var context = fixture.CreateContext();
         var runtime = Substitute.For<IStreamingTopologyRuntime>();
         var application = new StreamingTopologyApplication { DesiredRevision = "desired-revision", Phase = TopologyApplicationPhase.Applied };
         runtime.Application.Returns(application);
@@ -436,7 +436,7 @@ public sealed class ConfigurationLifecycleTests
         });
 
         // Assert
-        component.WaitForAssertion(() => Assert.Single(component.FindAll("#topologyApplication")));
+        component.WaitForAssertion(() => Assert.Single(component.FindAll("#topologyApplication")), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
         await component.InvokeAsync(() =>
@@ -446,7 +446,7 @@ public sealed class ConfigurationLifecycleTests
         });
 
         // Assert
-        component.WaitForAssertion(() => Assert.Empty(component.FindAll("#topologyApplication")));
+        component.WaitForAssertion(() => Assert.Empty(component.FindAll("#topologyApplication")), timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>Verifies synchronized header theme changes do not cause false conflicts or discard other pending edits.</summary>
@@ -455,7 +455,7 @@ public sealed class ConfigurationLifecycleTests
     {
         // Arrange
         using var fixture = new Fixture();
-        using var context = fixture.CreateContext();
+        await using var context = fixture.CreateContext();
         var component = context.Render<Settings>();
         component.Find("#epgHistoryRetentionHours").Change(48);
 
@@ -475,7 +475,7 @@ public sealed class ConfigurationLifecycleTests
     {
         // Arrange
         using var fixture = new Fixture();
-        using var context = fixture.CreateContext();
+        await using var context = fixture.CreateContext();
         var component = context.Render<Settings>();
         component.Find("#epgHistoryRetentionHours").Change(48);
         fixture.BeforeCoreWrite = () => fixture.Web.UpdateAsync(settings => settings.Theme = "dark");
@@ -497,7 +497,7 @@ public sealed class ConfigurationLifecycleTests
     {
         // Arrange
         using var fixture = new Fixture();
-        using var context = fixture.CreateContext();
+        await using var context = fixture.CreateContext();
         var logPath = fixture.Store.LogDirectoryPath;
         File.WriteAllText(logPath, "Blocks directory creation.");
         var fileSettings = new FileLoggingSettings(false, LogEventLevel.Information, 7, 50);
@@ -536,7 +536,7 @@ public sealed class ConfigurationLifecycleTests
     {
         // Arrange
         using var fixture = new Fixture(setupComplete: false);
-        using var context = fixture.CreateContext();
+        await using var context = fixture.CreateContext();
         context.Services.AddSingleton(Substitute.For<IPhysicalDeviceStatusService>());
         var lineups = Substitute.For<IPhysicalLineupService>();
         context.Services.AddSingleton(lineups);
@@ -565,7 +565,7 @@ public sealed class ConfigurationLifecycleTests
     {
         // Arrange
         using var fixture = new Fixture();
-        using var context = fixture.CreateContext();
+        await using var context = fixture.CreateContext();
         context.Services.AddSingleton(ReverseProxyConfigurator.Load(fixture.Core.Settings));
         var restart = Substitute.For<IApplicationRestartService>();
         context.Services.AddSingleton(restart);

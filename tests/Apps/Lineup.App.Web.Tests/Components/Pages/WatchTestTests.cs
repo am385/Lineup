@@ -20,18 +20,18 @@ public class WatchTestTests
     public async Task StopTest_DelayedPlayerDestruction_StopsServerFirst()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         context.JSInterop.Setup<CmafCompatibilityTestResponse>("startCmafSession", _ => true)
             .SetResult(new("test-1", "/api/stream/cmaf/test-1/manifest.mpd", "avc1.64002a", "mp4a.40.2", 2, 1920, 1080));
         context.JSInterop.Setup<WatchTest.CmafTestPlayerResult>("initCmafTestPlayer", _ => true).SetResult(new(true, true));
         var component = context.Render<WatchTest>();
         await component.Find("#startManualCompatibilityTest").ClickAsync(new());
-        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafTestPlayer"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafTestPlayer"), timeout: LineupWebBunitContext.WaitTimeout);
         var stopPlayer = context.JSInterop.SetupVoid("stopMediaPlayer", _ => true);
 
         // Act
         var stopping = component.Find("button.btn-outline-danger").ClickAsync(new());
-        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopMediaPlayer"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "stopMediaPlayer"), timeout: LineupWebBunitContext.WaitTimeout);
         var serverStopped = context.JSInterop.Invocations.Any(invocation => invocation.Identifier == "stopCmafSession");
         var pending = !stopping.IsCompleted;
         stopPlayer.SetVoidResult();
@@ -48,13 +48,13 @@ public class WatchTestTests
     public async Task StopTest_PlayerDestructionFails_StillStopsServer()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         context.JSInterop.Setup<CmafCompatibilityTestResponse>("startCmafSession", _ => true)
             .SetResult(new("test-1", "/api/stream/cmaf/test-1/manifest.mpd", "avc1.64002a", "mp4a.40.2", 2, 1920, 1080));
         context.JSInterop.Setup<WatchTest.CmafTestPlayerResult>("initCmafTestPlayer", _ => true).SetResult(new(true, true));
         var component = context.Render<WatchTest>();
         await component.Find("#startManualCompatibilityTest").ClickAsync(new());
-        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafTestPlayer"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafTestPlayer"), timeout: LineupWebBunitContext.WaitTimeout);
         var stopPlayer = context.JSInterop.SetupVoid("stopMediaPlayer", _ => true);
         stopPlayer.SetException(new JSException("Destroy failed"));
         var stop = typeof(WatchTest).GetMethod("StopSessionAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
@@ -73,9 +73,9 @@ public class WatchTestTests
     public async Task StopTest_ServerStopFails_RetainsOwnershipForRetry()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         var component = context.Render<WatchTest>();
-        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal));
+        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal), timeout: LineupWebBunitContext.WaitTimeout);
         var session = new CmafCompatibilityTestResponse("test-1", "/api/stream/cmaf/test-1/manifest.mpd", "avc1.64002a", "mp4a.40.2", 2, 1920, 1080);
         typeof(WatchTest).GetField("_session", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(component.Instance, session);
         var stop = typeof(WatchTest).GetMethod("StopSessionAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
@@ -99,9 +99,9 @@ public class WatchTestTests
     public async Task OnCmafTestPlayerError_WhileCaseIsPending_CompletesCaseAsFailure()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         var component = context.Render<WatchTest>();
-        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal));
+        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal), timeout: LineupWebBunitContext.WaitTimeout);
         var pendingField = typeof(WatchTest).GetField("_pendingPlayerResult", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(pendingField);
         var pending = new TaskCompletionSource<WatchTest.CmafTestPlayerResult>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -133,9 +133,10 @@ public class WatchTestTests
     public async Task OnCmafTestPlayerError_FromSupersededSession_DoesNotFailCurrentCase()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
+        context.JSInterop.SetupVoid("stopCmafSession", "test-2", "/api/stream/watch-test/stop/test-2").SetVoidResult();
         var component = context.Render<WatchTest>();
-        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal));
+        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal), timeout: LineupWebBunitContext.WaitTimeout);
         var pendingField = typeof(WatchTest).GetField("_pendingPlayerResult", BindingFlags.Instance | BindingFlags.NonPublic);
         var sessionField = typeof(WatchTest).GetField("_session", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(pendingField);
@@ -158,10 +159,10 @@ public class WatchTestTests
     /// Verifies the Watch launch flag automatically runs and saves the complete compatibility suite.
     /// </summary>
     [Fact]
-    public void RunAllOnLoad_StartsCompleteCompatibilitySuite()
+    public async Task RunAllOnLoad_StartsCompleteCompatibilitySuite()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         context.JSInterop
             .Setup<CmafCompatibilityTestResponse>("startCmafSession", _ => true)
             .SetResult(new("test-1", "/api/stream/cmaf/test-1/manifest.mpd", "avc1.64002a", "mp4a.40.2", 8, 1920, 1080, "/api/stream/cmaf/test-1/captions-0.vtt"));
@@ -201,7 +202,7 @@ public class WatchTestTests
     public async Task RunAll_CompletedSuite_WritesCompatibilityProfile()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         context.JSInterop
             .Setup<CmafCompatibilityTestResponse>("startCmafSession", _ => true)
             .SetResult(new("test-1", "/api/stream/cmaf/test-1/manifest.mpd", "avc1.64002a", "mp4a.40.2", 8, 1920, 1080, "/api/stream/cmaf/test-1/captions-0.vtt"));
@@ -214,7 +215,7 @@ public class WatchTestTests
                 Audio: new("Audio", "mp4a.40.2", 8),
                 SubtitleCueVisible: true));
         var component = context.Render<WatchTest>();
-        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal));
+        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
         await component.Find("#runAllCompatibilityTests").ClickAsync(new());
@@ -241,13 +242,13 @@ public class WatchTestTests
     public async Task RunAll_InProgress_OverlaysProgressTextAcrossTrack()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         context.JSInterop
             .Setup<CmafCompatibilityTestResponse>("startCmafSession", _ => true)
             .SetResult(new("test-1", "/api/stream/cmaf/test-1/manifest.mpd", "avc1.64002a", "mp4a.40.2", 2, 1920, 1080));
         context.JSInterop.Setup<WatchTest.CmafTestPlayerResult>("initCmafTestPlayer", _ => true);
         var component = context.Render<WatchTest>();
-        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal));
+        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal), timeout: LineupWebBunitContext.WaitTimeout);
         var runAll = typeof(WatchTest).GetMethod("RunAllAsync", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(runAll);
         Task runTask = null!;
@@ -255,7 +256,7 @@ public class WatchTestTests
         {
             runTask = Assert.IsAssignableFrom<Task>(runAll.Invoke(component.Instance, null));
         });
-        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafTestPlayer"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafTestPlayer"), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
         var progress = component.Find("[role='progressbar']");
@@ -277,7 +278,7 @@ public class WatchTestTests
     public async Task RunCase_AfterPreviousFailure_ClearsPageError()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         context.JSInterop
             .Setup<CmafCompatibilityTestResponse>("startCmafSession", _ => true)
             .SetResult(new("test-1", "/api/stream/cmaf/test-1/manifest.mpd", "avc1.64002a", "mp4a.40.2", 2, 1920, 1080));
@@ -285,7 +286,7 @@ public class WatchTestTests
             .Setup<WatchTest.CmafTestPlayerResult>("initCmafTestPlayer", _ => true)
             .SetResult(new(true, true, Video: new("avc1.64002a", 1920, 1080)));
         var component = context.Render<WatchTest>();
-        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal));
+        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal), timeout: LineupWebBunitContext.WaitTimeout);
         var errorField = typeof(WatchTest).GetField("_errorMessage", BindingFlags.Instance | BindingFlags.NonPublic);
         var runCase = typeof(WatchTest).GetMethod("RunCaseAsync", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(errorField);
@@ -303,17 +304,17 @@ public class WatchTestTests
         await runTask.WaitAsync(TimeSpan.FromSeconds(1), Xunit.TestContext.Current.CancellationToken);
 
         // Assert
-        component.WaitForAssertion(() => Assert.Empty(component.FindAll(".alert-danger")));
+        component.WaitForAssertion(() => Assert.Empty(component.FindAll(".alert-danger")), timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
     /// Verifies browser codec claims are displayed without starting a media session.
     /// </summary>
     [Fact]
-    public void BrowserClaims_RenderBeforePlayback()
+    public async Task BrowserClaims_RenderBeforePlayback()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
 
         // Act
         var component = context.Render<WatchTest>();
@@ -325,17 +326,17 @@ public class WatchTestTests
             Assert.Contains("Not supported", component.Markup, StringComparison.Ordinal);
             Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession");
             Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "localStorage.setItem");
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
     /// Verifies the page places automated controls and results in the requested regions without the legacy settings action.
     /// </summary>
     [Fact]
-    public void Layout_AutomatedActionsResultsAndClaims_AreReorganized()
+    public async Task Layout_AutomatedActionsResultsAndClaims_AreReorganized()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
 
         // Act
         var component = context.Render<WatchTest>();
@@ -356,7 +357,7 @@ public class WatchTestTests
             Assert.DoesNotContain(
                 context.JSInterop.Invocations,
                 invocation => invocation.Identifier == "localStorage.setItem" && Equals(invocation.Arguments[0], CmafWatchPreferences.StorageKey));
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
@@ -366,9 +367,9 @@ public class WatchTestTests
     public async Task RunSingleCase_BeforeCompleteProfile_AccumulatesWithoutSaving()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         var component = context.Render<WatchTest>();
-        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal));
+        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
         await component.Find("#runCompatibilityTest-audio-ac4-unavailable").ClickAsync(new());
@@ -382,7 +383,7 @@ public class WatchTestTests
             Assert.DoesNotContain(
                 context.JSInterop.Invocations,
                 invocation => invocation.Identifier == "localStorage.setItem" && Equals(invocation.Arguments[0], CmafCompatibilityProfile.StorageKey));
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
@@ -399,7 +400,7 @@ public class WatchTestTests
                 .Select(result => result.CaseId == "protocol-dash" ? result with { Error = "Localized diagnostic" } : result)
                 .ToArray()
         };
-        using var context = CreateContext(storedProfile);
+        await using var context = CreateContext(storedProfile);
         context.JSInterop
             .Setup<CmafCompatibilityTestResponse>("startCmafSession", _ => true)
             .SetResult(new("test-1", "/api/stream/cmaf/test-1/manifest.mpd", "avc1.64002a", "mp4a.40.2", 2, 1920, 1080));
@@ -414,7 +415,8 @@ public class WatchTestTests
                 new("AAC 2ch", "mp4a.40.2", 2),
                 new("avc1.64002a", 1920, 1080)));
         var component = context.Render<WatchTest>();
-        component.WaitForAssertion(() => Assert.Contains(nameof(CmafCapabilityStatus.Failed), component.Find("[data-test-case='video-h264-1080p']").TextContent, StringComparison.Ordinal));
+        component.WaitForAssertion(() => Assert.Contains(nameof(CmafCapabilityStatus.Failed), component.Find("[data-test-case='video-h264-1080p']").TextContent, StringComparison.Ordinal),
+            timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
         await component.Find("#runCompatibilityTest-video-h264-1080p").ClickAsync(new());
@@ -435,7 +437,7 @@ public class WatchTestTests
             Assert.Null(savedProtocolResult.Error);
             Assert.NotNull(component.Find("#observedPlayback"));
             Assert.False(component.Find("#runCompatibilityTest-protocol-dash").HasAttribute("disabled"));
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
@@ -445,7 +447,7 @@ public class WatchTestTests
     public async Task StartManualTest_InitializesAudiblePlayback()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         context.JSInterop
             .Setup<CmafCompatibilityTestResponse>("startCmafSession", _ => true)
             .SetResult(new("test-1", "/api/stream/cmaf/test-1/manifest.mpd", "avc1.64002a", "mp4a.40.2", 2, 1920, 1080));
@@ -453,7 +455,7 @@ public class WatchTestTests
             .Setup<WatchTest.CmafTestPlayerResult>("initCmafTestPlayer", _ => true)
             .SetResult(new(true, true, Audio: new("AAC 2ch", "mp4a.40.2", 2), Video: new("avc1.64002a", 1920, 1080)));
         var component = context.Render<WatchTest>();
-        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal));
+        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
         await component.Find("#startManualCompatibilityTest").ClickAsync(new());
@@ -463,17 +465,17 @@ public class WatchTestTests
         {
             Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafTestPlayer");
             Assert.False(component.Find("#cmafTestVideoPlayer").HasAttribute("muted"));
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
     /// Verifies malformed browser storage does not prevent Watch Test from rendering a fresh profile.
     /// </summary>
     [Fact]
-    public void MalformedStoredProfile_RendersFreshTestMatrix()
+    public async Task MalformedStoredProfile_RendersFreshTestMatrix()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         context.JSInterop.Setup<string?>("localStorage.getItem", CmafCompatibilityProfile.StorageKey).SetResult("{not-json");
 
         // Act
@@ -485,19 +487,19 @@ public class WatchTestTests
             Assert.Equal(CmafCompatibilityTestCatalog.All.Count, component.FindAll("#compatibilityTestResults tbody tr").Count);
             Assert.Contains("Not yet complete", component.Markup, StringComparison.Ordinal);
             Assert.Contains("Unable to read browser codec capabilities", component.Markup, StringComparison.Ordinal);
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
     /// Verifies selecting AC-4 reports the encoder limitation and cannot start a substituted test.
     /// </summary>
     [Fact]
-    public void Ac4Selection_DisablesSyntheticPlayback()
+    public async Task Ac4Selection_DisablesSyntheticPlayback()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         var component = context.Render<WatchTest>();
-        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal));
+        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
         component.Find("#testAudioCodec").Change(CmafTestAudioCodec.Ac4.ToString());
@@ -508,7 +510,7 @@ public class WatchTestTests
             Assert.Contains("has no AC-4 encoder", component.Markup, StringComparison.Ordinal);
             Assert.True(component.Find("#startManualCompatibilityTest").HasAttribute("disabled"));
             Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession");
-        });
+        }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
     /// <summary>
@@ -518,11 +520,11 @@ public class WatchTestTests
     public async Task CancelRun_DuringPendingStart_CancelsAndStopsLateSession()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         var start = context.JSInterop.Setup<CmafCompatibilityTestResponse>("startCmafSession", _ => true);
         context.JSInterop.SetupVoid("stopCmafSession", "late-session", "/api/stream/watch-test/stop/late-session").SetVoidResult();
         var component = context.Render<WatchTest>();
-        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal));
+        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal), timeout: LineupWebBunitContext.WaitTimeout);
         var runAll = typeof(WatchTest).GetMethod("RunAllAsync", BindingFlags.Instance | BindingFlags.NonPublic);
         var cancelRun = typeof(WatchTest).GetMethod("CancelRun", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(runAll);
@@ -532,7 +534,7 @@ public class WatchTestTests
         {
             runTask = Assert.IsAssignableFrom<Task>(runAll.Invoke(component.Instance, null));
         });
-        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession"), timeout: LineupWebBunitContext.WaitTimeout);
         var startInvocation = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession");
         var startupId = Assert.IsType<string>(startInvocation.Arguments[2]);
 
@@ -540,7 +542,7 @@ public class WatchTestTests
         await component.InvokeAsync(() => cancelRun.Invoke(component.Instance, null));
         component.WaitForAssertion(() => Assert.Contains(
             context.JSInterop.Invocations,
-            invocation => invocation.Identifier == "cancelCmafStart" && Equals(invocation.Arguments[0], startupId)));
+            invocation => invocation.Identifier == "cancelCmafStart" && Equals(invocation.Arguments[0], startupId)), timeout: LineupWebBunitContext.WaitTimeout);
         start.SetResult(new("late-session", "/api/stream/cmaf/late-session/manifest.mpd", "avc1.64002a", "mp4a.40.2", 2, 1920, 1080));
         await runTask.WaitAsync(TimeSpan.FromSeconds(1), Xunit.TestContext.Current.CancellationToken);
 
@@ -558,11 +560,11 @@ public class WatchTestTests
     public async Task DisposeAsync_DuringPendingStart_CancelsAndStopsLateSession()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         var start = context.JSInterop.Setup<CmafCompatibilityTestResponse>("startCmafSession", _ => true);
         context.JSInterop.SetupVoid("stopCmafSession", "late-session", "/api/stream/watch-test/stop/late-session").SetVoidResult();
         var component = context.Render<WatchTest>();
-        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal));
+        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal), timeout: LineupWebBunitContext.WaitTimeout);
         var runSingleCase = typeof(WatchTest).GetMethod("RunSingleCaseAsync", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(runSingleCase);
         var test = CmafCompatibilityTestCatalog.All.Single(candidate => candidate.Id == "video-h264-1080p");
@@ -571,12 +573,12 @@ public class WatchTestTests
         {
             runTask = Assert.IsAssignableFrom<Task>(runSingleCase.Invoke(component.Instance, [test]));
         });
-        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession"), timeout: LineupWebBunitContext.WaitTimeout);
         var startInvocation = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "startCmafSession");
         var startupId = Assert.IsType<string>(startInvocation.Arguments[2]);
 
         // Act
-        await component.Instance.DisposeAsync();
+        await context.DisposeComponentsAsync();
         start.SetResult(new("late-session", "/api/stream/cmaf/late-session/manifest.mpd", "avc1.64002a", "mp4a.40.2", 2, 1920, 1080));
         await runTask.WaitAsync(TimeSpan.FromSeconds(1), Xunit.TestContext.Current.CancellationToken);
 
@@ -597,13 +599,13 @@ public class WatchTestTests
     public async Task DisposeAsync_PendingSingleCase_CompletesRun()
     {
         // Arrange
-        using var context = CreateContext();
+        await using var context = CreateContext();
         context.JSInterop
             .Setup<CmafCompatibilityTestResponse>("startCmafSession", _ => true)
             .SetResult(new("test-1", "/api/stream/cmaf/test-1/manifest.mpd", "avc1.64002a", "mp4a.40.2", 2, 1920, 1080));
         context.JSInterop.Setup<WatchTest.CmafTestPlayerResult>("initCmafTestPlayer", _ => true);
         var component = context.Render<WatchTest>();
-        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal));
+        component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal), timeout: LineupWebBunitContext.WaitTimeout);
         var runSingleCase = typeof(WatchTest).GetMethod("RunSingleCaseAsync", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(runSingleCase);
         var test = CmafCompatibilityTestCatalog.All.Single(candidate => candidate.Id == "video-h264-1080p");
@@ -612,11 +614,11 @@ public class WatchTestTests
         {
             runTask = Assert.IsAssignableFrom<Task>(runSingleCase.Invoke(component.Instance, [test]));
         });
-        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafTestPlayer"));
+        component.WaitForAssertion(() => Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "initCmafTestPlayer"), timeout: LineupWebBunitContext.WaitTimeout);
         Assert.True(component.Find("#cmafTestVideoPlayer").HasAttribute("muted"));
 
         // Act
-        await component.Instance.DisposeAsync();
+        await context.DisposeComponentsAsync();
 
         // Assert
         await runTask.WaitAsync(TimeSpan.FromSeconds(1), Xunit.TestContext.Current.CancellationToken);
@@ -624,7 +626,6 @@ public class WatchTestTests
 
     private static BunitContext CreateContext(CmafCompatibilityProfile? storedProfile = null)
     {
-        BunitContext.DefaultWaitTimeout = TimeSpan.FromSeconds(5);
         var context = new BunitContext();
         context.Services.AddScoped<IBrowserDataStore, BrowserDataStore>();
         context.Services.AddSingleton<IStatusNotificationService>(new StatusNotificationService());

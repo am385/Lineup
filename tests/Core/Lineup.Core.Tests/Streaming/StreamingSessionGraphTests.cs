@@ -1,6 +1,7 @@
 using System.Threading.Channels;
 using Lineup.Core.Common.Streaming;
 using Lineup.Core.Extensibility.Streaming;
+using Lineup.TestSupport;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -675,7 +676,8 @@ public sealed class StreamingSessionGraphTests
     public async Task AcquirePipelineAsync_WarmLeaf_ReusesThenReleasesPipeline()
     {
         // Arrange
-        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance);
+        var clock = new ControlledTimeProvider();
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance, clock);
         var source = new ControlledSourceStream();
         var transform = new PassthroughTransform();
         var descriptor = CreateDescriptor(PhysicalDeviceId.New(), "7.1", capacity: 1);
@@ -691,7 +693,8 @@ public sealed class StreamingSessionGraphTests
         // Act
         await first.DisposeAsync();
         Assert.True(graph.GetDiagnostics().Nodes.Single(node => node.Kind == "transform").IsWarm);
-        await Task.Delay(50, TestContext.Current.CancellationToken);
+        await clock.WaitForTimerAsync(TimeSpan.FromMilliseconds(200), TestContext.Current.CancellationToken);
+        clock.Advance(TimeSpan.FromMilliseconds(50));
         await using var second = await graph.AcquirePipelineAsync(
             descriptor,
             _ => throw new InvalidOperationException("The warm acquisition must be reused."),
@@ -699,6 +702,8 @@ public sealed class StreamingSessionGraphTests
             TimeSpan.FromMilliseconds(200),
             TestContext.Current.CancellationToken);
         await second.DisposeAsync();
+        await clock.WaitForTimerAsync(TimeSpan.FromMilliseconds(200), TestContext.Current.CancellationToken);
+        clock.Advance(TimeSpan.FromMilliseconds(200));
         await source.WaitForDisposalAsync(TestContext.Current.CancellationToken);
         await WaitUntilAsync(() => graph.GetDiagnostics().Nodes.Count == 0, TestContext.Current.CancellationToken);
 

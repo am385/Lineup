@@ -15,7 +15,7 @@ public sealed class VirtualOutputWorkerRecoveryPanelTests
     public async Task RetryAsync_PendingRecovery_DisablesDuplicatesAndRefreshesReadiness()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var status = new VirtualOutputRuntimeStatus();
         var snapshot = new VirtualOutputRuntimeSnapshot
         {
@@ -33,7 +33,7 @@ public sealed class VirtualOutputWorkerRecoveryPanelTests
 
         // Act
         var click = cut.Find(".retry-worker").ClickAsync(new());
-        cut.WaitForAssertion(() => Assert.True(cut.Find(".retry-worker").HasAttribute("disabled")));
+        cut.WaitForAssertion(() => Assert.True(cut.Find(".retry-worker").HasAttribute("disabled")), timeout: LineupWebBunitContext.WaitTimeout);
         var starting = snapshot with { State = VirtualOutputRuntimeState.Starting, PreviousFailure = snapshot.LastFailure, LastFailure = null };
         status.Set(starting);
         completion.SetResult(new(true, starting));
@@ -56,7 +56,7 @@ public sealed class VirtualOutputWorkerRecoveryPanelTests
     public async Task RetryAsync_RevalidationFails_ShowsFailureRatherThanSuccess()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var status = new VirtualOutputRuntimeStatus();
         var snapshot = new VirtualOutputRuntimeSnapshot
         {
@@ -91,7 +91,7 @@ public sealed class VirtualOutputWorkerRecoveryPanelTests
     public async Task RetryAsync_WorkerBecameHealthy_ShowsRejectionWithoutRetryButton()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var status = new VirtualOutputRuntimeStatus();
         var snapshot = new VirtualOutputRuntimeSnapshot { VirtualDeviceId = VirtualDeviceId.New(), State = VirtualOutputRuntimeState.Failed };
         status.Set(snapshot);
@@ -116,7 +116,7 @@ public sealed class VirtualOutputWorkerRecoveryPanelTests
     public async Task Dispose_PendingRecovery_CancelsRequest()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var status = new VirtualOutputRuntimeStatus();
         var snapshot = new VirtualOutputRuntimeSnapshot { VirtualDeviceId = VirtualDeviceId.New(), State = VirtualOutputRuntimeState.Failed };
         status.Set(snapshot);
@@ -132,7 +132,7 @@ public sealed class VirtualOutputWorkerRecoveryPanelTests
         context.Services.AddSingleton(recovery);
         var cut = context.Render<VirtualOutputWorkerRecoveryPanel>(parameters => parameters.Add(component => component.VirtualDeviceId, snapshot.VirtualDeviceId));
         var click = cut.Find(".retry-worker").ClickAsync(new());
-        cut.WaitForAssertion(() => Assert.True(cut.Find(".retry-worker").HasAttribute("disabled")));
+        cut.WaitForAssertion(() => Assert.True(cut.Find(".retry-worker").HasAttribute("disabled")), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
         await cut.InvokeAsync(cut.Instance.Dispose);

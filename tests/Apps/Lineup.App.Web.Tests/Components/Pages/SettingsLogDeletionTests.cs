@@ -17,10 +17,10 @@ public class SettingsLogDeletionTests
     /// Verifies the Delete Logs action removes allowlisted files and reports the result.
     /// </summary>
     [Fact]
-    public void DeleteLogs_WithRetainedFile_DeletesFileAndShowsStatus()
+    public async Task DeleteLogs_WithRetainedFile_DeletesFileAndShowsStatus()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var root = Directory.CreateTempSubdirectory("lineup-settings-log-delete-");
         var logDirectory = root.CreateSubdirectory("logs");
         var logPath = Path.Combine(logDirectory.FullName, "lineup-test.log");

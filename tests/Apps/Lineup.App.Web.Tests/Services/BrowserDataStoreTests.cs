@@ -21,7 +21,7 @@ public class BrowserDataStoreTests
     public async Task ReadAsync_StoredJson_ReturnsTypedValue()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         context.JSInterop.Setup<string?>("localStorage.getItem", StorageKey).SetResult("""{"Enabled":true}""");
         var store = new BrowserDataStore(context.Services.GetRequiredService<IJSRuntime>());
 
@@ -40,7 +40,7 @@ public class BrowserDataStoreTests
     public async Task WriteAsync_TypedValue_WritesJson()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         context.JSInterop.SetupVoid("localStorage.setItem", _ => true).SetVoidResult();
         var store = new BrowserDataStore(context.Services.GetRequiredService<IJSRuntime>());
 
@@ -61,7 +61,7 @@ public class BrowserDataStoreTests
     public async Task ReadAsync_CorruptJson_ThrowsJsonException()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         context.JSInterop.Setup<string?>("localStorage.getItem", StorageKey).SetResult("{invalid");
         var store = new BrowserDataStore(context.Services.GetRequiredService<IJSRuntime>());
 

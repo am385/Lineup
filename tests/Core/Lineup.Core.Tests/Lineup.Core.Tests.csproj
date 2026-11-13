@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <PackageReference Include="Jellyfin.XmlTv" Version="10.8.0" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.0.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.0" />
     <PackageReference Include="NSubstitute" Version="6.2.0" />
     <PackageReference Include="xunit.v3" Version="4.0.1" />
@@ -24,6 +25,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\..\TestSupport\ControlledTimeProvider.cs" Link="TestSupport\ControlledTimeProvider.cs" />
     <ProjectReference Include="..\..\..\src\Core\Lineup.Core.Extensibility\Lineup.Core.Extensibility.csproj" />
     <ProjectReference Include="..\..\..\src\Core\Lineup.Core\Lineup.Core.csproj" />
     <ProjectReference Include="..\..\..\src\Plugins\GuideOutputs\Lineup.Plugin.GuideOutputs.Json\Lineup.Plugin.GuideOutputs.Json.csproj" />
