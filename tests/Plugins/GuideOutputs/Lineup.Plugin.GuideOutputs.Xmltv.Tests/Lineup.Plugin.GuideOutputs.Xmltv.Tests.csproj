@@ -9,6 +9,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\..\..\src\Core\Lineup.Core.Common\Lineup.Core.Common.csproj" />
     <ProjectReference Include="..\..\..\..\src\Plugins\GuideOutputs\Lineup.Plugin.GuideOutputs.Xmltv\Lineup.Plugin.GuideOutputs.Xmltv.csproj" />
+    <PackageReference Include="Jellyfin.XmlTv" Version="10.12.0-pre1" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.0" />
     <PackageReference Include="xunit.v3" Version="4.0.1" />
     <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0">

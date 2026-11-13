@@ -1206,6 +1206,7 @@ Lineup stores the fields it queries as normalized SQLite values and preserves ad
 Published XMLTV retains provider source provenance, localized and repeated values, official optional fields, and provider extensions while identifying
 Lineup as the document generator. The Guide program-details dialog projects recognized official program metadata into typed ratings, credits,
 languages, identifiers, status, and advanced technical details. Raw supplemental XML and uninterpreted provider extensions remain internal.
+XMLTV publications are indented to preserve program artwork in Jellyfin readers that incorrectly skip the node following language metadata.
 
 Lineup's Core stream graph atomically limits each physical device to its discovered capacity. Receivers of an identical physical acquisition share one
 tuner slot; equivalent physical and virtual transforms are also reference-counted. Different acquisitions consume separate slots. CMAF viewers receive

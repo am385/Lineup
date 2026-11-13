@@ -110,7 +110,8 @@ public sealed class LineupXmltvWriter
         using (var writer = XmlWriter.Create(stream, new XmlWriterSettings
         {
             Encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
-            Indent = false
+            // Jellyfin's XMLTV language parser skips the next node, which must be whitespace rather than the programme icon.
+            Indent = true
         }))
         {
             new XDocument(root).Save(writer);
