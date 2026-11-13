@@ -80,8 +80,8 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
 
         var pbs = channels.Single(c => c.Id == "5.1");
         Assert.Equal("PBS NC", pbs.DisplayName);
-        Assert.NotNull(pbs.Icon);
-        Assert.Equal("http://example.com/pbs.png", pbs.Icon.Source);
+        Assert.NotNull(pbs.Icons);
+        Assert.Equal("http://example.com/pbs.png", Assert.Single(pbs.Icons).Source);
 
         var fox = channels.Single(c => c.Id == "11.1");
         Assert.Equal("FOX", fox.DisplayName);
@@ -146,8 +146,9 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
 
         // Assert
         Assert.Single(programs);
-        Assert.NotNull(programs[0].Episode);
-        Assert.Equal("The Pilot Episode", programs[0].Episode.Title);
+        var episode = programs[0].Episode;
+        Assert.NotNull(episode);
+        Assert.Equal("The Pilot Episode", episode.Title);
     }
 
     /// <summary>
@@ -192,8 +193,9 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
 
         // Assert
         Assert.Single(programs);
-        Assert.NotNull(programs[0].Icon);
-        Assert.Equal("http://example.com/show.jpg", programs[0].Icon!.Source);
+        var icons = programs[0].Icons;
+        Assert.NotNull(icons);
+        Assert.Equal("http://example.com/show.jpg", Assert.Single(icons).Source);
     }
 
     /// <summary>
@@ -392,8 +394,8 @@ public class JellyfinXmltvCompatibilityTests : IDisposable
         Assert.Equal("Walt faces the consequences.", prog.Description);
         Assert.Contains("Drama", prog.Categories);
         Assert.Contains("Thriller", prog.Categories);
-        Assert.NotNull(prog.Icon);
-        Assert.Equal("http://example.com/bb.jpg", prog.Icon.Source);
+        Assert.NotNull(prog.Icons);
+        Assert.Equal("http://example.com/bb.jpg", Assert.Single(prog.Icons).Source);
         Assert.Equal(5, prog.Episode.Series);
         Assert.Equal(14, prog.Episode.Episode);
         Assert.True(prog.IsPreviouslyShown);
