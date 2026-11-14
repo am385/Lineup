@@ -1,5 +1,3 @@
-using Lineup.Core.Extensibility.Streaming;
-
 namespace Lineup.Core.Streaming.FFmpeg;
 
 /// <summary>Describes one safe candidate failure within a resolved streaming route.</summary>
@@ -27,13 +25,7 @@ public sealed record StreamAcquisitionCandidateFailure
 /// <summary>Represents failure to open every equivalent physical source for one resolved route.</summary>
 public sealed class StreamAcquisitionException : IOException
 {
-    private StreamAcquisitionException(
-        PhysicalStreamFailureCategory category,
-        string code,
-        string message,
-        bool retryable,
-        IReadOnlyList<StreamAcquisitionCandidateFailure> candidateFailures,
-        Exception innerException)
+    private StreamAcquisitionException(PhysicalStreamFailureCategory category, string code, string message, bool retryable, IReadOnlyList<StreamAcquisitionCandidateFailure> candidateFailures, Exception innerException)
         : base(message, innerException)
     {
         Category = category;
@@ -55,9 +47,7 @@ public sealed class StreamAcquisitionException : IOException
     public IReadOnlyList<StreamAcquisitionCandidateFailure> CandidateFailures { get; }
 
     /// <summary>Creates an aggregate failure from safe candidate summaries and their diagnostic exception chain.</summary>
-    public static StreamAcquisitionException Create(
-        IReadOnlyList<StreamAcquisitionCandidateFailure> candidateFailures,
-        IReadOnlyList<Exception> failures)
+    public static StreamAcquisitionException Create(IReadOnlyList<StreamAcquisitionCandidateFailure> candidateFailures, IReadOnlyList<Exception> failures)
     {
         if (candidateFailures.Count == 0 || failures.Count == 0)
         {
@@ -104,9 +94,7 @@ public sealed class StreamAcquisitionException : IOException
         return PhysicalStreamFailureCategory.Unavailable;
     }
 
-    private static string ResolveCode(
-        PhysicalStreamFailureCategory category,
-        IReadOnlyList<StreamAcquisitionCandidateFailure> failures)
+    private static string ResolveCode(PhysicalStreamFailureCategory category, IReadOnlyList<StreamAcquisitionCandidateFailure> failures)
     {
         var distinctCodes = failures.Select(failure => failure.Code).Distinct(StringComparer.Ordinal).ToArray();
         if (distinctCodes.Length == 1)

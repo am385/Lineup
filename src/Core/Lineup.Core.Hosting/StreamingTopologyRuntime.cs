@@ -1,10 +1,4 @@
-using Lineup.Core.Common.Guides;
-using Lineup.Core.Extensibility.Guides;
-using Lineup.Core.Settings;
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 
 namespace Lineup.Core.Hosting;
 
@@ -25,11 +19,7 @@ public sealed class StreamingTopologyRuntime : BackgroundService, IStreamingTopo
     private bool _stopped;
 
     /// <summary>Initializes the hosted topology runtime.</summary>
-    public StreamingTopologyRuntime(
-        ILineupSettingsService settings,
-        IPhysicalLineupService lineups,
-        ITopologyGuideService guides,
-        ILogger<StreamingTopologyRuntime> logger)
+    public StreamingTopologyRuntime(ILineupSettingsService settings, IPhysicalLineupService lineups, ITopologyGuideService guides, ILogger<StreamingTopologyRuntime> logger)
     {
         _settings = settings;
         _lineups = lineups;
@@ -38,7 +28,7 @@ public sealed class StreamingTopologyRuntime : BackgroundService, IStreamingTopo
         _application = new StreamingTopologyApplication { DesiredRevision = ConfigurationRevision.Create(settings.Settings.Streaming) };
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets the application.</summary>
     public StreamingTopologyApplication Application
     {
         get
@@ -50,10 +40,10 @@ public sealed class StreamingTopologyRuntime : BackgroundService, IStreamingTopo
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Occurs when applicatichanged.</summary>
     public event Action? ApplicationChanged;
 
-    /// <inheritdoc />
+    /// <summary>Executes retry.</summary>
     public void Retry()
     {
         lock (_stateLock)
@@ -68,7 +58,10 @@ public sealed class StreamingTopologyRuntime : BackgroundService, IStreamingTopo
         Signal();
     }
 
-    /// <inheritdoc />
+    /// <summary>Waits for for application asynchronously.</summary>
+    /// <param name="revision">The revision value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async Task<StreamingTopologyApplication> WaitForApplicationAsync(string revision, CancellationToken cancellationToken = default)
     {
         while (true)
@@ -173,7 +166,8 @@ public sealed class StreamingTopologyRuntime : BackgroundService, IStreamingTopo
 
     private async Task<(IReadOnlyList<PhysicalLineupRefreshResult> Devices, IReadOnlyList<GuideOutputPublicationResult> Outputs, bool Failed)> ApplyAsync(
         StreamingConfiguration configuration,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         IReadOnlyList<PhysicalLineupRefreshResult> devices;
         try

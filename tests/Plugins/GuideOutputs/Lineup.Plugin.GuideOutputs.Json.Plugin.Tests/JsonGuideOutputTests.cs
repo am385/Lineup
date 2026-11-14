@@ -4,9 +4,7 @@ using System.Text;
 using Lineup.Core.Common.Configuration;
 using Lineup.Core.Extensibility.Configuration;
 using Lineup.Core.Common.Guides;
-using Lineup.Core.Extensibility.Guides;
 using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Xunit;
 
 namespace Lineup.Plugin.GuideOutputs.Json.Plugin.Tests;

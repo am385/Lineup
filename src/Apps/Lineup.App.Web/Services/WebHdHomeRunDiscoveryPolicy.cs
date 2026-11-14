@@ -13,10 +13,10 @@ public sealed class WebHdHomeRunDiscoveryPolicy : IHdHomeRunDiscoveryPolicy
         _settings = settings;
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets the enabled.</summary>
     public bool Enabled => _settings.Settings.EnableNetworkDiscovery;
 
-    /// <inheritdoc />
+    /// <summary>Provides the changed.</summary>
     public event Action? Changed
     {
         add => _settings.OnSettingsChanged += value;

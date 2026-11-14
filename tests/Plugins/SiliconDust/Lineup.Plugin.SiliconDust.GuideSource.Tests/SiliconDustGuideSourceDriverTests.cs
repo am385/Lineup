@@ -2,7 +2,6 @@ using System.Text.Json;
 using Lineup.Core.Common.Guides;
 using Lineup.Core.Extensibility.Guides;
 using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 using RichardSzalay.MockHttp;

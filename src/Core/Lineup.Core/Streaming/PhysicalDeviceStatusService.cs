@@ -80,17 +80,23 @@ public sealed class PhysicalDeviceStatusService : IPhysicalDeviceStatusService
         _information = new CoalescedRefresh<int>(_logger);
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets the devices.</summary>
     public IReadOnlyList<PhysicalDeviceRuntimeStatus> Devices => Volatile.Read(ref _devices);
 
-    /// <inheritdoc />
+    /// <summary>Occurs when state changed.</summary>
     public event Action? StateChanged;
 
-    /// <inheritdoc />
+    /// <summary>Refreshes the physical device status service asynchronously.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public Task RefreshAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default) =>
         _statuses.RunAsync(ConfigurationRevision.Create(configuration.PhysicalDevices), token => RefreshCoreAsync(configuration, false, token), cancellationToken);
 
-    /// <inheritdoc />
+    /// <summary>Refreshes device information asynchronously.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public Task RefreshDeviceInformationAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default) =>
         _information.RunAsync(ConfigurationRevision.Create(configuration.PhysicalDevices), token => RefreshCoreAsync(configuration, true, token), cancellationToken);
 
@@ -178,7 +184,11 @@ public sealed class PhysicalDeviceStatusService : IPhysicalDeviceStatusService
         return 0;
     }
 
-    /// <inheritdoc />
+    /// <summary>Stops receiver asynchronously.</summary>
+    /// <param name="deviceId">Identity of the target device.</param>
+    /// <param name="receiverIndex">The receiver index value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public async Task StopReceiverAsync(PhysicalDeviceId deviceId, int receiverIndex, CancellationToken cancellationToken = default)
     {
         var device = GetDevice(deviceId);
@@ -189,7 +199,10 @@ public sealed class PhysicalDeviceStatusService : IPhysicalDeviceStatusService
         await control.StopReceiverAsync(receiverIndex, cancellationToken);
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes restart asynchronously.</summary>
+    /// <param name="deviceId">Identity of the target device.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public async Task RestartAsync(PhysicalDeviceId deviceId, CancellationToken cancellationToken = default)
     {
         var device = GetDevice(deviceId);

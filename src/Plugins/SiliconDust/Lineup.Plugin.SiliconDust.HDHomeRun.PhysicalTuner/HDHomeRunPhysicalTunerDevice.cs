@@ -35,6 +35,15 @@ public sealed class HDHomeRunPhysicalTunerDevice :
     private HDHomeRunDeviceInfo _deviceInfo;
     private HDHomeRunDevice? _protocolDevice;
 
+    /// <summary>Initializes the HDHomeRun physical tuner device.</summary>
+    /// <param name="deviceId">Identity of the target device.</param>
+    /// <param name="name">Name used by the operation.</param>
+    /// <param name="deviceInfo">The device info value.</param>
+    /// <param name="deviceClient">The device client value.</param>
+    /// <param name="httpClient">The HTTP client value.</param>
+    /// <param name="address">The address value.</param>
+    /// <param name="deviceService">The device service value.</param>
+    /// <param name="logger">The logger value.</param>
     internal HDHomeRunPhysicalTunerDevice(
         PhysicalDeviceId deviceId,
         string name,
@@ -43,7 +52,8 @@ public sealed class HDHomeRunPhysicalTunerDevice :
         HttpClient httpClient,
         string address,
         HDHomeRunService deviceService,
-        ILogger<HDHomeRunPhysicalTunerDevice> logger)
+        ILogger<HDHomeRunPhysicalTunerDevice> logger
+    )
     {
         _deviceInfo = deviceInfo;
         _deviceClient = deviceClient;
@@ -64,17 +74,21 @@ public sealed class HDHomeRunPhysicalTunerDevice :
     /// <summary>Gets the metadata returned by the device discovery endpoint.</summary>
     public HDHomeRunDeviceInfo DeviceInfo => Volatile.Read(ref _deviceInfo);
 
-    /// <inheritdoc />
+    /// <summary>Gets the snapshot.</summary>
     public PhysicalDeviceSnapshot Snapshot { get; }
 
-    /// <inheritdoc />
+    /// <summary>Creates diagnostic URI.</summary>
+    /// <param name="providerKey">The provider key value.</param>
+    /// <returns>The operation's result.</returns>
     public Uri CreateDiagnosticUri(string providerKey)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(providerKey);
         return new Uri(_httpClient.BaseAddress!, $"auto/v{Uri.EscapeDataString(providerKey)}");
     }
 
-    /// <inheritdoc />
+    /// <summary>Refreshes status asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async Task<PhysicalDeviceStatusSnapshot> RefreshStatusAsync(CancellationToken cancellationToken = default)
     {
         var deviceInfo = DeviceInfo;
@@ -89,7 +103,9 @@ public sealed class HDHomeRunPhysicalTunerDevice :
         return CreateStatusSnapshot(deviceInfo, receivers);
     }
 
-    /// <inheritdoc />
+    /// <summary>Refreshes device information asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async Task<PhysicalDeviceStatusSnapshot> RefreshDeviceInformationAsync(CancellationToken cancellationToken = default)
     {
         var previous = DeviceInfo;
@@ -126,21 +142,28 @@ public sealed class HDHomeRunPhysicalTunerDevice :
             Receivers = receivers
         };
 
-    /// <inheritdoc />
+    /// <summary>Stops receiver asynchronously.</summary>
+    /// <param name="receiverIndex">The receiver index value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public async Task StopReceiverAsync(int receiverIndex, CancellationToken cancellationToken = default)
     {
         var device = await GetProtocolDeviceAsync(cancellationToken);
         await device.StopTunerAsync(receiverIndex, cancellationToken);
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes restart asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public async Task RestartAsync(CancellationToken cancellationToken = default)
     {
         var device = await GetProtocolDeviceAsync(cancellationToken);
         await device.RestartAsync(cancellationToken);
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets authorization asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async ValueTask<string> GetAuthorizationAsync(CancellationToken cancellationToken = default)
     {
         var deviceInfo = await _deviceClient.DiscoverDeviceAsync(cancellationToken);
@@ -152,7 +175,9 @@ public sealed class HDHomeRunPhysicalTunerDevice :
         return deviceInfo.DeviceAuth;
     }
 
-    /// <inheritdoc />
+    /// <summary>Refreshes lineup asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async Task<IReadOnlyList<PhysicalSourceChannel>> RefreshLineupAsync(CancellationToken cancellationToken = default)
     {
         await _lineupRefresh.WaitAsync(cancellationToken);
@@ -192,7 +217,10 @@ public sealed class HDHomeRunPhysicalTunerDevice :
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Opens stream asynchronously.</summary>
+    /// <param name="request">The request value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async ValueTask<IPhysicalStreamLease> OpenStreamAsync(PhysicalStreamRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -258,10 +286,7 @@ public sealed class HDHomeRunPhysicalTunerDevice :
         }
     }
 
-    private async Task<PhysicalStreamAcquisitionException> CreateAcquisitionExceptionAsync(
-        HttpResponseMessage response,
-        SourceChannelId channelId,
-        CancellationToken cancellationToken)
+    private async Task<PhysicalStreamAcquisitionException> CreateAcquisitionExceptionAsync(HttpResponseMessage response, SourceChannelId channelId, CancellationToken cancellationToken)
     {
         var diagnostic = await ReadDiagnosticAsync(response, cancellationToken);
         var failure = ClassifyFailure(response.StatusCode, diagnostic);
@@ -398,11 +423,7 @@ public sealed class HDHomeRunPhysicalTunerDevice :
         return diagnostic;
     }
 
-    private sealed record HDHomeRunStreamFailure(
-        PhysicalStreamFailureCategory Category,
-        string Code,
-        string Message,
-        bool Retryable);
+    private sealed record HDHomeRunStreamFailure(PhysicalStreamFailureCategory Category, string Code, string Message, bool Retryable);
 
     private static IReadOnlyDictionary<string, string> CreateMetadata(HDHomeRunChannel channel)
     {

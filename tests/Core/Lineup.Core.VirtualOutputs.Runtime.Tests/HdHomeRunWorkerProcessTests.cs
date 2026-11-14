@@ -13,7 +13,6 @@ using Lineup.Core.Extensibility.Streaming;
 using Lineup.Plugin.SiliconDust.HDHomeRun.VirtualTuner;
 using Lineup.Plugin.LineupLink.Protocol;
 using Lineup.Plugin.LineupLink.Virtual;
-using Lineup.Core.Streaming.FFmpeg;
 using Lineup.Core.VirtualOutputs.Protocol;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;

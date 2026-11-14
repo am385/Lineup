@@ -1,11 +1,6 @@
 using System.Collections.Concurrent;
 using System.Data.Common;
 using System.Diagnostics;
-using Lineup.Core.Common.Guides;
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Guides;
-using Lineup.Core.Extensibility.Streaming;
-using Lineup.Core.Guides;
 using Lineup.Core.Storage;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -260,7 +255,8 @@ public sealed class GuideReadScalingTests(ITestOutputHelper output)
         /// <summary>Gets authoritative guide storage.</summary>
         public DeviceGuideStore Guides { get; }
 
-        /// <inheritdoc />
+        /// <summary>Creates db context.</summary>
+        /// <returns>The operation's result.</returns>
         public EpgDbContext CreateDbContext() => new(new DbContextOptionsBuilder<EpgDbContext>()
             .UseSqlite($"Data Source={Path.Combine(_root.FullName, "guide.db")}").AddInterceptors(Commands).Options);
 

@@ -40,7 +40,7 @@ public class StatusNotificationTests
         Assert.Equal("5s", notification.QuerySelector(".status-notification-timer")?.TextContent.Trim());
 
         // Act
-        component.Find(".btn-close").Click();
+        await component.Find(".btn-close").ClickAsync(new());
 
         // Assert
         Assert.Empty(notifications.Notifications);

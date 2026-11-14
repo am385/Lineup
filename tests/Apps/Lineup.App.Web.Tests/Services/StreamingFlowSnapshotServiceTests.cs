@@ -159,12 +159,7 @@ public sealed class StreamingFlowSnapshotServiceTests
             ]
         };
 
-    private static ActiveStreamSnapshot ActiveStream(
-        string sessionId,
-        string endpoint,
-        PhysicalDeviceId physicalId,
-        VirtualDeviceId virtualId,
-        SourceChannelId sourceChannel) =>
+    private static ActiveStreamSnapshot ActiveStream(string sessionId, string endpoint, PhysicalDeviceId physicalId, VirtualDeviceId virtualId, SourceChannelId sourceChannel) =>
         new(
             sessionId,
             "7.1",

@@ -1,6 +1,3 @@
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
-
 namespace Lineup.Core.Guides;
 
 /// <summary>
@@ -9,9 +6,7 @@ namespace Lineup.Core.Guides;
 public static class GuideOutputIdentifierResolver
 {
     /// <summary>Resolves one enabled custom output from an API route identifier.</summary>
-    public static GuideOutputDefinition? Resolve(
-        IEnumerable<GuideOutputDefinition> outputs,
-        string identifier)
+    public static GuideOutputDefinition? Resolve(IEnumerable<GuideOutputDefinition> outputs, string identifier)
     {
         ArgumentNullException.ThrowIfNull(outputs);
         ArgumentException.ThrowIfNullOrWhiteSpace(identifier);

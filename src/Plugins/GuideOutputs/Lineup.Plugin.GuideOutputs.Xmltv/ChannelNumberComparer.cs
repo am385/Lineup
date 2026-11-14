@@ -16,7 +16,10 @@ internal sealed class ChannelNumberComparer : IComparer<string?>
     {
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes compare.</summary>
+    /// <param name="left">The left value.</param>
+    /// <param name="right">The right value.</param>
+    /// <returns>The operation's result.</returns>
     public int Compare(string? left, string? right)
     {
         if (ReferenceEquals(left, right))

@@ -255,6 +255,7 @@ public sealed class GuideTransferTests
 
     private sealed class FragmentedStream(byte[] content, int fragmentSize = 7) : MemoryStream(content)
     {
+        /// <inheritdoc />
         public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
             base.ReadAsync(buffer[..Math.Min(buffer.Length, fragmentSize)], cancellationToken);
     }

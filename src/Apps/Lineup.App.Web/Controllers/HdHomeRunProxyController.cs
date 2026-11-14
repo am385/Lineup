@@ -13,10 +13,7 @@ public sealed class HdHomeRunProxyController : ControllerBase
     private readonly StreamingTopologyStore _topologyStore;
 
     /// <summary>Initializes the management-hosted virtual HDHomeRun controller.</summary>
-    public HdHomeRunProxyController(
-        IHdHomeRunProxyProfileProvider profiles,
-        ILineupSettingsService settings,
-        StreamingTopologyStore topologyStore)
+    public HdHomeRunProxyController(IHdHomeRunProxyProfileProvider profiles, ILineupSettingsService settings, StreamingTopologyStore topologyStore)
     {
         _profiles = profiles;
         _settings = settings;
@@ -105,9 +102,7 @@ public sealed class HdHomeRunProxyController : ControllerBase
             ? NotFound(new { error = "The requested virtual HDHomeRun device was not found." })
             : StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = "No management-hosted virtual HDHomeRun device is available." });
 
-    private async Task<IActionResult> RenderLineupAsync(
-        string? virtualDeviceId,
-        Func<IReadOnlyList<HdHomeRunProxyChannel>, IActionResult> render)
+    private async Task<IActionResult> RenderLineupAsync(string? virtualDeviceId, Func<IReadOnlyList<HdHomeRunProxyChannel>, IActionResult> render)
     {
         var profile = await ResolveProfileAsync(virtualDeviceId);
         if (profile is null)

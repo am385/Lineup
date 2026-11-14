@@ -14,6 +14,6 @@ public interface IEpgRetentionPolicy
 /// </summary>
 public sealed class DefaultEpgRetentionPolicy : IEpgRetentionPolicy
 {
-    /// <inheritdoc />
+    /// <summary>Gets the history retention.</summary>
     public TimeSpan HistoryRetention => TimeSpan.FromHours(24);
 }

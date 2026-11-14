@@ -40,7 +40,9 @@ public interface IMediaProcessFactory
 /// </summary>
 public sealed class MediaProcessFactory(Lineup.Core.Common.Streaming.IMediaWorkAdmission? admission = null) : IMediaProcessFactory
 {
-    /// <inheritdoc />
+    /// <summary>Starts the media process factory.</summary>
+    /// <param name="request">The request value.</param>
+    /// <returns>The operation's result.</returns>
     public Process Start(MediaProcessRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);

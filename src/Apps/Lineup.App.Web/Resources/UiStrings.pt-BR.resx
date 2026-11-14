@@ -349,6 +349,8 @@
   <data name="Settings_GuideOutputDirectoryHelpPrefix" xml:space="preserve"><value>Lineup publica atómicamente em</value></data>
   <data name="Settings_GuideOutputDirectoryHelpSuffix" xml:space="preserve"><value>em este diretório.</value></data>
   <data name="Settings_GuideOutputDirectoryLabel" xml:space="preserve"><value>Diretório de saída</value></data>
+  <data name="Settings_GuideOutputIncludeUnavailableProgramsHelp" xml:space="preserve"><value>Publica um programa Not Available para canais sem dados do guia. Desativado por padrão para evitar que essas entradas apareçam na lista de programas em exibição do Jellyfin.</value></data>
+  <data name="Settings_GuideOutputIncludeUnavailableProgramsLabel" xml:space="preserve"><value>Incluir entradas de programas indisponíveis</value></data>
   <data name="Settings_GuideOutputKeyHelp" xml:space="preserve"><value>Lineup formatea esto como um identificador em minúscula que contém somente letras, dígitos e guiones bajos.</value></data>
   <data name="Settings_GuideOutputKeyLabel" xml:space="preserve"><value>Clave de saída</value></data>
   <data name="Settings_GuideOutputKeyWarning" xml:space="preserve"><value>Alterar esta clave modifica a URL descriptiva da API e o nome do arquivo gerado. Os clientes que utilicen cualquiera das dos ubicaciones deberán atualizarse.</value></data>

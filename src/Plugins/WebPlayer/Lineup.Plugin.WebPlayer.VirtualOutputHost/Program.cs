@@ -1,9 +1,6 @@
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Streaming.FFmpeg;
 using Lineup.Core.VirtualOutputs.Hosting;
 using Lineup.Core.VirtualOutputs.Protocol;
 using Lineup.Plugin.WebPlayer;
-using Lineup.Plugin.WebPlayer.FFmpeg;
 using Lineup.Plugin.WebPlayer.VirtualOutputHost;
 
 var bootstrap = await VirtualOutputWorkerBootstrapReader.ReadAsync(cancellationToken: CancellationToken.None);

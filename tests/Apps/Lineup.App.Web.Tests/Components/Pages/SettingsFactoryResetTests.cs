@@ -57,7 +57,7 @@ public class SettingsFactoryResetTests
         context.Services.AddSingleton(timeZoneService);
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var component = context.Render<Settings>();
-        component.Find("#tab-reset").Click();
+        await component.Find("#tab-reset").ClickAsync(new());
 
         // Act
         await component.Find("#restartLineup").ClickAsync(new());
@@ -90,13 +90,13 @@ public class SettingsFactoryResetTests
         IReadOnlyList<AngleSharp.Dom.IElement> tabButtons = component.FindAll("#settingsCategoryTabs button");
         var lastTabId = tabButtons[tabButtons.Count - 1].Id;
         var hiddenOutsideResetTab = component.Find("#resetSettingsTab").ClassList.Contains("d-none");
-        component.Find("#tab-reset").Click();
-        component.Find("#showFactoryResetConfirmation").Click();
+        await component.Find("#tab-reset").ClickAsync(new());
+        await component.Find("#showFactoryResetConfirmation").ClickAsync(new());
         var confirmationWasChecked = component.Find("#factoryResetConfirmationCheck").HasAttribute("checked");
         var confirmButtonBeforeSelection = component.Find("#confirmFactoryReset");
 
         // Act
-        component.Find("#factoryResetConfirmationCheck").Change(true);
+        await component.Find("#factoryResetConfirmationCheck").ChangeAsync(true);
         await component.Find("#confirmFactoryReset").ClickAsync(new());
 
         // Assert
@@ -129,11 +129,11 @@ public class SettingsFactoryResetTests
         context.Services.AddSingleton(factoryResetService);
         context.Services.AddSingleton(timeZoneService);
         var component = context.Render<Settings>();
-        component.Find("#tab-reset").Click();
-        component.Find("#showFactoryResetConfirmation").Click();
+        await component.Find("#tab-reset").ClickAsync(new());
+        await component.Find("#showFactoryResetConfirmation").ClickAsync(new());
 
         // Act
-        component.Find("#cancelFactoryReset").Click();
+        await component.Find("#cancelFactoryReset").ClickAsync(new());
 
         // Assert
         Assert.Empty(component.FindAll("#factoryResetConfirmation"));

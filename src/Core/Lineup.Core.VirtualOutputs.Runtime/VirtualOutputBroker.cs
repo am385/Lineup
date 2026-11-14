@@ -1,4 +1,3 @@
-using Lineup.Core.Common.Guides;
 using Lineup.Core.Common.Streaming;
 using Lineup.Core.Extensibility.Streaming;
 using Lineup.Core.Guides;
@@ -115,7 +114,8 @@ public sealed class VirtualOutputBroker : IVirtualOutputBroker
         IStreamingRouteResolver routes,
         IGuideOrchestrator guides,
         IVirtualMpegTsOutputService streams,
-        IActiveStreamRegistry activeStreams)
+        IActiveStreamRegistry activeStreams
+    )
     {
         _authority = authority;
         _settings = settings;
@@ -127,7 +127,10 @@ public sealed class VirtualOutputBroker : IVirtualOutputBroker
         _activeStreams = activeStreams;
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets manifest asynchronously.</summary>
+    /// <param name="request">The request value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public Task<VirtualOutputManifest> GetManifestAsync(VirtualOutputManifestRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -145,7 +148,10 @@ public sealed class VirtualOutputBroker : IVirtualOutputBroker
         });
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets lineup asynchronously.</summary>
+    /// <param name="request">The request value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async Task<VirtualOutputLineupResponse> GetLineupAsync(VirtualOutputLineupRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -159,7 +165,10 @@ public sealed class VirtualOutputBroker : IVirtualOutputBroker
         };
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets guide asynchronously.</summary>
+    /// <param name="request">The request value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async Task<VirtualOutputGuideResponse> GetGuideAsync(VirtualOutputGuideRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -176,7 +185,10 @@ public sealed class VirtualOutputBroker : IVirtualOutputBroker
         };
     }
 
-    /// <inheritdoc />
+    /// <summary>Opens stream asynchronously.</summary>
+    /// <param name="request">The request value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async Task<VirtualOutputBrokeredStream> OpenStreamAsync(VirtualOutputOpenStreamRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -289,10 +301,7 @@ public sealed class VirtualOutputBroker : IVirtualOutputBroker
             ?? throw new VirtualOutputBrokerException(VirtualOutputFailureCode.Unavailable, "The assigned virtual device is no longer enabled.");
     }
 
-    private static ActiveStreamSnapshot CreateActiveStream(
-        StreamSessionId sessionId,
-        VirtualOutputOpenStreamRequest request,
-        VirtualMpegTsOutput output)
+    private static ActiveStreamSnapshot CreateActiveStream(StreamSessionId sessionId, VirtualOutputOpenStreamRequest request, VirtualMpegTsOutput output)
     {
         var tracks = output.Source.Tracks.Select(track => new ActiveStreamTrack(
             track.Type,

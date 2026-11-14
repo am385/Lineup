@@ -164,12 +164,16 @@ public sealed class VirtualOutputLeasePolicyTests
                 Time);
         }
 
+        /// <summary>Gets the time.</summary>
         public ManualTimeProvider Time { get; } = new();
 
+        /// <summary>Gets the started UTC.</summary>
         public DateTimeOffset StartedUtc => new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
+        /// <summary>Gets the authority.</summary>
         public VirtualOutputSessionAuthority Authority { get; }
 
+        /// <summary>Gets the enrollments.</summary>
         public VirtualOutputExternalEnrollmentStore Enrollments { get; }
 
         /// <summary>Starts the supervisor and waits for its first managed bootstrap or external enrollment.</summary>
@@ -203,6 +207,9 @@ public sealed class VirtualOutputLeasePolicyTests
         /// <summary>Allows the supervisor to finish publishing the initial external enrollment and release its output gate.</summary>
         public void ReleaseEnrollmentPublication() => _releaseEnrollmentPublication.TrySetResult();
 
+        /// <summary>Registers the fixture.</summary>
+        /// <param name="bootstrap">The bootstrap value.</param>
+        /// <returns>The operation's result.</returns>
         public VirtualOutputWorkerRegistrationResponse Register(VirtualOutputWorkerBootstrap bootstrap) =>
             Authority.Register(new VirtualOutputWorkerRegistrationRequest
             {
@@ -230,8 +237,11 @@ public sealed class VirtualOutputLeasePolicyTests
     {
         private long _utcTicks = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero).UtcTicks;
 
+        /// <inheritdoc />
         public override DateTimeOffset GetUtcNow() => new(Interlocked.Read(ref _utcTicks), TimeSpan.Zero);
 
+        /// <summary>Executes advance.</summary>
+        /// <param name="amount">The amount value.</param>
         public void Advance(TimeSpan amount) => Interlocked.Add(ref _utcTicks, amount.Ticks);
     }
 }

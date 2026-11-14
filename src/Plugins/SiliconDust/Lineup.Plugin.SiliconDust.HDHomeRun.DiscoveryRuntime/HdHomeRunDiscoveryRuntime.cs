@@ -39,10 +39,10 @@ public interface IHdHomeRunDiscoveryPolicy
 /// <summary>Enables provider discovery for hosts without a separate presentation preference.</summary>
 public sealed class EnabledHdHomeRunDiscoveryPolicy : IHdHomeRunDiscoveryPolicy
 {
-    /// <inheritdoc />
+    /// <summary>Gets the enabled.</summary>
     public bool Enabled => true;
 
-    /// <inheritdoc />
+    /// <summary>Provides the changed.</summary>
     public event Action? Changed
     {
         add { }
@@ -56,13 +56,13 @@ public sealed class HdHomeRunDiscoveryWorkerSupervisor : BackgroundService
     /// <summary>Gets the catalog adapter kind implemented by the shared discovery worker.</summary>
     public const string DiscoveryAdapterKind = "hdhomerun-discovery";
 
-    private static readonly VirtualDeviceId DiscoveryWorkerId = new(new Guid("d1d41379-85f9-4834-970d-3ba27ea7c104"));
-    private static readonly TimeSpan AdvertisementRefreshInterval = TimeSpan.FromSeconds(5);
-    private static readonly IReadOnlySet<VirtualOutputCapability> Capabilities = new HashSet<VirtualOutputCapability>
+    private static readonly VirtualDeviceId _discoveryWorkerId = new(new Guid("d1d41379-85f9-4834-970d-3ba27ea7c104"));
+    private static readonly TimeSpan _advertisementRefreshInterval = TimeSpan.FromSeconds(5);
+    private static readonly IReadOnlySet<VirtualOutputCapability> _capabilities = new HashSet<VirtualOutputCapability>
     {
         VirtualOutputCapability.ReportHealth
     };
-    private static readonly VirtualOutputWorkerPolicyDefinition DefaultWorkerPolicy = new()
+    private static readonly VirtualOutputWorkerPolicyDefinition _defaultWorkerPolicy = new()
     {
         Key = "hdhomerun-discovery-worker",
         Name = "HDHomeRun discovery worker"
@@ -96,7 +96,8 @@ public sealed class HdHomeRunDiscoveryWorkerSupervisor : BackgroundService
         IVirtualOutputWorkerLauncher launcher,
         IVirtualOutputSessionAuthority authority,
         ILogger<HdHomeRunDiscoveryWorkerSupervisor> logger,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null
+    )
     {
         _settings = settings;
         _physicalDevices = physicalDevices;
@@ -131,7 +132,7 @@ public sealed class HdHomeRunDiscoveryWorkerSupervisor : BackgroundService
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var refreshTimer = _timeProvider.CreateTimer(_ => SettingsChanged(), null, AdvertisementRefreshInterval, AdvertisementRefreshInterval);
+        using var refreshTimer = _timeProvider.CreateTimer(_ => SettingsChanged(), null, _advertisementRefreshInterval, _advertisementRefreshInterval);
         try
         {
             while (!stoppingToken.IsCancellationRequested)
@@ -232,9 +233,9 @@ public sealed class HdHomeRunDiscoveryWorkerSupervisor : BackgroundService
         {
             var package = await _catalog.ResolveAsync(DiscoveryAdapterKind, cancellationToken);
             var ticket = _authority.CreateActivation(
-                DiscoveryWorkerId,
+                _discoveryWorkerId,
                 package.Manifest.WorkerId,
-                Capabilities,
+                _capabilities,
                 _options.BootstrapLifetime,
                 _options.LeaseLifetime);
             var bootstrap = new VirtualOutputWorkerBootstrap
@@ -242,7 +243,7 @@ public sealed class HdHomeRunDiscoveryWorkerSupervisor : BackgroundService
                 Endpoint = _options.IpcEndpoint,
                 VirtualDevice = new VirtualDeviceDefinition
                 {
-                    Id = DiscoveryWorkerId,
+                    Id = _discoveryWorkerId,
                     Name = "HDHomeRun discovery",
                     Adapter = new AdapterConfiguration(DiscoveryAdapterKind, JsonSerializer.SerializeToElement(new { }))
                 },
@@ -267,7 +268,7 @@ public sealed class HdHomeRunDiscoveryWorkerSupervisor : BackgroundService
         }
         catch (Exception exception)
         {
-            _authority.Revoke(DiscoveryWorkerId, "The HDHomeRun discovery worker could not be activated.");
+            _authority.Revoke(_discoveryWorkerId, "The HDHomeRun discovery worker could not be activated.");
             var decision = _restartBudget.RecordFailure(policy);
             if (decision.Exhausted)
             {
@@ -337,14 +338,19 @@ public sealed class HdHomeRunDiscoveryWorkerSupervisor : BackgroundService
         return OrderAdvertisements(advertisements);
     }
 
+    /// <summary>Executes order advertisements.</summary>
+    /// <param name="advertisements">The advertisements value.</param>
+    /// <returns>The operation's result.</returns>
     internal static IReadOnlyList<VirtualOutputAdvertisementSnapshot> OrderAdvertisements(IEnumerable<VirtualOutputAdvertisementSnapshot> advertisements) =>
         advertisements.OrderBy(
             advertisement => advertisement.Metadata.GetProperty(nameof(HdHomeRunDiscoveryAdvertisementMetadata.DeviceId)).GetString(),
             StringComparer.Ordinal).ToArray();
 
-    internal static VirtualOutputWorkerPolicyDefinition ResolveWorkerPolicy(
-        StreamingConfiguration configuration,
-        IReadOnlyList<VirtualOutputAdvertisementSnapshot> advertisements)
+    /// <summary>Resolves worker policy.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="advertisements">The advertisements value.</param>
+    /// <returns>The operation's result.</returns>
+    internal static VirtualOutputWorkerPolicyDefinition ResolveWorkerPolicy(StreamingConfiguration configuration, IReadOnlyList<VirtualOutputAdvertisementSnapshot> advertisements)
     {
         var advertisedIds = advertisements.Select(advertisement => advertisement.VirtualDeviceId).ToHashSet();
         var policyKey = configuration.VirtualDevices
@@ -353,7 +359,7 @@ public sealed class HdHomeRunDiscoveryWorkerSupervisor : BackgroundService
             .FirstOrDefault(key => !string.IsNullOrWhiteSpace(key));
         if (policyKey is null)
         {
-            return DefaultWorkerPolicy;
+            return _defaultWorkerPolicy;
         }
         return configuration.VirtualOutputWorkerPolicies.Single(policy =>
             string.Equals(policy.Key, policyKey, StringComparison.OrdinalIgnoreCase));
@@ -361,7 +367,7 @@ public sealed class HdHomeRunDiscoveryWorkerSupervisor : BackgroundService
 
     private async Task StopWorkerAsync(CancellationToken cancellationToken)
     {
-        _authority.Revoke(DiscoveryWorkerId, "The HDHomeRun discovery worker is being replaced or stopped.");
+        _authority.Revoke(_discoveryWorkerId, "The HDHomeRun discovery worker is being replaced or stopped.");
         if (_active is not { } active)
         {
             return;
@@ -380,7 +386,7 @@ public sealed class HdHomeRunDiscoveryWorkerSupervisor : BackgroundService
             if (ReferenceEquals(_active, active))
             {
                 _active = null;
-                _authority.Revoke(DiscoveryWorkerId, "The HDHomeRun discovery worker exited.");
+                _authority.Revoke(_discoveryWorkerId, "The HDHomeRun discovery worker exited.");
                 var decision = _restartBudget.RecordFailure(active.Policy);
                 if (decision.Exhausted)
                 {
@@ -443,10 +449,7 @@ public sealed class HdHomeRunDiscoveryWorkerSupervisor : BackgroundService
         }
     }
 
-    private sealed record ActiveDiscoveryWorker(
-        string Fingerprint,
-        VirtualOutputWorkerPolicyDefinition Policy,
-        IVirtualOutputWorkerProcess Process);
+    private sealed record ActiveDiscoveryWorker(string Fingerprint, VirtualOutputWorkerPolicyDefinition Policy, IVirtualOutputWorkerProcess Process);
 
     private sealed record PendingRetry(string Fingerprint, DateTimeOffset RetryUtc);
 }

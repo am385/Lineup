@@ -1,6 +1,4 @@
 using System.Text.Json;
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Xunit;
 
 namespace Lineup.Core.Tests.Streaming;
@@ -303,8 +301,10 @@ public sealed class PhysicalDeviceCatalogTests
     {
         private int _createCount;
 
+        /// <summary>Stores the driver kind.</summary>
         public const string DriverKind = "fake";
 
+        /// <summary>Gets the create count.</summary>
         public int CreateCount => Volatile.Read(ref _createCount);
 
         /// <summary>Gets or sets whether the named failing device remains unavailable.</summary>
@@ -316,24 +316,36 @@ public sealed class PhysicalDeviceCatalogTests
         /// <summary>Gets owned fake runtime instances for rollback checks.</summary>
         public System.Collections.Concurrent.ConcurrentQueue<FakePhysicalDevice> Created { get; } = new();
 
+        /// <summary>Gets the kind.</summary>
         public string Kind => DriverKind;
 
+        /// <summary>Gets the display name.</summary>
         public string DisplayName => "Fake";
 
+        /// <summary>Gets the supports user creation.</summary>
         public bool SupportsUserCreation => true;
 
+        /// <summary>Gets the capabilities.</summary>
         public DeviceCapabilities Capabilities { get; } = new();
 
+        /// <summary>Creates default configuration.</summary>
+        /// <param name="deviceId">Identity of the target device.</param>
+        /// <returns>The operation's result.</returns>
         public AdapterConfiguration CreateDefaultConfiguration(PhysicalDeviceId deviceId) =>
             new(DriverKind, JsonDocument.Parse("{}").RootElement.Clone());
 
+        /// <summary>Validates the fake physical driver.</summary>
+        /// <param name="configuration">Configuration to apply.</param>
+        /// <returns>The operation's result.</returns>
         public IReadOnlyList<string> Validate(AdapterConfiguration configuration) => [];
 
-        public async ValueTask<IPhysicalTunerDevice> CreateAsync(
-            PhysicalDeviceId deviceId,
-            string name,
-            AdapterConfiguration configuration,
-            CancellationToken cancellationToken = default)
+        /// <summary>Creates the fake physical driver asynchronously.</summary>
+        /// <param name="deviceId">Identity of the target device.</param>
+        /// <param name="name">Name used by the operation.</param>
+        /// <param name="configuration">Configuration to apply.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
+        public async ValueTask<IPhysicalTunerDevice> CreateAsync(PhysicalDeviceId deviceId, string name, AdapterConfiguration configuration, CancellationToken cancellationToken = default)
         {
             Interlocked.Increment(ref _createCount);
             if (BeforeCreate is { } beforeCreate)
@@ -360,6 +372,9 @@ public sealed class PhysicalDeviceCatalogTests
     {
         private int _disposed;
 
+        /// <summary>Initializes the fake physical device.</summary>
+        /// <param name="id">The ID value.</param>
+        /// <param name="name">Name used by the operation.</param>
         public FakePhysicalDevice(PhysicalDeviceId id, string name)
         {
             Snapshot = new PhysicalDeviceSnapshot
@@ -371,18 +386,26 @@ public sealed class PhysicalDeviceCatalogTests
             };
         }
 
+        /// <summary>Gets the snapshot.</summary>
         public PhysicalDeviceSnapshot Snapshot { get; }
 
+        /// <summary>Gets the is disposed.</summary>
         public bool IsDisposed => Volatile.Read(ref _disposed) != 0;
 
+        /// <summary>Refreshes lineup asynchronously.</summary>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
         public Task<IReadOnlyList<PhysicalSourceChannel>> RefreshLineupAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<PhysicalSourceChannel>>([]);
 
-        public ValueTask<IPhysicalStreamLease> OpenStreamAsync(
-            PhysicalStreamRequest request,
-            CancellationToken cancellationToken = default) =>
+        /// <summary>Opens stream asynchronously.</summary>
+        /// <param name="request">The request value.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
+        public ValueTask<IPhysicalStreamLease> OpenStreamAsync(PhysicalStreamRequest request, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        /// <inheritdoc />
         public void Dispose() => Interlocked.Exchange(ref _disposed, 1);
     }
 }

@@ -6,6 +6,7 @@ using Lineup.Core.Common.Streaming;
 
 namespace Lineup.Core.VirtualOutputs.Runtime;
 
+/// <summary>Enforces configured worker CPU and memory limits using Windows jobs or Linux cgroups.</summary>
 internal static class VirtualOutputProcessLimits
 {
     /// <summary>Probes requested enforcement before creating a worker or consuming its restart allowance.</summary>
@@ -44,6 +45,10 @@ internal static class VirtualOutputProcessLimits
     /// <summary>Probes one explicitly owned Linux cgroup root without modifying process-wide configuration.</summary>
     internal static void PreflightLinux(VirtualOutputWorkerPolicyDefinition policy, string root) => LinuxCgroupLimits.Preflight(policy, root);
 
+    /// <summary>Attaches the configured resource limits to a worker process.</summary>
+    /// <param name="process">Worker process to constrain.</param>
+    /// <param name="policy">CPU and memory limits to enforce.</param>
+    /// <returns>The owned enforcement handle, or null when both limits are disabled.</returns>
     internal static IDisposable? Apply(Process process, VirtualOutputWorkerPolicyDefinition policy)
     {
         ArgumentNullException.ThrowIfNull(process);
@@ -110,6 +115,10 @@ internal static class VirtualOutputProcessLimits
             }
         }
 
+        /// <summary>Applies the linux cgroup limits.</summary>
+        /// <param name="process">The process value.</param>
+        /// <param name="policy">The policy value.</param>
+        /// <returns>The operation's result.</returns>
         internal static IDisposable Apply(Process process, VirtualOutputWorkerPolicyDefinition policy)
         {
             RequireCgroupV2();
@@ -148,6 +157,7 @@ internal static class VirtualOutputProcessLimits
         {
             private int _disposed;
 
+            /// <inheritdoc />
             public void Dispose()
             {
                 if (Interlocked.Exchange(ref _disposed, 1) == 0)
@@ -165,6 +175,10 @@ internal static class VirtualOutputProcessLimits
         private const uint CpuRateControlEnable = 0x1;
         private const uint CpuRateControlHardCap = 0x4;
 
+        /// <summary>Applies the windows job limits.</summary>
+        /// <param name="process">The process value.</param>
+        /// <param name="policy">The policy value.</param>
+        /// <returns>The operation's result.</returns>
         internal static IDisposable Apply(Process process, VirtualOutputWorkerPolicyDefinition policy)
         {
             var job = Create(policy);
@@ -216,8 +230,7 @@ internal static class VirtualOutputProcessLimits
             }
         }
 
-        private static void SetInformation<T>(SafeFileHandle job, JobObjectInfoType type, T value)
-            where T : struct
+        private static void SetInformation<T>(SafeFileHandle job, JobObjectInfoType type, T value) where T : struct
         {
             var length = Marshal.SizeOf<T>();
             var pointer = Marshal.AllocHGlobal(length);
@@ -237,50 +250,75 @@ internal static class VirtualOutputProcessLimits
 
         private enum JobObjectInfoType
         {
+            /// <summary>Identifies the extended limit information option.</summary>
             ExtendedLimitInformation = 9,
+            /// <summary>Identifies the cpu rate control information option.</summary>
             CpuRateControlInformation = 15
         }
 
         [StructLayout(LayoutKind.Sequential)]
         private struct JobObjectBasicLimitInformation
         {
+            /// <summary>Stores the per process user time limit.</summary>
             public long PerProcessUserTimeLimit;
+            /// <summary>Stores the per job user time limit.</summary>
             public long PerJobUserTimeLimit;
+            /// <summary>Stores the limit flags.</summary>
             public uint LimitFlags;
+            /// <summary>Stores the minimum working set size.</summary>
             public nuint MinimumWorkingSetSize;
+            /// <summary>Stores the maximum working set size.</summary>
             public nuint MaximumWorkingSetSize;
+            /// <summary>Stores the active process limit.</summary>
             public uint ActiveProcessLimit;
+            /// <summary>Stores the affinity.</summary>
             public nuint Affinity;
+            /// <summary>Stores the priority class.</summary>
             public uint PriorityClass;
+            /// <summary>Stores the scheduling class.</summary>
             public uint SchedulingClass;
         }
 
         [StructLayout(LayoutKind.Sequential)]
         private struct IoCounters
         {
+            /// <summary>Stores the read operation count.</summary>
             public ulong ReadOperationCount;
+            /// <summary>Stores the write operation count.</summary>
             public ulong WriteOperationCount;
+            /// <summary>Stores the other operation count.</summary>
             public ulong OtherOperationCount;
+            /// <summary>Stores the read transfer count.</summary>
             public ulong ReadTransferCount;
+            /// <summary>Stores the write transfer count.</summary>
             public ulong WriteTransferCount;
+            /// <summary>Stores the other transfer count.</summary>
             public ulong OtherTransferCount;
         }
 
         [StructLayout(LayoutKind.Sequential)]
         private struct JobObjectExtendedLimitInformation
         {
+            /// <summary>Stores the basic limit information.</summary>
             public JobObjectBasicLimitInformation BasicLimitInformation;
+            /// <summary>Stores the io info.</summary>
             public IoCounters IoInfo;
+            /// <summary>Stores the process memory limit.</summary>
             public nuint ProcessMemoryLimit;
+            /// <summary>Stores the job memory limit.</summary>
             public nuint JobMemoryLimit;
+            /// <summary>Stores the peak process memory used.</summary>
             public nuint PeakProcessMemoryUsed;
+            /// <summary>Stores the peak job memory used.</summary>
             public nuint PeakJobMemoryUsed;
         }
 
         [StructLayout(LayoutKind.Sequential)]
         private struct JobObjectCpuRateControlInformation
         {
+            /// <summary>Stores the control flags.</summary>
             public uint ControlFlags;
+            /// <summary>Stores the cpu rate.</summary>
             public uint CpuRate;
         }
 
@@ -289,11 +327,7 @@ internal static class VirtualOutputProcessLimits
 
         [DllImport("kernel32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool SetInformationJobObject(
-            SafeFileHandle job,
-            JobObjectInfoType jobObjectInfoClass,
-            IntPtr jobObjectInfo,
-            uint jobObjectInfoLength);
+        private static extern bool SetInformationJobObject(SafeFileHandle job, JobObjectInfoType jobObjectInfoClass, IntPtr jobObjectInfo, uint jobObjectInfoLength);
 
         [DllImport("kernel32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]

@@ -1,6 +1,4 @@
 using Lineup.Core.Storage.Entities;
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 
@@ -70,10 +68,7 @@ public sealed class StreamingTopologyStore
     /// <summary>
     /// Reconciles one physical device's latest successful lineup while preserving global overrides.
     /// </summary>
-    public async Task<IReadOnlyList<PhysicalChannelIdentity>> ReconcileAsync(
-        PhysicalDeviceId deviceId,
-        IEnumerable<PhysicalSourceChannel> channels,
-        CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<PhysicalChannelIdentity>> ReconcileAsync(PhysicalDeviceId deviceId, IEnumerable<PhysicalSourceChannel> channels, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(channels);
         var normalized = channels
@@ -293,10 +288,7 @@ public sealed class StreamingTopologyStore
     /// <summary>
     /// Enables or disables one physical source channel without affecting equivalent sources.
     /// </summary>
-    public async Task<PhysicalChannelIdentity> SetEnabledAsync(
-        SourceChannelId channelId,
-        bool enabled,
-        CancellationToken cancellationToken = default)
+    public async Task<PhysicalChannelIdentity> SetEnabledAsync(SourceChannelId channelId, bool enabled, CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken);
         try

@@ -162,7 +162,5 @@ public interface IStreamingConfigurationNormalizer
     /// <param name="configuration">Configuration to normalize.</param>
     /// <param name="context">Host-owned initialization defaults.</param>
     /// <returns>The initialized configuration.</returns>
-    StreamingConfiguration Normalize(
-        StreamingConfiguration configuration,
-        StreamingConfigurationInitializationContext context);
+    StreamingConfiguration Normalize(StreamingConfiguration configuration, StreamingConfigurationInitializationContext context);
 }

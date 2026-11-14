@@ -19,6 +19,7 @@ public interface IPhysicalDeviceCatalog : IPhysicalDeviceResolver
     Task<bool> TryPublishAsync(StreamingConfiguration configuration, Func<CancellationToken, Task> publish, CancellationToken cancellationToken = default);
 }
 
+/// <summary>Represents the physical device runtime state.</summary>
 internal sealed class PhysicalDeviceRuntimeState : IPhysicalDeviceResolver
 {
     private CatalogSnapshot _snapshot = new(null, [], new HashSet<IPhysicalTunerDevice>(ReferenceEqualityComparer.Instance));
@@ -26,12 +27,16 @@ internal sealed class PhysicalDeviceRuntimeState : IPhysicalDeviceResolver
     /// <summary>Occurs after old admissions close and before replacement runtimes are published.</summary>
     internal event Func<IReadOnlyList<IPhysicalTunerDevice>, Task>? Retiring;
 
+    /// <summary>Gets the devices.</summary>
     public IReadOnlyList<IPhysicalTunerDevice> Devices => Volatile.Read(ref _snapshot).Devices;
 
     /// <summary>Checks the definition key atomically published with the active runtimes.</summary>
     public bool IsConfigurationCurrent(string activationKey) =>
         string.Equals(Volatile.Read(ref _snapshot).ActivationKey, activationKey, StringComparison.Ordinal);
 
+    /// <summary>Gets required.</summary>
+    /// <param name="deviceId">Identity of the target device.</param>
+    /// <returns>The operation's result.</returns>
     public IPhysicalTunerDevice GetRequired(PhysicalDeviceId deviceId) =>
         Devices.FirstOrDefault(device => device.Snapshot.Id == deviceId)
         ?? throw new InvalidOperationException($"Physical device {deviceId} is not active.");
@@ -103,7 +108,8 @@ public sealed class PhysicalDeviceCatalog : IPhysicalDeviceCatalog
         PhysicalDeviceRuntimeState state,
         ILogger<PhysicalDeviceCatalog>? logger = null,
         PhysicalDeviceRefreshScheduler? refresh = null,
-        IPhysicalConfigurationAuthority? authority = null)
+        IPhysicalConfigurationAuthority? authority = null
+    )
     {
         _adapters = adapters;
         _state = state;
@@ -113,20 +119,27 @@ public sealed class PhysicalDeviceCatalog : IPhysicalDeviceCatalog
         _authority = authority;
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets the devices.</summary>
     public IReadOnlyList<IPhysicalTunerDevice> Devices => _state.Devices;
 
-    /// <inheritdoc />
+    /// <summary>Gets required.</summary>
+    /// <param name="deviceId">Identity of the target device.</param>
+    /// <returns>The operation's result.</returns>
     public IPhysicalTunerDevice GetRequired(PhysicalDeviceId deviceId) => _state.GetRequired(deviceId);
 
-    /// <inheritdoc />
+    /// <summary>Determines whether configuration current.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <returns>The operation's result.</returns>
     public bool IsConfigurationCurrent(StreamingConfiguration configuration)
     {
         ValidateConfiguration(configuration);
         return (_authority?.IsDesired(configuration) ?? true) && _state.IsConfigurationCurrent(CreateActivationKey(configuration.PhysicalDevices));
     }
 
-    /// <inheritdoc />
+    /// <summary>Applies the physical device catalog asynchronously.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public Task ApplyAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default)
     {
         ValidateConfiguration(configuration);
@@ -143,7 +156,11 @@ public sealed class PhysicalDeviceCatalog : IPhysicalDeviceCatalog
         return _applications.RunAsync(key, token => ApplyCoreAsync(configuration, token), cancellationToken, waitForCancellationCleanup: true);
     }
 
-    /// <inheritdoc />
+    /// <summary>Attempts to publish asynchronously.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="publish">The publish value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async Task<bool> TryPublishAsync(StreamingConfiguration configuration, Func<CancellationToken, Task> publish, CancellationToken cancellationToken = default)
     {
         await _publicationGate.WaitAsync(cancellationToken);

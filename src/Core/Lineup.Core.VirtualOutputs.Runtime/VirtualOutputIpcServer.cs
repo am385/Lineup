@@ -54,7 +54,8 @@ public sealed class VirtualOutputIpcServer : BackgroundService
         IPluginConnectionBudget connectionBudget,
         IMediaWorkAdmission? mediaWork = null,
         StreamingResourceOptions? resources = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null
+    )
     {
         _endpoint = endpoint;
         _authority = authority;
@@ -520,28 +521,19 @@ public sealed class VirtualOutputIpcServer : BackgroundService
         }
     }
 
-    private async Task GetManifestAsync(
-            Stream stream,
-            VirtualOutputManifestRequest request,
-            CancellationToken cancellationToken)
+    private async Task GetManifestAsync(Stream stream, VirtualOutputManifestRequest request, CancellationToken cancellationToken)
     {
         using var lease = AcquireBrokerCall(request.Session, VirtualOutputCapability.ReadManifest);
         await WriteAsync(stream, await _broker.GetManifestAsync(request, cancellationToken), cancellationToken);
     }
 
-    private async Task GetLineupAsync(
-            Stream stream,
-            VirtualOutputLineupRequest request,
-            CancellationToken cancellationToken)
+    private async Task GetLineupAsync(Stream stream, VirtualOutputLineupRequest request, CancellationToken cancellationToken)
     {
         using var lease = AcquireBrokerCall(request.Session, VirtualOutputCapability.ReadLineup);
         await WriteAsync(stream, await _broker.GetLineupAsync(request, cancellationToken), cancellationToken);
     }
 
-    private async Task GetGuideAsync(
-            Stream stream,
-            VirtualOutputGuideRequest request,
-            CancellationToken cancellationToken)
+    private async Task GetGuideAsync(Stream stream, VirtualOutputGuideRequest request, CancellationToken cancellationToken)
     {
         using var lease = AcquireBrokerCall(request.Session, VirtualOutputCapability.ReadGuide);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -583,10 +575,7 @@ public sealed class VirtualOutputIpcServer : BackgroundService
         }
     }
 
-    private async Task RegisterAsync(
-        Stream stream,
-        VirtualOutputWorkerRegistrationRequest request,
-        CancellationToken cancellationToken)
+    private async Task RegisterAsync(Stream stream, VirtualOutputWorkerRegistrationRequest request, CancellationToken cancellationToken)
     {
         var response = _authority.Register(request);
         if (!response.Accepted)
@@ -607,10 +596,7 @@ public sealed class VirtualOutputIpcServer : BackgroundService
         await WriteAsync(stream, response, cancellationToken);
     }
 
-    private async Task RenewLeaseAsync(
-        Stream stream,
-        VirtualOutputLeaseRenewalRequest request,
-        CancellationToken cancellationToken)
+    private async Task RenewLeaseAsync(Stream stream, VirtualOutputLeaseRenewalRequest request, CancellationToken cancellationToken)
     {
         var response = _authority.Renew(request);
         if (response.Accepted)
@@ -765,9 +751,7 @@ public sealed class VirtualOutputIpcServer : BackgroundService
         await WriteAsync(stream, new VirtualOutputStreamStatusResponse { Updated = updated, StopRequested = ownedStream.ViewerStopRequested }, cancellationToken);
     }
 
-    private BrokerCallLease AcquireBrokerCall(
-        VirtualOutputSessionContext session,
-        VirtualOutputCapability capability)
+    private BrokerCallLease AcquireBrokerCall(VirtualOutputSessionContext session, VirtualOutputCapability capability)
     {
         var virtualDeviceId = AuthorizeBrokerCall(session, capability);
         var device = _settings.Settings.Streaming.VirtualDevices.Single(candidate => candidate.Id == virtualDeviceId);
@@ -785,9 +769,7 @@ public sealed class VirtualOutputIpcServer : BackgroundService
         return new BrokerCallLease(this, virtualDeviceId);
     }
 
-    private VirtualDeviceId AuthorizeBrokerCall(
-        VirtualOutputSessionContext session,
-        VirtualOutputCapability capability)
+    private VirtualDeviceId AuthorizeBrokerCall(VirtualOutputSessionContext session, VirtualOutputCapability capability)
     {
         var authorization = _authority.Authorize(session, capability);
         if (!authorization.Authorized)
@@ -860,11 +842,7 @@ public sealed class VirtualOutputIpcServer : BackgroundService
     private static Task WriteAsync<T>(Stream stream, T response, CancellationToken cancellationToken) =>
         VirtualOutputWireProtocol.WriteAsync(stream, VirtualOutputIpcResponse.Success(response), cancellationToken);
 
-    private static async Task TryWriteErrorAsync(
-        Stream stream,
-        VirtualOutputFailureCode failureCode,
-        string failure,
-        CancellationToken cancellationToken)
+    private static async Task TryWriteErrorAsync(Stream stream, VirtualOutputFailureCode failureCode, string failure, CancellationToken cancellationToken)
     {
         try
         {
@@ -894,14 +872,19 @@ public sealed class VirtualOutputIpcServer : BackgroundService
         private readonly VirtualOutputIpcServer _owner;
         private int _disposed;
 
+        /// <summary>Initializes the broker call lease.</summary>
+        /// <param name="owner">The owner value.</param>
+        /// <param name="virtualDeviceId">The virtual device ID value.</param>
         internal BrokerCallLease(VirtualOutputIpcServer owner, VirtualDeviceId virtualDeviceId)
         {
             _owner = owner;
             VirtualDeviceId = virtualDeviceId;
         }
 
+        /// <summary>Gets the virtual device ID.</summary>
         internal VirtualDeviceId VirtualDeviceId { get; }
 
+        /// <inheritdoc />
         public void Dispose()
         {
             if (Interlocked.Exchange(ref _disposed, 1) == 0)

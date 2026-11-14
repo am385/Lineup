@@ -19,9 +19,9 @@ public interface IMediaProbeService
 public sealed class MediaProbeService : IMediaProbeService
 {
     private const string MetadataKey = "ffprobe-v2";
-    private static readonly TimeSpan SharedProbeOperationTimeout = TimeSpan.FromSeconds(20);
-    private static readonly TimeSpan SharedProbeRefreshWaitTimeout = TimeSpan.FromSeconds(8);
-    private static readonly TimeSpan ProvisionalRetryDelay = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan _sharedProbeOperationTimeout = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan _sharedProbeRefreshWaitTimeout = TimeSpan.FromSeconds(8);
+    private static readonly TimeSpan _provisionalRetryDelay = TimeSpan.FromSeconds(1);
     private readonly ILogger<MediaProbeService> _logger;
     private readonly ITunerStreamMultiplexer _tunerStreamMultiplexer;
     private readonly IStreamingSessionGraph? _streamingGraph;
@@ -42,7 +42,8 @@ public sealed class MediaProbeService : IMediaProbeService
         ILogger<MediaProbeService> logger,
         ITunerStreamMultiplexer tunerStreamMultiplexer,
         Func<string, Stream, CancellationToken, Task<MediaProbeResult>> probe,
-        IStreamingSessionGraph? streamingGraph = null)
+        IStreamingSessionGraph? streamingGraph = null
+    )
     {
         _logger = logger;
         _tunerStreamMultiplexer = tunerStreamMultiplexer;
@@ -56,7 +57,13 @@ public sealed class MediaProbeService : IMediaProbeService
     {
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes probe asynchronously.</summary>
+    /// <param name="descriptor">The descriptor value.</param>
+    /// <param name="acquisitionFactory">The acquisition factory value.</param>
+    /// <param name="sourceName">The source name value.</param>
+    /// <param name="sourceMetadata">The source metadata value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async Task<MediaProbeResult> ProbeAsync(
         StreamAcquisitionDescriptor descriptor,
         StreamAcquisitionFactory acquisitionFactory,
@@ -80,9 +87,9 @@ public sealed class MediaProbeService : IMediaProbeService
                         {
                             IsReusable = MediaProbeResultPolicy.HasAudio,
                             Merge = MediaProbeResultPolicy.Merge,
-                            RetryDelay = ProvisionalRetryDelay,
-                            OperationTimeout = SharedProbeOperationTimeout,
-                            RefreshWaitTimeout = SharedProbeRefreshWaitTimeout
+                            RetryDelay = _provisionalRetryDelay,
+                            OperationTimeout = _sharedProbeOperationTimeout,
+                            RefreshWaitTimeout = _sharedProbeRefreshWaitTimeout
                         },
                         cancellationToken),
                     sourceName);
@@ -107,7 +114,7 @@ public sealed class MediaProbeService : IMediaProbeService
         var observation = await ProbeCoreAsync(descriptor, acquisitionFactory, sourceName, cancellationToken);
         if (!MediaProbeResultPolicy.IsDeclaredVideoOnly(sourceMetadata) && !MediaProbeResultPolicy.HasAudio(observation))
         {
-            await Task.Delay(ProvisionalRetryDelay, cancellationToken);
+            await Task.Delay(_provisionalRetryDelay, cancellationToken);
             var refreshed = await ProbeCoreAsync(descriptor, acquisitionFactory, sourceName, cancellationToken);
             observation = MediaProbeResultPolicy.Merge(observation, refreshed);
         }
@@ -123,7 +130,7 @@ public sealed class MediaProbeService : IMediaProbeService
         catch (TimeoutException exception)
         {
             throw new MpegTsTranscodeException(
-                $"FFprobe source acquisition and analysis timed out after {SharedProbeOperationTimeout.TotalSeconds:0} seconds for {sourceName}.",
+                $"FFprobe source acquisition and analysis timed out after {_sharedProbeOperationTimeout.TotalSeconds:0} seconds for {sourceName}.",
                 exception);
         }
     }

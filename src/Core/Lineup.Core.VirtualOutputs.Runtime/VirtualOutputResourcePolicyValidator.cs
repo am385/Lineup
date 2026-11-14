@@ -6,7 +6,8 @@ namespace Lineup.Core.VirtualOutputs.Runtime;
 /// <summary>Preflights enabled output policies against the current host rather than silently running without requested limits.</summary>
 public sealed class VirtualOutputResourcePolicyValidator : IVirtualOutputResourcePolicyValidator
 {
-    /// <inheritdoc />
+    /// <summary>Validates the virtual output resource policy validator.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
     public void Validate(StreamingConfiguration configuration)
     {
         foreach (var device in configuration.VirtualDevices.Where(device => device.Enabled && device.Hosting is not null))

@@ -4,7 +4,6 @@ using Lineup.Core.Extensibility.Configuration;
 using Lineup.Core.Common.Guides;
 using Lineup.Core.Extensibility.Guides;
 using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 
 namespace Lineup.Plugin.GuideOutputs.Json.Plugin;
 
@@ -14,24 +13,24 @@ public sealed class JsonGuideOutputDriver : IGuideOutputDriver, IAdapterSettings
     /// <summary>Stable adapter and publisher kind.</summary>
     public const string AdapterKind = "json";
 
-    private static readonly JsonSerializerOptions SerializerOptions = new()
+    private static readonly JsonSerializerOptions _serializerOptions = new()
     {
         PropertyNameCaseInsensitive = true
     };
 
-    /// <inheritdoc />
+    /// <summary>Gets the kind.</summary>
     public string Kind => AdapterKind;
 
-    /// <inheritdoc />
+    /// <summary>Gets the display name.</summary>
     public string DisplayName => "JSON";
 
-    /// <inheritdoc />
+    /// <summary>Gets the supports user creation.</summary>
     public bool SupportsUserCreation => true;
 
-    /// <inheritdoc />
+    /// <summary>Gets the publisher kind.</summary>
     public string PublisherKind => AdapterKind;
 
-    /// <inheritdoc />
+    /// <summary>Gets the settings descriptor.</summary>
     public AdapterSettingsDescriptor SettingsDescriptor { get; } = new()
     {
         AdapterKind = AdapterKind,
@@ -49,7 +48,10 @@ public sealed class JsonGuideOutputDriver : IGuideOutputDriver, IAdapterSettings
         ]
     };
 
-    /// <inheritdoc />
+    /// <summary>Creates default configuration.</summary>
+    /// <param name="outputId">The output ID value.</param>
+    /// <param name="context">Context used by the operation.</param>
+    /// <returns>The operation's result.</returns>
     public AdapterConfiguration CreateDefaultConfiguration(GuideOutputId outputId, GuideOutputCreationContext context)
     {
         if (outputId.Value == Guid.Empty)
@@ -69,7 +71,9 @@ public sealed class JsonGuideOutputDriver : IGuideOutputDriver, IAdapterSettings
         return CreateConfiguration(Path.Combine(context.DefaultOutputDirectoryPath, $"lineup-{context.OutputKey}.json"));
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets settings.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <returns>The operation's result.</returns>
     public AdapterSettingsSnapshot GetSettings(AdapterConfiguration configuration)
     {
         var typed = Deserialize(configuration);
@@ -91,7 +95,10 @@ public sealed class JsonGuideOutputDriver : IGuideOutputDriver, IAdapterSettings
         };
     }
 
-    /// <inheritdoc />
+    /// <summary>Applies settings.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="edits">The edits value.</param>
+    /// <returns>The operation's result.</returns>
     public AdapterSettingsApplyResult ApplySettings(AdapterConfiguration configuration, IReadOnlyList<AdapterSettingEdit> edits)
     {
         var outputPath = Deserialize(configuration).OutputPath;
@@ -137,7 +144,9 @@ public sealed class JsonGuideOutputDriver : IGuideOutputDriver, IAdapterSettings
             };
     }
 
-    /// <inheritdoc />
+    /// <summary>Validates the JSON guide output driver.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <returns>The operation's result.</returns>
     public IReadOnlyList<string> Validate(AdapterConfiguration configuration)
     {
         if (!string.Equals(configuration.Kind, Kind, StringComparison.Ordinal))
@@ -170,7 +179,9 @@ public sealed class JsonGuideOutputDriver : IGuideOutputDriver, IAdapterSettings
         return [];
     }
 
-    /// <inheritdoc />
+    /// <summary>Resolves destination.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <returns>The operation's result.</returns>
     public GuideOutputDestination ResolveDestination(AdapterConfiguration configuration)
     {
         var errors = Validate(configuration);
@@ -195,6 +206,6 @@ public sealed class JsonGuideOutputDriver : IGuideOutputDriver, IAdapterSettings
         }));
 
     private static JsonGuideOutputConfiguration Deserialize(AdapterConfiguration configuration) =>
-        configuration.Configuration.Deserialize<JsonGuideOutputConfiguration>(SerializerOptions)
+        configuration.Configuration.Deserialize<JsonGuideOutputConfiguration>(_serializerOptions)
             ?? new JsonGuideOutputConfiguration();
 }

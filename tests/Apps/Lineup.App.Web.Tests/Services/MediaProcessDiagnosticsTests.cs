@@ -108,13 +108,24 @@ public sealed class MediaProcessDiagnosticsTests
         /// <summary>Gets retained structured values from the failure event.</summary>
         public IReadOnlyDictionary<string, object?> Values { get; private set; } = new Dictionary<string, object?>();
 
-        /// <inheritdoc />
+        /// <summary>Executes begin scope.</summary>
+        /// <param name="state">The state value.</param>
+        /// <typeparam name="TState">Type of the state value.</typeparam>
+        /// <returns>The operation's result.</returns>
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
-        /// <inheritdoc />
+        /// <summary>Determines whether enabled.</summary>
+        /// <param name="logLevel">The log level value.</param>
+        /// <returns>The operation's result.</returns>
         public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
 
-        /// <inheritdoc />
+        /// <summary>Executes log.</summary>
+        /// <param name="logLevel">The log level value.</param>
+        /// <param name="eventId">The event ID value.</param>
+        /// <param name="state">The state value.</param>
+        /// <param name="exception">The exception value.</param>
+        /// <param name="formatter">The formatter value.</param>
+        /// <typeparam name="TState">Type of the state value.</typeparam>
         public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
             Values = Assert.IsAssignableFrom<IEnumerable<KeyValuePair<string, object?>>>(state).ToDictionary(pair => pair.Key, pair => pair.Value);

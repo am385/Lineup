@@ -220,7 +220,7 @@ public sealed record VirtualGuideSnapshot
     /// <summary>Gets whether configured guide sources were excluded.</summary>
     public bool IsPartial => SourceDiagnostics.Count > 0;
 
-    /// <summary>Gets the virtual device.</summary>
+    /// <summary>Gets or sets the virtual device ID.</summary>
     public required VirtualDeviceId VirtualDeviceId { get; init; }
 
     /// <summary>Gets resolved channels.</summary>

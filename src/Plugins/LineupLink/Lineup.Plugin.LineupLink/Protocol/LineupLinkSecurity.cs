@@ -126,7 +126,7 @@ public static class LineupLinkConnectionBundleCodec
     /// <summary>Gets the placeholder used when displaying a bundle without its raw token.</summary>
     public const string RedactedAccessToken = "[redacted]";
 
-    private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
+    private static readonly JsonSerializerOptions _serializerOptions = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = true
     };
@@ -135,7 +135,7 @@ public static class LineupLinkConnectionBundleCodec
     public static string Serialize(LineupLinkConnectionBundle bundle)
     {
         Validate(bundle);
-        return JsonSerializer.Serialize(bundle, SerializerOptions);
+        return JsonSerializer.Serialize(bundle, _serializerOptions);
     }
 
     /// <summary>Serializes a validated connection bundle with its access token redacted.</summary>
@@ -152,7 +152,7 @@ public static class LineupLinkConnectionBundleCodec
         LineupLinkConnectionBundle bundle;
         try
         {
-            bundle = JsonSerializer.Deserialize<LineupLinkConnectionBundle>(text, SerializerOptions)
+            bundle = JsonSerializer.Deserialize<LineupLinkConnectionBundle>(text, _serializerOptions)
                 ?? throw new ArgumentException("The Lineup Link connection bundle is empty.", nameof(text));
         }
         catch (JsonException exception)

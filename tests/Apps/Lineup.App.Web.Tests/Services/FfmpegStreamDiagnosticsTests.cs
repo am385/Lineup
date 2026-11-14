@@ -169,9 +169,9 @@ public sealed class FfmpegStreamDiagnosticsTests
 
     private sealed class SlateLease(Stream stream) : IMediaStreamLease
     {
-        /// <inheritdoc />
+        /// <summary>Gets the stream.</summary>
         public Stream Stream => stream;
-        /// <inheritdoc />
+        /// <summary>Gets the content type.</summary>
         public string? ContentType => "video/mp2t";
         /// <inheritdoc />
         public ValueTask DisposeAsync() => stream.DisposeAsync();

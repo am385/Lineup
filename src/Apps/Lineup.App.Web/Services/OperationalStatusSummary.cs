@@ -1,6 +1,3 @@
-using Lineup.Core.Common.Configuration;
-using Lineup.Core.Hosting;
-
 namespace Lineup.App.Web.Services;
 
 /// <summary>Summarizes safe operational observations separately from management liveness/readiness.</summary>

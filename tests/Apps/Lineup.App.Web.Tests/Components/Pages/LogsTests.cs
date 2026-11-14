@@ -128,7 +128,7 @@ public class LogsTests
         var component = context.Render<Logs>();
 
         // Act
-        component.Find("#clearLogs").Click();
+        await component.Find("#clearLogs").ClickAsync(new());
 
         // Assert
         Assert.Equal("No log events match the current filters.", component.Find("#emptyLogs").TextContent);

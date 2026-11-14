@@ -64,19 +64,22 @@ public sealed class StatusNotificationService : IStatusNotificationService
         _readOnlyNotifications = _notifications.AsReadOnly();
     }
 
-    /// <inheritdoc />
+    /// <summary>Occurs when changed.</summary>
     public event Action? OnChanged;
 
-    /// <inheritdoc />
+    /// <summary>Gets the notifications.</summary>
     public IReadOnlyList<StatusNotificationMessage> Notifications => _readOnlyNotifications;
 
-    /// <inheritdoc />
+    /// <summary>Shows success.</summary>
+    /// <param name="message">The message value.</param>
     public void ShowSuccess(string message) => Show(message, isError: false);
 
-    /// <inheritdoc />
+    /// <summary>Shows error.</summary>
+    /// <param name="message">The message value.</param>
     public void ShowError(string message) => Show(message, isError: true);
 
-    /// <inheritdoc />
+    /// <summary>Executes dismiss.</summary>
+    /// <param name="id">The ID value.</param>
     public void Dismiss(Guid id)
     {
         var removed = _notifications.RemoveAll(notification => notification.Id == id);
@@ -86,7 +89,7 @@ public sealed class StatusNotificationService : IStatusNotificationService
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Clears the status notification service.</summary>
     public void Clear()
     {
         if (_notifications.Count == 0)

@@ -7,7 +7,7 @@ namespace Lineup.Core.Streaming;
 /// </summary>
 public static class StreamingConfigurationFactoryReset
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    private static readonly JsonSerializerOptions _jsonOptions = new()
     {
         WriteIndented = true
     };
@@ -30,7 +30,7 @@ public static class StreamingConfigurationFactoryReset
         var temporaryPath = $"{fullPath}.{Guid.NewGuid():N}.tmp";
         try
         {
-            File.WriteAllText(temporaryPath, JsonSerializer.Serialize(new StreamingConfiguration(), JsonOptions));
+            File.WriteAllText(temporaryPath, JsonSerializer.Serialize(new StreamingConfiguration(), _jsonOptions));
             File.Move(temporaryPath, fullPath, overwrite: true);
         }
         finally

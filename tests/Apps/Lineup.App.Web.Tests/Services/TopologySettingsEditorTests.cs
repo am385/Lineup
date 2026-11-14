@@ -1,7 +1,6 @@
 using Lineup.Plugin.LineupLink.Protocol;
 using Lineup.Plugin.LineupLink.Virtual;
 using Lineup.Core.Common.Configuration;
-using Lineup.Core.Extensibility.Configuration;
 using Lineup.Plugin.GuideOutputs.Json.Plugin;
 using Lineup.App.Web.Services;
 using Lineup.Plugin.GuideOutputs.Xmltv.Plugin;

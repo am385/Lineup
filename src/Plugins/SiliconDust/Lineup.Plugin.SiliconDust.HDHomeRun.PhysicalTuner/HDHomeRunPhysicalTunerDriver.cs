@@ -20,7 +20,7 @@ public sealed class HDHomeRunPhysicalTunerDriver : IPhysicalTunerDriver, IPhysic
     /// <summary>Gets the default local-network HDHomeRun hostname.</summary>
     public const string DefaultAddress = "hdhomerun.local";
 
-    private static readonly JsonSerializerOptions SerializerOptions = new()
+    private static readonly JsonSerializerOptions _serializerOptions = new()
     {
         PropertyNameCaseInsensitive = true
     };
@@ -42,16 +42,16 @@ public sealed class HDHomeRunPhysicalTunerDriver : IPhysicalTunerDriver, IPhysic
         _deviceService = deviceService;
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets the kind.</summary>
     public string Kind => DriverKind;
 
-    /// <inheritdoc />
+    /// <summary>Gets the display name.</summary>
     public string DisplayName => "HDHomeRun";
 
-    /// <inheritdoc />
+    /// <summary>Gets the supports user creation.</summary>
     public bool SupportsUserCreation => true;
 
-    /// <inheritdoc />
+    /// <summary>Gets the capabilities.</summary>
     public DeviceCapabilities Capabilities { get; } = new()
     {
         HasFiniteCapacity = true,
@@ -60,7 +60,7 @@ public sealed class HDHomeRunPhysicalTunerDriver : IPhysicalTunerDriver, IPhysic
         SupportsHardwareTranscoding = false
     };
 
-    /// <inheritdoc />
+    /// <summary>Gets the settings descriptor.</summary>
     public AdapterSettingsDescriptor SettingsDescriptor { get; } = new()
     {
         AdapterKind = DriverKind,
@@ -78,14 +78,18 @@ public sealed class HDHomeRunPhysicalTunerDriver : IPhysicalTunerDriver, IPhysic
         ]
     };
 
-    /// <inheritdoc />
+    /// <summary>Creates default configuration.</summary>
+    /// <param name="deviceId">Identity of the target device.</param>
+    /// <returns>The operation's result.</returns>
     public AdapterConfiguration CreateDefaultConfiguration(PhysicalDeviceId deviceId) =>
         new(DriverKind, JsonSerializer.SerializeToElement(new HDHomeRunPhysicalTunerConfiguration { Address = DefaultAddress }));
 
-    /// <inheritdoc />
+    /// <summary>Gets settings.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <returns>The operation's result.</returns>
     public AdapterSettingsSnapshot GetSettings(AdapterConfiguration configuration)
     {
-        var typed = configuration.Configuration.Deserialize<HDHomeRunPhysicalTunerConfiguration>(SerializerOptions);
+        var typed = configuration.Configuration.Deserialize<HDHomeRunPhysicalTunerConfiguration>(_serializerOptions);
         return new AdapterSettingsSnapshot
         {
             AdapterKind = Kind,
@@ -101,12 +105,13 @@ public sealed class HDHomeRunPhysicalTunerDriver : IPhysicalTunerDriver, IPhysic
         };
     }
 
-    /// <inheritdoc />
-    public AdapterSettingsApplyResult ApplySettings(
-        AdapterConfiguration configuration,
-        IReadOnlyList<AdapterSettingEdit> edits)
+    /// <summary>Applies settings.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="edits">The edits value.</param>
+    /// <returns>The operation's result.</returns>
+    public AdapterSettingsApplyResult ApplySettings(AdapterConfiguration configuration, IReadOnlyList<AdapterSettingEdit> edits)
     {
-        var current = configuration.Configuration.Deserialize<HDHomeRunPhysicalTunerConfiguration>(SerializerOptions)
+        var current = configuration.Configuration.Deserialize<HDHomeRunPhysicalTunerConfiguration>(_serializerOptions)
             ?? new HDHomeRunPhysicalTunerConfiguration { Address = DefaultAddress };
         var address = current.Address;
         var errors = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
@@ -144,7 +149,9 @@ public sealed class HDHomeRunPhysicalTunerDriver : IPhysicalTunerDriver, IPhysic
             : new AdapterSettingsApplyResult { Errors = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal) { ["address"] = validation } };
     }
 
-    /// <inheritdoc />
+    /// <summary>Validates the HDHomeRun physical tuner driver.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <returns>The operation's result.</returns>
     public IReadOnlyList<string> Validate(AdapterConfiguration configuration)
     {
         var errors = new List<string>();
@@ -156,7 +163,7 @@ public sealed class HDHomeRunPhysicalTunerDriver : IPhysicalTunerDriver, IPhysic
         HDHomeRunPhysicalTunerConfiguration? typedConfiguration = null;
         try
         {
-            typedConfiguration = configuration.Configuration.Deserialize<HDHomeRunPhysicalTunerConfiguration>(SerializerOptions);
+            typedConfiguration = configuration.Configuration.Deserialize<HDHomeRunPhysicalTunerConfiguration>(_serializerOptions);
         }
         catch (JsonException)
         {
@@ -178,12 +185,13 @@ public sealed class HDHomeRunPhysicalTunerDriver : IPhysicalTunerDriver, IPhysic
         return errors;
     }
 
-    /// <inheritdoc />
-    public async ValueTask<IPhysicalTunerDevice> CreateAsync(
-        PhysicalDeviceId deviceId,
-        string name,
-        AdapterConfiguration configuration,
-        CancellationToken cancellationToken = default)
+    /// <summary>Creates the HDHomeRun physical tuner driver asynchronously.</summary>
+    /// <param name="deviceId">Identity of the target device.</param>
+    /// <param name="name">Name used by the operation.</param>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
+    public async ValueTask<IPhysicalTunerDevice> CreateAsync(PhysicalDeviceId deviceId, string name, AdapterConfiguration configuration, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         cancellationToken.ThrowIfCancellationRequested();
@@ -201,7 +209,10 @@ public sealed class HDHomeRunPhysicalTunerDriver : IPhysicalTunerDriver, IPhysic
             _loggerFactory.CreateLogger<HDHomeRunPhysicalTunerDevice>());
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes probe asynchronously.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async ValueTask<PhysicalDeviceProbeResult> ProbeAsync(AdapterConfiguration configuration, CancellationToken cancellationToken = default)
     {
         var connection = await DiscoverAsync(configuration, cancellationToken);
@@ -230,7 +241,7 @@ public sealed class HDHomeRunPhysicalTunerDriver : IPhysicalTunerDriver, IPhysic
             throw new ArgumentException(string.Join(" ", errors), nameof(configuration));
         }
 
-        var typedConfiguration = configuration.Configuration.Deserialize<HDHomeRunPhysicalTunerConfiguration>(SerializerOptions)
+        var typedConfiguration = configuration.Configuration.Deserialize<HDHomeRunPhysicalTunerConfiguration>(_serializerOptions)
             ?? throw new ArgumentException("Configuration must contain an address.", nameof(configuration));
         _ = TryCreateBaseAddress(typedConfiguration.Address, out var baseAddress);
 

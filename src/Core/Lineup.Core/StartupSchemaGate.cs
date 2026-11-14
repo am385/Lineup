@@ -1,8 +1,6 @@
 using System.Text.Json;
 using Lineup.Core.Common.Networking;
 using Lineup.Core.Storage;
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Microsoft.Data.Sqlite;
 
 namespace Lineup.Core;
@@ -176,6 +174,9 @@ public static class StartupSchemaGate
         }
     }
 
+    /// <summary>Executes check database.</summary>
+    /// <param name="databasePath">Path to the test database.</param>
+    /// <returns>The operation's result.</returns>
     internal static LineupStartupState CheckDatabase(string databasePath)
     {
         if (!File.Exists(databasePath))
@@ -216,6 +217,8 @@ public static class StartupSchemaGate
         }
     }
 
+    /// <summary>Creates database metadata sql.</summary>
+    /// <returns>The operation's result.</returns>
     internal static string CreateDatabaseMetadataSql() => $"""
         CREATE TABLE IF NOT EXISTS "{MetadataTableName}" (
             "Key" TEXT NOT NULL CONSTRAINT "PK_{MetadataTableName}" PRIMARY KEY,

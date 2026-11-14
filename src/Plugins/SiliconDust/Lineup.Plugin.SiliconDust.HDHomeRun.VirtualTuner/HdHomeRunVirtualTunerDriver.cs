@@ -14,21 +14,21 @@ public sealed class HdHomeRunVirtualTunerDriver : IVirtualTunerDriver, IVirtualT
     /// <summary>Stable adapter kind.</summary>
     public const string AdapterKind = "hdhomerun";
 
-    private static readonly JsonSerializerOptions SerializerOptions = new()
+    private static readonly JsonSerializerOptions _serializerOptions = new()
     {
         PropertyNameCaseInsensitive = true
     };
 
-    /// <inheritdoc />
+    /// <summary>Gets the kind.</summary>
     public string Kind => AdapterKind;
 
-    /// <inheritdoc />
+    /// <summary>Gets the display name.</summary>
     public string DisplayName => "HDHomeRun";
 
-    /// <inheritdoc />
+    /// <summary>Gets the supports user creation.</summary>
     public bool SupportsUserCreation => true;
 
-    /// <inheritdoc />
+    /// <summary>Gets the output capabilities.</summary>
     public VirtualOutputCapabilities OutputCapabilities { get; } = new()
     {
         RequiresExternalHosting = true,
@@ -49,7 +49,7 @@ public sealed class HdHomeRunVirtualTunerDriver : IVirtualTunerDriver, IVirtualT
         ]
     };
 
-    /// <inheritdoc />
+    /// <summary>Gets the settings descriptor.</summary>
     public AdapterSettingsDescriptor SettingsDescriptor { get; } = new()
     {
         AdapterKind = AdapterKind,
@@ -102,17 +102,21 @@ public sealed class HdHomeRunVirtualTunerDriver : IVirtualTunerDriver, IVirtualT
     /// <summary>Gets the protocol capabilities exposed by this adapter.</summary>
     public HdHomeRunVirtualTunerCapabilities Capabilities { get; } = new();
 
-    /// <inheritdoc />
+    /// <summary>Creates default configuration.</summary>
+    /// <param name="deviceId">Identity of the target device.</param>
+    /// <returns>The operation's result.</returns>
     public AdapterConfiguration CreateDefaultConfiguration(VirtualDeviceId deviceId) =>
         new(AdapterKind, JsonSerializer.SerializeToElement(new HdHomeRunVirtualTunerConfiguration
         {
             DeviceId = HdHomeRunProxyIdentity.CreateDeviceId(deviceId.Value.ToString("N"))
         }));
 
-    /// <inheritdoc />
+    /// <summary>Gets settings.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <returns>The operation's result.</returns>
     public AdapterSettingsSnapshot GetSettings(AdapterConfiguration configuration)
     {
-        var typed = configuration.Configuration.Deserialize<HdHomeRunVirtualTunerConfiguration>(SerializerOptions)
+        var typed = configuration.Configuration.Deserialize<HdHomeRunVirtualTunerConfiguration>(_serializerOptions)
             ?? new HdHomeRunVirtualTunerConfiguration();
         return new AdapterSettingsSnapshot
         {
@@ -127,12 +131,13 @@ public sealed class HdHomeRunVirtualTunerDriver : IVirtualTunerDriver, IVirtualT
         };
     }
 
-    /// <inheritdoc />
-    public AdapterSettingsApplyResult ApplySettings(
-        AdapterConfiguration configuration,
-        IReadOnlyList<AdapterSettingEdit> edits)
+    /// <summary>Applies settings.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="edits">The edits value.</param>
+    /// <returns>The operation's result.</returns>
+    public AdapterSettingsApplyResult ApplySettings(AdapterConfiguration configuration, IReadOnlyList<AdapterSettingEdit> edits)
     {
-        var current = configuration.Configuration.Deserialize<HdHomeRunVirtualTunerConfiguration>(SerializerOptions)
+        var current = configuration.Configuration.Deserialize<HdHomeRunVirtualTunerConfiguration>(_serializerOptions)
             ?? new HdHomeRunVirtualTunerConfiguration();
         var deviceId = current.DeviceId;
         var tunerCountCap = current.TunerCountCap;
@@ -197,7 +202,9 @@ public sealed class HdHomeRunVirtualTunerDriver : IVirtualTunerDriver, IVirtualT
             };
     }
 
-    /// <inheritdoc />
+    /// <summary>Validates the HDHomeRun virtual tuner driver.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <returns>The operation's result.</returns>
     public IReadOnlyList<string> Validate(AdapterConfiguration configuration)
     {
         var errors = new List<string>();
@@ -209,7 +216,7 @@ public sealed class HdHomeRunVirtualTunerDriver : IVirtualTunerDriver, IVirtualT
         HdHomeRunVirtualTunerConfiguration? typedConfiguration = null;
         try
         {
-            typedConfiguration = configuration.Configuration.Deserialize<HdHomeRunVirtualTunerConfiguration>(SerializerOptions);
+            typedConfiguration = configuration.Configuration.Deserialize<HdHomeRunVirtualTunerConfiguration>(_serializerOptions);
         }
         catch (JsonException)
         {
@@ -256,7 +263,10 @@ public sealed class HdHomeRunVirtualTunerDriver : IVirtualTunerDriver, IVirtualT
         return GetTunerCount(subscribedDevices, virtualDevice.Adapter);
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets capacity.</summary>
+    /// <param name="virtualDevice">The virtual device value.</param>
+    /// <param name="physicalDevices">The physical devices value.</param>
+    /// <returns>The operation's result.</returns>
     public PhysicalTunerCapacity GetCapacity(VirtualDeviceDefinition virtualDevice, IEnumerable<PhysicalDeviceSnapshot> physicalDevices) =>
         new(GetTunerCount(virtualDevice, physicalDevices));
 
@@ -275,7 +285,7 @@ public sealed class HdHomeRunVirtualTunerDriver : IVirtualTunerDriver, IVirtualT
             throw new ArgumentException(string.Join(" ", errors), nameof(configuration));
         }
 
-        var configured = configuration.Configuration.Deserialize<HdHomeRunVirtualTunerConfiguration>(SerializerOptions)!;
+        var configured = configuration.Configuration.Deserialize<HdHomeRunVirtualTunerConfiguration>(_serializerOptions)!;
         long tunerCount = 0;
         foreach (var physicalDevice in physicalDevices)
         {
@@ -305,7 +315,7 @@ public sealed class HdHomeRunVirtualTunerDriver : IVirtualTunerDriver, IVirtualT
             throw new ArgumentException(string.Join(" ", errors), nameof(virtualDevice));
         }
 
-        var configured = virtualDevice.Adapter.Configuration.Deserialize<HdHomeRunVirtualTunerConfiguration>(SerializerOptions)!;
+        var configured = virtualDevice.Adapter.Configuration.Deserialize<HdHomeRunVirtualTunerConfiguration>(_serializerOptions)!;
         return string.IsNullOrWhiteSpace(configured.DeviceId)
             ? HdHomeRunProxyIdentity.CreateDeviceId(virtualDevice.Id.Value.ToString("N"))
             : configured.DeviceId.ToUpperInvariant();

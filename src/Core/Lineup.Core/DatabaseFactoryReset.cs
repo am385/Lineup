@@ -5,7 +5,7 @@ namespace Lineup.Core;
 /// </summary>
 public static class DatabaseFactoryReset
 {
-    private static readonly string[] SidecarSuffixes = ["-shm", "-wal", "-journal"];
+    private static readonly string[] _sidecarSuffixes = ["-shm", "-wal", "-journal"];
 
     /// <summary>
     /// Deletes the identified database and its SQLite sidecar files.
@@ -17,7 +17,7 @@ public static class DatabaseFactoryReset
 
         var fullPath = Path.GetFullPath(databasePath);
         File.Delete(fullPath);
-        foreach (var suffix in SidecarSuffixes)
+        foreach (var suffix in _sidecarSuffixes)
         {
             File.Delete($"{fullPath}{suffix}");
         }

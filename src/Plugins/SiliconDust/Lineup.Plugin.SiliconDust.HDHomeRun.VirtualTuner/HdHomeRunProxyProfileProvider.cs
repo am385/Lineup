@@ -13,17 +13,16 @@ public sealed class HdHomeRunProxyProfileProvider : IHdHomeRunProxyProfileProvid
     private readonly HdHomeRunVirtualTunerDriver _driver;
 
     /// <summary>Initializes the profile provider.</summary>
-    public HdHomeRunProxyProfileProvider(
-        Func<IReadOnlyList<VirtualDeviceDefinition>> virtualDevices,
-        IPhysicalDeviceResolver physicalDevices,
-        HdHomeRunVirtualTunerDriver driver)
+    public HdHomeRunProxyProfileProvider(Func<IReadOnlyList<VirtualDeviceDefinition>> virtualDevices, IPhysicalDeviceResolver physicalDevices, HdHomeRunVirtualTunerDriver driver)
     {
         _virtualDevices = virtualDevices;
         _physicalDevices = physicalDevices;
         _driver = driver;
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets profiles asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public Task<IReadOnlyList<HdHomeRunProxyProfileSnapshot>> GetProfilesAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -34,7 +33,9 @@ public sealed class HdHomeRunProxyProfileProvider : IHdHomeRunProxyProfileProvid
         return Task.FromResult(profiles);
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets primary profile asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public Task<HdHomeRunProxyProfileSnapshot?> GetPrimaryProfileAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -42,7 +43,10 @@ public sealed class HdHomeRunProxyProfileProvider : IHdHomeRunProxyProfileProvid
         return Task.FromResult(device is null ? null : CreateSnapshot(device, true));
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes find profile asynchronously.</summary>
+    /// <param name="virtualDeviceId">The virtual device ID value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public Task<HdHomeRunProxyProfileSnapshot?> FindProfileAsync(string virtualDeviceId, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();

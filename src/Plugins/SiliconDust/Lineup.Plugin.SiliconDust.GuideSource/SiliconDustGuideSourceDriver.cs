@@ -4,7 +4,6 @@ using Lineup.Core.Extensibility.Configuration;
 using Lineup.Core.Common.Guides;
 using Lineup.Core.Extensibility.Guides;
 using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Lineup.Plugin.SiliconDust.HDHomeRun.Api;
 using Microsoft.Extensions.Logging;
 
@@ -18,7 +17,9 @@ public sealed class SiliconDustGuideSourceDriver : IGuideSourceDriver, IAdapterS
     /// <summary>Gets the stable adapter kind.</summary>
     public const string DriverKind = "silicondust";
 
-    /// <inheritdoc />
+    /// <summary>Gets refresh interval.</summary>
+    /// <param name="configuredInterval">The configured interval value.</param>
+    /// <returns>The operation's result.</returns>
     public TimeSpan GetRefreshInterval(TimeSpan configuredInterval) => TimeSpan.FromHours(20) + TimeSpan.FromMinutes(Random.Shared.Next(0, 481));
 
     private readonly IHttpClientFactory _httpClientFactory;
@@ -33,11 +34,7 @@ public sealed class SiliconDustGuideSourceDriver : IGuideSourceDriver, IAdapterS
     /// <param name="loggerFactory">Creates API loggers.</param>
     /// <param name="authorizationProvider">Supplies short-lived device authorization.</param>
     /// <param name="parser">Parses downloaded XMLTV documents.</param>
-    public SiliconDustGuideSourceDriver(
-        IHttpClientFactory httpClientFactory,
-        ILoggerFactory loggerFactory,
-        ISiliconDustDeviceAuthorizationProvider authorizationProvider,
-        SiliconDustXmltvParser parser)
+    public SiliconDustGuideSourceDriver(IHttpClientFactory httpClientFactory, ILoggerFactory loggerFactory, ISiliconDustDeviceAuthorizationProvider authorizationProvider, SiliconDustXmltvParser parser)
     {
         _httpClientFactory = httpClientFactory;
         _loggerFactory = loggerFactory;
@@ -45,22 +42,24 @@ public sealed class SiliconDustGuideSourceDriver : IGuideSourceDriver, IAdapterS
         _parser = parser;
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets the kind.</summary>
     public string Kind => DriverKind;
 
-    /// <inheritdoc />
+    /// <summary>Gets the display name.</summary>
     public string DisplayName => "SiliconDust";
 
-    /// <inheritdoc />
+    /// <summary>Gets the supports user creation.</summary>
     public bool SupportsUserCreation => true;
 
-    /// <inheritdoc />
+    /// <summary>Gets the settings descriptor.</summary>
     public AdapterSettingsDescriptor SettingsDescriptor { get; } = new()
     {
         AdapterKind = DriverKind
     };
 
-    /// <inheritdoc />
+    /// <summary>Creates default configuration.</summary>
+    /// <param name="sourceId">The source ID value.</param>
+    /// <returns>The operation's result.</returns>
     public AdapterConfiguration CreateDefaultConfiguration(GuideSourceId sourceId)
     {
         if (sourceId.Value == Guid.Empty)
@@ -71,16 +70,19 @@ public sealed class SiliconDustGuideSourceDriver : IGuideSourceDriver, IAdapterS
         return new AdapterConfiguration(Kind, JsonSerializer.SerializeToElement(new { }));
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets settings.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <returns>The operation's result.</returns>
     public AdapterSettingsSnapshot GetSettings(AdapterConfiguration configuration) => new()
     {
         AdapterKind = Kind
     };
 
-    /// <inheritdoc />
-    public AdapterSettingsApplyResult ApplySettings(
-        AdapterConfiguration configuration,
-        IReadOnlyList<AdapterSettingEdit> edits)
+    /// <summary>Applies settings.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="edits">The edits value.</param>
+    /// <returns>The operation's result.</returns>
+    public AdapterSettingsApplyResult ApplySettings(AdapterConfiguration configuration, IReadOnlyList<AdapterSettingEdit> edits)
     {
         if (edits.Any(edit => edit.Action != AdapterSettingEditAction.Preserve))
         {
@@ -95,11 +97,15 @@ public sealed class SiliconDustGuideSourceDriver : IGuideSourceDriver, IAdapterS
         return new AdapterSettingsApplyResult { Configuration = configuration };
     }
 
-    /// <inheritdoc />
+    /// <summary>Determines support for physical adapter.</summary>
+    /// <param name="physicalAdapterKind">The physical adapter kind value.</param>
+    /// <returns>The operation's result.</returns>
     public bool SupportsPhysicalAdapter(string physicalAdapterKind) =>
         string.Equals(physicalAdapterKind, "hdhomerun", StringComparison.OrdinalIgnoreCase);
 
-    /// <inheritdoc />
+    /// <summary>Validates the silicon dust guide source driver.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <returns>The operation's result.</returns>
     public IReadOnlyList<string> Validate(AdapterConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(configuration);
@@ -124,12 +130,13 @@ public sealed class SiliconDustGuideSourceDriver : IGuideSourceDriver, IAdapterS
         return errors;
     }
 
-    /// <inheritdoc />
-    public ValueTask<IGuideSource> CreateAsync(
-        GuideSourceId sourceId,
-        AdapterConfiguration configuration,
-        IReadOnlyList<PhysicalDeviceId> physicalDeviceIds,
-        CancellationToken cancellationToken = default)
+    /// <summary>Creates the silicon dust guide source driver asynchronously.</summary>
+    /// <param name="sourceId">The source ID value.</param>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="physicalDeviceIds">The physical device IDs value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
+    public ValueTask<IGuideSource> CreateAsync(GuideSourceId sourceId, AdapterConfiguration configuration, IReadOnlyList<PhysicalDeviceId> physicalDeviceIds, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (sourceId.Value == Guid.Empty)

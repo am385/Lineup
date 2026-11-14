@@ -432,16 +432,22 @@ public sealed class VirtualMpegTsOutputServiceTests
 
     private sealed class CorrelatedStream(string producerNodeId) : MemoryStream, IStreamProducerCorrelation
     {
+        /// <summary>Gets the producer node ID.</summary>
         public string ProducerNodeId { get; } = producerNodeId;
     }
 
     private sealed class ReservationStream : MemoryStream
     {
+        /// <summary>Gets the started.</summary>
         public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        /// <summary>Gets or sets the stopped.</summary>
         public bool Stopped { get; private set; }
+        /// <summary>Gets or sets the destination.</summary>
         public Stream? Destination { get; private set; }
+        /// <summary>Gets or sets the fail on cancel.</summary>
         public bool FailOnCancel { get; init; }
 
+        /// <inheritdoc />
         public override async Task CopyToAsync(Stream destination, int bufferSize, CancellationToken cancellationToken)
         {
             Destination = destination;

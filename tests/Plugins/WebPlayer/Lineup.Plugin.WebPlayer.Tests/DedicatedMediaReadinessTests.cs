@@ -227,7 +227,8 @@ public sealed class DedicatedMediaReadinessTests
         SynchronizationContext context,
         Task<DedicatedPlaybackRuntime.MediaSession> readiness,
         CancellationToken waitingToken,
-        CancellationToken requestToken)
+        CancellationToken requestToken
+    )
     {
         var previous = SynchronizationContext.Current;
         SynchronizationContext.SetSynchronizationContext(context);
@@ -260,6 +261,7 @@ public sealed class DedicatedMediaReadinessTests
 
     private sealed class ReadFailureStream : MemoryStream
     {
+        /// <inheritdoc />
         public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
             ValueTask.FromException<int>(new IOException("Synthetic read failure."));
     }

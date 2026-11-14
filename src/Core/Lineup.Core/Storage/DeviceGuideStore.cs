@@ -1,9 +1,4 @@
-using Lineup.Core.Common.Guides;
-using Lineup.Core.Extensibility.Guides;
 using Lineup.Core.Storage.Entities;
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
-using Lineup.Core.Guides;
 using Lineup.Core.Settings;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Cryptography;
@@ -142,9 +137,7 @@ public sealed class DeviceGuideStore
     /// <summary>
     /// Reads binding choices for every active physical source channel.
     /// </summary>
-    public async Task<IReadOnlyList<SourceGuideBindingState>> ReadBindingStatesAsync(
-        CancellationToken cancellationToken = default,
-        IReadOnlyList<GuideSourceScope>? activeGuideScopes = null)
+    public async Task<IReadOnlyList<SourceGuideBindingState>> ReadBindingStatesAsync(CancellationToken cancellationToken = default, IReadOnlyList<GuideSourceScope>? activeGuideScopes = null)
     {
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
         await EpgDatabaseSchema.EnsureAsync(context, cancellationToken);
@@ -305,10 +298,7 @@ public sealed class DeviceGuideStore
     /// <summary>
     /// Reports automatic matches, manual bindings, unavailable selections, and ambiguities for one physical device.
     /// </summary>
-    public async Task<IReadOnlyList<GuideBindingDiagnostic>> GetBindingDiagnosticsAsync(
-        GuideSourceId sourceId,
-        CancellationToken cancellationToken = default,
-        GuideSourceScope? scope = null)
+    public async Task<IReadOnlyList<GuideBindingDiagnostic>> GetBindingDiagnosticsAsync(GuideSourceId sourceId, CancellationToken cancellationToken = default, GuideSourceScope? scope = null)
     {
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
         await EpgDatabaseSchema.EnsureAsync(context, cancellationToken);
@@ -359,7 +349,8 @@ public sealed class DeviceGuideStore
         IReadOnlyList<GuideSourceScope>? activeGuideScopes = null,
         DateTimeOffset? startUtc = null,
         DateTimeOffset? endUtc = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default
+    )
     {
         ArgumentNullException.ThrowIfNull(channels);
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
@@ -589,11 +580,7 @@ public sealed class DeviceGuideStore
     /// <summary>
     /// Selects one authoritative guide channel for a physical source channel.
     /// </summary>
-    public async Task SetBindingAsync(
-        SourceChannelId sourceChannelId,
-        GuideChannelId guideChannelId,
-        CancellationToken cancellationToken = default,
-        IReadOnlyList<GuideSourceScope>? activeGuideScopes = null)
+    public async Task SetBindingAsync(SourceChannelId sourceChannelId, GuideChannelId guideChannelId, CancellationToken cancellationToken = default, IReadOnlyList<GuideSourceScope>? activeGuideScopes = null)
     {
         if (activeGuideScopes is not null
             && !activeGuideScopes.Any(scope => scope.SourceId == guideChannelId.GuideSourceId && scope.PhysicalDeviceIds.Contains(sourceChannelId.PhysicalDeviceId)))
@@ -753,10 +740,7 @@ public sealed class DeviceGuideStore
         return new GuideChannelId(new GuideSourceId(Guid.Parse(channel.GuideSourceId)), channel.ProviderKey);
     }
 
-    private static IReadOnlySet<GuideSourceId> GetEligibleSourceIds(
-        string physicalDeviceId,
-        IReadOnlyList<GuideSourceScope>? activeGuideScopes,
-        IReadOnlyList<StoredGuideSourceChannel> activeGuides)
+    private static IReadOnlySet<GuideSourceId> GetEligibleSourceIds(string physicalDeviceId, IReadOnlyList<GuideSourceScope>? activeGuideScopes, IReadOnlyList<StoredGuideSourceChannel> activeGuides)
     {
         if (activeGuideScopes is null)
         {
@@ -812,5 +796,6 @@ public sealed class DeviceGuideStore
         StoredGuideSourceChannel? SelectedGuide,
         StoredGuideSourceChannel? SelectedActiveGuide,
         IReadOnlyList<StoredGuideSourceChannel> Candidates,
-        IReadOnlyList<StoredGuideSourceChannel> AutomaticCandidates);
+        IReadOnlyList<StoredGuideSourceChannel> AutomaticCandidates
+    );
 }

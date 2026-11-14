@@ -1,5 +1,3 @@
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Xunit;
 
 namespace Lineup.Core.Tests.Streaming;
@@ -51,9 +49,7 @@ public sealed class VirtualDeviceSubscriptionResolverTests
             Adapter = new AdapterConfiguration(kind, System.Text.Json.JsonSerializer.SerializeToElement(new { }))
         };
 
-    private static VirtualDeviceDefinition Virtual(
-        PhysicalDeviceSubscriptionMode mode,
-        HashSet<PhysicalDeviceId> selected) =>
+    private static VirtualDeviceDefinition Virtual(PhysicalDeviceSubscriptionMode mode, HashSet<PhysicalDeviceId> selected) =>
         new()
         {
             Id = VirtualDeviceId.New(),
@@ -69,17 +65,29 @@ public sealed class VirtualDeviceSubscriptionResolverTests
 
     private sealed class CompatibleDriver(string supportedKind) : IVirtualTunerDriver
     {
+        /// <summary>Gets the kind.</summary>
         public string Kind => "test";
 
+        /// <summary>Gets the display name.</summary>
         public string DisplayName => "Test";
 
+        /// <summary>Gets the supports user creation.</summary>
         public bool SupportsUserCreation => false;
 
+        /// <summary>Creates default configuration.</summary>
+        /// <param name="deviceId">Identity of the target device.</param>
+        /// <returns>The operation's result.</returns>
         public AdapterConfiguration CreateDefaultConfiguration(VirtualDeviceId deviceId) =>
             throw new NotSupportedException();
 
+        /// <summary>Validates the compatible driver.</summary>
+        /// <param name="configuration">Configuration to apply.</param>
+        /// <returns>The operation's result.</returns>
         public IReadOnlyList<string> Validate(AdapterConfiguration configuration) => [];
 
+        /// <summary>Determines support for physical adapter.</summary>
+        /// <param name="physicalAdapterKind">The physical adapter kind value.</param>
+        /// <returns>The operation's result.</returns>
         public bool SupportsPhysicalAdapter(string physicalAdapterKind) =>
             string.Equals(physicalAdapterKind, supportedKind, StringComparison.Ordinal);
     }

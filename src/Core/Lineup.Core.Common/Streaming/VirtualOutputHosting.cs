@@ -88,7 +88,7 @@ public sealed record VirtualOutputSecurityPolicyDefinition
     /// <summary>Gets the stable code-safe policy key.</summary>
     public required string Key { get; init; }
 
-    /// <summary>Gets the display name.</summary>
+    /// <summary>Gets or sets the name.</summary>
     public required string Name { get; init; }
 
     /// <summary>Gets a reference resolved by the trusted host to a TLS certificate.</summary>
@@ -116,7 +116,7 @@ public sealed record VirtualOutputWorkerPolicyDefinition
     /// <summary>Gets the stable code-safe policy key.</summary>
     public required string Key { get; init; }
 
-    /// <summary>Gets the display name.</summary>
+    /// <summary>Gets or sets the name.</summary>
     public required string Name { get; init; }
 
     /// <summary>Gets the maximum worker restarts allowed within the restart window.</summary>
@@ -169,7 +169,7 @@ public enum VirtualOutputRuntimeState
 /// <summary>Describes the applied runtime state of one isolated virtual output.</summary>
 public sealed record VirtualOutputRuntimeSnapshot
 {
-    /// <summary>Gets the virtual device.</summary>
+    /// <summary>Gets or sets the virtual device ID.</summary>
     public required VirtualDeviceId VirtualDeviceId { get; init; }
 
     /// <summary>Gets the current runtime state.</summary>

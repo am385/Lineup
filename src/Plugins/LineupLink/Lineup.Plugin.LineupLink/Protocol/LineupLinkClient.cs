@@ -12,7 +12,7 @@ namespace Lineup.Plugin.LineupLink.Protocol;
 /// <summary>Calls one authenticated remote Lineup Link virtual device with bounded control requests and non-buffered live streams.</summary>
 public sealed class LineupLinkClient : IDisposable
 {
-    private static readonly TimeSpan ControlRequestTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan _controlRequestTimeout = TimeSpan.FromSeconds(30);
     private readonly HttpClient _httpClient;
     private readonly Guid _virtualDeviceId;
     private readonly TimeProvider _timeProvider;
@@ -137,7 +137,7 @@ public sealed class LineupLinkClient : IDisposable
     private async Task<T> GetJsonAsync<T>(string path, CancellationToken cancellationToken, int maximumBytes = 1024 * 1024)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        using var deadline = new CancellationTokenSource(ControlRequestTimeout, _timeProvider);
+        using var deadline = new CancellationTokenSource(_controlRequestTimeout, _timeProvider);
         using var requestLifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
         try
         {

@@ -11,14 +11,14 @@ public static class FactoryResetCoordinator
     /// <summary>Filename used to persist a restart-safe factory-reset request.</summary>
     public const string RequestFileName = AppConstants.FactoryResetRequestFileName;
 
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
 
     /// <summary>Writes a factory-reset request atomically.</summary>
     public static Task WriteRequestAsync(IAppDataStore appDataStore, FactoryResetRequest request, CancellationToken cancellationToken = default)
     {
         return appDataStore.WriteAtomicallyAsync(
             appDataStore.FactoryResetRequestPath,
-            (stream, token) => JsonSerializer.SerializeAsync(stream, request, JsonOptions, token),
+            (stream, token) => JsonSerializer.SerializeAsync(stream, request, _jsonOptions, token),
             cancellationToken: cancellationToken);
     }
 
@@ -27,18 +27,14 @@ public static class FactoryResetCoordinator
         WriteRequestAsync(new AppDataStore(appDataPath), request, cancellationToken);
 
     /// <summary>Removes all Lineup-owned application and transient data when a reset request is present.</summary>
-    public static bool ApplyPendingReset(
-        IAppDataStore appDataStore,
-        string? configuredXmltvPath,
-        ITransientDataStore transientDataStore,
-        IXmltvPublicationStore publicationStore)
+    public static bool ApplyPendingReset(IAppDataStore appDataStore, string? configuredXmltvPath, ITransientDataStore transientDataStore, IXmltvPublicationStore publicationStore)
     {
         if (!appDataStore.FileExists(appDataStore.FactoryResetRequestPath))
         {
             return false;
         }
 
-        var request = JsonSerializer.Deserialize<FactoryResetRequest>(appDataStore.ReadAllText(appDataStore.FactoryResetRequestPath), JsonOptions)
+        var request = JsonSerializer.Deserialize<FactoryResetRequest>(appDataStore.ReadAllText(appDataStore.FactoryResetRequestPath), _jsonOptions)
             ?? throw new InvalidOperationException("The factory-reset request is invalid.");
         var configuredOutputPath = LineupSettingsService.ResolveConfiguredXmltvOutputPath(configuredXmltvPath);
         var configuredXmltvDirectory = ResolveConfiguredXmltvDirectory(configuredXmltvPath);

@@ -303,10 +303,10 @@ public sealed record VirtualOutputManifestRequest
 /// <summary>Describes the virtual device visible to one isolated worker.</summary>
 public sealed record VirtualOutputManifest
 {
-    /// <summary>Gets the virtual device.</summary>
+    /// <summary>Gets or sets the virtual device ID.</summary>
     public required VirtualDeviceId VirtualDeviceId { get; init; }
 
-    /// <summary>Gets the display name.</summary>
+    /// <summary>Gets or sets the name.</summary>
     public required string Name { get; init; }
 
     /// <summary>Gets finite tuner capacity, or <see langword="null"/> when unbounded.</summary>

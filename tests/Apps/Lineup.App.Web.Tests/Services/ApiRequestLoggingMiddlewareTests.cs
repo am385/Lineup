@@ -167,16 +167,19 @@ public class ApiRequestLoggingMiddlewareTests
 
     private sealed class RecordingLogger<T> : ILogger<T>
     {
+        /// <summary>Gets the entries.</summary>
         public List<LogEntry> Entries { get; } = [];
 
-        public IDisposable? BeginScope<TState>(TState state)
-            where TState : notnull
+        /// <inheritdoc />
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull
         {
             return null;
         }
 
+        /// <inheritdoc />
         public bool IsEnabled(LogLevel logLevel) => true;
 
+        /// <inheritdoc />
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
             Entries.Add(new LogEntry(logLevel, formatter(state, exception)));

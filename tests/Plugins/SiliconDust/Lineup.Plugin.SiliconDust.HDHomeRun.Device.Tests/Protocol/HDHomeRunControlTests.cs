@@ -406,22 +406,29 @@ public class HDHomeRunControlTests
     {
         private readonly Queue<byte> _responseBytes = new(responses.SelectMany(static response => response));
 
+        /// <summary>Gets the writes.</summary>
         public List<byte[]> Writes { get; } = [];
 
+        /// <inheritdoc />
         public override bool CanRead => true;
 
+        /// <inheritdoc />
         public override bool CanSeek => false;
 
+        /// <inheritdoc />
         public override bool CanWrite => true;
 
+        /// <inheritdoc />
         public override long Length => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override long Position
         {
             get => throw new NotSupportedException();
             set => throw new NotSupportedException();
         }
 
+        /// <inheritdoc />
         public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
             var count = Math.Min(buffer.Length, _responseBytes.Count);
@@ -433,22 +440,28 @@ public class HDHomeRunControlTests
             return ValueTask.FromResult(count);
         }
 
+        /// <inheritdoc />
         public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
             Writes.Add(buffer.ToArray());
             return ValueTask.CompletedTask;
         }
 
+        /// <inheritdoc />
         public override void Flush()
         {
         }
 
+        /// <inheritdoc />
         public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override void SetLength(long value) => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
@@ -461,22 +474,31 @@ public class HDHomeRunControlTests
         private int _writeCount;
         private int _readCount;
 
+        /// <summary>Gets the read count.</summary>
         public int ReadCount => Volatile.Read(ref _readCount);
 
+        /// <inheritdoc />
         public override bool CanRead => true;
 
+        /// <inheritdoc />
         public override bool CanSeek => false;
 
+        /// <inheritdoc />
         public override bool CanWrite => true;
 
+        /// <inheritdoc />
         public override long Length => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override long Position
         {
             get => throw new NotSupportedException();
             set => throw new NotSupportedException();
         }
 
+        /// <summary>Waits for for write count asynchronously.</summary>
+        /// <param name="count">The count value.</param>
+        /// <returns>A task that completes when the operation has finished.</returns>
         public async Task WaitForWriteCountAsync(int count)
         {
             while (true)
@@ -490,12 +512,14 @@ public class HDHomeRunControlTests
             }
         }
 
+        /// <summary>Releases response.</summary>
         public void ReleaseResponse()
         {
             Interlocked.Increment(ref _releasedResponseCount);
             SignalChange();
         }
 
+        /// <inheritdoc />
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
             while (true)
@@ -518,6 +542,7 @@ public class HDHomeRunControlTests
             return 1;
         }
 
+        /// <inheritdoc />
         public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
             Interlocked.Increment(ref _writeCount);
@@ -531,16 +556,21 @@ public class HDHomeRunControlTests
             old.TrySetResult();
         }
 
+        /// <inheritdoc />
         public override void Flush()
         {
         }
 
+        /// <inheritdoc />
         public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override void SetLength(long value) => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
@@ -551,24 +581,32 @@ public class HDHomeRunControlTests
         /// <summary>Gets the signal that all supplied bytes were consumed and reading is blocked.</summary>
         public TaskCompletionSource ReadBlocked { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        /// <summary>Gets or sets the was disposed.</summary>
         public bool WasDisposed { get; private set; }
 
+        /// <summary>Gets the read count.</summary>
         public int ReadCount => _position;
 
+        /// <inheritdoc />
         public override bool CanRead => true;
 
+        /// <inheritdoc />
         public override bool CanSeek => false;
 
+        /// <inheritdoc />
         public override bool CanWrite => true;
 
+        /// <inheritdoc />
         public override long Length => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override long Position
         {
             get => throw new NotSupportedException();
             set => throw new NotSupportedException();
         }
 
+        /// <inheritdoc />
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
             if (_position < prefix.Length)
@@ -582,6 +620,7 @@ public class HDHomeRunControlTests
             return 0;
         }
 
+        /// <inheritdoc />
         public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
             => ValueTask.CompletedTask;
 
@@ -592,16 +631,21 @@ public class HDHomeRunControlTests
             base.Dispose(disposing);
         }
 
+        /// <inheritdoc />
         public override void Flush()
         {
         }
 
+        /// <inheritdoc />
         public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override void SetLength(long value) => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 }

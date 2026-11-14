@@ -5,10 +5,14 @@ namespace Lineup.Core.Storage;
 /// </summary>
 public sealed class XmltvPublicationStore : IXmltvPublicationStore
 {
-    /// <inheritdoc />
+    /// <summary>Executes exists.</summary>
+    /// <param name="publicationPath">The publication path value.</param>
+    /// <returns>The operation's result.</returns>
     public bool Exists(string publicationPath) => File.Exists(NormalizePath(publicationPath));
 
-    /// <inheritdoc />
+    /// <summary>Opens read.</summary>
+    /// <param name="publicationPath">The publication path value.</param>
+    /// <returns>The operation's result.</returns>
     public Stream? OpenRead(string publicationPath)
     {
         var path = NormalizePath(publicationPath);
@@ -17,14 +21,20 @@ public sealed class XmltvPublicationStore : IXmltvPublicationStore
             : null;
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets last write time UTC.</summary>
+    /// <param name="publicationPath">The publication path value.</param>
+    /// <returns>The operation's result.</returns>
     public DateTime? GetLastWriteTimeUtc(string publicationPath)
     {
         var path = NormalizePath(publicationPath);
         return File.Exists(path) ? File.GetLastWriteTimeUtc(path) : null;
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes publish asynchronously.</summary>
+    /// <param name="publicationPath">The publication path value.</param>
+    /// <param name="writeAsync">The write async value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public async Task PublishAsync(string publicationPath, Func<Stream, CancellationToken, Task> writeAsync, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(writeAsync);
@@ -48,7 +58,8 @@ public sealed class XmltvPublicationStore : IXmltvPublicationStore
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Deletes the XMLTV publication store.</summary>
+    /// <param name="publicationPath">The publication path value.</param>
     public void Delete(string publicationPath)
     {
         var path = NormalizePath(publicationPath);

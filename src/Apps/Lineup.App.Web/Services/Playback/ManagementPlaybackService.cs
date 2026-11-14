@@ -10,8 +10,8 @@ namespace Lineup.App.Web.Services.Playback;
 /// </summary>
 public sealed class ManagementPlaybackService : IAsyncDisposable
 {
-    private static readonly TimeSpan DefaultCmafStartupTimeout = TimeSpan.FromSeconds(24);
-    private static readonly TimeSpan TunerDiagnosticTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan _defaultCmafStartupTimeout = TimeSpan.FromSeconds(24);
+    private static readonly TimeSpan _tunerDiagnosticTimeout = TimeSpan.FromSeconds(5);
     private const string StreamLimitError = "The stream or startup limit has been reached.";
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILineupGuideReader _guideReader;
@@ -72,7 +72,8 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         IStreamingRouteResolver? streamRoutes = null,
         ICmafOutputCoordinator? cmafOutputs = null,
         TimeSpan? cmafStartupTimeout = null,
-        IMediaWorkAdmission? mediaWork = null)
+        IMediaWorkAdmission? mediaWork = null
+    )
     {
         _httpClientFactory = httpClientFactory;
         _guideReader = guideReader;
@@ -91,7 +92,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         _timeProvider = timeProvider ?? TimeProvider.System;
         _cmafOutputs = cmafOutputs ?? new CmafOutputCoordinator(timeProvider, cmafInactivityTimeout, mediaWork);
         _ownsCmafOutputs = cmafOutputs is null;
-        _cmafStartupTimeout = cmafStartupTimeout ?? DefaultCmafStartupTimeout;
+        _cmafStartupTimeout = cmafStartupTimeout ?? _defaultCmafStartupTimeout;
         if (_cmafStartupTimeout <= TimeSpan.Zero)
         {
             throw new ArgumentOutOfRangeException(nameof(cmafStartupTimeout), _cmafStartupTimeout, "The CMAF startup timeout must be greater than zero.");
@@ -296,7 +297,8 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         string? requestId,
         Action cancelStartup,
         CancellationToken cancellationToken,
-        CancellationToken startupToken)
+        CancellationToken startupToken
+    )
     {
         using var startup = _activeStreamRegistry.TryBeginStartup(_settingsService.Settings.MaximumConcurrentStreams, cancelStartup);
         if (startup is null)
@@ -1190,11 +1192,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
             ? effective.GetEffectiveSource(source, physicalProfile)
             : source;
 
-    private ValueTask<Stream> SubscribeEffectiveSourceAsync(
-        ResolvedStreamingCandidate candidate,
-        MediaProbeResult source,
-        LineupSettings settings,
-        CancellationToken cancellationToken) =>
+    private ValueTask<Stream> SubscribeEffectiveSourceAsync(ResolvedStreamingCandidate candidate, MediaProbeResult source, LineupSettings settings, CancellationToken cancellationToken) =>
         _tunerStreamMultiplexer is IEffectiveTunerStreamMultiplexer effective
             ? effective.SubscribeEffectiveAsync(
                 candidate.Acquisition,
@@ -1218,13 +1216,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         }
     }
 
-    private async Task PumpEffectiveSourceAsync(
-        ResolvedStreamingCandidate candidate,
-        MediaProbeResult source,
-        LineupSettings settings,
-        Process process,
-        CancellationToken cancellationToken,
-        CmafMediaTasks tasks)
+    private async Task PumpEffectiveSourceAsync(ResolvedStreamingCandidate candidate, MediaProbeResult source, LineupSettings settings, Process process, CancellationToken cancellationToken, CmafMediaTasks tasks)
     {
         tasks.SourceTerminationCode = null;
         await using var input = await SubscribeEffectiveSourceAsync(candidate, source, settings, cancellationToken);
@@ -1308,7 +1300,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
     private async Task<string?> GetTunerErrorAsync(Uri inputUri, CancellationToken cancellationToken)
     {
         using var diagnosticCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        diagnosticCancellation.CancelAfter(TunerDiagnosticTimeout);
+        diagnosticCancellation.CancelAfter(_tunerDiagnosticTimeout);
         try
         {
             var httpClient = _httpClientFactory.CreateClient("StreamProxy");

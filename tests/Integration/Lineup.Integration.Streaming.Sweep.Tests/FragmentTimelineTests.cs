@@ -2,7 +2,6 @@ using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
-using Lineup.Integration.Streaming.Sweep;
 using Xunit;
 
 namespace Lineup.Integration.Streaming.Sweep.Tests;
@@ -456,8 +455,7 @@ public sealed class FragmentTimelineTests
         Assert.NotEmpty(captured.Error!);
     }
 
-    private static (Dictionary<string, FragmentInitialization>, Dictionary<(string Representation, long Sequence), FragmentTimingSample>,
-        Dictionary<(string Representation, long Sequence), ManifestTiming>) Continuous()
+    private static (Dictionary<string, FragmentInitialization>, Dictionary<(string Representation, long Sequence), FragmentTimingSample>, Dictionary<(string Representation, long Sequence), ManifestTiming>) Continuous()
     {
         var initialization = new Dictionary<string, FragmentInitialization> { ["v"] = new(1, 1000, 1000, 0), ["a"] = new(1, 1000, 1000, 0) };
         var fragments = new Dictionary<(string Representation, long Sequence), FragmentTimingSample>

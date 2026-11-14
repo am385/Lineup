@@ -84,7 +84,8 @@ internal sealed record TrackTimestampEvidence(
     double PresentationEndSeconds,
     double MaximumDecodeGapMilliseconds,
     double MaximumManifestDifferenceMilliseconds,
-    IReadOnlyList<string> Findings)
+    IReadOnlyList<string> Findings
+)
 {
     /// <summary>Gets the longest observed fragment's presentation duration, independently of numbering or cross-track coverage.</summary>
     public double MaximumFragmentDurationSeconds { get; init; }

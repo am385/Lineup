@@ -267,7 +267,7 @@ public class WatchTestTests
         Assert.Empty(progress.QuerySelector(".progress-bar")!.TextContent.Trim());
         Assert.Contains("position-absolute", progressText.ClassList);
         Assert.Equal($"0 / {CmafCompatibilityTestCatalog.All.Count}", progressText.TextContent.Trim());
-        component.Find("#cancelCompatibilityTests").Click();
+        await component.Find("#cancelCompatibilityTests").ClickAsync(new());
         await runTask.WaitAsync(TimeSpan.FromSeconds(1), Xunit.TestContext.Current.CancellationToken);
     }
 
@@ -502,7 +502,7 @@ public class WatchTestTests
         component.WaitForAssertion(() => Assert.Contains("Browser Claims", component.Markup, StringComparison.Ordinal), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
-        component.Find("#testAudioCodec").Change(CmafTestAudioCodec.Ac4.ToString());
+        await component.Find("#testAudioCodec").ChangeAsync(CmafTestAudioCodec.Ac4.ToString());
 
         // Assert
         component.WaitForAssertion(() =>

@@ -1,5 +1,4 @@
 using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Lineup.Plugin.WebPlayer.FFmpeg;
 using Xunit;
 

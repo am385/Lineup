@@ -26,7 +26,8 @@ internal static class TuiAdapterSettingsEditor
         IReadOnlyList<IPhysicalTunerDriver> physicalDrivers,
         IReadOnlyList<IVirtualTunerDriver> virtualDrivers,
         IReadOnlyList<IGuideSourceDriver> guideDrivers,
-        IReadOnlyList<IGuideOutputDriver> guideOutputDrivers)
+        IReadOnlyList<IGuideOutputDriver> guideOutputDrivers
+    )
     {
         while (true)
         {
@@ -85,9 +86,7 @@ internal static class TuiAdapterSettingsEditor
         }
     }
 
-    private static async Task EditVirtualOutputHostingAsync(
-                ILineupSettingsService settings,
-                IReadOnlyList<IVirtualTunerDriver> drivers)
+    private static async Task EditVirtualOutputHostingAsync(ILineupSettingsService settings, IReadOnlyList<IVirtualTunerDriver> drivers)
     {
         var configuration = settings.Settings.Streaming;
         var candidates = configuration.VirtualDevices
@@ -231,7 +230,8 @@ internal static class TuiAdapterSettingsEditor
         string certificateReference,
         string allowedNetworks,
         int requestsPerMinute
-    ) =>
+    )
+        =>
         new()
         {
             Key = GetVirtualOutputPolicyKey(device.Id, "security"),
@@ -445,7 +445,8 @@ internal static class TuiAdapterSettingsEditor
         IReadOnlyList<IPhysicalTunerDriver> physicalDrivers,
         IReadOnlyList<IVirtualTunerDriver> virtualDrivers,
         IReadOnlyList<IGuideSourceDriver> guideDrivers,
-        IReadOnlyList<IGuideOutputDriver> guideOutputDrivers)
+        IReadOnlyList<IGuideOutputDriver> guideOutputDrivers
+    )
     {
         var original = settings.Settings.Streaming;
         var item = SelectConfigured(original);
@@ -523,9 +524,7 @@ internal static class TuiAdapterSettingsEditor
         await TrySaveTopologyAsync(settings, updated, original);
     }
 
-    private static async Task ManageAccessGrantsAsync(
-            ILineupSettingsService settings,
-            IReadOnlyList<IVirtualTunerDriver> virtualDrivers)
+    private static async Task ManageAccessGrantsAsync(ILineupSettingsService settings, IReadOnlyList<IVirtualTunerDriver> virtualDrivers)
     {
         while (true)
         {
@@ -669,9 +668,7 @@ internal static class TuiAdapterSettingsEditor
         }
     }
 
-    private static void DisplayGeneratedLineupLinkBundle(
-        VirtualDeviceDefinition device,
-        string generatedSecret)
+    private static void DisplayGeneratedLineupLinkBundle(VirtualDeviceDefinition device, string generatedSecret)
     {
         if (!string.Equals(device.Adapter.Kind, LineupLinkProtocol.AdapterKind, StringComparison.OrdinalIgnoreCase))
         {
@@ -767,8 +764,7 @@ internal static class TuiAdapterSettingsEditor
             : AnsiConsole.Prompt(new SelectionPrompt<ConfiguredAdapter>().Title("Select an adapter:").UseConverter(item => item.Name).AddChoices(items));
     }
 
-    private static TDriver? SelectDriver<TDriver>(IEnumerable<TDriver> source, Func<TDriver, string> getName, string title)
-        where TDriver : class
+    private static TDriver? SelectDriver<TDriver>(IEnumerable<TDriver> source, Func<TDriver, string> getName, string title) where TDriver : class
     {
         var drivers = source.OrderBy(getName, StringComparer.OrdinalIgnoreCase).ToArray();
         if (drivers.Length == 0)
@@ -837,9 +833,7 @@ internal static class TuiAdapterSettingsEditor
     }
 
     /// <summary>Updates the working settings snapshot so later visibility conditions observe earlier edits.</summary>
-    internal static void ApplyEditToSnapshot(
-        IDictionary<string, AdapterSettingSnapshot> current,
-        AdapterSettingEdit edit)
+    internal static void ApplyEditToSnapshot(IDictionary<string, AdapterSettingSnapshot> current, AdapterSettingEdit edit)
     {
         ArgumentNullException.ThrowIfNull(current);
         ArgumentNullException.ThrowIfNull(edit);
@@ -934,6 +928,10 @@ internal static class TuiAdapterSettingsEditor
     private static AdapterSettingEdit Set(string key, string value) =>
         new() { Key = key, Action = AdapterSettingEditAction.Set, Value = JsonSerializer.SerializeToElement(value) };
 
+    /// <summary>Determines whether the adapter setting's visibility conditions match the current values.</summary>
+    /// <param name="field">Adapter setting descriptor.</param>
+    /// <param name="current">Current values used by the operation.</param>
+    /// <returns>The operation's result.</returns>
     internal static bool IsVisible(AdapterSettingDescriptor field, IReadOnlyDictionary<string, AdapterSettingSnapshot> current) =>
         field.VisibleWhen.All(condition =>
         {
@@ -944,16 +942,15 @@ internal static class TuiAdapterSettingsEditor
 
     private enum AdapterCategory
     {
+        /// <summary>Identifies the physical option.</summary>
         Physical,
+        /// <summary>Identifies the virtual option.</summary>
         Virtual,
+        /// <summary>Identifies the guide option.</summary>
         Guide,
+        /// <summary>Identifies the guide output option.</summary>
         GuideOutput
     }
 
-    private sealed record ConfiguredAdapter(
-        AdapterCategory Category,
-        Guid Id,
-        string Name,
-        AdapterConfiguration Configuration,
-        bool CanRemove);
+    private sealed record ConfiguredAdapter(AdapterCategory Category, Guid Id, string Name, AdapterConfiguration Configuration, bool CanRemove);
 }

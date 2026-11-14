@@ -1,5 +1,4 @@
 using System.Net.Sockets;
-using System.Text;
 using System.Text.Json;
 using Lineup.Core.VirtualOutputs.Protocol;
 
@@ -9,9 +8,7 @@ namespace Lineup.Core.VirtualOutputs.Hosting;
 public static class VirtualOutputWorkerBootstrapReader
 {
     /// <summary>Reads and validates the single bootstrap line supplied by the trusted supervisor.</summary>
-    public static async Task<VirtualOutputWorkerBootstrap> ReadAsync(
-        TextReader? reader = null,
-        CancellationToken cancellationToken = default)
+    public static async Task<VirtualOutputWorkerBootstrap> ReadAsync(TextReader? reader = null, CancellationToken cancellationToken = default)
     {
         reader ??= Console.In;
         var buffer = new char[VirtualOutputProtocol.MaximumControlMessageBytes + 1];
@@ -109,10 +106,7 @@ public sealed class VirtualOutputWorkerSession
     }
 
     /// <summary>Renews the worker lease within its current expiration deadline, invoking fail-closed shutdown on expiration or revocation.</summary>
-    public async Task RunLeaseLoopAsync(
-        Func<(bool Ready, int ActiveConnections)> readHealth,
-        Action requestShutdown,
-        CancellationToken cancellationToken = default)
+    public async Task RunLeaseLoopAsync(Func<(bool Ready, int ActiveConnections)> readHealth, Action requestShutdown, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(readHealth);
         ArgumentNullException.ThrowIfNull(requestShutdown);

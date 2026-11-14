@@ -1,5 +1,4 @@
 using Lineup.App.Web.Services;
-using Lineup.Core.Common.Guides;
 using Microsoft.AspNetCore.Components;
 using Microsoft.JSInterop;
 using System.Globalization;

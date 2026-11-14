@@ -1,8 +1,4 @@
 using Lineup.Core.Storage;
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
-using Lineup.Core.Common.Guides;
-using Lineup.Core.Extensibility.Guides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -20,10 +16,7 @@ public static class CoreServiceExtensions
     /// <param name="services">Service collection to configure</param>
     /// <param name="databasePath">Path to the SQLite database file</param>
     /// <param name="appDataStore">Optional persistent application-data boundary for Lineup-owned file artifacts.</param>
-    public static IServiceCollection AddEpgCore(
-        this IServiceCollection services,
-        string? databasePath = null,
-        IAppDataStore? appDataStore = null)
+    public static IServiceCollection AddEpgCore(this IServiceCollection services, string? databasePath = null, IAppDataStore? appDataStore = null)
     {
         // Configure EF Core with SQLite
         var dbPath = databasePath ?? AppConstants.DefaultDatabaseFileName;

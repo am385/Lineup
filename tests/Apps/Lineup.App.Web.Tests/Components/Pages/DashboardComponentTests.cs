@@ -147,10 +147,51 @@ public class DashboardComponentTests
         servicesProperty.SetValue(component.Instance, new DisposedServiceProvider());
 
         // Act
-        var exception = Record.Exception(component.Instance.Dispose);
+        var exception = await Record.ExceptionAsync(() => component.Instance.DisposeAsync().AsTask());
 
         // Assert
         Assert.Null(exception);
+    }
+
+    /// <summary>
+    /// Verifies dashboard cleanup joins an admitted refresh before the context releases scoped services.
+    /// </summary>
+    [Fact]
+    public async Task Dispose_PendingStatisticsRefresh_WaitsForOwnedUpdate()
+    {
+        // Arrange
+        await using var context = CreateContext();
+        context.JSInterop.Setup<string?>("localStorage.getItem", StorageKey).SetResult(null);
+        context.Render<Dashboard>();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completion = new TaskCompletionSource<GuideStatistics>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reader = context.Services.GetRequiredService<ILineupGuideReader>();
+        reader.GetStatisticsAsync(Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            started.TrySetResult();
+            return completion.Task;
+        });
+        var autoFetch = context.Services.GetRequiredService<IAutoFetchStateService>();
+        autoFetch.LastFetchTime.Returns(DateTime.UtcNow);
+        Task? disposal = null;
+        try
+        {
+            // Act
+            autoFetch.OnStateChanged += Raise.Event<Action>();
+            await started.Task.WaitAsync(LineupWebBunitContext.WaitTimeout, Xunit.TestContext.Current.CancellationToken);
+            disposal = context.DisposeComponentsAsync();
+
+            // Assert
+            Assert.False(disposal.IsCompleted);
+        }
+        finally
+        {
+            completion.TrySetResult(new GuideStatistics(0, 0, null, null, null));
+            if (disposal is not null)
+            {
+                await disposal.WaitAsync(LineupWebBunitContext.WaitTimeout, CancellationToken.None);
+            }
+        }
     }
 
     /// <summary>
@@ -168,7 +209,7 @@ public class DashboardComponentTests
 
         // Assert
         Assert.All(
-            new[] { "toggleChannelsSection", "toggleGuideSection", "toggleDeviceSection", "toggleActiveStreamsSection" },
+            ["toggleChannelsSection", "toggleGuideSection", "toggleDeviceSection", "toggleActiveStreamsSection"],
             id => Assert.Equal("true", component.Find($"#{id}").GetAttribute("aria-expanded")));
         Assert.False(component.Find("#channelsSection").HasAttribute("hidden"));
         Assert.False(component.Find("#guideSection").HasAttribute("hidden"));
@@ -481,6 +522,7 @@ public class DashboardComponentTests
 
     private sealed class DisposedServiceProvider : IServiceProvider
     {
+        /// <inheritdoc />
         public object? GetService(Type serviceType) => throw new ObjectDisposedException(nameof(IServiceProvider));
     }
 }

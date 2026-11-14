@@ -1,7 +1,11 @@
 namespace Lineup.Integration.Streaming.Sweep;
 
+/// <summary>Represents the sweep harness.</summary>
 internal sealed partial class SweepHarness
 {
+    /// <summary>Executes verify issue6 asynchronously.</summary>
+    /// <param name="matrixId">The matrix ID value.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public async Task VerifyIssue6Async(string? matrixId = null)
     {
         const string controlChannelNumber = "2.1";
@@ -128,6 +132,9 @@ internal sealed partial class SweepHarness
         Console.WriteLine(runRoot);
     }
 
+    /// <summary>Executes verify issue7 asynchronously.</summary>
+    /// <param name="matrixId">The matrix ID value.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public async Task VerifyIssue7Async(string? matrixId = null)
     {
         const string channelNumber = "2.1";
@@ -211,6 +218,9 @@ internal sealed partial class SweepHarness
         Console.WriteLine(runRoot);
     }
 
+    /// <summary>Executes verify issue8 asynchronously.</summary>
+    /// <param name="matrixId">The matrix ID value.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public async Task VerifyIssue8Async(string? matrixId = null)
     {
         const string channelNumber = "2.1";
@@ -290,10 +300,7 @@ internal sealed partial class SweepHarness
         Console.WriteLine(runRoot);
     }
 
-    private async Task<Issue8PresentationResult> VerifyDedicatedPresentationStatusAsync(
-        IBrowserContext context,
-        MatrixDefinition matrix,
-        ChannelDefinition channel)
+    private async Task<Issue8PresentationResult> VerifyDedicatedPresentationStatusAsync(IBrowserContext context, MatrixDefinition matrix, ChannelDefinition channel)
     {
         await EnsureTunerIdleAsync(TimeSpan.FromMinutes(2));
         var page = await context.NewPageAsync();
@@ -399,11 +406,7 @@ internal sealed partial class SweepHarness
         }
     }
 
-    private async Task<Issue7TeardownResult> VerifyDedicatedTeardownAsync(
-        IBrowserContext context,
-        MatrixDefinition matrix,
-        ChannelDefinition channel,
-        bool abrupt)
+    private async Task<Issue7TeardownResult> VerifyDedicatedTeardownAsync(IBrowserContext context, MatrixDefinition matrix, ChannelDefinition channel, bool abrupt)
     {
         await EnsureTunerIdleAsync(TimeSpan.FromMinutes(2));
         var page = await context.NewPageAsync();

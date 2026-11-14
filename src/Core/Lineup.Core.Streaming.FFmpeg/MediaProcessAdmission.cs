@@ -1,15 +1,14 @@
 using System.Diagnostics;
-using Lineup.Core.Common.Streaming;
 
 namespace Lineup.Core.Streaming.FFmpeg;
 
 /// <summary>Reserves one processing operation before launching media and retains it until operating-system process exit.</summary>
 public static class MediaProcessAdmission
 {
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Process, ReleaseCompletion> Releases = new();
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Process, ReleaseCompletion> _releases = new();
 
     /// <summary>Awaits acknowledged resource release after process exit, without depending on the caller's process wrapper lifetime.</summary>
-    public static Task WaitForReleaseAsync(Process process) => Releases.TryGetValue(process, out var release) ? release.Completion : Task.CompletedTask;
+    public static Task WaitForReleaseAsync(Process process) => _releases.TryGetValue(process, out var release) ? release.Completion : Task.CompletedTask;
 
     /// <summary>Checks workspace storage and admits a process before invoking its factory.</summary>
     public static Process Start(Func<Process> start, IMediaWorkAdmission? admission, string? workspace = null)
@@ -38,7 +37,7 @@ public static class MediaProcessAdmission
                 try
                 {
                     var observer = Process.GetProcessById(process.Id);
-                    Releases.Add(process, new(ReleaseAfterExitAsync(observer, reservation)));
+                    _releases.Add(process, new(ReleaseAfterExitAsync(observer, reservation)));
                     reservation = null;
                 }
                 catch (ArgumentException) when (process.HasExited)

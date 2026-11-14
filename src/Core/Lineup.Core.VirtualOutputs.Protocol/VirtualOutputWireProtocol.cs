@@ -136,6 +136,7 @@ public sealed record VirtualOutputGuideWireResponse
 /// <summary>Reads and writes bounded length-prefixed JSON messages over local IPC streams.</summary>
 public static class VirtualOutputWireProtocol
 {
+    /// <summary>Gets the serializer options.</summary>
     internal static JsonSerializerOptions SerializerOptions { get; } = new(JsonSerializerDefaults.Web);
 
     /// <summary>Preflights a coherent guide and streams its existing frame shape without whole-document buffers.</summary>

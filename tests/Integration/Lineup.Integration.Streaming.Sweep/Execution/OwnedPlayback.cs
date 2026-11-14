@@ -57,11 +57,7 @@ internal sealed class OwnedPlayback(HttpClient http)
     }
 
     /// <summary>Normal stop, bounded absence verification, then emergency stop only for still-owned IDs.</summary>
-    public async Task<CleanupEvidence> CleanupAsync(
-        IReadOnlyList<OwnedSession> owners,
-        Func<Task> normalStop,
-        TimeSpan timeout,
-        Func<CancellationToken, Task<bool>>? verifyBaseline = null)
+    public async Task<CleanupEvidence> CleanupAsync(IReadOnlyList<OwnedSession> owners, Func<Task> normalStop, TimeSpan timeout, Func<CancellationToken, Task<bool>>? verifyBaseline = null)
     {
         using var deadline = new CancellationTokenSource(timeout);
         var errors = new List<string>();

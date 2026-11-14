@@ -3,10 +3,7 @@ using System.Text.Json;
 namespace Lineup.App.Web.Services;
 
 /// <summary>Represents every non-secret persisted setting relevant to Lineup runtime behavior.</summary>
-internal sealed record ConfigurationStatusResponse(
-    CoreSettingsStatusResponse Core,
-    WebSettingsStatusResponse Web,
-    StreamingConfigurationStatusResponse Streaming);
+internal sealed record ConfigurationStatusResponse(CoreSettingsStatusResponse Core, WebSettingsStatusResponse Web, StreamingConfigurationStatusResponse Streaming);
 
 /// <summary>Represents provider-neutral application settings.</summary>
 internal sealed record CoreSettingsStatusResponse(
@@ -24,7 +21,8 @@ internal sealed record CoreSettingsStatusResponse(
     string ProtectedContentMode,
     string DisabledChannelMode,
     int MaximumConcurrentStreams,
-    DateTime? LastAutoFetchTimeUtc);
+    DateTime? LastAutoFetchTimeUtc
+);
 
 /// <summary>Represents settings owned by the Web frontend and host.</summary>
 internal sealed record WebSettingsStatusResponse(
@@ -40,7 +38,8 @@ internal sealed record WebSettingsStatusResponse(
     string FileLogLevel,
     int FileLogRetentionDays,
     int FileLogSizeLimitMb,
-    ApiPrivacyStatusResponse ApiPrivacy);
+    ApiPrivacyStatusResponse ApiPrivacy
+);
 
 /// <summary>Represents one configured logging category override.</summary>
 internal sealed record LogCategoryStatusResponse(string Category, string Level);
@@ -60,27 +59,14 @@ internal sealed record StreamingConfigurationStatusResponse(
     IReadOnlyList<VirtualDeviceConfigurationStatusResponse> VirtualDevices,
     IReadOnlyList<GuideOutputConfigurationStatusResponse> GuideOutputs,
     IReadOnlyList<VirtualOutputSecurityPolicyStatusResponse> SecurityPolicies,
-    IReadOnlyList<VirtualOutputWorkerPolicyStatusResponse> WorkerPolicies);
+    IReadOnlyList<VirtualOutputWorkerPolicyStatusResponse> WorkerPolicies
+);
 
 /// <summary>Represents one effective transcoding profile.</summary>
-internal sealed record TranscodeProfileStatusResponse(
-    bool ConvertHevcToH264,
-    string Deinterlace,
-    string Audio,
-    string Ac4Audio,
-    string VideoPreset,
-    int VideoQuality,
-    int MaximumVideoBitRateMbps);
+internal sealed record TranscodeProfileStatusResponse(bool ConvertHevcToH264, string Deinterlace, string Audio, string Ac4Audio, string VideoPreset, int VideoQuality, int MaximumVideoBitRateMbps);
 
 /// <summary>Represents sparse transcoding overrides.</summary>
-internal sealed record TranscodeOverridesStatusResponse(
-    bool? ConvertHevcToH264,
-    string? Deinterlace,
-    string? Audio,
-    string? Ac4Audio,
-    string? VideoPreset,
-    int? VideoQuality,
-    int? MaximumVideoBitRateMbps);
+internal sealed record TranscodeOverridesStatusResponse(bool? ConvertHevcToH264, string? Deinterlace, string? Audio, string? Ac4Audio, string? VideoPreset, int? VideoQuality, int? MaximumVideoBitRateMbps);
 
 /// <summary>Represents safe adapter-owned settings without secret values.</summary>
 internal sealed record AdapterConfigurationStatusResponse(string Kind, string? Error, IReadOnlyList<AdapterSettingStatusResponse> Settings);
@@ -96,15 +82,11 @@ internal sealed record PhysicalDeviceConfigurationStatusResponse(
     int Order,
     AdapterConfigurationStatusResponse Adapter,
     TranscodeOverridesStatusResponse TranscodeOverrides,
-    TranscodeProfileStatusResponse EffectiveTranscodeProfile);
+    TranscodeProfileStatusResponse EffectiveTranscodeProfile
+);
 
 /// <summary>Represents one configured guide source.</summary>
-internal sealed record GuideSourceConfigurationStatusResponse(
-    string GuideSourceId,
-    string Name,
-    bool Enabled,
-    AdapterConfigurationStatusResponse Adapter,
-    PhysicalDeviceSubscriptionStatusResponse Subscription);
+internal sealed record GuideSourceConfigurationStatusResponse(string GuideSourceId, string Name, bool Enabled, AdapterConfigurationStatusResponse Adapter, PhysicalDeviceSubscriptionStatusResponse Subscription);
 
 /// <summary>Represents one configured virtual device.</summary>
 internal sealed record VirtualDeviceConfigurationStatusResponse(
@@ -116,7 +98,8 @@ internal sealed record VirtualDeviceConfigurationStatusResponse(
     TranscodeOverridesStatusResponse TranscodeOverrides,
     TranscodeProfileStatusResponse EffectiveTranscodeProfile,
     VirtualOutputHostingStatusResponse? Hosting,
-    AccessGrantsStatusResponse AccessGrants);
+    AccessGrantsStatusResponse AccessGrants
+);
 
 /// <summary>Represents one configured guide output.</summary>
 internal sealed record GuideOutputConfigurationStatusResponse(
@@ -129,39 +112,23 @@ internal sealed record GuideOutputConfigurationStatusResponse(
     string VirtualDeviceSelectionMode,
     IReadOnlyList<string> SelectedVirtualDeviceIds,
     string GuideSourceSelectionMode,
-    IReadOnlyList<string> SelectedGuideSourceIds);
+    IReadOnlyList<string> SelectedGuideSourceIds
+);
 
 /// <summary>Represents a physical-device subscription.</summary>
 internal sealed record PhysicalDeviceSubscriptionStatusResponse(string Mode, IReadOnlyList<string> SelectedPhysicalDeviceIds);
 
 /// <summary>Represents isolated virtual-output hosting settings.</summary>
-internal sealed record VirtualOutputHostingStatusResponse(
-    string ExecutionMode,
-    string WorkerPolicyKey,
-    IReadOnlyList<VirtualOutputBindingStatusResponse> Bindings);
+internal sealed record VirtualOutputHostingStatusResponse(string ExecutionMode, string WorkerPolicyKey, IReadOnlyList<VirtualOutputBindingStatusResponse> Bindings);
 
 /// <summary>Represents one virtual-output listener binding.</summary>
-internal sealed record VirtualOutputBindingStatusResponse(
-    string Transport,
-    IReadOnlyList<string>? Addresses,
-    int Port,
-    string? PublicBaseUri,
-    string SecurityPolicyKey);
+internal sealed record VirtualOutputBindingStatusResponse(string Transport, IReadOnlyList<string>? Addresses, int Port, string? PublicBaseUri, string SecurityPolicyKey);
 
 /// <summary>Represents one safely displayable adapter access grant.</summary>
-internal sealed record AccessGrantStatusResponse(
-    string GrantId,
-    string Name,
-    DateTime CreatedAtUtc,
-    DateTime? RotatedAtUtc,
-    DateTime? ExpiresAtUtc,
-    DateTime? RevokedAtUtc);
+internal sealed record AccessGrantStatusResponse(string GrantId, string Name, DateTime CreatedAtUtc, DateTime? RotatedAtUtc, DateTime? ExpiresAtUtc, DateTime? RevokedAtUtc);
 
 /// <summary>Represents availability and safe metadata for adapter access grants.</summary>
-internal sealed record AccessGrantsStatusResponse(
-    string Status,
-    string? Error,
-    IReadOnlyList<AccessGrantStatusResponse> Items);
+internal sealed record AccessGrantsStatusResponse(string Status, string? Error, IReadOnlyList<AccessGrantStatusResponse> Items);
 
 /// <summary>Represents one reusable virtual-output security policy without filesystem certificate references.</summary>
 internal sealed record VirtualOutputSecurityPolicyStatusResponse(
@@ -172,7 +139,8 @@ internal sealed record VirtualOutputSecurityPolicyStatusResponse(
     IReadOnlyList<string>? AllowedNetworks,
     int RequestsPerMinutePerClient,
     bool AllowForwardedHeaders,
-    IReadOnlyList<string>? TrustedProxies);
+    IReadOnlyList<string>? TrustedProxies
+);
 
 /// <summary>Represents one reusable virtual-output worker policy.</summary>
 internal sealed record VirtualOutputWorkerPolicyStatusResponse(
@@ -184,15 +152,11 @@ internal sealed record VirtualOutputWorkerPolicyStatusResponse(
     int LeaseGracePeriodSeconds,
     int MaximumOutstandingBrokerCalls,
     int MaximumMemoryMib,
-    int MaximumCpuPercent);
+    int MaximumCpuPercent
+);
 
 /// <summary>Represents current physical channels, guide bindings, and per-output projections.</summary>
-internal sealed record ChannelsStatusResponse(
-    string Status,
-    string? Error,
-    int Count,
-    IReadOnlyList<PhysicalChannelStatusResponse> Items,
-    IReadOnlyList<VirtualChannelProjectionStatusResponse> VirtualProjections);
+internal sealed record ChannelsStatusResponse(string Status, string? Error, int Count, IReadOnlyList<PhysicalChannelStatusResponse> Items, IReadOnlyList<VirtualChannelProjectionStatusResponse> VirtualProjections);
 
 /// <summary>Represents one active physical source channel and its global identity.</summary>
 internal sealed record PhysicalChannelStatusResponse(
@@ -209,47 +173,26 @@ internal sealed record PhysicalChannelStatusResponse(
     IReadOnlyDictionary<string, string> Metadata,
     DateTime FirstSeenUtc,
     DateTime LastSeenUtc,
-    GuideBindingStatusResponse? GuideBinding);
+    GuideBindingStatusResponse? GuideBinding
+);
 
 /// <summary>Represents the authoritative guide binding for one physical channel.</summary>
-internal sealed record GuideBindingStatusResponse(
-    string State,
-    GuideChannelStatusResponse? SelectedChannel,
-    IReadOnlyList<GuideChannelStatusResponse> Candidates);
+internal sealed record GuideBindingStatusResponse(string State, GuideChannelStatusResponse? SelectedChannel, IReadOnlyList<GuideChannelStatusResponse> Candidates);
 
 /// <summary>Represents one guide-source channel used for binding diagnostics.</summary>
-internal sealed record GuideChannelStatusResponse(
-    string GuideSourceId,
-    string ProviderKey,
-    string Number,
-    string Name,
-    string? Affiliate,
-    string? ImageUrl,
-    bool IsProtected,
-    bool IsFavorite,
-    bool HasSupplementalMetadata);
+internal sealed record GuideChannelStatusResponse(string GuideSourceId, string ProviderKey, string Number, string Name, string? Affiliate, string? ImageUrl, bool IsProtected, bool IsFavorite, bool HasSupplementalMetadata);
 
 /// <summary>Represents the channels projected by one virtual device.</summary>
-internal sealed record VirtualChannelProjectionStatusResponse(
-    string VirtualDeviceId,
-    int ChannelCount,
-    IReadOnlyList<ResolvedVirtualChannelStatusResponse> Channels,
-    IReadOnlyList<ChannelConflictStatusResponse> Conflicts);
+internal sealed record VirtualChannelProjectionStatusResponse(string VirtualDeviceId, int ChannelCount, IReadOnlyList<ResolvedVirtualChannelStatusResponse> Channels, IReadOnlyList<ChannelConflictStatusResponse> Conflicts);
 
 /// <summary>Represents one resolved virtual channel and its ordered physical sources.</summary>
-internal sealed record ResolvedVirtualChannelStatusResponse(
-    string Number,
-    string Name,
-    IReadOnlyList<SourceChannelStatusResponse> Sources);
+internal sealed record ResolvedVirtualChannelStatusResponse(string Number, string Name, IReadOnlyList<SourceChannelStatusResponse> Sources);
 
 /// <summary>Represents one physical source-channel identity.</summary>
 internal sealed record SourceChannelStatusResponse(string PhysicalDeviceId, string ProviderKey);
 
 /// <summary>Represents one channel-number conflict suppressed from a virtual output.</summary>
-internal sealed record ChannelConflictStatusResponse(
-    string Number,
-    SourceChannelStatusResponse PublishedSource,
-    SourceChannelStatusResponse ConflictingSource);
+internal sealed record ChannelConflictStatusResponse(string Number, SourceChannelStatusResponse PublishedSource, SourceChannelStatusResponse ConflictingSource);
 
 /// <summary>Represents the last committed import metadata for one guide source.</summary>
 internal sealed record GuideSourceImportStatusResponse(
@@ -260,24 +203,14 @@ internal sealed record GuideSourceImportStatusResponse(
     DateTime CoverageEndUtc,
     int ChannelCount,
     int ProgramCount,
-    bool HasSupplementalMetadata);
+    bool HasSupplementalMetadata
+);
 
 /// <summary>Represents availability and committed metadata for guide-source imports.</summary>
-internal sealed record GuideSourceImportsStatusResponse(
-    string Status,
-    string? Error,
-    IReadOnlyList<GuideSourceImportStatusResponse> Items);
+internal sealed record GuideSourceImportsStatusResponse(string Status, string? Error, IReadOnlyList<GuideSourceImportStatusResponse> Items);
 
 /// <summary>Represents current publication state for one guide output.</summary>
-internal sealed record GuideOutputStatusResponse(
-    string GuideOutputId,
-    string Name,
-    string Key,
-    bool Enabled,
-    bool Available,
-    string? DownloadUrl,
-    DateTime? LastWriteTimeUtc,
-    string? Error);
+internal sealed record GuideOutputStatusResponse(string GuideOutputId, string Name, string Key, bool Enabled, bool Available, string? DownloadUrl, DateTime? LastWriteTimeUtc, string? Error);
 
 /// <summary>Represents the configured topology and all active end-to-end streaming paths.</summary>
 internal sealed record StreamingFlowsStatusResponse(
@@ -285,7 +218,8 @@ internal sealed record StreamingFlowsStatusResponse(
     int ActiveProducerCount,
     int WarmProducerCount,
     IReadOnlyList<StreamingFlowNodeStatusResponse> Nodes,
-    IReadOnlyList<StreamingFlowPathStatusResponse> ActivePaths);
+    IReadOnlyList<StreamingFlowPathStatusResponse> ActivePaths
+);
 
 /// <summary>Represents one configured or active streaming-flow node.</summary>
 internal sealed record StreamingFlowNodeStatusResponse(
@@ -296,7 +230,8 @@ internal sealed record StreamingFlowNodeStatusResponse(
     string State,
     IReadOnlyDictionary<string, string> Details,
     IReadOnlyList<string> ActiveChannels,
-    int ActiveSessionCount);
+    int ActiveSessionCount
+);
 
 /// <summary>Represents one active consumer's end-to-end streaming path.</summary>
 internal sealed record StreamingFlowPathStatusResponse(
@@ -309,7 +244,8 @@ internal sealed record StreamingFlowPathStatusResponse(
     bool IsSynthetic,
     bool IsShared,
     int SharedReceiverCount,
-    IReadOnlyList<StreamingFlowStageStatusResponse> Stages);
+    IReadOnlyList<StreamingFlowStageStatusResponse> Stages
+);
 
 /// <summary>Represents one stage in an active streaming path.</summary>
 internal sealed record StreamingFlowStageStatusResponse(
@@ -318,4 +254,5 @@ internal sealed record StreamingFlowStageStatusResponse(
     string Subtitle,
     IReadOnlyDictionary<string, string> Details,
     ActiveStreamMediaStatusResponse? InputMedia,
-    ActiveStreamMediaStatusResponse? OutputMedia);
+    ActiveStreamMediaStatusResponse? OutputMedia
+);

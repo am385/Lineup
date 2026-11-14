@@ -298,10 +298,13 @@ public sealed class DedicatedMediaSessionTests
         private DateTimeOffset _utcNow = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
         private long _timestamp;
 
+        /// <inheritdoc />
         public override DateTimeOffset GetUtcNow() => _utcNow;
 
+        /// <inheritdoc />
         public override long TimestampFrequency => TimeSpan.TicksPerSecond;
 
+        /// <inheritdoc />
         public override long GetTimestamp() => _timestamp;
 
         /// <summary>Advances wall time and monotonic elapsed time together.</summary>

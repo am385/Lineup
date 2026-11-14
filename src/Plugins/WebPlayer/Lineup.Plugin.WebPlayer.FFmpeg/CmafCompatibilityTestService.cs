@@ -2,7 +2,6 @@ using System.Diagnostics;
 using System.Text;
 using System.Xml.Linq;
 using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Lineup.Core.Streaming.FFmpeg;
 
 namespace Lineup.Plugin.WebPlayer.FFmpeg;
@@ -35,7 +34,11 @@ public sealed class CmafCompatibilityTestService : ICmafCompatibilityTestService
         _processFactory = processFactory;
     }
 
-    /// <inheritdoc />
+    /// <summary>Starts the CMAF compatibility test service.</summary>
+    /// <param name="profile">The profile value.</param>
+    /// <param name="request">The request value.</param>
+    /// <param name="manifestPath">The manifest path value.</param>
+    /// <returns>The operation's result.</returns>
     public Process Start(VirtualTranscodeProfile profile, CmafCompatibilityTestRequest request, string manifestPath)
     {
         try
@@ -62,8 +65,8 @@ public sealed class CmafCompatibilityTestService : ICmafCompatibilityTestService
 public static class CmafCompatibilityTestPlanner
 {
     private const double ChannelToneSeconds = 0.75;
-    private static readonly TimeSpan SubtitleDuration = TimeSpan.FromMinutes(10);
-    private static readonly IReadOnlyDictionary<CmafTestChannelLayout, (string Name, string[] Labels)> Layouts =
+    private static readonly TimeSpan _subtitleDuration = TimeSpan.FromMinutes(10);
+    private static readonly IReadOnlyDictionary<CmafTestChannelLayout, (string Name, string[] Labels)> _layouts =
         new Dictionary<CmafTestChannelLayout, (string Name, string[] Labels)>
         {
             [CmafTestChannelLayout.Mono] = ("mono", ["Mono"]),
@@ -88,7 +91,7 @@ public static class CmafCompatibilityTestPlanner
 
     /// <summary>Returns the channel activation order for a test layout.</summary>
     public static IReadOnlyList<string> GetChannelLabels(CmafTestChannelLayout layout) =>
-        Layouts.TryGetValue(layout, out var value)
+        _layouts.TryGetValue(layout, out var value)
             ? value.Labels
             : throw new ArgumentOutOfRangeException(nameof(layout), layout, "Unsupported Watch Test channel layout.");
 
@@ -97,7 +100,7 @@ public static class CmafCompatibilityTestPlanner
     {
         var labels = GetChannelLabels(layout);
         var builder = new StringBuilder("WEBVTT\n\n");
-        for (var second = 0; second < (int)SubtitleDuration.TotalSeconds; second++)
+        for (var second = 0; second < (int)_subtitleDuration.TotalSeconds; second++)
         {
             var start = TimeSpan.FromSeconds(second);
             var end = start.Add(TimeSpan.FromSeconds(ChannelToneSeconds));
@@ -165,7 +168,7 @@ public static class CmafCompatibilityTestPlanner
         ArgumentException.ThrowIfNullOrWhiteSpace(manifestPath);
         ValidateRequest(request);
         var (width, height) = GetResolution(request.Quality);
-        var layout = Layouts[request.ChannelLayout];
+        var layout = _layouts[request.ChannelLayout];
         var channelCount = layout.Labels.Length;
         var maximumBitRateMbps = Math.Max(1, WebVideoTranscodePlanner.GetMaximumBitRate(profile, request.Quality) / 1_000_000);
         var crf = request.Quality switch
@@ -226,7 +229,7 @@ public static class CmafCompatibilityTestPlanner
             "-b:a", audioBitRate.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "-ar", "48000",
             "-ac", channelCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            "-t", SubtitleDuration.TotalSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "-t", _subtitleDuration.TotalSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "-f", "dash",
             "-seg_duration", "2",
             "-frag_duration", "2",

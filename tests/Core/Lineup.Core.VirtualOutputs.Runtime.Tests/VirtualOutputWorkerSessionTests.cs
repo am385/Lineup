@@ -234,6 +234,7 @@ public sealed class VirtualOutputWorkerSessionTests
         private readonly VirtualOutputWorkerBootstrap _bootstrap;
         private int _shutdownCount;
 
+        /// <summary>Initializes the lease fixture.</summary>
         public LeaseFixture()
         {
             _lifetime.CancelAfter(TimeSpan.FromSeconds(15));
@@ -255,15 +256,26 @@ public sealed class VirtualOutputWorkerSessionTests
             Session = new VirtualOutputWorkerSession(_bootstrap, Time);
         }
 
+        /// <summary>Gets the time.</summary>
         public ManualTimeProvider Time { get; } = new();
+        /// <summary>Gets the session.</summary>
         public VirtualOutputWorkerSession Session { get; }
+        /// <summary>Gets the health read.</summary>
         public TaskCompletionSource HealthRead { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        /// <summary>Gets or sets the loop.</summary>
         public Task Loop { get; private set; } = Task.CompletedTask;
+        /// <summary>Gets the token.</summary>
         public CancellationToken Token => _lifetime.Token;
+        /// <summary>Gets the shutdown count.</summary>
         public int ShutdownCount => Volatile.Read(ref _shutdownCount);
 
+        /// <summary>Creates server.</summary>
+        /// <returns>The operation's result.</returns>
         public NamedPipeServerStream CreateServer() => new(_bootstrap.Endpoint.Address, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
 
+        /// <summary>Registers the lease fixture asynchronously.</summary>
+        /// <param name="protocolVersion">The protocol version value.</param>
+        /// <returns>A task that completes when the operation has finished.</returns>
         public async Task RegisterAsync(int? protocolVersion = null)
         {
             await using var server = CreateServer();
@@ -283,6 +295,8 @@ public sealed class VirtualOutputWorkerSessionTests
             await registration;
         }
 
+        /// <summary>Starts loop.</summary>
+        /// <param name="cancelOnShutdown">The cancel on shutdown value.</param>
         public void StartLoop(bool cancelOnShutdown = false) => Loop = Session.RunLeaseLoopAsync(
             () =>
             {
@@ -299,6 +313,9 @@ public sealed class VirtualOutputWorkerSessionTests
             },
             Token);
 
+        /// <summary>Reads renewal asynchronously.</summary>
+        /// <param name="server">The server value.</param>
+        /// <returns>A task that completes when the operation has finished.</returns>
         public async Task ReadRenewalAsync(NamedPipeServerStream server)
         {
             var connection = server.WaitForConnectionAsync(Token);
@@ -309,17 +326,25 @@ public sealed class VirtualOutputWorkerSessionTests
             Assert.Equal(Session.Context, request.ReadPayload<VirtualOutputLeaseRenewalRequest>().Session);
         }
 
+        /// <summary>Writes renewal asynchronously.</summary>
+        /// <param name="server">The server value.</param>
+        /// <param name="response">The response value.</param>
+        /// <returns>A task that completes when the operation has finished.</returns>
         public Task WriteRenewalAsync(NamedPipeServerStream server, VirtualOutputLeaseRenewalResponse response) =>
             VirtualOutputWireProtocol.WriteAsync(server, VirtualOutputIpcResponse.Success(response), Token);
 
+        /// <summary>Executes assert shutdown asynchronously.</summary>
+        /// <returns>A task that completes when the operation has finished.</returns>
         public async Task AssertShutdownAsync()
         {
             await Loop.WaitAsync(TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken);
             Assert.Equal(1, ShutdownCount);
         }
 
+        /// <summary>Cancels the lease fixture.</summary>
         public void Cancel() => _lifetime.Cancel();
 
+        /// <inheritdoc />
         public async ValueTask DisposeAsync()
         {
             await _lifetime.CancelAsync();
@@ -343,6 +368,7 @@ public sealed class VirtualOutputWorkerSessionTests
         private DateTimeOffset _utcNow = new(2026, 10, 22, 0, 0, 0, TimeSpan.Zero);
         private TaskCompletionSource _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        /// <inheritdoc />
         public override DateTimeOffset GetUtcNow()
         {
             lock (_timers)
@@ -351,6 +377,7 @@ public sealed class VirtualOutputWorkerSessionTests
             }
         }
 
+        /// <inheritdoc />
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
         {
             var timer = new ManualTimer(this, callback, state);
@@ -358,6 +385,9 @@ public sealed class VirtualOutputWorkerSessionTests
             return timer;
         }
 
+        /// <summary>Executes advance.</summary>
+        /// <param name="duration">The duration value.</param>
+        /// <param name="fireTimers">The fire timers value.</param>
         public void Advance(TimeSpan duration, bool fireTimers = true)
         {
             ManualTimer[] elapsed;
@@ -376,6 +406,10 @@ public sealed class VirtualOutputWorkerSessionTests
             }
         }
 
+        /// <summary>Waits for for timer asynchronously.</summary>
+        /// <param name="dueTime">The due time value.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>A task that completes when the operation has finished.</returns>
         public async Task WaitForTimerAsync(TimeSpan dueTime, CancellationToken cancellationToken)
         {
             while (true)
@@ -395,10 +429,14 @@ public sealed class VirtualOutputWorkerSessionTests
 
         private sealed class ManualTimer(ManualTimeProvider owner, TimerCallback callback, object? state) : ITimer
         {
+            /// <summary>Gets the callback.</summary>
             public TimerCallback Callback { get; } = callback;
+            /// <summary>Gets the state.</summary>
             public object? State { get; } = state;
+            /// <summary>Gets or sets the due UTC.</summary>
             public DateTimeOffset DueUtc { get; private set; }
 
+            /// <inheritdoc />
             public bool Change(TimeSpan dueTime, TimeSpan period)
             {
                 Assert.Equal(Timeout.InfiniteTimeSpan, period);
@@ -416,6 +454,7 @@ public sealed class VirtualOutputWorkerSessionTests
                 }
             }
 
+            /// <inheritdoc />
             public void Dispose()
             {
                 lock (owner._timers)
@@ -424,6 +463,7 @@ public sealed class VirtualOutputWorkerSessionTests
                 }
             }
 
+            /// <inheritdoc />
             public ValueTask DisposeAsync()
             {
                 Dispose();

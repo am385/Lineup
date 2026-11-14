@@ -1,7 +1,11 @@
 namespace Lineup.Integration.Streaming.Sweep;
 
+/// <summary>Represents the sweep application.</summary>
 internal static class SweepApplication
 {
+    /// <summary>Executes run asynchronously.</summary>
+    /// <param name="args">The args value.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public static async Task RunAsync(string[] args)
     {
         var parsed = SweepCommand.Parse(args);

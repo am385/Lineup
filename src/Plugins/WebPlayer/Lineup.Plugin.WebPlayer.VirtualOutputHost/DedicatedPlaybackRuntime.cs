@@ -1,10 +1,8 @@
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using Lineup.Core.Common.Streaming;
 using Lineup.Core.Streaming.FFmpeg;
 using Lineup.Core.VirtualOutputs.Hosting;
 using Lineup.Core.VirtualOutputs.Protocol;
-using Lineup.Plugin.WebPlayer;
 using Lineup.Plugin.WebPlayer.FFmpeg;
 
 namespace Lineup.Plugin.WebPlayer.VirtualOutputHost;

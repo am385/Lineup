@@ -25,24 +25,24 @@ public sealed class XmltvGuideOutputDriver :
     /// <summary>Stable built-in global output identity.</summary>
     public static readonly GuideOutputId BuiltInId = new(new Guid("4e08bd0d-15c4-442d-bf9f-0f6b4502fc61"));
 
-    private static readonly JsonSerializerOptions SerializerOptions = new()
+    private static readonly JsonSerializerOptions _serializerOptions = new()
     {
         PropertyNameCaseInsensitive = true
     };
 
-    /// <inheritdoc />
+    /// <summary>Gets the kind.</summary>
     public string Kind => AdapterKind;
 
-    /// <inheritdoc />
+    /// <summary>Gets the display name.</summary>
     public string DisplayName => "XMLTV";
 
-    /// <inheritdoc />
+    /// <summary>Gets the supports user creation.</summary>
     public bool SupportsUserCreation => true;
 
-    /// <inheritdoc />
+    /// <summary>Gets the publisher kind.</summary>
     public string PublisherKind => AdapterKind;
 
-    /// <inheritdoc />
+    /// <summary>Gets the settings descriptor.</summary>
     public AdapterSettingsDescriptor SettingsDescriptor { get; } = new()
     {
         AdapterKind = AdapterKind,
@@ -56,11 +56,22 @@ public sealed class XmltvGuideOutputDriver :
                 Kind = AdapterSettingKind.DirectoryPath,
                 IsRequired = true,
                 CanClear = false
+            },
+            new AdapterSettingDescriptor
+            {
+                Key = "includeUnavailablePrograms",
+                Label = "Include unavailable program placeholders",
+                Description = "Publish a Not Available program for channels without guide data. Disabled by default to keep placeholders out of Jellyfin's On Now listings.",
+                Kind = AdapterSettingKind.Boolean,
+                CanClear = false
             }
         ]
     };
 
-    /// <inheritdoc />
+    /// <summary>Creates default configuration.</summary>
+    /// <param name="outputId">The output ID value.</param>
+    /// <param name="context">Context used by the operation.</param>
+    /// <returns>The operation's result.</returns>
     public AdapterConfiguration CreateDefaultConfiguration(GuideOutputId outputId, GuideOutputCreationContext context)
     {
         if (outputId.Value == Guid.Empty)
@@ -80,7 +91,9 @@ public sealed class XmltvGuideOutputDriver :
         return CreateConfiguration(Path.Combine(context.DefaultOutputDirectoryPath, $"lineup-{context.OutputKey}.xml"));
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets settings.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <returns>The operation's result.</returns>
     public AdapterSettingsSnapshot GetSettings(AdapterConfiguration configuration)
     {
         var typed = Deserialize(configuration);
@@ -97,21 +110,46 @@ public sealed class XmltvGuideOutputDriver :
                     Key = "outputDirectoryPath",
                     Value = JsonSerializer.SerializeToElement(directory),
                     HasValue = !string.IsNullOrWhiteSpace(directory)
+                },
+                new AdapterSettingSnapshot
+                {
+                    Key = "includeUnavailablePrograms",
+                    Value = JsonSerializer.SerializeToElement(typed.IncludeUnavailablePrograms),
+                    HasValue = true
                 }
             ]
         };
     }
 
-    /// <inheritdoc />
-    public AdapterSettingsApplyResult ApplySettings(
-        AdapterConfiguration configuration,
-        IReadOnlyList<AdapterSettingEdit> edits)
+    /// <summary>Applies settings.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="edits">The edits value.</param>
+    /// <returns>The operation's result.</returns>
+    public AdapterSettingsApplyResult ApplySettings(AdapterConfiguration configuration, IReadOnlyList<AdapterSettingEdit> edits)
     {
-        var outputPath = Deserialize(configuration).OutputPath;
+        var current = Deserialize(configuration);
+        var outputPath = current.OutputPath;
+        var includeUnavailablePrograms = current.IncludeUnavailablePrograms;
         var outputFileName = Path.GetFileName(outputPath);
         var errors = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
         foreach (var edit in edits)
         {
+            if (string.Equals(edit.Key, "includeUnavailablePrograms", StringComparison.Ordinal))
+            {
+                if (edit.Action == AdapterSettingEditAction.Preserve)
+                {
+                    continue;
+                }
+                if (edit.Action != AdapterSettingEditAction.Set ||
+                    edit.Value is not JsonElement boolean ||
+                    boolean.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                {
+                    errors[edit.Key] = ["Include unavailable programs must be true or false."];
+                    continue;
+                }
+                includeUnavailablePrograms = boolean.GetBoolean();
+                continue;
+            }
             if (!string.Equals(edit.Key, "outputDirectoryPath", StringComparison.Ordinal))
             {
                 errors[edit.Key] = ["Unknown setting."];
@@ -137,7 +175,11 @@ public sealed class XmltvGuideOutputDriver :
             return new AdapterSettingsApplyResult { Errors = errors };
         }
 
-        var updated = CreateConfiguration(outputPath);
+        var updated = new AdapterConfiguration(Kind, JsonSerializer.SerializeToElement(current with
+        {
+            OutputPath = outputPath,
+            IncludeUnavailablePrograms = includeUnavailablePrograms
+        }));
         var validation = Validate(updated);
         return validation.Count == 0
             ? new AdapterSettingsApplyResult { Configuration = updated }
@@ -150,7 +192,9 @@ public sealed class XmltvGuideOutputDriver :
             };
     }
 
-    /// <inheritdoc />
+    /// <summary>Validates the XMLTV guide output driver.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <returns>The operation's result.</returns>
     public IReadOnlyList<string> Validate(AdapterConfiguration configuration)
     {
         var errors = new List<string>();
@@ -188,7 +232,9 @@ public sealed class XmltvGuideOutputDriver :
         return errors;
     }
 
-    /// <inheritdoc />
+    /// <summary>Resolves destination.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <returns>The operation's result.</returns>
     public GuideOutputDestination ResolveDestination(AdapterConfiguration configuration)
     {
         var errors = Validate(configuration);
@@ -206,10 +252,11 @@ public sealed class XmltvGuideOutputDriver :
         };
     }
 
-    /// <inheritdoc />
-    public StreamingConfiguration Normalize(
-        StreamingConfiguration configuration,
-        StreamingConfigurationInitializationContext context)
+    /// <summary>Executes normalize.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="context">Context used by the operation.</param>
+    /// <returns>The operation's result.</returns>
+    public StreamingConfiguration Normalize(StreamingConfiguration configuration, StreamingConfigurationInitializationContext context)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(context);
@@ -250,6 +297,6 @@ public sealed class XmltvGuideOutputDriver :
         }));
 
     private static XmltvGuideOutputConfiguration Deserialize(AdapterConfiguration configuration) =>
-        configuration.Configuration.Deserialize<XmltvGuideOutputConfiguration>(SerializerOptions)
+        configuration.Configuration.Deserialize<XmltvGuideOutputConfiguration>(_serializerOptions)
             ?? new XmltvGuideOutputConfiguration();
 }

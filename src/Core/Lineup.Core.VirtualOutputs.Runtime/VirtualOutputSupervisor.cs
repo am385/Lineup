@@ -44,9 +44,7 @@ public sealed record VirtualOutputExternalEnrollment
 public interface IVirtualOutputExternalEnrollmentStore
 {
     /// <summary>Stores or replaces one pending enrollment and its credential-renewal factory.</summary>
-    void Set(
-        VirtualOutputExternalEnrollment enrollment,
-        Func<VirtualOutputExternalEnrollment?> renewalFactory);
+    void Set(VirtualOutputExternalEnrollment enrollment, Func<VirtualOutputExternalEnrollment?> renewalFactory);
 
     /// <summary>Retrieves one pending enrollment, renewing its credentials when the prior descriptor was retrieved or expired.</summary>
     VirtualOutputExternalEnrollment? Take(VirtualDeviceId virtualDeviceId);
@@ -68,10 +66,10 @@ public sealed class VirtualOutputExternalEnrollmentStore : IVirtualOutputExterna
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
-    /// <inheritdoc />
-    public void Set(
-        VirtualOutputExternalEnrollment enrollment,
-        Func<VirtualOutputExternalEnrollment?> renewalFactory)
+    /// <summary>Sets the virtual output external enrollment store.</summary>
+    /// <param name="enrollment">The enrollment value.</param>
+    /// <param name="renewalFactory">The renewal factory value.</param>
+    public void Set(VirtualOutputExternalEnrollment enrollment, Func<VirtualOutputExternalEnrollment?> renewalFactory)
     {
         ArgumentNullException.ThrowIfNull(enrollment);
         ArgumentNullException.ThrowIfNull(renewalFactory);
@@ -81,7 +79,9 @@ public sealed class VirtualOutputExternalEnrollmentStore : IVirtualOutputExterna
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes take.</summary>
+    /// <param name="virtualDeviceId">The virtual device ID value.</param>
+    /// <returns>The operation's result.</returns>
     public VirtualOutputExternalEnrollment? Take(VirtualDeviceId virtualDeviceId)
     {
         lock (_gate)
@@ -101,7 +101,9 @@ public sealed class VirtualOutputExternalEnrollmentStore : IVirtualOutputExterna
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Removes the virtual output external enrollment store.</summary>
+    /// <param name="virtualDeviceId">The virtual device ID value.</param>
+    /// <returns>The operation's result.</returns>
     public bool Remove(VirtualDeviceId virtualDeviceId)
     {
         lock (_gate)
@@ -110,12 +112,12 @@ public sealed class VirtualOutputExternalEnrollmentStore : IVirtualOutputExterna
         }
     }
 
-    private sealed class EnrollmentState(
-        VirtualOutputExternalEnrollment pending,
-        Func<VirtualOutputExternalEnrollment?> renewalFactory)
+    private sealed class EnrollmentState(VirtualOutputExternalEnrollment pending, Func<VirtualOutputExternalEnrollment?> renewalFactory)
     {
+        /// <summary>Gets or sets the pending.</summary>
         public VirtualOutputExternalEnrollment? Pending { get; set; } = pending;
 
+        /// <summary>Gets the renewal factory.</summary>
         public Func<VirtualOutputExternalEnrollment?> RenewalFactory { get; } = renewalFactory;
     }
 }
@@ -123,8 +125,8 @@ public sealed class VirtualOutputExternalEnrollmentStore : IVirtualOutputExterna
 /// <summary>Reconciles configured virtual outputs with isolated managed or external workers.</summary>
 public sealed class VirtualOutputSupervisor : BackgroundService, IVirtualOutputWorkerRecovery
 {
-    private static readonly TimeSpan LivenessCheckInterval = TimeSpan.FromSeconds(1);
-    private static readonly IReadOnlySet<VirtualOutputCapability> WorkerCapabilities = new HashSet<VirtualOutputCapability>
+    private static readonly TimeSpan _livenessCheckInterval = TimeSpan.FromSeconds(1);
+    private static readonly IReadOnlySet<VirtualOutputCapability> _workerCapabilities = new HashSet<VirtualOutputCapability>
     {
         VirtualOutputCapability.ReadManifest,
         VirtualOutputCapability.ReadLineup,
@@ -168,7 +170,8 @@ public sealed class VirtualOutputSupervisor : BackgroundService, IVirtualOutputW
         IVirtualOutputRuntimeStatus status,
         IVirtualOutputExternalEnrollmentStore externalEnrollments,
         ILogger<VirtualOutputSupervisor> logger,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null
+    )
     {
         _settings = settings;
         _options = options;
@@ -257,7 +260,10 @@ public sealed class VirtualOutputSupervisor : BackgroundService, IVirtualOutputW
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes retry asynchronously.</summary>
+    /// <param name="virtualDeviceId">The virtual device ID value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async Task<VirtualOutputWorkerRecoveryResult> RetryAsync(VirtualDeviceId virtualDeviceId, CancellationToken cancellationToken = default)
     {
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _retryCancellation.Token);
@@ -317,7 +323,7 @@ public sealed class VirtualOutputSupervisor : BackgroundService, IVirtualOutputW
 
     private async Task<bool> WaitForChangesAsync(CancellationToken cancellationToken)
     {
-        using var interval = new CancellationTokenSource(LivenessCheckInterval, _timeProvider);
+        using var interval = new CancellationTokenSource(_livenessCheckInterval, _timeProvider);
         using var waitCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, interval.Token);
         try
         {
@@ -516,11 +522,7 @@ public sealed class VirtualOutputSupervisor : BackgroundService, IVirtualOutputW
         await StartWorkerAsync(device, configuration, fingerprint, cancellationToken);
     }
 
-    private async Task StartWorkerAsync(
-        VirtualDeviceDefinition device,
-        StreamingConfiguration configuration,
-        string fingerprint,
-        CancellationToken cancellationToken)
+    private async Task StartWorkerAsync(VirtualDeviceDefinition device, StreamingConfiguration configuration, string fingerprint, CancellationToken cancellationToken)
     {
         VirtualOutputWorkerPolicyDefinition? workerPolicy = null;
         try
@@ -534,7 +536,7 @@ public sealed class VirtualOutputSupervisor : BackgroundService, IVirtualOutputW
             var ticket = _authority.CreateActivation(
                 device.Id,
                 package.Manifest.WorkerId,
-                WorkerCapabilities,
+                _workerCapabilities,
                 _options.BootstrapLifetime,
                 leaseLifetime);
             var referencedSecurityKeys = hosting.Bindings.Select(binding => binding.SecurityPolicyKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -593,7 +595,7 @@ public sealed class VirtualOutputSupervisor : BackgroundService, IVirtualOutputW
                         var renewedTicket = _authority.CreateActivation(
                             device.Id,
                             package.Manifest.WorkerId,
-                            WorkerCapabilities,
+                            _workerCapabilities,
                             _options.BootstrapLifetime,
                             leaseLifetime);
                         currentGeneration = renewedTicket.Generation;
@@ -937,7 +939,8 @@ public sealed class VirtualOutputSupervisor : BackgroundService, IVirtualOutputW
         IVirtualOutputWorkerProcess Process,
         IReadOnlyList<string> Bindings,
         int RestartCount,
-        DateTimeOffset BootstrapExpiresUtc)
+        DateTimeOffset BootstrapExpiresUtc
+    )
     {
         /// <summary>Gets or sets whether this generation has registered with the authority.</summary>
         public bool HasRegistered { get; set; }

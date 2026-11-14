@@ -1,6 +1,5 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Lineup.Integration.Streaming.Sweep;
 using Xunit;
 
 namespace Lineup.Integration.Streaming.Sweep.Tests;
@@ -316,10 +315,13 @@ public sealed class SweepPersistenceTests
 
     private sealed class TemporaryDirectory : IDisposable
     {
+        /// <summary>Gets the path.</summary>
         internal string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "lineup-sweep-tests", Guid.NewGuid().ToString("N"));
 
+        /// <summary>Initializes the temporary directory.</summary>
         internal TemporaryDirectory() => Directory.CreateDirectory(Path);
 
+        /// <inheritdoc />
         public void Dispose() => Directory.Delete(Path, true);
     }
 }

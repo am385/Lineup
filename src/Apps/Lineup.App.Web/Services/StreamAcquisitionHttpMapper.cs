@@ -1,5 +1,3 @@
-using Lineup.Core.Extensibility.Streaming;
-
 namespace Lineup.App.Web.Services;
 
 /// <summary>Describes a safe HTTP response for a route-level source acquisition failure.</summary>

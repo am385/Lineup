@@ -94,7 +94,8 @@ public sealed record CmafPlayerText(
     string CompatibilityPlaybackFailed,
     string CompatibilityTrackLabel,
     string CompatibilityPresentationLoadFailed,
-    string SelectedSubtitles)
+    string SelectedSubtitles
+)
 {
     /// <summary>Creates localized text for live playback.</summary>
     public static CmafPlayerText Live(IStringLocalizer<UiStrings> text) =>

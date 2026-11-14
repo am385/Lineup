@@ -1,4 +1,3 @@
-using Lineup.Core.Common.Streaming;
 using Lineup.Core.VirtualOutputs.Hosting;
 using Xunit;
 

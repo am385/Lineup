@@ -1,11 +1,9 @@
 namespace Lineup.Integration.Streaming.Sweep;
 
+/// <summary>Represents the sweep harness.</summary>
 internal sealed partial class SweepHarness
 {
-    private async Task WriteIssue3SummaryAsync(
-        string runRoot,
-        IReadOnlyList<MatrixDefinition> matrices,
-        IReadOnlyList<DedicatedFailureResult> failureResults)
+    private async Task WriteIssue3SummaryAsync(string runRoot, IReadOnlyList<MatrixDefinition> matrices, IReadOnlyList<DedicatedFailureResult> failureResults)
     {
         var terminals = (await JsonSequence.ReadAsync(Path.Combine(runRoot, "events.jsonl")))
             .Where(node => node?["type"]?.GetValue<string>() == "channel-terminal")
@@ -33,11 +31,7 @@ internal sealed partial class SweepHarness
         await File.WriteAllTextAsync(Path.Combine(runRoot, "issue3-summary.md"), summary.ToString());
     }
 
-    private async Task WriteIssue4SummaryAsync(
-        string runRoot,
-        IReadOnlyList<MatrixDefinition> matrices,
-        IReadOnlyList<Issue4FailureCase> failureCases,
-        IReadOnlyList<Issue4FailureResult> failureResults)
+    private async Task WriteIssue4SummaryAsync(string runRoot, IReadOnlyList<MatrixDefinition> matrices, IReadOnlyList<Issue4FailureCase> failureCases, IReadOnlyList<Issue4FailureResult> failureResults)
     {
         var terminals = (await JsonSequence.ReadAsync(Path.Combine(runRoot, "events.jsonl")))
             .Where(node => node?["type"]?.GetValue<string>() == "channel-terminal")
@@ -75,7 +69,8 @@ internal sealed partial class SweepHarness
         IReadOnlyList<MatrixDefinition> matrices,
         IReadOnlyList<ChannelAttemptResult> controlResults,
         IReadOnlyList<ChannelAttemptResult> delayedAudioResults,
-        IReadOnlyList<ChannelAttemptResult> videoOnlyResults)
+        IReadOnlyList<ChannelAttemptResult> videoOnlyResults
+    )
     {
         var summary = new StringBuilder("# Issue 5 provisional probe-metadata integration sweep\n\n");
         summary.AppendLine($"Completed: {DateTimeOffset.UtcNow:O}\n");
@@ -106,7 +101,8 @@ internal sealed partial class SweepHarness
         IReadOnlyList<MatrixDefinition> matrices,
         IReadOnlyList<ChannelAttemptResult> controlResults,
         IReadOnlyList<Issue6ErrorResult> errorResults,
-        IReadOnlyList<ChannelAttemptResult> slateResults)
+        IReadOnlyList<ChannelAttemptResult> slateResults
+    )
     {
         var summary = new StringBuilder("# Issue 6 early protected-content integration sweep\n\n");
         summary.AppendLine($"Completed: {DateTimeOffset.UtcNow:O}\n");
@@ -144,10 +140,7 @@ internal sealed partial class SweepHarness
         return $"HTTP {result.Response.Status} `{result.Response.Body?["code"]}`";
     }
 
-    private async Task WriteIssue2SummaryAsync(
-        string runRoot,
-        IReadOnlyList<MatrixDefinition> matrices,
-        IReadOnlyList<DedicatedFailureResult> failureResults)
+    private async Task WriteIssue2SummaryAsync(string runRoot, IReadOnlyList<MatrixDefinition> matrices, IReadOnlyList<DedicatedFailureResult> failureResults)
     {
         var terminals = (await JsonSequence.ReadAsync(Path.Combine(runRoot, "events.jsonl")))
             .Where(node => node?["type"]?.GetValue<string>() == "channel-terminal")

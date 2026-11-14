@@ -1,9 +1,5 @@
 using System.Threading.Channels;
-using Lineup.Core.Settings;
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 
 namespace Lineup.Core.Hosting;
 
@@ -24,10 +20,7 @@ public sealed class PhysicalDeviceRefreshService : BackgroundService
         });
 
     /// <summary>Initializes a catalog-wide physical-device refresh service.</summary>
-    public PhysicalDeviceRefreshService(
-        IPhysicalDeviceStatusService devices,
-        ILineupSettingsService settings,
-        ILogger<PhysicalDeviceRefreshService> logger)
+    public PhysicalDeviceRefreshService(IPhysicalDeviceStatusService devices, ILineupSettingsService settings, ILogger<PhysicalDeviceRefreshService> logger)
     {
         _devices = devices;
         _settings = settings;

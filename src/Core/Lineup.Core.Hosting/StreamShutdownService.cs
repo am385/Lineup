@@ -1,7 +1,4 @@
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 
 namespace Lineup.Core.Hosting;
 
@@ -22,11 +19,7 @@ public sealed class StreamShutdownService : IHostedService
     /// <param name="sharedStreams">Shared streaming producers.</param>
     /// <param name="logger">Shutdown diagnostics logger.</param>
     /// <param name="streamDrainTimeout">Optional active-stream drain timeout used by tests.</param>
-    public StreamShutdownService(
-        IActiveStreamRegistry activeStreams,
-        ISharedStreamShutdown sharedStreams,
-        ILogger<StreamShutdownService> logger,
-        TimeSpan? streamDrainTimeout = null)
+    public StreamShutdownService(IActiveStreamRegistry activeStreams, ISharedStreamShutdown sharedStreams, ILogger<StreamShutdownService> logger, TimeSpan? streamDrainTimeout = null)
     {
         _activeStreams = activeStreams;
         _sharedStreams = sharedStreams;
@@ -34,10 +27,14 @@ public sealed class StreamShutdownService : IHostedService
         _streamDrainTimeout = streamDrainTimeout ?? TimeSpan.FromSeconds(5);
     }
 
-    /// <inheritdoc />
+    /// <summary>Starts the stream shutdown service asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-    /// <inheritdoc />
+    /// <summary>Stops the stream shutdown service asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         using var drainCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

@@ -1,5 +1,6 @@
 namespace Lineup.Integration.Streaming.Sweep;
 
+/// <summary>Represents the sweep harness.</summary>
 internal sealed partial class SweepHarness
 {
     private async Task CaptureStartupAndReleaseAsync(
@@ -7,7 +8,8 @@ internal sealed partial class SweepHarness
         SweepAttempt attempt,
         RunJournal journal,
         StartupRequestEvidence? request,
-        System.Collections.Concurrent.ConcurrentDictionary<IRequest, StartupRequestEvidence> pending)
+        System.Collections.Concurrent.ConcurrentDictionary<IRequest, StartupRequestEvidence> pending
+    )
     {
         try
         {
@@ -99,7 +101,11 @@ internal sealed partial class SweepHarness
     }
 
     private async Task<bool> VerifyBaselineAsync(
-        MatrixDefinition matrix, PlaybackBaseline baseline, System.Collections.Concurrent.ConcurrentDictionary<IRequest, StartupRequestEvidence> pendingStarts, CancellationToken cancellationToken)
+        MatrixDefinition matrix,
+        PlaybackBaseline baseline,
+        System.Collections.Concurrent.ConcurrentDictionary<IRequest, StartupRequestEvidence> pendingStarts,
+        CancellationToken cancellationToken
+    )
     {
         cancellationToken.ThrowIfCancellationRequested();
         var status = await GetStatusAsync(matrix.WatchUrl).WaitAsync(cancellationToken);

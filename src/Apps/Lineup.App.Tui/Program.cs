@@ -1,6 +1,5 @@
 using System.Reflection;
 using Lineup.Core;
-using Lineup.Core.Common.Guides;
 using Lineup.Core.Extensibility.Guides;
 using Lineup.Core.Settings;
 using Lineup.Core.Storage;
@@ -15,7 +14,6 @@ using Lineup.Plugin.SiliconDust.HDHomeRun.VirtualTuner;
 using Lineup.Plugin.WebPlayer;
 using Lineup.Plugin.GuideOutputs.Xmltv.Plugin;
 using Lineup.Core.Hosting;
-using Lineup.Core.Streaming.FFmpeg;
 using Lineup.Core.VirtualOutputs.Protocol;
 using Lineup.Core.VirtualOutputs.Runtime;
 using Microsoft.Extensions.Configuration;
@@ -163,9 +161,7 @@ class Program
         }
     }
 
-    private static VirtualOutputRuntimeOptions CreateVirtualOutputRuntimeOptions(
-        IConfiguration configuration,
-        ITransientDataStore transientDataStore)
+    private static VirtualOutputRuntimeOptions CreateVirtualOutputRuntimeOptions(IConfiguration configuration, ITransientDataStore transientDataStore)
     {
         var endpoint = OperatingSystem.IsWindows()
             ? new VirtualOutputIpcEndpoint
@@ -232,7 +228,8 @@ class Program
         IPhysicalLineupService lineups,
         IGuideOrchestrator guides,
         StreamingConfiguration configuration,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default
+    )
     {
         var results = await lineups.RefreshAsync(configuration, cancellationToken);
         await guides.ApplyAsync(configuration, cancellationToken);
@@ -464,9 +461,9 @@ class Program
 
             AnsiConsole.MarkupLine($"[green]Exported to {destination} successfully![/]");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
-            AnsiConsole.MarkupLine($"[red]Error exporting file: {ex.Message}[/]");
+            AnsiConsole.MarkupLine($"[red]Error exporting file: {Markup.Escape(ex.Message)}[/]");
         }
 
         WaitForKey();

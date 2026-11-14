@@ -1,4 +1,3 @@
-using Lineup.Core.Extensibility.Streaming;
 using Lineup.Core.Streaming.FFmpeg;
 
 namespace Lineup.Core.Hosting.Streaming;
@@ -14,12 +13,7 @@ public interface IVirtualMpegTsOutputService
 }
 
 /// <summary>Owns one virtual MPEG-TS output stream and its effective metadata.</summary>
-public sealed record VirtualMpegTsOutput(
-    Stream Stream,
-    MediaProbeResult RawSource,
-    MediaProbeResult Source,
-    VirtualTranscodeProfile Profile,
-    ActiveStreamFlowContext Flow) : IAsyncDisposable
+public sealed record VirtualMpegTsOutput(Stream Stream, MediaProbeResult RawSource, MediaProbeResult Source, VirtualTranscodeProfile Profile, ActiveStreamFlowContext Flow) : IAsyncDisposable
 {
     /// <inheritdoc />
     public ValueTask DisposeAsync() => Stream.DisposeAsync();
@@ -42,7 +36,8 @@ public sealed class VirtualMpegTsOutputService : IVirtualMpegTsOutputService
         IMediaProbeService probe,
         ITunerStreamMultiplexer multiplexer,
         IChannelSlateStreamFactory slates,
-        ILogger<VirtualMpegTsOutputService> logger)
+        ILogger<VirtualMpegTsOutputService> logger
+    )
     {
         _routes = routes;
         _settings = settings;
@@ -52,25 +47,23 @@ public sealed class VirtualMpegTsOutputService : IVirtualMpegTsOutputService
         _logger = logger;
     }
 
-    /// <inheritdoc />
-    public async Task<VirtualMpegTsOutput> OpenAsync(
-        VirtualDeviceId virtualDeviceId,
-        string channelNumber,
-        CancellationToken cancellationToken)
+    /// <summary>Opens the virtual mpeg ts output service asynchronously.</summary>
+    /// <param name="virtualDeviceId">The virtual device ID value.</param>
+    /// <param name="channelNumber">The channel number value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
+    public async Task<VirtualMpegTsOutput> OpenAsync(VirtualDeviceId virtualDeviceId, string channelNumber, CancellationToken cancellationToken)
         => await OpenCoreAsync(virtualDeviceId, channelNumber, applyVirtualProfile: true, cancellationToken);
 
-    /// <inheritdoc />
-    public async Task<VirtualMpegTsOutput> OpenPhysicalOutputAsync(
-        VirtualDeviceId virtualDeviceId,
-        string channelNumber,
-        CancellationToken cancellationToken)
+    /// <summary>Opens physical output asynchronously.</summary>
+    /// <param name="virtualDeviceId">The virtual device ID value.</param>
+    /// <param name="channelNumber">The channel number value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
+    public async Task<VirtualMpegTsOutput> OpenPhysicalOutputAsync(VirtualDeviceId virtualDeviceId, string channelNumber, CancellationToken cancellationToken)
         => await OpenCoreAsync(virtualDeviceId, channelNumber, applyVirtualProfile: false, cancellationToken);
 
-    private async Task<VirtualMpegTsOutput> OpenCoreAsync(
-        VirtualDeviceId virtualDeviceId,
-        string channelNumber,
-        bool applyVirtualProfile,
-        CancellationToken cancellationToken)
+    private async Task<VirtualMpegTsOutput> OpenCoreAsync(VirtualDeviceId virtualDeviceId, string channelNumber, bool applyVirtualProfile, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(channelNumber);
         var route = await _routes.ResolveVirtualAsync(virtualDeviceId, channelNumber.Trim(), cancellationToken)
@@ -182,9 +175,7 @@ public sealed class VirtualMpegTsOutputService : IVirtualMpegTsOutputService
             });
     }
 
-    private async Task<MediaProbeResult> ProbeBestEffortAsync(
-        ResolvedStreamingCandidate candidate,
-        CancellationToken cancellationToken)
+    private async Task<MediaProbeResult> ProbeBestEffortAsync(ResolvedStreamingCandidate candidate, CancellationToken cancellationToken)
     {
         try
         {

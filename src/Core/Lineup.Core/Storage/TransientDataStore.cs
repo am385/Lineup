@@ -22,14 +22,19 @@ public sealed class TransientDataStore : ITransientDataStore
     /// <summary>Gets the normalized transient root.</summary>
     public string RootPath { get; }
 
-    /// <inheritdoc />
+    /// <summary>Gets workspace root.</summary>
+    /// <param name="workspaceName">The workspace name value.</param>
+    /// <returns>The operation's result.</returns>
     public string GetWorkspaceRoot(string workspaceName)
     {
         ValidatePathComponent(workspaceName, nameof(workspaceName));
         return _files.GetPath(workspaceName);
     }
 
-    /// <inheritdoc />
+    /// <summary>Creates session directory.</summary>
+    /// <param name="workspaceName">The workspace name value.</param>
+    /// <param name="sessionId">Playback session identity.</param>
+    /// <returns>The operation's result.</returns>
     public string CreateSessionDirectory(string workspaceName, string sessionId)
     {
         ValidatePathComponent(sessionId, nameof(sessionId));
@@ -39,7 +44,9 @@ public sealed class TransientDataStore : ITransientDataStore
         return directory;
     }
 
-    /// <inheritdoc />
+    /// <summary>Resets process workspace.</summary>
+    /// <param name="workspaceName">The workspace name value.</param>
+    /// <returns>The operation's result.</returns>
     public string ResetProcessWorkspace(string workspaceName)
     {
         var directory = TransientDirectoryOwnership.CreateCurrentDirectory(GetWorkspaceRoot(workspaceName));
@@ -51,7 +58,10 @@ public sealed class TransientDataStore : ITransientDataStore
         return directory;
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets file path.</summary>
+    /// <param name="directoryPath">The directory path value.</param>
+    /// <param name="fileName">The file name value.</param>
+    /// <returns>The operation's result.</returns>
     public string GetFilePath(string directoryPath, string fileName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
@@ -62,19 +72,28 @@ public sealed class TransientDataStore : ITransientDataStore
         return _files.GetPath(Path.GetRelativePath(RootPath, Path.Combine(directoryPath, fileName)));
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes file exists.</summary>
+    /// <param name="path">Path used by the operation.</param>
+    /// <returns>The operation's result.</returns>
     public bool FileExists(string path) => _files.FileExists(path);
 
-    /// <inheritdoc />
+    /// <summary>Executes enumerate files.</summary>
+    /// <param name="directoryPath">The directory path value.</param>
+    /// <param name="pattern">The pattern value.</param>
+    /// <returns>The operation's result.</returns>
     public IReadOnlyList<string> EnumerateFiles(string directoryPath, string pattern) => _files.EnumerateFiles(directoryPath, pattern);
 
-    /// <inheritdoc />
+    /// <summary>Opens read.</summary>
+    /// <param name="path">Path used by the operation.</param>
+    /// <returns>The operation's result.</returns>
     public Stream? OpenRead(string path) => _files.OpenRead(path);
 
-    /// <inheritdoc />
+    /// <summary>Deletes file.</summary>
+    /// <param name="path">Path used by the operation.</param>
     public void DeleteFile(string path) => _files.DeleteFile(path);
 
-    /// <inheritdoc />
+    /// <summary>Deletes files.</summary>
+    /// <param name="directoryPath">The directory path value.</param>
     public void DeleteFiles(string directoryPath)
     {
         foreach (var path in _files.EnumerateFiles(directoryPath, "*"))
@@ -83,13 +102,14 @@ public sealed class TransientDataStore : ITransientDataStore
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Deletes directory.</summary>
+    /// <param name="directoryPath">The directory path value.</param>
     public void DeleteDirectory(string directoryPath) => _files.DeleteDirectory(directoryPath, recursive: true);
 
-    /// <inheritdoc />
+    /// <summary>Deletes contents.</summary>
     public void DeleteContents() => _files.DeleteContents();
 
-    /// <inheritdoc />
+    /// <summary>Deletes inactive owner directories.</summary>
     public void DeleteInactiveOwnerDirectories()
     {
         DeleteInactiveOwnerDirectories(TransientDirectoryOwnership.GetOwnerStatus);

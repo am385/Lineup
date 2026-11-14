@@ -349,6 +349,8 @@
   <data name="Settings_GuideOutputDirectoryHelpPrefix" xml:space="preserve"><value>Lineup は、このディレクトリ内の</value></data>
   <data name="Settings_GuideOutputDirectoryHelpSuffix" xml:space="preserve"><value>へアトミックに公開します。</value></data>
   <data name="Settings_GuideOutputDirectoryLabel" xml:space="preserve"><value>出力ディレクトリ</value></data>
+  <data name="Settings_GuideOutputIncludeUnavailableProgramsHelp" xml:space="preserve"><value>ガイドデータがないチャンネルに Not Available 番組を公開します。Jellyfin の放送中の番組一覧にこれらの仮の番組が表示されないよう、既定では無効です。</value></data>
+  <data name="Settings_GuideOutputIncludeUnavailableProgramsLabel" xml:space="preserve"><value>番組情報がない場合に仮の番組を含める</value></data>
   <data name="Settings_GuideOutputKeyHelp" xml:space="preserve"><value>Lineup はこの値を、英小文字、数字、アンダースコアのみを含む識別子に整形します。</value></data>
   <data name="Settings_GuideOutputKeyLabel" xml:space="preserve"><value>出力キー</value></data>
   <data name="Settings_GuideOutputKeyWarning" xml:space="preserve"><value>このキーを変更すると、わかりやすい API URL と生成ファイル名が変わります。いずれかの場所を使用している既存クライアントを更新する必要があります。</value></data>

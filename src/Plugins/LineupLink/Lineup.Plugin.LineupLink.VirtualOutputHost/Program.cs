@@ -1,12 +1,10 @@
 using System.Net.Http.Headers;
 using System.Text.Json;
-using Lineup.Core.Common.Streaming;
 using Lineup.Plugin.LineupLink.Guides;
 using Lineup.Plugin.LineupLink.Protocol;
 using Lineup.Plugin.LineupLink.Virtual;
 using Lineup.Core.VirtualOutputs.Hosting;
 using Lineup.Core.VirtualOutputs.Protocol;
-using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Primitives;
 
 var bootstrap = await VirtualOutputWorkerBootstrapReader.ReadAsync(cancellationToken: CancellationToken.None);

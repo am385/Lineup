@@ -1,10 +1,8 @@
 using System.Text.Json;
 using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Lineup.Core.Guides;
 using Lineup.Core.Settings;
 using Lineup.Core.Streaming;
-using Lineup.Core.Streaming.FFmpeg;
 using Lineup.Core.VirtualOutputs.Protocol;
 using NSubstitute;
 using Xunit;

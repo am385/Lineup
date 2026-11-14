@@ -1,8 +1,5 @@
 using System.Text.Json;
 using Lineup.Core.Common.Configuration;
-using Lineup.Core.Common.Networking;
-using Lineup.Core.Extensibility.Configuration;
-using Lineup.Core.Hosting;
 using Lineup.Plugin.LineupLink.Protocol;
 using Lineup.Plugin.LineupLink.Virtual;
 using Lineup.Plugin.GuideOutputs.Xmltv.Plugin;
@@ -25,7 +22,7 @@ public partial class Settings : IDisposable
     [Inject]
     private LineupStartupState StartupState { get; set; } = default!;
 
-    private readonly IFileSystemBrowser FileSystem = new FileSystemBrowser();
+    private readonly IFileSystemBrowser _fileSystem = new FileSystemBrowser();
 
     [Inject]
     private NavigationManager Navigation { get; set; } = default!;
@@ -125,18 +122,31 @@ public partial class Settings : IDisposable
     private bool _applicationLoggingApplyPending;
     private bool _disposed;
 
+    /// <summary>Gets the topology.</summary>
     internal TopologySettingsModel Topology => _topology;
+    /// <summary>Gets the available physical tuner drivers.</summary>
     internal IReadOnlyList<IPhysicalTunerDriver> AvailablePhysicalTunerDrivers => _availablePhysicalTunerDrivers;
+    /// <summary>Gets the available virtual tuner drivers.</summary>
     internal IReadOnlyList<IVirtualTunerDriver> AvailableVirtualTunerDrivers => _availableVirtualTunerDrivers;
+    /// <summary>Gets the available guide source drivers.</summary>
     internal IReadOnlyList<IGuideSourceDriver> AvailableGuideSourceDrivers => _availableGuideSourceDrivers;
+    /// <summary>Gets the available guide output drivers.</summary>
     internal IReadOnlyList<IGuideOutputDriver> AvailableGuideOutputDrivers => _availableGuideOutputDrivers;
+    /// <summary>Gets the configured XMLTV output path.</summary>
     internal string ConfiguredXmltvOutputPath => SettingsService.ConfiguredXmltvOutputPath;
+    /// <summary>Gets or sets the auto fetch enabled.</summary>
     internal bool AutoFetchEnabled { get => _autoFetchEnabled; set => _autoFetchEnabled = value; }
+    /// <summary>Gets or sets the refresh channels before guide fetch.</summary>
     internal bool RefreshChannelsBeforeGuideFetch { get => _refreshChannelsBeforeGuideFetch; set => _refreshChannelsBeforeGuideFetch = value; }
+    /// <summary>Gets or sets the epg history retention hours.</summary>
     internal int EpgHistoryRetentionHours { get => _epgHistoryRetentionHours; set => _epgHistoryRetentionHours = value; }
+    /// <summary>Gets or sets the device refresh interval minutes.</summary>
     internal int DeviceRefreshIntervalMinutes { get => _deviceRefreshIntervalMinutes; set => _deviceRefreshIntervalMinutes = value; }
+    /// <summary>Gets or sets the tuner refresh interval seconds.</summary>
     internal int TunerRefreshIntervalSeconds { get => _tunerRefreshIntervalSeconds; set => _tunerRefreshIntervalSeconds = value; }
+    /// <summary>Gets or sets the auto generate XMLTV.</summary>
     internal bool AutoGenerateXmltv { get => _autoGenerateXmltv; set => _autoGenerateXmltv = value; }
+    /// <summary>Gets or sets the XMLTV output path.</summary>
     internal string XmltvOutputPath
     {
         get => SelectedGuideOutput?.OutputPath ?? _xmltvOutputPath;
@@ -156,6 +166,7 @@ public partial class Settings : IDisposable
             }
         }
     }
+    /// <summary>Gets or sets the guide output directory path.</summary>
     internal string GuideOutputDirectoryPath
     {
         get
@@ -167,7 +178,7 @@ public partial class Settings : IDisposable
             }
             try
             {
-                return Path.GetDirectoryName(FileSystem.ResolvePath(path)) ?? string.Empty;
+                return Path.GetDirectoryName(_fileSystem.ResolvePath(path)) ?? string.Empty;
             }
             catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
             {
@@ -193,15 +204,25 @@ public partial class Settings : IDisposable
             XmltvOutputPath = Path.Combine(value.Trim(), fileName);
         }
     }
+    /// <summary>Gets or sets the enable network discovery.</summary>
     internal bool EnableNetworkDiscovery { get => _enableNetworkDiscovery; set => _enableNetworkDiscovery = value; }
+    /// <summary>Gets or sets the show directory browser.</summary>
     internal bool ShowDirectoryBrowser { get => _showDirectoryBrowser; set => _showDirectoryBrowser = value; }
+    /// <summary>Gets the current directory.</summary>
     internal string CurrentDirectory => _currentDirectory;
+    /// <summary>Gets the directories.</summary>
     internal IReadOnlyList<string> Directories => _directories;
+    /// <summary>Gets the directory error.</summary>
     internal string? DirectoryError => _directoryError;
+    /// <summary>Gets or sets the show physical device type picker value.</summary>
     internal bool ShowPhysicalDeviceTypePickerValue { get => _showPhysicalDeviceTypePicker; set => _showPhysicalDeviceTypePicker = value; }
+    /// <summary>Gets or sets the show virtual device type picker value.</summary>
     internal bool ShowVirtualDeviceTypePickerValue { get => _showVirtualDeviceTypePicker; set => _showVirtualDeviceTypePicker = value; }
+    /// <summary>Gets or sets the show guide source type picker value.</summary>
     internal bool ShowGuideSourceTypePickerValue { get => _showGuideSourceTypePicker; set => _showGuideSourceTypePicker = value; }
+    /// <summary>Gets or sets the show guide output type picker value.</summary>
     internal bool ShowGuideOutputTypePickerValue { get => _showGuideOutputTypePicker; set => _showGuideOutputTypePicker = value; }
+    /// <summary>Gets or sets the selected physical device ID.</summary>
     internal PhysicalDeviceId? SelectedPhysicalDeviceId
     {
         get => _selectedPhysicalDeviceId;
@@ -212,6 +233,7 @@ public partial class Settings : IDisposable
         }
     }
 
+    /// <summary>Gets or sets the selected virtual device ID.</summary>
     internal VirtualDeviceId? SelectedVirtualDeviceId
     {
         get => _selectedVirtualDeviceId;
@@ -222,6 +244,7 @@ public partial class Settings : IDisposable
         }
     }
 
+    /// <summary>Gets or sets the selected guide source ID.</summary>
     internal GuideSourceId? SelectedGuideSourceId
     {
         get => _selectedGuideSourceId;
@@ -232,6 +255,7 @@ public partial class Settings : IDisposable
         }
     }
 
+    /// <summary>Gets or sets the selected guide output ID.</summary>
     internal GuideOutputId? SelectedGuideOutputId
     {
         get => _selectedGuideOutputId;
@@ -243,9 +267,11 @@ public partial class Settings : IDisposable
         }
     }
 
+    /// <summary>Gets the selected guide output.</summary>
     internal GuideOutputSettingsModel? SelectedGuideOutput =>
         _topology.GuideOutputs.FirstOrDefault(output => output.Id == _selectedGuideOutputId);
 
+    /// <summary>Requests a render after an editor changes the pending settings.</summary>
     internal void NotifySettingsUiChanged() => StateHasChanged();
 
     /// <inheritdoc />
@@ -828,6 +854,7 @@ public partial class Settings : IDisposable
         }
     }
 
+    /// <summary>Resets XMLTV output path.</summary>
     internal void ResetXmltvOutputPath()
     {
         if (SelectedGuideOutput is { IsBuiltIn: true } output)
@@ -837,6 +864,8 @@ public partial class Settings : IDisposable
         _xmltvOutputPath = SettingsService.ConfiguredXmltvOutputPath;
     }
 
+    /// <summary>Determines whether the edited XMLTV destination differs from the persisted output path.</summary>
+    /// <returns>The operation's result.</returns>
     internal bool XmltvOutputPathDiffersFromConfigured()
     {
         try
@@ -851,15 +880,16 @@ public partial class Settings : IDisposable
         }
     }
 
+    /// <summary>Browses directory.</summary>
     internal void BrowseDirectory()
     {
         _showDirectoryBrowser = true;
         _directoryError = null;
         try
         {
-            var resolvedPath = FileSystem.ResolvePath(SelectedGuideOutput?.OutputPath ?? _xmltvOutputPath);
+            var resolvedPath = _fileSystem.ResolvePath(SelectedGuideOutput?.OutputPath ?? _xmltvOutputPath);
             var directory = Path.GetDirectoryName(resolvedPath);
-            if (!string.IsNullOrEmpty(directory) && FileSystem.DirectoryExists(directory))
+            if (!string.IsNullOrEmpty(directory) && _fileSystem.DirectoryExists(directory))
             {
                 _currentDirectory = directory;
                 LoadDirectories();
@@ -871,10 +901,11 @@ public partial class Settings : IDisposable
             _directoryError = Text["Settings_CurrentGuidePathInvalid"];
         }
 
-        _currentDirectory = FileSystem.GetCurrentDirectory();
+        _currentDirectory = _fileSystem.GetCurrentDirectory();
         LoadDirectories();
     }
 
+    /// <summary>Closes directory browser.</summary>
     internal void CloseDirectoryBrowser()
     {
         _showDirectoryBrowser = false;
@@ -885,7 +916,7 @@ public partial class Settings : IDisposable
         _directoryError = null;
         try
         {
-            _directories = FileSystem.GetDirectories(_currentDirectory).ToArray();
+            _directories = _fileSystem.GetDirectories(_currentDirectory).ToArray();
         }
         catch (UnauthorizedAccessException)
         {
@@ -899,15 +930,18 @@ public partial class Settings : IDisposable
         }
     }
 
+    /// <summary>Navigates to directory.</summary>
+    /// <param name="path">Path used by the operation.</param>
     internal void NavigateToDirectory(string path)
     {
         _currentDirectory = path;
         LoadDirectories();
     }
 
+    /// <summary>Navigates up.</summary>
     internal void NavigateUp()
     {
-        var parent = FileSystem.GetParent(_currentDirectory);
+        var parent = _fileSystem.GetParent(_currentDirectory);
         if (parent != null)
         {
             _currentDirectory = parent;
@@ -915,14 +949,17 @@ public partial class Settings : IDisposable
         }
     }
 
-    internal bool CanNavigateUp => !string.IsNullOrEmpty(_currentDirectory) && FileSystem.GetParent(_currentDirectory) != null;
+    /// <summary>Gets the can navigate up.</summary>
+    internal bool CanNavigateUp => !string.IsNullOrEmpty(_currentDirectory) && _fileSystem.GetParent(_currentDirectory) != null;
 
+    /// <summary>Selects XMLTV path.</summary>
     internal void SelectXmltvPath()
     {
         GuideOutputDirectoryPath = _currentDirectory;
         _showDirectoryBrowser = false;
     }
 
+    /// <summary>Gets the resolved XMLTV output path.</summary>
     internal string? ResolvedXmltvOutputPath
     {
         get
@@ -935,7 +972,7 @@ public partial class Settings : IDisposable
 
             try
             {
-                return FileSystem.ResolvePath(path);
+                return _fileSystem.ResolvePath(path);
             }
             catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
             {
@@ -944,6 +981,7 @@ public partial class Settings : IDisposable
         }
     }
 
+    /// <summary>Shows physical device type picker.</summary>
     internal void ShowPhysicalDeviceTypePicker()
     {
         if (_availablePhysicalTunerDrivers.Count == 0)
@@ -955,6 +993,8 @@ public partial class Settings : IDisposable
         _showPhysicalDeviceTypePicker = true;
     }
 
+    /// <summary>Adds physical device.</summary>
+    /// <param name="driver">The driver value.</param>
     internal void AddPhysicalDevice(IPhysicalTunerDriver driver)
     {
         var device = _topologyEditor.AddPhysicalDevice(_topology, driver);
@@ -962,6 +1002,8 @@ public partial class Settings : IDisposable
         _showPhysicalDeviceTypePicker = false;
     }
 
+    /// <summary>Removes physical device.</summary>
+    /// <param name="id">The ID value.</param>
     internal void RemovePhysicalDevice(PhysicalDeviceId id)
     {
         _topologyEditor.RemovePhysicalDevice(_topology, id);
@@ -972,15 +1014,27 @@ public partial class Settings : IDisposable
         }
     }
 
+    /// <summary>Gets physical device type name.</summary>
+    /// <param name="device">The device value.</param>
+    /// <returns>The operation's result.</returns>
     internal string GetPhysicalDeviceTypeName(PhysicalDeviceSettingsModel device) =>
         PhysicalTunerDrivers.FirstOrDefault(driver => string.Equals(driver.Kind, device.Kind, StringComparison.OrdinalIgnoreCase))?.DisplayName ?? device.Kind;
 
+    /// <summary>Determines support for physical device probe.</summary>
+    /// <param name="device">The device value.</param>
+    /// <returns>The operation's result.</returns>
     internal bool SupportsPhysicalDeviceProbe(PhysicalDeviceSettingsModel device) =>
         FindPhysicalTunerDriver(device) is IPhysicalDeviceProbe;
 
+    /// <summary>Gets physical device probe state.</summary>
+    /// <param name="device">The device value.</param>
+    /// <returns>The operation's result.</returns>
     internal PhysicalDeviceProbeState? GetPhysicalDeviceProbeState(PhysicalDeviceSettingsModel device) =>
         _physicalDeviceProbeStates.GetValueOrDefault(device.Id);
 
+    /// <summary>Tests and identify physical device asynchronously.</summary>
+    /// <param name="device">The device value.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     internal async Task TestAndIdentifyPhysicalDeviceAsync(PhysicalDeviceSettingsModel device)
     {
         var driver = FindPhysicalTunerDriver(device);
@@ -1032,6 +1086,8 @@ public partial class Settings : IDisposable
         }
     }
 
+    /// <summary>Uses discovered physical device name.</summary>
+    /// <param name="device">The device value.</param>
     internal void UseDiscoveredPhysicalDeviceName(PhysicalDeviceSettingsModel device)
     {
         var suggestedName = GetPhysicalDeviceProbeState(device)?.Result?.SuggestedName;
@@ -1041,6 +1097,8 @@ public partial class Settings : IDisposable
         }
     }
 
+    /// <summary>Clears physical device probe state.</summary>
+    /// <param name="device">The device value.</param>
     internal void ClearPhysicalDeviceProbeState(PhysicalDeviceSettingsModel device)
     {
         if (GetPhysicalDeviceProbeState(device)?.IsTesting == true)
@@ -1066,6 +1124,7 @@ public partial class Settings : IDisposable
     private IPhysicalTunerDriver? FindPhysicalTunerDriver(PhysicalDeviceSettingsModel device) =>
         PhysicalTunerDrivers.FirstOrDefault(driver => string.Equals(driver.Kind, device.Kind, StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>Shows virtual device type picker.</summary>
     internal void ShowVirtualDeviceTypePicker()
     {
         if (_availableVirtualTunerDrivers.Count == 0)
@@ -1077,6 +1136,8 @@ public partial class Settings : IDisposable
         _showVirtualDeviceTypePicker = true;
     }
 
+    /// <summary>Adds virtual device.</summary>
+    /// <param name="driver">The driver value.</param>
     internal void AddVirtualDevice(IVirtualTunerDriver driver)
     {
         var device = _topologyEditor.AddVirtualDevice(_topology, driver);
@@ -1084,9 +1145,13 @@ public partial class Settings : IDisposable
         _showVirtualDeviceTypePicker = false;
     }
 
+    /// <summary>Gets virtual device type name.</summary>
+    /// <param name="device">The device value.</param>
+    /// <returns>The operation's result.</returns>
     internal string GetVirtualDeviceTypeName(VirtualDeviceSettingsModel device) =>
         VirtualTunerDrivers.FirstOrDefault(driver => string.Equals(driver.Kind, device.Kind, StringComparison.OrdinalIgnoreCase))?.DisplayName ?? device.Kind;
 
+    /// <summary>Shows guide source type picker.</summary>
     internal void ShowGuideSourceTypePicker()
     {
         if (!_availableGuideSourceDrivers.Any(CanAddGuideSource))
@@ -1098,6 +1163,8 @@ public partial class Settings : IDisposable
         _showGuideSourceTypePicker = true;
     }
 
+    /// <summary>Adds guide source.</summary>
+    /// <param name="driver">The driver value.</param>
     internal void AddGuideSource(IGuideSourceDriver driver)
     {
         var source = _topologyEditor.AddGuideSource(_topology, driver);
@@ -1105,6 +1172,8 @@ public partial class Settings : IDisposable
         _showGuideSourceTypePicker = false;
     }
 
+    /// <summary>Removes guide source.</summary>
+    /// <param name="id">The ID value.</param>
     internal void RemoveGuideSource(GuideSourceId id)
     {
         _topologyEditor.RemoveGuideSource(_topology, id);
@@ -1114,16 +1183,27 @@ public partial class Settings : IDisposable
         }
     }
 
+    /// <summary>Gets guide source type name.</summary>
+    /// <param name="source">The source value.</param>
+    /// <returns>The operation's result.</returns>
     internal string GetGuideSourceTypeName(GuideSourceSettingsModel source) =>
         GuideSourceDrivers.FirstOrDefault(driver => string.Equals(driver.Kind, source.Kind, StringComparison.OrdinalIgnoreCase))?.DisplayName ?? source.Kind;
 
+    /// <summary>Determines whether guide compatible.</summary>
+    /// <param name="source">The source value.</param>
+    /// <param name="device">The device value.</param>
+    /// <returns>The operation's result.</returns>
     internal bool IsGuideCompatible(GuideSourceSettingsModel source, PhysicalDeviceSettingsModel device) =>
         GuideSourceDrivers.FirstOrDefault(driver => string.Equals(driver.Kind, source.Kind, StringComparison.OrdinalIgnoreCase))
             ?.SupportsPhysicalAdapter(device.Kind) == true;
 
+    /// <summary>Determines whether add guide source.</summary>
+    /// <param name="driver">The driver value.</param>
+    /// <returns>The operation's result.</returns>
     internal bool CanAddGuideSource(IGuideSourceDriver driver) =>
         _topology.PhysicalDevices.Any(device => device.Enabled && driver.SupportsPhysicalAdapter(device.Kind));
 
+    /// <summary>Shows guide output type picker.</summary>
     internal void ShowGuideOutputTypePicker()
     {
         if (_availableGuideOutputDrivers.Count == 0)
@@ -1135,6 +1215,8 @@ public partial class Settings : IDisposable
         _showGuideOutputTypePicker = true;
     }
 
+    /// <summary>Adds guide output.</summary>
+    /// <param name="driver">The driver value.</param>
     internal void AddGuideOutput(IGuideOutputDriver driver)
     {
         var defaultOutputDirectory = Path.GetDirectoryName(Path.GetFullPath(_xmltvOutputPath))
@@ -1144,6 +1226,9 @@ public partial class Settings : IDisposable
         _showGuideOutputTypePicker = false;
     }
 
+    /// <summary>Updates guide output key.</summary>
+    /// <param name="output">The output value.</param>
+    /// <param name="value">The value value.</param>
     internal void UpdateGuideOutputKey(GuideOutputSettingsModel output, string value)
     {
         output.Key = string.IsNullOrWhiteSpace(value) ? string.Empty : GuideOutputKey.Create(value);
@@ -1156,6 +1241,8 @@ public partial class Settings : IDisposable
         }
     }
 
+    /// <summary>Removes guide output.</summary>
+    /// <param name="id">The ID value.</param>
     internal void RemoveGuideOutput(GuideOutputId id)
     {
         _topologyEditor.RemoveGuideOutput(_topology, id);
@@ -1166,18 +1253,26 @@ public partial class Settings : IDisposable
         }
     }
 
+    /// <summary>Gets guide output type name.</summary>
+    /// <param name="output">The output value.</param>
+    /// <returns>The operation's result.</returns>
     internal string GetGuideOutputTypeName(GuideOutputSettingsModel output) =>
         GuideOutputDrivers.FirstOrDefault(driver => string.Equals(driver.Kind, output.Kind, StringComparison.OrdinalIgnoreCase))?.DisplayName ?? output.Kind;
 
+    /// <summary>Determines whether XMLTV guide output.</summary>
+    /// <param name="output">The output value.</param>
+    /// <returns>The operation's result.</returns>
     internal static bool IsXmltvGuideOutput(GuideOutputSettingsModel output) =>
         IsXmltvGuideOutputKind(output.Kind);
 
     private static bool IsXmltvGuideOutputKind(string kind) =>
         string.Equals(kind, XmltvGuideOutputDriver.AdapterKind, StringComparison.OrdinalIgnoreCase);
 
-    internal static bool IsGuideOutputSettingVisible(
-        GuideOutputSettingsModel output,
-        AdapterSettingFieldSettingsModel setting) =>
+    /// <summary>Determines whether guide output setting visible.</summary>
+    /// <param name="output">The output value.</param>
+    /// <param name="setting">The setting value.</param>
+    /// <returns>The operation's result.</returns>
+    internal static bool IsGuideOutputSettingVisible(GuideOutputSettingsModel output, AdapterSettingFieldSettingsModel setting) =>
         setting.Descriptor.VisibleWhen.All(condition =>
         {
             var actual = output.AdapterSettings
@@ -1187,6 +1282,9 @@ public partial class Settings : IDisposable
             return condition.Operator == AdapterSettingConditionOperator.Equals ? equals : !equals;
         });
 
+    /// <summary>Gets guide output setting value.</summary>
+    /// <param name="setting">The setting value.</param>
+    /// <returns>The operation's result.</returns>
     internal static string GetGuideOutputSettingValue(AdapterSettingFieldSettingsModel setting)
     {
         if (setting.Value is not JsonElement value || value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
@@ -1196,11 +1294,17 @@ public partial class Settings : IDisposable
         return value.ValueKind == JsonValueKind.String ? value.GetString() ?? string.Empty : value.ToString();
     }
 
+    /// <summary>Gets guide output boolean setting value.</summary>
+    /// <param name="setting">The setting value.</param>
+    /// <returns>The operation's result.</returns>
     internal static bool GetGuideOutputBooleanSettingValue(AdapterSettingFieldSettingsModel setting) =>
         setting.Value is JsonElement value &&
         value.ValueKind is JsonValueKind.True or JsonValueKind.False &&
         value.GetBoolean();
 
+    /// <summary>Updates guide output boolean setting.</summary>
+    /// <param name="setting">The setting value.</param>
+    /// <param name="value">The value value.</param>
     internal static void UpdateGuideOutputBooleanSetting(AdapterSettingFieldSettingsModel setting, bool value)
     {
         setting.Value = JsonSerializer.SerializeToElement(value);
@@ -1208,6 +1312,9 @@ public partial class Settings : IDisposable
         setting.Action = AdapterSettingEditAction.Set;
     }
 
+    /// <summary>Updates guide output setting.</summary>
+    /// <param name="setting">The setting value.</param>
+    /// <param name="value">The value value.</param>
     internal static void UpdateGuideOutputSetting(AdapterSettingFieldSettingsModel setting, string value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -1233,6 +1340,8 @@ public partial class Settings : IDisposable
         setting.Action = AdapterSettingEditAction.Set;
     }
 
+    /// <summary>Generates guide output setting.</summary>
+    /// <param name="setting">The setting value.</param>
     internal static void GenerateGuideOutputSetting(AdapterSettingFieldSettingsModel setting)
     {
         setting.Value = null;
@@ -1240,6 +1349,8 @@ public partial class Settings : IDisposable
         setting.Action = AdapterSettingEditAction.Generate;
     }
 
+    /// <summary>Clears guide output setting.</summary>
+    /// <param name="setting">The setting value.</param>
     internal static void ClearGuideOutputSetting(AdapterSettingFieldSettingsModel setting)
     {
         setting.Value = null;
@@ -1247,6 +1358,10 @@ public partial class Settings : IDisposable
         setting.Action = AdapterSettingEditAction.Clear;
     }
 
+    /// <summary>Sets guide output virtual device.</summary>
+    /// <param name="output">The output value.</param>
+    /// <param name="id">The ID value.</param>
+    /// <param name="selected">The selected value.</param>
     internal void SetGuideOutputVirtualDevice(GuideOutputSettingsModel output, VirtualDeviceId id, bool selected)
     {
         if (selected)
@@ -1259,6 +1374,10 @@ public partial class Settings : IDisposable
         }
     }
 
+    /// <summary>Sets guide output guide source.</summary>
+    /// <param name="output">The output value.</param>
+    /// <param name="id">The ID value.</param>
+    /// <param name="selected">The selected value.</param>
     internal void SetGuideOutputGuideSource(GuideOutputSettingsModel output, GuideSourceId id, bool selected)
     {
         if (selected)
@@ -1271,19 +1390,29 @@ public partial class Settings : IDisposable
         }
     }
 
+    /// <summary>Determines whether virtual compatible.</summary>
+    /// <param name="device">The device value.</param>
+    /// <param name="physical">The physical value.</param>
+    /// <returns>The operation's result.</returns>
     internal bool IsVirtualCompatible(VirtualDeviceSettingsModel device, PhysicalDeviceSettingsModel physical) =>
         VirtualTunerDrivers.FirstOrDefault(driver => string.Equals(driver.Kind, device.Kind, StringComparison.OrdinalIgnoreCase))
             ?.SupportsPhysicalAdapter(physical.Kind) == true;
 
+    /// <summary>Represents the physical device probe state.</summary>
     internal sealed record PhysicalDeviceProbeState
     {
+        /// <summary>Gets or sets the is testing.</summary>
         public bool IsTesting { get; init; }
 
+        /// <summary>Gets or sets the result.</summary>
         public PhysicalDeviceProbeResult? Result { get; init; }
 
+        /// <summary>Gets or sets the error.</summary>
         public string? Error { get; init; }
     }
 
+    /// <summary>Imports Lineup Link bundle.</summary>
+    /// <param name="device">The device value.</param>
     internal void ImportLineupLinkBundle(PhysicalDeviceSettingsModel device)
     {
         try
@@ -1303,6 +1432,8 @@ public partial class Settings : IDisposable
         }
     }
 
+    /// <summary>Creates Lineup Link access grant.</summary>
+    /// <param name="device">The device value.</param>
     internal void CreateLineupLinkAccessGrant(VirtualDeviceSettingsModel device)
     {
         DateTime? expiration = device.LinkNewAccessGrantExpiresAtLocal.HasValue
@@ -1328,9 +1459,10 @@ public partial class Settings : IDisposable
         Notifications.ShowSuccess(Text["Settings_LineupLinkGrantCreated"]);
     }
 
-    internal void RotateLineupLinkAccessGrant(
-        VirtualDeviceSettingsModel device,
-        LineupLinkAccessGrantSettingsModel grant)
+    /// <summary>Rotates Lineup Link access grant.</summary>
+    /// <param name="device">The device value.</param>
+    /// <param name="grant">The grant value.</param>
+    internal void RotateLineupLinkAccessGrant(VirtualDeviceSettingsModel device, LineupLinkAccessGrantSettingsModel grant)
     {
         var mutation = LineupLinkAccessGrantManager.Rotate(
             BuildLineupLinkGrantConfiguration(device),
@@ -1348,9 +1480,10 @@ public partial class Settings : IDisposable
         Notifications.ShowSuccess(Text["Settings_LineupLinkGrantRotated"]);
     }
 
-    internal void RevokeLineupLinkAccessGrant(
-        VirtualDeviceSettingsModel device,
-        LineupLinkAccessGrantSettingsModel grant)
+    /// <summary>Revokes Lineup Link access grant.</summary>
+    /// <param name="device">The device value.</param>
+    /// <param name="grant">The grant value.</param>
+    internal void RevokeLineupLinkAccessGrant(VirtualDeviceSettingsModel device, LineupLinkAccessGrantSettingsModel grant)
     {
         var mutation = LineupLinkAccessGrantManager.Revoke(
             BuildLineupLinkGrantConfiguration(device),
@@ -1366,9 +1499,10 @@ public partial class Settings : IDisposable
         Notifications.ShowSuccess(Text["Settings_LineupLinkGrantRevoked"]);
     }
 
-    internal void PurgeLineupLinkAccessGrant(
-        VirtualDeviceSettingsModel device,
-        LineupLinkAccessGrantSettingsModel grant)
+    /// <summary>Purges Lineup Link access grant.</summary>
+    /// <param name="device">The device value.</param>
+    /// <param name="grant">The grant value.</param>
+    internal void PurgeLineupLinkAccessGrant(VirtualDeviceSettingsModel device, LineupLinkAccessGrantSettingsModel grant)
     {
         var mutation = LineupLinkAccessGrantManager.Purge(
             BuildLineupLinkGrantConfiguration(device),
@@ -1383,9 +1517,11 @@ public partial class Settings : IDisposable
         Notifications.ShowSuccess(Text["Settings_LineupLinkGrantPurged"]);
     }
 
-    internal async Task ExportLineupLinkBundleAsync(
-        VirtualDeviceSettingsModel device,
-        LineupLinkAccessGrantSettingsModel grant)
+    /// <summary>Exports Lineup Link bundle asynchronously.</summary>
+    /// <param name="device">The device value.</param>
+    /// <param name="grant">The grant value.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
+    internal async Task ExportLineupLinkBundleAsync(VirtualDeviceSettingsModel device, LineupLinkAccessGrantSettingsModel grant)
     {
         if (!TryCreateLineupLinkBundle(device, grant, redactUnavailableToken: false, out var bundle))
         {
@@ -1412,9 +1548,11 @@ public partial class Settings : IDisposable
         }
     }
 
-    internal async Task CopyLineupLinkBundleAsync(
-        VirtualDeviceSettingsModel device,
-        LineupLinkAccessGrantSettingsModel grant)
+    /// <summary>Copies Lineup Link bundle asynchronously.</summary>
+    /// <param name="device">The device value.</param>
+    /// <param name="grant">The grant value.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
+    internal async Task CopyLineupLinkBundleAsync(VirtualDeviceSettingsModel device, LineupLinkAccessGrantSettingsModel grant)
     {
         if (!TryCreateLineupLinkBundle(device, grant, redactUnavailableToken: false, out var bundle))
         {
@@ -1437,9 +1575,10 @@ public partial class Settings : IDisposable
         }
     }
 
-    internal void ToggleLineupLinkBundle(
-        VirtualDeviceSettingsModel device,
-        LineupLinkAccessGrantSettingsModel grant)
+    /// <summary>Toggles Lineup Link bundle.</summary>
+    /// <param name="device">The device value.</param>
+    /// <param name="grant">The grant value.</param>
+    internal void ToggleLineupLinkBundle(VirtualDeviceSettingsModel device, LineupLinkAccessGrantSettingsModel grant)
     {
         if (grant.ConnectionBundleExpanded)
         {
@@ -1457,19 +1596,13 @@ public partial class Settings : IDisposable
             AccessGrants = device.LinkAccessGrants.Select(grant => grant.ToPersisted()).ToArray()
         };
 
-    private static void ReplaceLineupLinkAccessGrant(
-        VirtualDeviceSettingsModel device,
-        LineupLinkAccessGrant persisted,
-        string? rawToken)
+    private static void ReplaceLineupLinkAccessGrant(VirtualDeviceSettingsModel device, LineupLinkAccessGrant persisted, string? rawToken)
     {
         var index = device.LinkAccessGrants.FindIndex(grant => grant.Id == persisted.Id);
         device.LinkAccessGrants[index] = LineupLinkAccessGrantSettingsModel.Create(persisted, rawToken);
     }
 
-    private void SetLineupLinkBundle(
-        VirtualDeviceSettingsModel device,
-        LineupLinkAccessGrantSettingsModel grant,
-        bool redactUnavailableToken)
+    private void SetLineupLinkBundle(VirtualDeviceSettingsModel device, LineupLinkAccessGrantSettingsModel grant, bool redactUnavailableToken)
     {
         if (TryCreateLineupLinkBundle(device, grant, redactUnavailableToken, out var bundle))
         {
@@ -1478,11 +1611,7 @@ public partial class Settings : IDisposable
         }
     }
 
-    private bool TryCreateLineupLinkBundle(
-        VirtualDeviceSettingsModel device,
-        LineupLinkAccessGrantSettingsModel grant,
-        bool redactUnavailableToken,
-        out string bundle)
+    private bool TryCreateLineupLinkBundle(VirtualDeviceSettingsModel device, LineupLinkAccessGrantSettingsModel grant, bool redactUnavailableToken, out string bundle)
     {
         bundle = string.Empty;
         if (string.IsNullOrWhiteSpace(grant.RawToken) && !redactUnavailableToken)
@@ -1521,8 +1650,11 @@ public partial class Settings : IDisposable
     private static string? NullIfWhiteSpace(string value) =>
         string.IsNullOrWhiteSpace(value) ? null : value;
 
+    /// <summary>Handles changes to transcoder settings changed.</summary>
     internal void OnTranscoderSettingsChanged() => StateHasChanged();
 
+    /// <summary>Removes virtual device.</summary>
+    /// <param name="id">The ID value.</param>
     internal void RemoveVirtualDevice(VirtualDeviceId id)
     {
         _topologyEditor.RemoveVirtualDevice(_topology, id);
@@ -1532,6 +1664,10 @@ public partial class Settings : IDisposable
         }
     }
 
+    /// <summary>Sets physical subscription.</summary>
+    /// <param name="device">The device value.</param>
+    /// <param name="id">The ID value.</param>
+    /// <param name="selected">The selected value.</param>
     internal void SetPhysicalSubscription(VirtualDeviceSettingsModel device, PhysicalDeviceId id, bool selected)
     {
         if (selected)
@@ -1544,6 +1680,10 @@ public partial class Settings : IDisposable
         }
     }
 
+    /// <summary>Sets guide source subscription.</summary>
+    /// <param name="source">The source value.</param>
+    /// <param name="id">The ID value.</param>
+    /// <param name="selected">The selected value.</param>
     internal void SetGuideSourceSubscription(GuideSourceSettingsModel source, PhysicalDeviceId id, bool selected)
     {
         if (selected)

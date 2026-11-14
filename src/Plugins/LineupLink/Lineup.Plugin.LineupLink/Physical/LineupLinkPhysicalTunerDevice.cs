@@ -44,7 +44,7 @@ public sealed class LineupLinkPhysicalTunerDevice :
         _client = client ?? throw new ArgumentNullException(nameof(client));
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets the snapshot.</summary>
     public PhysicalDeviceSnapshot Snapshot
     {
         get
@@ -60,13 +60,15 @@ public sealed class LineupLinkPhysicalTunerDevice :
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets the physical device ID.</summary>
     public PhysicalDeviceId PhysicalDeviceId => _deviceId;
 
-    /// <inheritdoc />
+    /// <summary>Gets the manifest.</summary>
     public LineupLinkManifest Manifest => Volatile.Read(ref _manifest);
 
-    /// <inheritdoc />
+    /// <summary>Refreshes status asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async Task<PhysicalDeviceStatusSnapshot> RefreshStatusAsync(CancellationToken cancellationToken = default)
     {
         var manifest = await _client.GetManifestAsync(cancellationToken);
@@ -74,7 +76,9 @@ public sealed class LineupLinkPhysicalTunerDevice :
         return CreateStatusSnapshot(manifest);
     }
 
-    /// <inheritdoc />
+    /// <summary>Refreshes device information asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async Task<PhysicalDeviceStatusSnapshot> RefreshDeviceInformationAsync(CancellationToken cancellationToken = default)
     {
         var manifest = await _client.GetManifestAsync(cancellationToken);
@@ -82,7 +86,9 @@ public sealed class LineupLinkPhysicalTunerDevice :
         return CreateStatusSnapshot(manifest);
     }
 
-    /// <inheritdoc />
+    /// <summary>Refreshes lineup asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async Task<IReadOnlyList<PhysicalSourceChannel>> RefreshLineupAsync(CancellationToken cancellationToken = default)
     {
         var lineup = await _client.GetLineupAsync(cancellationToken);
@@ -108,7 +114,10 @@ public sealed class LineupLinkPhysicalTunerDevice :
         return mapped.Select(item => item.Channel).ToArray();
     }
 
-    /// <inheritdoc />
+    /// <summary>Opens stream asynchronously.</summary>
+    /// <param name="request">The request value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async ValueTask<IPhysicalStreamLease> OpenStreamAsync(PhysicalStreamRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -161,10 +170,14 @@ public sealed class LineupLinkPhysicalTunerDevice :
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets guide asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public Task<LineupLinkGuide> GetGuideAsync(CancellationToken cancellationToken = default) => _client.GetGuideAsync(cancellationToken);
 
-    /// <inheritdoc />
+    /// <summary>Creates diagnostic URI.</summary>
+    /// <param name="providerKey">The provider key value.</param>
+    /// <returns>The operation's result.</returns>
     public Uri CreateDiagnosticUri(string providerKey)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(providerKey);
@@ -275,6 +288,10 @@ public sealed class LineupLinkPhysicalTunerDevice :
         private HttpResponseMessage? _response;
         private Stream? _stream;
 
+        /// <summary>Initializes the Lineup Link physical stream lease.</summary>
+        /// <param name="response">The response value.</param>
+        /// <param name="stream">The stream value.</param>
+        /// <param name="releaseReceiver">The release receiver value.</param>
         public LineupLinkPhysicalStreamLease(HttpResponseMessage response, Stream stream, Action releaseReceiver)
         {
             _response = response;
@@ -283,10 +300,13 @@ public sealed class LineupLinkPhysicalTunerDevice :
             _contentType = response.Content.Headers.ContentType?.MediaType;
         }
 
+        /// <summary>Gets the stream.</summary>
         public Stream Stream => _stream ?? throw new ObjectDisposedException(nameof(LineupLinkPhysicalStreamLease));
 
+        /// <summary>Gets the content type.</summary>
         public string? ContentType => _contentType;
 
+        /// <inheritdoc />
         public async ValueTask DisposeAsync()
         {
             var ownedStream = Interlocked.Exchange(ref _stream, null);

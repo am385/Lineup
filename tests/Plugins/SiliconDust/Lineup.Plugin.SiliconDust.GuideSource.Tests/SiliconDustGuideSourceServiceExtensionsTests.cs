@@ -1,5 +1,4 @@
 using Lineup.Core;
-using Lineup.Core.Common.Guides;
 using Lineup.Core.Extensibility.Guides;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;

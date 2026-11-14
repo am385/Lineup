@@ -10,18 +10,18 @@ namespace Lineup.Plugin.LineupLink.Physical;
 /// <summary>Creates physical tuner inputs backed by remote Lineup Link virtual devices.</summary>
 public sealed class LineupLinkPhysicalTunerDriver : IPhysicalTunerDriver, IPhysicalDeviceProbe, IAdapterSettingsProvider
 {
-    private static readonly JsonSerializerOptions SerializerOptions = new() { PropertyNameCaseInsensitive = true };
+    private static readonly JsonSerializerOptions _serializerOptions = new() { PropertyNameCaseInsensitive = true };
 
-    /// <inheritdoc />
+    /// <summary>Gets the kind.</summary>
     public string Kind => LineupLinkProtocol.AdapterKind;
 
-    /// <inheritdoc />
+    /// <summary>Gets the display name.</summary>
     public string DisplayName => "Lineup Link";
 
-    /// <inheritdoc />
+    /// <summary>Gets the supports user creation.</summary>
     public bool SupportsUserCreation => true;
 
-    /// <inheritdoc />
+    /// <summary>Gets the capabilities.</summary>
     public DeviceCapabilities Capabilities { get; } = new()
     {
         HasFiniteCapacity = true,
@@ -30,7 +30,7 @@ public sealed class LineupLinkPhysicalTunerDriver : IPhysicalTunerDriver, IPhysi
         SupportsHardwareTranscoding = false
     };
 
-    /// <inheritdoc />
+    /// <summary>Gets the settings descriptor.</summary>
     public AdapterSettingsDescriptor SettingsDescriptor { get; } = new()
     {
         AdapterKind = LineupLinkProtocol.AdapterKind,
@@ -64,14 +64,18 @@ public sealed class LineupLinkPhysicalTunerDriver : IPhysicalTunerDriver, IPhysi
         ]
     };
 
-    /// <inheritdoc />
+    /// <summary>Creates default configuration.</summary>
+    /// <param name="deviceId">Identity of the target device.</param>
+    /// <returns>The operation's result.</returns>
     public AdapterConfiguration CreateDefaultConfiguration(PhysicalDeviceId deviceId) =>
         new(Kind, JsonSerializer.SerializeToElement(new LineupLinkPhysicalConfiguration()));
 
-    /// <inheritdoc />
+    /// <summary>Gets settings.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <returns>The operation's result.</returns>
     public AdapterSettingsSnapshot GetSettings(AdapterConfiguration configuration)
     {
-        var typed = configuration.Configuration.Deserialize<LineupLinkPhysicalConfiguration>(SerializerOptions)
+        var typed = configuration.Configuration.Deserialize<LineupLinkPhysicalConfiguration>(_serializerOptions)
             ?? new LineupLinkPhysicalConfiguration();
         return new AdapterSettingsSnapshot
         {
@@ -87,12 +91,13 @@ public sealed class LineupLinkPhysicalTunerDriver : IPhysicalTunerDriver, IPhysi
         };
     }
 
-    /// <inheritdoc />
-    public AdapterSettingsApplyResult ApplySettings(
-        AdapterConfiguration configuration,
-        IReadOnlyList<AdapterSettingEdit> edits)
+    /// <summary>Applies settings.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="edits">The edits value.</param>
+    /// <returns>The operation's result.</returns>
+    public AdapterSettingsApplyResult ApplySettings(AdapterConfiguration configuration, IReadOnlyList<AdapterSettingEdit> edits)
     {
-        var current = configuration.Configuration.Deserialize<LineupLinkPhysicalConfiguration>(SerializerOptions)
+        var current = configuration.Configuration.Deserialize<LineupLinkPhysicalConfiguration>(_serializerOptions)
             ?? new LineupLinkPhysicalConfiguration();
         var baseUrl = current.BaseUrl;
         var virtualDeviceId = current.VirtualDeviceId;
@@ -171,7 +176,9 @@ public sealed class LineupLinkPhysicalTunerDriver : IPhysicalTunerDriver, IPhysi
             };
     }
 
-    /// <inheritdoc />
+    /// <summary>Validates the Lineup Link physical tuner driver.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <returns>The operation's result.</returns>
     public IReadOnlyList<string> Validate(AdapterConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(configuration);
@@ -184,7 +191,7 @@ public sealed class LineupLinkPhysicalTunerDriver : IPhysicalTunerDriver, IPhysi
         LineupLinkPhysicalConfiguration? typed = null;
         try
         {
-            typed = configuration.Configuration.Deserialize<LineupLinkPhysicalConfiguration>(SerializerOptions);
+            typed = configuration.Configuration.Deserialize<LineupLinkPhysicalConfiguration>(_serializerOptions);
         }
         catch (JsonException)
         {
@@ -222,12 +229,13 @@ public sealed class LineupLinkPhysicalTunerDriver : IPhysicalTunerDriver, IPhysi
         return errors;
     }
 
-    /// <inheritdoc />
-    public async ValueTask<IPhysicalTunerDevice> CreateAsync(
-        PhysicalDeviceId deviceId,
-        string name,
-        AdapterConfiguration configuration,
-        CancellationToken cancellationToken = default)
+    /// <summary>Creates the Lineup Link physical tuner driver asynchronously.</summary>
+    /// <param name="deviceId">Identity of the target device.</param>
+    /// <param name="name">Name used by the operation.</param>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
+    public async ValueTask<IPhysicalTunerDevice> CreateAsync(PhysicalDeviceId deviceId, string name, AdapterConfiguration configuration, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         var errors = Validate(configuration);
@@ -236,7 +244,7 @@ public sealed class LineupLinkPhysicalTunerDriver : IPhysicalTunerDriver, IPhysi
             throw new ArgumentException(string.Join(" ", errors), nameof(configuration));
         }
 
-        var typed = configuration.Configuration.Deserialize<LineupLinkPhysicalConfiguration>(SerializerOptions)!;
+        var typed = configuration.Configuration.Deserialize<LineupLinkPhysicalConfiguration>(_serializerOptions)!;
         var client = new LineupLinkClient(typed);
         try
         {
@@ -254,7 +262,10 @@ public sealed class LineupLinkPhysicalTunerDriver : IPhysicalTunerDriver, IPhysi
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes probe asynchronously.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async ValueTask<PhysicalDeviceProbeResult> ProbeAsync(AdapterConfiguration configuration, CancellationToken cancellationToken = default)
     {
         var errors = Validate(configuration);
@@ -263,7 +274,7 @@ public sealed class LineupLinkPhysicalTunerDriver : IPhysicalTunerDriver, IPhysi
             throw new ArgumentException(string.Join(" ", errors), nameof(configuration));
         }
 
-        var typed = configuration.Configuration.Deserialize<LineupLinkPhysicalConfiguration>(SerializerOptions)!;
+        var typed = configuration.Configuration.Deserialize<LineupLinkPhysicalConfiguration>(_serializerOptions)!;
         using var client = new LineupLinkClient(typed);
         LineupLinkManifest manifest;
         try

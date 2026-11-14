@@ -4,7 +4,6 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Lineup.Plugin.SiliconDust.HDHomeRun.Device.Models;
 
 namespace Lineup.Plugin.SiliconDust.HDHomeRun.VirtualTuner;
@@ -14,7 +13,7 @@ namespace Lineup.Plugin.SiliconDust.HDHomeRun.VirtualTuner;
 /// </summary>
 public static class HdHomeRunProxyIdentity
 {
-    private static readonly byte[] ChecksumLookup =
+    private static readonly byte[] _checksumLookup =
     [
         0xA, 0x5, 0xF, 0x6, 0x7, 0xC, 0x1, 0xB,
         0x9, 0x2, 0x8, 0xD, 0x4, 0x3, 0xE, 0x0
@@ -32,7 +31,7 @@ public static class HdHomeRunProxyIdentity
         for (var index = 0; index < prefix.Length; index++)
         {
             var nibble = Convert.ToInt32(prefix[index].ToString(), 16);
-            checksum ^= index % 2 == 0 ? ChecksumLookup[nibble] : nibble;
+            checksum ^= index % 2 == 0 ? _checksumLookup[nibble] : nibble;
         }
 
         return $"{prefix}{checksum:X1}";
@@ -62,7 +61,7 @@ public static class HdHomeRunProxyIdentity
         for (var index = 0; index < 8; index++)
         {
             var nibble = (int)((value >> (28 - (index * 4))) & 0x0F);
-            checksum ^= index % 2 == 0 ? ChecksumLookup[nibble] : nibble;
+            checksum ^= index % 2 == 0 ? _checksumLookup[nibble] : nibble;
         }
 
         return checksum == 0;
@@ -120,13 +119,7 @@ public static class HdHomeRunProxyResponseFactory
     /// <param name="tunerCount">Aggregated advertised tuner count.</param>
     /// <param name="firmwareVersion">Lineup version advertised as firmware.</param>
     /// <returns>The discover.json response contract.</returns>
-    public static HdHomeRunProxyDiscoverResponse CreateDiscover(
-        string friendlyName,
-        string deviceId,
-        string deviceAuth,
-        Uri baseUri,
-        byte tunerCount,
-        string firmwareVersion)
+    public static HdHomeRunProxyDiscoverResponse CreateDiscover(string friendlyName, string deviceId, string deviceAuth, Uri baseUri, byte tunerCount, string firmwareVersion)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(friendlyName);
         ArgumentException.ThrowIfNullOrWhiteSpace(deviceId);
@@ -171,7 +164,7 @@ public sealed record HdHomeRunProxyLineupStatus
 /// <summary>Describes one channel in the virtual HDHomeRun lineup.</summary>
 public sealed record HdHomeRunProxyChannel
 {
-    private static readonly HashSet<string> OwnedPropertyNames = typeof(HdHomeRunProxyChannel)
+    private static readonly HashSet<string> _ownedPropertyNames = typeof(HdHomeRunProxyChannel)
         .GetProperties(BindingFlags.Instance | BindingFlags.Public)
         .Where(property => property.GetCustomAttribute<JsonExtensionDataAttribute>() == null)
         .Select(property => property.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name ?? property.Name)
@@ -297,7 +290,7 @@ public sealed record HdHomeRunProxyChannel
         }
 
         var result = additionalProperties
-            .Where(property => !OwnedPropertyNames.Contains(property.Key))
+            .Where(property => !_ownedPropertyNames.Contains(property.Key))
             .ToDictionary(property => property.Key, property => property.Value, StringComparer.Ordinal);
         return result.Count == 0 ? null : result;
     }

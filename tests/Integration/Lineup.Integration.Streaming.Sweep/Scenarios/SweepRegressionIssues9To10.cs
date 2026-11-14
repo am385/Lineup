@@ -1,7 +1,11 @@
 namespace Lineup.Integration.Streaming.Sweep;
 
+/// <summary>Represents the sweep harness.</summary>
 internal sealed partial class SweepHarness
 {
+    /// <summary>Executes verify issue9 asynchronously.</summary>
+    /// <param name="matrixId">The matrix ID value.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public async Task VerifyIssue9Async(string? matrixId = null)
     {
         const string channelNumber = "2.1";
@@ -117,6 +121,9 @@ internal sealed partial class SweepHarness
         Console.WriteLine(runRoot);
     }
 
+    /// <summary>Executes verify issue10 asynchronously.</summary>
+    /// <param name="matrixId">The matrix ID value.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public async Task VerifyIssue10Async(string? matrixId = null)
     {
         const string channelNumber = "122.1";

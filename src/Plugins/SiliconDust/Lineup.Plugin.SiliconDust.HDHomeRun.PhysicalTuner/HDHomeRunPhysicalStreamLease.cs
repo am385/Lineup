@@ -1,4 +1,3 @@
-using Lineup.Core.Common.Streaming;
 using Lineup.Core.Extensibility.Streaming;
 
 namespace Lineup.Plugin.SiliconDust.HDHomeRun.PhysicalTuner;
@@ -26,10 +25,10 @@ internal sealed class HDHomeRunPhysicalStreamLease : IPhysicalStreamLease
         ContentType = response.Content.Headers.ContentType?.MediaType;
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets the stream.</summary>
     public Stream Stream { get; }
 
-    /// <inheritdoc />
+    /// <summary>Gets the content type.</summary>
     public string? ContentType { get; }
 
     /// <inheritdoc />

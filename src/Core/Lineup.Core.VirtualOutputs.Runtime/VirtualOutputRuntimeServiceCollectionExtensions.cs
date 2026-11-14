@@ -7,9 +7,7 @@ namespace Lineup.Core.VirtualOutputs.Runtime;
 public static class VirtualOutputRuntimeServiceCollectionExtensions
 {
     /// <summary>Registers worker supervision, local IPC, capability brokering, and runtime status.</summary>
-    public static IServiceCollection AddLineupVirtualOutputRuntime(
-        this IServiceCollection services,
-        VirtualOutputRuntimeOptions options)
+    public static IServiceCollection AddLineupVirtualOutputRuntime(this IServiceCollection services, VirtualOutputRuntimeOptions options)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(options);

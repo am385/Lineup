@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Security.Cryptography;
 using Lineup.Core.Common.Streaming;
 using Lineup.Core.VirtualOutputs.Protocol;

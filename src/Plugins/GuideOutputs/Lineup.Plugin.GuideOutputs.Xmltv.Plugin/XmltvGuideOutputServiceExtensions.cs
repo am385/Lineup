@@ -1,10 +1,5 @@
-using Lineup.Core.Common.Configuration;
-using Lineup.Core.Extensibility.Configuration;
-using Lineup.Core.Common.Guides;
 using Lineup.Core.Extensibility.Guides;
-using Lineup.Core.Common.Streaming;
 using Lineup.Core.Extensibility.Streaming;
-using Lineup.Plugin.GuideOutputs.Xmltv;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 

@@ -1,5 +1,6 @@
 namespace Lineup.Integration.Streaming.Sweep;
 
+/// <summary>Represents the sweep harness.</summary>
 internal sealed partial class SweepHarness
 {
     private async Task<IReadOnlyList<ChannelDefinition>> ReadEnabledChannelsAsync(string baseUrl)
@@ -118,6 +119,7 @@ internal sealed partial class SweepHarness
     private async Task WaitReadyAsync(string baseUrl, TimeSpan timeout)
     {
         var deadline = DateTimeOffset.UtcNow + timeout;
+        Exception? lastFailure = null;
         while (DateTimeOffset.UtcNow < deadline)
         {
             try
@@ -128,12 +130,13 @@ internal sealed partial class SweepHarness
                     return;
                 }
             }
-            catch
+            catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
             {
+                lastFailure = exception;
             }
             await Task.Delay(2_000);
         }
-        throw new TimeoutException($"{baseUrl} did not become ready.");
+        throw new TimeoutException($"{baseUrl} did not become ready.", lastFailure);
     }
 
     private async Task WaitWorkerHealthyAsync(string baseUrl, Guid virtualId, TimeSpan timeout)

@@ -18,36 +18,28 @@ public sealed partial class VirtualOutputBrokerClient
     }
 
     /// <summary>Registers one worker using its one-time bootstrap credential.</summary>
-    public Task<VirtualOutputWorkerRegistrationResponse> RegisterAsync(
-        VirtualOutputWorkerRegistrationRequest request,
-        CancellationToken cancellationToken = default) =>
+    public Task<VirtualOutputWorkerRegistrationResponse> RegisterAsync(VirtualOutputWorkerRegistrationRequest request, CancellationToken cancellationToken = default) =>
         SendAsync<VirtualOutputWorkerRegistrationRequest, VirtualOutputWorkerRegistrationResponse>(
             VirtualOutputIpcOperation.Register,
             request,
             cancellationToken);
 
     /// <summary>Renews one authenticated worker lease.</summary>
-    public Task<VirtualOutputLeaseRenewalResponse> RenewLeaseAsync(
-        VirtualOutputLeaseRenewalRequest request,
-        CancellationToken cancellationToken = default) =>
+    public Task<VirtualOutputLeaseRenewalResponse> RenewLeaseAsync(VirtualOutputLeaseRenewalRequest request, CancellationToken cancellationToken = default) =>
         SendAsync<VirtualOutputLeaseRenewalRequest, VirtualOutputLeaseRenewalResponse>(
             VirtualOutputIpcOperation.RenewLease,
             request,
             cancellationToken);
 
     /// <summary>Gets the assigned virtual-device manifest.</summary>
-    public Task<VirtualOutputManifest> GetManifestAsync(
-        VirtualOutputManifestRequest request,
-        CancellationToken cancellationToken = default) =>
+    public Task<VirtualOutputManifest> GetManifestAsync(VirtualOutputManifestRequest request, CancellationToken cancellationToken = default) =>
         SendAsync<VirtualOutputManifestRequest, VirtualOutputManifest>(
             VirtualOutputIpcOperation.GetManifest,
             request,
             cancellationToken);
 
     /// <summary>Gets the assigned virtual-device lineup.</summary>
-    public Task<VirtualOutputLineupResponse> GetLineupAsync(
-        VirtualOutputLineupRequest request,
-        CancellationToken cancellationToken = default) =>
+    public Task<VirtualOutputLineupResponse> GetLineupAsync(VirtualOutputLineupRequest request, CancellationToken cancellationToken = default) =>
         SendAsync<VirtualOutputLineupRequest, VirtualOutputLineupResponse>(
             VirtualOutputIpcOperation.GetLineup,
             request,
@@ -76,18 +68,14 @@ public sealed partial class VirtualOutputBrokerClient
     }
 
     /// <summary>Reports the normalized final presentation for one brokered stream.</summary>
-    public Task<VirtualOutputStreamStatusResponse> ReportStreamStatusAsync(
-        VirtualOutputStreamStatusReport report,
-        CancellationToken cancellationToken = default) =>
+    public Task<VirtualOutputStreamStatusResponse> ReportStreamStatusAsync(VirtualOutputStreamStatusReport report, CancellationToken cancellationToken = default) =>
         SendAsync<VirtualOutputStreamStatusReport, VirtualOutputStreamStatusResponse>(
             VirtualOutputIpcOperation.ReportStreamStatus,
             report,
             cancellationToken);
 
     /// <summary>Opens one assigned MPEG-TS stream and retains its IPC connection until disposal.</summary>
-    public async Task<VirtualOutputClientStream> OpenStreamAsync(
-        VirtualOutputOpenStreamRequest request,
-        CancellationToken cancellationToken = default)
+    public async Task<VirtualOutputClientStream> OpenStreamAsync(VirtualOutputOpenStreamRequest request, CancellationToken cancellationToken = default)
     {
         var connection = await ConnectAsync(cancellationToken);
         try
@@ -149,18 +137,17 @@ public sealed partial class VirtualOutputBrokerClient
         }
     }
 
-    internal Task<VirtualOutputCloseStreamResponse> CloseStreamAsync(
-        VirtualOutputCloseStreamRequest request,
-        CancellationToken cancellationToken) =>
+    /// <summary>Closes stream asynchronously.</summary>
+    /// <param name="request">The request value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
+    internal Task<VirtualOutputCloseStreamResponse> CloseStreamAsync(VirtualOutputCloseStreamRequest request, CancellationToken cancellationToken) =>
         SendAsync<VirtualOutputCloseStreamRequest, VirtualOutputCloseStreamResponse>(
             VirtualOutputIpcOperation.CloseStream,
             request,
             cancellationToken);
 
-    private async Task<TResponse> SendAsync<TRequest, TResponse>(
-        VirtualOutputIpcOperation operation,
-        TRequest request,
-        CancellationToken cancellationToken)
+    private async Task<TResponse> SendAsync<TRequest, TResponse>(VirtualOutputIpcOperation operation, TRequest request, CancellationToken cancellationToken)
     {
         await using var connection = await ConnectAsync(cancellationToken);
         await VirtualOutputWireProtocol.WriteAsync(connection, VirtualOutputIpcRequest.Create(operation, request), cancellationToken);
@@ -215,18 +202,19 @@ public sealed partial class VirtualOutputBrokerClient
 /// <summary>Owns one brokered media stream and its local IPC connection.</summary>
 public sealed class VirtualOutputClientStream : IAsyncDisposable
 {
-    private static readonly TimeSpan CloseTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan _closeTimeout = TimeSpan.FromSeconds(5);
     private readonly VirtualOutputBrokerClient _client;
     private readonly Stream _connection;
     private readonly VirtualOutputOpenStreamRequest _request;
     private int _closeStarted;
     private int _disposed;
 
-    internal VirtualOutputClientStream(
-        VirtualOutputBrokerClient client,
-        Stream connection,
-        VirtualOutputOpenStreamRequest request,
-        VirtualOutputOpenStreamResponse response)
+    /// <summary>Initializes the virtual output client stream.</summary>
+    /// <param name="client">The client value.</param>
+    /// <param name="connection">The connection value.</param>
+    /// <param name="request">The request value.</param>
+    /// <param name="response">The response value.</param>
+    internal VirtualOutputClientStream(VirtualOutputBrokerClient client, Stream connection, VirtualOutputOpenStreamRequest request, VirtualOutputOpenStreamResponse response)
     {
         _client = client;
         _connection = connection;
@@ -280,7 +268,7 @@ public sealed class VirtualOutputClientStream : IAsyncDisposable
         {
             return;
         }
-        using var closeCancellation = new CancellationTokenSource(CloseTimeout);
+        using var closeCancellation = new CancellationTokenSource(_closeTimeout);
         try
         {
             await CloseAsync(closeCancellation.Token);

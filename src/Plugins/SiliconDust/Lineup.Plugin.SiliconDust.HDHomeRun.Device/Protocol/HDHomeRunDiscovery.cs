@@ -58,6 +58,7 @@ public class HDHomeRunDiscovery : IDisposable
     /// <returns>List of discovered devices</returns>
     public async Task<List<HDHomeRunDiscoveredDevice>> DiscoverAsync(HDHomeRunDeviceType deviceType, uint deviceId, TimeSpan timeout, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var devices = new List<HDHomeRunDiscoveredDevice>();
         var seenDevices = new HashSet<uint>();
 
@@ -71,17 +72,17 @@ public class HDHomeRunDiscovery : IDisposable
 
         // Send broadcast
         var broadcastEndpoint = new IPEndPoint(IPAddress.Broadcast, DiscoveryPort);
-        await _udpClient.SendAsync(packet, packet.Length, broadcastEndpoint);
+        await _udpClient.SendAsync(packet, broadcastEndpoint, cancellationToken);
 
         // Also send to multicast address used by some devices
         try
         {
             var multicastEndpoint = new IPEndPoint(IPAddress.Parse("224.0.0.1"), DiscoveryPort);
-            await _udpClient.SendAsync(packet, packet.Length, multicastEndpoint);
+            await _udpClient.SendAsync(packet, multicastEndpoint, cancellationToken);
         }
-        catch
+        catch (SocketException ex)
         {
-            // Multicast may not be available on all systems
+            _logger.LogWarning(ex, "Multicast discovery is unavailable; continuing with broadcast responses");
         }
 
         // Receive responses until timeout
@@ -103,7 +104,7 @@ public class HDHomeRunDiscovery : IDisposable
                     _logger.LogInformation("Discovered device: {Device}", device);
                 }
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 break;
             }
@@ -112,12 +113,9 @@ public class HDHomeRunDiscovery : IDisposable
                 _logger.LogDebug(ex, "Socket exception during discovery");
                 break;
             }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Ignoring malformed discovery response");
-            }
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         _logger.LogInformation("Discovery complete. Found {Count} device(s)", devices.Count);
         return devices;
     }

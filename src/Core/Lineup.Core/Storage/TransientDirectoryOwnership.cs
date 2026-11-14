@@ -9,14 +9,14 @@ namespace Lineup.Core.Storage;
 /// </summary>
 public static class TransientDirectoryOwnership
 {
-    private static readonly long ProcessStartTimeTicks = GetCurrentProcessStartTimeTicks();
-    private static readonly string ProcessInstanceId = Guid.NewGuid().ToString("N");
+    private static readonly long _processStartTimeTicks = GetCurrentProcessStartTimeTicks();
+    private static readonly string _processInstanceId = Guid.NewGuid().ToString("N");
 
     /// <summary>
     /// Gets the directory name owned by the current process instance.
     /// </summary>
     public static string CurrentDirectoryName { get; } =
-        CreateDirectoryName(ProcessInstanceId);
+        CreateDirectoryName(_processInstanceId);
 
     /// <summary>
     /// Gets a process-owned directory beneath the supplied transient root.
@@ -104,7 +104,7 @@ public static class TransientDirectoryOwnership
     }
 
     private static string CreateDirectoryName(string instanceId) =>
-        string.Create(CultureInfo.InvariantCulture, $"{Environment.ProcessId}-{ProcessStartTimeTicks}-{instanceId}");
+        string.Create(CultureInfo.InvariantCulture, $"{Environment.ProcessId}-{_processStartTimeTicks}-{instanceId}");
 }
 
 /// <summary>

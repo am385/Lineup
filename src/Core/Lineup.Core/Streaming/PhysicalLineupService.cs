@@ -11,9 +11,7 @@ namespace Lineup.Core.Streaming;
 public interface IPhysicalLineupService
 {
     /// <summary>Applies configuration and returns one refresh outcome per enabled physical device, including activation failures.</summary>
-    Task<IReadOnlyList<PhysicalLineupRefreshResult>> RefreshAsync(
-        StreamingConfiguration configuration,
-        CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<PhysicalLineupRefreshResult>> RefreshAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -58,7 +56,10 @@ public sealed class PhysicalLineupService : IPhysicalLineupService
         _requests = new CoalescedRefresh<IReadOnlyList<PhysicalLineupRefreshResult>>(_logger);
     }
 
-    /// <inheritdoc />
+    /// <summary>Refreshes the physical lineup service asynchronously.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public Task<IReadOnlyList<PhysicalLineupRefreshResult>> RefreshAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default) =>
         _requests.RunAsync(ConfigurationRevision.Create(configuration.PhysicalDevices), token => RefreshCoreAsync(configuration, token), cancellationToken);
 

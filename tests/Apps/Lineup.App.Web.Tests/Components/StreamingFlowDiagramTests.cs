@@ -86,7 +86,7 @@ public sealed class StreamingFlowDiagramTests
         Assert.Empty(component.FindAll(".streaming-flow-path-details"));
 
         var sourceProcessing = component.Find("[data-flow-stage='SourceProcessing']");
-        sourceProcessing.Click();
+        await sourceProcessing.ClickAsync(new());
 
         var details = component.Find(".streaming-flow-path-details");
         Assert.Contains("Raw physical input", details.TextContent);
@@ -95,7 +95,7 @@ public sealed class StreamingFlowDiagramTests
         Assert.Contains("h264", details.TextContent);
         Assert.Equal("true", sourceProcessing.GetAttribute("aria-expanded"));
 
-        component.Find("[data-flow-stage='OutputProcessing']").Click();
+        await component.Find("[data-flow-stage='OutputProcessing']").ClickAsync(new());
 
         details = Assert.Single(component.FindAll(".streaming-flow-path-details"));
         Assert.Equal("OutputProcessing", details.GetAttribute("data-selected-stage"));
@@ -104,8 +104,8 @@ public sealed class StreamingFlowDiagramTests
         Assert.Contains("aac", details.TextContent);
         Assert.Equal("false", sourceProcessing.GetAttribute("aria-expanded"));
 
-        component.Find("[data-flow-stage='OutputProcessing']").Click();
-        component.Find("[aria-label='Stop stream session-one']").Click();
+        await component.Find("[data-flow-stage='OutputProcessing']").ClickAsync(new());
+        await component.Find("[aria-label='Stop stream session-one']").ClickAsync(new());
 
         Assert.Empty(component.FindAll(".streaming-flow-path-details"));
         Assert.Equal("session-one", stoppedSessionId);
@@ -140,12 +140,12 @@ public sealed class StreamingFlowDiagramTests
         Assert.Empty(component.FindAll("#streamingFlowDetails"));
         Assert.Equal("false", node.GetAttribute("aria-expanded"));
 
-        node.Click();
+        await node.ClickAsync(new());
 
         Assert.Contains("Roof Antenna", component.Find("#streamingFlowDetails").TextContent);
         Assert.Equal("true", node.GetAttribute("aria-expanded"));
 
-        node.Click();
+        await node.ClickAsync(new());
 
         Assert.Empty(component.FindAll("#streamingFlowDetails"));
         Assert.Equal("false", node.GetAttribute("aria-expanded"));
@@ -167,12 +167,7 @@ public sealed class StreamingFlowDiagramTests
         Assert.Empty(component.FindAll(".streaming-flow-node"));
     }
 
-    private static StreamingFlowPathStage Stage(
-        StreamingFlowStageKind kind,
-        string label,
-        string subtitle,
-        ActiveStreamMediaSnapshot input,
-        ActiveStreamMediaSnapshot output) =>
+    private static StreamingFlowPathStage Stage(StreamingFlowStageKind kind, string label, string subtitle, ActiveStreamMediaSnapshot input, ActiveStreamMediaSnapshot output) =>
         new(kind, label, subtitle, [new StreamingFlowDetail("Stage", label)])
         {
             InputMedia = input,

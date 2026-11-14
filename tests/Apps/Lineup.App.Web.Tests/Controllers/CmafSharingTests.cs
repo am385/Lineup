@@ -1260,7 +1260,8 @@ public sealed class CmafSharingTests
             string clientId,
             CmafStreamRequest? request = null,
             string channel = "7.1",
-            TimeSpan? startupTimeout = null)
+            TimeSpan? startupTimeout = null
+        )
         {
             var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
             _cancellations.Add(cancellation);

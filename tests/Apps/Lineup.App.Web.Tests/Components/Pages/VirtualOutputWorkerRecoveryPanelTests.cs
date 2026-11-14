@@ -40,7 +40,7 @@ public sealed class VirtualOutputWorkerRecoveryPanelTests
         await click;
         var previousFailure = cut.Find(".worker-previous-failure").TextContent;
         status.Set(starting with { State = VirtualOutputRuntimeState.Healthy });
-        cut.Find(".refresh-worker-status").Click();
+        await cut.Find(".refresh-worker-status").ClickAsync(new());
 
         // Assert
         await recovery.Received(1).RetryAsync(snapshot.VirtualDeviceId, Arg.Any<CancellationToken>());

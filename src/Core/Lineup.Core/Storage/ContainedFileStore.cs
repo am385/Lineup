@@ -56,12 +56,7 @@ internal sealed class ContainedFileStore
         File.ReadAllTextAsync(EnsureContainedPath(path), cancellationToken);
 
     /// <summary>Atomically writes a contained file.</summary>
-    public async Task WriteAtomicallyAsync(
-        string destinationPath,
-        Func<Stream, CancellationToken, Task> writeAsync,
-        string? backupPath = null,
-        bool preserveBackup = false,
-        CancellationToken cancellationToken = default)
+    public async Task WriteAtomicallyAsync(string destinationPath, Func<Stream, CancellationToken, Task> writeAsync, string? backupPath = null, bool preserveBackup = false, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(writeAsync);
         var destination = EnsureContainedPath(destinationPath);
@@ -218,12 +213,16 @@ internal sealed class ContainedFileStore
         private readonly string _destinationPath;
         private string? _temporaryPath;
 
+        /// <summary>Initializes the staged file write.</summary>
+        /// <param name="destinationPath">The destination path value.</param>
+        /// <param name="temporaryPath">The temporary path value.</param>
         public StagedFileWrite(string destinationPath, string temporaryPath)
         {
             _destinationPath = destinationPath;
             _temporaryPath = temporaryPath;
         }
 
+        /// <summary>Executes commit.</summary>
         public void Commit()
         {
             var temporaryPath = Volatile.Read(ref _temporaryPath);
@@ -232,6 +231,7 @@ internal sealed class ContainedFileStore
             Interlocked.CompareExchange(ref _temporaryPath, null, temporaryPath);
         }
 
+        /// <inheritdoc />
         public void Dispose()
         {
             var temporaryPath = Interlocked.Exchange(ref _temporaryPath, null);

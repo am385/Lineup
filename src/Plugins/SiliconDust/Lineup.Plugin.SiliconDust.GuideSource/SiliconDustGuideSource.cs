@@ -1,7 +1,6 @@
 using Lineup.Core.Common.Guides;
 using Lineup.Core.Extensibility.Guides;
 using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Lineup.Plugin.SiliconDust.HDHomeRun.Api;
 using Microsoft.Extensions.Logging;
 
@@ -18,13 +17,21 @@ public sealed class SiliconDustGuideSource : IGuideSource
     private readonly SiliconDustXmltvParser _parser;
     private readonly IReadOnlyList<PhysicalDeviceId> _physicalDeviceIds;
 
+    /// <summary>Initializes the silicon dust guide source.</summary>
+    /// <param name="id">The ID value.</param>
+    /// <param name="httpClientFactory">The HTTP client factory value.</param>
+    /// <param name="apiLogger">The api logger value.</param>
+    /// <param name="authorizationProvider">The authorization provider value.</param>
+    /// <param name="parser">The parser value.</param>
+    /// <param name="physicalDeviceIds">The physical device IDs value.</param>
     internal SiliconDustGuideSource(
         GuideSourceId id,
         IHttpClientFactory httpClientFactory,
         ILogger<HDHomeRunApiClient> apiLogger,
         ISiliconDustDeviceAuthorizationProvider authorizationProvider,
         SiliconDustXmltvParser parser,
-        IReadOnlyList<PhysicalDeviceId> physicalDeviceIds)
+        IReadOnlyList<PhysicalDeviceId> physicalDeviceIds
+    )
     {
         Id = id;
         _httpClientFactory = httpClientFactory;
@@ -34,10 +41,12 @@ public sealed class SiliconDustGuideSource : IGuideSource
         _physicalDeviceIds = physicalDeviceIds;
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets the ID.</summary>
     public GuideSourceId Id { get; }
 
-    /// <inheritdoc />
+    /// <summary>Refreshes the silicon dust guide source asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async Task<GuideImport> RefreshAsync(CancellationToken cancellationToken = default)
     {
         using var httpClient = _httpClientFactory.CreateClient(SiliconDustGuideSourceServiceExtensions.HttpClientName);
@@ -159,16 +168,19 @@ public sealed class SiliconDustGuideSource : IGuideSource
         private readonly IReadOnlyList<PhysicalDeviceId> _physicalDeviceIds;
         private readonly CancellationToken _cancellationToken;
 
-        public DeviceAuthorizationBridge(
-            ISiliconDustDeviceAuthorizationProvider authorizationProvider,
-            IReadOnlyList<PhysicalDeviceId> physicalDeviceIds,
-            CancellationToken cancellationToken)
+        /// <summary>Initializes the device authorization bridge.</summary>
+        /// <param name="authorizationProvider">The authorization provider value.</param>
+        /// <param name="physicalDeviceIds">The physical device IDs value.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        public DeviceAuthorizationBridge(ISiliconDustDeviceAuthorizationProvider authorizationProvider, IReadOnlyList<PhysicalDeviceId> physicalDeviceIds, CancellationToken cancellationToken)
         {
             _authorizationProvider = authorizationProvider;
             _physicalDeviceIds = physicalDeviceIds;
             _cancellationToken = cancellationToken;
         }
 
+        /// <summary>Gets device auth asynchronously.</summary>
+        /// <returns>The operation's result.</returns>
         public async Task<string> GetDeviceAuthAsync()
         {
             var authorizations = new string[_physicalDeviceIds.Count];

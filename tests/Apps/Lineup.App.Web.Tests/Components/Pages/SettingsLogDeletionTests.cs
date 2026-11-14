@@ -35,14 +35,14 @@ public class SettingsLogDeletionTests
         context.Services.AddSingleton(runtime);
         context.Services.AddSingleton(new LogFileService(runtime));
         var component = context.Render<Settings>();
-        component.Find("#tab-logging").Click();
+        await component.Find("#tab-logging").ClickAsync(new());
         var retainedFile = component.Find("#retainedLogFiles a");
         var retainedFileText = retainedFile.TextContent;
         var retainedFileHref = retainedFile.GetAttribute("href");
         var retainedFileDownload = retainedFile.GetAttribute("download");
 
         // Act
-        component.Find("#deleteFileLogs").Click();
+        await component.Find("#deleteFileLogs").ClickAsync(new());
 
         // Assert
         Assert.Empty(component.FindAll("#rollingFileLogOptions"));

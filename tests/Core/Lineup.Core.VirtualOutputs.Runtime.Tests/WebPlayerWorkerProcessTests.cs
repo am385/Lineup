@@ -6,11 +6,9 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Lineup.Core.Common.Guides;
 using Lineup.Core.Common.Streaming;
 using Lineup.Core.Settings;
 using Lineup.Core.Streaming;
-using Lineup.Core.Streaming.FFmpeg;
 using Lineup.Core.VirtualOutputs.Protocol;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -797,7 +795,7 @@ public sealed class WebPlayerWorkerProcessTests
 
     private sealed class WebPlayerWorkerHarness : IAsyncDisposable
     {
-        private static readonly AsyncLocal<IActiveStreamRegistry?> ActiveStreamsContext = new();
+        private static readonly AsyncLocal<IActiveStreamRegistry?> _activeStreamsContext = new();
         private readonly VirtualOutputIpcServer _server;
         private readonly VirtualOutputSessionAuthority _authority;
         private readonly Process _worker;
@@ -812,7 +810,8 @@ public sealed class WebPlayerWorkerProcessTests
             HttpClient client,
             IActiveStreamRegistry activeStreams,
             string startLog,
-            MediaWorkAdmission mediaAdmission)
+            MediaWorkAdmission mediaAdmission
+        )
         {
             _server = server;
             _authority = authority;
@@ -825,15 +824,19 @@ public sealed class WebPlayerWorkerProcessTests
             _workerError = worker.StandardError.ReadToEndAsync();
         }
 
-        internal static IActiveStreamRegistry? CurrentActiveStreams => ActiveStreamsContext.Value;
+        /// <summary>Gets the current active streams.</summary>
+        internal static IActiveStreamRegistry? CurrentActiveStreams => _activeStreamsContext.Value;
 
+        /// <summary>Gets the client.</summary>
         internal HttpClient Client { get; }
 
+        /// <summary>Gets the active streams.</summary>
         internal IActiveStreamRegistry ActiveStreams { get; }
 
         /// <summary>Gets authoritative resource accounting shared with the real dedicated process.</summary>
         internal MediaWorkAdmission MediaAdmission { get; }
 
+        /// <summary>Gets the reported streams.</summary>
         internal IReadOnlyList<ActiveStreamSnapshot> ReportedStreams => ActiveStreams.GetActiveStreams();
 
         /// <summary>Gets each main media attempt's process ID, output directory and first audio codec.</summary>
@@ -863,6 +866,15 @@ public sealed class WebPlayerWorkerProcessTests
             }
         }
 
+        /// <summary>Starts the web player worker harness asynchronously.</summary>
+        /// <param name="openStream">The open stream value.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <param name="leaseLifetime">The lease lifetime value.</param>
+        /// <param name="mediaProcessorFails">The media processor fails value.</param>
+        /// <param name="startupMode">The startup mode value.</param>
+        /// <param name="workerPath">The worker path value.</param>
+        /// <param name="resources">The resources value.</param>
+        /// <returns>The operation's result.</returns>
         internal static async Task<WebPlayerWorkerHarness> StartAsync(
             Func<VirtualOutputOpenStreamRequest, CancellationToken, Task<VirtualOutputBrokeredStream>> openStream,
             CancellationToken cancellationToken,
@@ -870,13 +882,14 @@ public sealed class WebPlayerWorkerProcessTests
             bool mediaProcessorFails = false,
             string? startupMode = null,
             string? workerPath = null,
-            StreamingResourceOptions? resources = null)
+            StreamingResourceOptions? resources = null
+        )
         {
             var endpoint = CreateEndpoint();
             var authority = new VirtualOutputSessionAuthority();
             var deviceId = VirtualDeviceId.New();
             var activeStreams = new ActiveStreamRegistry();
-            ActiveStreamsContext.Value = activeStreams;
+            _activeStreamsContext.Value = activeStreams;
             var broker = new TestBroker(openStream);
             var port = AllocatePort();
             var device = CreateDevice(deviceId, port);
@@ -958,6 +971,11 @@ public sealed class WebPlayerWorkerProcessTests
             }
         }
 
+        /// <summary>Creates request.</summary>
+        /// <param name="method">The method value.</param>
+        /// <param name="path">Path used by the operation.</param>
+        /// <param name="json">The JSON value.</param>
+        /// <returns>The operation's result.</returns>
         internal HttpRequestMessage CreateRequest(HttpMethod method, string path, string? json = null)
         {
             var request = new HttpRequestMessage(method, path);
@@ -969,6 +987,8 @@ public sealed class WebPlayerWorkerProcessTests
             return request;
         }
 
+        /// <summary>Executes kill worker asynchronously.</summary>
+        /// <returns>A task that completes when the operation has finished.</returns>
         internal async Task KillWorkerAsync()
         {
             if (!_worker.HasExited)
@@ -978,6 +998,7 @@ public sealed class WebPlayerWorkerProcessTests
             await _worker.WaitForExitAsync();
         }
 
+        /// <inheritdoc />
         public async ValueTask DisposeAsync()
         {
             Client.Dispose();
@@ -990,7 +1011,7 @@ public sealed class WebPlayerWorkerProcessTests
             _worker.Dispose();
             File.Delete(_startLog);
             File.Delete(_startLog + ".ready");
-            ActiveStreamsContext.Value = null;
+            _activeStreamsContext.Value = null;
         }
 
         private async Task WaitForReadyAsync(CancellationToken cancellationToken)
@@ -1116,18 +1137,33 @@ public sealed class WebPlayerWorkerProcessTests
         }
     }
 
-    private sealed class TestBroker(
-        Func<VirtualOutputOpenStreamRequest, CancellationToken, Task<VirtualOutputBrokeredStream>> openStream) : IVirtualOutputBroker
+    private sealed class TestBroker(Func<VirtualOutputOpenStreamRequest, CancellationToken, Task<VirtualOutputBrokeredStream>> openStream) : IVirtualOutputBroker
     {
+        /// <summary>Gets manifest asynchronously.</summary>
+        /// <param name="request">The request value.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
         public Task<VirtualOutputManifest> GetManifestAsync(VirtualOutputManifestRequest request, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        /// <summary>Gets lineup asynchronously.</summary>
+        /// <param name="request">The request value.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
         public Task<VirtualOutputLineupResponse> GetLineupAsync(VirtualOutputLineupRequest request, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        /// <summary>Gets guide asynchronously.</summary>
+        /// <param name="request">The request value.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
         public Task<VirtualOutputGuideResponse> GetGuideAsync(VirtualOutputGuideRequest request, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        /// <summary>Opens stream asynchronously.</summary>
+        /// <param name="request">The request value.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
         public Task<VirtualOutputBrokeredStream> OpenStreamAsync(VirtualOutputOpenStreamRequest request, CancellationToken cancellationToken = default) =>
             openStream(request, cancellationToken);
     }
@@ -1150,26 +1186,34 @@ public sealed class WebPlayerWorkerProcessTests
         /// <summary>Ends upstream input independently of viewer stop or worker disposal.</summary>
         internal void End() => _disposed.Cancel();
 
+        /// <inheritdoc />
         public override bool CanRead => true;
 
+        /// <inheritdoc />
         public override bool CanSeek => false;
 
+        /// <inheritdoc />
         public override bool CanWrite => false;
 
+        /// <inheritdoc />
         public override long Length => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override long Position
         {
             get => throw new NotSupportedException();
             set => throw new NotSupportedException();
         }
 
+        /// <inheritdoc />
         public override void Flush()
         {
         }
 
+        /// <inheritdoc />
         public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
             using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _disposed.Token);
@@ -1192,12 +1236,16 @@ public sealed class WebPlayerWorkerProcessTests
             return length;
         }
 
+        /// <inheritdoc />
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override void SetLength(long value) => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override ValueTask DisposeAsync()
         {
             _disposed.Cancel();
@@ -1211,38 +1259,50 @@ public sealed class WebPlayerWorkerProcessTests
     {
         private readonly TaskCompletionSource _disposed = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        /// <inheritdoc />
         public override bool CanRead => true;
 
+        /// <inheritdoc />
         public override bool CanSeek => false;
 
+        /// <inheritdoc />
         public override bool CanWrite => false;
 
+        /// <inheritdoc />
         public override long Length => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override long Position
         {
             get => throw new NotSupportedException();
             set => throw new NotSupportedException();
         }
 
+        /// <inheritdoc />
         public override void Flush()
         {
         }
 
+        /// <inheritdoc />
         public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
             await _disposed.Task.WaitAsync(cancellationToken);
             return 0;
         }
 
+        /// <inheritdoc />
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override void SetLength(long value) => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override ValueTask DisposeAsync()
         {
             _disposed.TrySetResult();

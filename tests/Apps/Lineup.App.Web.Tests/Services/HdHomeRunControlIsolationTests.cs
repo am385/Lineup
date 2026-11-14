@@ -2,7 +2,6 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Lineup.Plugin.SiliconDust.HDHomeRun.Device;
-using Lineup.Plugin.SiliconDust.HDHomeRun.Device.Models;
 using Lineup.Plugin.SiliconDust.HDHomeRun.Device.Protocol;
 using Lineup.Plugin.SiliconDust.HDHomeRun.PhysicalTuner;
 using Microsoft.Data.Sqlite;

@@ -1,5 +1,6 @@
 namespace Lineup.Integration.Streaming.Sweep;
 
+/// <summary>Represents the sweep harness.</summary>
 internal sealed partial class SweepHarness
 {
     private async Task PrimeFaultSourceCatalogAsync(string sourceUrl)
@@ -14,11 +15,7 @@ internal sealed partial class SweepHarness
 
     }
 
-    private async Task RestartWithFaultSourceAsync(
-        MatrixDefinition matrix,
-        string project,
-        string faultContainer,
-        string protectedContentMode = "ReturnError")
+    private async Task RestartWithFaultSourceAsync(MatrixDefinition matrix, string project, string faultContainer, string protectedContentMode = "ReturnError")
     {
         var matrixRoot = MatrixRoot(matrix);
         var composePath = Path.Combine(matrixRoot, "compose.yml");
@@ -109,13 +106,7 @@ internal sealed partial class SweepHarness
         throw new TimeoutException("The synthetic HDHomeRun source did not become ready.");
     }
 
-    private async Task<DedicatedFailureResult> VerifySourceAcquisitionFailureAsync(
-        IBrowserContext context,
-        MatrixDefinition matrix,
-        string channel,
-        int expectedStatus,
-        string expectedCode,
-        string expectedError)
+    private async Task<DedicatedFailureResult> VerifySourceAcquisitionFailureAsync(IBrowserContext context, MatrixDefinition matrix, string channel, int expectedStatus, string expectedCode, string expectedError)
     {
         var page = await context.NewPageAsync();
         var requestFailures = new List<string>();

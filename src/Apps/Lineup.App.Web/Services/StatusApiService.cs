@@ -4,7 +4,6 @@ using System.Text.Json;
 using Lineup.Core.Common.Configuration;
 using Lineup.Core.Extensibility.Configuration;
 using Lineup.Core.VirtualOutputs.Runtime;
-using Lineup.Core.Hosting;
 
 namespace Lineup.App.Web.Services;
 
@@ -24,7 +23,8 @@ internal sealed record LineupStatusResponse(
     IReadOnlyList<ReceiverStatusResponse> Receivers,
     ActiveStreamsStatusResponse Streams,
     StreamingGraphStatusResponse StreamingGraph,
-    StreamingFlowsStatusResponse StreamingFlows)
+    StreamingFlowsStatusResponse StreamingFlows
+)
 {
     /// <summary>Gets authoritative deployment plugin admission usage, or null when the authority is unavailable.</summary>
     public PluginConnectionBudgetStatusResponse? PluginConnections { get; init; }
@@ -46,7 +46,8 @@ internal sealed record StatusObservationResponse(
     string WebConfigurationRevision,
     string StreamingConfigurationRevision,
     bool ConfigurationChangedDuringRead,
-    IReadOnlyDictionary<string, StatusSectionObservation> Sections);
+    IReadOnlyDictionary<string, StatusSectionObservation> Sections
+);
 
 /// <summary>Bounds when a section was read, not when its underlying cached data was last refreshed.</summary>
 internal sealed record StatusSectionObservation(DateTime StartedAtUtc, DateTime CompletedAtUtc);
@@ -57,14 +58,7 @@ internal sealed record PluginConnectionBudgetStatusResponse(int MaximumConnectio
 /// <summary>
 /// Represents application identity, setup, and uptime status.
 /// </summary>
-internal sealed record ApplicationStatusResponse(
-    string Version,
-    string InstanceId,
-    bool SetupComplete,
-    DateTime StartedAtUtc,
-    long UptimeSeconds,
-    string StartupStatus,
-    string? StartupMessage);
+internal sealed record ApplicationStatusResponse(string Version, string InstanceId, bool SetupComplete, DateTime StartedAtUtc, long UptimeSeconds, string StartupStatus, string? StartupMessage);
 
 /// <summary>
 /// Represents guide coverage, refresh, and XMLTV status.
@@ -81,7 +75,8 @@ internal sealed record GuideStatusResponse(
     AutoFetchStatusResponse AutoFetch,
     XmltvStatusResponse Xmltv,
     GuideSourceImportsStatusResponse SourceImports,
-    IReadOnlyList<GuideOutputStatusResponse> Outputs)
+    IReadOnlyList<GuideOutputStatusResponse> Outputs
+)
 {
     /// <summary>Gets safe source exclusions affecting the returned guide counts and coverage.</summary>
     public IReadOnlyList<GuideSourceDiagnosticStatusResponse> SourceDiagnostics { get; init; } = [];
@@ -115,7 +110,8 @@ internal sealed record AutoFetchStatusResponse(
     DateTime? CurrentEndTimeUtc,
     DateTime? TargetEndTimeUtc,
     DateTime? LastFetchTimeUtc,
-    DateTime? NextFetchTimeUtc);
+    DateTime? NextFetchTimeUtc
+);
 
 /// <summary>
 /// Represents generated XMLTV availability.
@@ -135,7 +131,8 @@ internal sealed record PhysicalDeviceStatusResponse(
     bool SupportsReceiverControl,
     bool SupportsRestart,
     IReadOnlyDictionary<string, string> Details,
-    DateTime? ObservedAtUtc)
+    DateTime? ObservedAtUtc
+)
 {
     /// <summary>Gets when the last refresh attempt completed, including failures.</summary>
     public DateTimeOffset? LastAttemptAtUtc { get; init; }
@@ -162,7 +159,8 @@ internal sealed record VirtualDeviceStatusResponse(
     string? PhysicalAddress,
     string? AdvertisedUrl,
     DateTime? LastResolvedAtUtc,
-    DateTime? LastAttemptAtUtc);
+    DateTime? LastAttemptAtUtc
+);
 
 /// <summary>Represents desired-versus-applied isolated virtual-output worker state.</summary>
 internal sealed record VirtualOutputRuntimeStatusResponse(
@@ -176,7 +174,8 @@ internal sealed record VirtualOutputRuntimeStatusResponse(
     int ActiveConnections,
     int ActiveBrokerStreams,
     DateTimeOffset? ReadyAtUtc,
-    string? LastFailure);
+    string? LastFailure
+);
 
 /// <summary>
 /// Represents one physical receiver status snapshot.
@@ -195,7 +194,8 @@ internal sealed record ReceiverStatusResponse(
     int? SignalToNoiseQuality,
     int? SymbolErrorQuality,
     long? BitsPerSecond,
-    int? PacketsPerSecond);
+    int? PacketsPerSecond
+);
 
 /// <summary>
 /// Represents the active stream collection.
@@ -203,32 +203,17 @@ internal sealed record ReceiverStatusResponse(
 internal sealed record ActiveStreamsStatusResponse(int Count, IReadOnlyList<ActiveStreamStatusResponse> Items);
 
 /// <summary>Represents shared producer and physical-capacity state.</summary>
-internal sealed record StreamingGraphStatusResponse(
-    IReadOnlyList<StreamingGraphNodeStatusResponse> Nodes,
-    IReadOnlyList<StreamingCapacityStatusResponse> Capacity)
+internal sealed record StreamingGraphStatusResponse(IReadOnlyList<StreamingGraphNodeStatusResponse> Nodes, IReadOnlyList<StreamingCapacityStatusResponse> Capacity)
 {
     /// <summary>Gets bounded recent terminal reasons; clients reconnect rather than relying on seamless source switching.</summary>
     public IReadOnlyList<StreamTermination> RecentTerminations { get; init; } = [];
 }
 
 /// <summary>Represents one active shared acquisition or transform node.</summary>
-internal sealed record StreamingGraphNodeStatusResponse(
-    string Kind,
-    string Key,
-    int ReceiverCount,
-    bool Running,
-    bool Warm,
-    long TotalSubscriptions,
-    string NodeId,
-    string? ParentNodeId,
-    string? Stage);
+internal sealed record StreamingGraphNodeStatusResponse(string Kind, string Key, int ReceiverCount, bool Running, bool Warm, long TotalSubscriptions, string NodeId, string? ParentNodeId, string? Stage);
 
 /// <summary>Represents physical tuner capacity consumed by shared acquisitions.</summary>
-internal sealed record StreamingCapacityStatusResponse(
-    string PhysicalDeviceId,
-    int? Capacity,
-    int ActiveAcquisitions,
-    int Receivers);
+internal sealed record StreamingCapacityStatusResponse(string PhysicalDeviceId, int? Capacity, int ActiveAcquisitions, int Receivers);
 
 /// <summary>
 /// Represents one active stream and its media tracks.
@@ -252,7 +237,8 @@ internal sealed record ActiveStreamStatusResponse(
     IReadOnlyList<ActiveStreamTrackStatusResponse> Tracks,
     ActiveStreamMediaStatusResponse? PhysicalInput,
     ActiveStreamMediaStatusResponse? PhysicalOutput,
-    ActiveStreamMediaStatusResponse? VirtualOutput);
+    ActiveStreamMediaStatusResponse? VirtualOutput
+);
 
 /// <summary>Represents media tracks at one active-stream processing boundary.</summary>
 internal sealed record ActiveStreamMediaStatusResponse(long? BitRate, IReadOnlyList<ActiveStreamMediaTrackStatusResponse> Tracks);
@@ -269,7 +255,8 @@ internal sealed record ActiveStreamMediaTrackStatusResponse(
     int? SampleRate,
     string? Language,
     string? Title,
-    string? RenditionTitle);
+    string? RenditionTitle
+);
 
 /// <summary>
 /// Represents one source-to-output media track mapping.
@@ -293,7 +280,8 @@ internal sealed record ActiveStreamTrackStatusResponse(
     bool HearingImpaired,
     bool ClosedCaptions,
     bool Selected,
-    string? SubtitlePresentation);
+    string? SubtitlePresentation
+);
 
 /// <summary>
 /// Provides process identity and lifetime values for status responses.
@@ -379,7 +367,8 @@ internal sealed class StatusApiService
         IPluginConnectionBudget? pluginConnections = null,
         MediaWorkAdmission? mediaWork = null,
         IStreamingTopologyRuntime? topologyRuntime = null,
-        ITopologyGuideService? topologyGuides = null)
+        ITopologyGuideService? topologyGuides = null
+    )
     {
         _guideReader = guideReader;
         _settings = settings;
@@ -589,10 +578,7 @@ internal sealed class StatusApiService
                     policy.MaximumCpuPercent)).ToArray()));
     }
 
-    private AdapterConfigurationStatusResponse GetAdapterStatus(
-        AdapterConfiguration configuration,
-        Func<string, IAdapterSettingsProvider>? getProvider,
-        WebSettings settings)
+    private AdapterConfigurationStatusResponse GetAdapterStatus(AdapterConfiguration configuration, Func<string, IAdapterSettingsProvider>? getProvider, WebSettings settings)
     {
         if (getProvider is null)
         {
@@ -1108,10 +1094,7 @@ internal sealed class StatusApiService
         }).ToArray();
     }
 
-    private ReadOnlyCollection<VirtualDeviceStatusResponse> GetVirtualDeviceStatuses(
-        StreamingConfiguration configuration,
-        WebSettings settings,
-        IReadOnlyList<HdHomeRunProxyProfileSnapshot> profiles)
+    private ReadOnlyCollection<VirtualDeviceStatusResponse> GetVirtualDeviceStatuses(StreamingConfiguration configuration, WebSettings settings, IReadOnlyList<HdHomeRunProxyProfileSnapshot> profiles)
     {
         var profilesByDevice = profiles.ToDictionary(profile => profile.VirtualDevice.Id);
         var workersByDevice = _virtualOutputRuntime?.GetSnapshots().ToDictionary(snapshot => snapshot.VirtualDeviceId)

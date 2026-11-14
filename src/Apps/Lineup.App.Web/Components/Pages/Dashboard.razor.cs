@@ -8,7 +8,7 @@ namespace Lineup.App.Web.Components.Pages;
 /// <summary>
 /// Displays EPG, device, tuner, and active hosted stream status.
 /// </summary>
-public partial class Dashboard : IDisposable
+public partial class Dashboard : IAsyncDisposable
 {
     [Inject]
     private ILineupGuideReader GuideReader { get; set; } = default!;
@@ -75,7 +75,8 @@ public partial class Dashboard : IDisposable
     private Timer? _countdownTimer;
     private Timer? _activeStreamTimer;
     private readonly object _timerLock = new();
-    private bool _disposed;
+    private readonly List<Task> _updates = [];
+    private volatile bool _disposed;
     private IReadOnlyList<ActiveStreamSnapshot> _activeStreams = [];
     private StreamingFlowSnapshot _streamingFlow = new([], [], 0, 0, 0);
     private DateTime? _activeStreamsLastRefreshUtc;
@@ -269,21 +270,23 @@ public partial class Dashboard : IDisposable
 
     private void OnSettingsChanged()
     {
-        if (_disposed)
+        ScheduleUpdate(() =>
         {
-            return;
-        }
-
-        CheckXmltvFileExists(); // Refresh in case output path changed
-        ConfigureActiveStreamTimer();
-        InvokeAsync(StateHasChanged);
+            CheckXmltvFileExists();
+            ConfigureActiveStreamTimer();
+            return Task.CompletedTask;
+        });
     }
 
     private enum DashboardSection
     {
+        /// <summary>Identifies the channels option.</summary>
         Channels,
+        /// <summary>Identifies the guide option.</summary>
         Guide,
+        /// <summary>Identifies the device option.</summary>
         Device,
+        /// <summary>Identifies the active streams option.</summary>
         ActiveStreams
     }
 
@@ -312,36 +315,27 @@ public partial class Dashboard : IDisposable
 
     private void OnDeviceStateChanged()
     {
-        InvokeAsync(StateHasChanged);
+        ScheduleUpdate(() => Task.CompletedTask);
     }
 
-    private async void UpdateCountdown(object? state)
+    private void UpdateCountdown(object? state)
     {
-        if (_disposed)
+        ScheduleUpdate(() =>
         {
-            return;
-        }
-
-        if (AutoFetchState.NextFetchTime.HasValue && !AutoFetchState.IsRunning)
-        {
-            _countdown = AutoFetchState.NextFetchTime.Value - DateTime.UtcNow;
-            if (_countdown < TimeSpan.Zero)
+            if (AutoFetchState.NextFetchTime.HasValue && !AutoFetchState.IsRunning)
+            {
+                _countdown = AutoFetchState.NextFetchTime.Value - DateTime.UtcNow;
+                if (_countdown < TimeSpan.Zero)
+                {
+                    _countdown = TimeSpan.Zero;
+                }
+            }
+            else
             {
                 _countdown = TimeSpan.Zero;
             }
-        }
-        else
-        {
-            _countdown = TimeSpan.Zero;
-        }
-
-        try
-        {
-            await InvokeAsync(StateHasChanged);
-        }
-        catch (ObjectDisposedException)
-        {
-        }
+            return Task.CompletedTask;
+        });
     }
 
     private string FormatCountdown(TimeSpan countdown)
@@ -377,20 +371,20 @@ public partial class Dashboard : IDisposable
 
     private void OnAutoFetchStateChanged()
     {
-        InvokeAsync(async () =>
+        ScheduleUpdate(async () =>
         {
             // Reload stats when auto-fetch completes
             if (!AutoFetchState.IsRunning && AutoFetchState.LastFetchTime.HasValue)
             {
                 await LoadStatsAsync();
             }
-            StateHasChanged();
         });
     }
 
     /// <inheritdoc />
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
+        Task[] updates;
         lock (_timerLock)
         {
             _disposed = true;
@@ -398,6 +392,7 @@ public partial class Dashboard : IDisposable
             _activeStreamTimer?.Dispose();
             _countdownTimer = null;
             _activeStreamTimer = null;
+            updates = _updates.ToArray();
         }
 
         AutoFetchState.OnStateChanged -= OnAutoFetchStateChanged;
@@ -407,6 +402,49 @@ public partial class Dashboard : IDisposable
             _webSettingsService.OnSettingsChanged -= OnSettingsChanged;
         }
         DeviceStatuses.StateChanged -= OnDeviceStateChanged;
+        await Task.WhenAll(updates).ConfigureAwait(false);
+    }
+
+    private void ScheduleUpdate(Func<Task> update)
+    {
+        lock (_timerLock)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+            _updates.RemoveAll(task => task.IsCompleted);
+            _updates.Add(ObserveUpdateAsync(update));
+        }
+    }
+
+    private async Task ObserveUpdateAsync(Func<Task> update)
+    {
+        try
+        {
+            await InvokeAsync(async () =>
+            {
+                if (_disposed)
+                {
+                    return;
+                }
+                await update();
+                if (!_disposed)
+                {
+                    StateHasChanged();
+                }
+            });
+        }
+        catch (ObjectDisposedException) when (_disposed)
+        {
+        }
+        catch (OperationCanceledException) when (_disposed)
+        {
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Unable to refresh the dashboard");
+        }
     }
 
     private void ConfigureActiveStreamTimer()
@@ -432,27 +470,13 @@ public partial class Dashboard : IDisposable
         }
     }
 
-    private async void UpdateActiveStreams(object? state)
+    private void UpdateActiveStreams(object? state)
     {
-        if (_disposed)
+        ScheduleUpdate(() =>
         {
-            return;
-        }
-
-        try
-        {
-            await InvokeAsync(() =>
-            {
-                if (!_disposed)
-                {
-                    RefreshActiveStreams();
-                    StateHasChanged();
-                }
-            });
-        }
-        catch (ObjectDisposedException)
-        {
-        }
+            RefreshActiveStreams();
+            return Task.CompletedTask;
+        });
     }
 
     private void RefreshActiveStreams()

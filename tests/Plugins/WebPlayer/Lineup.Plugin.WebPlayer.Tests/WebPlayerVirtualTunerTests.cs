@@ -2,7 +2,6 @@ using System.Text.Json;
 using Lineup.Core.Common.Configuration;
 using Lineup.Core.Extensibility.Configuration;
 using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Xunit;
 using Lineup.TestSupport;
 
@@ -353,10 +352,7 @@ public sealed class WebPlayerVirtualTunerTests
         Assert.Contains(duplicateErrors, error => error.Contains("does not accept", StringComparison.Ordinal));
     }
 
-    private static (StreamingConfiguration Configuration, VirtualDeviceDefinition Player) Configuration(
-        PhysicalDeviceId physicalId,
-        VirtualTranscodeProfile defaults,
-        VirtualTranscodeOverrides overrides)
+    private static (StreamingConfiguration Configuration, VirtualDeviceDefinition Player) Configuration(PhysicalDeviceId physicalId, VirtualTranscodeProfile defaults, VirtualTranscodeOverrides overrides)
     {
         var player = WebPlayerVirtualTunerDriver.CreateBuiltIn() with
         {

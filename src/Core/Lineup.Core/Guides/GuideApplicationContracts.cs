@@ -1,6 +1,3 @@
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
-
 namespace Lineup.Core.Guides;
 
 /// <summary>
@@ -99,11 +96,7 @@ public interface IGuideQueryService
     Task<VirtualGuideSnapshot> BuildUnionDirectoryAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default);
 
     /// <summary>Builds the union guide for every enabled physical device.</summary>
-    Task<VirtualGuideSnapshot> BuildUnionSnapshotAsync(
-        StreamingConfiguration configuration,
-        DateTimeOffset? startUtc = null,
-        DateTimeOffset? endUtc = null,
-        CancellationToken cancellationToken = default);
+    Task<VirtualGuideSnapshot> BuildUnionSnapshotAsync(StreamingConfiguration configuration, DateTimeOffset? startUtc = null, DateTimeOffset? endUtc = null, CancellationToken cancellationToken = default);
 
     /// <summary>Builds the scoped projection for one configured guide output.</summary>
     Task<VirtualGuideSnapshot> BuildOutputSnapshotAsync(
@@ -111,7 +104,8 @@ public interface IGuideQueryService
         GuideOutputDefinition output,
         DateTimeOffset? startUtc = null,
         DateTimeOffset? endUtc = null,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default
+    );
 
     /// <summary>Gets statistics for the active union guide projection.</summary>
     Task<GuideStatistics> GetStatisticsAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default);
@@ -120,12 +114,7 @@ public interface IGuideQueryService
 /// <summary>
 /// Statistics for one active provider-neutral guide projection.
 /// </summary>
-public sealed record GuideStatistics(
-    int ChannelCount,
-    int ProgramCount,
-    DateTimeOffset? EarliestProgramStartUtc,
-    DateTimeOffset? LatestProgramEndUtc,
-    DateTimeOffset? SafeCoverageEndUtc)
+public sealed record GuideStatistics(int ChannelCount, int ProgramCount, DateTimeOffset? EarliestProgramStartUtc, DateTimeOffset? LatestProgramEndUtc, DateTimeOffset? SafeCoverageEndUtc)
 {
     /// <summary>Gets the database observation and configuration identity used for these aggregates.</summary>
     public GuideReadGeneration? Generation { get; init; }

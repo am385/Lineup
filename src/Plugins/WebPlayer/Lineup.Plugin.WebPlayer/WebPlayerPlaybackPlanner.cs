@@ -1,6 +1,5 @@
 using System.Globalization;
 using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 
 namespace Lineup.Plugin.WebPlayer;
 
@@ -87,16 +86,11 @@ public sealed record WebPlayerPlaybackPlan
 /// <summary>Plans provider-neutral Web Player playback and reusable transform identity.</summary>
 public static class WebPlayerPlaybackPlanner
 {
-    private static readonly HashSet<string> CmafVideoCodecs = new(StringComparer.OrdinalIgnoreCase) { "h264", "hevc" };
-    private static readonly HashSet<string> CmafAudioCodecs = new(StringComparer.OrdinalIgnoreCase) { "aac", "ac3", "eac3", "ac4" };
+    private static readonly HashSet<string> _cmafVideoCodecs = new(StringComparer.OrdinalIgnoreCase) { "h264", "hevc" };
+    private static readonly HashSet<string> _cmafAudioCodecs = new(StringComparer.OrdinalIgnoreCase) { "aac", "ac3", "eac3", "ac4" };
 
     /// <summary>Creates a playback plan using inherited sparse virtual-device settings.</summary>
-    public static WebPlayerPlaybackPlan Create(
-        StreamingConfiguration configuration,
-        VirtualDeviceId deviceId,
-        PhysicalDeviceId sourceDeviceId,
-        IReadOnlyList<WebPlayerMediaTrack> tracks,
-        WebPlayerPlaybackRequest request)
+    public static WebPlayerPlaybackPlan Create(StreamingConfiguration configuration, VirtualDeviceId deviceId, PhysicalDeviceId sourceDeviceId, IReadOnlyList<WebPlayerMediaTrack> tracks, WebPlayerPlaybackRequest request)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(tracks);
@@ -134,7 +128,7 @@ public static class WebPlayerPlaybackPlanner
         var encodeVideo = video is not null &&
             (burnIn ||
              request.MaximumHeight.HasValue ||
-             !CmafVideoCodecs.Contains(video.Codec) ||
+             !_cmafVideoCodecs.Contains(video.Codec) ||
              effective.ConvertHevcToH264 && string.Equals(video.Codec, "hevc", StringComparison.OrdinalIgnoreCase) ||
              request.Compatibility.VideoCodecs.Count > 0 && !request.Compatibility.VideoCodecs.Contains(video.Codec));
         var audioCodec = ResolveAudioCodec(audio, effective, request.Compatibility);
@@ -177,7 +171,7 @@ public static class WebPlayerPlaybackPlanner
         {
             return "eac3";
         }
-        return CmafAudioCodecs.Contains(audio.Codec) &&
+        return _cmafAudioCodecs.Contains(audio.Codec) &&
             (compatibility.AudioCodecs.Count == 0 || compatibility.AudioCodecs.Contains(audio.Codec))
                 ? "copy"
                 : "aac";

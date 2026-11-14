@@ -110,7 +110,8 @@ internal static class FragmentTimeline
         IReadOnlySet<string> activeRepresentations,
         IReadOnlyDictionary<string, FragmentInitialization> initialization,
         IReadOnlyDictionary<(string Representation, long Sequence), FragmentTimingSample> fragments,
-        IReadOnlyDictionary<(string Representation, long Sequence), ManifestTiming> manifest)
+        IReadOnlyDictionary<(string Representation, long Sequence), ManifestTiming> manifest
+    )
     {
         var tracks = new List<TrackTimestampEvidence>();
         var errors = new List<string>();

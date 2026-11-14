@@ -1,6 +1,4 @@
-using System.Net;
 using System.Diagnostics;
-using Lineup.Core.Extensibility.Streaming;
 using Lineup.App.Web.Controllers;
 using Lineup.App.Web.Services.Playback;
 using Lineup.TestSupport;
@@ -877,7 +875,8 @@ public sealed class StreamControllerTests
         TimeSpan? cmafStartupTimeout = null,
         ICmafCompatibilityTestService? compatibilityTestService = null,
         IVirtualMpegTsOutputService? virtualMpegTsOutputs = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null
+    )
     {
         var settings = Substitute.For<ILineupSettingsService>();
         settings.Settings.Returns(new LineupSettings
@@ -1036,17 +1035,28 @@ public sealed class StreamControllerTests
         /// <summary>Gets the barrier indicating the held source read has finished.</summary>
         internal TaskCompletionSource Completed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        /// <inheritdoc />
         public override bool CanRead => true;
+        /// <inheritdoc />
         public override bool CanSeek => false;
+        /// <inheritdoc />
         public override bool CanWrite => false;
+        /// <inheritdoc />
         public override long Length => throw new NotSupportedException();
+        /// <inheritdoc />
         public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        /// <inheritdoc />
         public override void Flush() => throw new NotSupportedException();
+        /// <inheritdoc />
         public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        /// <inheritdoc />
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        /// <inheritdoc />
         public override void SetLength(long value) => throw new NotSupportedException();
+        /// <inheritdoc />
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
             _ = buffer;
@@ -1148,19 +1158,25 @@ public sealed class StreamControllerTests
             }
         }
 
+        /// <summary>Gets the controller.</summary>
         internal StreamController Controller { get; } = null!;
 
         /// <summary>Gets the typed application runtime, which can run without an MVC controller.</summary>
         internal ManagementPlaybackService Playback { get; }
 
+        /// <summary>Gets the outputs.</summary>
         internal CmafOutputCoordinator Outputs { get; } = new();
 
+        /// <summary>Gets the request cancellation.</summary>
         internal CancellationTokenSource RequestCancellation { get; } = new();
 
+        /// <summary>Gets or sets the session directory.</summary>
         internal string SessionDirectory { get; private set; } = string.Empty;
 
+        /// <summary>Gets or sets the manifest reads.</summary>
         internal int ManifestReads { get; private set; }
 
+        /// <summary>Gets the is encoder running.</summary>
         internal bool IsEncoderRunning => _observer is { HasExited: false };
 
         /// <inheritdoc />

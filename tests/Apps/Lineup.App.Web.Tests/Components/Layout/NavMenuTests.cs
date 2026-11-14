@@ -116,6 +116,7 @@ public sealed class NavMenuTests
 
     private sealed class DisposedServiceProvider : IServiceProvider
     {
+        /// <inheritdoc />
         public object? GetService(Type serviceType) => throw new ObjectDisposedException(nameof(IServiceProvider));
     }
 }

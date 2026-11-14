@@ -31,7 +31,8 @@ public sealed class LineupLinkController : ControllerBase
         IGuideOrchestrator guides,
         IVirtualMpegTsOutputService streams,
         IActiveStreamRegistry activeStreams,
-        ILogger<LineupLinkController> logger)
+        ILogger<LineupLinkController> logger
+    )
     {
         _settings = settings;
         _adapters = adapters;
@@ -230,10 +231,7 @@ public sealed class LineupLinkController : ControllerBase
         }
     }
 
-    private bool TryAuthorize(
-        Guid virtualDeviceId,
-        out LineupLinkVirtualContext context,
-        out ActionResult failure)
+    private bool TryAuthorize(Guid virtualDeviceId, out LineupLinkVirtualContext context, out ActionResult failure)
     {
         var definition = _settings.Settings.Streaming.VirtualDevices.SingleOrDefault(device =>
             device.Enabled &&
@@ -291,9 +289,5 @@ public sealed class LineupLinkController : ControllerBase
             Message = "The requested Lineup Link virtual device is unavailable."
         };
 
-    private sealed record LineupLinkVirtualContext(
-        VirtualDeviceDefinition Definition,
-        LineupLinkVirtualTunerDriver Driver,
-        LineupLinkVirtualConfiguration Configuration,
-        LineupLinkAuthenticatedGrant AuthenticatedGrant);
+    private sealed record LineupLinkVirtualContext(VirtualDeviceDefinition Definition, LineupLinkVirtualTunerDriver Driver, LineupLinkVirtualConfiguration Configuration, LineupLinkAuthenticatedGrant AuthenticatedGrant);
 }

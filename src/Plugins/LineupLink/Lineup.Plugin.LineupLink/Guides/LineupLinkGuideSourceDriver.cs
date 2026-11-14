@@ -15,7 +15,9 @@ public sealed class LineupLinkGuideSourceDriver : IGuideSourceDriver, IAdapterSe
 {
     private readonly IPhysicalDeviceResolver _devices;
 
-    /// <inheritdoc />
+    /// <summary>Gets refresh interval.</summary>
+    /// <param name="configuredInterval">The configured interval value.</param>
+    /// <returns>The operation's result.</returns>
     public TimeSpan GetRefreshInterval(TimeSpan configuredInterval) => configuredInterval;
 
     /// <summary>Initializes the Lineup Link guide driver.</summary>
@@ -24,35 +26,40 @@ public sealed class LineupLinkGuideSourceDriver : IGuideSourceDriver, IAdapterSe
         _devices = devices;
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets the kind.</summary>
     public string Kind => LineupLinkProtocol.AdapterKind;
 
-    /// <inheritdoc />
+    /// <summary>Gets the display name.</summary>
     public string DisplayName => "Lineup Link";
 
-    /// <inheritdoc />
+    /// <summary>Gets the supports user creation.</summary>
     public bool SupportsUserCreation => true;
 
-    /// <inheritdoc />
+    /// <summary>Gets the settings descriptor.</summary>
     public AdapterSettingsDescriptor SettingsDescriptor { get; } = new()
     {
         AdapterKind = LineupLinkProtocol.AdapterKind
     };
 
-    /// <inheritdoc />
+    /// <summary>Creates default configuration.</summary>
+    /// <param name="sourceId">The source ID value.</param>
+    /// <returns>The operation's result.</returns>
     public AdapterConfiguration CreateDefaultConfiguration(GuideSourceId sourceId) =>
         new(Kind, JsonSerializer.SerializeToElement(new { }));
 
-    /// <inheritdoc />
+    /// <summary>Gets settings.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <returns>The operation's result.</returns>
     public AdapterSettingsSnapshot GetSettings(AdapterConfiguration configuration) => new()
     {
         AdapterKind = Kind
     };
 
-    /// <inheritdoc />
-    public AdapterSettingsApplyResult ApplySettings(
-        AdapterConfiguration configuration,
-        IReadOnlyList<AdapterSettingEdit> edits)
+    /// <summary>Applies settings.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="edits">The edits value.</param>
+    /// <returns>The operation's result.</returns>
+    public AdapterSettingsApplyResult ApplySettings(AdapterConfiguration configuration, IReadOnlyList<AdapterSettingEdit> edits)
     {
         if (edits.Any(edit => edit.Action != AdapterSettingEditAction.Preserve))
         {
@@ -67,11 +74,15 @@ public sealed class LineupLinkGuideSourceDriver : IGuideSourceDriver, IAdapterSe
         return new AdapterSettingsApplyResult { Configuration = configuration };
     }
 
-    /// <inheritdoc />
+    /// <summary>Determines support for physical adapter.</summary>
+    /// <param name="physicalAdapterKind">The physical adapter kind value.</param>
+    /// <returns>The operation's result.</returns>
     public bool SupportsPhysicalAdapter(string physicalAdapterKind) =>
         string.Equals(physicalAdapterKind, LineupLinkProtocol.AdapterKind, StringComparison.OrdinalIgnoreCase);
 
-    /// <inheritdoc />
+    /// <summary>Validates the Lineup Link guide source driver.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <returns>The operation's result.</returns>
     public IReadOnlyList<string> Validate(AdapterConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(configuration);
@@ -91,12 +102,13 @@ public sealed class LineupLinkGuideSourceDriver : IGuideSourceDriver, IAdapterSe
         return errors;
     }
 
-    /// <inheritdoc />
-    public ValueTask<IGuideSource> CreateAsync(
-        GuideSourceId sourceId,
-        AdapterConfiguration configuration,
-        IReadOnlyList<PhysicalDeviceId> physicalDeviceIds,
-        CancellationToken cancellationToken = default)
+    /// <summary>Creates the Lineup Link guide source driver asynchronously.</summary>
+    /// <param name="sourceId">The source ID value.</param>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="physicalDeviceIds">The physical device IDs value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
+    public ValueTask<IGuideSource> CreateAsync(GuideSourceId sourceId, AdapterConfiguration configuration, IReadOnlyList<PhysicalDeviceId> physicalDeviceIds, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var errors = Validate(configuration);
@@ -120,8 +132,12 @@ public sealed class LineupLinkGuideSourceDriver : IGuideSourceDriver, IAdapterSe
 
     private sealed class LineupLinkGuideSource(GuideSourceId sourceId, IReadOnlyList<ILineupLinkGuideCapability> devices) : IGuideSource
     {
+        /// <summary>Gets the ID.</summary>
         public GuideSourceId Id { get; } = sourceId;
 
+        /// <summary>Refreshes the Lineup Link guide source asynchronously.</summary>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
         public async Task<GuideImport> RefreshAsync(CancellationToken cancellationToken = default)
         {
             var channels = new Dictionary<string, GuideChannel>(StringComparer.Ordinal);

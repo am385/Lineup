@@ -44,11 +44,7 @@ public interface IPhysicalCapacityLeaseRegistry
     /// <summary>
     /// Acquires a receiver lease or returns <see langword="null"/> when finite capacity is exhausted.
     /// </summary>
-    ValueTask<IPhysicalCapacityLease?> TryAcquireAsync(
-        PhysicalDeviceId deviceId,
-        PhysicalAcquisitionKey acquisitionKey,
-        PhysicalTunerCapacity capacity,
-        CancellationToken cancellationToken = default);
+    ValueTask<IPhysicalCapacityLease?> TryAcquireAsync(PhysicalDeviceId deviceId, PhysicalAcquisitionKey acquisitionKey, PhysicalTunerCapacity capacity, CancellationToken cancellationToken = default);
 
     /// <summary>Gets immutable capacity diagnostics.</summary>
     IReadOnlyList<PhysicalCapacityDiagnostics> GetDiagnostics();
@@ -67,12 +63,13 @@ public sealed class PhysicalCapacityLeaseRegistry : IPhysicalCapacityLeaseRegist
     private readonly object _gate = new();
     private readonly Dictionary<PhysicalDeviceId, DeviceState> _devices = [];
 
-    /// <inheritdoc />
-    public ValueTask<IPhysicalCapacityLease?> TryAcquireAsync(
-        PhysicalDeviceId deviceId,
-        PhysicalAcquisitionKey acquisitionKey,
-        PhysicalTunerCapacity capacity,
-        CancellationToken cancellationToken = default)
+    /// <summary>Attempts to acquire asynchronously.</summary>
+    /// <param name="deviceId">Identity of the target device.</param>
+    /// <param name="acquisitionKey">The acquisition key value.</param>
+    /// <param name="capacity">The capacity value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
+    public ValueTask<IPhysicalCapacityLease?> TryAcquireAsync(PhysicalDeviceId deviceId, PhysicalAcquisitionKey acquisitionKey, PhysicalTunerCapacity capacity, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (acquisitionKey.ChannelId.PhysicalDeviceId != deviceId)
@@ -108,7 +105,8 @@ public sealed class PhysicalCapacityLeaseRegistry : IPhysicalCapacityLeaseRegist
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets diagnostics.</summary>
+    /// <returns>The operation's result.</returns>
     public IReadOnlyList<PhysicalCapacityDiagnostics> GetDiagnostics()
     {
         lock (_gate)
@@ -143,8 +141,10 @@ public sealed class PhysicalCapacityLeaseRegistry : IPhysicalCapacityLeaseRegist
 
     private sealed class DeviceState
     {
+        /// <summary>Gets or sets the capacity.</summary>
         public int? Capacity { get; set; }
 
+        /// <summary>Gets the acquisitions.</summary>
         public Dictionary<PhysicalAcquisitionKey, int> Acquisitions { get; } = [];
     }
 
@@ -152,6 +152,10 @@ public sealed class PhysicalCapacityLeaseRegistry : IPhysicalCapacityLeaseRegist
     {
         private PhysicalCapacityLeaseRegistry? _owner;
 
+        /// <summary>Initializes the lease.</summary>
+        /// <param name="owner">The owner value.</param>
+        /// <param name="deviceId">Identity of the target device.</param>
+        /// <param name="acquisitionKey">The acquisition key value.</param>
         public Lease(PhysicalCapacityLeaseRegistry owner, PhysicalDeviceId deviceId, PhysicalAcquisitionKey acquisitionKey)
         {
             _owner = owner;
@@ -159,12 +163,16 @@ public sealed class PhysicalCapacityLeaseRegistry : IPhysicalCapacityLeaseRegist
             AcquisitionKey = acquisitionKey;
         }
 
+        /// <summary>Gets the device ID.</summary>
         public PhysicalDeviceId DeviceId { get; }
 
+        /// <summary>Gets the acquisition key.</summary>
         public PhysicalAcquisitionKey AcquisitionKey { get; }
 
+        /// <inheritdoc />
         public void Dispose() => Interlocked.Exchange(ref _owner, null)?.Release(DeviceId, AcquisitionKey);
 
+        /// <inheritdoc />
         public ValueTask DisposeAsync()
         {
             Dispose();

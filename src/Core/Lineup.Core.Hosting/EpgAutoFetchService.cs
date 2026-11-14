@@ -1,11 +1,6 @@
-using Lineup.Core.Common.Guides;
 using Lineup.Core.Extensibility.Guides;
-using Lineup.Core.Settings;
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 
 namespace Lineup.Core.Hosting;
 
@@ -34,7 +29,8 @@ public class EpgAutoFetchService : BackgroundService
         IAutoFetchStateService stateService,
         ILineupSettingsService settingsService,
         IStreamingAdapterRegistry adapters,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null
+    )
     {
         _scopeFactory = scopeFactory;
         _logger = logger;

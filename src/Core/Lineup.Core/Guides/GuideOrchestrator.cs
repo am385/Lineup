@@ -1,6 +1,4 @@
 using Lineup.Core.Storage;
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Lineup.Core.Settings;
@@ -20,11 +18,7 @@ public sealed class GuideOrchestrator : IGuideOrchestrator
     private ActiveConfiguration _active = new(new StreamingConfiguration(), [], []);
 
     /// <summary>Initializes a guide orchestrator.</summary>
-    public GuideOrchestrator(
-        IStreamingAdapterRegistry adapters,
-        DeviceGuideStore guideStore,
-        StreamingTopologyStore topologyStore,
-        ILogger<GuideOrchestrator>? logger = null)
+    public GuideOrchestrator(IStreamingAdapterRegistry adapters, DeviceGuideStore guideStore, StreamingTopologyStore topologyStore, ILogger<GuideOrchestrator>? logger = null)
     {
         _adapters = adapters;
         _guideStore = guideStore;
@@ -32,7 +26,10 @@ public sealed class GuideOrchestrator : IGuideOrchestrator
         _logger = logger ?? NullLogger<GuideOrchestrator>.Instance;
     }
 
-    /// <inheritdoc />
+    /// <summary>Applies the guide orchestrator asynchronously.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public async Task ApplyAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(configuration);
@@ -59,7 +56,9 @@ public sealed class GuideOrchestrator : IGuideOrchestrator
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Refreshes all asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async Task<IReadOnlyList<GuideRefreshResult>> RefreshAllAsync(CancellationToken cancellationToken = default)
     {
         ActiveConfiguration active;
@@ -76,7 +75,11 @@ public sealed class GuideOrchestrator : IGuideOrchestrator
         return await RefreshAsync(active, null, cancellationToken);
     }
 
-    /// <inheritdoc />
+    /// <summary>Refreshes sources asynchronously.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="sourceIds">The source IDs value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async Task<IReadOnlyList<GuideRefreshResult>> RefreshSourcesAsync(StreamingConfiguration configuration, IReadOnlySet<GuideSourceId> sourceIds, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(configuration);
@@ -156,7 +159,10 @@ public sealed class GuideOrchestrator : IGuideOrchestrator
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Builds snapshot asynchronously.</summary>
+    /// <param name="virtualDeviceId">The virtual device ID value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async Task<VirtualGuideSnapshot> BuildSnapshotAsync(VirtualDeviceId virtualDeviceId, CancellationToken cancellationToken = default)
     {
         ActiveConfiguration active;
@@ -225,8 +231,5 @@ public sealed class GuideOrchestrator : IGuideOrchestrator
         }
     }
 
-    private sealed record ActiveConfiguration(
-        StreamingConfiguration Configuration,
-        IReadOnlyList<EligibleGuideSource> Sources,
-        IReadOnlyList<GuideSourceDiagnostic> SourceDiagnostics);
+    private sealed record ActiveConfiguration(StreamingConfiguration Configuration, IReadOnlyList<EligibleGuideSource> Sources, IReadOnlyList<GuideSourceDiagnostic> SourceDiagnostics);
 }

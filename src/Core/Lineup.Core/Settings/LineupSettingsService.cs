@@ -2,8 +2,6 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Lineup.Core.Common.Networking;
 using Lineup.Core.Storage;
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
@@ -334,23 +332,23 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
     private string _persistedStreamingRevision;
     private string _persistedPhysicalRevision;
     private bool _preserveBackupOnNextSave;
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    private static readonly JsonSerializerOptions _jsonOptions = new()
     {
         WriteIndented = true
     };
     private string SettingsPath => _appDataStore.SettingsPath;
     private string BackupPath => _appDataStore.SettingsBackupPath;
 
-    /// <inheritdoc />
+    /// <summary>Gets or sets the settings.</summary>
     public LineupSettings Settings { get; private set; } = new();
 
-    /// <inheritdoc />
+    /// <summary>Gets the configured XMLTV output path.</summary>
     public string ConfiguredXmltvOutputPath => _configuredXmltvOutputPath;
 
-    /// <inheritdoc />
+    /// <summary>Occurs when settings changed.</summary>
     public event Action? OnSettingsChanged;
 
-    /// <inheritdoc />
+    /// <summary>Gets the history retention.</summary>
     public TimeSpan HistoryRetention => TimeSpan.FromHours(Settings.EpgHistoryRetentionHours);
 
     /// <summary>
@@ -368,7 +366,8 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
         IConfiguration configuration,
         IEnumerable<IStreamingConfigurationNormalizer> streamingNormalizers,
         LineupStartupState? startupState = null,
-        IVirtualOutputResourcePolicyValidator? resourcePolicies = null)
+        IVirtualOutputResourcePolicyValidator? resourcePolicies = null
+    )
     {
         _logger = logger;
         _appDataStore = appDataStore;
@@ -393,11 +392,7 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
     /// <param name="appDataStore">Persistent application-data store.</param>
     /// <param name="configuration">Startup configuration containing the XMLTV output seed.</param>
     /// <param name="startupState">Persisted-state schema result.</param>
-    public LineupSettingsService(
-        ILogger<LineupSettingsService> logger,
-        IAppDataStore appDataStore,
-        IConfiguration configuration,
-        LineupStartupState? startupState = null)
+    public LineupSettingsService(ILogger<LineupSettingsService> logger, IAppDataStore appDataStore, IConfiguration configuration, LineupStartupState? startupState = null)
         : this(logger, appDataStore, configuration, [], startupState)
     {
     }
@@ -555,7 +550,8 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Loads the lineup settings service asynchronously.</summary>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public async Task LoadAsync()
     {
         ThrowIfFactoryResetRequired();
@@ -609,7 +605,8 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Saves the lineup settings service asynchronously.</summary>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public async Task SaveAsync()
     {
         ThrowIfFactoryResetRequired();
@@ -651,12 +648,14 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
     {
         await _appDataStore.WriteAtomicallyAsync(
             SettingsPath,
-            (stream, cancellationToken) => JsonSerializer.SerializeAsync(stream, settings, JsonOptions, cancellationToken),
+            (stream, cancellationToken) => JsonSerializer.SerializeAsync(stream, settings, _jsonOptions, cancellationToken),
             BackupPath,
             _preserveBackupOnNextSave);
     }
 
-    /// <inheritdoc />
+    /// <summary>Updates the lineup settings service asynchronously.</summary>
+    /// <param name="updateAction">The update action value.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public async Task UpdateAsync(Action<LineupSettings> updateAction)
     {
         ThrowIfFactoryResetRequired();
@@ -722,7 +721,7 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
 
     private static LineupSettings CloneSettings(LineupSettings settings)
     {
-        return DeserializeSettings(JsonSerializer.Serialize(settings, JsonOptions));
+        return DeserializeSettings(JsonSerializer.Serialize(settings, _jsonOptions));
     }
 
     private void ThrowIfFactoryResetRequired()

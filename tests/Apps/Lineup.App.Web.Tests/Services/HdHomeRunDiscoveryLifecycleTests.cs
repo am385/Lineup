@@ -5,12 +5,8 @@ using System.Globalization;
 using System.Xml.Linq;
 using Lineup.App.Web.Controllers;
 using Lineup.Core.Common.Configuration;
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Settings;
-using Lineup.Core.Extensibility.Streaming;
 using Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryRuntime;
 using Lineup.Plugin.SiliconDust.HDHomeRun.Device.Protocol;
-using Lineup.Plugin.SiliconDust.HDHomeRun.VirtualTuner;
 using Lineup.Core.VirtualOutputs.Protocol;
 using Lineup.Core.VirtualOutputs.Runtime;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -394,13 +390,16 @@ public sealed class HdHomeRunDiscoveryLifecycleTests
     {
         private readonly TaskCompletionSource<int> _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        /// <inheritdoc />
+        /// <summary>Gets the process ID.</summary>
         public int ProcessId => 1234;
 
-        /// <inheritdoc />
+        /// <summary>Gets the completion.</summary>
         public Task<int> Completion => _completion.Task;
 
-        /// <inheritdoc />
+        /// <summary>Stops the discovery process asynchronously.</summary>
+        /// <param name="timeout">The timeout value.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>A task that completes when the operation has finished.</returns>
         public Task StopAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
         {
             _completion.TrySetResult(0);

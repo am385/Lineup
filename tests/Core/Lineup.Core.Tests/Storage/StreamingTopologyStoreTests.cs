@@ -1,9 +1,5 @@
-using Lineup.Core.Common.Guides;
-using Lineup.Core.Extensibility.Guides;
 using Lineup.Core.Storage;
 using Lineup.Core.Storage.Entities;
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
@@ -321,6 +317,8 @@ public sealed class StreamingTopologyStoreTests
             .UseSqlite($"Data Source={path}")
             .Options;
 
+        /// <summary>Creates db context.</summary>
+        /// <returns>The operation's result.</returns>
         public EpgDbContext CreateDbContext() => new(_options);
     }
 }

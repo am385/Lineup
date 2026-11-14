@@ -57,6 +57,11 @@ public sealed class FfmpegStreamTransform
         private readonly CancellationTokenSource _lifetime;
         private readonly Stream _output;
 
+        /// <summary>Initializes the process output lease.</summary>
+        /// <param name="process">The process value.</param>
+        /// <param name="pumpTask">The pump task value.</param>
+        /// <param name="errorTask">The error task value.</param>
+        /// <param name="lifetime">The lifetime value.</param>
         public ProcessOutputLease(Process process, Task pumpTask, Task<string> errorTask, CancellationTokenSource lifetime)
         {
             _process = process;
@@ -66,10 +71,13 @@ public sealed class FfmpegStreamTransform
             _output = new ValidatedOutputStream(process.StandardOutput.BaseStream, process, errorTask);
         }
 
+        /// <summary>Gets the stream.</summary>
         public Stream Stream => _process is null ? Stream.Null : _output;
 
+        /// <summary>Gets the content type.</summary>
         public string? ContentType => "video/mp2t";
 
+        /// <inheritdoc />
         public async ValueTask DisposeAsync()
         {
             var process = Interlocked.Exchange(ref _process, null);
@@ -162,12 +170,18 @@ public sealed class FfmpegStreamTransform
             private readonly object _gate = new();
             private Task? _validation;
 
+            /// <inheritdoc />
             public override bool CanRead => output.CanRead;
+            /// <inheritdoc />
             public override bool CanSeek => false;
+            /// <inheritdoc />
             public override bool CanWrite => false;
+            /// <inheritdoc />
             public override long Length => throw new NotSupportedException();
+            /// <inheritdoc />
             public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
 
+            /// <inheritdoc />
             public override int Read(byte[] buffer, int offset, int count)
             {
                 var read = output.Read(buffer, offset, count);
@@ -178,6 +192,7 @@ public sealed class FfmpegStreamTransform
                 return read;
             }
 
+            /// <inheritdoc />
             public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
             {
                 var read = await output.ReadAsync(buffer, cancellationToken);
@@ -206,9 +221,13 @@ public sealed class FfmpegStreamTransform
                 }
             }
 
+            /// <inheritdoc />
             public override void Flush() => throw new NotSupportedException();
+            /// <inheritdoc />
             public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+            /// <inheritdoc />
             public override void SetLength(long value) => throw new NotSupportedException();
+            /// <inheritdoc />
             public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
         }
     }

@@ -2,8 +2,13 @@ using System.Diagnostics;
 
 namespace Lineup.Integration.Streaming.Sweep.FaultSource;
 
+/// <summary>Represents the FFmpeg media source.</summary>
 internal static class FfmpegMediaSource
 {
+    /// <summary>Writes delayed audio asynchronously.</summary>
+    /// <param name="destination">The destination value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public static async Task WriteDelayedAudioAsync(Stream destination, CancellationToken cancellationToken)
     {
         await CopyOutputAsync(
@@ -29,6 +34,10 @@ internal static class FfmpegMediaSource
             "-f", "mpegts", "pipe:1");
     }
 
+    /// <summary>Writes video only asynchronously.</summary>
+    /// <param name="destination">The destination value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public static Task WriteVideoOnlyAsync(Stream destination, CancellationToken cancellationToken)
     {
         return CopyOutputAsync(

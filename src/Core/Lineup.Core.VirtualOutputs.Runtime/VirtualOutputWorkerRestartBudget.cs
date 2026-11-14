@@ -18,7 +18,7 @@ public sealed record VirtualOutputWorkerRestartDecision
 /// <summary>Tracks bounded worker failures and calculates retry backoff within one restart policy.</summary>
 public sealed class VirtualOutputWorkerRestartBudget
 {
-    private static readonly TimeSpan MaximumRetryDelay = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan _maximumRetryDelay = TimeSpan.FromSeconds(30);
     private readonly TimeProvider _timeProvider;
     private readonly List<DateTimeOffset> _failures = [];
 
@@ -58,7 +58,7 @@ public sealed class VirtualOutputWorkerRestartBudget
     private static TimeSpan CalculateRetryDelay(int failureCount)
     {
         var seconds = Math.Pow(2, Math.Max(0, failureCount - 1));
-        return TimeSpan.FromSeconds(Math.Min(MaximumRetryDelay.TotalSeconds, seconds));
+        return TimeSpan.FromSeconds(Math.Min(_maximumRetryDelay.TotalSeconds, seconds));
     }
 
     private void Prune(VirtualOutputWorkerPolicyDefinition policy)

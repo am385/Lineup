@@ -12,9 +12,7 @@ public interface IVirtualOutputRuntimeStatus
     void Set(VirtualOutputRuntimeSnapshot snapshot);
 
     /// <summary>Atomically updates one virtual-device runtime snapshot.</summary>
-    void Update(
-        VirtualDeviceId virtualDeviceId,
-        Func<VirtualOutputRuntimeSnapshot?, VirtualOutputRuntimeSnapshot> update);
+    void Update(VirtualDeviceId virtualDeviceId, Func<VirtualOutputRuntimeSnapshot?, VirtualOutputRuntimeSnapshot> update);
 
     /// <summary>Removes runtime status for one virtual device.</summary>
     bool Remove(VirtualDeviceId virtualDeviceId);
@@ -26,7 +24,8 @@ public sealed class VirtualOutputRuntimeStatus : IVirtualOutputRuntimeStatus
     private readonly Lock _gate = new();
     private readonly Dictionary<VirtualDeviceId, VirtualOutputRuntimeSnapshot> _snapshots = [];
 
-    /// <inheritdoc />
+    /// <summary>Gets snapshots.</summary>
+    /// <returns>The operation's result.</returns>
     public IReadOnlyList<VirtualOutputRuntimeSnapshot> GetSnapshots()
     {
         lock (_gate)
@@ -35,7 +34,8 @@ public sealed class VirtualOutputRuntimeStatus : IVirtualOutputRuntimeStatus
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Sets the virtual output runtime status.</summary>
+    /// <param name="snapshot">The snapshot value.</param>
     public void Set(VirtualOutputRuntimeSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
@@ -50,10 +50,10 @@ public sealed class VirtualOutputRuntimeStatus : IVirtualOutputRuntimeStatus
         }
     }
 
-    /// <inheritdoc />
-    public void Update(
-        VirtualDeviceId virtualDeviceId,
-        Func<VirtualOutputRuntimeSnapshot?, VirtualOutputRuntimeSnapshot> update)
+    /// <summary>Updates the virtual output runtime status.</summary>
+    /// <param name="virtualDeviceId">The virtual device ID value.</param>
+    /// <param name="update">The update value.</param>
+    public void Update(VirtualDeviceId virtualDeviceId, Func<VirtualOutputRuntimeSnapshot?, VirtualOutputRuntimeSnapshot> update)
     {
         ArgumentNullException.ThrowIfNull(update);
         lock (_gate)
@@ -63,7 +63,9 @@ public sealed class VirtualOutputRuntimeStatus : IVirtualOutputRuntimeStatus
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Removes the virtual output runtime status.</summary>
+    /// <param name="virtualDeviceId">The virtual device ID value.</param>
+    /// <returns>The operation's result.</returns>
     public bool Remove(VirtualDeviceId virtualDeviceId)
     {
         lock (_gate)

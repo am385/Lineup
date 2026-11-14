@@ -1,6 +1,4 @@
 using System.Threading.Channels;
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Lineup.TestSupport;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -1508,6 +1506,8 @@ public sealed class StreamingSessionGraphTests
         private readonly StreamAcquisitionDescriptor _descriptor = CreateDescriptor(PhysicalDeviceId.New(), "7.1", capacity: 1);
         private int _acquisitionStarts;
 
+        /// <summary>Initializes the warm pipeline fixture.</summary>
+        /// <param name="stageCount">The stage count value.</param>
         public WarmPipelineFixture(int stageCount)
         {
             _watchdog.CancelAfter(TimeSpan.FromSeconds(10));
@@ -1516,12 +1516,20 @@ public sealed class StreamingSessionGraphTests
             Graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance, Time);
         }
 
+        /// <summary>Gets the time.</summary>
         public ManualTimeProvider Time { get; } = new();
+        /// <summary>Gets the graph.</summary>
         public StreamingSessionGraph Graph { get; }
+        /// <summary>Gets the transforms.</summary>
         public ObservedTransform[] Transforms { get; }
+        /// <summary>Gets the acquisition starts.</summary>
         public int AcquisitionStarts => _acquisitionStarts;
+        /// <summary>Gets the cancellation token.</summary>
         public CancellationToken CancellationToken => _watchdog.Token;
 
+        /// <summary>Executes acquire asynchronously.</summary>
+        /// <param name="keepWarmPeriod">The keep warm period value.</param>
+        /// <returns>The operation's result.</returns>
         public async Task<IStreamSessionLease> AcquireAsync(TimeSpan keepWarmPeriod)
         {
             var stages = Transforms.Select((transform, index) => new StreamTransformStage(new StreamTransformKey($"stage-{index}", "copy"), transform)).ToArray();
@@ -1539,6 +1547,8 @@ public sealed class StreamingSessionGraphTests
             return lease;
         }
 
+        /// <summary>Executes send packet asynchronously.</summary>
+        /// <returns>A task that completes when the operation has finished.</returns>
         public async Task SendPacketAsync()
         {
             var readers = GetReaders();
@@ -1547,6 +1557,8 @@ public sealed class StreamingSessionGraphTests
             await Task.WhenAll(pending);
         }
 
+        /// <summary>Executes assert warm.</summary>
+        /// <param name="producerNodeId">The producer node ID value.</param>
         public void AssertWarm(string producerNodeId)
         {
             var diagnostics = Graph.GetDiagnostics();
@@ -1558,12 +1570,15 @@ public sealed class StreamingSessionGraphTests
             Assert.Equal(1, Assert.Single(diagnostics.Capacity).ActiveAcquisitions);
         }
 
+        /// <summary>Waits for for release asynchronously.</summary>
+        /// <returns>A task that completes when the operation has finished.</returns>
         public async Task WaitForReleaseAsync()
         {
             await _source.WaitForDisposalAsync(CancellationToken);
             await WaitUntilAsync(() => Graph.GetDiagnostics().Nodes.Count == 0, CancellationToken);
         }
 
+        /// <inheritdoc />
         public async ValueTask DisposeAsync()
         {
             try
@@ -1583,9 +1598,15 @@ public sealed class StreamingSessionGraphTests
 
     private sealed class ObservedTransform : IStreamTransform
     {
+        /// <summary>Gets or sets the start count.</summary>
         public int StartCount { get; private set; }
+        /// <summary>Gets or sets the output.</summary>
         public ReadTrackingStream? Output { get; private set; }
 
+        /// <summary>Starts the observed transform asynchronously.</summary>
+        /// <param name="input">The input value.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
         public ValueTask<IStreamSourceLease> StartAsync(Stream input, CancellationToken cancellationToken)
         {
             StartCount++;
@@ -1599,13 +1620,23 @@ public sealed class StreamingSessionGraphTests
         private readonly Channel<int> _reads = Channel.CreateUnbounded<int>();
         private int _readCount;
 
+        /// <summary>Gets the read count.</summary>
         public int ReadCount => Volatile.Read(ref _readCount);
+        /// <inheritdoc />
         public override bool CanRead => input.CanRead;
+        /// <inheritdoc />
         public override bool CanSeek => false;
+        /// <inheritdoc />
         public override bool CanWrite => false;
+        /// <inheritdoc />
         public override long Length => throw new NotSupportedException();
+        /// <inheritdoc />
         public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
 
+        /// <summary>Waits for for read count asynchronously.</summary>
+        /// <param name="count">The count value.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>A task that completes when the operation has finished.</returns>
         public async Task WaitForReadCountAsync(int count, CancellationToken cancellationToken)
         {
             while (ReadCount < count)
@@ -1620,12 +1651,14 @@ public sealed class StreamingSessionGraphTests
             }
         }
 
+        /// <inheritdoc />
         public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
             _reads.Writer.TryWrite(Interlocked.Increment(ref _readCount));
             return input.ReadAsync(buffer, cancellationToken);
         }
 
+        /// <inheritdoc />
         public override async ValueTask DisposeAsync()
         {
             try
@@ -1639,10 +1672,15 @@ public sealed class StreamingSessionGraphTests
             GC.SuppressFinalize(this);
         }
 
+        /// <inheritdoc />
         public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        /// <inheritdoc />
         public override void Flush() => throw new NotSupportedException();
+        /// <inheritdoc />
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        /// <inheritdoc />
         public override void SetLength(long value) => throw new NotSupportedException();
+        /// <inheritdoc />
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
@@ -1652,12 +1690,16 @@ public sealed class StreamingSessionGraphTests
         private TimeSpan _elapsed;
         private int _createdTimers;
 
+        /// <summary>Gets the created warm timers.</summary>
         public int CreatedWarmTimers => Volatile.Read(ref _createdTimers);
 
+        /// <inheritdoc />
         public override long TimestampFrequency => TimeSpan.TicksPerSecond;
 
+        /// <inheritdoc />
         public override long GetTimestamp() => _elapsed.Ticks;
 
+        /// <inheritdoc />
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
         {
             if (dueTime != Timeout.InfiniteTimeSpan)
@@ -1669,6 +1711,8 @@ public sealed class StreamingSessionGraphTests
             return timer;
         }
 
+        /// <summary>Executes advance.</summary>
+        /// <param name="duration">The duration value.</param>
         public void Advance(TimeSpan duration)
         {
             ManualTimer[] elapsed;
@@ -1689,10 +1733,14 @@ public sealed class StreamingSessionGraphTests
 
         private sealed class ManualTimer(ManualTimeProvider owner, TimerCallback callback, object? state) : ITimer
         {
+            /// <summary>Gets the callback.</summary>
             public TimerCallback Callback { get; } = callback;
+            /// <summary>Gets the state.</summary>
             public object? State { get; } = state;
+            /// <summary>Gets or sets the due at.</summary>
             public TimeSpan DueAt { get; private set; }
 
+            /// <inheritdoc />
             public bool Change(TimeSpan dueTime, TimeSpan period)
             {
                 Assert.Equal(Timeout.InfiniteTimeSpan, period);
@@ -1708,6 +1756,7 @@ public sealed class StreamingSessionGraphTests
                 return true;
             }
 
+            /// <inheritdoc />
             public void Dispose()
             {
                 lock (owner._timers)
@@ -1716,6 +1765,7 @@ public sealed class StreamingSessionGraphTests
                 }
             }
 
+            /// <inheritdoc />
             public ValueTask DisposeAsync()
             {
                 Dispose();
@@ -1728,8 +1778,13 @@ public sealed class StreamingSessionGraphTests
     {
         private int _startCount;
 
+        /// <summary>Gets the start count.</summary>
         public int StartCount => _startCount;
 
+        /// <summary>Starts the passthrough transform asynchronously.</summary>
+        /// <param name="input">The input value.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
         public ValueTask<IStreamSourceLease> StartAsync(Stream input, CancellationToken cancellationToken)
         {
             Interlocked.Increment(ref _startCount);
@@ -1739,6 +1794,10 @@ public sealed class StreamingSessionGraphTests
 
     private sealed class FailingTransform(List<string> cleanup) : IStreamTransform
     {
+        /// <summary>Starts the failing transform asynchronously.</summary>
+        /// <param name="input">The input value.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
         public ValueTask<IStreamSourceLease> StartAsync(Stream input, CancellationToken cancellationToken)
         {
             cleanup.Add("transform");
@@ -1748,7 +1807,10 @@ public sealed class StreamingSessionGraphTests
 
     private sealed class BlockingCleanupTransform(TaskCompletionSource cleanupStarted, Task releaseCleanup) : IStreamTransform
     {
-        /// <inheritdoc />
+        /// <summary>Starts the blocking cleanup transform asynchronously.</summary>
+        /// <param name="input">The input value.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
         public ValueTask<IStreamSourceLease> StartAsync(Stream input, CancellationToken cancellationToken) =>
             ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(input, beforeDispose: async () =>
             {
@@ -1759,25 +1821,35 @@ public sealed class StreamingSessionGraphTests
 
     private sealed class ThrowingDisposeTransform : IStreamTransform
     {
+        /// <summary>Starts the throwing dispose transform asynchronously.</summary>
+        /// <param name="input">The input value.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
         public ValueTask<IStreamSourceLease> StartAsync(Stream input, CancellationToken cancellationToken) =>
             ValueTask.FromResult<IStreamSourceLease>(new ThrowingSourceLease(input));
     }
 
     private sealed class ThrowingSourceLease(Stream stream) : IStreamSourceLease
     {
+        /// <summary>Gets the stream.</summary>
         public Stream Stream { get; } = stream;
 
+        /// <summary>Gets the content type.</summary>
         public string? ContentType => "video/mp2t";
 
+        /// <inheritdoc />
         public ValueTask DisposeAsync() => ValueTask.FromException(new InvalidOperationException("Transform cleanup failed."));
     }
 
     private sealed class TestSourceLease(Stream stream, Action? onDispose = null, Func<ValueTask>? beforeDispose = null) : IStreamSourceLease
     {
+        /// <summary>Gets the stream.</summary>
         public Stream Stream { get; } = stream;
 
+        /// <summary>Gets the content type.</summary>
         public string? ContentType => "video/mp2t";
 
+        /// <inheritdoc />
         public async ValueTask DisposeAsync()
         {
             if (beforeDispose is not null)
@@ -1797,18 +1869,32 @@ public sealed class StreamingSessionGraphTests
         private byte[]? _current;
         private int _offset;
 
+        /// <inheritdoc />
         public override bool CanRead => true;
+        /// <inheritdoc />
         public override bool CanSeek => false;
+        /// <inheritdoc />
         public override bool CanWrite => false;
+        /// <inheritdoc />
         public override long Length => throw new NotSupportedException();
+        /// <inheritdoc />
         public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
 
+        /// <summary>Writes the controlled source stream.</summary>
+        /// <param name="payload">The payload value.</param>
         public void Write(byte[] payload) => _chunks.Writer.TryWrite(payload);
 
+        /// <summary>Waits for for read asynchronously.</summary>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>A task that completes when the operation has finished.</returns>
         public Task WaitForReadAsync(CancellationToken cancellationToken) => _readStarted.Task.WaitAsync(cancellationToken);
 
+        /// <summary>Waits for for disposal asynchronously.</summary>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>A task that completes when the operation has finished.</returns>
         public Task WaitForDisposalAsync(CancellationToken cancellationToken) => _disposed.Task.WaitAsync(cancellationToken);
 
+        /// <inheritdoc />
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
             _readStarted.TrySetResult();
@@ -1823,6 +1909,7 @@ public sealed class StreamingSessionGraphTests
             return count;
         }
 
+        /// <inheritdoc />
         protected override void Dispose(bool disposing)
         {
             if (disposing)
@@ -1833,10 +1920,15 @@ public sealed class StreamingSessionGraphTests
             base.Dispose(disposing);
         }
 
+        /// <inheritdoc />
         public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        /// <inheritdoc />
         public override void Flush() => throw new NotSupportedException();
+        /// <inheritdoc />
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        /// <inheritdoc />
         public override void SetLength(long value) => throw new NotSupportedException();
+        /// <inheritdoc />
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 }

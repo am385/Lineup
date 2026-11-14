@@ -14,9 +14,7 @@ public sealed class VirtualOutputEnrollmentController : ControllerBase
     private readonly IVirtualOutputExternalEnrollmentStore _enrollments;
 
     /// <summary>Initializes the external-worker enrollment controller.</summary>
-    public VirtualOutputEnrollmentController(
-        ILineupSettingsService settings,
-        IVirtualOutputExternalEnrollmentStore enrollments)
+    public VirtualOutputEnrollmentController(ILineupSettingsService settings, IVirtualOutputExternalEnrollmentStore enrollments)
     {
         _settings = settings;
         _enrollments = enrollments;

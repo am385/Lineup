@@ -4,7 +4,6 @@ using Lineup.Core.Common.Configuration;
 using Lineup.Core.Extensibility.Configuration;
 using Lineup.Core.VirtualOutputs.Protocol;
 using Lineup.Core.VirtualOutputs.Runtime;
-using Lineup.Core.Hosting;
 using Lineup.App.Web.Services;
 using Lineup.Plugin.GuideOutputs.Xmltv.Plugin;
 using Microsoft.AspNetCore.Builder;
@@ -24,7 +23,7 @@ namespace Lineup.App.Web.Tests.Services;
 /// </summary>
 public class StatusApiServiceTests
 {
-    private static readonly JsonSerializerOptions WebJsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions _webJsonOptions = new(JsonSerializerDefaults.Web);
 
     /// <summary>Names failed workers, sources, pending publications and capacity pressure without exposing provider failure payloads or initiating work.</summary>
     [Fact]
@@ -63,7 +62,7 @@ public class StatusApiServiceTests
         // Act
         var failed = await fixture.Service.GetStatusAsync(TestContext.Current.CancellationToken);
         var operations = Assert.IsType<OperationalStatusResponse>(failed.Operations);
-        var serialized = JsonSerializer.Serialize(operations, WebJsonOptions);
+        var serialized = JsonSerializer.Serialize(operations, _webJsonOptions);
         guides.SourceRefreshes.Returns([new(source.Id, ConfigurationRevision.Create(source), true, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)]);
         fixture.VirtualOutputRuntime.Set(new() { VirtualDeviceId = virtualId, State = VirtualOutputRuntimeState.Healthy });
         var recovered = await fixture.Service.GetStatusAsync(TestContext.Current.CancellationToken);
@@ -166,7 +165,7 @@ public class StatusApiServiceTests
 
         // Act
         var response = await fixture.Service.GetStatusAsync(TestContext.Current.CancellationToken);
-        var json = JsonSerializer.SerializeToElement(response, WebJsonOptions).GetProperty("mediaResources");
+        var json = JsonSerializer.SerializeToElement(response, _webJsonOptions).GetProperty("mediaResources");
 
         // Assert
         Assert.Equal(1, json.GetProperty("producers").GetInt32());
@@ -319,7 +318,7 @@ public class StatusApiServiceTests
 
         // Act
         var status = await fixture.Service.GetStatusAsync(TestContext.Current.CancellationToken);
-        var serialized = JsonSerializer.SerializeToElement(status, WebJsonOptions);
+        var serialized = JsonSerializer.SerializeToElement(status, _webJsonOptions);
 
         // Assert
         var usage = serialized.GetProperty("pluginConnections");
@@ -431,7 +430,7 @@ public class StatusApiServiceTests
 
         // Act
         var result = await fixture.Service.GetStatusAsync(TestContext.Current.CancellationToken);
-        var json = JsonSerializer.Serialize(result, WebJsonOptions);
+        var json = JsonSerializer.Serialize(result, _webJsonOptions);
 
         // Assert
         var consumer = Assert.Single(result.StreamingFlows.Nodes, node => node.Lane == "consumer");
@@ -525,7 +524,7 @@ public class StatusApiServiceTests
 
         // Act
         var result = await fixture.Service.GetStatusAsync(TestContext.Current.CancellationToken);
-        var json = JsonSerializer.Serialize(result, WebJsonOptions);
+        var json = JsonSerializer.Serialize(result, _webJsonOptions);
 
         // Assert
         Assert.Equal("3.0", result.SchemaVersion);
@@ -584,7 +583,7 @@ public class StatusApiServiceTests
 
         // Act
         var result = await fixture.Service.GetStatusAsync(TestContext.Current.CancellationToken);
-        var json = JsonSerializer.Serialize(result, WebJsonOptions);
+        var json = JsonSerializer.Serialize(result, _webJsonOptions);
 
         // Assert
         Assert.Equal("degraded", result.Guide.Status);
@@ -1050,8 +1049,11 @@ public class StatusApiServiceTests
         PhysicalDeviceId PhysicalDeviceId,
         string DatabasePath,
         IStreamingFlowSnapshotService StreamingFlows,
-        VirtualOutputRuntimeStatus VirtualOutputRuntime) : IDisposable
+        VirtualOutputRuntimeStatus VirtualOutputRuntime
+    )
+        : IDisposable
     {
+        /// <inheritdoc />
         public void Dispose()
         {
             SqliteConnection.ClearAllPools();
@@ -1064,6 +1066,8 @@ public class StatusApiServiceTests
 
     private sealed class TestDbContextFactory(DbContextOptions<EpgDbContext> options) : IDbContextFactory<EpgDbContext>
     {
+        /// <summary>Creates db context.</summary>
+        /// <returns>The operation's result.</returns>
         public EpgDbContext CreateDbContext() => new(options);
     }
 }

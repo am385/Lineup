@@ -710,6 +710,8 @@ public sealed class StreamingRouteFailoverTests
         private readonly Task _responses;
         private int _streamRequestCount;
 
+        /// <summary>Initializes the rejected link source.</summary>
+        /// <param name="status">The status value.</param>
         public RejectedLinkSource(HttpStatusCode status)
         {
             var reservation = new TcpListener(IPAddress.Loopback, 0);
@@ -721,8 +723,10 @@ public sealed class StreamingRouteFailoverTests
             _responses = RespondAsync(status);
         }
 
+        /// <summary>Gets the base URI.</summary>
         public Uri BaseUri { get; }
 
+        /// <summary>Gets the stream request count.</summary>
         public int StreamRequestCount => Volatile.Read(ref _streamRequestCount);
 
         /// <summary>Gets or sets the control endpoint that returns an invalid response.</summary>
@@ -752,12 +756,15 @@ public sealed class StreamingRouteFailoverTests
             TransportSecurity = LineupLinkTransportSecurity.Http
         }));
 
+        /// <summary>Creates device asynchronously.</summary>
+        /// <returns>The operation's result.</returns>
         public Task<IPhysicalTunerDevice> CreateDeviceAsync() => new LineupLinkPhysicalTunerDriver().CreateAsync(
             PhysicalDeviceId.New(),
             "Remote",
             Configuration,
             _shutdown.Token).AsTask();
 
+        /// <inheritdoc />
         public async ValueTask DisposeAsync()
         {
             await _shutdown.CancelAsync();
@@ -954,6 +961,11 @@ public sealed class StreamingRouteFailoverTests
         private readonly string? _channelKey;
         private readonly Func<Stream> _streamFactory;
 
+        /// <summary>Initializes the fake device.</summary>
+        /// <param name="id">The ID value.</param>
+        /// <param name="fail">The fail value.</param>
+        /// <param name="channelKey">The channel key value.</param>
+        /// <param name="streamFactory">The stream factory value.</param>
         public FakeDevice(PhysicalDeviceId id, bool fail, string? channelKey = null, Func<Stream>? streamFactory = null)
         {
             _fail = fail;
@@ -968,19 +980,28 @@ public sealed class StreamingRouteFailoverTests
             };
         }
 
+        /// <summary>Gets the snapshot.</summary>
         public PhysicalDeviceSnapshot Snapshot { get; }
 
+        /// <summary>Gets the requests.</summary>
         public List<SourceChannelId> Requests { get; } = [];
 
         /// <summary>Gets whether acquisition reports confirmed content protection.</summary>
         public bool ProtectedContent { get; init; }
 
+        /// <summary>Refreshes lineup asynchronously.</summary>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
         public Task<IReadOnlyList<PhysicalSourceChannel>> RefreshLineupAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<PhysicalSourceChannel>>(
                 _channelKey is null
                     ? []
                     : [new PhysicalSourceChannel { Id = new SourceChannelId(Snapshot.Id, _channelKey), ProviderNumber = "7.1", ProviderName = "News" }]);
 
+        /// <summary>Opens stream asynchronously.</summary>
+        /// <param name="request">The request value.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
         public ValueTask<IPhysicalStreamLease> OpenStreamAsync(PhysicalStreamRequest request, CancellationToken cancellationToken = default)
         {
             Requests.Add(request.ChannelId);
@@ -1004,18 +1025,32 @@ public sealed class StreamingRouteFailoverTests
 
     private sealed class FakeCatalog(IReadOnlyList<IPhysicalTunerDevice> devices) : IPhysicalDeviceCatalog
     {
+        /// <summary>Gets the devices.</summary>
         public IReadOnlyList<IPhysicalTunerDevice> Devices { get; } = devices;
 
-        /// <inheritdoc />
+        /// <summary>Determines whether configuration current.</summary>
+        /// <param name="configuration">Configuration to apply.</param>
+        /// <returns>The operation's result.</returns>
         public bool IsConfigurationCurrent(StreamingConfiguration configuration) => true;
 
+        /// <summary>Gets required.</summary>
+        /// <param name="deviceId">Identity of the target device.</param>
+        /// <returns>The operation's result.</returns>
         public IPhysicalTunerDevice GetRequired(PhysicalDeviceId deviceId) =>
             Devices.Single(device => device.Snapshot.Id == deviceId);
 
+        /// <summary>Applies the fake catalog asynchronously.</summary>
+        /// <param name="configuration">Configuration to apply.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>A task that completes when the operation has finished.</returns>
         public Task ApplyAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
 
-        /// <inheritdoc />
+        /// <summary>Attempts to publish asynchronously.</summary>
+        /// <param name="configuration">Configuration to apply.</param>
+        /// <param name="publish">The publish value.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
         public async Task<bool> TryPublishAsync(StreamingConfiguration configuration, Func<CancellationToken, Task> publish, CancellationToken cancellationToken = default)
         {
             await publish(cancellationToken);
@@ -1025,18 +1060,26 @@ public sealed class StreamingRouteFailoverTests
 
     private sealed class TestDbContextFactory(DbContextOptions<EpgDbContext> options) : IDbContextFactory<EpgDbContext>
     {
+        /// <summary>Creates db context.</summary>
+        /// <returns>The operation's result.</returns>
         public EpgDbContext CreateDbContext() => new(options);
 
+        /// <summary>Creates db context asynchronously.</summary>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
         public Task<EpgDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(CreateDbContext());
     }
 
     private sealed class FakeLease(Stream stream) : IPhysicalStreamLease
     {
+        /// <summary>Gets the stream.</summary>
         public Stream Stream { get; } = stream;
 
+        /// <summary>Gets the content type.</summary>
         public string? ContentType => "video/mp2t";
 
+        /// <inheritdoc />
         public async ValueTask DisposeAsync() => await Stream.DisposeAsync();
     }
 
@@ -1044,14 +1087,23 @@ public sealed class StreamingRouteFailoverTests
     {
         private readonly TaskCompletionSource _readStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        /// <inheritdoc />
         public override bool CanRead => true;
+        /// <inheritdoc />
         public override bool CanSeek => false;
+        /// <inheritdoc />
         public override bool CanWrite => false;
+        /// <inheritdoc />
         public override long Length => throw new NotSupportedException();
+        /// <inheritdoc />
         public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
 
+        /// <summary>Waits for for read asynchronously.</summary>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>A task that completes when the operation has finished.</returns>
         public Task WaitForReadAsync(CancellationToken cancellationToken) => _readStarted.Task.WaitAsync(cancellationToken);
 
+        /// <inheritdoc />
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
             _readStarted.TrySetResult();
@@ -1059,10 +1111,15 @@ public sealed class StreamingRouteFailoverTests
             return 0;
         }
 
+        /// <inheritdoc />
         public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        /// <inheritdoc />
         public override void Flush() => throw new NotSupportedException();
+        /// <inheritdoc />
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        /// <inheritdoc />
         public override void SetLength(long value) => throw new NotSupportedException();
+        /// <inheritdoc />
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 }

@@ -12,7 +12,8 @@ internal static class SweepObservationRunner
         Func<SweepAttempt, Task> recover,
         Func<Task> checkpoint,
         CancellationToken cancellationToken,
-        SweepAttempt? previous = null)
+        SweepAttempt? previous = null
+    )
     {
         SweepAttempt? accepted = null;
         for (var number = previous?.Result?.Attempt ?? 1; number <= run.Options.MaximumAttempts; number++)

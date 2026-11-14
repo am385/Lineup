@@ -259,15 +259,11 @@ internal static class Program
 
     private sealed record PackageStamp(string Fingerprint, Dictionary<string, string> Files);
 
-    private sealed record PackagerOptions(
-        string RepositoryRoot,
-        string OutputDirectory,
-        string Configuration,
-        string Version,
-        string? RuntimeIdentifier,
-        bool SelfContained,
-        string? SourceRevisionId)
+    private sealed record PackagerOptions(string RepositoryRoot, string OutputDirectory, string Configuration, string Version, string? RuntimeIdentifier, bool SelfContained, string? SourceRevisionId)
     {
+        /// <summary>Executes parse.</summary>
+        /// <param name="args">The args value.</param>
+        /// <returns>The operation's result.</returns>
         public static PackagerOptions Parse(IReadOnlyList<string> args)
         {
             var values = new Dictionary<string, string>(StringComparer.Ordinal);

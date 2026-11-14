@@ -1,5 +1,6 @@
 namespace Lineup.Integration.Streaming.Sweep;
 
+/// <summary>Represents the sweep harness.</summary>
 internal sealed partial class SweepHarness
 {
     private async Task RefreshGuideAsync(IBrowserContext context, string baseUrl, RunJournal journal, string role)
@@ -141,14 +142,7 @@ internal sealed partial class SweepHarness
         }
     }
 
-    private async Task<ChannelAttemptResult> RunChannelAsync(
-        IBrowserContext context,
-        MatrixDefinition matrix,
-        ChannelDefinition channel,
-        int attempt,
-        string matrixRunRoot,
-        RunJournal journal,
-        bool requireAudio = true)
+    private async Task<ChannelAttemptResult> RunChannelAsync(IBrowserContext context, MatrixDefinition matrix, ChannelDefinition channel, int attempt, string matrixRunRoot, RunJournal journal, bool requireAudio = true)
     {
         _cancellation.ThrowIfCancellationRequested();
         await EnsureTunerIdleAsync(TimeSpan.FromMinutes(2));
@@ -650,6 +644,8 @@ internal sealed partial class SweepHarness
         }
     }
 
+    /// <summary>Executes verify outcome reporting asynchronously.</summary>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public async Task VerifyOutcomeReportingAsync()
     {
         // Arrange
@@ -734,11 +730,7 @@ internal sealed partial class SweepHarness
             || url.Contains("/media/start/", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static async Task<StartupOutcome> WaitForStartupOutcomeAsync(
-        Task<IResponse> responseTask,
-        Task<string> requestFailureTask,
-        DateTimeOffset startedAtUtc,
-        TimeSpan timeout)
+    private static async Task<StartupOutcome> WaitForStartupOutcomeAsync(Task<IResponse> responseTask, Task<string> requestFailureTask, DateTimeOffset startedAtUtc, TimeSpan timeout)
     {
         var timeoutTask = Task.Delay(timeout);
         var completedTask = await Task.WhenAny(responseTask, requestFailureTask, timeoutTask);
@@ -784,10 +776,7 @@ internal sealed partial class SweepHarness
     }
 
     /// <summary>Captures actual HTTP protection evidence without promoting absent inference to confirmation.</summary>
-    internal static async Task<StartupOutcome> CreateStartupOutcomeAsync(
-        IResponse response,
-        DateTimeOffset startedAtUtc,
-        DateTimeOffset completedAtUtc)
+    internal static async Task<StartupOutcome> CreateStartupOutcomeAsync(IResponse response, DateTimeOffset startedAtUtc, DateTimeOffset completedAtUtc)
     {
         string? code = null;
         string? stage = null;

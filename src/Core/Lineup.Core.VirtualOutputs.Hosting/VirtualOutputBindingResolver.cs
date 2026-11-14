@@ -20,9 +20,7 @@ public static class VirtualOutputBindingResolver
     }
 
     /// <summary>Resolves the externally advertised base URI for one active local listener port.</summary>
-    public static Uri ResolvePublicBaseUri(
-        IReadOnlyDictionary<int, VirtualOutputBindingDefinition> bindingsByPort,
-        int localPort)
+    public static Uri ResolvePublicBaseUri(IReadOnlyDictionary<int, VirtualOutputBindingDefinition> bindingsByPort, int localPort)
     {
         ArgumentNullException.ThrowIfNull(bindingsByPort);
         if (!bindingsByPort.TryGetValue(localPort, out var binding))

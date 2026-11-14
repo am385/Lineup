@@ -58,7 +58,9 @@ public sealed class PortableMediaTests
 
     private sealed class ProbeProcessFactory : IMediaProcessFactory
     {
-        /// <inheritdoc />
+        /// <summary>Starts the probe process factory.</summary>
+        /// <param name="request">The request value.</param>
+        /// <returns>The operation's result.</returns>
         public Process Start(MediaProcessRequest request)
         {
             var configuration = new DirectoryInfo(AppContext.BaseDirectory).Name;

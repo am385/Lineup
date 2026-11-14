@@ -1,4 +1,3 @@
-using Lineup.Core.Extensibility.Streaming;
 using Lineup.App.Web.Services;
 using Microsoft.AspNetCore.Http;
 using Xunit;
@@ -67,10 +66,7 @@ public sealed class StreamAcquisitionHttpMapperTests
     [Theory]
     [InlineData(PhysicalStreamFailureCategory.NoSignal, "source_no_signal", "Every equivalent physical source is currently unable to lock a usable signal.")]
     [InlineData(PhysicalStreamFailureCategory.NoData, "source_no_video_data", "Every equivalent physical source is currently returning no video data.")]
-    public void Map_ReceptionFailure_ReturnsDistinctServiceUnavailable(
-        PhysicalStreamFailureCategory category,
-        string code,
-        string expectedError)
+    public void Map_ReceptionFailure_ReturnsDistinctServiceUnavailable(PhysicalStreamFailureCategory category, string code, string expectedError)
     {
         // Arrange
         var deviceId = PhysicalDeviceId.New();

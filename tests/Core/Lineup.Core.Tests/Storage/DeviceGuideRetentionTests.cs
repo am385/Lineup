@@ -1,5 +1,3 @@
-using Lineup.Core.Common.Guides;
-using Lineup.Core.Common.Streaming;
 using Lineup.Core.Storage;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -270,6 +268,8 @@ public sealed class DeviceGuideRetentionTests
         private readonly DirectoryInfo _directory = Directory.CreateTempSubdirectory("lineup-guide-retention-");
         private readonly ServiceProvider _services;
 
+        /// <summary>Initializes the fixture.</summary>
+        /// <param name="retentionHours">The retention hours value.</param>
         internal Fixture(int? retentionHours)
         {
             var path = Path.Combine(_directory.FullName, "guides.db");
@@ -287,21 +287,37 @@ public sealed class DeviceGuideRetentionTests
             Store = _services.GetRequiredService<DeviceGuideStore>();
         }
 
+        /// <summary>Gets the now.</summary>
         internal DateTimeOffset Now { get; } = DateTimeOffset.Parse("2026-10-23T12:00:00Z");
 
+        /// <summary>Gets the source ID.</summary>
         internal GuideSourceId SourceId { get; } = GuideSourceId.New();
 
+        /// <summary>Gets the channel ID.</summary>
         internal GuideChannelId ChannelId => new(SourceId, "station");
 
+        /// <summary>Gets the store.</summary>
         internal DeviceGuideStore Store { get; }
 
+        /// <summary>Gets the policy.</summary>
         internal IEpgRetentionPolicy Policy { get; } = Substitute.For<IEpgRetentionPolicy>();
 
+        /// <summary>Gets the factory.</summary>
         internal ContextFactory Factory { get; }
 
+        /// <summary>Executes program.</summary>
+        /// <param name="title">The title value.</param>
+        /// <param name="start">The start value.</param>
+        /// <param name="end">The end value.</param>
+        /// <returns>The operation's result.</returns>
         internal GuideProgram Program(string title, DateTimeOffset start, DateTimeOffset end) =>
             new() { ChannelId = ChannelId, Title = title, StartUtc = start, EndUtc = end };
 
+        /// <summary>Imports the fixture.</summary>
+        /// <param name="programs">The programs value.</param>
+        /// <param name="start">The start value.</param>
+        /// <param name="end">The end value.</param>
+        /// <returns>The operation's result.</returns>
         internal GuideImport Import(IReadOnlyList<GuideProgram> programs, DateTimeOffset start, DateTimeOffset end) => new()
         {
             SourceId = SourceId,
@@ -312,6 +328,8 @@ public sealed class DeviceGuideRetentionTests
             FetchedAtUtc = Now
         };
 
+        /// <summary>Reads titles asynchronously.</summary>
+        /// <returns>The operation's result.</returns>
         internal async Task<string[]> ReadTitlesAsync()
         {
             await using var context = Factory.CreateDbContext();
@@ -334,7 +352,8 @@ public sealed class DeviceGuideRetentionTests
 
     private sealed class ContextFactory(string path) : IDbContextFactory<EpgDbContext>
     {
-        /// <inheritdoc />
+        /// <summary>Creates db context.</summary>
+        /// <returns>The operation's result.</returns>
         public EpgDbContext CreateDbContext() => new(new DbContextOptionsBuilder<EpgDbContext>().UseSqlite($"Data Source={path};Pooling=False").Options);
     }
 }

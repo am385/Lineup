@@ -5,8 +5,8 @@ namespace Lineup.Plugin.GuideOutputs.Xmltv;
 /// <summary>Serializes normalized virtual guide snapshots as XMLTV.</summary>
 public static class XmltvGuideSerialization
 {
-    /// <summary>Creates an XMLTV document from one normalized virtual guide snapshot.</summary>
-    public static byte[] Serialize(VirtualGuideSnapshot snapshot)
+    /// <summary>Creates XMLTV, retaining channels without programs and optionally adding unavailable placeholders.</summary>
+    public static byte[] Serialize(VirtualGuideSnapshot snapshot, bool includeUnavailablePrograms = false)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         var channels = snapshot.Channels.Select(channel => new TunerChannel
@@ -59,14 +59,15 @@ public static class XmltvGuideSerialization
             },
             channels,
             placeholderStart,
-            placeholderStop);
+            placeholderStop,
+            includeUnavailablePrograms);
     }
 
     /// <summary>Writes an XMLTV document to the supplied destination.</summary>
-    public static Task SerializeAsync(VirtualGuideSnapshot snapshot, Stream destination, CancellationToken cancellationToken = default)
+    public static Task SerializeAsync(VirtualGuideSnapshot snapshot, Stream destination, CancellationToken cancellationToken = default, bool includeUnavailablePrograms = false)
     {
         ArgumentNullException.ThrowIfNull(destination);
-        return destination.WriteAsync(Serialize(snapshot), cancellationToken).AsTask();
+        return destination.WriteAsync(Serialize(snapshot, includeUnavailablePrograms), cancellationToken).AsTask();
     }
 
     private static string? MergeRootSupplemental(IReadOnlyList<string> values)

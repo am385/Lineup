@@ -159,7 +159,7 @@ public sealed record JsonGuideProgram
 /// <summary>Converts supplemental XMLTV metadata into compact JSON properties.</summary>
 internal static class JsonGuideSupplementalMetadata
 {
-    private static readonly XNamespace EnvelopeNamespace = "urn:lineup:xmltv-supplemental:v1";
+    private static readonly XNamespace _envelopeNamespace = "urn:lineup:xmltv-supplemental:v1";
 
     /// <summary>Merges multiple supplemental XML fragments into one compact object.</summary>
     public static JsonObject Merge(IEnumerable<string> contents)
@@ -206,7 +206,7 @@ internal static class JsonGuideSupplementalMetadata
             throw new InvalidDataException("Supplemental XMLTV metadata is invalid.", exception);
         }
 
-        if (root.Name != EnvelopeNamespace + "supplemental")
+        if (root.Name != _envelopeNamespace + "supplemental")
         {
             return new JsonObject
             {
@@ -215,19 +215,19 @@ internal static class JsonGuideSupplementalMetadata
         }
 
         var result = new JsonObject();
-        foreach (var attribute in root.Element(EnvelopeNamespace + "attributes")?.Elements(EnvelopeNamespace + "attribute") ?? [])
+        foreach (var attribute in root.Element(_envelopeNamespace + "attributes")?.Elements(_envelopeNamespace + "attribute") ?? [])
         {
             var name = (string?)attribute.Attribute("name") ??
                 throw new InvalidDataException("Supplemental XMLTV attribute name is missing.");
             AddValue(result, name, JsonValue.Create((string?)attribute.Attribute("value") ?? string.Empty));
         }
 
-        foreach (var element in root.Element(EnvelopeNamespace + "elements")?.Elements() ?? [])
+        foreach (var element in root.Element(_envelopeNamespace + "elements")?.Elements() ?? [])
         {
             AddValue(result, element.Name.LocalName, ConvertElement(element));
         }
 
-        foreach (var owned in root.Elements(EnvelopeNamespace + "owned"))
+        foreach (var owned in root.Elements(_envelopeNamespace + "owned"))
         {
             var key = (string?)owned.Attribute("key") ??
                 throw new InvalidDataException("Supplemental XMLTV owned-element key is missing.");

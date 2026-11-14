@@ -54,7 +54,8 @@ internal static class GuideOutputEndpoints
         IStreamingAdapterRegistry adapters,
         IXmltvPublicationStore publications,
         bool download,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         GuideOutputDestination destination;
         try

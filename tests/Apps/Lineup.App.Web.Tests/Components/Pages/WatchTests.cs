@@ -1,5 +1,4 @@
 using Bunit;
-using Bunit.JSInterop;
 using Lineup.App.Web.Components.Pages;
 using Lineup.App.Web.Services;
 using Microsoft.AspNetCore.Components;
@@ -1723,7 +1722,8 @@ public partial class WatchTests
         ILineupGuideReader? repository = null,
         IPhysicalDeviceStatusService? deviceState = null,
         ILineupSettingsService? settingsService = null,
-        IActiveStreamRegistry? registry = null)
+        IActiveStreamRegistry? registry = null
+    )
     {
         var context = new BunitContext();
         if (repository is null)

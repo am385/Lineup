@@ -26,7 +26,8 @@ internal sealed class TestPhysicalTunerDriver : IPhysicalTunerDriver, IPhysicalD
         string kind = HDHomeRunPhysicalTunerDriver.DriverKind,
         string displayName = "HDHomeRun",
         string defaultAddress = HDHomeRunPhysicalTunerDriver.DefaultAddress,
-        bool supportsUserCreation = true)
+        bool supportsUserCreation = true
+    )
     {
         Kind = kind;
         DisplayName = displayName;
@@ -34,36 +35,44 @@ internal sealed class TestPhysicalTunerDriver : IPhysicalTunerDriver, IPhysicalD
         SupportsUserCreation = supportsUserCreation;
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets the kind.</summary>
     public string Kind { get; }
 
-    /// <inheritdoc />
+    /// <summary>Gets the display name.</summary>
     public string DisplayName { get; }
 
-    /// <inheritdoc />
+    /// <summary>Gets the supports user creation.</summary>
     public bool SupportsUserCreation { get; }
 
-    /// <inheritdoc />
+    /// <summary>Gets the capabilities.</summary>
     public DeviceCapabilities Capabilities { get; } = new();
 
-    /// <inheritdoc />
+    /// <summary>Creates default configuration.</summary>
+    /// <param name="deviceId">Identity of the target device.</param>
+    /// <returns>The operation's result.</returns>
     public AdapterConfiguration CreateDefaultConfiguration(PhysicalDeviceId deviceId) =>
         new(Kind, string.IsNullOrEmpty(_defaultAddress)
             ? JsonSerializer.SerializeToElement(new { })
             : JsonSerializer.SerializeToElement(new { Address = _defaultAddress }));
 
-    /// <inheritdoc />
+    /// <summary>Validates the test physical tuner driver.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <returns>The operation's result.</returns>
     public IReadOnlyList<string> Validate(AdapterConfiguration configuration) => [];
 
-    /// <inheritdoc />
-    public ValueTask<IPhysicalTunerDevice> CreateAsync(
-        PhysicalDeviceId deviceId,
-        string name,
-        AdapterConfiguration configuration,
-        CancellationToken cancellationToken = default) =>
+    /// <summary>Creates the test physical tuner driver asynchronously.</summary>
+    /// <param name="deviceId">Identity of the target device.</param>
+    /// <param name="name">Name used by the operation.</param>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
+    public ValueTask<IPhysicalTunerDevice> CreateAsync(PhysicalDeviceId deviceId, string name, AdapterConfiguration configuration, CancellationToken cancellationToken = default) =>
         ValueTask.FromException<IPhysicalTunerDevice>(new NotSupportedException("Web tests do not create physical tuner runtimes."));
 
-    /// <inheritdoc />
+    /// <summary>Executes probe asynchronously.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public ValueTask<PhysicalDeviceProbeResult> ProbeAsync(AdapterConfiguration configuration, CancellationToken cancellationToken = default)
     {
         ProbedConfiguration = configuration;

@@ -1,8 +1,5 @@
 using Lineup.Core.Settings;
 using Lineup.Core.Storage;
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
-using Lineup.Core.Common.Configuration;
 
 namespace Lineup.Core.Guides;
 
@@ -36,9 +33,7 @@ public interface ITopologyGuideService
     Task<IReadOnlyList<GuideOutputPublicationResult>> PublishConfigurationAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default);
 
     /// <summary>Publishes one enabled guide output from eligible cached data without activating guide-source runtimes.</summary>
-    Task<GuideOutputPublicationResult?> PublishAsync(
-        GuideOutputId outputId,
-        CancellationToken cancellationToken = default);
+    Task<GuideOutputPublicationResult?> PublishAsync(GuideOutputId outputId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Retains the latest observed source attempt and successful refresh for its captured definition revision.</summary>
@@ -117,7 +112,7 @@ public sealed class TopologyGuideService : ITopologyGuideService
     private readonly Lock _observationsGate = new();
     private readonly Dictionary<GuideSourceId, GuideSourceRefreshObservation> _sourceRefreshes = [];
 
-    /// <inheritdoc />
+    /// <summary>Gets the source refreshes.</summary>
     public IReadOnlyList<GuideSourceRefreshObservation> SourceRefreshes
     {
         get
@@ -136,7 +131,8 @@ public sealed class TopologyGuideService : ITopologyGuideService
         IGuideQueryService guideQueries,
         IStreamingAdapterRegistry adapters,
         IEnumerable<IGuidePublisher> publishers,
-        IXmltvPublicationStore publications)
+        IXmltvPublicationStore publications
+    )
     {
         _settings = settings;
         _guides = guides;
@@ -146,11 +142,15 @@ public sealed class TopologyGuideService : ITopologyGuideService
         _publications = publications;
     }
 
-    /// <inheritdoc />
+    /// <summary>Refreshes the topology guide service asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public Task<TopologyGuideRefreshResult> RefreshAsync(CancellationToken cancellationToken = default) =>
         RefreshAsync(publish: false, cancellationToken);
 
-    /// <inheritdoc />
+    /// <summary>Refreshes and publish asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public Task<TopologyGuideRefreshResult> RefreshAndPublishAsync(CancellationToken cancellationToken = default) =>
         RefreshAsync(publish: true, cancellationToken);
 
@@ -161,7 +161,12 @@ public sealed class TopologyGuideService : ITopologyGuideService
         return await RefreshSourcesAsync(configuration, sourceIds, publish, cancellationToken);
     }
 
-    /// <inheritdoc />
+    /// <summary>Refreshes sources asynchronously.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="sourceIds">The source IDs value.</param>
+    /// <param name="publish">The publish value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async Task<TopologyGuideRefreshResult> RefreshSourcesAsync(StreamingConfiguration configuration, IReadOnlySet<GuideSourceId> sourceIds, bool publish, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(configuration);
@@ -211,7 +216,10 @@ public sealed class TopologyGuideService : ITopologyGuideService
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Applies channel change asynchronously.</summary>
+    /// <param name="mutation">The mutation value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async Task<IReadOnlyList<GuideOutputPublicationResult>> ApplyChannelChangeAsync(Func<CancellationToken, Task> mutation, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(mutation);
@@ -232,7 +240,10 @@ public sealed class TopologyGuideService : ITopologyGuideService
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes retry publications asynchronously.</summary>
+    /// <param name="utcNow">The UTC now value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async Task<IReadOnlyList<GuideOutputPublicationResult>> RetryPublicationsAsync(DateTime utcNow, CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken);
@@ -254,11 +265,16 @@ public sealed class TopologyGuideService : ITopologyGuideService
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes publish asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public Task<IReadOnlyList<GuideOutputPublicationResult>> PublishAsync(CancellationToken cancellationToken = default) =>
         PublishConfigurationCoreAsync(null, cancellationToken);
 
-    /// <inheritdoc />
+    /// <summary>Executes publish configuration asynchronously.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public Task<IReadOnlyList<GuideOutputPublicationResult>> PublishConfigurationAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(configuration);
@@ -282,10 +298,11 @@ public sealed class TopologyGuideService : ITopologyGuideService
         }
     }
 
-    /// <inheritdoc />
-    public async Task<GuideOutputPublicationResult?> PublishAsync(
-        GuideOutputId outputId,
-        CancellationToken cancellationToken = default)
+    /// <summary>Executes publish asynchronously.</summary>
+    /// <param name="outputId">The output ID value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
+    public async Task<GuideOutputPublicationResult?> PublishAsync(GuideOutputId outputId, CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken);
         try
@@ -346,10 +363,7 @@ public sealed class TopologyGuideService : ITopologyGuideService
         return results;
     }
 
-    private async Task<GuideOutputPublicationResult> PublishOutputAsync(
-        StreamingConfiguration configuration,
-        GuideOutputDefinition output,
-        CancellationToken cancellationToken)
+    private async Task<GuideOutputPublicationResult> PublishOutputAsync(StreamingConfiguration configuration, GuideOutputDefinition output, CancellationToken cancellationToken)
     {
         string? path = null;
         IReadOnlyList<GuideSourceDiagnostic> diagnostics = [];
@@ -368,7 +382,9 @@ public sealed class TopologyGuideService : ITopologyGuideService
             diagnostics = snapshot.SourceDiagnostics;
             await _publications.PublishAsync(
                 destination.Path,
-                (stream, token) => publisher.PublishAsync(snapshot, stream, token),
+                (stream, token) => publisher is IConfiguredGuidePublisher configuredPublisher
+                    ? configuredPublisher.PublishAsync(snapshot, stream, output.Adapter, token)
+                    : publisher.PublishAsync(snapshot, stream, token),
                 cancellationToken);
             return new GuideOutputPublicationResult
             {

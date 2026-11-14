@@ -2,7 +2,6 @@ using System.Net;
 using System.Text.Json;
 using Lineup.App.Web.Services;
 using Lineup.App.Web.Services.Playback;
-using Lineup.Plugin.SiliconDust.HDHomeRun.Device;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Lineup.App.Web.Controllers;
@@ -41,7 +40,8 @@ public class StreamController : ControllerBase
         ICmafOutputCoordinator? cmafOutputs = null,
         IVirtualMpegTsOutputService? virtualMpegTsOutputs = null,
         TimeSpan? cmafStartupTimeout = null,
-        ManagementPlaybackService? playback = null)
+        ManagementPlaybackService? playback = null
+    )
     {
         _settingsService = settingsService;
         _activeStreamRegistry = activeStreamRegistry;

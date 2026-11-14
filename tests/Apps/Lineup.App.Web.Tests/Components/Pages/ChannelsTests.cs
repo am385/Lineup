@@ -28,22 +28,22 @@ public sealed class ChannelsTests
         component.WaitForAssertion(() => Assert.Equal(["sports"], ProviderKeys(component)), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
-        component.Find("#clearChannelFilters").Click();
-        component.Find("#channelDeviceFilter").Change(fixture.BetaDeviceId.ToString());
+        await component.Find("#clearChannelFilters").ClickAsync(new());
+        await component.Find("#channelDeviceFilter").ChangeAsync(fixture.BetaDeviceId.ToString());
 
         // Assert
         component.WaitForAssertion(() => Assert.Equal(["movies"], ProviderKeys(component)), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
-        component.Find("#clearChannelFilters").Click();
-        component.Find("#channelStateFilter").Change("Disabled");
+        await component.Find("#clearChannelFilters").ClickAsync(new());
+        await component.Find("#channelStateFilter").ChangeAsync("Disabled");
 
         // Assert
         component.WaitForAssertion(() => Assert.Equal(["movies"], ProviderKeys(component)), timeout: LineupWebBunitContext.WaitTimeout);
 
         // Act
-        component.Find("#clearChannelFilters").Click();
-        component.Find("#channelFlagFilter").Change("Favorite");
+        await component.Find("#clearChannelFilters").ClickAsync(new());
+        await component.Find("#channelFlagFilter").ChangeAsync("Favorite");
 
         // Assert
         component.WaitForAssertion(() => Assert.Equal(["sports"], ProviderKeys(component)), timeout: LineupWebBunitContext.WaitTimeout);
@@ -60,14 +60,14 @@ public sealed class ChannelsTests
         var globalNumber = component.FindAll("thead button").Single(button => button.TextContent.Contains("Global number", StringComparison.Ordinal));
 
         // Act
-        globalNumber.Click();
+        await globalNumber.ClickAsync(new());
 
         // Assert
         component.WaitForAssertion(() => Assert.Equal(["news", "movies", "sports"], ProviderKeys(component)), timeout: LineupWebBunitContext.WaitTimeout);
         Assert.Equal("ascending", FindGlobalNumberHeader(component).ParentElement!.GetAttribute("aria-sort"));
 
         // Act
-        FindGlobalNumberHeader(component).Click();
+        await FindGlobalNumberHeader(component).ClickAsync(new());
 
         // Assert
         component.WaitForAssertion(() => Assert.Equal(["sports", "movies", "news"], ProviderKeys(component)), timeout: LineupWebBunitContext.WaitTimeout);
@@ -102,7 +102,7 @@ public sealed class ChannelsTests
         var secondValue = $"{fixture.SecondGuideId.GuideSourceId.Value:D}|{fixture.SecondGuideId.ProviderKey}";
 
         // Act
-        select.Change(secondValue);
+        await select.ChangeAsync(secondValue);
 
         // Assert
         component.WaitForAssertion(() => Assert.Contains("Manual override.", component.Markup, StringComparison.Ordinal), timeout: LineupWebBunitContext.WaitTimeout);
@@ -113,7 +113,7 @@ public sealed class ChannelsTests
         Assert.Equal(fixture.SecondGuideId, binding.SelectedGuideChannelId);
 
         // Act
-        component.Find("tr[data-provider-key='news'] select.guide-binding").Change(string.Empty);
+        await component.Find("tr[data-provider-key='news'] select.guide-binding").ChangeAsync(string.Empty);
 
         // Assert
         component.WaitForAssertion(() => Assert.Contains("Multiple eligible guide channels match", component.Markup, StringComparison.Ordinal), timeout: LineupWebBunitContext.WaitTimeout);
@@ -136,7 +136,7 @@ public sealed class ChannelsTests
         var selectedValue = $"{fixture.FirstGuideId.GuideSourceId.Value:D}|{fixture.FirstGuideId.ProviderKey}";
 
         // Act
-        select.Change(selectedValue);
+        await select.ChangeAsync(selectedValue);
 
         // Assert
         component.WaitForAssertion(() =>
@@ -209,7 +209,7 @@ public sealed class ChannelsTests
 
         // Act
         await component.Find("tr[data-provider-key='news'] .manage-channel-group").ClickAsync(new());
-        component.Find(".group-candidate[data-provider-key='movies'] input").Change(true);
+        await component.Find(".group-candidate[data-provider-key='movies'] input").ChangeAsync(true);
 
         // Assert
         Assert.Empty(component.FindAll(".channel-equivalence-group"));
@@ -221,7 +221,7 @@ public sealed class ChannelsTests
         Assert.Contains("First guide", preview.TextContent, StringComparison.Ordinal);
 
         // Act
-        component.Find(".confirm-channel-content").Change(true);
+        await component.Find(".confirm-channel-content").ChangeAsync(true);
         await component.Find(".save-channel-group").ClickAsync(new());
         var created = await topology.ReadActiveAsync(Xunit.TestContext.Current.CancellationToken);
         var group = created.Single(channel => channel.Source.Id == news).EquivalenceGroupId;
@@ -236,14 +236,14 @@ public sealed class ChannelsTests
         await topology.SetIdentityAsync(sports, "2.1", null, Guid.NewGuid(), Xunit.TestContext.Current.CancellationToken);
         await component.Find("tr[data-provider-key='news'] .manage-channel-group").ClickAsync(new());
         Assert.True(component.Find(".group-candidate[data-provider-key='sports'] input").HasAttribute("disabled"));
-        component.Find(".group-candidate[data-provider-key='backup'] input").Change(true);
-        component.Find(".confirm-channel-content").Change(true);
+        await component.Find(".group-candidate[data-provider-key='backup'] input").ChangeAsync(true);
+        await component.Find(".confirm-channel-content").ChangeAsync(true);
         await component.Find(".save-channel-group").ClickAsync(new());
         var added = await topology.ReadActiveAsync(Xunit.TestContext.Current.CancellationToken);
         await component.Find("tr[data-provider-key='movies'] .manage-channel-group").ClickAsync(new());
-        component.Find(".change-group-mode").Click();
+        await component.Find(".change-group-mode").ClickAsync(new());
         Assert.True(component.Find(".save-channel-group").HasAttribute("disabled"));
-        component.Find(".confirm-channel-content").Change(true);
+        await component.Find(".confirm-channel-content").ChangeAsync(true);
         await component.Find(".save-channel-group").ClickAsync(new());
 
         // Assert
@@ -273,8 +273,8 @@ public sealed class ChannelsTests
         var component = fixture.Context.Render<Channels>();
         await component.WaitForAssertionAsync(() => Assert.Equal(3, ChannelRows(component).Count), TimeSpan.FromSeconds(30));
         await component.Find("tr[data-provider-key='news'] .manage-channel-group").ClickAsync(new());
-        component.Find(".group-candidate[data-provider-key='movies'] input").Change(true);
-        component.Find(".confirm-channel-content").Change(true);
+        await component.Find(".group-candidate[data-provider-key='movies'] input").ChangeAsync(true);
+        await component.Find(".confirm-channel-content").ChangeAsync(true);
         if (changed == "topology")
         {
             await topology.SetEnabledAsync(movies, false, Xunit.TestContext.Current.CancellationToken);
@@ -326,8 +326,8 @@ public sealed class ChannelsTests
         var component = fixture.Context.Render<Channels>();
         await component.WaitForAssertionAsync(() => Assert.Equal(3, ChannelRows(component).Count), TimeSpan.FromSeconds(30));
         await component.Find("tr[data-provider-key='news'] .manage-channel-group").ClickAsync(new());
-        component.Find(".group-candidate[data-provider-key='movies'] input").Change(true);
-        component.Find(".confirm-channel-content").Change(true);
+        await component.Find(".group-candidate[data-provider-key='movies'] input").ChangeAsync(true);
+        await component.Find(".confirm-channel-content").ChangeAsync(true);
 
         // Act
         await component.Find(".save-channel-group").ClickAsync(new());
@@ -364,7 +364,7 @@ public sealed class ChannelsTests
 
         // Act
         await component.Find("tr[data-provider-key='news'] .manage-channel-group").ClickAsync(new());
-        component.Find(".group-candidate[data-provider-key='movies'] input").Change(true);
+        await component.Find(".group-candidate[data-provider-key='movies'] input").ChangeAsync(true);
 
         // Assert
         var all = component.Find("[data-output-name='All devices'] .group-projection:last-child .group-source-priority");
@@ -390,8 +390,8 @@ public sealed class ChannelsTests
         var component = fixture.Context.Render<Channels>();
         await component.WaitForAssertionAsync(() => Assert.Equal(3, ChannelRows(component).Count), TimeSpan.FromSeconds(30));
         await component.Find("tr[data-provider-key='news'] .manage-channel-group").ClickAsync(new());
-        component.Find(".group-candidate[data-provider-key='movies'] input").Change(true);
-        component.Find(".confirm-channel-content").Change(true);
+        await component.Find(".group-candidate[data-provider-key='movies'] input").ChangeAsync(true);
+        await component.Find(".confirm-channel-content").ChangeAsync(true);
 
         // Act
         var saving = component.Find(".save-channel-group").ClickAsync(new());
@@ -439,7 +439,8 @@ public sealed class ChannelsTests
             PhysicalDeviceId betaDeviceId,
             DeviceGuideStore guideStore,
             GuideChannelId firstGuideId,
-            GuideChannelId secondGuideId)
+            GuideChannelId secondGuideId
+        )
         {
             Context = context;
             _databasePath = databasePath;
@@ -450,19 +451,26 @@ public sealed class ChannelsTests
             SecondGuideId = secondGuideId;
         }
 
+        /// <summary>Gets the context.</summary>
         public BunitContext Context { get; }
 
         /// <summary>Gets the guide-store context factory for controlled read ordering.</summary>
         internal TestDbContextFactory GuideContexts { get; }
 
+        /// <summary>Gets the beta device ID.</summary>
         public PhysicalDeviceId BetaDeviceId { get; }
 
+        /// <summary>Gets the guide store.</summary>
         public DeviceGuideStore GuideStore { get; }
 
+        /// <summary>Gets the first guide ID.</summary>
         public GuideChannelId FirstGuideId { get; }
 
+        /// <summary>Gets the second guide ID.</summary>
         public GuideChannelId SecondGuideId { get; }
 
+        /// <summary>Creates the channel fixture asynchronously.</summary>
+        /// <returns>The operation's result.</returns>
         public static async Task<ChannelFixture> CreateAsync()
         {
             var databasePath = Path.Combine(Path.GetTempPath(), $"lineup-channels-{Guid.NewGuid():N}.db");
@@ -568,7 +576,8 @@ public sealed class ChannelsTests
             bool drm = false,
             bool hd = false,
             string? videoCodec = null,
-            int? signalStrength = null)
+            int? signalStrength = null
+        )
         {
             var metadata = new Dictionary<string, string>();
             if (favorite)
@@ -641,8 +650,13 @@ public sealed class ChannelsTests
         /// <summary>Gets or sets the asynchronous context-creation barrier.</summary>
         internal Func<CancellationToken, Task>? BeforeCreateAsync { get; set; }
 
+        /// <summary>Creates db context.</summary>
+        /// <returns>The operation's result.</returns>
         public EpgDbContext CreateDbContext() => new(options);
 
+        /// <summary>Creates db context asynchronously.</summary>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
         public async Task<EpgDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
         {
             if (BeforeCreateAsync is { } beforeCreate)

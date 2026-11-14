@@ -1,15 +1,13 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Lineup.Core.Common.Guides;
-using Lineup.Core.Common.Streaming;
 
 namespace Lineup.Core.Settings;
 
 /// <summary>Creates content revisions without changing persisted configuration schemas.</summary>
 public static class ConfigurationRevision
 {
-    private static readonly JsonSerializerOptions Options = new()
+    private static readonly JsonSerializerOptions _options = new()
     {
         Converters =
         {
@@ -30,7 +28,7 @@ public static class ConfigurationRevision
         using var buffer = new MemoryStream();
         using (var writer = new Utf8JsonWriter(buffer))
         {
-            Write(writer, JsonSerializer.SerializeToElement(value, Options), excludedRootProperties);
+            Write(writer, JsonSerializer.SerializeToElement(value, _options), excludedRootProperties);
         }
         return Convert.ToHexString(SHA256.HashData(buffer.GetBuffer().AsSpan(0, checked((int)buffer.Length))));
     }

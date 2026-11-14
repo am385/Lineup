@@ -1,5 +1,4 @@
 using Lineup.Core.Common.Guides;
-using Lineup.Core.Extensibility.Guides;
 using Lineup.Plugin.GuideOutputs.Xmltv;
 using System.Text;
 using System.Xml.Linq;

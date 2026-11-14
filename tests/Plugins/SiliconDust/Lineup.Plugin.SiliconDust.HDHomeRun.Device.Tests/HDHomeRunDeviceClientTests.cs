@@ -325,6 +325,7 @@ public class HDHomeRunDeviceClientTests
 
     private sealed class BlockingHandler : HttpMessageHandler
     {
+        /// <summary>Gets the started.</summary>
         public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         /// <inheritdoc/>

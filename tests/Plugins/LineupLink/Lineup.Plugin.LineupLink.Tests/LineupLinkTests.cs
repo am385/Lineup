@@ -657,8 +657,12 @@ public sealed class LineupLinkTests
 
     private sealed class EmptyPhysicalDeviceResolver : IPhysicalDeviceResolver
     {
+        /// <summary>Gets the devices.</summary>
         public IReadOnlyList<IPhysicalTunerDevice> Devices => [];
 
+        /// <summary>Gets required.</summary>
+        /// <param name="deviceId">Identity of the target device.</param>
+        /// <returns>The operation's result.</returns>
         public IPhysicalTunerDevice GetRequired(PhysicalDeviceId deviceId) =>
             throw new InvalidOperationException($"Physical device {deviceId} is not active.");
     }

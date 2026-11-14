@@ -8,7 +8,7 @@ namespace Lineup.Core.Extensibility.Guides;
 /// </summary>
 public sealed class XmltvSupplementalMetadata
 {
-    private static readonly XNamespace EnvelopeNamespace = "urn:lineup:xmltv-supplemental:v1";
+    private static readonly XNamespace _envelopeNamespace = "urn:lineup:xmltv-supplemental:v1";
     private readonly XElement _root;
 
     private XmltvSupplementalMetadata(XElement root)
@@ -19,8 +19,8 @@ public sealed class XmltvSupplementalMetadata
     /// <summary>
     /// Gets the preserved attributes.
     /// </summary>
-    public IReadOnlyList<XAttribute> Attributes => _root.Element(EnvelopeNamespace + "attributes")?
-        .Elements(EnvelopeNamespace + "attribute")
+    public IReadOnlyList<XAttribute> Attributes => _root.Element(_envelopeNamespace + "attributes")?
+        .Elements(_envelopeNamespace + "attribute")
         .Select(element => new XAttribute(
             XName.Get((string?)element.Attribute("name") ?? throw new InvalidDataException("Supplemental XMLTV attribute name is missing."),
                 (string?)element.Attribute("namespace") ?? string.Empty),
@@ -30,7 +30,7 @@ public sealed class XmltvSupplementalMetadata
     /// <summary>
     /// Gets preserved complete XMLTV child elements.
     /// </summary>
-    public IReadOnlyList<XElement> Elements => _root.Element(EnvelopeNamespace + "elements")?
+    public IReadOnlyList<XElement> Elements => _root.Element(_envelopeNamespace + "elements")?
         .Elements()
         .Select(element => new XElement(element))
         .ToArray() ?? [];
@@ -38,15 +38,12 @@ public sealed class XmltvSupplementalMetadata
     /// <summary>
     /// Creates an envelope, returning <see langword="null"/> when it would be empty.
     /// </summary>
-    public static string? Create(
-        IEnumerable<XAttribute>? attributes = null,
-        IEnumerable<XElement>? elements = null,
-        IEnumerable<(string Key, XElement Element)>? ownedElements = null)
+    public static string? Create(IEnumerable<XAttribute>? attributes = null, IEnumerable<XElement>? elements = null, IEnumerable<(string Key, XElement Element)>? ownedElements = null)
     {
         var attributeElements = attributes?
             .Where(attribute => !attribute.IsNamespaceDeclaration)
             .Select(attribute => new XElement(
-                EnvelopeNamespace + "attribute",
+                _envelopeNamespace + "attribute",
                 new XAttribute("name", attribute.Name.LocalName),
                 new XAttribute("namespace", attribute.Name.NamespaceName),
                 new XAttribute("value", attribute.Value)))
@@ -54,7 +51,7 @@ public sealed class XmltvSupplementalMetadata
         var preservedElements = elements?.Select(element => new XElement(element)).ToArray() ?? [];
         var owned = ownedElements?
             .Select(item => new XElement(
-                EnvelopeNamespace + "owned",
+                _envelopeNamespace + "owned",
                 new XAttribute("key", item.Key),
                 new XElement(item.Element)))
             .ToArray() ?? [];
@@ -63,14 +60,14 @@ public sealed class XmltvSupplementalMetadata
             return null;
         }
 
-        var root = new XElement(EnvelopeNamespace + "supplemental");
+        var root = new XElement(_envelopeNamespace + "supplemental");
         if (attributeElements.Length > 0)
         {
-            root.Add(new XElement(EnvelopeNamespace + "attributes", attributeElements));
+            root.Add(new XElement(_envelopeNamespace + "attributes", attributeElements));
         }
         if (preservedElements.Length > 0)
         {
-            root.Add(new XElement(EnvelopeNamespace + "elements", preservedElements));
+            root.Add(new XElement(_envelopeNamespace + "elements", preservedElements));
         }
         root.Add(owned);
         return root.ToString(SaveOptions.DisableFormatting);
@@ -95,7 +92,7 @@ public sealed class XmltvSupplementalMetadata
                 XmlResolver = null
             });
             var root = XElement.Load(reader, LoadOptions.None);
-            if (root.Name != EnvelopeNamespace + "supplemental")
+            if (root.Name != _envelopeNamespace + "supplemental")
             {
                 throw new InvalidDataException("Supplemental XMLTV metadata has an unsupported format.");
             }
@@ -112,7 +109,7 @@ public sealed class XmltvSupplementalMetadata
     /// </summary>
     public XElement? GetOwnedElement(string key)
     {
-        var owned = _root.Elements(EnvelopeNamespace + "owned")
+        var owned = _root.Elements(_envelopeNamespace + "owned")
             .FirstOrDefault(element => string.Equals((string?)element.Attribute("key"), key, StringComparison.Ordinal));
         return owned?.Elements().Select(element => new XElement(element)).SingleOrDefault();
     }

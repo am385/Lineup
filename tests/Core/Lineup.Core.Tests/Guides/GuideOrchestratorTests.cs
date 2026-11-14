@@ -1,9 +1,5 @@
 using System.Text.Json;
-using Lineup.Core.Common.Guides;
-using Lineup.Core.Extensibility.Guides;
 using Lineup.Core.Storage;
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -504,10 +500,7 @@ public sealed class GuideOrchestratorTests
         }
     }
 
-    private static StreamingConfiguration Configuration(
-        IReadOnlyList<PhysicalDeviceDefinition> physicalDevices,
-        IReadOnlyList<GuideSourceDefinition> guideSources,
-        IReadOnlyList<VirtualDeviceDefinition> virtualDevices) =>
+    private static StreamingConfiguration Configuration(IReadOnlyList<PhysicalDeviceDefinition> physicalDevices, IReadOnlyList<GuideSourceDefinition> guideSources, IReadOnlyList<VirtualDeviceDefinition> virtualDevices) =>
         new()
         {
             PhysicalDevices = physicalDevices,
@@ -589,35 +582,54 @@ public sealed class GuideOrchestratorTests
 
     private sealed class FakeGuideDriver(IReadOnlyDictionary<GuideSourceId, Func<Task<GuideImport>>> refreshes) : IGuideSourceDriver
     {
+        /// <summary>Stores the driver kind.</summary>
         public const string DriverKind = "fake-guide";
         private int _refreshCount;
 
+        /// <summary>Gets the kind.</summary>
         public string Kind => DriverKind;
 
+        /// <summary>Gets the display name.</summary>
         public string DisplayName => "Fake Guide";
 
+        /// <summary>Gets the supports user creation.</summary>
         public bool SupportsUserCreation => true;
 
+        /// <summary>Gets the refresh count.</summary>
         public int RefreshCount => Volatile.Read(ref _refreshCount);
 
+        /// <summary>Gets or sets the activation exception.</summary>
         internal Exception? ActivationException { get; set; }
 
+        /// <summary>Gets or sets the return wrong identity.</summary>
         internal bool ReturnWrongIdentity { get; set; }
 
+        /// <summary>Gets or sets the reject configuration.</summary>
         internal bool RejectConfiguration { get; set; }
 
+        /// <summary>Creates default configuration.</summary>
+        /// <param name="sourceId">The source ID value.</param>
+        /// <returns>The operation's result.</returns>
         public AdapterConfiguration CreateDefaultConfiguration(GuideSourceId sourceId) => Adapter(Kind);
 
+        /// <summary>Determines support for physical adapter.</summary>
+        /// <param name="physicalAdapterKind">The physical adapter kind value.</param>
+        /// <returns>The operation's result.</returns>
         public bool SupportsPhysicalAdapter(string physicalAdapterKind) =>
             string.Equals(physicalAdapterKind, "unused-physical", StringComparison.Ordinal);
 
+        /// <summary>Validates the fake guide driver.</summary>
+        /// <param name="configuration">Configuration to apply.</param>
+        /// <returns>The operation's result.</returns>
         public IReadOnlyList<string> Validate(AdapterConfiguration configuration) => RejectConfiguration ? ["Private activation detail"] : [];
 
-        public ValueTask<IGuideSource> CreateAsync(
-            GuideSourceId sourceId,
-            AdapterConfiguration configuration,
-            IReadOnlyList<PhysicalDeviceId> physicalDeviceIds,
-            CancellationToken cancellationToken = default) =>
+        /// <summary>Creates the fake guide driver asynchronously.</summary>
+        /// <param name="sourceId">The source ID value.</param>
+        /// <param name="configuration">Configuration to apply.</param>
+        /// <param name="physicalDeviceIds">The physical device IDs value.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
+        public ValueTask<IGuideSource> CreateAsync(GuideSourceId sourceId, AdapterConfiguration configuration, IReadOnlyList<PhysicalDeviceId> physicalDeviceIds, CancellationToken cancellationToken = default) =>
             ActivationException is not null
                 ? ValueTask.FromException<IGuideSource>(ActivationException)
                 : ValueTask.FromResult<IGuideSource>(new FakeGuideSource(ReturnWrongIdentity ? GuideSourceId.New() : sourceId, refreshes[sourceId], () => Interlocked.Increment(ref _refreshCount)));
@@ -625,8 +637,12 @@ public sealed class GuideOrchestratorTests
 
     private sealed class FakeGuideSource(GuideSourceId id, Func<Task<GuideImport>> refresh, Action onRefresh) : IGuideSource
     {
+        /// <summary>Gets the ID.</summary>
         public GuideSourceId Id { get; } = id;
 
+        /// <summary>Refreshes the fake guide source asynchronously.</summary>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
         public Task<GuideImport> RefreshAsync(CancellationToken cancellationToken = default)
         {
             onRefresh();
@@ -636,14 +652,23 @@ public sealed class GuideOrchestratorTests
 
     private sealed class FakeVirtualDriver : IVirtualTunerDriver
     {
+        /// <summary>Gets the kind.</summary>
         public string Kind => "unused-virtual";
 
+        /// <summary>Gets the display name.</summary>
         public string DisplayName => "Unused";
 
+        /// <summary>Gets the supports user creation.</summary>
         public bool SupportsUserCreation => false;
 
+        /// <summary>Creates default configuration.</summary>
+        /// <param name="deviceId">Identity of the target device.</param>
+        /// <returns>The operation's result.</returns>
         public AdapterConfiguration CreateDefaultConfiguration(VirtualDeviceId deviceId) => Adapter(Kind);
 
+        /// <summary>Validates the fake virtual driver.</summary>
+        /// <param name="configuration">Configuration to apply.</param>
+        /// <returns>The operation's result.</returns>
         public IReadOnlyList<string> Validate(AdapterConfiguration configuration) => [];
     }
 
@@ -653,6 +678,8 @@ public sealed class GuideOrchestratorTests
             .UseSqlite($"Data Source={path}")
             .Options;
 
+        /// <summary>Creates db context.</summary>
+        /// <returns>The operation's result.</returns>
         public EpgDbContext CreateDbContext() => new(_options);
     }
 }

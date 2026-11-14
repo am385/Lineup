@@ -1,5 +1,4 @@
 using Lineup.Core.Common.Guides;
-using Lineup.Core.Extensibility.Guides;
 
 namespace Lineup.Plugin.LineupLink.Protocol;
 

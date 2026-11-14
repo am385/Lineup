@@ -45,12 +45,7 @@ public interface IAppDataStore
     Task<string> ReadAllTextAsync(string path, CancellationToken cancellationToken = default);
 
     /// <summary>Atomically writes a contained app-data file.</summary>
-    Task WriteAtomicallyAsync(
-        string destinationPath,
-        Func<Stream, CancellationToken, Task> writeAsync,
-        string? backupPath = null,
-        bool preserveBackup = false,
-        CancellationToken cancellationToken = default);
+    Task WriteAtomicallyAsync(string destinationPath, Func<Stream, CancellationToken, Task> writeAsync, string? backupPath = null, bool preserveBackup = false, CancellationToken cancellationToken = default);
 
     /// <summary>Deletes a contained app-data file when present.</summary>
     void DeleteFile(string path);

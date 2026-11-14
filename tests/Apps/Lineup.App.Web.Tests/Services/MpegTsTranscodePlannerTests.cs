@@ -1,4 +1,3 @@
-using Lineup.App.Web.Controllers;
 using Xunit;
 
 namespace Lineup.App.Web.Tests.Services;
@@ -8,7 +7,7 @@ namespace Lineup.App.Web.Tests.Services;
 /// </summary>
 public class MpegTsTranscodePlannerTests
 {
-    private static readonly Uri InputUri = new("http://hdhomerun.local:5004/auto/v7.1");
+    private static readonly Uri _inputUri = new("http://hdhomerun.local:5004/auto/v7.1");
 
     /// <summary>Verifies effective topology settings, rather than legacy app values, control MPEG-TS output.</summary>
     [Fact]
@@ -28,7 +27,7 @@ public class MpegTsTranscodePlannerTests
 
         // Act
         var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(
-            InputUri,
+            _inputUri,
             "hevc",
             [new AudioStreamInfo(1, "aac", 2), new AudioStreamInfo(2, "ac4", 2)],
             profile,
@@ -72,7 +71,7 @@ public class MpegTsTranscodePlannerTests
         ];
 
         // Act
-        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(InputUri, "hevc", streams, settings.Streaming.VirtualDefaults);
+        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(_inputUri, "hevc", streams, settings.Streaming.VirtualDefaults);
 
         // Assert
         Assert.DoesNotContain("-c:a:0", arguments);
@@ -119,7 +118,7 @@ public class MpegTsTranscodePlannerTests
         ];
 
         // Act
-        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(InputUri, "hevc", streams, settings.Streaming.VirtualDefaults);
+        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(_inputUri, "hevc", streams, settings.Streaming.VirtualDefaults);
 
         AssertOption(arguments, "-c:a:0", "ac3");
         AssertOption(arguments, "-b:a:0", "448k");
@@ -144,7 +143,7 @@ public class MpegTsTranscodePlannerTests
         ];
 
         // Act
-        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(InputUri, "h264", streams, settings.Streaming.VirtualDefaults);
+        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(_inputUri, "h264", streams, settings.Streaming.VirtualDefaults);
 
         // Assert
         Assert.DoesNotContain(arguments, argument => argument.StartsWith("-c:a:", StringComparison.Ordinal));
@@ -169,7 +168,7 @@ public class MpegTsTranscodePlannerTests
         AudioStreamInfo[] streams = [new(1, "ac4", 6)];
 
         // Act
-        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(InputUri, "h264", streams, settings.Streaming.VirtualDefaults);
+        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(_inputUri, "h264", streams, settings.Streaming.VirtualDefaults);
 
         // Assert
         Assert.DoesNotContain(arguments, argument => argument.StartsWith("-c:a:", StringComparison.Ordinal));
@@ -191,7 +190,7 @@ public class MpegTsTranscodePlannerTests
         ];
 
         // Act
-        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(InputUri, "h264", [], new VirtualTranscodeProfile(), subtitles);
+        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(_inputUri, "h264", [], new VirtualTranscodeProfile(), subtitles);
 
         // Assert
         AssertMappings(arguments, "0:5", "0:7");
@@ -208,7 +207,7 @@ public class MpegTsTranscodePlannerTests
 
         // Arrange
         // Act
-        var arguments = MediaProbeParser.CreateArguments(InputUri);
+        var arguments = MediaProbeParser.CreateArguments(_inputUri);
 
         AssertOption(arguments, "-analyzeduration", "1000000");
         AssertOption(arguments, "-probesize", "1000000");
@@ -217,7 +216,7 @@ public class MpegTsTranscodePlannerTests
         AssertOption(arguments, "-reconnect_max_retries", "3");
         AssertOption(arguments, "-read_intervals", "%+3");
         // Assert
-        Assert.Equal(InputUri.AbsoluteUri, arguments[^1]);
+        Assert.Equal(_inputUri.AbsoluteUri, arguments[^1]);
     }
 
     /// <summary>

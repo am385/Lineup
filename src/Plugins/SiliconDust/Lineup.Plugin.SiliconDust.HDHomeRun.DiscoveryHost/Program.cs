@@ -184,4 +184,7 @@ static bool TryAcquireResponsePermit(
 static string FormatDeviceIds(IReadOnlyCollection<string> deviceIds) =>
     deviceIds.Count == 0 ? "none" : string.Join(", ", deviceIds);
 
+/// <summary>Represents the response window.</summary>
+/// <param name="Start">The start value.</param>
+/// <param name="Count">The count value.</param>
 internal sealed record ResponseWindow(DateTimeOffset Start, int Count);

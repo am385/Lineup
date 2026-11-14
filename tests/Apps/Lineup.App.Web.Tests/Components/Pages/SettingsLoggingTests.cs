@@ -23,17 +23,17 @@ public class SettingsLoggingTests
         // Arrange
         await using var context = CreateContext(out _);
         var component = context.Render<Settings>();
-        component.Find("#tab-logging").Click();
+        await component.Find("#tab-logging").ClickAsync(new());
 
         // Act
-        component.Find("#overrideLoggingDefaults").Change(true);
-        component.Find("#enableFileLogging").Change(true);
+        await component.Find("#overrideLoggingDefaults").ChangeAsync(true);
+        await component.Find("#enableFileLogging").ChangeAsync(true);
 
         // Assert
         Assert.NotNull(component.Find("#applicationLogFilterOverrides"));
         Assert.NotNull(component.Find("#rollingFileLogOptions"));
-        component.Find("#overrideLoggingDefaults").Change(false);
-        component.Find("#enableFileLogging").Change(false);
+        await component.Find("#overrideLoggingDefaults").ChangeAsync(false);
+        await component.Find("#enableFileLogging").ChangeAsync(false);
         Assert.Empty(component.FindAll("#applicationLogFilterOverrides"));
         Assert.Empty(component.FindAll("#rollingFileLogOptions"));
     }
@@ -50,7 +50,7 @@ public class SettingsLoggingTests
 
         // Act
         var component = context.Render<Settings>();
-        component.Find("#tab-logging").Click();
+        await component.Find("#tab-logging").ClickAsync(new());
 
         // Assert
         Assert.Equal("No rolling log files are available yet.", component.Find("#emptyRetainedLogFiles").TextContent);
@@ -71,7 +71,7 @@ public class SettingsLoggingTests
         // Act
         var component = context.Render<Settings>();
         var tabs = component.FindAll("#settingsCategoryTabs button").Select(button => button.Id).ToArray();
-        component.Find("#tab-logging").Click();
+        await component.Find("#tab-logging").ClickAsync(new());
 
         // Assert
         Assert.Equal("tab-logging", tabs[^2]);
@@ -94,13 +94,13 @@ public class SettingsLoggingTests
         context.Services.AddSingleton(runtime);
         context.Services.AddSingleton(new LogFileService(runtime));
         var component = context.Render<Settings>();
-        component.Find("#tab-logging").Click();
+        await component.Find("#tab-logging").ClickAsync(new());
 
         // Act
-        component.Find("#enableFileLogging").Change(true);
-        component.Find("#fileLogLevel").Change("Warning");
-        component.Find("#fileLogRetentionDays").Change("14");
-        component.Find("#fileLogSizeLimitMb").Change("100");
+        await component.Find("#enableFileLogging").ChangeAsync(true);
+        await component.Find("#fileLogLevel").ChangeAsync("Warning");
+        await component.Find("#fileLogRetentionDays").ChangeAsync("14");
+        await component.Find("#fileLogSizeLimitMb").ChangeAsync("100");
         await component.Find("button.btn-primary").ClickAsync(new());
 
         // Assert
@@ -136,15 +136,15 @@ public class SettingsLoggingTests
         var runtime = new LoggingRuntimeState("config", new FileLoggingSettings(false, LogEventLevel.Information, 7, 50), [], applicationFilter: filter);
         context.Services.AddSingleton(runtime);
         var component = context.Render<Settings>();
-        component.Find("#tab-logging").Click();
+        await component.Find("#tab-logging").ClickAsync(new());
 
         // Act
-        component.Find("#overrideLoggingDefaults").Change(true);
-        component.Find("#applicationLogLevel").Change("Debug");
-        component.FindAll(".log-category-level")[0].Change("Error");
-        component.Find("#addLogCategoryOverride").Click();
-        component.FindAll(".log-category-prefix")[^1].Change("Lineup.Noisy");
-        component.FindAll(".log-category-level")[^1].Change("None");
+        await component.Find("#overrideLoggingDefaults").ChangeAsync(true);
+        await component.Find("#applicationLogLevel").ChangeAsync("Debug");
+        await component.FindAll(".log-category-level")[0].ChangeAsync("Error");
+        await component.Find("#addLogCategoryOverride").ClickAsync(new());
+        await component.FindAll(".log-category-prefix")[^1].ChangeAsync("Lineup.Noisy");
+        await component.FindAll(".log-category-level")[^1].ChangeAsync("None");
         await component.Find("button.btn-primary").ClickAsync(new());
 
         // Assert
@@ -178,7 +178,7 @@ public class SettingsLoggingTests
         var runtime = new LoggingRuntimeState("config", new FileLoggingSettings(false, LogEventLevel.Information, 7, 50), [], applicationFilter: filter);
         context.Services.AddSingleton(runtime);
         var component = context.Render<Settings>();
-        component.Find("#tab-logging").Click();
+        await component.Find("#tab-logging").ClickAsync(new());
 
         // Act
         await component.Find("button.btn-primary").ClickAsync(new());
@@ -209,10 +209,10 @@ public class SettingsLoggingTests
         runtime.ApplyApplicationFilter(settings);
         context.Services.AddSingleton(runtime);
         var component = context.Render<Settings>();
-        component.Find("#tab-logging").Click();
+        await component.Find("#tab-logging").ClickAsync(new());
 
         // Act
-        component.Find("#overrideLoggingDefaults").Change(false);
+        await component.Find("#overrideLoggingDefaults").ChangeAsync(false);
         await component.Find("button.btn-primary").ClickAsync(new());
 
         // Assert
@@ -238,12 +238,12 @@ public class SettingsLoggingTests
         var runtime = new LoggingRuntimeState("config", new FileLoggingSettings(false, LogEventLevel.Information, 7, 50), [], applicationFilter: filter);
         context.Services.AddSingleton(runtime);
         var component = context.Render<Settings>();
-        component.Find("#tab-logging").Click();
+        await component.Find("#tab-logging").ClickAsync(new());
 
         // Act
-        component.Find("#overrideLoggingDefaults").Change(true);
-        component.Find("#addLogCategoryOverride").Click();
-        component.FindAll(".log-category-prefix")[^1].Change("microsoft.aspnetcore");
+        await component.Find("#overrideLoggingDefaults").ChangeAsync(true);
+        await component.Find("#addLogCategoryOverride").ClickAsync(new());
+        await component.FindAll(".log-category-prefix")[^1].ChangeAsync("microsoft.aspnetcore");
         await component.Find("button.btn-primary").ClickAsync(new());
 
         // Assert

@@ -1,7 +1,6 @@
 using System.Text.Json;
 using Lineup.Core.Common.Streaming;
 using Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryRuntime;
-using Lineup.Plugin.SiliconDust.HDHomeRun.VirtualTuner;
 using Lineup.Core.VirtualOutputs.Protocol;
 using Xunit;
 

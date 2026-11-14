@@ -44,7 +44,9 @@ public sealed class VirtualOutputWorkerCatalog : IVirtualOutputWorkerCatalog
         _logger = logger ?? NullLogger<VirtualOutputWorkerCatalog>.Instance;
     }
 
-    /// <inheritdoc />
+    /// <summary>Loads the virtual output worker catalog asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public Task<IReadOnlyList<VirtualOutputWorkerPackage>> LoadAsync(CancellationToken cancellationToken = default) =>
         LoadPackagesAsync(null, cancellationToken);
 
@@ -103,7 +105,10 @@ public sealed class VirtualOutputWorkerCatalog : IVirtualOutputWorkerCatalog
         };
     }
 
-    /// <inheritdoc />
+    /// <summary>Resolves the virtual output worker catalog asynchronously.</summary>
+    /// <param name="adapterKind">The adapter kind value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async Task<VirtualOutputWorkerPackage> ResolveAsync(string adapterKind, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(adapterKind);

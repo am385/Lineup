@@ -349,6 +349,8 @@
   <data name="Settings_GuideOutputDirectoryHelpPrefix" xml:space="preserve"><value>Lineup veröffentlicht atomar nach</value></data>
   <data name="Settings_GuideOutputDirectoryHelpSuffix" xml:space="preserve"><value>in diesem Verzeichnis.</value></data>
   <data name="Settings_GuideOutputDirectoryLabel" xml:space="preserve"><value>Ausgabeverzeichnis</value></data>
+  <data name="Settings_GuideOutputIncludeUnavailableProgramsHelp" xml:space="preserve"><value>Veröffentlicht für Kanäle ohne Programmdaten einen Eintrag „Not Available“. Standardmäßig deaktiviert, damit Platzhalter nicht in Jellyfins Liste der aktuell laufenden Sendungen erscheinen.</value></data>
+  <data name="Settings_GuideOutputIncludeUnavailableProgramsLabel" xml:space="preserve"><value>Platzhalter für nicht verfügbare Sendungen einbeziehen</value></data>
   <data name="Settings_GuideOutputKeyHelp" xml:space="preserve"><value>Lineup formatiert diesen Wert als kleingeschriebene Kennung, die nur Buchstaben, Ziffern und Unterstriche enthält.</value></data>
   <data name="Settings_GuideOutputKeyLabel" xml:space="preserve"><value>Ausgabeschlüssel</value></data>
   <data name="Settings_GuideOutputKeyWarning" xml:space="preserve"><value>Eine Änderung dieses Schlüssels ändert die lesbare API-URL und den erzeugten Dateinamen. Bestehende Clients, die einen dieser Orte verwenden, müssen aktualisiert werden.</value></data>

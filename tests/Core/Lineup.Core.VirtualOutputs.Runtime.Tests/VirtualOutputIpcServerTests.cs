@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Reflection;
+using System.Threading.Channels;
 using Lineup.Core.Common.Guides;
 using Lineup.Core.Common.Streaming;
 using Lineup.Core.Settings;
@@ -16,6 +18,48 @@ namespace Lineup.Core.VirtualOutputs.Runtime.Tests;
 /// <summary>Verifies real local IPC framing, registration, authorization context, and typed broker dispatch.</summary>
 public sealed class VirtualOutputIpcServerTests
 {
+    /// <summary>Verifies a rejected retirement can be retried after its reply is visible but before the first reply finishes flushing.</summary>
+    [Fact]
+    public async Task Client_MediaAdmission_RejectionAcknowledgedBeforeFlush_AcceptsNextRetirement()
+    {
+        // Arrange
+        using var watchdog = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        watchdog.CancelAfter(TimeSpan.FromSeconds(15));
+        using var connection = new ReentrantRetirementStream();
+        var secondRetirement = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var attempts = 0;
+        var lost = false;
+        Func<CancellationToken, Task<bool>> retire = _ =>
+        {
+            if (Interlocked.Increment(ref attempts) == 2)
+            {
+                connection.ReleaseFlush();
+                secondRetirement.TrySetResult();
+            }
+            return Task.FromResult(false);
+        };
+        Action ownershipLost = () => lost = true;
+        var leaseType = typeof(VirtualOutputBrokerClient).GetNestedType("MediaLease", BindingFlags.NonPublic);
+        Assert.NotNull(leaseType);
+        var lease = Assert.IsAssignableFrom<IAsyncDisposable>(Activator.CreateInstance(
+            leaseType, BindingFlags.Instance | BindingFlags.NonPublic, null, [connection, retire, ownershipLost, NullLogger.Instance], null));
+        try
+        {
+            // Act
+            connection.RequestRetirement();
+            await secondRetirement.Task.WaitAsync(watchdog.Token);
+
+            // Assert
+            Assert.Equal(2, Volatile.Read(ref attempts));
+            Assert.False(lost);
+        }
+        finally
+        {
+            connection.ReleaseFlush();
+            await lease.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(15), CancellationToken.None);
+        }
+    }
+
     /// <summary>Verifies a still-connected orphan survives a live lease and is closed by the controlled expiration sweep.</summary>
     [Fact]
     public async Task Client_LeaseExpires_ClosesBrokerStreamWithoutClientDisconnect()
@@ -1108,9 +1152,52 @@ public sealed class VirtualOutputIpcServerTests
         }
     }
 
-    private static ILineupSettingsService CreateSettings(
-        VirtualDeviceId deviceId,
-        int maximumOutstandingBrokerCalls)
+    private sealed class ReentrantRetirementStream : MemoryStream
+    {
+        private readonly Channel<byte> _commands = Channel.CreateUnbounded<byte>();
+        private readonly TaskCompletionSource _flushReleased = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _acknowledgements;
+
+        /// <summary>Delivers a broker retirement request to the client's reader.</summary>
+        public void RequestRetirement()
+        {
+            if (!_commands.Writer.TryWrite(1))
+            {
+                throw new InvalidOperationException("The retirement command queue is closed.");
+            }
+        }
+
+        /// <summary>Releases the controlled reply flush during callback completion or fixture cleanup.</summary>
+        public void ReleaseFlush() => _flushReleased.TrySetResult();
+
+        /// <inheritdoc />
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            var command = await _commands.Reader.ReadAsync(cancellationToken);
+            buffer.Span[0] = command;
+            return 1;
+        }
+
+        /// <inheritdoc />
+        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (buffer.Span[0] == 0 && Interlocked.Increment(ref _acknowledgements) == 1)
+            {
+                RequestRetirement();
+            }
+            else if (buffer.Span[0] == 3 && !_commands.Writer.TryWrite(3))
+            {
+                throw new InvalidOperationException("The release acknowledgement queue is closed.");
+            }
+            return ValueTask.CompletedTask;
+        }
+
+        /// <inheritdoc />
+        public override Task FlushAsync(CancellationToken cancellationToken) => _flushReleased.Task.WaitAsync(cancellationToken);
+    }
+
+    private static ILineupSettingsService CreateSettings(VirtualDeviceId deviceId, int maximumOutstandingBrokerCalls)
     {
         var settings = Substitute.For<ILineupSettingsService>();
         settings.Settings.Returns(new LineupSettings
@@ -1213,40 +1300,53 @@ public sealed class VirtualOutputIpcServerTests
         /// <summary>Gets completion of owned source disposal.</summary>
         internal Task Disposed => _disposed.Task;
 
+        /// <summary>Gets or sets the is disposed.</summary>
         internal bool IsDisposed { get; private set; }
 
+        /// <inheritdoc />
         public override bool CanRead => true;
 
+        /// <inheritdoc />
         public override bool CanSeek => false;
 
+        /// <inheritdoc />
         public override bool CanWrite => false;
 
+        /// <inheritdoc />
         public override long Length => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override long Position
         {
             get => throw new NotSupportedException();
             set => throw new NotSupportedException();
         }
 
+        /// <inheritdoc />
         public override void Flush()
         {
         }
 
+        /// <inheritdoc />
         public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
             await _disposed.Task.WaitAsync(cancellationToken);
             return 0;
         }
 
+        /// <inheritdoc />
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override void SetLength(long value) => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override ValueTask DisposeAsync()
         {
             IsDisposed = true;

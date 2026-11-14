@@ -81,10 +81,13 @@ public sealed record ResolvedStreamingCandidate
 
     private sealed class PhysicalSourceLease(IPhysicalStreamLease lease) : IStreamSourceLease
     {
+        /// <summary>Gets the stream.</summary>
         public Stream Stream => lease.Stream;
 
+        /// <summary>Gets the content type.</summary>
         public string? ContentType => lease.ContentType;
 
+        /// <inheritdoc />
         public ValueTask DisposeAsync() => lease.DisposeAsync();
     }
 }
@@ -103,12 +106,7 @@ public sealed class StreamingRouteResolver : IStreamingRouteResolver
     private StreamingConfiguration? _activeConfiguration;
 
     /// <summary>Initializes the topology route resolver.</summary>
-    public StreamingRouteResolver(
-        ILineupSettingsService settings,
-        IPhysicalDeviceCatalog catalog,
-        IPhysicalLineupService lineups,
-        StreamingTopologyStore topologyStore,
-        IStreamingAdapterRegistry? adapters = null)
+    public StreamingRouteResolver(ILineupSettingsService settings, IPhysicalDeviceCatalog catalog, IPhysicalLineupService lineups, StreamingTopologyStore topologyStore, IStreamingAdapterRegistry? adapters = null)
     {
         _settings = settings;
         _catalog = catalog;
@@ -117,17 +115,19 @@ public sealed class StreamingRouteResolver : IStreamingRouteResolver
         _adapters = adapters;
     }
 
-    /// <inheritdoc />
-    public Task<ResolvedStreamingRoute?> ResolveVirtualAsync(
-        VirtualDeviceId virtualDeviceId,
-        string channelNumber,
-        CancellationToken cancellationToken = default) =>
+    /// <summary>Resolves virtual asynchronously.</summary>
+    /// <param name="virtualDeviceId">The virtual device ID value.</param>
+    /// <param name="channelNumber">The channel number value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
+    public Task<ResolvedStreamingRoute?> ResolveVirtualAsync(VirtualDeviceId virtualDeviceId, string channelNumber, CancellationToken cancellationToken = default) =>
         ResolveAsync(virtualDeviceId, channelNumber, cancellationToken);
 
-    /// <inheritdoc />
-    public async Task<IReadOnlyList<ResolvedVirtualChannel>> GetVirtualLineupAsync(
-        VirtualDeviceId virtualDeviceId,
-        CancellationToken cancellationToken = default)
+    /// <summary>Gets virtual lineup asynchronously.</summary>
+    /// <param name="virtualDeviceId">The virtual device ID value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
+    public async Task<IReadOnlyList<ResolvedVirtualChannel>> GetVirtualLineupAsync(VirtualDeviceId virtualDeviceId, CancellationToken cancellationToken = default)
     {
         while (true)
         {
@@ -149,10 +149,7 @@ public sealed class StreamingRouteResolver : IStreamingRouteResolver
         }
     }
 
-    private async Task<ResolvedStreamingRoute?> ResolveAsync(
-        VirtualDeviceId virtualDeviceId,
-        string channelNumber,
-        CancellationToken cancellationToken)
+    private async Task<ResolvedStreamingRoute?> ResolveAsync(VirtualDeviceId virtualDeviceId, string channelNumber, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(channelNumber);
         while (true)

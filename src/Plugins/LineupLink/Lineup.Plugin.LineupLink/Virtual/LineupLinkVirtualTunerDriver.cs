@@ -10,18 +10,18 @@ namespace Lineup.Plugin.LineupLink.Virtual;
 /// <summary>Validates Lineup Link virtual outputs and derives their capacity.</summary>
 public sealed class LineupLinkVirtualTunerDriver : IVirtualTunerDriver, IVirtualTunerCapacityProvider, IAdapterSettingsProvider, IAdapterAccessGrantProvider
 {
-    private static readonly JsonSerializerOptions SerializerOptions = new() { PropertyNameCaseInsensitive = true };
+    private static readonly JsonSerializerOptions _serializerOptions = new() { PropertyNameCaseInsensitive = true };
 
-    /// <inheritdoc />
+    /// <summary>Gets the kind.</summary>
     public string Kind => LineupLinkProtocol.AdapterKind;
 
-    /// <inheritdoc />
+    /// <summary>Gets the display name.</summary>
     public string DisplayName => "Lineup Link";
 
-    /// <inheritdoc />
+    /// <summary>Gets the supports user creation.</summary>
     public bool SupportsUserCreation => true;
 
-    /// <inheritdoc />
+    /// <summary>Gets the output capabilities.</summary>
     public VirtualOutputCapabilities OutputCapabilities { get; } = new()
     {
         RequiresExternalHosting = true,
@@ -39,7 +39,7 @@ public sealed class LineupLinkVirtualTunerDriver : IVirtualTunerDriver, IVirtual
         ]
     };
 
-    /// <inheritdoc />
+    /// <summary>Gets the settings descriptor.</summary>
     public AdapterSettingsDescriptor SettingsDescriptor { get; } = new()
     {
         AdapterKind = LineupLinkProtocol.AdapterKind,
@@ -61,18 +61,24 @@ public sealed class LineupLinkVirtualTunerDriver : IVirtualTunerDriver, IVirtual
         ]
     };
 
-    /// <inheritdoc />
+    /// <summary>Determines support for physical adapter.</summary>
+    /// <param name="physicalAdapterKind">The physical adapter kind value.</param>
+    /// <returns>The operation's result.</returns>
     public bool SupportsPhysicalAdapter(string physicalAdapterKind) =>
         !string.Equals(physicalAdapterKind, LineupLinkProtocol.AdapterKind, StringComparison.OrdinalIgnoreCase);
 
-    /// <inheritdoc />
+    /// <summary>Creates default configuration.</summary>
+    /// <param name="deviceId">Identity of the target device.</param>
+    /// <returns>The operation's result.</returns>
     public AdapterConfiguration CreateDefaultConfiguration(VirtualDeviceId deviceId) =>
         new(Kind, JsonSerializer.SerializeToElement(new LineupLinkVirtualConfiguration()));
 
-    /// <inheritdoc />
+    /// <summary>Gets settings.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <returns>The operation's result.</returns>
     public AdapterSettingsSnapshot GetSettings(AdapterConfiguration configuration)
     {
-        var typed = configuration.Configuration.Deserialize<LineupLinkVirtualConfiguration>(SerializerOptions)
+        var typed = configuration.Configuration.Deserialize<LineupLinkVirtualConfiguration>(_serializerOptions)
             ?? new LineupLinkVirtualConfiguration();
         return new AdapterSettingsSnapshot
         {
@@ -87,12 +93,13 @@ public sealed class LineupLinkVirtualTunerDriver : IVirtualTunerDriver, IVirtual
         };
     }
 
-    /// <inheritdoc />
-    public AdapterSettingsApplyResult ApplySettings(
-        AdapterConfiguration configuration,
-        IReadOnlyList<AdapterSettingEdit> edits)
+    /// <summary>Applies settings.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="edits">The edits value.</param>
+    /// <returns>The operation's result.</returns>
+    public AdapterSettingsApplyResult ApplySettings(AdapterConfiguration configuration, IReadOnlyList<AdapterSettingEdit> edits)
     {
-        var current = configuration.Configuration.Deserialize<LineupLinkVirtualConfiguration>(SerializerOptions)
+        var current = configuration.Configuration.Deserialize<LineupLinkVirtualConfiguration>(_serializerOptions)
             ?? new LineupLinkVirtualConfiguration();
         var instanceId = current.InstanceId;
         var publicBaseUrl = current.PublicBaseUrl;
@@ -168,7 +175,9 @@ public sealed class LineupLinkVirtualTunerDriver : IVirtualTunerDriver, IVirtual
             };
     }
 
-    /// <inheritdoc />
+    /// <summary>Validates the Lineup Link virtual tuner driver.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <returns>The operation's result.</returns>
     public IReadOnlyList<string> Validate(AdapterConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(configuration);
@@ -181,7 +190,7 @@ public sealed class LineupLinkVirtualTunerDriver : IVirtualTunerDriver, IVirtual
         LineupLinkVirtualConfiguration? typed = null;
         try
         {
-            typed = configuration.Configuration.Deserialize<LineupLinkVirtualConfiguration>(SerializerOptions);
+            typed = configuration.Configuration.Deserialize<LineupLinkVirtualConfiguration>(_serializerOptions);
         }
         catch (JsonException)
         {
@@ -259,46 +268,52 @@ public sealed class LineupLinkVirtualTunerDriver : IVirtualTunerDriver, IVirtual
         {
             throw new ArgumentException(string.Join(" ", errors), nameof(configuration));
         }
-        var typed = configuration.Configuration.Deserialize<LineupLinkVirtualConfiguration>(SerializerOptions)!;
+        var typed = configuration.Configuration.Deserialize<LineupLinkVirtualConfiguration>(_serializerOptions)!;
         return typed;
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets access grants.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <returns>The operation's result.</returns>
     public IReadOnlyList<AdapterAccessGrantSnapshot> GetAccessGrants(AdapterConfiguration configuration)
     {
         var typed = Deserialize(configuration);
         return LineupLinkAccessGrantManager.GetSnapshots(typed);
     }
 
-    /// <inheritdoc />
-    public AdapterAccessGrantMutationResult CreateAccessGrant(
-        AdapterConfiguration configuration,
-        string name,
-        DateTime? expiresAtUtc,
-        DateTime utcNow) =>
+    /// <summary>Creates access grant.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="name">Name used by the operation.</param>
+    /// <param name="expiresAtUtc">The expires at UTC value.</param>
+    /// <param name="utcNow">The UTC now value.</param>
+    /// <returns>The operation's result.</returns>
+    public AdapterAccessGrantMutationResult CreateAccessGrant(AdapterConfiguration configuration, string name, DateTime? expiresAtUtc, DateTime utcNow) =>
         ToResult(
             LineupLinkAccessGrantManager.Create(Deserialize(configuration), name, expiresAtUtc, utcNow));
 
-    /// <inheritdoc />
-    public AdapterAccessGrantMutationResult RotateAccessGrant(
-        AdapterConfiguration configuration,
-        Guid grantId,
-        DateTime utcNow) =>
+    /// <summary>Rotates access grant.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="grantId">The grant ID value.</param>
+    /// <param name="utcNow">The UTC now value.</param>
+    /// <returns>The operation's result.</returns>
+    public AdapterAccessGrantMutationResult RotateAccessGrant(AdapterConfiguration configuration, Guid grantId, DateTime utcNow) =>
         ToResult(
             LineupLinkAccessGrantManager.Rotate(Deserialize(configuration), grantId, utcNow));
 
-    /// <inheritdoc />
-    public AdapterAccessGrantMutationResult RevokeAccessGrant(
-        AdapterConfiguration configuration,
-        Guid grantId,
-        DateTime utcNow) =>
+    /// <summary>Revokes access grant.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="grantId">The grant ID value.</param>
+    /// <param name="utcNow">The UTC now value.</param>
+    /// <returns>The operation's result.</returns>
+    public AdapterAccessGrantMutationResult RevokeAccessGrant(AdapterConfiguration configuration, Guid grantId, DateTime utcNow) =>
         ToResult(
             LineupLinkAccessGrantManager.Revoke(Deserialize(configuration), grantId, utcNow));
 
-    /// <inheritdoc />
-    public AdapterAccessGrantMutationResult PurgeAccessGrant(
-        AdapterConfiguration configuration,
-        Guid grantId) =>
+    /// <summary>Purges access grant.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="grantId">The grant ID value.</param>
+    /// <returns>The operation's result.</returns>
+    public AdapterAccessGrantMutationResult PurgeAccessGrant(AdapterConfiguration configuration, Guid grantId) =>
         ToResult(
             LineupLinkAccessGrantManager.Purge(Deserialize(configuration), grantId));
 
@@ -316,7 +331,7 @@ public sealed class LineupLinkVirtualTunerDriver : IVirtualTunerDriver, IVirtual
         {
             throw new ArgumentException($"Adapter kind must be '{LineupLinkProtocol.AdapterKind}'.", nameof(configuration));
         }
-        return configuration.Configuration.Deserialize<LineupLinkVirtualConfiguration>(SerializerOptions)
+        return configuration.Configuration.Deserialize<LineupLinkVirtualConfiguration>(_serializerOptions)
             ?? throw new ArgumentException("Lineup Link virtual configuration must be a JSON object.", nameof(configuration));
     }
 

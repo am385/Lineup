@@ -126,11 +126,7 @@ public interface IGuideSourceDriver
     IReadOnlyList<string> Validate(AdapterConfiguration configuration);
 
     /// <summary>Creates a guide source subscribed to the resolved active physical devices.</summary>
-    ValueTask<IGuideSource> CreateAsync(
-        GuideSourceId sourceId,
-        AdapterConfiguration configuration,
-        IReadOnlyList<PhysicalDeviceId> physicalDeviceIds,
-        CancellationToken cancellationToken = default);
+    ValueTask<IGuideSource> CreateAsync(GuideSourceId sourceId, AdapterConfiguration configuration, IReadOnlyList<PhysicalDeviceId> physicalDeviceIds, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Optionally supplies a provider's successful automatic refresh cadence.</summary>
@@ -177,4 +173,11 @@ public interface IGuidePublisher
 
     /// <summary>Publishes the supplied virtual guide snapshot.</summary>
     Task PublishAsync(VirtualGuideSnapshot snapshot, Stream destination, CancellationToken cancellationToken = default);
+}
+
+/// <summary>Publishes a guide using settings belonging to the selected output.</summary>
+public interface IConfiguredGuidePublisher : IGuidePublisher
+{
+    /// <summary>Publishes the supplied snapshot with the selected output's adapter configuration.</summary>
+    Task PublishAsync(VirtualGuideSnapshot snapshot, Stream destination, AdapterConfiguration configuration, CancellationToken cancellationToken = default);
 }

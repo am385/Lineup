@@ -2,15 +2,11 @@ using System.Text.Json;
 using Lineup.Core;
 using Lineup.Core.Settings;
 using Lineup.Core.Common.Configuration;
-using Lineup.Core.Extensibility.Configuration;
 using Lineup.Core.Common.Guides;
-using Lineup.Core.Extensibility.Guides;
 using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Lineup.Plugin.LineupLink.Protocol;
 using Lineup.Plugin.LineupLink.Virtual;
 using Lineup.Plugin.SiliconDust.HDHomeRun.VirtualTuner;
-using Lineup.App.Tui;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Xunit;
@@ -380,11 +376,7 @@ public sealed class TuiAdapterSettingsEditorTests
     [Theory]
     [InlineData(VirtualOutputTransport.Http, "192.0.2.10, ::1", 8600, "http://192.0.2.10:8600/")]
     [InlineData(VirtualOutputTransport.Https, "*", 8443, "https://localhost:8443/")]
-    public void BuildAutomaticPublicBaseUri_ListenerSettings_ReturnsClientUrl(
-        VirtualOutputTransport transport,
-        string addresses,
-        int port,
-        string expected)
+    public void BuildAutomaticPublicBaseUri_ListenerSettings_ReturnsClientUrl(VirtualOutputTransport transport, string addresses, int port, string expected)
     {
         // Arrange
 
@@ -756,10 +748,7 @@ public sealed class TuiAdapterSettingsEditorTests
         VirtualOutputWorkerPolicies = [new VirtualOutputWorkerPolicyDefinition { Key = "worker", Name = "Worker" }]
     };
 
-    private static StreamingConfiguration CreateConfiguration(
-        PhysicalDeviceId physicalId,
-        out VirtualDeviceId virtualId,
-        out GuideSourceId guideSourceId)
+    private static StreamingConfiguration CreateConfiguration(PhysicalDeviceId physicalId, out VirtualDeviceId virtualId, out GuideSourceId guideSourceId)
     {
         virtualId = VirtualDeviceId.New();
         guideSourceId = GuideSourceId.New();

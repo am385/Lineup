@@ -2,7 +2,6 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 
 namespace Lineup.Plugin.WebPlayer.FFmpeg;
 
@@ -36,11 +35,11 @@ public static class CmafStreamPlanner
         }
     }
 
-    private static readonly HashSet<string> CopyEligibleAudioCodecs = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> _copyEligibleAudioCodecs = new(StringComparer.OrdinalIgnoreCase)
     {
         "aac", "ac3", "eac3", "ac4"
     };
-    private static readonly HashSet<string> CopyEligibleVideoCodecs = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> _copyEligibleVideoCodecs = new(StringComparer.OrdinalIgnoreCase)
     {
         "h264", "hevc"
     };
@@ -52,10 +51,10 @@ public static class CmafStreamPlanner
     public const string HlsManifestName = "master.m3u8";
 
     /// <summary>Returns whether the selected source audio codec can be copied into fragmented MP4.</summary>
-    public static bool CanCopySourceAudio(string? codec) => codec is not null && CopyEligibleAudioCodecs.Contains(codec);
+    public static bool CanCopySourceAudio(string? codec) => codec is not null && _copyEligibleAudioCodecs.Contains(codec);
 
     /// <summary>Returns whether the selected source video codec can be copied into fragmented MP4.</summary>
-    public static bool CanCopySourceVideo(string? codec) => codec is not null && CopyEligibleVideoCodecs.Contains(codec);
+    public static bool CanCopySourceVideo(string? codec) => codec is not null && _copyEligibleVideoCodecs.Contains(codec);
 
     /// <summary>Validates and applies request-scoped stream overrides over the measured compatibility profile.</summary>
     public static CmafStreamRequest ApplyOverrides(CmafStreamRequest request)
@@ -391,7 +390,8 @@ public static class CmafStreamPlanner
         CmafFallbackAudio fallback,
         CmafCompatibilityProfile? compatibilityProfile = null,
         CmafFallbackAudio? automaticFallbackOverride = null,
-        bool manualPolicyOverride = false)
+        bool manualPolicyOverride = false
+    )
     {
         var audioTracks = source.Tracks
             .Where(track => track.Type == MediaTrackType.Audio)
@@ -452,11 +452,7 @@ public static class CmafStreamPlanner
     }
 
     /// <summary>Creates the video renditions packaged into one shared CMAF presentation.</summary>
-    public static IReadOnlyList<CmafVideoPlan> CreateVideoRenditions(
-        MediaTrackMetadata? video,
-        CmafStreamRequest request,
-        bool burnIn,
-        SourceDeinterlacePolicy deinterlaceMode = SourceDeinterlacePolicy.Preserve)
+    public static IReadOnlyList<CmafVideoPlan> CreateVideoRenditions(MediaTrackMetadata? video, CmafStreamRequest request, bool burnIn, SourceDeinterlacePolicy deinterlaceMode = SourceDeinterlacePolicy.Preserve)
     {
         if (!Enum.IsDefined(request.PreferredVideo))
         {
@@ -529,7 +525,8 @@ public static class CmafStreamPlanner
         WebPlayerTrackSelection selection,
         CmafStreamRequest request,
         string manifestPath,
-        IReadOnlyDictionary<int, string>? webVttPaths = null)
+        IReadOnlyDictionary<int, string>? webVttPaths = null
+    )
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(manifestPath);
         var audioRenditions = CreatePresentationAudioRenditions(source, selection.Audio, request, profile);
@@ -612,11 +609,7 @@ public static class CmafStreamPlanner
     }
 
     /// <summary>Creates a stable output-plan identity independent of the owning viewer.</summary>
-    public static string CreatePlanKey(
-        VirtualTranscodeProfile profile,
-        MediaProbeResult source,
-        WebPlayerTrackSelection selection,
-        CmafStreamRequest request)
+    public static string CreatePlanKey(VirtualTranscodeProfile profile, MediaProbeResult source, WebPlayerTrackSelection selection, CmafStreamRequest request)
     {
         var subtitlePaths = GetSelectableSubtitles(source).ToDictionary(
             subtitle => subtitle.Index,
@@ -784,14 +777,7 @@ public static class CmafStreamPlanner
 
     private sealed record HlsFragmentLine(int LineIndex, int RepresentationId, long SegmentNumber, double DurationSeconds);
 
-    private static void AddVideoArguments(
-        List<string> arguments,
-        VirtualTranscodeProfile profile,
-        CmafVideoPlan plan,
-        int outputIndex,
-        WebPlayerQuality quality,
-        bool burnIn,
-        bool deinterlace)
+    private static void AddVideoArguments(List<string> arguments, VirtualTranscodeProfile profile, CmafVideoPlan plan, int outputIndex, WebPlayerQuality quality, bool burnIn, bool deinterlace)
     {
         var streamSpecifier = $":v:{outputIndex}";
         if (plan.CopySource)

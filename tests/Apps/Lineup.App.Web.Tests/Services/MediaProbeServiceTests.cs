@@ -1,4 +1,3 @@
-using Lineup.Core.Streaming;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Xunit;

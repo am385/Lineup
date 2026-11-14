@@ -68,7 +68,10 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
         _maximumPendingStarts = resources.MaximumPendingStarts;
     }
 
-    /// <inheritdoc />
+    /// <summary>Attempts to begin startup.</summary>
+    /// <param name="maximumConcurrentStreams">The maximum concurrent streams value.</param>
+    /// <param name="stop">The stop value.</param>
+    /// <returns>The operation's result.</returns>
     public IStreamStartupLease? TryBeginStartup(int maximumConcurrentStreams, Action stop)
     {
         ArgumentNullException.ThrowIfNull(stop);
@@ -92,7 +95,8 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Completes startup.</summary>
+    /// <param name="sessionId">Playback session identity.</param>
     public void CompleteStartup(string sessionId)
     {
         lock (_registrationLock)
@@ -104,10 +108,12 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Occurs when stop requested.</summary>
     public event Action<ActiveStreamSnapshot>? StopRequested;
 
-    /// <inheritdoc />
+    /// <summary>Registers the active stream registry.</summary>
+    /// <param name="stream">The stream value.</param>
+    /// <param name="stop">The stop value.</param>
     public void Register(ActiveStreamSnapshot stream, Action? stop = null)
     {
         lock (_registrationLock)
@@ -120,7 +126,11 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Attempts to register.</summary>
+    /// <param name="stream">The stream value.</param>
+    /// <param name="maximumConcurrentStreams">The maximum concurrent streams value.</param>
+    /// <param name="stop">The stop value.</param>
+    /// <returns>The operation's result.</returns>
     public bool TryRegister(ActiveStreamSnapshot stream, int maximumConcurrentStreams, Action stop)
     {
         lock (_registrationLock)
@@ -137,7 +147,9 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes request stop.</summary>
+    /// <param name="sessionId">Playback session identity.</param>
+    /// <returns>The operation's result.</returns>
     public bool RequestStop(string sessionId)
     {
         ActiveStreamRegistration registration;
@@ -158,7 +170,9 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
         return true;
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes request stop by client ID.</summary>
+    /// <param name="clientId">The client ID value.</param>
+    /// <returns>The operation's result.</returns>
     public int RequestStopByClientId(string clientId)
     {
         if (string.IsNullOrWhiteSpace(clientId))
@@ -177,7 +191,9 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
         return sessionIds.Count(RequestStop);
     }
 
-    /// <inheritdoc />
+    /// <summary>Stops all asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public async Task StopAllAsync(CancellationToken cancellationToken)
     {
         ActiveStreamRegistration[] registrations;
@@ -207,7 +223,9 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
         await allStreamsStopped.WaitAsync(cancellationToken);
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes unregister.</summary>
+    /// <param name="sessionId">Playback session identity.</param>
+    /// <returns>The operation's result.</returns>
     public bool Unregister(string sessionId)
     {
         lock (_registrationLock)
@@ -221,7 +239,10 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Attempts to update.</summary>
+    /// <param name="sessionId">Playback session identity.</param>
+    /// <param name="update">The update value.</param>
+    /// <returns>The operation's result.</returns>
     public bool TryUpdate(string sessionId, Func<ActiveStreamSnapshot, ActiveStreamSnapshot> update)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
@@ -242,7 +263,8 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets active streams.</summary>
+    /// <returns>The operation's result.</returns>
     public IReadOnlyList<ActiveStreamSnapshot> GetActiveStreams() =>
         _streams.Values
             .Select(registration => registration.Snapshot)
@@ -255,11 +277,19 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
     private sealed class StartupLease(ActiveStreamRegistry owner, Action stop) : IStreamStartupLease
     {
         private readonly long _started = System.Diagnostics.Stopwatch.GetTimestamp();
+        /// <summary>Gets the ID.</summary>
         public Guid Id { get; } = Guid.NewGuid();
+        /// <summary>Gets the stop.</summary>
         public Action Stop { get; } = stop;
+        /// <summary>Gets or sets the registered.</summary>
         public bool Registered { get; private set; }
+        /// <summary>Gets or sets the session ID.</summary>
         public string? SessionId { get; private set; }
 
+        /// <summary>Attempts to register.</summary>
+        /// <param name="stream">The stream value.</param>
+        /// <param name="stop">The stop value.</param>
+        /// <returns>The operation's result.</returns>
         public bool TryRegister(ActiveStreamSnapshot stream, Action stop)
         {
             lock (owner._registrationLock)
@@ -275,6 +305,7 @@ public sealed class ActiveStreamRegistry : IActiveStreamRegistry
             }
         }
 
+        /// <inheritdoc />
         public void Dispose()
         {
             lock (owner._registrationLock)

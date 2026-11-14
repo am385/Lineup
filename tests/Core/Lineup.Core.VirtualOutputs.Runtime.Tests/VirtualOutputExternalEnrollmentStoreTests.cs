@@ -72,10 +72,7 @@ public sealed class VirtualOutputExternalEnrollmentStoreTests
         Assert.Null(result);
     }
 
-    private static VirtualOutputExternalEnrollment CreateEnrollment(
-        VirtualDeviceId deviceId,
-        long generation,
-        DateTimeOffset expiresUtc) =>
+    private static VirtualOutputExternalEnrollment CreateEnrollment(VirtualDeviceId deviceId, long generation, DateTimeOffset expiresUtc) =>
         new()
         {
             VirtualDeviceId = deviceId,
@@ -106,6 +103,7 @@ public sealed class VirtualOutputExternalEnrollmentStoreTests
 
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {
+        /// <inheritdoc />
         public override DateTimeOffset GetUtcNow() => utcNow;
     }
 }

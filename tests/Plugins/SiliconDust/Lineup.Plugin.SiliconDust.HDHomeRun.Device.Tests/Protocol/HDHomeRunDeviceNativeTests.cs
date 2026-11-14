@@ -430,12 +430,16 @@ public class HDHomeRunDeviceNativeTests
 
     private sealed class ResponseStream(byte[] response) : MemoryStream(response)
     {
+        /// <summary>Gets the writes.</summary>
         public List<byte[]> Writes { get; } = [];
 
+        /// <summary>Gets or sets the was disposed.</summary>
         public bool WasDisposed { get; private set; }
 
+        /// <inheritdoc />
         public override bool CanWrite => true;
 
+        /// <inheritdoc />
         public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
             Writes.Add(buffer.ToArray());
@@ -452,25 +456,31 @@ public class HDHomeRunDeviceNativeTests
 
     private sealed class FailingReadStream(Exception exception) : MemoryStream
     {
+        /// <inheritdoc />
         public override bool CanWrite => true;
 
+        /// <inheritdoc />
         public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
             ValueTask.FromException<int>(exception);
 
+        /// <inheritdoc />
         public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default) =>
             ValueTask.CompletedTask;
     }
 
     private sealed class CancelingReadStream(CancellationTokenSource cancellation) : MemoryStream
     {
+        /// <inheritdoc />
         public override bool CanWrite => true;
 
+        /// <inheritdoc />
         public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
             cancellation.Cancel();
             return ValueTask.FromCanceled<int>(cancellation.Token);
         }
 
+        /// <inheritdoc />
         public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default) =>
             ValueTask.CompletedTask;
     }

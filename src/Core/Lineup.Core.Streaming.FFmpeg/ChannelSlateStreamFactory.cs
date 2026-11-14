@@ -30,7 +30,10 @@ public sealed class ChannelSlateStreamFactory : IChannelSlateStreamFactory
         _processFactory = processFactory;
     }
 
-    /// <inheritdoc />
+    /// <summary>Opens mpeg ts.</summary>
+    /// <param name="channel">The channel value.</param>
+    /// <param name="reason">The reason value.</param>
+    /// <returns>The operation's result.</returns>
     public Stream OpenMpegTs(string channel, ChannelSlateReason reason = ChannelSlateReason.ContentProtected)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(channel);
@@ -57,6 +60,8 @@ public sealed class ChannelSlateStreamFactory : IChannelSlateStreamFactory
         private readonly Task<string> _standardError;
         private int _disposed;
 
+        /// <summary>Initializes the channel slate process stream.</summary>
+        /// <param name="process">The process value.</param>
         public ChannelSlateProcessStream(Process process)
         {
             _process = process;
@@ -65,24 +70,31 @@ public sealed class ChannelSlateStreamFactory : IChannelSlateStreamFactory
 
         private Stream Inner => _process.StandardOutput.BaseStream;
 
+        /// <inheritdoc />
         public override bool CanRead => Volatile.Read(ref _disposed) == 0;
 
+        /// <inheritdoc />
         public override bool CanSeek => false;
 
+        /// <inheritdoc />
         public override bool CanWrite => false;
 
+        /// <inheritdoc />
         public override long Length => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override long Position
         {
             get => throw new NotSupportedException();
             set => throw new NotSupportedException();
         }
 
+        /// <inheritdoc />
         public override void Flush()
         {
         }
 
+        /// <inheritdoc />
         public override int Read(byte[] buffer, int offset, int count)
         {
             var read = Inner.Read(buffer, offset, count);
@@ -90,6 +102,7 @@ public sealed class ChannelSlateStreamFactory : IChannelSlateStreamFactory
             return read;
         }
 
+        /// <inheritdoc />
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
             var read = await Inner.ReadAsync(buffer, cancellationToken);
@@ -97,12 +110,16 @@ public sealed class ChannelSlateStreamFactory : IChannelSlateStreamFactory
             return read;
         }
 
+        /// <inheritdoc />
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override void SetLength(long value) => throw new NotSupportedException();
 
+        /// <inheritdoc />
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
 
+        /// <inheritdoc />
         protected override void Dispose(bool disposing)
         {
             if (disposing)
@@ -112,6 +129,7 @@ public sealed class ChannelSlateStreamFactory : IChannelSlateStreamFactory
             base.Dispose(disposing);
         }
 
+        /// <inheritdoc />
         public override async ValueTask DisposeAsync()
         {
             if (Interlocked.Exchange(ref _disposed, 1) != 0)

@@ -170,7 +170,7 @@ public sealed class WebSettingsService : IWebSettingsService
     private readonly string _backupPath;
     private readonly LineupStartupState _startupState;
     private bool _preserveBackupOnNextSave;
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
 
     /// <summary>Initializes a Web settings service.</summary>
     public WebSettingsService(IAppDataStore appDataStore, ILogger<WebSettingsService> logger, LineupStartupState? startupState = null)
@@ -216,13 +216,15 @@ public sealed class WebSettingsService : IWebSettingsService
             : startupState;
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets or sets the settings.</summary>
     public WebSettings Settings { get; private set; }
 
-    /// <inheritdoc />
+    /// <summary>Occurs when settings changed.</summary>
     public event Action? OnSettingsChanged;
 
-    /// <inheritdoc />
+    /// <summary>Updates the web settings service asynchronously.</summary>
+    /// <param name="updateAction">The update action value.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public async Task UpdateAsync(Action<WebSettings> updateAction)
     {
         ArgumentNullException.ThrowIfNull(updateAction);
@@ -233,12 +235,12 @@ public sealed class WebSettingsService : IWebSettingsService
         await _lock.WaitAsync();
         try
         {
-            var updatedSettings = JsonSerializer.Deserialize<WebSettings>(JsonSerializer.Serialize(Settings, JsonOptions))
+            var updatedSettings = JsonSerializer.Deserialize<WebSettings>(JsonSerializer.Serialize(Settings, _jsonOptions))
                 ?? throw new JsonException("The Web settings document contained a null root value.");
             updateAction(updatedSettings);
             await _appDataStore.WriteAtomicallyAsync(
                 _path,
-                (stream, cancellationToken) => JsonSerializer.SerializeAsync(stream, updatedSettings, JsonOptions, cancellationToken),
+                (stream, cancellationToken) => JsonSerializer.SerializeAsync(stream, updatedSettings, _jsonOptions, cancellationToken),
                 _backupPath,
                 _preserveBackupOnNextSave);
             Settings = updatedSettings;
@@ -316,26 +318,33 @@ public sealed class WebSettingsService : IWebSettingsService
 /// <summary>Provides a non-persisting Web-settings adapter for partial hosts.</summary>
 internal static class WebSettingsServiceFallback
 {
-    private static readonly ConditionalWeakTable<ILineupSettingsService, FallbackWebSettingsService> Services = new();
+    private static readonly ConditionalWeakTable<ILineupSettingsService, FallbackWebSettingsService> _services = new();
 
     /// <summary>Gets the non-persisting fallback service associated with shared settings.</summary>
     public static IWebSettingsService Get(ILineupSettingsService settings) =>
-        Services.GetValue(settings, static value => new FallbackWebSettingsService(value));
+        _services.GetValue(settings, static value => new FallbackWebSettingsService(value));
 
     private sealed class FallbackWebSettingsService : IWebSettingsService
     {
         private readonly ILineupSettingsService _lineupSettings;
 
+        /// <summary>Initializes the fallback web settings service.</summary>
+        /// <param name="lineupSettings">The lineup settings value.</param>
         public FallbackWebSettingsService(ILineupSettingsService lineupSettings)
         {
             _lineupSettings = lineupSettings;
             _lineupSettings.OnSettingsChanged += () => OnSettingsChanged?.Invoke();
         }
 
+        /// <summary>Gets the settings.</summary>
         public WebSettings Settings => FromLineup(_lineupSettings.Settings);
 
+        /// <summary>Occurs when settings changed.</summary>
         public event Action? OnSettingsChanged;
 
+        /// <summary>Updates the fallback web settings service asynchronously.</summary>
+        /// <param name="updateAction">The update action value.</param>
+        /// <returns>A task that completes when the operation has finished.</returns>
         public Task UpdateAsync(Action<WebSettings> updateAction)
         {
             var settings = Settings;

@@ -16,7 +16,10 @@ public sealed class PhysicalDeviceSiliconDustAuthorizationProvider : ISiliconDus
         _devices = devices;
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets device auth asynchronously.</summary>
+    /// <param name="physicalDeviceId">The physical device ID value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public ValueTask<string> GetDeviceAuthAsync(PhysicalDeviceId physicalDeviceId, CancellationToken cancellationToken = default)
     {
         var device = _devices.GetRequired(physicalDeviceId);

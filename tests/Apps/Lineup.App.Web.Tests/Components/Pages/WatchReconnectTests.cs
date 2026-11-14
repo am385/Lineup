@@ -337,10 +337,14 @@ public partial class WatchTests
     {
         private readonly List<OneShotTimer> _timers = [];
         private long _timestamp;
+        /// <inheritdoc />
         public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        /// <inheritdoc />
         public override long GetTimestamp() => Interlocked.Read(ref _timestamp);
+        /// <summary>Gets the pending timers.</summary>
         internal int PendingTimers { get { lock (_timers) return _timers.Count; } }
 
+        /// <inheritdoc />
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
         {
             Assert.Equal(Timeout.InfiniteTimeSpan, period);
@@ -349,6 +353,8 @@ public partial class WatchTests
             return timer;
         }
 
+        /// <summary>Executes advance.</summary>
+        /// <param name="duration">The duration value.</param>
         internal void Advance(TimeSpan duration)
         {
             OneShotTimer[] due;
@@ -363,8 +369,11 @@ public partial class WatchTests
 
         private sealed class OneShotTimer(ReconnectClock owner, TimerCallback callback, object? state) : ITimer
         {
+            /// <summary>Gets or sets the due.</summary>
             internal long Due { get; private set; }
+            /// <summary>Executes fire.</summary>
             internal void Fire() => callback(state);
+            /// <inheritdoc />
             public bool Change(TimeSpan dueTime, TimeSpan period)
             {
                 lock (owner._timers)
@@ -378,7 +387,9 @@ public partial class WatchTests
                 }
                 return true;
             }
+            /// <inheritdoc />
             public void Dispose() { lock (owner._timers) owner._timers.Remove(this); }
+            /// <inheritdoc />
             public ValueTask DisposeAsync() { Dispose(); return ValueTask.CompletedTask; }
         }
     }

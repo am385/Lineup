@@ -1,6 +1,4 @@
 using System.Text.Json;
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Lineup.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -509,16 +507,19 @@ public sealed class PhysicalRuntimeReplacementTests
 
     private sealed class CopyTransform : IStreamTransform
     {
-        /// <inheritdoc />
+        /// <summary>Starts the copy transform asynchronously.</summary>
+        /// <param name="input">The input value.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
         public ValueTask<IStreamSourceLease> StartAsync(Stream input, CancellationToken cancellationToken) =>
             ValueTask.FromResult<IStreamSourceLease>(new SourceLease(input, () => ValueTask.CompletedTask));
     }
 
     private sealed class SourceLease(Stream stream, Func<ValueTask> cleanup) : IStreamSourceLease
     {
-        /// <inheritdoc />
+        /// <summary>Gets the stream.</summary>
         public Stream Stream => stream;
-        /// <inheritdoc />
+        /// <summary>Gets the content type.</summary>
         public string? ContentType => "video/mp2t";
 
         /// <inheritdoc />

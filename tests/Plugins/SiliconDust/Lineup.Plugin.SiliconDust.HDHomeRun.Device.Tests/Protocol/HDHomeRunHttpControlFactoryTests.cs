@@ -38,10 +38,15 @@ public class HDHomeRunHttpControlFactoryTests
 
     private sealed class RecordingHttpClientFactory : IHttpClientFactory
     {
+        /// <summary>Gets the requested names.</summary>
         public List<string> RequestedNames { get; } = [];
 
+        /// <summary>Gets the request uris.</summary>
         public List<Uri> RequestUris { get; } = [];
 
+        /// <summary>Creates client.</summary>
+        /// <param name="name">Name used by the operation.</param>
+        /// <returns>The operation's result.</returns>
         public HttpClient CreateClient(string name)
         {
             RequestedNames.Add(name);

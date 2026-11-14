@@ -2,7 +2,6 @@ using System.IO.Compression;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.Json;
-using Lineup.Core.Common.Streaming;
 using Lineup.Core.Settings;
 using Microsoft.Data.Sqlite;
 
@@ -27,8 +26,8 @@ public sealed class RecoveryArchiveService
 {
     private const long MaximumArchiveBytes = 2L * 1024 * 1024 * 1024;
     private const int MaximumEntries = 1024;
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-    private static readonly string Release = typeof(RecoveryArchiveService).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+    private static readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
+    private static readonly string _release = typeof(RecoveryArchiveService).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
         ?? throw new InvalidOperationException("The recovery release identifier is unavailable.");
     private readonly AppDataStore _store;
 
@@ -93,7 +92,7 @@ public sealed class RecoveryArchiveService
                 }
                 files.Add(name, new Entry(length, await HashAsync(path, cancellationToken)));
             }
-            var manifest = new Manifest(1, Release, DateTimeOffset.UtcNow, files);
+            var manifest = new Manifest(1, _release, DateTimeOffset.UtcNow, files);
             var pending = destination + $".{Guid.NewGuid():N}.pending";
             try
             {
@@ -103,7 +102,7 @@ public sealed class RecoveryArchiveService
                     {
                         await using (var stream = archive.CreateEntry("manifest.json").Open())
                         {
-                            await JsonSerializer.SerializeAsync(stream, manifest, JsonOptions, cancellationToken);
+                            await JsonSerializer.SerializeAsync(stream, manifest, _jsonOptions, cancellationToken);
                         }
                         foreach (var name in files.Keys)
                         {
@@ -242,10 +241,10 @@ public sealed class RecoveryArchiveService
                 await JsonSerializer.SerializeAsync(output, new
                 {
                     Format = "lineup-portable-configuration",
-                    Release,
+                    _release,
                     RequiresSetup = true,
                     Settings = portable
-                }, JsonOptions, cancellationToken);
+                }, _jsonOptions, cancellationToken);
                 await output.FlushAsync(cancellationToken);
                 output.Flush(flushToDisk: true);
             }
@@ -275,10 +274,10 @@ public sealed class RecoveryArchiveService
         Manifest manifest;
         await using (var stream = manifestEntry.Open())
         {
-            manifest = await JsonSerializer.DeserializeAsync<Manifest>(stream, JsonOptions, cancellationToken)
+            manifest = await JsonSerializer.DeserializeAsync<Manifest>(stream, _jsonOptions, cancellationToken)
                 ?? throw new InvalidDataException("The recovery manifest is empty.");
         }
-        if (manifest.Version != 1 || manifest.Release != Release || manifest.Files is null || manifest.Files.Count != archive.Entries.Count - 1)
+        if (manifest.Version != 1 || manifest.Release != _release || manifest.Files is null || manifest.Files.Count != archive.Entries.Count - 1)
         {
             throw new InvalidDataException("The recovery archive does not match this exact release or its declared inventory.");
         }

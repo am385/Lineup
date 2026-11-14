@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Lineup.Core.Streaming.FFmpeg;
 
 namespace Lineup.Plugin.WebPlayer.FFmpeg;
@@ -58,7 +57,13 @@ public sealed class ProtectedContentSlateService : IProtectedContentSlateService
         _processFactory = processFactory;
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes stream asynchronously.</summary>
+    /// <param name="format">The format value.</param>
+    /// <param name="channel">The channel value.</param>
+    /// <param name="output">The output value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <param name="reason">The reason value.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public async Task StreamAsync(HostedStreamFormat format, string channel, Stream output, CancellationToken cancellationToken, ChannelSlateReason reason = ChannelSlateReason.ContentProtected)
     {
         if (format == HostedStreamFormat.Cmaf)
@@ -87,13 +92,21 @@ public sealed class ProtectedContentSlateService : IProtectedContentSlateService
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Starts hls.</summary>
+    /// <param name="channel">The channel value.</param>
+    /// <param name="playlistPath">The playlist path value.</param>
+    /// <param name="reason">The reason value.</param>
+    /// <returns>The operation's result.</returns>
     public Process StartHls(string channel, string playlistPath, ChannelSlateReason reason = ChannelSlateReason.ContentProtected)
     {
         return StartProcess(ProtectedContentSlatePlanner.CreateHlsArguments(channel, playlistPath, reason));
     }
 
-    /// <inheritdoc />
+    /// <summary>Starts CMAF.</summary>
+    /// <param name="channel">The channel value.</param>
+    /// <param name="manifestPath">The manifest path value.</param>
+    /// <param name="reason">The reason value.</param>
+    /// <returns>The operation's result.</returns>
     public Process StartCmaf(string channel, string manifestPath, ChannelSlateReason reason = ChannelSlateReason.ContentProtected)
     {
         return StartProcess(ProtectedContentSlatePlanner.CreateCmafArguments(channel, manifestPath, reason), Path.GetDirectoryName(manifestPath));

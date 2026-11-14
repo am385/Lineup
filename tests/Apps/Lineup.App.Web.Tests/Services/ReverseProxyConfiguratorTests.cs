@@ -1,5 +1,4 @@
 using System.Net;
-using Lineup.Core.Common.Streaming;
 using Lineup.Core.VirtualOutputs.Hosting;
 using Lineup.Core.VirtualOutputs.Protocol;
 using Lineup.Core.VirtualOutputs.Runtime;
@@ -213,10 +212,7 @@ public sealed class ReverseProxyConfiguratorTests
         return Assert.IsType<ObservedRequest>(observed);
     }
 
-    private static async Task<ObservedRequest> InvokeVirtualOutputAsync(
-        VirtualOutputHostingDefinition hosting,
-        VirtualOutputSecurityPolicyDefinition policy,
-        HttpContext context)
+    private static async Task<ObservedRequest> InvokeVirtualOutputAsync(VirtualOutputHostingDefinition hosting, VirtualOutputSecurityPolicyDefinition policy, HttpContext context)
     {
         using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
         var application = new ApplicationBuilder(services);

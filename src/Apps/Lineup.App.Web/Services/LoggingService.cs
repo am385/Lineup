@@ -58,7 +58,8 @@ public sealed class InMemoryLogEventStore : ILogEventStore, ILogEventSink
         _capacity = Math.Clamp(capacity, 100, 10000);
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes emit.</summary>
+    /// <param name="logEvent">The log event value.</param>
     public void Emit(LogEvent logEvent)
     {
         ArgumentNullException.ThrowIfNull(logEvent);
@@ -87,7 +88,7 @@ public sealed class InMemoryLogEventStore : ILogEventStore, ILogEventSink
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Clears the in memory log event store.</summary>
     public void Clear()
     {
         lock (_sync)
@@ -96,7 +97,12 @@ public sealed class InMemoryLogEventStore : ILogEventStore, ILogEventSink
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets events.</summary>
+    /// <param name="minimumLevel">The minimum level value.</param>
+    /// <param name="category">The category value.</param>
+    /// <param name="search">The search value.</param>
+    /// <param name="limit">The limit value.</param>
+    /// <returns>The operation's result.</returns>
     public IReadOnlyList<LineupLogEvent> GetEvents(LogEventLevel minimumLevel, string? category, string? search, int limit)
     {
         LineupLogEvent[] snapshot;
@@ -155,7 +161,8 @@ public sealed class LoggingRuntimeState
         FileLoggingSettings fileSettings,
         IReadOnlyList<ExternalLogTargetStatus> externalTargets,
         FileLogManager? fileManager = null,
-        ApplicationLogFilter? applicationFilter = null)
+        ApplicationLogFilter? applicationFilter = null
+    )
     {
         AppDataStore = appDataStore;
         LogDirectory = appDataStore.LogDirectoryPath;
@@ -173,7 +180,8 @@ public sealed class LoggingRuntimeState
         FileLoggingSettings fileSettings,
         IReadOnlyList<ExternalLogTargetStatus> externalTargets,
         FileLogManager? fileManager = null,
-        ApplicationLogFilter? applicationFilter = null)
+        ApplicationLogFilter? applicationFilter = null
+    )
         : this(new AppDataStore(appDataPath), fileSettings, externalTargets, fileManager, applicationFilter)
     {
     }
@@ -286,7 +294,8 @@ public sealed class FileLogManager : ILogEventSink, IDisposable
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes emit.</summary>
+    /// <param name="logEvent">The log event value.</param>
     public void Emit(LogEvent logEvent)
     {
         lock (_sync)
@@ -728,12 +737,12 @@ internal static class SensitiveLogData
     /// Replacement text used for sensitive values.
     /// </summary>
     internal const string RedactedValue = "[REDACTED]";
-    private static readonly string[] SensitiveFragments = ["authorization", "apikey", "api_key", "token", "secret", "password", "connectionstring", "deviceauth"];
+    private static readonly string[] _sensitiveFragments = ["authorization", "apikey", "api_key", "token", "secret", "password", "connectionstring", "deviceauth"];
 
     /// <summary>
     /// Determines whether a property name denotes sensitive data.
     /// </summary>
-    internal static bool IsSensitiveName(string name) => SensitiveFragments.Any(fragment => name.Contains(fragment, StringComparison.OrdinalIgnoreCase));
+    internal static bool IsSensitiveName(string name) => _sensitiveFragments.Any(fragment => name.Contains(fragment, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Renders a structured logging value as text.
@@ -800,7 +809,9 @@ internal static class SensitiveLogData
 /// </summary>
 internal sealed class SensitiveLogPropertyEnricher : ILogEventEnricher
 {
-    /// <inheritdoc />
+    /// <summary>Executes enrich.</summary>
+    /// <param name="logEvent">The log event value.</param>
+    /// <param name="propertyFactory">The property factory value.</param>
     public void Enrich(LogEvent logEvent, ILogEventPropertyFactory propertyFactory)
     {
         foreach (var property in logEvent.Properties.ToArray())

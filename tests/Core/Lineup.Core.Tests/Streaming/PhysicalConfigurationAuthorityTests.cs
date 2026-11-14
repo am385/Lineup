@@ -1,6 +1,4 @@
 using System.Text.Json;
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Lineup.Core.Settings;
 using Lineup.Core.Storage;
 using Microsoft.EntityFrameworkCore;
@@ -273,10 +271,13 @@ public sealed class PhysicalConfigurationAuthorityTests
         /// <summary>Runs once before creating the next topology context.</summary>
         internal Func<CancellationToken, Task>? BeforeNextContext;
 
-        /// <inheritdoc />
+        /// <summary>Creates db context.</summary>
+        /// <returns>The operation's result.</returns>
         public EpgDbContext CreateDbContext() => new(options);
 
-        /// <inheritdoc />
+        /// <summary>Creates db context asynchronously.</summary>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
         public async Task<EpgDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
         {
             if (Interlocked.Exchange(ref BeforeNextContext, null) is { } before)
@@ -313,10 +314,12 @@ public sealed class PhysicalConfigurationAuthorityTests
         /// <summary>Gets its controlled live physical stream.</summary>
         internal PulseStream Source { get; } = new();
 
-        /// <inheritdoc />
+        /// <summary>Gets the snapshot.</summary>
         public PhysicalDeviceSnapshot Snapshot { get; } = new() { Id = id, Name = "Physical", Kind = "authority-test", Capacity = new PhysicalTunerCapacity(1) };
 
-        /// <inheritdoc />
+        /// <summary>Refreshes lineup asynchronously.</summary>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
         public async Task<IReadOnlyList<PhysicalSourceChannel>> RefreshLineupAsync(CancellationToken cancellationToken = default)
         {
             await beforeLineup(cancellationToken);
@@ -329,7 +332,10 @@ public sealed class PhysicalConfigurationAuthorityTests
             }];
         }
 
-        /// <inheritdoc />
+        /// <summary>Opens stream asynchronously.</summary>
+        /// <param name="request">The request value.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
         public ValueTask<IPhysicalStreamLease> OpenStreamAsync(PhysicalStreamRequest request, CancellationToken cancellationToken = default)
         {
             Assert.False(IsDisposed);

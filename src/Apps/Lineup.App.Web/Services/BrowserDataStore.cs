@@ -19,7 +19,11 @@ public sealed class BrowserDataStore : IBrowserDataStore
         _jsRuntime = jsRuntime;
     }
 
-    /// <inheritdoc />
+    /// <summary>Reads the browser data store asynchronously.</summary>
+    /// <param name="key">The key value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <typeparam name="T">Type represented by the generic parameter.</typeparam>
+    /// <returns>The operation's result.</returns>
     public async ValueTask<T?> ReadAsync<T>(string key, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
@@ -27,14 +31,22 @@ public sealed class BrowserDataStore : IBrowserDataStore
         return string.IsNullOrWhiteSpace(json) ? default : JsonSerializer.Deserialize<T>(json);
     }
 
-    /// <inheritdoc />
+    /// <summary>Writes the browser data store asynchronously.</summary>
+    /// <param name="key">The key value.</param>
+    /// <param name="value">The value value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <typeparam name="T">Type represented by the generic parameter.</typeparam>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public ValueTask WriteAsync<T>(string key, T value, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         return _jsRuntime.InvokeVoidAsync("localStorage.setItem", cancellationToken, key, JsonSerializer.Serialize(value));
     }
 
-    /// <inheritdoc />
+    /// <summary>Removes the browser data store asynchronously.</summary>
+    /// <param name="key">The key value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public ValueTask RemoveAsync(string key, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);

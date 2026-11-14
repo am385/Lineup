@@ -1,6 +1,4 @@
 using System.Text.Json;
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Xunit;
 
 namespace Lineup.Core.Tests.Streaming;
@@ -373,35 +371,52 @@ public sealed class PhysicalDeviceStatusServiceTests
 
     private sealed class FakePhysicalDriver : IPhysicalTunerDriver
     {
+        /// <summary>Stores the driver kind.</summary>
         public const string DriverKind = "fake-status";
 
+        /// <summary>Gets or sets the device.</summary>
         public FakePhysicalDevice? Device { get; private set; }
 
+        /// <summary>Gets or sets the fail activation.</summary>
         public bool FailActivation { get; set; } = true;
 
+        /// <summary>Gets or sets the before create.</summary>
         public Action<CancellationToken>? BeforeCreate { get; set; }
 
+        /// <summary>Gets the created IDs.</summary>
         public System.Collections.Concurrent.ConcurrentQueue<PhysicalDeviceId> CreatedIds { get; } = new();
 
+        /// <summary>Gets the kind.</summary>
         public string Kind => DriverKind;
 
+        /// <summary>Gets the display name.</summary>
         public string DisplayName => "Fake status";
 
+        /// <summary>Gets the supports user creation.</summary>
         public bool SupportsUserCreation => true;
 
+        /// <summary>Gets the capabilities.</summary>
         public DeviceCapabilities Capabilities { get; } = new();
 
+        /// <summary>Creates default configuration.</summary>
+        /// <param name="deviceId">Identity of the target device.</param>
+        /// <returns>The operation's result.</returns>
         public AdapterConfiguration CreateDefaultConfiguration(PhysicalDeviceId deviceId) =>
             new(DriverKind, JsonDocument.Parse("{}").RootElement.Clone());
 
+        /// <summary>Validates the fake physical driver.</summary>
+        /// <param name="configuration">Configuration to apply.</param>
+        /// <returns>The operation's result.</returns>
         public IReadOnlyList<string> Validate(AdapterConfiguration configuration) =>
             FailActivation && GetFailure(configuration) == "validation" ? [PrivateDetail] : [];
 
-        public ValueTask<IPhysicalTunerDevice> CreateAsync(
-            PhysicalDeviceId deviceId,
-            string name,
-            AdapterConfiguration configuration,
-            CancellationToken cancellationToken = default)
+        /// <summary>Creates the fake physical driver asynchronously.</summary>
+        /// <param name="deviceId">Identity of the target device.</param>
+        /// <param name="name">Name used by the operation.</param>
+        /// <param name="configuration">Configuration to apply.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
+        public ValueTask<IPhysicalTunerDevice> CreateAsync(PhysicalDeviceId deviceId, string name, AdapterConfiguration configuration, CancellationToken cancellationToken = default)
         {
             CreatedIds.Enqueue(deviceId);
             BeforeCreate?.Invoke(cancellationToken);
@@ -434,6 +449,9 @@ public sealed class PhysicalDeviceStatusServiceTests
         private int _informationRefreshCount;
         private int _statusRefreshCount;
 
+        /// <summary>Initializes the fake physical device.</summary>
+        /// <param name="id">The ID value.</param>
+        /// <param name="name">Name used by the operation.</param>
         public FakePhysicalDevice(PhysicalDeviceId id, string name)
         {
             Snapshot = new PhysicalDeviceSnapshot
@@ -445,17 +463,24 @@ public sealed class PhysicalDeviceStatusServiceTests
             };
         }
 
+        /// <summary>Gets the information refresh count.</summary>
         public int InformationRefreshCount => Volatile.Read(ref _informationRefreshCount);
 
+        /// <summary>Gets the status refresh count.</summary>
         public int StatusRefreshCount => Volatile.Read(ref _statusRefreshCount);
 
+        /// <summary>Gets or sets the reject status.</summary>
         public bool RejectStatus { get; set; }
 
         /// <summary>Gets or sets whether control refreshes return malformed remote data.</summary>
         public bool RejectData { get; set; }
 
+        /// <summary>Gets the snapshot.</summary>
         public PhysicalDeviceSnapshot Snapshot { get; }
 
+        /// <summary>Refreshes device information asynchronously.</summary>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
         public Task<PhysicalDeviceStatusSnapshot> RefreshDeviceInformationAsync(CancellationToken cancellationToken = default)
         {
             Interlocked.Increment(ref _informationRefreshCount);
@@ -471,6 +496,9 @@ public sealed class PhysicalDeviceStatusServiceTests
                 });
         }
 
+        /// <summary>Refreshes status asynchronously.</summary>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
         public Task<PhysicalDeviceStatusSnapshot> RefreshStatusAsync(CancellationToken cancellationToken = default)
         {
             Interlocked.Increment(ref _statusRefreshCount);
@@ -491,16 +519,28 @@ public sealed class PhysicalDeviceStatusServiceTests
                 });
         }
 
+        /// <summary>Refreshes lineup asynchronously.</summary>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
         public Task<IReadOnlyList<PhysicalSourceChannel>> RefreshLineupAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<PhysicalSourceChannel>>([]);
 
-        public ValueTask<IPhysicalStreamLease> OpenStreamAsync(
-            PhysicalStreamRequest request,
-            CancellationToken cancellationToken = default) =>
+        /// <summary>Opens stream asynchronously.</summary>
+        /// <param name="request">The request value.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
+        public ValueTask<IPhysicalStreamLease> OpenStreamAsync(PhysicalStreamRequest request, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        /// <summary>Stops receiver asynchronously.</summary>
+        /// <param name="receiverIndex">The receiver index value.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>A task that completes when the operation has finished.</returns>
         public Task StopReceiverAsync(int receiverIndex, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
+        /// <summary>Executes restart asynchronously.</summary>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>A task that completes when the operation has finished.</returns>
         public Task RestartAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }

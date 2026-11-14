@@ -1,5 +1,4 @@
 using Lineup.App.Web.Services;
-using Lineup.Core.Storage;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;

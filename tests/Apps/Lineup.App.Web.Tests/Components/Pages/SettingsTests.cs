@@ -18,10 +18,10 @@ public class SettingsTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Render_SettingsActions_ReservesBottomSpacing(bool isSetupComplete)
+    public async Task Render_SettingsActions_ReservesBottomSpacing(bool isSetupComplete)
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var settingsService = Substitute.For<ILineupSettingsService>();
         settingsService.Settings.Returns(new LineupSettings { IsSetupComplete = isSetupComplete });
         var timeZoneService = Substitute.For<ITimeZoneService>();
@@ -31,7 +31,7 @@ public class SettingsTests
         var component = context.Render<Settings>();
 
         // Act
-        component.Find("#tab-virtual-devices").Click();
+        await component.Find("#tab-virtual-devices").ClickAsync(new());
 
         // Assert
         var actions = component.Find("#settingsContent fieldset > .d-flex");
@@ -45,10 +45,10 @@ public class SettingsTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Render_SettingsTabs_PlacesDevicesBeforeGuides(bool isSetupComplete)
+    public async Task Render_SettingsTabs_PlacesDevicesBeforeGuides(bool isSetupComplete)
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var settingsService = Substitute.For<ILineupSettingsService>();
         settingsService.Settings.Returns(new LineupSettings { IsSetupComplete = isSetupComplete });
         var timeZoneService = Substitute.For<ITimeZoneService>();
@@ -70,10 +70,10 @@ public class SettingsTests
     /// Verifies every top-level settings category is rendered through its dedicated tab component.
     /// </summary>
     [Fact]
-    public void Render_CompletedSetup_ComposesDedicatedTabComponents()
+    public async Task Render_CompletedSetup_ComposesDedicatedTabComponents()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var settingsService = Substitute.For<ILineupSettingsService>();
         settingsService.Settings.Returns(new LineupSettings { IsSetupComplete = true });
         var timeZoneService = Substitute.For<ITimeZoneService>();
@@ -101,10 +101,10 @@ public class SettingsTests
     /// Verifies API privacy settings render with safe defaults and persist edits.
     /// </summary>
     [Fact]
-    public void Save_ApiPrivacySettings_PersistsValues()
+    public async Task Save_ApiPrivacySettings_PersistsValues()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var settings = new LineupSettings { IsSetupComplete = true };
         var settingsService = Substitute.For<ILineupSettingsService>();
         settingsService.Settings.Returns(settings);
@@ -119,13 +119,13 @@ public class SettingsTests
         context.Services.AddSingleton(timeZoneService);
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var component = context.Render<Settings>();
-        component.Find("#tab-api").Click();
+        await component.Find("#tab-api").ClickAsync(new());
         var clientRedactionDefault = component.Find("#redactApiClientAddresses").HasAttribute("checked");
 
-        component.Find("#redactApiClientAddresses").Change(false);
-        component.Find("#redactApiDeviceAddresses").Change(true);
+        await component.Find("#redactApiClientAddresses").ChangeAsync(false);
+        await component.Find("#redactApiDeviceAddresses").ChangeAsync(true);
         // Act
-        component.Find("button.btn-primary").Click();
+        await component.Find("button.btn-primary").ClickAsync(new());
 
         // Assert
         Assert.True(clientRedactionDefault);
@@ -137,10 +137,10 @@ public class SettingsTests
 
     /// <summary>Verifies the API settings tab links to the generated API documentation.</summary>
     [Fact]
-    public void Render_ApiSettings_ShowsDocumentationLink()
+    public async Task Render_ApiSettings_ShowsDocumentationLink()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var settingsService = Substitute.For<ILineupSettingsService>();
         settingsService.Settings.Returns(new LineupSettings { IsSetupComplete = true });
         var timeZoneService = Substitute.For<ITimeZoneService>();
@@ -150,7 +150,7 @@ public class SettingsTests
         var component = context.Render<Settings>();
 
         // Act
-        component.Find("#tab-api").Click();
+        await component.Find("#tab-api").ClickAsync(new());
 
         // Assert
         var link = component.Find(".api-documentation-link");
@@ -163,10 +163,10 @@ public class SettingsTests
     /// Verifies that a differing saved XMLTV destination is editable and can be reset to startup configuration.
     /// </summary>
     [Fact]
-    public void Render_GuideTab_DifferingXmltvDestination_ShowsNoticeAndResets()
+    public async Task Render_GuideTab_DifferingXmltvDestination_ShowsNoticeAndResets()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var settingsService = Substitute.For<ILineupSettingsService>();
         settingsService.Settings.Returns(new LineupSettings
         {
@@ -179,14 +179,14 @@ public class SettingsTests
         context.Services.AddSingleton(settingsService);
         context.Services.AddSingleton(timeZoneService);
         var component = context.Render<Settings>();
-        component.Find("#tab-guide-outputs").Click();
+        await component.Find("#tab-guide-outputs").ClickAsync(new());
         var outputPathBeforeReset = component.Find("#guideOutputDirectoryPath");
         var wasEditable = !outputPathBeforeReset.HasAttribute("readonly");
         var savedValue = outputPathBeforeReset.GetAttribute("value");
         var showedMismatch = component.FindAll("#xmltvPathMismatch").Count == 1;
 
         // Act
-        component.Find("#resetXmltvOutputPath").Click();
+        await component.Find("#resetXmltvOutputPath").ClickAsync(new());
 
         // Assert
         Assert.True(wasEditable);
@@ -200,10 +200,10 @@ public class SettingsTests
 
     /// <summary>Verifies the global XMLTV output advertises its stable endpoint without a guide output identifier.</summary>
     [Fact]
-    public void Render_GlobalXmltvOutput_ShowsStableApiEndpoint()
+    public async Task Render_GlobalXmltvOutput_ShowsStableApiEndpoint()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var settingsService = Substitute.For<ILineupSettingsService>();
         settingsService.Settings.Returns(new LineupSettings { IsSetupComplete = true });
         var timeZoneService = Substitute.For<ITimeZoneService>();
@@ -215,8 +215,8 @@ public class SettingsTests
         var component = context.Render<Settings>();
 
         // Act
-        component.Find("#tab-guide-outputs").Click();
-        component.Find(".guide-output-copy-link").Click();
+        await component.Find("#tab-guide-outputs").ClickAsync(new());
+        await component.Find(".guide-output-copy-link").ClickAsync(new());
 
         // Assert
         Assert.Single(component.FindAll(".guide-output-endpoints"));
@@ -233,10 +233,10 @@ public class SettingsTests
 
     /// <summary>Verifies additional XMLTV outputs default beside the configured global XMLTV file.</summary>
     [Fact]
-    public void AddGuideOutput_ConfiguredXmltvDirectory_DefaultsOutputThere()
+    public async Task AddGuideOutput_ConfiguredXmltvDirectory_DefaultsOutputThere()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var directory = Path.GetFullPath(Path.Combine("configured-guide-outputs"));
         var settingsService = Substitute.For<ILineupSettingsService>();
         settingsService.Settings.Returns(new LineupSettings
@@ -249,15 +249,15 @@ public class SettingsTests
         context.Services.AddSingleton(settingsService);
         context.Services.AddSingleton(timeZoneService);
         var component = context.Render<Settings>();
-        component.Find("#tab-guide-outputs").Click();
+        await component.Find("#tab-guide-outputs").ClickAsync(new());
 
         // Act
-        component.Find("#addGuideOutput").Click();
-        component.Find(".add-guide-output-type").Click();
+        await component.Find("#addGuideOutput").ClickAsync(new());
+        await component.Find(".add-guide-output-type").ClickAsync(new());
         var guideOutputId = component.Find(".guide-output-settings").GetAttribute("data-guide-output-id");
         var absoluteStableIdEndpoint = context.Services.GetRequiredService<NavigationManager>().ToAbsoluteUri($"/api/guide-outputs/{guideOutputId}").AbsoluteUri;
         context.JSInterop.SetupVoid("copyTextToClipboard", absoluteStableIdEndpoint).SetVoidResult();
-        component.Find(".guide-output-stable-id-copy-link").Click();
+        await component.Find(".guide-output-stable-id-copy-link").ClickAsync(new());
 
         // Assert
         Assert.Single(component.FindAll(".guide-output-endpoints"));
@@ -277,7 +277,7 @@ public class SettingsTests
         Assert.Contains("/api/guide-outputs/", component.Find(".guide-output-settings").TextContent, StringComparison.Ordinal);
         Assert.Contains("lineup-xmltv_2.xml", component.Find("#resolvedXmltvOutputPath").TextContent, StringComparison.Ordinal);
 
-        component.Find(".guide-output-key").Change("My XMLTV 2!");
+        await component.Find(".guide-output-key").ChangeAsync("My XMLTV 2!");
 
         Assert.Equal("my_xmltv_2", component.Find(".guide-output-key").GetAttribute("value"));
         var updatedAbsoluteKeyEndpoint = context.Services.GetRequiredService<NavigationManager>().ToAbsoluteUri("/api/guide-outputs/my_xmltv_2").AbsoluteUri;
@@ -295,10 +295,10 @@ public class SettingsTests
     /// Verifies that an edited XMLTV destination is persisted with the other settings.
     /// </summary>
     [Fact]
-    public void Save_EditedXmltvPath_PersistsValue()
+    public async Task Save_EditedXmltvPath_PersistsValue()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var settings = new LineupSettings
         {
             IsSetupComplete = true,
@@ -318,25 +318,25 @@ public class SettingsTests
         context.Services.AddSingleton(timeZoneService);
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var component = context.Render<Settings>();
-        component.Find("#tab-guide-outputs").Click();
+        await component.Find("#tab-guide-outputs").ClickAsync(new());
 
         // Act
-        component.Find("#guideOutputDirectoryPath").Change("/custom");
-        component.Find("button.btn-primary").Click();
+        await component.Find("#guideOutputDirectoryPath").ChangeAsync("/custom");
+        await component.Find("button.btn-primary").ClickAsync(new());
 
         // Assert
         Assert.Equal(Path.Combine("/custom", AppConstants.DefaultXmltvFileName), settings.XmltvOutputPath);
-        settingsService.Received(1).UpdateAsync(Arg.Any<Action<LineupSettings>>());
+        await settingsService.Received(1).UpdateAsync(Arg.Any<Action<LineupSettings>>());
     }
 
     /// <summary>
     /// Verifies that an empty XMLTV destination cannot be saved.
     /// </summary>
     [Fact]
-    public void Save_EmptyXmltvPath_ShowsValidationError()
+    public async Task Save_EmptyXmltvPath_ShowsValidationError()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var settingsService = Substitute.For<ILineupSettingsService>();
         settingsService.Settings.Returns(new LineupSettings { IsSetupComplete = true });
         settingsService.ConfiguredXmltvOutputPath.Returns("/xmltv/epg.xml");
@@ -345,26 +345,26 @@ public class SettingsTests
         context.Services.AddSingleton(settingsService);
         context.Services.AddSingleton(timeZoneService);
         var component = context.Render<Settings>();
-        component.Find("#tab-guide-outputs").Click();
-        component.Find("#guideOutputDirectoryPath").Change(" ");
+        await component.Find("#tab-guide-outputs").ClickAsync(new());
+        await component.Find("#guideOutputDirectoryPath").ChangeAsync(" ");
 
         // Act
-        component.Find("button.btn-primary").Click();
+        await component.Find("button.btn-primary").ClickAsync(new());
 
         // Assert
         var notifications = context.Services.GetRequiredService<IStatusNotificationService>();
         var notification = Assert.Single(notifications.Notifications);
         Assert.Equal("Guide output Global XMLTV requires an output destination.", notification.Message);
         Assert.True(notification.IsError);
-        settingsService.DidNotReceive().UpdateAsync(Arg.Any<Action<LineupSettings>>());
+        await settingsService.DidNotReceive().UpdateAsync(Arg.Any<Action<LineupSettings>>());
     }
 
     /// <summary>Verifies the Virtual Devices tab exposes topology discovery without legacy proxy controls.</summary>
     [Fact]
-    public void Render_VirtualDevicesTab_ShowsTopologyDiscoveryOnly()
+    public async Task Render_VirtualDevicesTab_ShowsTopologyDiscoveryOnly()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var settingsService = Substitute.For<ILineupSettingsService>();
         settingsService.Settings.Returns(new LineupSettings { IsSetupComplete = true });
         var timeZoneService = Substitute.For<ITimeZoneService>();
@@ -374,7 +374,7 @@ public class SettingsTests
         var component = context.Render<Settings>();
 
         // Act
-        component.Find("#tab-virtual-devices").Click();
+        await component.Find("#tab-virtual-devices").ClickAsync(new());
 
         // Assert
         Assert.NotNull(component.Find("#networkDiscoverySettings"));
@@ -387,10 +387,10 @@ public class SettingsTests
     /// Verifies the General tab separates visual and regional preferences.
     /// </summary>
     [Fact]
-    public void Render_GeneralSettings_SeparatesAppearanceAndRegionalCards()
+    public async Task Render_GeneralSettings_SeparatesAppearanceAndRegionalCards()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var settingsService = Substitute.For<ILineupSettingsService>();
         settingsService.Settings.Returns(new LineupSettings { IsSetupComplete = true });
         var timeZoneService = Substitute.For<ITimeZoneService>();
@@ -419,10 +419,10 @@ public class SettingsTests
     /// Verifies that category tabs switch visible content, contextual help, and the URL fragment.
     /// </summary>
     [Fact]
-    public void Tabs_SwitchVisiblePaneHelpAndUrlFragment()
+    public async Task Tabs_SwitchVisiblePaneHelpAndUrlFragment()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var settingsService = Substitute.For<ILineupSettingsService>();
         settingsService.Settings.Returns(new LineupSettings { IsSetupComplete = true });
         var timeZoneService = Substitute.For<ITimeZoneService>();
@@ -434,7 +434,7 @@ public class SettingsTests
         var tabButtons = component.FindAll("ul.nav-tabs > li > button");
 
         // Act
-        component.Find("#tab-streaming").Click();
+        await component.Find("#tab-streaming").ClickAsync(new());
 
         // Assert
         Assert.Equal("tab-dashboard", tabButtons[1].Id);
@@ -444,7 +444,7 @@ public class SettingsTests
         Assert.Contains("stream admission, shared-pipeline retention", component.Find("#aboutSettingsBody").TextContent);
         Assert.EndsWith("/settings#streaming", navigation.Uri, StringComparison.Ordinal);
 
-        component.Find("#tab-dashboard").Click();
+        await component.Find("#tab-dashboard").ClickAsync(new());
 
         Assert.Contains("active", component.Find("#tab-dashboard").ClassList);
         Assert.DoesNotContain("d-none", component.Find("#dashboardSettingsTab").ClassList);
@@ -458,10 +458,10 @@ public class SettingsTests
     /// Verifies every About Settings entry uses the same heading and description structure.
     /// </summary>
     [Fact]
-    public void AboutSettings_AllTabs_UsesConsistentSectionFormatting()
+    public async Task AboutSettings_AllTabs_UsesConsistentSectionFormatting()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var settingsService = Substitute.For<ILineupSettingsService>();
         settingsService.Settings.Returns(new LineupSettings { IsSetupComplete = true });
         var timeZoneService = Substitute.For<ITimeZoneService>();
@@ -472,9 +472,9 @@ public class SettingsTests
 
         // Act
         var generalSections = component.FindAll("#aboutSettingsBody .about-settings-section");
-        component.Find("#tab-api").Click();
+        await component.Find("#tab-api").ClickAsync(new());
         var apiSections = component.FindAll("#aboutSettingsBody .about-settings-section");
-        component.Find("#tab-logging").Click();
+        await component.Find("#tab-logging").ClickAsync(new());
         var loggingSections = component.FindAll("#aboutSettingsBody .about-settings-section");
 
         // Assert
@@ -499,10 +499,10 @@ public class SettingsTests
     /// Verifies that a settings URL fragment restores the selected category.
     /// </summary>
     [Fact]
-    public void Initialize_UsesTabFromUrlFragment()
+    public async Task Initialize_UsesTabFromUrlFragment()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var settingsService = Substitute.For<ILineupSettingsService>();
         settingsService.Settings.Returns(new LineupSettings { IsSetupComplete = true });
         var timeZoneService = Substitute.For<ITimeZoneService>();
@@ -524,10 +524,10 @@ public class SettingsTests
     /// Verifies the legacy transcoding fragment opens the renamed Streaming tab.
     /// </summary>
     [Fact]
-    public void Initialize_LegacyTranscodingFragment_UsesStreamingTab()
+    public async Task Initialize_LegacyTranscodingFragment_UsesStreamingTab()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var settingsService = Substitute.For<ILineupSettingsService>();
         settingsService.Settings.Returns(new LineupSettings { IsSetupComplete = true });
         var timeZoneService = Substitute.For<ITimeZoneService>();
@@ -548,10 +548,10 @@ public class SettingsTests
     /// Verifies complete transcoder controls render in the physical and virtual Global Settings cards.
     /// </summary>
     [Fact]
-    public void Render_ShowsCompleteTranscoderControlsInDeviceGlobalSettings()
+    public async Task Render_ShowsCompleteTranscoderControlsInDeviceGlobalSettings()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var settingsService = Substitute.For<ILineupSettingsService>();
         settingsService.Settings.Returns(new LineupSettings { IsSetupComplete = true });
         var timeZoneService = Substitute.For<ITimeZoneService>();
@@ -572,7 +572,7 @@ public class SettingsTests
         Assert.Null(physical.QuerySelector("#physicalDefaultQuality"));
         Assert.Null(physical.QuerySelector("#physicalDefaultBitrate"));
 
-        component.Find("#physicalDefaultHevc").Change(true);
+        await component.Find("#physicalDefaultHevc").ChangeAsync(true);
         physical = component.Find("#physicalGlobalSettings");
 
         Assert.NotNull(physical.QuerySelector("#physicalDefaultPreset"));
@@ -588,7 +588,7 @@ public class SettingsTests
         Assert.Null(virtualSettings.QuerySelector("#virtualDefaultQuality"));
         Assert.Null(virtualSettings.QuerySelector("#virtualDefaultBitrate"));
 
-        component.Find("#virtualDefaultHevc").Change(true);
+        await component.Find("#virtualDefaultHevc").ChangeAsync(true);
         virtualSettings = component.Find("#virtualGlobalSettings");
 
         Assert.NotNull(virtualSettings.QuerySelector("#virtualDefaultPreset"));
@@ -603,10 +603,10 @@ public class SettingsTests
     /// Verifies that saving the page persists both transcode selections.
     /// </summary>
     [Fact]
-    public void Save_PersistsTranscodeSelections()
+    public async Task Save_PersistsTranscodeSelections()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var settings = new LineupSettings { IsSetupComplete = true };
         var settingsService = Substitute.For<ILineupSettingsService>();
         settingsService.Settings.Returns(settings);
@@ -635,35 +635,35 @@ public class SettingsTests
 
         var component = context.Render<Settings>();
 
-        component.Find("#tab-physical-devices").Click();
-        component.Find("#physicalDefaultHevc").Change(true);
-        component.Find("#physicalDefaultDeinterlace").Change(nameof(SourceDeinterlacePolicy.SourceFrameRate));
-        component.Find("#physicalDefaultAudio").Change(nameof(OutputAudioPolicy.Ac3));
-        component.Find("#physicalDefaultAc4Audio").Change(nameof(OutputAudioPolicy.Eac3));
-        component.Find("#physicalDefaultPreset").Change(nameof(VideoEncoderPreset.Fast));
-        component.Find("#physicalDefaultQuality").Change("18");
-        component.Find("#physicalDefaultBitrate").Change("16");
+        await component.Find("#tab-physical-devices").ClickAsync(new());
+        await component.Find("#physicalDefaultHevc").ChangeAsync(true);
+        await component.Find("#physicalDefaultDeinterlace").ChangeAsync(nameof(SourceDeinterlacePolicy.SourceFrameRate));
+        await component.Find("#physicalDefaultAudio").ChangeAsync(nameof(OutputAudioPolicy.Ac3));
+        await component.Find("#physicalDefaultAc4Audio").ChangeAsync(nameof(OutputAudioPolicy.Eac3));
+        await component.Find("#physicalDefaultPreset").ChangeAsync(nameof(VideoEncoderPreset.Fast));
+        await component.Find("#physicalDefaultQuality").ChangeAsync("18");
+        await component.Find("#physicalDefaultBitrate").ChangeAsync("16");
 
-        component.Find("#tab-virtual-devices").Click();
-        component.Find("#virtualDefaultHevc").Change(true);
-        component.Find("#virtualDefaultDeinterlace").Change(nameof(SourceDeinterlacePolicy.SourceFieldRate));
-        component.Find("#virtualDefaultAudio").Change(nameof(OutputAudioPolicy.Eac3));
-        component.Find("#virtualDefaultAc4Audio").Change(nameof(OutputAudioPolicy.Eac3));
-        component.Find("#virtualDefaultPreset").Change(nameof(VideoEncoderPreset.Faster));
-        component.Find("#virtualDefaultQuality").Change("19");
-        component.Find("#virtualDefaultBitrate").Change("14");
+        await component.Find("#tab-virtual-devices").ClickAsync(new());
+        await component.Find("#virtualDefaultHevc").ChangeAsync(true);
+        await component.Find("#virtualDefaultDeinterlace").ChangeAsync(nameof(SourceDeinterlacePolicy.SourceFieldRate));
+        await component.Find("#virtualDefaultAudio").ChangeAsync(nameof(OutputAudioPolicy.Eac3));
+        await component.Find("#virtualDefaultAc4Audio").ChangeAsync(nameof(OutputAudioPolicy.Eac3));
+        await component.Find("#virtualDefaultPreset").ChangeAsync(nameof(VideoEncoderPreset.Faster));
+        await component.Find("#virtualDefaultQuality").ChangeAsync("19");
+        await component.Find("#virtualDefaultBitrate").ChangeAsync("14");
 
-        component.Find("#tab-streaming").Click();
-        component.Find("#protectedContentMode").Change(nameof(ProtectedContentMode.StreamSlate));
-        component.Find("#maximumConcurrentStreams").Change("6");
-        component.Find("#keepWarmPeriodSeconds").Change("15");
+        await component.Find("#tab-streaming").ClickAsync(new());
+        await component.Find("#protectedContentMode").ChangeAsync(nameof(ProtectedContentMode.StreamSlate));
+        await component.Find("#maximumConcurrentStreams").ChangeAsync("6");
+        await component.Find("#keepWarmPeriodSeconds").ChangeAsync("15");
 
-        component.Find("#tab-dashboard").Click();
-        component.Find("#activeStreamRefreshInterval").Change("15");
-        component.Find("#tab-general").Click();
-        component.Find("#uiLanguage").Change("es");
+        await component.Find("#tab-dashboard").ClickAsync(new());
+        await component.Find("#activeStreamRefreshInterval").ChangeAsync("15");
+        await component.Find("#tab-general").ClickAsync(new());
+        await component.Find("#uiLanguage").ChangeAsync("es");
         // Act
-        component.Find("button.btn-primary").Click();
+        await component.Find("button.btn-primary").ClickAsync(new());
 
         // Assert
         Assert.Equal(ProtectedContentMode.StreamSlate, settings.ProtectedContentMode);
@@ -685,18 +685,18 @@ public class SettingsTests
         Assert.Equal(15, settings.Streaming.KeepWarmPeriodSeconds);
         Assert.Equal(15, webSettings.ActiveStreamRefreshIntervalSeconds);
         Assert.Equal("es", webSettings.UiCulture);
-        settingsService.Received(1).UpdateAsync(Arg.Any<Action<LineupSettings>>());
-        webSettingsService.Received(1).UpdateAsync(Arg.Any<Action<WebSettings>>());
+        await settingsService.Received(1).UpdateAsync(Arg.Any<Action<LineupSettings>>());
+        await webSettingsService.Received(1).UpdateAsync(Arg.Any<Action<WebSettings>>());
     }
 
     /// <summary>
     /// Verifies that resetting the page restores defaults without persisting them.
     /// </summary>
     [Fact]
-    public void Reset_RestoresTranscodeDefaultsWithoutSaving()
+    public async Task Reset_RestoresTranscodeDefaultsWithoutSaving()
     {
         // Arrange
-        using var context = new BunitContext();
+        await using var context = new BunitContext();
         var settings = new LineupSettings
         {
             IsSetupComplete = true,
@@ -715,38 +715,38 @@ public class SettingsTests
         context.Services.AddSingleton(timeZoneService);
 
         var component = context.Render<Settings>();
-        component.Find("#tab-reset").Click();
+        await component.Find("#tab-reset").ClickAsync(new());
 
         // Act
-        component.Find("#resetSettings").Click();
-        component.Find("#tab-physical-devices").Click();
+        await component.Find("#resetSettings").ClickAsync(new());
+        await component.Find("#tab-physical-devices").ClickAsync(new());
 
         Assert.False(component.Find("#physicalDefaultHevc").HasAttribute("checked"));
         Assert.Equal(nameof(SourceDeinterlacePolicy.Preserve), component.Find("#physicalDefaultDeinterlace").GetAttribute("value"));
         Assert.Equal(nameof(OutputAudioPolicy.Copy), component.Find("#physicalDefaultAudio").GetAttribute("value"));
         Assert.Equal(nameof(OutputAudioPolicy.Copy), component.Find("#physicalDefaultAc4Audio").GetAttribute("value"));
 
-        component.Find("#physicalDefaultHevc").Change(true);
+        await component.Find("#physicalDefaultHevc").ChangeAsync(true);
 
         Assert.Equal(nameof(VideoEncoderPreset.VeryFast), component.Find("#physicalDefaultPreset").GetAttribute("value"));
         Assert.Equal("21", component.Find("#physicalDefaultQuality").GetAttribute("value"));
         Assert.Equal("10", component.Find("#physicalDefaultBitrate").GetAttribute("value"));
 
-        component.Find("#tab-virtual-devices").Click();
+        await component.Find("#tab-virtual-devices").ClickAsync(new());
         Assert.False(component.Find("#virtualDefaultHevc").HasAttribute("checked"));
         Assert.Equal(nameof(SourceDeinterlacePolicy.Preserve), component.Find("#virtualDefaultDeinterlace").GetAttribute("value"));
         Assert.Equal(nameof(OutputAudioPolicy.Copy), component.Find("#virtualDefaultAudio").GetAttribute("value"));
         Assert.Equal(nameof(OutputAudioPolicy.Ac3), component.Find("#virtualDefaultAc4Audio").GetAttribute("value"));
 
-        component.Find("#virtualDefaultHevc").Change(true);
+        await component.Find("#virtualDefaultHevc").ChangeAsync(true);
 
         Assert.Equal(nameof(VideoEncoderPreset.VeryFast), component.Find("#virtualDefaultPreset").GetAttribute("value"));
         Assert.Equal("21", component.Find("#virtualDefaultQuality").GetAttribute("value"));
         Assert.Equal("10", component.Find("#virtualDefaultBitrate").GetAttribute("value"));
 
-        component.Find("#tab-streaming").Click();
-        component.Find("#tab-dashboard").Click();
-        component.Find("#tab-logging").Click();
+        await component.Find("#tab-streaming").ClickAsync(new());
+        await component.Find("#tab-dashboard").ClickAsync(new());
+        await component.Find("#tab-logging").ClickAsync(new());
 
         // Assert
         Assert.Equal(nameof(ProtectedContentMode.ReturnError), component.Find("#protectedContentMode").GetAttribute("value"));
@@ -755,6 +755,6 @@ public class SettingsTests
         Assert.Equal("5", component.Find("#activeStreamRefreshInterval").GetAttribute("value"));
         Assert.False(component.Find("#overrideLoggingDefaults").HasAttribute("checked"));
         Assert.Empty(component.FindAll("#applicationLogLevel"));
-        settingsService.DidNotReceive().UpdateAsync(Arg.Any<Action<LineupSettings>>());
+        await settingsService.DidNotReceive().UpdateAsync(Arg.Any<Action<LineupSettings>>());
     }
 }

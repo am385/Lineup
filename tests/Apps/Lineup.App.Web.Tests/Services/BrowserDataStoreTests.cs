@@ -74,6 +74,7 @@ public class BrowserDataStoreTests
 
     private sealed class TestState
     {
+        /// <summary>Gets or sets the enabled.</summary>
         public bool Enabled { get; init; }
     }
 }

@@ -11,7 +11,7 @@ namespace Lineup.App.Web.Tests.Services;
 /// </summary>
 public class WebEndpointConfiguratorTests
 {
-    private static readonly DateTimeOffset Now = new(2026, 9, 16, 20, 0, 0, TimeSpan.Zero);
+    private static readonly DateTimeOffset _now = new(2026, 9, 16, 20, 0, 0, TimeSpan.Zero);
 
     /// <summary>
     /// Verifies absent certificate configuration selects HTTP without a warning.
@@ -25,7 +25,7 @@ public class WebEndpointConfiguratorTests
         configuration["Lineup:HttpsPort"] = "9443";
 
         // Act
-        using var endpoints = WebEndpointConfigurator.Load(configuration, Now);
+        using var endpoints = WebEndpointConfigurator.Load(configuration, _now);
 
         // Assert
         Assert.Equal(9080, endpoints.HttpPort);
@@ -45,11 +45,11 @@ public class WebEndpointConfiguratorTests
         var root = Directory.CreateTempSubdirectory("lineup-https-");
         const string password = "test-password";
         var certificatePath = Path.Combine(root.FullName, "lineup.pfx");
-        WritePfx(certificatePath, password, Now.AddDays(-1), Now.AddDays(1), includePrivateKey: true);
+        WritePfx(certificatePath, password, _now.AddDays(-1), _now.AddDays(1), includePrivateKey: true);
         var configuration = CreateCertificateConfiguration(certificatePath, password);
 
         // Act
-        using var endpoints = WebEndpointConfigurator.Load(configuration, Now);
+        using var endpoints = WebEndpointConfigurator.Load(configuration, _now);
 
         // Assert
         Assert.Equal(HttpsEndpointStatus.Enabled, endpoints.HttpsStatus);
@@ -69,7 +69,7 @@ public class WebEndpointConfiguratorTests
         var configuration = CreateCertificateConfiguration(Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.pfx"), "secret");
 
         // Act
-        using var endpoints = WebEndpointConfigurator.Load(configuration, Now);
+        using var endpoints = WebEndpointConfigurator.Load(configuration, _now);
 
         // Assert
         Assert.Equal(HttpsEndpointStatus.Unavailable, endpoints.HttpsStatus);
@@ -89,11 +89,11 @@ public class WebEndpointConfiguratorTests
         const string actualPassword = "actual-password";
         const string suppliedPassword = "wrong-password";
         var certificatePath = Path.Combine(root.FullName, "lineup.pfx");
-        WritePfx(certificatePath, actualPassword, Now.AddDays(-1), Now.AddDays(1), includePrivateKey: true);
+        WritePfx(certificatePath, actualPassword, _now.AddDays(-1), _now.AddDays(1), includePrivateKey: true);
         var configuration = CreateCertificateConfiguration(certificatePath, suppliedPassword);
 
         // Act
-        using var endpoints = WebEndpointConfigurator.Load(configuration, Now);
+        using var endpoints = WebEndpointConfigurator.Load(configuration, _now);
 
         // Assert
         Assert.Equal(HttpsEndpointStatus.Unavailable, endpoints.HttpsStatus);
@@ -114,11 +114,11 @@ public class WebEndpointConfiguratorTests
         var root = Directory.CreateTempSubdirectory("lineup-https-");
         const string password = "test-password";
         var certificatePath = Path.Combine(root.FullName, "lineup.pfx");
-        WritePfx(certificatePath, password, Now.AddDays(-1), Now.AddDays(1), includePrivateKey: false);
+        WritePfx(certificatePath, password, _now.AddDays(-1), _now.AddDays(1), includePrivateKey: false);
         var configuration = CreateCertificateConfiguration(certificatePath, password);
 
         // Act
-        using var endpoints = WebEndpointConfigurator.Load(configuration, Now);
+        using var endpoints = WebEndpointConfigurator.Load(configuration, _now);
 
         // Assert
         Assert.Equal(HttpsEndpointStatus.Unavailable, endpoints.HttpsStatus);
@@ -145,13 +145,13 @@ public class WebEndpointConfiguratorTests
         WritePfx(
             certificatePath,
             password,
-            Now.AddDays(notBeforeOffsetDays),
-            Now.AddDays(notAfterOffsetDays),
+            _now.AddDays(notBeforeOffsetDays),
+            _now.AddDays(notAfterOffsetDays),
             includePrivateKey: true);
         var configuration = CreateCertificateConfiguration(certificatePath, password);
 
         // Act
-        using var endpoints = WebEndpointConfigurator.Load(configuration, Now);
+        using var endpoints = WebEndpointConfigurator.Load(configuration, _now);
 
         // Assert
         Assert.Equal(HttpsEndpointStatus.Unavailable, endpoints.HttpsStatus);

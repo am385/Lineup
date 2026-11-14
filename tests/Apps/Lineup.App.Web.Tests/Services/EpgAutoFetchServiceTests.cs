@@ -310,6 +310,8 @@ public class EpgAutoFetchServiceTests
 
     private sealed class FetchFixture : IDisposable
     {
+        /// <summary>Initializes the fetch fixture.</summary>
+        /// <param name="providerInterval">The provider interval value.</param>
         internal FetchFixture(TimeSpan? providerInterval = null)
         {
             using var adapter = JsonDocument.Parse("{}");
@@ -375,6 +377,7 @@ public class EpgAutoFetchServiceTests
         /// <summary>Gets the provider capabilities used for scheduling.</summary>
         internal IStreamingAdapterRegistry Adapters { get; }
 
+        /// <summary>Gets the settings.</summary>
         internal LineupSettings Settings { get; } = new()
         {
             AutoFetchInterval = TimeSpan.FromHours(24),
@@ -382,16 +385,21 @@ public class EpgAutoFetchServiceTests
             RefreshChannelsBeforeGuideFetch = false
         };
 
+        /// <summary>Gets the settings service.</summary>
         internal ILineupSettingsService SettingsService { get; } = Substitute.For<ILineupSettingsService>();
 
+        /// <summary>Gets the guides.</summary>
         internal ITopologyGuideService Guides { get; } = Substitute.For<ITopologyGuideService>();
 
+        /// <summary>Gets the state.</summary>
         internal AutoFetchStateService State { get; } = new();
 
+        /// <summary>Gets the service.</summary>
         internal EpgAutoFetchService Service { get; }
 
         private TopologyGuideRefreshResult _result = new() { Sources = [] };
 
+        /// <summary>Gets or sets the result.</summary>
         internal TopologyGuideRefreshResult Result
         {
             get => _result;
@@ -407,6 +415,10 @@ public class EpgAutoFetchServiceTests
         /// <summary>Creates the independent output retry worker with the same committed scheduling state.</summary>
         internal GuidePublicationRetryService CreatePublicationWorker() => new(Scopes, NullLogger<GuidePublicationRetryService>.Instance, Clock);
 
+        /// <summary>Executes fetch asynchronously.</summary>
+        /// <param name="token">Token used to cancel the operation.</param>
+        /// <param name="service">The service value.</param>
+        /// <returns>A task that completes when the operation has finished.</returns>
         internal Task FetchAsync(CancellationToken token, EpgAutoFetchService? service = null)
         {
             var method = typeof(EpgAutoFetchService).GetMethod("FetchEpgDataAsync", BindingFlags.Instance | BindingFlags.NonPublic);

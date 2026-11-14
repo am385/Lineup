@@ -368,7 +368,8 @@ public sealed class VirtualOutputBrokerStreamRegistryTests
         IActiveStreamRegistry activeStreams,
         VirtualOutputSessionContext context,
         VirtualDeviceId deviceId,
-        Stream stream)
+        Stream stream
+    )
     {
         var request = CreateOpenRequest(context, VirtualOutputStreamRequestId.New());
         var sessionId = StreamSessionId.New();

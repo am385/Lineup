@@ -54,7 +54,8 @@ public static class MpegTsTranscodePlanner
         IReadOnlyList<AudioStreamInfo> audioStreams,
         VirtualTranscodeProfile profile,
         IReadOnlyList<MediaTrackMetadata>? subtitleStreams = null,
-        bool sourceVideoIsInterlaced = false)
+        bool sourceVideoIsInterlaced = false
+    )
         => CreateFfmpegArgumentsCore(
             inputUri,
             sourceVideoCodec,
@@ -71,7 +72,8 @@ public static class MpegTsTranscodePlanner
         VirtualTranscodeProfile profile,
         IReadOnlyList<MediaTrackMetadata>? subtitleStreams,
         bool sourceVideoIsInterlaced,
-        Func<string, string> resolveAudioCodec)
+        Func<string, string> resolveAudioCodec
+    )
     {
         List<string> arguments =
         [

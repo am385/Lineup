@@ -349,6 +349,8 @@
   <data name="Settings_GuideOutputDirectoryHelpPrefix" xml:space="preserve"><value>Lineup publiceert atomair naar</value></data>
   <data name="Settings_GuideOutputDirectoryHelpSuffix" xml:space="preserve"><value>in deze map.</value></data>
   <data name="Settings_GuideOutputDirectoryLabel" xml:space="preserve"><value>Uitvoermap</value></data>
+  <data name="Settings_GuideOutputIncludeUnavailableProgramsHelp" xml:space="preserve"><value>Publiceert een programma Not Available voor kanalen zonder gidsgegevens. Standaard uitgeschakeld om deze tijdelijke vermeldingen uit de lijst met huidige uitzendingen van Jellyfin te houden.</value></data>
+  <data name="Settings_GuideOutputIncludeUnavailableProgramsLabel" xml:space="preserve"><value>Tijdelijke vermeldingen voor niet-beschikbare programma's opnemen</value></data>
   <data name="Settings_GuideOutputKeyHelp" xml:space="preserve"><value>Lineup maakt hiervan een ID in kleine letters die alleen letters, cijfers en onderstrepingstekens bevat.</value></data>
   <data name="Settings_GuideOutputKeyLabel" xml:space="preserve"><value>Uitvoersleutel</value></data>
   <data name="Settings_GuideOutputKeyWarning" xml:space="preserve"><value>Als u deze sleutel wijzigt, veranderen de gebruiksvriendelijke API-URL en de gegenereerde bestandsnaam. Bestaande clients die een van deze locaties gebruiken, moeten worden bijgewerkt.</value></data>

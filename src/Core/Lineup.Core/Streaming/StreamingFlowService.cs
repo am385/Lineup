@@ -59,13 +59,7 @@ public enum StreamingFlowStageKind
 public sealed record StreamingFlowDetail(string Label, string Value);
 
 /// <summary>One selectable node in the configured and live streaming topology.</summary>
-public sealed record StreamingFlowNode(
-    string Id,
-    StreamingFlowLane Lane,
-    string Label,
-    string Subtitle,
-    StreamingFlowState State,
-    IReadOnlyList<StreamingFlowDetail> Details)
+public sealed record StreamingFlowNode(string Id, StreamingFlowLane Lane, string Label, string Subtitle, StreamingFlowState State, IReadOnlyList<StreamingFlowDetail> Details)
 {
     /// <summary>Gets active virtual channel numbers associated with the node.</summary>
     public IReadOnlyList<string> ActiveChannels { get; init; } = [];
@@ -75,11 +69,7 @@ public sealed record StreamingFlowNode(
 }
 
 /// <summary>Describes one selectable stage in an active streaming path.</summary>
-public sealed record StreamingFlowPathStage(
-    StreamingFlowStageKind Kind,
-    string Label,
-    string Subtitle,
-    IReadOnlyList<StreamingFlowDetail> Details)
+public sealed record StreamingFlowPathStage(StreamingFlowStageKind Kind, string Label, string Subtitle, IReadOnlyList<StreamingFlowDetail> Details)
 {
     /// <summary>Gets the media entering this stage.</summary>
     public ActiveStreamMediaSnapshot? InputMedia { get; init; }
@@ -99,15 +89,11 @@ public sealed record StreamingFlowPath(
     IReadOnlyList<StreamingFlowPathStage> Stages,
     bool IsSynthetic,
     bool IsShared,
-    int SharedReceiverCount);
+    int SharedReceiverCount
+);
 
 /// <summary>Immutable dashboard projection of configured topology and live streaming state.</summary>
-public sealed record StreamingFlowSnapshot(
-    IReadOnlyList<StreamingFlowNode> Nodes,
-    IReadOnlyList<StreamingFlowPath> ActivePaths,
-    int ActiveConsumerCount,
-    int ActiveProducerCount,
-    int WarmProducerCount)
+public sealed record StreamingFlowSnapshot(IReadOnlyList<StreamingFlowNode> Nodes, IReadOnlyList<StreamingFlowPath> ActivePaths, int ActiveConsumerCount, int ActiveProducerCount, int WarmProducerCount)
 {
     /// <summary>Gets all nodes in one display lane.</summary>
     public IReadOnlyList<StreamingFlowNode> GetLane(StreamingFlowLane lane) => Nodes.Where(node => node.Lane == lane).ToArray();
@@ -135,7 +121,8 @@ public sealed class StreamingFlowSnapshotService : IStreamingFlowSnapshotService
         IStreamingSessionGraph graph,
         IEnumerable<IStreamingProducerDiagnosticsContributor> producerDiagnostics,
         IActiveStreamRegistry activeStreams,
-        IPhysicalDeviceStatusService deviceStatuses)
+        IPhysicalDeviceStatusService deviceStatuses
+    )
     {
         _settings = settings;
         _graph = graph;
@@ -144,7 +131,8 @@ public sealed class StreamingFlowSnapshotService : IStreamingFlowSnapshotService
         _deviceStatuses = deviceStatuses;
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets snapshot.</summary>
+    /// <returns>The operation's result.</returns>
     public StreamingFlowSnapshot GetSnapshot()
     {
         var configuration = _settings.Settings.Streaming;
@@ -343,7 +331,8 @@ public sealed class StreamingFlowSnapshotService : IStreamingFlowSnapshotService
         StreamingConfiguration configuration,
         StreamingSessionGraphDiagnostics graph,
         IReadOnlyDictionary<string, PhysicalDeviceId?> graphPhysicalDevices,
-        int sharedReceiverCount)
+        int sharedReceiverCount
+    )
     {
         var flow = stream.Flow;
         var physicalDefinition = flow?.PhysicalDeviceId is { } physicalId
@@ -493,11 +482,7 @@ public sealed class StreamingFlowSnapshotService : IStreamingFlowSnapshotService
         }
     }
 
-    private static StreamingFlowState GetPhysicalState(
-        PhysicalDeviceDefinition device,
-        PhysicalDeviceRuntimeStatus? runtime,
-        IReadOnlyList<ActiveStreamSnapshot> streams,
-        IReadOnlyList<StreamNodeDiagnostics> nodes)
+    private static StreamingFlowState GetPhysicalState(PhysicalDeviceDefinition device, PhysicalDeviceRuntimeStatus? runtime, IReadOnlyList<ActiveStreamSnapshot> streams, IReadOnlyList<StreamNodeDiagnostics> nodes)
     {
         if (!device.Enabled)
         {
@@ -518,10 +503,7 @@ public sealed class StreamingFlowSnapshotService : IStreamingFlowSnapshotService
         return nodes.Any(node => node.IsWarm) ? StreamingFlowState.Warm : StreamingFlowState.Idle;
     }
 
-    private static StreamingFlowState GetProcessingState(
-        bool enabled,
-        IReadOnlyList<ActiveStreamSnapshot> streams,
-        IReadOnlyList<StreamNodeDiagnostics> transforms)
+    private static StreamingFlowState GetProcessingState(bool enabled, IReadOnlyList<ActiveStreamSnapshot> streams, IReadOnlyList<StreamNodeDiagnostics> transforms)
     {
         if (!enabled)
         {

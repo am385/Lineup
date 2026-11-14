@@ -28,12 +28,12 @@ public class SettingsDirectoryBrowserTests
         context.Services.AddSingleton(settingsService);
         context.Services.AddSingleton(timeZoneService);
         var component = context.Render<Settings>();
-        component.Find("#tab-guide-outputs").Click();
+        await component.Find("#tab-guide-outputs").ClickAsync(new());
 
         // Act
-        component.Find("#browseXmltvDirectories").Click();
+        await component.Find("#browseXmltvDirectories").ClickAsync(new());
         var currentDirectory = component.Find("#currentXmltvDirectory").GetAttribute("value");
-        component.Find("#closeXmltvDirectoryBrowser").Click();
+        await component.Find("#closeXmltvDirectoryBrowser").ClickAsync(new());
 
         // Assert
         Assert.Equal(temporaryDirectory.FullName, currentDirectory);
@@ -60,12 +60,12 @@ public class SettingsDirectoryBrowserTests
         context.Services.AddSingleton(settingsService);
         context.Services.AddSingleton(timeZoneService);
         var component = context.Render<Settings>();
-        component.Find("#tab-guide-outputs").Click();
-        component.Find("#browseXmltvDirectories").Click();
+        await component.Find("#tab-guide-outputs").ClickAsync(new());
+        await component.Find("#browseXmltvDirectories").ClickAsync(new());
 
         // Act
-        component.FindAll(".xmltv-directory").Single(element => element.TextContent.Contains(childDirectory.Name, StringComparison.Ordinal)).Click();
-        component.Find("#selectXmltvPath").Click();
+        await component.FindAll(".xmltv-directory").Single(element => element.TextContent.Contains(childDirectory.Name, StringComparison.Ordinal)).ClickAsync(new());
+        await component.Find("#selectXmltvPath").ClickAsync(new());
 
         // Assert
         Assert.Equal(childDirectory.FullName, component.Find("#guideOutputDirectoryPath").GetAttribute("value"));

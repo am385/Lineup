@@ -13,7 +13,9 @@ namespace Lineup.App.Web.Services;
 /// </summary>
 public sealed class TopologySettingsEditor
 {
+    /// <summary>Stores the physical HDHomeRun kind.</summary>
     internal const string PhysicalHdHomeRunKind = "hdhomerun";
+    /// <summary>Stores the Lineup Link kind.</summary>
     internal const string LineupLinkKind = LineupLinkProtocol.AdapterKind;
     private const string VirtualHdHomeRunKind = "hdhomerun";
     private const string WebPlayerKind = WebPlayerVirtualTunerDriver.AdapterKind;
@@ -37,10 +39,7 @@ public sealed class TopologySettingsEditor
     }
 
     /// <summary>Creates mutable forms from a Core topology.</summary>
-    public TopologySettingsModel Edit(
-        StreamingConfiguration configuration,
-        string xmltvOutputPath = "xmltv.xml",
-        IEnumerable<IGuideOutputDriver>? guideOutputDrivers = null)
+    public TopologySettingsModel Edit(StreamingConfiguration configuration, string xmltvOutputPath = "xmltv.xml", IEnumerable<IGuideOutputDriver>? guideOutputDrivers = null)
     {
         configuration = EnsureBuiltInWebPlayer(configuration);
         configuration = new XmltvGuideOutputDriver().Normalize(
@@ -219,7 +218,8 @@ public sealed class TopologySettingsEditor
         IEnumerable<IPhysicalTunerDriver>? physicalTunerDrivers = null,
         IEnumerable<IVirtualTunerDriver>? virtualTunerDrivers = null,
         IEnumerable<IGuideOutputDriver>? guideOutputDrivers = null,
-        IEnumerable<int>? managementListenerPorts = null)
+        IEnumerable<int>? managementListenerPorts = null
+    )
     {
         ArgumentNullException.ThrowIfNull(model);
         var errors = new List<string>();
@@ -559,10 +559,7 @@ public sealed class TopologySettingsEditor
     }
 
     /// <summary>Adds a form using defaults supplied by a registered guide-output driver.</summary>
-    public GuideOutputSettingsModel AddGuideOutput(
-        TopologySettingsModel model,
-        IGuideOutputDriver driver,
-        string defaultOutputDirectoryPath)
+    public GuideOutputSettingsModel AddGuideOutput(TopologySettingsModel model, IGuideOutputDriver driver, string defaultOutputDirectoryPath)
     {
         ArgumentNullException.ThrowIfNull(model);
         ArgumentNullException.ThrowIfNull(driver);
@@ -852,23 +849,18 @@ public sealed class TopologySettingsEditor
         return new AdapterConfiguration(source.Kind, configuration);
     }
 
-    private static AdapterConfiguration BuildGuideOutputAdapter(
-        GuideOutputSettingsModel output,
-        IReadOnlyDictionary<string, IGuideOutputDriver>? drivers,
-        ICollection<string> errors)
+    private static AdapterConfiguration BuildGuideOutputAdapter(GuideOutputSettingsModel output, IReadOnlyDictionary<string, IGuideOutputDriver>? drivers, ICollection<string> errors)
     {
-        if (string.Equals(output.Kind, "xmltv", StringComparison.OrdinalIgnoreCase))
-        {
-            return new AdapterConfiguration(output.Kind, JsonSerializer.SerializeToElement(new
-            {
-                OutputPath = output.OutputPath.Trim()
-            }));
-        }
-
         var configuration = output.AdapterConfiguration.ValueKind == JsonValueKind.Undefined
             ? JsonSerializer.SerializeToElement(new { })
             : output.AdapterConfiguration.Clone();
         var adapter = new AdapterConfiguration(output.Kind, configuration);
+        if (string.Equals(output.Kind, "xmltv", StringComparison.OrdinalIgnoreCase))
+        {
+            var typed = configuration.Deserialize<XmltvGuideOutputConfiguration>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                ?? new XmltvGuideOutputConfiguration();
+            adapter = new AdapterConfiguration(output.Kind, JsonSerializer.SerializeToElement(typed with { OutputPath = output.OutputPath.Trim() }));
+        }
         if (output.AdapterSettingsErrors.Count > 0)
         {
             foreach (var error in output.AdapterSettingsErrors)
@@ -887,12 +879,13 @@ public sealed class TopologySettingsEditor
 
         var result = provider.ApplySettings(
             adapter,
-            output.AdapterSettings.Select(setting => new AdapterSettingEdit
-            {
-                Key = setting.Descriptor.Key,
-                Action = setting.Action,
-                Value = setting.Value?.Clone()
-            }).ToArray());
+            output.AdapterSettings.Where(setting => !string.Equals(output.Kind, "xmltv", StringComparison.OrdinalIgnoreCase) ||
+                setting.Descriptor.Key != "outputDirectoryPath").Select(setting => new AdapterSettingEdit
+                {
+                    Key = setting.Descriptor.Key,
+                    Action = setting.Action,
+                    Value = setting.Value?.Clone()
+                }).ToArray());
         output.GeneratedSecrets = result.GeneratedSecrets;
         if (result.Succeeded)
         {
@@ -906,9 +899,7 @@ public sealed class TopologySettingsEditor
         return adapter;
     }
 
-    private static void InitializeGuideOutputSettings(
-        IEnumerable<GuideOutputSettingsModel> outputs,
-        IEnumerable<IGuideOutputDriver>? drivers)
+    private static void InitializeGuideOutputSettings(IEnumerable<GuideOutputSettingsModel> outputs, IEnumerable<IGuideOutputDriver>? drivers)
     {
         if (drivers is null)
         {
@@ -927,8 +918,7 @@ public sealed class TopologySettingsEditor
 
     private static void InitializeGuideOutputSettings(GuideOutputSettingsModel output, IGuideOutputDriver driver)
     {
-        if (string.Equals(output.Kind, XmltvGuideOutputDriver.AdapterKind, StringComparison.OrdinalIgnoreCase) ||
-            driver is not IAdapterSettingsProvider provider)
+        if (driver is not IAdapterSettingsProvider provider)
         {
             return;
         }
@@ -980,8 +970,7 @@ public sealed class TopologySettingsEditor
             ? value.GetBoolean()
             : defaultValue;
 
-    private static TEnum ReadEnum<TEnum>(JsonElement configuration, string propertyName, TEnum defaultValue)
-        where TEnum : struct, Enum =>
+    private static TEnum ReadEnum<TEnum>(JsonElement configuration, string propertyName, TEnum defaultValue) where TEnum : struct, Enum =>
         configuration.ValueKind == JsonValueKind.Object
         && configuration.TryGetProperty(propertyName, out var value)
         && value.ValueKind == JsonValueKind.String

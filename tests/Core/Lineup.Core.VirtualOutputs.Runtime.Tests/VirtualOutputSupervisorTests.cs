@@ -1259,6 +1259,10 @@ public sealed class VirtualOutputSupervisorTests
         private readonly TaskCompletionSource _launchRelease = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _activationAttempts;
 
+        /// <summary>Initializes the ownership fixture.</summary>
+        /// <param name="timeProvider">The time provider value.</param>
+        /// <param name="bootstrapLifetime">The bootstrap lifetime value.</param>
+        /// <param name="certificateResolver">The certificate resolver value.</param>
         internal OwnershipFixture(TimeProvider? timeProvider = null, TimeSpan? bootstrapLifetime = null, IVirtualOutputCertificateResolver? certificateResolver = null)
         {
             Authority = new VirtualOutputSessionAuthority(timeProvider);
@@ -1354,19 +1358,25 @@ public sealed class VirtualOutputSupervisorTests
         /// <summary>Gets whether hosted reconciliation remains active.</summary>
         internal bool IsRunning => _supervisor.ExecuteTask is { IsCompleted: false };
 
+        /// <summary>Gets or sets the configuration.</summary>
         internal StreamingConfiguration Configuration { get; set; } = new()
         {
             VirtualOutputWorkerPolicies = [new VirtualOutputWorkerPolicyDefinition { Key = "ownership", Name = "Ownership", MaximumRestarts = 0, DrainTimeoutSeconds = 0 }]
         };
 
+        /// <summary>Gets the authority.</summary>
         internal VirtualOutputSessionAuthority Authority { get; }
 
+        /// <summary>Gets the status.</summary>
         internal VirtualOutputRuntimeStatus Status { get; } = new();
 
+        /// <summary>Gets the enrollments.</summary>
         internal VirtualOutputExternalEnrollmentStore Enrollments { get; }
 
+        /// <summary>Gets the processes.</summary>
         internal List<IVirtualOutputWorkerProcess> Processes { get; } = [];
 
+        /// <summary>Gets or sets the fail activation.</summary>
         internal bool FailActivation { get; set; }
 
         /// <summary>Gets or sets whether the controlled launcher stalls until cancellation.</summary>
@@ -1375,6 +1385,7 @@ public sealed class VirtualOutputSupervisorTests
         /// <summary>Gets or sets whether the controlled worker reports readiness before the launcher returns.</summary>
         internal bool RegisterDuringLaunch { get; set; }
 
+        /// <summary>Gets the activation attempts.</summary>
         internal int ActivationAttempts => Volatile.Read(ref _activationAttempts);
 
         /// <summary>Returns the current controlled managed process for one output.</summary>
@@ -1410,6 +1421,9 @@ public sealed class VirtualOutputSupervisorTests
         /// <summary>Completes a controlled child without a supervisor stop request.</summary>
         internal void ExitProcess(IVirtualOutputWorkerProcess process) => _completions[process].TrySetResult(0);
 
+        /// <summary>Creates device.</summary>
+        /// <param name="mode">The mode value.</param>
+        /// <returns>The operation's result.</returns>
         internal VirtualDeviceDefinition CreateDevice(VirtualOutputExecutionMode mode) => new()
         {
             Id = VirtualDeviceId.New(),
@@ -1418,6 +1432,10 @@ public sealed class VirtualOutputSupervisorTests
             Hosting = new VirtualOutputHostingDefinition { ExecutionMode = mode, WorkerPolicyKey = Assert.Single(Configuration.VirtualOutputWorkerPolicies).Key }
         };
 
+        /// <summary>Gets bootstrap.</summary>
+        /// <param name="mode">The mode value.</param>
+        /// <param name="deviceId">Identity of the target device.</param>
+        /// <returns>The operation's result.</returns>
         internal VirtualOutputWorkerBootstrap GetBootstrap(VirtualOutputExecutionMode mode, VirtualDeviceId deviceId)
         {
             if (mode == VirtualOutputExecutionMode.ManagedProcess)
@@ -1429,6 +1447,8 @@ public sealed class VirtualOutputSupervisorTests
             return enrollment.Bootstrap;
         }
 
+        /// <summary>Registers discovery.</summary>
+        /// <returns>The operation's result.</returns>
         internal (VirtualOutputSessionContext Context, VirtualOutputRuntimeSnapshot Snapshot) RegisterDiscovery()
         {
             var deviceId = new VirtualDeviceId(new Guid("d1d41379-85f9-4834-970d-3ba27ea7c104"));
@@ -1449,6 +1469,9 @@ public sealed class VirtualOutputSupervisorTests
             return (new VirtualOutputSessionContext { SessionId = registration.SessionId!.Value, Generation = ticket.Generation }, snapshot);
         }
 
+        /// <summary>Registers the ownership fixture.</summary>
+        /// <param name="bootstrap">The bootstrap value.</param>
+        /// <returns>The operation's result.</returns>
         internal VirtualOutputSessionContext Register(VirtualOutputWorkerBootstrap bootstrap)
         {
             var registration = Authority.Register(new VirtualOutputWorkerRegistrationRequest
@@ -1466,6 +1489,9 @@ public sealed class VirtualOutputSupervisorTests
             return session;
         }
 
+        /// <summary>Executes reconcile asynchronously.</summary>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>A task that completes when the operation has finished.</returns>
         internal async Task ReconcileAsync(CancellationToken? cancellationToken = null)
         {
             var token = cancellationToken ?? TestContext.Current.CancellationToken;

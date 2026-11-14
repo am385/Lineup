@@ -45,7 +45,9 @@ public sealed class FactoryResetService : IFactoryResetService
     {
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes request reset asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public async Task RequestResetAsync(CancellationToken cancellationToken = default)
     {
         var request = new FactoryResetRequest

@@ -43,12 +43,7 @@ public sealed record VirtualOutputAuthorizationResult
 public interface IVirtualOutputSessionAuthority
 {
     /// <summary>Creates a new activation generation and revokes any earlier generation for the virtual device.</summary>
-    VirtualOutputActivationTicket CreateActivation(
-        VirtualDeviceId virtualDeviceId,
-        string workerId,
-        IReadOnlySet<VirtualOutputCapability> capabilities,
-        TimeSpan bootstrapLifetime,
-        TimeSpan leaseLifetime);
+    VirtualOutputActivationTicket CreateActivation(VirtualDeviceId virtualDeviceId, string workerId, IReadOnlySet<VirtualOutputCapability> capabilities, TimeSpan bootstrapLifetime, TimeSpan leaseLifetime);
 
     /// <summary>Authenticates a worker using one activation ticket.</summary>
     VirtualOutputWorkerRegistrationResponse Register(VirtualOutputWorkerRegistrationRequest request);
@@ -81,13 +76,14 @@ public sealed class VirtualOutputSessionAuthority : IVirtualOutputSessionAuthori
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
-    /// <inheritdoc />
-    public VirtualOutputActivationTicket CreateActivation(
-        VirtualDeviceId virtualDeviceId,
-        string workerId,
-        IReadOnlySet<VirtualOutputCapability> capabilities,
-        TimeSpan bootstrapLifetime,
-        TimeSpan leaseLifetime)
+    /// <summary>Creates activation.</summary>
+    /// <param name="virtualDeviceId">The virtual device ID value.</param>
+    /// <param name="workerId">The worker ID value.</param>
+    /// <param name="capabilities">The capabilities value.</param>
+    /// <param name="bootstrapLifetime">The bootstrap lifetime value.</param>
+    /// <param name="leaseLifetime">The lease lifetime value.</param>
+    /// <returns>The operation's result.</returns>
+    public VirtualOutputActivationTicket CreateActivation(VirtualDeviceId virtualDeviceId, string workerId, IReadOnlySet<VirtualOutputCapability> capabilities, TimeSpan bootstrapLifetime, TimeSpan leaseLifetime)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentException.ThrowIfNullOrWhiteSpace(workerId);
@@ -140,7 +136,9 @@ public sealed class VirtualOutputSessionAuthority : IVirtualOutputSessionAuthori
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Registers the virtual output session authority.</summary>
+    /// <param name="request">The request value.</param>
+    /// <returns>The operation's result.</returns>
     public VirtualOutputWorkerRegistrationResponse Register(VirtualOutputWorkerRegistrationRequest request)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -206,7 +204,9 @@ public sealed class VirtualOutputSessionAuthority : IVirtualOutputSessionAuthori
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes renew.</summary>
+    /// <param name="request">The request value.</param>
+    /// <returns>The operation's result.</returns>
     public VirtualOutputLeaseRenewalResponse Renew(VirtualOutputLeaseRenewalRequest request)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -236,7 +236,10 @@ public sealed class VirtualOutputSessionAuthority : IVirtualOutputSessionAuthori
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes authorize.</summary>
+    /// <param name="session">The session value.</param>
+    /// <param name="capability">The capability value.</param>
+    /// <returns>The operation's result.</returns>
     public VirtualOutputAuthorizationResult Authorize(VirtualOutputSessionContext session, VirtualOutputCapability capability)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -271,7 +274,10 @@ public sealed class VirtualOutputSessionAuthority : IVirtualOutputSessionAuthori
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Determines whether active session.</summary>
+    /// <param name="virtualDeviceId">The virtual device ID value.</param>
+    /// <param name="generation">The generation value.</param>
+    /// <returns>The operation's result.</returns>
     public bool HasActiveSession(VirtualDeviceId virtualDeviceId, long generation)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -295,7 +301,10 @@ public sealed class VirtualOutputSessionAuthority : IVirtualOutputSessionAuthori
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Revokes the virtual output session authority.</summary>
+    /// <param name="virtualDeviceId">The virtual device ID value.</param>
+    /// <param name="reason">The reason value.</param>
+    /// <returns>The operation's result.</returns>
     public bool Revoke(VirtualDeviceId virtualDeviceId, string reason)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -379,5 +388,6 @@ public sealed class VirtualOutputSessionAuthority : IVirtualOutputSessionAuthori
         IReadOnlySet<VirtualOutputCapability> Capabilities,
         VirtualOutputWorkerSessionId? SessionId,
         int? ProtocolVersion,
-        DateTimeOffset? LeaseExpiresUtc);
+        DateTimeOffset? LeaseExpiresUtc
+    );
 }

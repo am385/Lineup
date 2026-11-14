@@ -150,6 +150,9 @@ public sealed class MediaSessionDiagnosticsTests
     {
         private readonly OpenDiagnosticStream _stream;
 
+        /// <summary>Initializes the open diagnostic reader.</summary>
+        /// <param name="text">The text value.</param>
+        /// <param name="chunkSize">The chunk size value.</param>
         public OpenDiagnosticReader(string text, int chunkSize) : this(new OpenDiagnosticStream(text, chunkSize))
         {
         }
@@ -159,25 +162,34 @@ public sealed class MediaSessionDiagnosticsTests
             _stream = stream;
         }
 
+        /// <summary>Gets or sets the whole text read requested.</summary>
         public bool WholeTextReadRequested { get; private set; }
+        /// <summary>Gets or sets the maximum read buffer length.</summary>
         public int MaximumReadBufferLength { get; private set; }
 
+        /// <summary>Waits for for drain asynchronously.</summary>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>A task that completes when the operation has finished.</returns>
         public Task WaitForDrainAsync(CancellationToken cancellationToken) => _stream.WaitForDrainAsync(cancellationToken);
 
+        /// <summary>Completes the open diagnostic reader.</summary>
         public void Complete() => _stream.Complete();
 
+        /// <inheritdoc />
         public override Task<string> ReadToEndAsync()
         {
             WholeTextReadRequested = true;
             return base.ReadToEndAsync();
         }
 
+        /// <inheritdoc />
         public override Task<string> ReadToEndAsync(CancellationToken cancellationToken)
         {
             WholeTextReadRequested = true;
             return base.ReadToEndAsync(cancellationToken);
         }
 
+        /// <inheritdoc />
         public override ValueTask<int> ReadAsync(Memory<char> buffer, CancellationToken cancellationToken = default)
         {
             MaximumReadBufferLength = Math.Max(MaximumReadBufferLength, buffer.Length);
@@ -192,16 +204,26 @@ public sealed class MediaSessionDiagnosticsTests
         private readonly TaskCompletionSource _end = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _offset;
 
+        /// <inheritdoc />
         public override bool CanRead => true;
+        /// <inheritdoc />
         public override bool CanSeek => false;
+        /// <inheritdoc />
         public override bool CanWrite => false;
+        /// <inheritdoc />
         public override long Length => throw new NotSupportedException();
+        /// <inheritdoc />
         public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
 
+        /// <summary>Waits for for drain asynchronously.</summary>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>A task that completes when the operation has finished.</returns>
         public Task WaitForDrainAsync(CancellationToken cancellationToken) => _drained.Task.WaitAsync(cancellationToken);
 
+        /// <summary>Completes the open diagnostic stream.</summary>
         public void Complete() => _end.TrySetResult();
 
+        /// <inheritdoc />
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
             if (_offset < _data.Length)
@@ -216,6 +238,7 @@ public sealed class MediaSessionDiagnosticsTests
             return 0;
         }
 
+        /// <inheritdoc />
         protected override void Dispose(bool disposing)
         {
             if (disposing)
@@ -225,23 +248,33 @@ public sealed class MediaSessionDiagnosticsTests
             base.Dispose(disposing);
         }
 
+        /// <inheritdoc />
         public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) => ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
 
+        /// <inheritdoc />
         public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        /// <inheritdoc />
         public override void Flush() => throw new NotSupportedException();
+        /// <inheritdoc />
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        /// <inheritdoc />
         public override void SetLength(long value) => throw new NotSupportedException();
+        /// <inheritdoc />
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     private sealed class FailingDiagnosticReader(IOException failure) : TextReader
     {
+        /// <inheritdoc />
         public override Task<string> ReadToEndAsync() => Task.FromException<string>(failure);
 
+        /// <inheritdoc />
         public override Task<string> ReadToEndAsync(CancellationToken cancellationToken) => Task.FromException<string>(failure);
 
+        /// <inheritdoc />
         public override ValueTask<int> ReadAsync(Memory<char> buffer, CancellationToken cancellationToken = default) => ValueTask.FromException<int>(failure);
 
+        /// <inheritdoc />
         public override Task<int> ReadAsync(char[] buffer, int index, int count) => Task.FromException<int>(failure);
     }
 }

@@ -1,7 +1,6 @@
 namespace Lineup.Core.Streaming.FFmpeg;
 
 using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 
 /// <summary>
 /// Plans shared source normalization for optional video and independent audio policies.

@@ -32,7 +32,9 @@ public sealed class ApplicationRestartService : IApplicationRestartService
         _logger = logger;
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes restart asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public Task RestartAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();

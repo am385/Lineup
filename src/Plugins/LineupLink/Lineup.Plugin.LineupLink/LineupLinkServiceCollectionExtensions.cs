@@ -1,6 +1,4 @@
-using Lineup.Core.Common.Guides;
 using Lineup.Core.Extensibility.Guides;
-using Lineup.Core.Common.Streaming;
 using Lineup.Core.Extensibility.Streaming;
 using Lineup.Plugin.LineupLink.Guides;
 using Lineup.Plugin.LineupLink.Physical;

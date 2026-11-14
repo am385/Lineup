@@ -51,10 +51,7 @@ public static class ChannelTopologyResolver
     /// <summary>
     /// Resolves publishable channels and deterministic conflicts.
     /// </summary>
-    public static VirtualChannelResolution Resolve(
-        VirtualDeviceDefinition virtualDevice,
-        IReadOnlyList<PhysicalDeviceDefinition> physicalDevices,
-        IReadOnlyList<PhysicalChannelIdentity> channels)
+    public static VirtualChannelResolution Resolve(VirtualDeviceDefinition virtualDevice, IReadOnlyList<PhysicalDeviceDefinition> physicalDevices, IReadOnlyList<PhysicalChannelIdentity> channels)
     {
         var subscribed = physicalDevices
             .Where(device => device.Enabled)

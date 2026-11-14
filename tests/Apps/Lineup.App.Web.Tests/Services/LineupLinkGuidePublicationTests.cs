@@ -380,7 +380,8 @@ public sealed class LineupLinkGuidePublicationTests
 
     private sealed class ContextFactory(string path) : IDbContextFactory<EpgDbContext>
     {
-        /// <inheritdoc />
+        /// <summary>Creates db context.</summary>
+        /// <returns>The operation's result.</returns>
         public EpgDbContext CreateDbContext() => new(new DbContextOptionsBuilder<EpgDbContext>().UseSqlite($"Data Source={path};Pooling=False").Options);
     }
 }

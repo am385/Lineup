@@ -1,4 +1,3 @@
-using Lineup.Core.Common.Guides;
 using Lineup.Core.Extensibility.Guides;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;

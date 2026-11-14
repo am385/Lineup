@@ -61,15 +61,7 @@ public sealed record CmafCompatibilityTestRequest
 }
 
 /// <summary>Describes one started synthetic CMAF compatibility presentation.</summary>
-public sealed record CmafCompatibilityTestResponse(
-    string SessionId,
-    string ManifestUrl,
-    string VideoCodec,
-    string AudioCodec,
-    int Channels,
-    int Width,
-    int Height,
-    string? SubtitleUrl = null);
+public sealed record CmafCompatibilityTestResponse(string SessionId, string ManifestUrl, string VideoCodec, string AudioCodec, int Channels, int Width, int Height, string? SubtitleUrl = null);
 
 /// <summary>Provides encoder-independent compatibility-test metadata.</summary>
 public static class CmafCompatibilityTestPolicy

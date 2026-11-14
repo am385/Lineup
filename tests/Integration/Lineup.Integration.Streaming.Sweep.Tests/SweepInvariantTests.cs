@@ -1,4 +1,3 @@
-using Lineup.Integration.Streaming.Sweep;
 using Xunit;
 
 namespace Lineup.Integration.Streaming.Sweep.Tests;

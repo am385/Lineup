@@ -1,5 +1,4 @@
 using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Xunit;
 
 namespace Lineup.Plugin.WebPlayer.Tests;
@@ -9,7 +8,7 @@ namespace Lineup.Plugin.WebPlayer.Tests;
 /// </summary>
 public class WebPlayerTrackPlannerTests
 {
-    private static readonly MediaProbeResult Source = new(
+    private static readonly MediaProbeResult _source = new(
     [
         Track(0, MediaTrackType.Video, "h264"),
         Track(2, MediaTrackType.Audio, "ac3") with { Language = "eng", IsDefault = true },
@@ -26,10 +25,10 @@ public class WebPlayerTrackPlannerTests
     public void SelectTracks_DefaultAndExplicitAudio_UseValidatedAbsoluteIndexes()
     {
         // Arrange
-        var defaultSelection = WebPlayerTrackPlanner.SelectTracks(Source, null, null);
+        var defaultSelection = WebPlayerTrackPlanner.SelectTracks(_source, null, null);
 
         // Act
-        var explicitSelection = WebPlayerTrackPlanner.SelectTracks(Source, 4, null);
+        var explicitSelection = WebPlayerTrackPlanner.SelectTracks(_source, 4, null);
 
         // Assert
         Assert.Equal(2, defaultSelection.Audio?.Index);
@@ -46,7 +45,7 @@ public class WebPlayerTrackPlannerTests
     public void SelectTracks_InvalidAudioIndex_ThrowsExplicitError(int index, string message)
     {
         // Arrange
-        var source = Source;
+        var source = _source;
 
         // Act
         var exception = Assert.Throws<ArgumentException>(() => WebPlayerTrackPlanner.SelectTracks(source, index, null));

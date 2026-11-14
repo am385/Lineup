@@ -41,7 +41,7 @@ public sealed record PhysicalDeviceSnapshot
     /// <summary>Gets the adapter kind.</summary>
     public required string Kind { get; init; }
 
-    /// <summary>Gets the display name.</summary>
+    /// <summary>Gets or sets the name.</summary>
     public required string Name { get; init; }
 
     /// <summary>Gets the current capacity.</summary>

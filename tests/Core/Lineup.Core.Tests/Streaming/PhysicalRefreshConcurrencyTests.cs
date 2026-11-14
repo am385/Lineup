@@ -1,7 +1,4 @@
 using System.Text.Json;
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
-using Lineup.Core.Streaming;
 using Lineup.Core.Storage;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -387,7 +384,8 @@ public sealed class PhysicalRefreshConcurrencyTests
 
     private sealed class ContextFactory(string path, TaskCompletionSource committed) : IDbContextFactory<EpgDbContext>
     {
-        /// <inheritdoc />
+        /// <summary>Creates db context.</summary>
+        /// <returns>The operation's result.</returns>
         public EpgDbContext CreateDbContext() => new SignalingContext(new DbContextOptionsBuilder<EpgDbContext>().UseSqlite($"Data Source={path}").Options, committed);
     }
 

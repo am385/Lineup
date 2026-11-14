@@ -2,8 +2,6 @@ using System.Diagnostics;
 using Lineup.Core.Common.Streaming;
 using Lineup.Core.Streaming.FFmpeg;
 using Lineup.Core.VirtualOutputs.Hosting;
-using Lineup.Core.VirtualOutputs.Protocol;
-using Lineup.Plugin.WebPlayer;
 using Lineup.Plugin.WebPlayer.FFmpeg;
 
 namespace Lineup.Plugin.WebPlayer.VirtualOutputHost;
@@ -35,13 +33,7 @@ internal sealed partial class DedicatedPlaybackRuntime
             () => Process.Start(startInfo) ?? throw new InvalidOperationException("Unable to start FFmpeg for the Web Player output."), admission, directory);
     }
 
-    private static async Task<MediaSession> StartMediaSessionAsync(
-        string id,
-        string directory,
-        VirtualOutputClientStream source,
-        DedicatedCmafSessionPlan plan,
-        ILogger logger,
-        IMediaWorkAdmission? admission = null)
+    private static async Task<MediaSession> StartMediaSessionAsync(string id, string directory, VirtualOutputClientStream source, DedicatedCmafSessionPlan plan, ILogger logger, IMediaWorkAdmission? admission = null)
     {
         await using var guard = new MediaSessionStartupGuard(directory, source);
         var process = StartMediaProcess(directory, plan.Arguments, admission);

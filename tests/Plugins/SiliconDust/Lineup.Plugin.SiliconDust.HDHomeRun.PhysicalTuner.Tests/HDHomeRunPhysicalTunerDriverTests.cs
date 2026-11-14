@@ -437,12 +437,7 @@ public sealed class HDHomeRunPhysicalTunerDriverTests
     [InlineData("807 No Video Data", false, PhysicalStreamFailureCategory.NoData, "source_no_video_data", true)]
     [InlineData("806 No Signal", true, PhysicalStreamFailureCategory.NoSignal, "source_no_signal", true)]
     [InlineData("805 All Tuners In Use", false, PhysicalStreamFailureCategory.Capacity, "source_capacity_exceeded", true)]
-    public async Task OpenStreamAsync_TunerDiagnostic_ThrowsStructuredFailure(
-        string diagnostic,
-        bool useResponseBody,
-        PhysicalStreamFailureCategory expectedCategory,
-        string expectedCode,
-        bool expectedRetryable)
+    public async Task OpenStreamAsync_TunerDiagnostic_ThrowsStructuredFailure(string diagnostic, bool useResponseBody, PhysicalStreamFailureCategory expectedCategory, string expectedCode, bool expectedRetryable)
     {
         // Arrange
         var driver = CreateDriver(request => request.RequestUri!.AbsolutePath switch
@@ -588,10 +583,13 @@ public sealed class HDHomeRunPhysicalTunerDriverTests
 
     private sealed class RecordingDeviceService(IHDHomeRunHttpControlFactory factory) : HDHomeRunService(NullLoggerFactory.Instance, factory)
     {
+        /// <summary>Gets the lookups.</summary>
         public List<(string Address, CancellationToken Token, HDHomeRunDeviceInfo Info)> Lookups { get; } = [];
 
+        /// <summary>Gets or sets the cancel lookup.</summary>
         public CancellationTokenSource? CancelLookup { get; set; }
 
+        /// <inheritdoc />
         public override Task<HDHomeRunDevice?> GetDeviceFromDiscoveryAsync(string addressOrHostname, HDHomeRunDeviceInfo deviceInfo, CancellationToken cancellationToken = default)
         {
             Lookups.Add((addressOrHostname, cancellationToken, deviceInfo));
@@ -603,11 +601,15 @@ public sealed class HDHomeRunPhysicalTunerDriverTests
 
     private sealed class StaticHttpClientFactory(HttpMessageHandler handler) : IHttpClientFactory
     {
+        /// <summary>Creates client.</summary>
+        /// <param name="name">Name used by the operation.</param>
+        /// <returns>The operation's result.</returns>
         public HttpClient CreateClient(string name) => new(handler, disposeHandler: false);
     }
 
     private sealed class DelegateHttpMessageHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> responseFactory) : HttpMessageHandler
     {
+        /// <inheritdoc />
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
             => responseFactory(request, cancellationToken);
     }

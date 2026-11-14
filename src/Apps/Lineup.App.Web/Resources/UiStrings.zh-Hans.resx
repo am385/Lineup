@@ -349,6 +349,8 @@
   <data name="Settings_GuideOutputDirectoryHelpPrefix" xml:space="preserve"><value>Lineup 会以原子方式发布到此目录中的</value></data>
   <data name="Settings_GuideOutputDirectoryHelpSuffix" xml:space="preserve"><value>文件。</value></data>
   <data name="Settings_GuideOutputDirectoryLabel" xml:space="preserve"><value>输出目录</value></data>
+  <data name="Settings_GuideOutputIncludeUnavailableProgramsHelp" xml:space="preserve"><value>为没有节目指南数据的频道发布 Not Available 节目。默认禁用，以免这些占位节目出现在 Jellyfin 的正在播出列表中。</value></data>
+  <data name="Settings_GuideOutputIncludeUnavailableProgramsLabel" xml:space="preserve"><value>包含不可用节目的占位条目</value></data>
   <data name="Settings_GuideOutputKeyHelp" xml:space="preserve"><value>Lineup 会将其格式化为仅含字母、数字和下划线的小写标识符。</value></data>
   <data name="Settings_GuideOutputKeyLabel" xml:space="preserve"><value>输出密钥</value></data>
   <data name="Settings_GuideOutputKeyWarning" xml:space="preserve"><value>更改此密钥会改变易读的 API URL 和生成的文件名。使用任一位置的现有客户端都必须更新。</value></data>

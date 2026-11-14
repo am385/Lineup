@@ -2,19 +2,26 @@ using System.Diagnostics;
 
 namespace Lineup.Plugin.WebPlayer.VirtualOutputHost;
 
+/// <summary>Represents the media session startup guard.</summary>
+/// <param name="directory">The directory value.</param>
+/// <param name="source">The source value.</param>
 internal sealed class MediaSessionStartupGuard(string directory, IAsyncDisposable source) : IAsyncDisposable
 {
     private readonly List<Process> _processes = [];
     private bool _ownershipTransferred;
 
+    /// <summary>Registers process.</summary>
+    /// <param name="process">The process value.</param>
     internal void RegisterProcess(Process process)
     {
         ArgumentNullException.ThrowIfNull(process);
         _processes.Add(process);
     }
 
+    /// <summary>Executes transfer ownership.</summary>
     internal void TransferOwnership() => _ownershipTransferred = true;
 
+    /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
         if (_ownershipTransferred)
@@ -56,6 +63,9 @@ internal sealed class MediaSessionStartupGuard(string directory, IAsyncDisposabl
         }
     }
 
+    /// <summary>Deletes directory asynchronously.</summary>
+    /// <param name="directory">The directory value.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     internal static async Task DeleteDirectoryAsync(string directory)
     {
         for (var attempt = 0; attempt < 3; attempt++)

@@ -7,15 +7,7 @@ namespace Lineup.Plugin.WebPlayer.VirtualOutputHost;
 internal static class DedicatedMediaReadiness
 {
     /// <summary>Waits for the initial shared manifests and all expected representation fragments.</summary>
-    internal static async Task WaitAsync(
-        Process process,
-        Task<string> errorTask,
-        Task? inputTask,
-        string dashPath,
-        string hlsPath,
-        int representationCount,
-        TimeSpan timeout,
-        CancellationToken cancellationToken)
+    internal static async Task WaitAsync(Process process, Task<string> errorTask, Task? inputTask, string dashPath, string hlsPath, int representationCount, TimeSpan timeout, CancellationToken cancellationToken)
     {
         using var operation = Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.Begin("media_readiness", cancellationToken: cancellationToken);
         using var readinessTimeout = new CancellationTokenSource(timeout);

@@ -4,10 +4,7 @@ namespace Lineup.Core.Streaming;
 public static class VirtualDeviceSubscriptionResolver
 {
     /// <summary>Resolves compatible enabled physical definitions in deterministic topology order.</summary>
-    public static IReadOnlyList<PhysicalDeviceDefinition> Resolve(
-        VirtualDeviceDefinition virtualDevice,
-        IReadOnlyList<PhysicalDeviceDefinition> physicalDevices,
-        IVirtualTunerDriver driver)
+    public static IReadOnlyList<PhysicalDeviceDefinition> Resolve(VirtualDeviceDefinition virtualDevice, IReadOnlyList<PhysicalDeviceDefinition> physicalDevices, IVirtualTunerDriver driver)
     {
         ArgumentNullException.ThrowIfNull(virtualDevice);
         ArgumentNullException.ThrowIfNull(physicalDevices);

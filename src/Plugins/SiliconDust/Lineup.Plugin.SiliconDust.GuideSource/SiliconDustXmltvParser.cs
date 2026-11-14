@@ -11,7 +11,7 @@ namespace Lineup.Plugin.SiliconDust.GuideSource;
 /// </summary>
 public sealed class SiliconDustXmltvParser
 {
-    private static readonly string[] TimestampFormats =
+    private static readonly string[] _timestampFormats =
     [
         "yyyyMMddHHmmss zzz",
         "yyyyMMddHHmm zzz",
@@ -228,7 +228,7 @@ public sealed class SiliconDustXmltvParser
             normalized = normalized.Insert(normalized.Length - 2, ":");
         }
 
-        return DateTimeOffset.TryParseExact(normalized, TimestampFormats, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out result);
+        return DateTimeOffset.TryParseExact(normalized, _timestampFormats, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out result);
     }
 
     private static long? ParseOriginalAirdate(string? value)

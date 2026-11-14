@@ -34,13 +34,13 @@ public class EpgFetchSettingsTests
         context.Services.AddSingleton(timeZoneService);
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var component = context.Render<Settings>();
-        component.Find("#tab-guide").Click();
+        await component.Find("#tab-guide").ClickAsync(new());
         var sourceId = Guid.NewGuid();
         settings.GuideSourceSchedules[sourceId] = new GuideSourceRefreshSchedule { ConfigurationRevision = "source-revision", NextRefreshUtc = DateTime.UtcNow.AddHours(1) };
         settings.GuidePublicationRetries[Guid.NewGuid()] = DateTime.UtcNow.AddHours(1);
 
         // Act
-        component.Find("#autoFetchEnabled").Change(enabled);
+        await component.Find("#autoFetchEnabled").ChangeAsync(enabled);
         await component.Find("button.btn-primary").ClickAsync(new());
 
         // Assert
@@ -74,7 +74,7 @@ public class EpgFetchSettingsTests
         context.Services.AddSingleton(timeZoneService);
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var component = context.Render<Settings>();
-        component.Find("#tab-guide").Click();
+        await component.Find("#tab-guide").ClickAsync(new());
         var enabledByDefault = component.Find("#refreshChannelsBeforeGuideFetch").HasAttribute("checked");
         var historyRetention = component.Find("#epgHistoryRetentionHours");
         var historyDefaultsTo24Hours = historyRetention.GetAttribute("value") == "24";
@@ -82,8 +82,8 @@ public class EpgFetchSettingsTests
             .All(id => component.Find($"#{id}").ParentElement!.ClassList.Contains("form-switch"));
 
         // Act
-        component.Find("#refreshChannelsBeforeGuideFetch").Change(false);
-        historyRetention.Change("48");
+        await component.Find("#refreshChannelsBeforeGuideFetch").ChangeAsync(false);
+        await historyRetention.ChangeAsync("48");
         var saveClick = component.Find("button.btn-primary").ClickAsync(new());
 
         // Assert

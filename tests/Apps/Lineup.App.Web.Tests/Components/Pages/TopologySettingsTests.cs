@@ -1,4 +1,5 @@
 using Bunit;
+using System.Globalization;
 using System.Text.Json;
 using Lineup.Plugin.GuideOutputs.Json.Plugin;
 using Lineup.Plugin.GuideOutputs.Xmltv.Plugin;
@@ -9,6 +10,7 @@ using Lineup.App.Web.Components.Pages;
 using Lineup.App.Web.Services;
 using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Localization;
 using NSubstitute;
 using Xunit;
 
@@ -31,9 +33,9 @@ public sealed class TopologySettingsTests
         var webSettings = context.Services.GetRequiredService<IWebSettingsService>().Settings;
         webSettings.Theme = "dark";
         var component = context.Render<Settings>();
-        component.Find($"#{selector}").Change(true);
-        component.Find("#tab-guide").Click();
-        component.Find("#epgHistoryRetentionHours").Change(48);
+        await component.Find($"#{selector}").ChangeAsync(true);
+        await component.Find("#tab-guide").ClickAsync(new());
+        await component.Find("#epgHistoryRetentionHours").ChangeAsync(48);
 
         // Act
         await component.InvokeAsync(() => settingsService.UpdateAsync(current => current.NextAutoFetchTime = DateTime.UtcNow.AddDays(1)));
@@ -55,8 +57,8 @@ public sealed class TopologySettingsTests
         await using var context = CreateContext(out _, out var settings);
         var webSettings = context.Services.GetRequiredService<IWebSettingsService>();
         var component = context.Render<Settings>();
-        component.Find("#tab-guide").Click();
-        component.Find("#epgHistoryRetentionHours").Change(48);
+        await component.Find("#tab-guide").ClickAsync(new());
+        await component.Find("#epgHistoryRetentionHours").ChangeAsync(48);
 
         // Act
         await component.InvokeAsync(() => webSettings.UpdateAsync(current => current.Theme = "dark"));
@@ -132,10 +134,10 @@ public sealed class TopologySettingsTests
             settings.XmltvOutputPath = Path.Combine(root.FullName, "previous.xml");
             var original = settings.Streaming;
             var component = context.Render<Settings>();
-            component.Find("#tab-reset").Click();
+            await component.Find("#tab-reset").ClickAsync(new());
 
             // Act
-            component.Find("#resetSettings").Click();
+            await component.Find("#resetSettings").ClickAsync(new());
             var edited = Assert.Single(component.Instance.Topology.GuideOutputs, output => output.IsBuiltIn);
             Assert.Equal(configuredPath, edited.OutputPath);
             Assert.Equal(configuredPath, component.Instance.XmltvOutputPath);
@@ -181,13 +183,13 @@ public sealed class TopologySettingsTests
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var original = settings.Streaming;
         var component = context.Render<Settings>();
-        component.Find("#tab-virtual-devices").Click();
-        component.Find(".virtual-device-tab").Click();
-        component.Find("#dedicatedListener-0").Change(true);
-        component.Find("#workerRestarts-0").Change(2);
+        await component.Find("#tab-virtual-devices").ClickAsync(new());
+        await component.Find(".virtual-device-tab").ClickAsync(new());
+        await component.Find("#dedicatedListener-0").ChangeAsync(true);
+        await component.Find("#workerRestarts-0").ChangeAsync(2);
 
         // Act
-        component.Find("#listenerAddresses-0").Change(address);
+        await component.Find("#listenerAddresses-0").ChangeAsync(address);
         await component.Find("button.btn-primary").ClickAsync(new());
 
         // Assert
@@ -199,7 +201,7 @@ public sealed class TopologySettingsTests
         Assert.Contains(context.Services.GetRequiredService<IStatusNotificationService>().Notifications, notification => notification.IsError);
 
         // Act
-        component.Find("#listenerAddresses-0").Change("192.0.2.10");
+        await component.Find("#listenerAddresses-0").ChangeAsync("192.0.2.10");
         await component.Find("button.btn-primary").ClickAsync(new());
 
         // Assert
@@ -219,9 +221,9 @@ public sealed class TopologySettingsTests
         await using var context = CreateContext(out var settingsService, out var settings);
         settings.Streaming = settings.Streaming with { MaximumPluginConnections = 4 };
         var component = context.Render<Settings>();
-        component.Find("#tab-streaming").Click();
+        await component.Find("#tab-streaming").ClickAsync(new());
         Assert.Equal("4", component.Find("#maximumPluginConnections").GetAttribute("value"));
-        component.Find("#maximumPluginConnections").Change(maximum);
+        await component.Find("#maximumPluginConnections").ChangeAsync(maximum);
 
         // Act
         await component.Find("button.btn-primary").ClickAsync(new());
@@ -242,14 +244,7 @@ public sealed class TopologySettingsTests
     [InlineData(VirtualOutputTransport.Https, "localhost", 443, true, "https://public.example:9443/", "https://public.example/")]
     [InlineData(VirtualOutputTransport.Http, "localhost", 443, true, "https://public.example:9443/", "https://public.example/")]
     [InlineData(VirtualOutputTransport.Http, "localhost", null, true, "http://public.example:9443/", "http://public.example:9443/")]
-    public async Task LineupLinkBundle_DedicatedListener_UsesEffectiveAddress(
-        VirtualOutputTransport transport,
-        string addresses,
-        int? publishedPort,
-        bool manualOverride,
-        string manualUri,
-        string expected
-    )
+    public async Task LineupLinkBundle_DedicatedListener_UsesEffectiveAddress(VirtualOutputTransport transport, string addresses, int? publishedPort, bool manualOverride, string manualUri, string expected)
     {
         // Arrange
         await using var context = CreateContext(out var settingsService, out var settings);
@@ -257,40 +252,40 @@ public sealed class TopologySettingsTests
         context.JSInterop.SetupVoid("downloadTextFile", _ => true).SetVoidResult();
         context.JSInterop.SetupVoid("copyTextToClipboard", _ => true).SetVoidResult();
         var component = context.Render<Settings>();
-        component.Find("#tab-virtual-devices").Click();
-        component.Find("#addVirtualDevice").Click();
-        component.Find("[data-virtual-device-kind='lineup-link']").Click();
-        component.Find("#dedicatedListener-1").Change(true);
-        component.Find("#listenerTransport-1").Change(transport);
-        component.Find("#listenerAddresses-1").Change(addresses);
-        component.Find("#listenerPort-1").Change(9600);
+        await component.Find("#tab-virtual-devices").ClickAsync(new());
+        await component.Find("#addVirtualDevice").ClickAsync(new());
+        await component.Find("[data-virtual-device-kind='lineup-link']").ClickAsync(new());
+        await component.Find("#dedicatedListener-1").ChangeAsync(true);
+        await component.Find("#listenerTransport-1").ChangeAsync(transport);
+        await component.Find("#listenerAddresses-1").ChangeAsync(addresses);
+        await component.Find("#listenerPort-1").ChangeAsync(9600);
         if (publishedPort.HasValue)
         {
-            component.Find("#publishedPort-1").Change(publishedPort.Value);
+            await component.Find("#publishedPort-1").ChangeAsync(publishedPort.Value);
         }
         if (transport == VirtualOutputTransport.Https)
         {
-            component.Find("#listenerCertificate-1").Change("test-certificate");
+            await component.Find("#listenerCertificate-1").ChangeAsync("test-certificate");
         }
         var device = component.Instance.Topology.VirtualDevices.Single(candidate => candidate.IsLineupLink);
         device.PublicBaseUri = manualUri;
         if (manualOverride)
         {
-            component.Find("#listenerPublicUriOverride-1").Change(true);
-            component.Find("#listenerPublicUri-1").Change(manualUri);
+            await component.Find("#listenerPublicUriOverride-1").ChangeAsync(true);
+            await component.Find("#listenerPublicUri-1").ChangeAsync(manualUri);
         }
         var requireEncryption = expected.StartsWith("https:", StringComparison.Ordinal);
         if (requireEncryption)
         {
-            component.Find("#linkServerCertificate-1").Change(new string('A', 64));
+            await component.Find("#linkServerCertificate-1").ChangeAsync(new string('A', 64));
         }
-        component.Find("#newLineupLinkGrantName-1").Change("Effective address");
-        component.Find("#createLineupLinkGrant-1").Click();
+        await component.Find("#newLineupLinkGrantName-1").ChangeAsync("Effective address");
+        await component.Find("#createLineupLinkGrant-1").ClickAsync(new());
 
         // Act
         await component.Find(".lineup-link-access-grant button[id^='exportLineupLinkBundle-']").ClickAsync(new());
         await component.Find(".lineup-link-access-grant button[id^='copyLineupLinkBundle-']").ClickAsync(new());
-        component.Find(".lineup-link-access-grant button[id^='showLineupLinkBundle-']").Click();
+        await component.Find(".lineup-link-access-grant button[id^='showLineupLinkBundle-']").ClickAsync(new());
 
         // Assert
         var download = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "downloadTextFile");
@@ -311,9 +306,9 @@ public sealed class TopologySettingsTests
         // Act
         await component.Find("button.btn-primary").ClickAsync(new());
         var reloaded = context.Render<Settings>();
-        reloaded.Find("#tab-virtual-devices").Click();
-        reloaded.FindAll(".virtual-device-tab").Single(tab => tab.TextContent.Contains("Lineup Link", StringComparison.Ordinal)).Click();
-        reloaded.Find(".lineup-link-access-grant button[id^='showLineupLinkBundle-']").Click();
+        await reloaded.Find("#tab-virtual-devices").ClickAsync(new());
+        await reloaded.FindAll(".virtual-device-tab").Single(tab => tab.TextContent.Contains("Lineup Link", StringComparison.Ordinal)).ClickAsync(new());
+        await reloaded.Find(".lineup-link-access-grant button[id^='showLineupLinkBundle-']").ClickAsync(new());
 
         // Assert
         await settingsService.Received(1).UpdateAsync(Arg.Any<Action<LineupSettings>>());
@@ -342,28 +337,28 @@ public sealed class TopologySettingsTests
         context.Services.AddSingleton<IVirtualTunerDriver, LineupLinkVirtualTunerDriver>();
         var component = context.Render<Settings>();
         var initialConfiguration = settings.Streaming;
-        component.Find("#tab-virtual-devices").Click();
+        await component.Find("#tab-virtual-devices").ClickAsync(new());
         if (kind == "web-player")
         {
-            component.Find(".virtual-device-tab").Click();
+            await component.Find(".virtual-device-tab").ClickAsync(new());
         }
         else
         {
-            component.Find("#addVirtualDevice").Click();
-            component.Find($"[data-virtual-device-kind='{kind}']").Click();
+            await component.Find("#addVirtualDevice").ClickAsync(new());
+            await component.Find($"[data-virtual-device-kind='{kind}']").ClickAsync(new());
         }
         var index = kind == "web-player" ? 0 : 1;
         var device = component.Instance.Topology.VirtualDevices.Single(candidate => candidate.Kind == kind);
-        component.Find($"#dedicatedListener-{index}").Change(true);
-        component.Find($"#workerRestarts-{index}").Change(2);
+        await component.Find($"#dedicatedListener-{index}").ChangeAsync(true);
+        await component.Find($"#workerRestarts-{index}").ChangeAsync(2);
         if (manualOverride)
         {
-            component.Find($"#listenerPublicUriOverride-{index}").Change(true);
-            component.Find($"#listenerPublicUri-{index}").Change("http://public.example:9600/");
+            await component.Find($"#listenerPublicUriOverride-{index}").ChangeAsync(true);
+            await component.Find($"#listenerPublicUri-{index}").ChangeAsync("http://public.example:9600/");
         }
 
         // Act
-        component.Find($"#listenerPort-{index}").Change(65_536);
+        await component.Find($"#listenerPort-{index}").ChangeAsync(65_536);
         await component.Find("button.btn-primary").ClickAsync(new());
 
         // Assert
@@ -384,7 +379,7 @@ public sealed class TopologySettingsTests
         Assert.Contains($"Virtual device {device.Id} output binding port must be between 1 and 65535.", error.Message, StringComparison.Ordinal);
 
         // Act
-        component.Find($"#listenerPort-{index}").Change(9800);
+        await component.Find($"#listenerPort-{index}").ChangeAsync(9800);
         var expectedUri = manualOverride ? "http://public.example:9600/" : "http://localhost:9800/";
         Assert.Equal(expectedUri, component.Find($"#listenerClientUrl-{index}").GetAttribute("value"));
         await component.Find("button.btn-primary").ClickAsync(new());
@@ -411,16 +406,16 @@ public sealed class TopologySettingsTests
         var component = context.Render<Settings>();
 
         // Act
-        component.Find("#tab-guide").Click();
+        await component.Find("#tab-guide").ClickAsync(new());
 
         // Assert
         Assert.Contains("No guide sources are configured", component.Find("#guideSourcesEmptyState").TextContent);
 
-        component.Find("#tab-physical-devices").Click();
+        await component.Find("#tab-physical-devices").ClickAsync(new());
 
         Assert.Contains("No physical devices are configured", component.Find("#physicalDevicesEmptyState").TextContent);
 
-        component.Find("#tab-virtual-devices").Click();
+        await component.Find("#tab-virtual-devices").ClickAsync(new());
 
         Assert.Contains("No additional virtual devices are configured", component.Find("#virtualDevicesEmptyState").TextContent);
         Assert.Contains("built-in Web Player remains available", component.Find("#virtualDevicesEmptyState").TextContent);
@@ -442,7 +437,7 @@ public sealed class TopologySettingsTests
 
         // Act
         var component = context.Render<Settings>();
-        component.Find("#tab-virtual-devices").Click();
+        await component.Find("#tab-virtual-devices").ClickAsync(new());
 
         // Assert
         var message = component.Find("#virtualDevicesEmptyState").TextContent;
@@ -474,7 +469,7 @@ public sealed class TopologySettingsTests
 
         // Act
         var component = context.Render<Settings>();
-        component.Find("#tab-physical-devices").Click();
+        await component.Find("#tab-physical-devices").ClickAsync(new());
 
         // Assert
         Assert.Equal(2, component.FindComponents<GlobalTranscoderSettings>().Count);
@@ -501,7 +496,7 @@ public sealed class TopologySettingsTests
         Assert.DoesNotContain("d-none", component.Find("#physicalDevicesSettingsTab").ClassList);
         Assert.Contains("d-none", component.Find("#virtualDevicesSettingsTab").ClassList);
 
-        component.Find(".physical-device-tab").Click();
+        await component.Find(".physical-device-tab").ClickAsync(new());
 
         Assert.Single(component.FindComponents<GlobalTranscoderSettings>());
         Assert.Single(component.FindComponents<DeviceTranscoderSettings>());
@@ -526,7 +521,7 @@ public sealed class TopologySettingsTests
         Assert.Contains("Transcoder Settings", component.Find("#aboutSettingsBody").TextContent);
         Assert.Contains("continue to inherit", component.Find("#aboutSettingsBody").TextContent);
 
-        component.Find("#tab-virtual-devices").Click();
+        await component.Find("#tab-virtual-devices").ClickAsync(new());
 
         Assert.Contains("d-none", component.Find("#physicalDevicesSettingsTab").ClassList);
         Assert.DoesNotContain("d-none", component.Find("#virtualDevicesSettingsTab").ClassList);
@@ -546,7 +541,7 @@ public sealed class TopologySettingsTests
         Assert.Contains("Source field rate", component.Find("#virtualTranscoderSettings").TextContent);
         Assert.Contains("AC-3 is the broadest compatibility option", component.Find("#virtualTranscoderSettings").TextContent);
 
-        component.Find(".virtual-device-tab").Click();
+        await component.Find(".virtual-device-tab").ClickAsync(new());
 
         Assert.NotNull(component.Find("#virtualOverrideHevc-0"));
         Assert.NotNull(component.Find("#virtualOverrideDeinterlace-0"));
@@ -576,10 +571,10 @@ public sealed class TopologySettingsTests
         await using var context = CreateContext(out _, out _);
         context.Services.AddSingleton<IVirtualTunerDriver, M3uTestVirtualTunerDriver>();
         var component = context.Render<Settings>();
-        component.Find("#tab-virtual-devices").Click();
+        await component.Find("#tab-virtual-devices").ClickAsync(new());
 
         // Act
-        component.Find("#addVirtualDevice").Click();
+        await component.Find("#addVirtualDevice").ClickAsync(new());
 
         // Assert
         var picker = component.Find("#virtualDeviceTypePicker");
@@ -589,7 +584,7 @@ public sealed class TopologySettingsTests
         var option = Assert.Single(options, option => option.GetAttribute("data-virtual-device-kind") == "m3u");
         Assert.Contains("M3U Provider", option.TextContent);
 
-        option.Click();
+        await option.ClickAsync(new());
 
         Assert.Empty(component.FindAll("#virtualDeviceTypePicker"));
         Assert.Single(component.FindAll("[data-device-kind='m3u']"));
@@ -608,12 +603,12 @@ public sealed class TopologySettingsTests
         context.Services.AddSingleton<IVirtualTunerDriver, LineupLinkVirtualTunerDriver>();
         context.JSInterop.SetupVoid("downloadTextFile", _ => true).SetVoidResult();
         var component = context.Render<Settings>();
-        component.Find("#tab-virtual-devices").Click();
-        component.Find("#addVirtualDevice").Click();
-        component.Find("[data-virtual-device-kind='lineup-link']").Click();
-        component.Find("#linkPublicUrl-1").Change("https://lineup.example:8443");
-        component.Find("#newLineupLinkGrantName-1").Change("Export access");
-        component.Find("#createLineupLinkGrant-1").Click();
+        await component.Find("#tab-virtual-devices").ClickAsync(new());
+        await component.Find("#addVirtualDevice").ClickAsync(new());
+        await component.Find("[data-virtual-device-kind='lineup-link']").ClickAsync(new());
+        await component.Find("#linkPublicUrl-1").ChangeAsync("https://lineup.example:8443");
+        await component.Find("#newLineupLinkGrantName-1").ChangeAsync("Export access");
+        await component.Find("#createLineupLinkGrant-1").ClickAsync(new());
 
         // Act
         await component.Find(".lineup-link-access-grant button[id^='exportLineupLinkBundle-']").ClickAsync(new());
@@ -645,11 +640,11 @@ public sealed class TopologySettingsTests
         context.Services.AddSingleton<IVirtualTunerDriver, LineupLinkVirtualTunerDriver>();
         context.JSInterop.SetupVoid("downloadTextFile", _ => true).SetVoidResult();
         var component = context.Render<Settings>();
-        component.Find("#tab-virtual-devices").Click();
-        component.Find("#addVirtualDevice").Click();
-        component.Find("[data-virtual-device-kind='lineup-link']").Click();
-        component.Find("#newLineupLinkGrantName-1").Change("Pending address");
-        component.Find("#createLineupLinkGrant-1").Click();
+        await component.Find("#tab-virtual-devices").ClickAsync(new());
+        await component.Find("#addVirtualDevice").ClickAsync(new());
+        await component.Find("[data-virtual-device-kind='lineup-link']").ClickAsync(new());
+        await component.Find("#newLineupLinkGrantName-1").ChangeAsync("Pending address");
+        await component.Find("#createLineupLinkGrant-1").ClickAsync(new());
 
         // Act
         await component.Find(".lineup-link-access-grant button[id^='exportLineupLinkBundle-']").ClickAsync(new());
@@ -672,13 +667,13 @@ public sealed class TopologySettingsTests
         context.Services.AddSingleton<IVirtualTunerDriver, LineupLinkVirtualTunerDriver>();
         context.JSInterop.SetupVoid("downloadTextFile", _ => true).SetVoidResult();
         var component = context.Render<Settings>();
-        component.Find("#tab-virtual-devices").Click();
-        component.Find("#addVirtualDevice").Click();
-        component.Find("[data-virtual-device-kind='lineup-link']").Click();
+        await component.Find("#tab-virtual-devices").ClickAsync(new());
+        await component.Find("#addVirtualDevice").ClickAsync(new());
+        await component.Find("[data-virtual-device-kind='lineup-link']").ClickAsync(new());
 
         // Act
         Assert.NotNull(component.Find("#linkEncryption-1"));
-        component.Find("#dedicatedListener-1").Change(true);
+        await component.Find("#dedicatedListener-1").ChangeAsync(true);
 
         // Assert
         Assert.Empty(component.FindAll("#linkEncryption-1"));
@@ -711,16 +706,16 @@ public sealed class TopologySettingsTests
             component.Find("#listenerClientUrl-1").GetAttribute("value"));
 
         // Act
-        component.Find("#listenerTransport-1").Change(VirtualOutputTransport.Https);
+        await component.Find("#listenerTransport-1").ChangeAsync(VirtualOutputTransport.Https);
 
         // Assert
         Assert.Contains("HTTPS", component.Find(".lineup-link-listener-transport").TextContent);
         Assert.NotNull(component.Find("#linkServerCertificate-1"));
         Assert.Contains("Connection bundle certificate pin", component.Find("label[for='linkServerCertificate-1']").TextContent);
-        component.Find("#listenerPublicUriOverride-1").Change(true);
-        component.Find("#listenerPublicUri-1").Change("https://lineup.example:8600/");
-        component.Find("#newLineupLinkGrantName-1").Change("Dedicated access");
-        component.Find("#createLineupLinkGrant-1").Click();
+        await component.Find("#listenerPublicUriOverride-1").ChangeAsync(true);
+        await component.Find("#listenerPublicUri-1").ChangeAsync("https://lineup.example:8600/");
+        await component.Find("#newLineupLinkGrantName-1").ChangeAsync("Dedicated access");
+        await component.Find("#createLineupLinkGrant-1").ClickAsync(new());
 
         // Act
         await component.Find(".lineup-link-access-grant button[id^='exportLineupLinkBundle-']").ClickAsync(new());
@@ -743,14 +738,14 @@ public sealed class TopologySettingsTests
         await using var context = CreateContext(out _, out _);
         context.Services.AddSingleton<IVirtualTunerDriver, LineupLinkVirtualTunerDriver>();
         var component = context.Render<Settings>();
-        component.Find("#tab-virtual-devices").Click();
-        component.Find("#addVirtualDevice").Click();
-        component.Find("[data-virtual-device-kind='lineup-link']").Click();
+        await component.Find("#tab-virtual-devices").ClickAsync(new());
+        await component.Find("#addVirtualDevice").ClickAsync(new());
+        await component.Find("[data-virtual-device-kind='lineup-link']").ClickAsync(new());
         var expiration = new DateTime(2030, 1, 2, 3, 4, 0, DateTimeKind.Unspecified);
 
         // Act
         component.Find("#newLineupLinkGrantExpiration-1").Input("2030-01-02T03:04");
-        component.Find("#newLineupLinkGrantName-1").Change("Expiration test");
+        await component.Find("#newLineupLinkGrantName-1").ChangeAsync("Expiration test");
 
         // Assert
         var device = component.Instance.Topology.VirtualDevices.Single(item => item.IsLineupLink);
@@ -769,13 +764,13 @@ public sealed class TopologySettingsTests
         context.Services.AddSingleton<IVirtualTunerDriver, LineupLinkVirtualTunerDriver>();
         context.JSInterop.SetupVoid("copyTextToClipboard", _ => true).SetVoidResult();
         var component = context.Render<Settings>();
-        component.Find("#tab-virtual-devices").Click();
-        component.Find("#addVirtualDevice").Click();
-        component.Find("[data-virtual-device-kind='lineup-link']").Click();
-        component.Find("#linkPublicUrl-1").Change("https://lineup.example:8443");
-        component.Find("#newLineupLinkGrantName-1").Change("Copy access");
-        component.Find("#createLineupLinkGrant-1").Click();
-        component.Find(".lineup-link-access-grant button[id^='rotateLineupLinkGrant-']").Click();
+        await component.Find("#tab-virtual-devices").ClickAsync(new());
+        await component.Find("#addVirtualDevice").ClickAsync(new());
+        await component.Find("[data-virtual-device-kind='lineup-link']").ClickAsync(new());
+        await component.Find("#linkPublicUrl-1").ChangeAsync("https://lineup.example:8443");
+        await component.Find("#newLineupLinkGrantName-1").ChangeAsync("Copy access");
+        await component.Find("#createLineupLinkGrant-1").ClickAsync(new());
+        await component.Find(".lineup-link-access-grant button[id^='rotateLineupLinkGrant-']").ClickAsync(new());
 
         // Act
         await component.Find(".lineup-link-access-grant button[id^='copyLineupLinkBundle-']").ClickAsync(new());
@@ -826,11 +821,11 @@ public sealed class TopologySettingsTests
         Assert.Empty(editor.TryBuild(model, out var configuration));
         settings.Streaming = configuration;
         var component = context.Render<Settings>();
-        component.Find("#tab-virtual-devices").Click();
-        component.FindAll(".virtual-device-tab").Single(tab => tab.TextContent.Contains("Lineup Link", StringComparison.Ordinal)).Click();
+        await component.Find("#tab-virtual-devices").ClickAsync(new());
+        await component.FindAll(".virtual-device-tab").Single(tab => tab.TextContent.Contains("Lineup Link", StringComparison.Ordinal)).ClickAsync(new());
 
         // Act
-        component.Find(".lineup-link-access-grant button[id^='showLineupLinkBundle-']").Click();
+        await component.Find(".lineup-link-access-grant button[id^='showLineupLinkBundle-']").ClickAsync(new());
 
         // Assert
         Assert.True(component.Find(".lineup-link-access-grant button[id^='exportLineupLinkBundle-']").HasAttribute("disabled"));
@@ -838,7 +833,7 @@ public sealed class TopologySettingsTests
         Assert.Equal("true", component.Find(".lineup-link-access-grant button[id^='showLineupLinkBundle-']").GetAttribute("aria-expanded"));
         Assert.Contains(LineupLinkConnectionBundleCodec.RedactedAccessToken, component.Markup);
         Assert.Contains("The token is redacted.", component.Find(".lineup-link-access-grant").TextContent);
-        component.Find(".lineup-link-access-grant button[id^='showLineupLinkBundle-']").Click();
+        await component.Find(".lineup-link-access-grant button[id^='showLineupLinkBundle-']").ClickAsync(new());
         Assert.Equal("false", component.Find(".lineup-link-access-grant button[id^='showLineupLinkBundle-']").GetAttribute("aria-expanded"));
         Assert.Empty(component.FindAll(".lineup-link-access-grant pre.connection-bundle-json"));
     }
@@ -851,18 +846,18 @@ public sealed class TopologySettingsTests
         await using var context = CreateContext(out _, out _);
         context.Services.AddSingleton<IVirtualTunerDriver, LineupLinkVirtualTunerDriver>();
         var component = context.Render<Settings>();
-        component.Find("#tab-virtual-devices").Click();
-        component.Find("#addVirtualDevice").Click();
-        component.Find("[data-virtual-device-kind='lineup-link']").Click();
-        component.Find("#linkPublicUrl-1").Change("https://lineup.example:8443");
-        component.Find("#newLineupLinkGrantName-1").Change("Bob");
+        await component.Find("#tab-virtual-devices").ClickAsync(new());
+        await component.Find("#addVirtualDevice").ClickAsync(new());
+        await component.Find("[data-virtual-device-kind='lineup-link']").ClickAsync(new());
+        await component.Find("#linkPublicUrl-1").ChangeAsync("https://lineup.example:8443");
+        await component.Find("#newLineupLinkGrantName-1").ChangeAsync("Bob");
 
         // Act
-        component.Find("#createLineupLinkGrant-1").Click();
-        component.Find(".lineup-link-access-grant button[id^='revokeLineupLinkGrant-']").Click();
+        await component.Find("#createLineupLinkGrant-1").ClickAsync(new());
+        await component.Find(".lineup-link-access-grant button[id^='revokeLineupLinkGrant-']").ClickAsync(new());
         var revokedGrant = component.Find(".lineup-link-access-grant");
-        revokedGrant.QuerySelector("button[id^='purgeLineupLinkGrant-']")!.Click();
-        component.Find("button[id^='confirmPurgeLineupLinkGrant-']").Click();
+        await revokedGrant.QuerySelector("button[id^='purgeLineupLinkGrant-']")!.ClickAsync(new());
+        await component.Find("button[id^='confirmPurgeLineupLinkGrant-']").ClickAsync(new());
         var grants = component.FindAll(".lineup-link-access-grant");
 
         // Assert
@@ -893,7 +888,7 @@ public sealed class TopologySettingsTests
         var component = context.Render<Settings>();
 
         // Act
-        component.Find("#tab-virtual-devices").Click();
+        await component.Find("#tab-virtual-devices").ClickAsync(new());
 
         // Assert
         var tabs = component.FindAll("#virtualTopologySettings .nav-tabs .nav-link");
@@ -914,10 +909,10 @@ public sealed class TopologySettingsTests
         await using var context = CreateContext(out _, out _);
         context.Services.AddSingleton<IPhysicalTunerDriver>(new TestPhysicalTunerDriver("m3u", "M3U Source", ""));
         var component = context.Render<Settings>();
-        component.Find("#tab-physical-devices").Click();
+        await component.Find("#tab-physical-devices").ClickAsync(new());
 
         // Act
-        component.Find("#addPhysicalDevice").Click();
+        await component.Find("#addPhysicalDevice").ClickAsync(new());
 
         // Assert
         var picker = component.Find("#physicalDeviceTypePicker");
@@ -927,7 +922,7 @@ public sealed class TopologySettingsTests
         var option = Assert.Single(options, option => option.GetAttribute("data-physical-device-kind") == "m3u");
         Assert.Contains("M3U Source", option.TextContent);
 
-        option.Click();
+        await option.ClickAsync(new());
 
         Assert.Empty(component.FindAll("#physicalDeviceTypePicker"));
         Assert.Single(component.FindAll("[data-device-kind='m3u']"));
@@ -952,11 +947,11 @@ public sealed class TopologySettingsTests
         Assert.Empty(editor.TryBuild(model, out var configuration));
         settings.Streaming = configuration;
         var component = context.Render<Settings>();
-        component.Find("#tab-guide").Click();
+        await component.Find("#tab-guide").ClickAsync(new());
 
         // Act
-        component.Find("#addGuideSource").Click();
-        component.Find(".add-guide-source-type").Click();
+        await component.Find("#addGuideSource").ClickAsync(new());
+        await component.Find(".add-guide-source-type").ClickAsync(new());
 
         // Assert
         Assert.Empty(component.FindAll("#guideSourceTypePicker"));
@@ -967,7 +962,7 @@ public sealed class TopologySettingsTests
         Assert.Empty(component.FindAll("#guideSourcesEmptyState"));
 
         // Act
-        component.Find(".guide-source-selected").Change(true);
+        await component.Find(".guide-source-selected").ChangeAsync(true);
 
         // Assert
         var physical = component.Find(".guide-source-physical");
@@ -989,7 +984,7 @@ public sealed class TopologySettingsTests
         var component = context.Render<Settings>();
 
         // Act
-        component.Find("#tab-physical-devices").Click();
+        await component.Find("#tab-physical-devices").ClickAsync(new());
 
         // Assert
         Assert.Contains("Refresh Settings", component.Find("#aboutSettingsBody").TextContent);
@@ -997,44 +992,44 @@ public sealed class TopologySettingsTests
         Assert.DoesNotContain("Video Quality (CRF)", component.Find("#aboutSettingsBody").TextContent);
         Assert.DoesNotContain("Non-AC-4 Audio", component.Find("#aboutSettingsBody").TextContent);
 
-        component.Find("#addPhysicalDevice").Click();
-        component.Find("[data-physical-device-kind='m3u']").Click();
-        component.Find("#physicalName-0").Change("Playlist Antenna");
+        await component.Find("#addPhysicalDevice").ClickAsync(new());
+        await component.Find("[data-physical-device-kind='m3u']").ClickAsync(new());
+        await component.Find("#physicalName-0").ChangeAsync("Playlist Antenna");
 
         Assert.Contains("Playlist Antenna", component.Find("#aboutSettingsBody").TextContent);
         Assert.Contains("M3U Source", component.Find("#aboutSettingsBody").TextContent);
         Assert.Contains("Plugin-provided connection and source options", component.Find("#aboutSettingsBody").TextContent);
         Assert.Contains("Transcoder Settings", component.Find("#aboutSettingsBody").TextContent);
 
-        component.Find("#tab-guide").Click();
+        await component.Find("#tab-guide").ClickAsync(new());
 
         Assert.Contains("EPG Fetch Settings", component.Find("#aboutSettingsBody").TextContent);
         Assert.DoesNotContain("XMLTV Output Settings", component.Find("#aboutSettingsBody").TextContent);
 
-        component.Find("#addGuideSource").Click();
-        component.Find("[data-guide-source-kind='xmltv']").Click();
-        component.Find("#guideSourceName-0").Change("Regional XMLTV");
+        await component.Find("#addGuideSource").ClickAsync(new());
+        await component.Find("[data-guide-source-kind='xmltv']").ClickAsync(new());
+        await component.Find("#guideSourceName-0").ChangeAsync("Regional XMLTV");
 
         Assert.Contains("Regional XMLTV", component.Find("#aboutSettingsBody").TextContent);
         Assert.Contains("XMLTV Provider", component.Find("#aboutSettingsBody").TextContent);
         Assert.DoesNotContain("Physical Device Subscription", component.Find("#aboutSettingsBody").TextContent);
         Assert.DoesNotContain("All compatible enabled devices", component.Find("#aboutSettingsBody").TextContent);
 
-        component.Find("#tab-guide-outputs").Click();
+        await component.Find("#tab-guide-outputs").ClickAsync(new());
 
         Assert.Contains("Guide Outputs", component.Find("#aboutSettingsBody").TextContent);
         Assert.DoesNotContain("Reset Settings", component.Find("#aboutSettingsBody").TextContent);
 
-        component.Find("#tab-virtual-devices").Click();
+        await component.Find("#tab-virtual-devices").ClickAsync(new());
 
         Assert.Contains("Transcoder Settings", component.Find("#aboutSettingsBody").TextContent);
         Assert.Contains("Virtual Tuner Discovery", component.Find("#aboutSettingsBody").TextContent);
         Assert.DoesNotContain("Video Encoder Preset", component.Find("#aboutSettingsBody").TextContent);
         Assert.DoesNotContain("AC-4 Audio", component.Find("#aboutSettingsBody").TextContent);
 
-        component.Find("#addVirtualDevice").Click();
-        component.Find("[data-virtual-device-kind='m3u']").Click();
-        component.Find("#virtualName-1").Change("Living Room Playlist");
+        await component.Find("#addVirtualDevice").ClickAsync(new());
+        await component.Find("[data-virtual-device-kind='m3u']").ClickAsync(new());
+        await component.Find("#virtualName-1").ChangeAsync("Living Room Playlist");
 
         Assert.Contains("Living Room Playlist", component.Find("#aboutSettingsBody").TextContent);
         Assert.Contains("M3U Provider", component.Find("#aboutSettingsBody").TextContent);
@@ -1052,11 +1047,11 @@ public sealed class TopologySettingsTests
         // Arrange
         await using var context = CreateContext(out _, out _);
         var component = context.Render<Settings>();
-        component.Find("#tab-physical-devices").Click();
+        await component.Find("#tab-physical-devices").ClickAsync(new());
 
         // Act
-        component.Find("#addPhysicalDevice").Click();
-        component.Find(".physical-device-type").Click();
+        await component.Find("#addPhysicalDevice").ClickAsync(new());
+        await component.Find(".physical-device-type").ClickAsync(new());
 
         // Assert
         var deviceTab = component.Find(".physical-device-tab");
@@ -1064,15 +1059,15 @@ public sealed class TopologySettingsTests
         Assert.Empty(component.FindAll("#physicalGlobalSettings"));
         Assert.Single(component.FindAll(".physical-device"));
 
-        component.Find("#physicalName-0").Change("Roof Antenna");
+        await component.Find("#physicalName-0").ChangeAsync("Roof Antenna");
 
         Assert.Contains("Roof Antenna", component.Find(".physical-device-tab").TextContent);
 
-        component.Find("#physicalEnabled-0").Change(false);
+        await component.Find("#physicalEnabled-0").ChangeAsync(false);
 
         Assert.Contains("Disabled", component.Find(".physical-device-tab").TextContent);
 
-        component.Find(".remove-physical-device").Click();
+        await component.Find(".remove-physical-device").ClickAsync(new());
 
         Assert.Contains("active", component.Find("#physicalSubtabGlobal").ClassList);
         Assert.NotNull(component.Find("#physicalGlobalSettings"));
@@ -1102,10 +1097,10 @@ public sealed class TopologySettingsTests
             });
         };
         var component = context.Render<Settings>();
-        component.Find("#tab-physical-devices").Click();
-        component.Find("#addPhysicalDevice").Click();
-        component.Find(".physical-device-type").Click();
-        component.Find("#physicalAddress-0").Change("unsaved.local");
+        await component.Find("#tab-physical-devices").ClickAsync(new());
+        await component.Find("#addPhysicalDevice").ClickAsync(new());
+        await component.Find(".physical-device-type").ClickAsync(new());
+        await component.Find("#physicalAddress-0").ChangeAsync("unsaved.local");
 
         // Act
         await component.Find("#testPhysicalDevice-0").ClickAsync(new());
@@ -1122,7 +1117,7 @@ public sealed class TopologySettingsTests
         await settingsService.DidNotReceive().UpdateAsync(Arg.Any<Action<LineupSettings>>());
         Assert.Empty(settings.Streaming.PhysicalDevices);
 
-        component.Find(".use-discovered-name").Click();
+        await component.Find(".use-discovered-name").ClickAsync(new());
 
         Assert.Equal("Living Room HDHomeRun (ABCDEF01)", component.Find("#physicalName-0").GetAttribute("value"));
         await settingsService.DidNotReceive().UpdateAsync(Arg.Any<Action<LineupSettings>>());
@@ -1139,9 +1134,9 @@ public sealed class TopologySettingsTests
         var driver = Assert.IsType<TestPhysicalTunerDriver>(context.Services.GetServices<IPhysicalTunerDriver>().Single(candidate => candidate.Kind == "hdhomerun"));
         driver.Probe = (_, _) => ValueTask.FromException<PhysicalDeviceProbeResult>(new HttpRequestException("Device refused the connection."));
         var component = context.Render<Settings>();
-        component.Find("#tab-physical-devices").Click();
-        component.Find("#addPhysicalDevice").Click();
-        component.Find(".physical-device-type").Click();
+        await component.Find("#tab-physical-devices").ClickAsync(new());
+        await component.Find("#addPhysicalDevice").ClickAsync(new());
+        await component.Find(".physical-device-type").ClickAsync(new());
 
         // Act
         await component.Find("#testPhysicalDevice-0").ClickAsync(new());
@@ -1157,7 +1152,7 @@ public sealed class TopologySettingsTests
         await component.Find("#testPhysicalDevice-0").ClickAsync(new());
         component.WaitForAssertion(() => Assert.NotNull(component.Find(".physical-device-probe-success")), timeout: LineupWebBunitContext.WaitTimeout);
 
-        component.Find("#physicalAddress-0").Change("changed.local");
+        await component.Find("#physicalAddress-0").ChangeAsync("changed.local");
 
         Assert.Empty(component.FindAll(".physical-device-probe-success"));
         Assert.Empty(component.FindAll(".physical-device-probe-error"));
@@ -1185,29 +1180,29 @@ public sealed class TopologySettingsTests
 
         // Act
         var component = context.Render<Settings>();
-        component.Find("#tab-physical-devices").Click();
+        await component.Find("#tab-physical-devices").ClickAsync(new());
 
         // Assert
         Assert.Empty(component.FindAll(".physical-global-transcode-warning"));
 
-        component.Find("#physicalDefaultHevc").Change(true);
+        await component.Find("#physicalDefaultHevc").ChangeAsync(true);
 
         Assert.Single(component.FindAll(".physical-global-transcode-warning"));
 
-        component.Find(".physical-device-tab").Click();
+        await component.Find(".physical-device-tab").ClickAsync(new());
 
         Assert.Single(component.FindAll(".physical-device-transcode-warning"));
 
-        component.Find("#tab-virtual-devices").Click();
+        await component.Find("#tab-virtual-devices").ClickAsync(new());
 
         Assert.Single(component.FindAll(".virtual-global-transcode-warning"));
 
-        component.Find(".virtual-device-tab").Click();
+        await component.Find(".virtual-device-tab").ClickAsync(new());
 
         Assert.Single(component.FindAll(".virtual-device-transcode-warning"));
 
-        component.Find("#virtualSubtabGlobal").Click();
-        component.Find("#virtualDefaultHevc").Change(true);
+        await component.Find("#virtualSubtabGlobal").ClickAsync(new());
+        await component.Find("#virtualDefaultHevc").ChangeAsync(true);
 
         Assert.Single(component.FindAll(".virtual-global-transcode-warning"));
     }
@@ -1221,38 +1216,40 @@ public sealed class TopologySettingsTests
         // Arrange
         await using var context = CreateContext(out _, out _);
         var component = context.Render<Settings>();
-        component.Find("#tab-physical-devices").Click();
 
+        // Act
+        await component.Find("#tab-physical-devices").ClickAsync(new());
+
+        // Assert
         Assert.Empty(component.FindAll(".physical-global-video-encoder-settings"));
         Assert.NotNull(component.Find("#physicalDefaultAudio"));
 
-        component.Find("#addPhysicalDevice").Click();
-        component.Find(".physical-device-type").Click();
+        await component.Find("#addPhysicalDevice").ClickAsync(new());
+        await component.Find(".physical-device-type").ClickAsync(new());
 
-        // Act and Assert
         Assert.Empty(component.FindAll("#physicalOverridePreset-0"));
         Assert.NotNull(component.Find("#physicalOverrideAudio-0"));
 
-        component.Find("#physicalSubtabGlobal").Click();
-        component.Find("#physicalDefaultHevc").Change(true);
+        await component.Find("#physicalSubtabGlobal").ClickAsync(new());
+        await component.Find("#physicalDefaultHevc").ChangeAsync(true);
 
         Assert.Single(component.FindAll(".physical-global-video-encoder-settings"));
         Assert.NotNull(component.Find("#physicalDefaultPreset"));
         Assert.NotNull(component.Find("#physicalDefaultQuality"));
         Assert.NotNull(component.Find("#physicalDefaultBitrate"));
 
-        component.Find(".physical-device-tab").Click();
+        await component.Find(".physical-device-tab").ClickAsync(new());
 
         Assert.NotNull(component.Find("#physicalOverridePreset-0"));
         Assert.NotNull(component.Find("#physicalOverrideQuality-0"));
         Assert.NotNull(component.Find("#physicalOverrideBitrate-0"));
 
-        component.Find("#physicalOverrideHevc-0").Change(true);
+        await component.Find("#physicalOverrideHevc-0").ChangeAsync(true);
 
         Assert.Empty(component.FindAll("#physicalOverridePreset-0"));
 
-        component.Find("#physicalOverrideDeinterlace-0").Change(true);
-        component.Find(".physical-deinterlace").Change(nameof(SourceDeinterlacePolicy.SourceFrameRate));
+        await component.Find("#physicalOverrideDeinterlace-0").ChangeAsync(true);
+        await component.Find(".physical-deinterlace").ChangeAsync(nameof(SourceDeinterlacePolicy.SourceFrameRate));
 
         Assert.NotNull(component.Find("#physicalOverridePreset-0"));
     }
@@ -1266,21 +1263,21 @@ public sealed class TopologySettingsTests
         // Arrange
         await using var context = CreateContext(out _, out _);
         var component = context.Render<Settings>();
-        component.Find("#tab-physical-devices").Click();
-        component.Find("#addPhysicalDevice").Click();
-        component.Find(".physical-device-type").Click();
+        await component.Find("#tab-physical-devices").ClickAsync(new());
+        await component.Find("#addPhysicalDevice").ClickAsync(new());
+        await component.Find(".physical-device-type").ClickAsync(new());
 
         // Act
-        component.Find("#physicalEnabled-0").Change(false);
+        await component.Find("#physicalEnabled-0").ChangeAsync(false);
 
         // Assert
         Assert.NotNull(component.Find(".physical-device .card-header #physicalEnabled-0"));
         Assert.Empty(component.FindAll(".physical-device-details"));
         Assert.Empty(component.FindAll("#physicalName-0"));
 
-        component.Find("#tab-virtual-devices").Click();
-        component.Find(".virtual-device-tab").Click();
-        component.Find("#virtualEnabled-0").Change(false);
+        await component.Find("#tab-virtual-devices").ClickAsync(new());
+        await component.Find(".virtual-device-tab").ClickAsync(new());
+        await component.Find("#virtualEnabled-0").ChangeAsync(false);
 
         Assert.NotNull(component.Find(".virtual-device .card-header #virtualEnabled-0"));
         Assert.Empty(component.FindAll(".virtual-device-details"));
@@ -1298,15 +1295,15 @@ public sealed class TopologySettingsTests
         await using var context = CreateContext(out var settingsService, out var settings);
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var component = context.Render<Settings>();
-        component.Find("#tab-physical-devices").Click();
-        component.Find("#addPhysicalDevice").Click();
-        component.Find(".physical-device-type").Click();
-        component.Find("#physicalName-0").Change("Antenna");
-        component.Find("#physicalAddress-0").Change("antenna.local");
-        component.Find("#tab-virtual-devices").Click();
-        component.Find(".virtual-device-tab").Click();
-        component.Find("#virtualSubscription-0").Change(nameof(PhysicalDeviceSubscriptionMode.Selected));
-        component.Find(".physical-subscription-selection").Change(true);
+        await component.Find("#tab-physical-devices").ClickAsync(new());
+        await component.Find("#addPhysicalDevice").ClickAsync(new());
+        await component.Find(".physical-device-type").ClickAsync(new());
+        await component.Find("#physicalName-0").ChangeAsync("Antenna");
+        await component.Find("#physicalAddress-0").ChangeAsync("antenna.local");
+        await component.Find("#tab-virtual-devices").ClickAsync(new());
+        await component.Find(".virtual-device-tab").ClickAsync(new());
+        await component.Find("#virtualSubscription-0").ChangeAsync(nameof(PhysicalDeviceSubscriptionMode.Selected));
+        await component.Find(".physical-subscription-selection").ChangeAsync(true);
 
         // Act
         await component.Find("button.btn-primary").ClickAsync(new());
@@ -1318,6 +1315,69 @@ public sealed class TopologySettingsTests
         await settingsService.Received(1).UpdateAsync(Arg.Any<Action<LineupSettings>>());
     }
 
+    /// <summary>Verifies the XMLTV placeholder label and help use localized Web resources instead of plugin defaults.</summary>
+    [Theory]
+    [InlineData("en-US")]
+    [InlineData("de-DE")]
+    public async Task Render_XmltvPlaceholderPolicy_UsesLocalizedResources(string culture)
+    {
+        // Arrange
+        var originalUiCulture = CultureInfo.CurrentUICulture;
+        try
+        {
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(culture);
+            await using var context = CreateContext(out _, out _);
+            context.JSInterop.Mode = JSRuntimeMode.Loose;
+            var localizer = context.Services.GetRequiredService<IStringLocalizer<UiStrings>>();
+
+            // Act
+            var component = context.Render<Settings>();
+            await component.Find("#tab-guide-outputs").ClickAsync(new());
+            var field = component.Find("[data-setting-key='includeUnavailablePrograms']");
+
+            // Assert
+            Assert.Equal(localizer["Settings_GuideOutputIncludeUnavailableProgramsLabel"].Value, field.QuerySelector("label")!.TextContent);
+            Assert.Equal(localizer["Settings_GuideOutputIncludeUnavailableProgramsHelp"].Value, field.QuerySelector(".form-text")!.TextContent);
+            if (culture == "de-DE")
+            {
+                var descriptor = new XmltvGuideOutputDriver().SettingsDescriptor.Fields.Single(setting => setting.Key == "includeUnavailablePrograms");
+                Assert.NotEqual(descriptor.Label, field.QuerySelector("label")!.TextContent);
+                Assert.NotEqual(descriptor.Description, field.QuerySelector(".form-text")!.TextContent);
+            }
+        }
+        finally
+        {
+            CultureInfo.CurrentUICulture = originalUiCulture;
+        }
+    }
+
+    /// <summary>Verifies XMLTV exposes and retains its placeholder switch alongside the custom directory editor.</summary>
+    [Fact]
+    public async Task Save_XmltvGuideOutput_PersistsPlaceholderPolicy()
+    {
+        // Arrange
+        await using var context = CreateContext(out var settingsService, out var settings);
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        var component = context.Render<Settings>();
+        await component.Find("#tab-guide-outputs").ClickAsync(new());
+        const string selector = "[data-setting-key='includeUnavailablePrograms'] input";
+        Assert.False(component.Find(selector).HasAttribute("checked"));
+        var directory = Path.GetFullPath("xmltv-guide-output");
+
+        // Act
+        await component.Find(selector).ChangeAsync(true);
+        await component.Find("#guideOutputDirectoryPath").ChangeAsync(directory);
+        await component.Find("button.btn-primary").ClickAsync(new());
+        await component.Find("button.btn-primary").ClickAsync(new());
+
+        // Assert
+        var output = Assert.Single(settings.Streaming.GuideOutputs, candidate => candidate.IsBuiltIn);
+        Assert.True(output.Adapter.Configuration.GetProperty("IncludeUnavailablePrograms").GetBoolean());
+        Assert.Equal(directory, Path.GetDirectoryName(new XmltvGuideOutputDriver().ResolveDestination(output.Adapter).Path));
+        Assert.Empty(component.FindAll("[data-setting-key='outputDirectoryPath']"));
+        await settingsService.Received(2).UpdateAsync(Arg.Any<Action<LineupSettings>>());
+    }
+
     /// <summary>Verifies a non-XMLTV Guide Output renders and persists its plugin-owned portable settings.</summary>
     [Fact]
     public async Task Save_NonXmltvGuideOutput_PersistsPortableSettings()
@@ -1326,13 +1386,13 @@ public sealed class TopologySettingsTests
         await using var context = CreateContext(out var settingsService, out var settings);
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var component = context.Render<Settings>();
-        component.Find("#tab-guide-outputs").Click();
-        component.Find("#addGuideOutput").Click();
-        component.Find($"[data-guide-output-kind='{JsonGuideOutputDriver.AdapterKind}']").Click();
+        await component.Find("#tab-guide-outputs").ClickAsync(new());
+        await component.Find("#addGuideOutput").ClickAsync(new());
+        await component.Find($"[data-guide-output-kind='{JsonGuideOutputDriver.AdapterKind}']").ClickAsync(new());
         var outputDirectory = Path.GetFullPath("json-guide-output");
 
         // Act
-        component.Find("[data-setting-key='outputDirectoryPath'] input").Change(outputDirectory);
+        await component.Find("[data-setting-key='outputDirectoryPath'] input").ChangeAsync(outputDirectory);
         await component.Find("button.btn-primary").ClickAsync(new());
 
         // Assert
@@ -1376,19 +1436,19 @@ public sealed class TopologySettingsTests
             return Task.CompletedTask;
         });
         var component = context.Render<Settings>();
-        component.Find("#tab-guide-outputs").Click();
+        await component.Find("#tab-guide-outputs").ClickAsync(new());
         if (existingOutput)
         {
             var output = settings.Streaming.GuideOutputs.Single(candidate => candidate.Adapter.Kind == driver.Kind);
-            component.Find($".guide-output-tab[data-guide-output-id='{output.Id}']").Click();
+            await component.Find($".guide-output-tab[data-guide-output-id='{output.Id}']").ClickAsync(new());
         }
         else
         {
-            component.Find("#addGuideOutput").Click();
-            component.Find($"[data-guide-output-kind='{driver.Kind}']").Click();
+            await component.Find("#addGuideOutput").ClickAsync(new());
+            await component.Find($"[data-guide-output-kind='{driver.Kind}']").ClickAsync(new());
         }
         var outputDirectory = Path.GetFullPath("changed-json-guide-output");
-        component.Find("[data-setting-key='outputDirectoryPath'] input").Change(outputDirectory);
+        await component.Find("[data-setting-key='outputDirectoryPath'] input").ChangeAsync(outputDirectory);
 
         // Act
         if (failFirstSave)
@@ -1399,8 +1459,8 @@ public sealed class TopologySettingsTests
         }
         await component.Find("button.btn-primary").ClickAsync(new());
         var firstOutput = settings.Streaming.GuideOutputs.Single(candidate => candidate.Adapter.Kind == driver.Kind);
-        component.Find("#tab-guide").Click();
-        component.Find("#epgHistoryRetentionHours").Change(48);
+        await component.Find("#tab-guide").ClickAsync(new());
+        await component.Find("#epgHistoryRetentionHours").ChangeAsync(48);
         await component.Find("button.btn-primary").ClickAsync(new());
 
         // Assert
@@ -1423,21 +1483,21 @@ public sealed class TopologySettingsTests
         await using var context = CreateContext(out var settingsService, out var settings);
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var component = context.Render<Settings>();
-        component.Find("#tab-physical-devices").Click();
-        component.Find("#addPhysicalDevice").Click();
-        component.Find(".physical-device-type").Click();
-        component.Find("#physicalAddress-0").Change("antenna.local");
-        component.Find("#tab-virtual-devices").Click();
-        component.Find(".virtual-device-tab").Click();
-        component.Find("#virtualSubscription-0").Change(nameof(PhysicalDeviceSubscriptionMode.Selected));
-        component.Find(".physical-subscription-selection").Change(true);
+        await component.Find("#tab-physical-devices").ClickAsync(new());
+        await component.Find("#addPhysicalDevice").ClickAsync(new());
+        await component.Find(".physical-device-type").ClickAsync(new());
+        await component.Find("#physicalAddress-0").ChangeAsync("antenna.local");
+        await component.Find("#tab-virtual-devices").ClickAsync(new());
+        await component.Find(".virtual-device-tab").ClickAsync(new());
+        await component.Find("#virtualSubscription-0").ChangeAsync(nameof(PhysicalDeviceSubscriptionMode.Selected));
+        await component.Find(".physical-subscription-selection").ChangeAsync(true);
         await component.Find("button.btn-primary").ClickAsync(new());
         var savedConfiguration = settings.Streaming;
         var savedPlayer = Assert.Single(savedConfiguration.VirtualDevices);
         var physicalId = Assert.Single(savedConfiguration.PhysicalDevices).Id;
 
         // Act
-        component.Find(".physical-subscription-selection").Change(false);
+        await component.Find(".physical-subscription-selection").ChangeAsync(false);
         var selectionBeforeSave = savedPlayer.Subscription.SelectedDeviceIds.ToArray();
         await component.Find("button.btn-primary").ClickAsync(new());
 
@@ -1510,11 +1570,7 @@ public sealed class TopologySettingsTests
 
         IReadOnlyList<string> IGuideSourceDriver.Validate(AdapterConfiguration configuration) => [];
 
-        ValueTask<IGuideSource> IGuideSourceDriver.CreateAsync(
-            GuideSourceId sourceId,
-            AdapterConfiguration configuration,
-            IReadOnlyList<PhysicalDeviceId> physicalDeviceIds,
-            CancellationToken cancellationToken) =>
+        ValueTask<IGuideSource> IGuideSourceDriver.CreateAsync(GuideSourceId sourceId, AdapterConfiguration configuration, IReadOnlyList<PhysicalDeviceId> physicalDeviceIds, CancellationToken cancellationToken) =>
             ValueTask.FromException<IGuideSource>(new NotSupportedException("Web tests do not create guide source runtimes."));
     }
 }

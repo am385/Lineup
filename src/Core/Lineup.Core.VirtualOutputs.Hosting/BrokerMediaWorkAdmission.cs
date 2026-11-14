@@ -9,7 +9,11 @@ public sealed class BrokerMediaWorkAdmission(VirtualOutputBrokerClient client, V
 {
     private int _minimumFreeSpaceMib = -1;
 
-    /// <inheritdoc />
+    /// <summary>Executes acquire asynchronously.</summary>
+    /// <param name="kind">The kind value.</param>
+    /// <param name="retireIdle">The retire idle value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async ValueTask<IAsyncDisposable> AcquireAsync(MediaWorkKind kind, Func<CancellationToken, Task<bool>>? retireIdle = null, CancellationToken cancellationToken = default)
     {
         var (lease, response) = await client.ReserveMediaWorkAsync(new(session, kind == MediaWorkKind.Processing, retireIdle is not null), retireIdle, ownershipLost, logger, cancellationToken);
@@ -17,11 +21,14 @@ public sealed class BrokerMediaWorkAdmission(VirtualOutputBrokerClient client, V
         return lease;
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes reclaim idle asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public Task ReclaimIdleAsync(CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("Worker media reclamation is coordinated by the trusted deployment admission service.");
 
-    /// <inheritdoc />
+    /// <summary>Executes check workspace.</summary>
+    /// <param name="path">Path used by the operation.</param>
     public void CheckWorkspace(string path)
     {
         var watermark = Volatile.Read(ref _minimumFreeSpaceMib);
@@ -36,12 +43,20 @@ public sealed class BrokerMediaWorkAdmission(VirtualOutputBrokerClient client, V
 /// <summary>Provides authenticated media-resource ownership alongside the worker capability broker.</summary>
 public sealed partial class VirtualOutputBrokerClient
 {
+    /// <summary>Reserves media work asynchronously.</summary>
+    /// <param name="request">The request value.</param>
+    /// <param name="retireIdle">The retire idle value.</param>
+    /// <param name="ownershipLost">The ownership lost value.</param>
+    /// <param name="logger">The logger value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     internal async Task<(IAsyncDisposable Lease, VirtualOutputMediaWorkResponse Response)> ReserveMediaWorkAsync(
         VirtualOutputMediaWorkRequest request,
         Func<CancellationToken, Task<bool>>? retireIdle,
         Action ownershipLost,
         ILogger logger,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(TimeSpan.FromSeconds(10));
@@ -74,6 +89,11 @@ public sealed partial class VirtualOutputBrokerClient
         private int _disposed;
         private int _retiring;
 
+        /// <summary>Initializes the media lease.</summary>
+        /// <param name="connection">The connection value.</param>
+        /// <param name="retireIdle">The retire idle value.</param>
+        /// <param name="ownershipLost">The ownership lost value.</param>
+        /// <param name="logger">The logger value.</param>
         internal MediaLease(Stream connection, Func<CancellationToken, Task<bool>>? retireIdle, Action ownershipLost, ILogger logger)
         {
             _connection = connection;
@@ -130,9 +150,13 @@ public sealed partial class VirtualOutputBrokerClient
 
         private async Task RetireAsync()
         {
+            var ownsRetirement = true;
             try
             {
                 var retired = _retireIdle is not null && await _retireIdle(_token);
+                // The broker can retry as soon as it reads this reply, before its flush completes.
+                Volatile.Write(ref _retiring, 0);
+                ownsRetirement = false;
                 if (Volatile.Read(ref _disposed) == 0)
                 {
                     await SendAsync(retired ? (byte)1 : (byte)0);
@@ -148,7 +172,10 @@ public sealed partial class VirtualOutputBrokerClient
             }
             finally
             {
-                Volatile.Write(ref _retiring, 0);
+                if (ownsRetirement)
+                {
+                    Volatile.Write(ref _retiring, 0);
+                }
             }
         }
 
@@ -166,6 +193,7 @@ public sealed partial class VirtualOutputBrokerClient
             }
         }
 
+        /// <inheritdoc />
         public async ValueTask DisposeAsync()
         {
             if (Interlocked.Exchange(ref _disposed, 1) != 0)

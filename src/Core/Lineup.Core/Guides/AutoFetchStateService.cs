@@ -124,7 +124,8 @@ public class AutoFetchStateService : IAutoFetchStateService
         OnStateChanged?.Invoke();
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes fail fetch.</summary>
+    /// <param name="errorMessage">The error message value.</param>
     public void FailFetch(string errorMessage)
     {
         IsRunning = false;

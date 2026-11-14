@@ -1208,6 +1208,10 @@ Published XMLTV retains provider source provenance, localized and repeated value
 Lineup as the document generator. The Guide program-details dialog projects recognized official program metadata into typed ratings, credits,
 languages, identifiers, status, and advanced technical details. Raw supplemental XML and uninterpreted provider extensions remain internal.
 XMLTV publications are indented to preserve program artwork in Jellyfin readers that incorrectly skip the node following language metadata.
+Each XMLTV Guide Output has an **Include unavailable program placeholders** switch, disabled by default.
+Channels without guide data remain in XMLTV, but no synthetic `Not Available` program is published unless this switch is enabled.
+This prevents multi-day placeholders from appearing ahead of real shows in Jellyfin's **On Now** listings, which prioritize program start dates.
+After updating Lineup or changing the switch, republish the guide and refresh Jellyfin's guide data to replace previously imported placeholders.
 
 Lineup's Core stream graph atomically limits each physical device to its discovered capacity. Receivers of an identical physical acquisition share one
 tuner slot; equivalent physical and virtual transforms are also reference-counted. Different acquisitions consume separate slots. CMAF viewers receive

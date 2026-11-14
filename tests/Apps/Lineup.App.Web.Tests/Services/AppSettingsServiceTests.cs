@@ -1,6 +1,4 @@
 using System.Text.Json;
-using Lineup.App.Web.Services;
-using Lineup.Core.Extensibility.Streaming;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;

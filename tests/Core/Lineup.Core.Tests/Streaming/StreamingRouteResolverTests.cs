@@ -1,8 +1,6 @@
 using System.Text.Json;
-using Lineup.Core.Common.Streaming;
 using Lineup.Core.Settings;
 using Lineup.Core.Storage;
-using Lineup.Core.Extensibility.Streaming;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using NSubstitute;
@@ -301,6 +299,7 @@ public sealed class StreamingRouteResolverTests
         private readonly HashSet<PhysicalDeviceId> _activationFailures = [];
         private readonly HashSet<PhysicalDeviceId> _lineupFailures = [];
 
+        /// <summary>Initializes the fixture.</summary>
         internal Fixture()
         {
             var connectionString = new SqliteConnectionStringBuilder { DataSource = Path.Combine(_directory.FullName, "topology.db"), Pooling = false }.ToString();
@@ -348,8 +347,10 @@ public sealed class StreamingRouteResolverTests
             Resolver = new StreamingRouteResolver(settings, Catalog, trackedLineups, Store);
         }
 
+        /// <summary>Gets the settings.</summary>
         internal LineupSettings Settings { get; } = new();
 
+        /// <summary>Gets the virtual device.</summary>
         internal VirtualDeviceDefinition VirtualDevice { get; } = new()
         {
             Id = VirtualDeviceId.New(),
@@ -357,27 +358,39 @@ public sealed class StreamingRouteResolverTests
             Adapter = new AdapterConfiguration("route-output", JsonSerializer.SerializeToElement(new { }))
         };
 
+        /// <summary>Gets the store.</summary>
         internal StreamingTopologyStore Store { get; }
 
+        /// <summary>Gets the catalog.</summary>
         internal PhysicalDeviceCatalog Catalog { get; }
 
+        /// <summary>Gets the resolver.</summary>
         internal StreamingRouteResolver Resolver { get; }
 
         /// <summary>Gets the real lineup service for activation outside the resolver.</summary>
         internal PhysicalLineupService Lineups { get; }
 
+        /// <summary>Gets the activation counts.</summary>
         internal System.Collections.Concurrent.ConcurrentDictionary<PhysicalDeviceId, int> ActivationCounts { get; } = new();
 
+        /// <summary>Gets the lineup counts.</summary>
         internal System.Collections.Concurrent.ConcurrentDictionary<PhysicalDeviceId, int> LineupCounts { get; } = new();
 
+        /// <summary>Gets the empty lineups.</summary>
         internal HashSet<PhysicalDeviceId> EmptyLineups { get; } = [];
 
+        /// <summary>Gets or sets the before channel refresh.</summary>
         internal Action<PhysicalDeviceId, CancellationToken>? BeforeChannelRefresh { get; set; }
 
+        /// <summary>Gets or sets the before refresh.</summary>
         internal Func<CancellationToken, Task>? BeforeRefresh { get; set; }
 
+        /// <summary>Gets or sets the refresh count.</summary>
         internal int RefreshCount { get; private set; }
 
+        /// <summary>Adds physical.</summary>
+        /// <param name="number">The number value.</param>
+        /// <returns>The operation's result.</returns>
         internal PhysicalDeviceDefinition AddPhysical(string number)
         {
             var definition = new PhysicalDeviceDefinition
@@ -391,9 +404,16 @@ public sealed class StreamingRouteResolverTests
             return definition;
         }
 
+        /// <summary>Executes configure.</summary>
+        /// <param name="devices">The devices value.</param>
+        /// <returns>The operation's result.</returns>
         internal StreamingConfiguration Configure(params PhysicalDeviceDefinition[] devices) =>
             Settings.Streaming = new StreamingConfiguration { PhysicalDevices = devices, VirtualDevices = [VirtualDevice] };
 
+        /// <summary>Sets unavailable.</summary>
+        /// <param name="id">The ID value.</param>
+        /// <param name="stage">The stage value.</param>
+        /// <param name="unavailable">The unavailable value.</param>
         internal void SetUnavailable(PhysicalDeviceId id, string stage, bool unavailable)
         {
             var failures = stage == "activation" ? _activationFailures : _lineupFailures;
@@ -407,6 +427,10 @@ public sealed class StreamingRouteResolverTests
             }
         }
 
+        /// <summary>Resolves the fixture asynchronously.</summary>
+        /// <param name="channel">The channel value.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
         internal Task<ResolvedStreamingRoute?> ResolveAsync(string channel, CancellationToken? cancellationToken = null) =>
             Resolver.ResolveVirtualAsync(VirtualDevice.Id, channel, cancellationToken ?? TestContext.Current.CancellationToken);
 
@@ -416,7 +440,8 @@ public sealed class StreamingRouteResolverTests
 
     private sealed class ContextFactory(DbContextOptions<EpgDbContext> options) : IDbContextFactory<EpgDbContext>
     {
-        /// <inheritdoc />
+        /// <summary>Creates db context.</summary>
+        /// <returns>The operation's result.</returns>
         public EpgDbContext CreateDbContext() => new(options);
     }
 }

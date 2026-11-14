@@ -126,8 +126,12 @@ public sealed class PlaybackReconnectPolicyTests
     private sealed class Clock : TimeProvider
     {
         private long _timestamp;
+        /// <inheritdoc />
         public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        /// <inheritdoc />
         public override long GetTimestamp() => _timestamp;
+        /// <summary>Executes advance.</summary>
+        /// <param name="duration">The duration value.</param>
         internal void Advance(TimeSpan duration) => _timestamp += duration.Ticks;
     }
 }

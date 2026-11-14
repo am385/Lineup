@@ -4,7 +4,6 @@ using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Logging;
-using Lineup.Core.Common.Streaming;
 
 namespace Lineup.Core.Streaming;
 
@@ -22,13 +21,9 @@ public sealed record StreamTransformStage(StreamTransformKey Key, IStreamTransfo
 /// <param name="AcquisitionKey">Canonical source and tune identity.</param>
 /// <param name="Capacity">Current physical device capacity.</param>
 /// <param name="EnforceCapacity">Whether the graph acquires capacity itself; false when the factory selects among failover candidates.</param>
-public sealed record StreamAcquisitionDescriptor(
-    PhysicalDeviceId DeviceId,
-    PhysicalAcquisitionKey AcquisitionKey,
-    PhysicalTunerCapacity Capacity,
-    bool EnforceCapacity = true)
+public sealed record StreamAcquisitionDescriptor(PhysicalDeviceId DeviceId, PhysicalAcquisitionKey AcquisitionKey, PhysicalTunerCapacity Capacity, bool EnforceCapacity = true)
 {
-    private static readonly ConditionalWeakTable<IPhysicalTunerDevice, RuntimeIdentity> RuntimeIdentities = new();
+    private static readonly ConditionalWeakTable<IPhysicalTunerDevice, RuntimeIdentity> _runtimeIdentities = new();
 
     /// <summary>Gets the host runtime captured when this route was resolved, without changing the plugin contract.</summary>
     internal IPhysicalTunerDevice? Runtime { get; init; }
@@ -39,7 +34,7 @@ public sealed record StreamAcquisitionDescriptor(
 
     /// <summary>Gets the process-local identity of one adapter instance.</summary>
     internal static Guid GetRuntimeId(IPhysicalTunerDevice? runtime) =>
-        runtime is null ? Guid.Empty : RuntimeIdentities.GetValue(runtime, _ => new RuntimeIdentity(Guid.NewGuid())).Id;
+        runtime is null ? Guid.Empty : _runtimeIdentities.GetValue(runtime, _ => new RuntimeIdentity(Guid.NewGuid())).Id;
 
     private sealed record RuntimeIdentity(Guid Id);
 }
@@ -99,13 +94,7 @@ public interface IStreamSessionLease : IAsyncDisposable
 /// <param name="IsRunning">Whether the node producer is active.</param>
 /// <param name="IsWarm">Whether the node has no consumers and is waiting for its reuse period to expire.</param>
 /// <param name="TotalSubscriptions">Total subscriptions accepted by this node generation.</param>
-public sealed record StreamNodeDiagnostics(
-    string Kind,
-    string Key,
-    int ReceiverCount,
-    bool IsRunning,
-    bool IsWarm = false,
-    long TotalSubscriptions = 0)
+public sealed record StreamNodeDiagnostics(string Kind, string Key, int ReceiverCount, bool IsRunning, bool IsWarm = false, long TotalSubscriptions = 0)
 {
     /// <summary>Gets the stable identity of this runtime node.</summary>
     public string NodeId { get; init; } = "";
@@ -128,9 +117,7 @@ public sealed record StreamNodeDiagnostics(
 /// </summary>
 /// <param name="Nodes">Active acquisition and transform nodes.</param>
 /// <param name="Capacity">Physical capacity state.</param>
-public sealed record StreamingSessionGraphDiagnostics(
-    IReadOnlyList<StreamNodeDiagnostics> Nodes,
-    IReadOnlyList<PhysicalCapacityDiagnostics> Capacity)
+public sealed record StreamingSessionGraphDiagnostics(IReadOnlyList<StreamNodeDiagnostics> Nodes, IReadOnlyList<PhysicalCapacityDiagnostics> Capacity)
 {
     /// <summary>Gets distinct queued payload bytes retained across the graph.</summary>
     public long BufferedBytes { get; init; }
@@ -156,10 +143,7 @@ public sealed record StreamTermination(string NodeId, string Kind, string Reason
 public interface IStreamingSessionGraph
 {
     /// <summary>Acquires a subscription to a shared physical source.</summary>
-    ValueTask<IStreamSessionLease> AcquireAsync(
-        StreamAcquisitionDescriptor descriptor,
-        StreamAcquisitionFactory acquisitionFactory,
-        CancellationToken cancellationToken = default);
+    ValueTask<IStreamSessionLease> AcquireAsync(StreamAcquisitionDescriptor descriptor, StreamAcquisitionFactory acquisitionFactory, CancellationToken cancellationToken = default);
 
     /// <summary>Acquires a subscription to a shared transform over a physical source.</summary>
     ValueTask<IStreamSessionLease> AcquireTransformAsync(
@@ -167,7 +151,8 @@ public interface IStreamingSessionGraph
         StreamTransformKey transformKey,
         StreamAcquisitionFactory acquisitionFactory,
         IStreamTransform transform,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default
+    );
 
     /// <summary>Acquires an ordered reusable transform pipeline, retaining an unused leaf until its idle deadline regardless of incoming traffic.</summary>
     ValueTask<IStreamSessionLease> AcquirePipelineAsync(
@@ -175,7 +160,8 @@ public interface IStreamingSessionGraph
         StreamAcquisitionFactory acquisitionFactory,
         IReadOnlyList<StreamTransformStage> stages,
         TimeSpan keepWarmPeriod,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default
+    );
 
     /// <summary>Gets or creates metadata scoped to the lifetime of one shared physical acquisition.</summary>
     Task<T> GetOrCreateAcquisitionMetadataAsync<T>(
@@ -183,7 +169,8 @@ public interface IStreamingSessionGraph
         StreamAcquisitionFactory acquisitionFactory,
         string metadataKey,
         Func<Stream, CancellationToken, Task<T>> metadataFactory,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default
+    );
 
     /// <summary>Gets complete metadata or performs one shared delayed refresh when the cached result remains provisional.</summary>
     Task<T> GetOrRefreshAcquisitionMetadataAsync<T>(
@@ -192,7 +179,8 @@ public interface IStreamingSessionGraph
         string metadataKey,
         Func<Stream, CancellationToken, Task<T>> metadataFactory,
         AcquisitionMetadataRefreshPolicy<T> refreshPolicy,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default
+    );
 
     /// <summary>Gets immutable active graph and capacity diagnostics.</summary>
     StreamingSessionGraphDiagnostics GetDiagnostics();
@@ -258,7 +246,8 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         TimeProvider timeProvider,
         PhysicalDeviceRuntimeState? runtimes,
         StreamingResourceOptions? resources = null,
-        IMediaWorkAdmission? mediaWork = null)
+        IMediaWorkAdmission? mediaWork = null
+    )
     {
         ArgumentNullException.ThrowIfNull(timeProvider);
         _capacity = capacity;
@@ -273,24 +262,32 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         }
     }
 
-    /// <inheritdoc />
-    public ValueTask<IStreamSessionLease> AcquireAsync(
-        StreamAcquisitionDescriptor descriptor,
-        StreamAcquisitionFactory acquisitionFactory,
-        CancellationToken cancellationToken = default)
+    /// <summary>Executes acquire asynchronously.</summary>
+    /// <param name="descriptor">The descriptor value.</param>
+    /// <param name="acquisitionFactory">The acquisition factory value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
+    public ValueTask<IStreamSessionLease> AcquireAsync(StreamAcquisitionDescriptor descriptor, StreamAcquisitionFactory acquisitionFactory, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(acquisitionFactory);
         ValidateDescriptor(descriptor);
         return AcquirePipelineAsync(descriptor, acquisitionFactory, [], TimeSpan.Zero, cancellationToken);
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes acquire transform asynchronously.</summary>
+    /// <param name="descriptor">The descriptor value.</param>
+    /// <param name="transformKey">The transform key value.</param>
+    /// <param name="acquisitionFactory">The acquisition factory value.</param>
+    /// <param name="transform">The transform value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public ValueTask<IStreamSessionLease> AcquireTransformAsync(
         StreamAcquisitionDescriptor descriptor,
         StreamTransformKey transformKey,
         StreamAcquisitionFactory acquisitionFactory,
         IStreamTransform transform,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default
+    )
     {
         ArgumentNullException.ThrowIfNull(acquisitionFactory);
         ArgumentNullException.ThrowIfNull(transform);
@@ -308,13 +305,20 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
             cancellationToken);
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes acquire pipeline asynchronously.</summary>
+    /// <param name="descriptor">The descriptor value.</param>
+    /// <param name="acquisitionFactory">The acquisition factory value.</param>
+    /// <param name="stages">The stages value.</param>
+    /// <param name="keepWarmPeriod">The keep warm period value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async ValueTask<IStreamSessionLease> AcquirePipelineAsync(
         StreamAcquisitionDescriptor descriptor,
         StreamAcquisitionFactory acquisitionFactory,
         IReadOnlyList<StreamTransformStage> stages,
         TimeSpan keepWarmPeriod,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default
+    )
     {
         ArgumentNullException.ThrowIfNull(acquisitionFactory);
         ArgumentNullException.ThrowIfNull(stages);
@@ -389,13 +393,21 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets or create acquisition metadata asynchronously.</summary>
+    /// <param name="descriptor">The descriptor value.</param>
+    /// <param name="acquisitionFactory">The acquisition factory value.</param>
+    /// <param name="metadataKey">The metadata key value.</param>
+    /// <param name="metadataFactory">The metadata factory value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <typeparam name="T">Type represented by the generic parameter.</typeparam>
+    /// <returns>The operation's result.</returns>
     public async Task<T> GetOrCreateAcquisitionMetadataAsync<T>(
         StreamAcquisitionDescriptor descriptor,
         StreamAcquisitionFactory acquisitionFactory,
         string metadataKey,
         Func<Stream, CancellationToken, Task<T>> metadataFactory,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default
+    )
         => await GetAcquisitionMetadataAsync(
             descriptor,
             acquisitionFactory,
@@ -404,14 +416,23 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
             refreshPolicy: null,
             cancellationToken);
 
-    /// <inheritdoc />
+    /// <summary>Gets or refresh acquisition metadata asynchronously.</summary>
+    /// <param name="descriptor">The descriptor value.</param>
+    /// <param name="acquisitionFactory">The acquisition factory value.</param>
+    /// <param name="metadataKey">The metadata key value.</param>
+    /// <param name="metadataFactory">The metadata factory value.</param>
+    /// <param name="refreshPolicy">The refresh policy value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <typeparam name="T">Type represented by the generic parameter.</typeparam>
+    /// <returns>The operation's result.</returns>
     public async Task<T> GetOrRefreshAcquisitionMetadataAsync<T>(
         StreamAcquisitionDescriptor descriptor,
         StreamAcquisitionFactory acquisitionFactory,
         string metadataKey,
         Func<Stream, CancellationToken, Task<T>> metadataFactory,
         AcquisitionMetadataRefreshPolicy<T> refreshPolicy,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default
+    )
         => await GetAcquisitionMetadataAsync(
             descriptor,
             acquisitionFactory,
@@ -426,7 +447,8 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         string metadataKey,
         Func<Stream, CancellationToken, Task<T>> metadataFactory,
         AcquisitionMetadataRefreshPolicy<T>? refreshPolicy,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         ArgumentNullException.ThrowIfNull(acquisitionFactory);
         ArgumentException.ThrowIfNullOrWhiteSpace(metadataKey);
@@ -524,11 +546,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         return refreshed.Value;
     }
 
-    private Lazy<Task<AcquisitionMetadataSnapshot>> CreateMetadataFactory<T>(
-        SharedNode node,
-        Func<Stream, CancellationToken, Task<T>> metadataFactory,
-        TimeSpan operationTimeout,
-        bool refreshAttempted = false) =>
+    private Lazy<Task<AcquisitionMetadataSnapshot>> CreateMetadataFactory<T>(SharedNode node, Func<Stream, CancellationToken, Task<T>> metadataFactory, TimeSpan operationTimeout, bool refreshAttempted = false) =>
         new(
             async () =>
             {
@@ -555,7 +573,8 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         Lazy<Task<AcquisitionMetadataSnapshot>> lazy,
         CancellationToken cancellationToken,
         TimeSpan waitTimeout = default,
-        bool evictOnTimeout = true)
+        bool evictOnTimeout = true
+    )
     {
         try
         {
@@ -587,7 +606,8 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets diagnostics.</summary>
+    /// <returns>The operation's result.</returns>
     public StreamingSessionGraphDiagnostics GetDiagnostics()
     {
         var nodes = _acquisitions.Values
@@ -604,7 +624,9 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         };
     }
 
-    /// <inheritdoc />
+    /// <summary>Stops the streaming session graph asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public async Task StopAsync(CancellationToken cancellationToken = default)
     {
         SharedNode[] transforms;
@@ -797,6 +819,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
 
     private abstract record GraphNodeKey
     {
+        /// <summary>Gets the node ID.</summary>
         public string NodeId
         {
             get
@@ -809,15 +832,20 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
 
     private sealed record AcquisitionNodeKey(PhysicalDeviceId DeviceId, PhysicalAcquisitionKey AcquisitionKey, Guid RuntimeId) : GraphNodeKey
     {
+        /// <summary>Creates the acquisition node key.</summary>
+        /// <param name="descriptor">The descriptor value.</param>
+        /// <returns>The operation's result.</returns>
         public static AcquisitionNodeKey Create(StreamAcquisitionDescriptor descriptor) =>
             new(descriptor.DeviceId, descriptor.AcquisitionKey, StreamAcquisitionDescriptor.GetRuntimeId(descriptor.Runtime));
 
+        /// <inheritdoc />
         public override string ToString() =>
             $"{DeviceId}:{AcquisitionKey.ChannelId.ProviderKey}:{AcquisitionKey.TuneKey}{(RuntimeId == Guid.Empty ? "" : $":{RuntimeId:N}")}";
     }
 
     private sealed record TransformNodeKey(GraphNodeKey Parent, StreamTransformKey Transform) : GraphNodeKey
     {
+        /// <inheritdoc />
         public override string ToString() => $"{Parent}>{Transform.Stage}:{Transform.SettingsKey}";
     }
 
@@ -853,6 +881,15 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         /// <summary>Gets a terminal reason only for unexpected completion.</summary>
         public StreamTermination? Termination { get; private set; }
 
+        /// <summary>Initializes the shared node.</summary>
+        /// <param name="kind">The kind value.</param>
+        /// <param name="key">The key value.</param>
+        /// <param name="sourceFactory">The source factory value.</param>
+        /// <param name="logger">The logger value.</param>
+        /// <param name="timeProvider">The time provider value.</param>
+        /// <param name="onCompleted">The on completed value.</param>
+        /// <param name="buffers">The buffers value.</param>
+        /// <param name="mediaWork">The media work value.</param>
         public SharedNode(
             string kind,
             GraphNodeKey key,
@@ -878,8 +915,10 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         /// <summary>Gets the producer lifetime, including after its cancellation source is disposed.</summary>
         public CancellationToken LifetimeToken => _lifetimeToken;
 
+        /// <summary>Gets the completion.</summary>
         public Task Completion => _runTask ?? Task.CompletedTask;
 
+        /// <summary>Gets the started.</summary>
         public Task Started => _started.Task;
 
         /// <summary>Gets whether a new consumer can join this node before cleanup starts.</summary>
@@ -894,6 +933,10 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
             }
         }
 
+        /// <summary>Attempts to subscribe.</summary>
+        /// <param name="keepWarmPeriod">The keep warm period value.</param>
+        /// <param name="lease">The lease value.</param>
+        /// <returns>The operation's result.</returns>
         public bool TrySubscribe(TimeSpan keepWarmPeriod, out IStreamSessionLease lease)
         {
             var id = Guid.NewGuid();
@@ -914,6 +957,8 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
             return true;
         }
 
+        /// <summary>Gets diagnostics.</summary>
+        /// <returns>The operation's result.</returns>
         public StreamNodeDiagnostics GetDiagnostics()
         {
             lock (_gate)
@@ -935,6 +980,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
             }
         }
 
+        /// <summary>Stops the shared node.</summary>
         public void Stop()
         {
             lock (_gate)
@@ -1143,6 +1189,10 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
     {
         private readonly SubscriptionStream _stream;
 
+        /// <summary>Initializes the session lease.</summary>
+        /// <param name="producerNodeId">The producer node ID value.</param>
+        /// <param name="reader">The reader value.</param>
+        /// <param name="unsubscribe">The unsubscribe value.</param>
         public SessionLease(string producerNodeId, StreamBufferBudget.Subscription reader, Func<ValueTask> unsubscribe)
         {
             SessionId = StreamSessionId.New();
@@ -1150,14 +1200,19 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
             _stream = new SubscriptionStream(reader, unsubscribe);
         }
 
+        /// <summary>Gets the session ID.</summary>
         public StreamSessionId SessionId { get; }
 
+        /// <summary>Gets the producer node ID.</summary>
         public string ProducerNodeId { get; }
 
+        /// <summary>Gets the stream.</summary>
         public Stream Stream => _stream;
 
+        /// <summary>Gets the content type.</summary>
         public string? ContentType => null;
 
+        /// <inheritdoc />
         public ValueTask DisposeAsync() => _stream.DisposeAsync();
     }
 
@@ -1166,6 +1221,9 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         private IAsyncDisposable? _sourceOwner;
         private IAsyncDisposable? _parentOwner;
 
+        /// <summary>Initializes the composite source lease.</summary>
+        /// <param name="source">The source value.</param>
+        /// <param name="parentOwner">The parent owner value.</param>
         public CompositeSourceLease(IStreamSourceLease source, IAsyncDisposable parentOwner)
         {
             Stream = source.Stream;
@@ -1174,10 +1232,13 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
             _parentOwner = parentOwner;
         }
 
+        /// <summary>Gets the stream.</summary>
         public Stream Stream { get; }
 
+        /// <summary>Gets the content type.</summary>
         public string? ContentType { get; }
 
+        /// <inheritdoc />
         public async ValueTask DisposeAsync()
         {
             var source = Interlocked.Exchange(ref _sourceOwner, null);
@@ -1227,25 +1288,36 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         private readonly StreamBufferBudget.Subscription _reader;
         private Func<ValueTask>? _unsubscribe;
 
+        /// <summary>Initializes the subscription stream.</summary>
+        /// <param name="reader">The reader value.</param>
+        /// <param name="unsubscribe">The unsubscribe value.</param>
         public SubscriptionStream(StreamBufferBudget.Subscription reader, Func<ValueTask> unsubscribe)
         {
             _reader = reader;
             _unsubscribe = unsubscribe;
         }
 
+        /// <inheritdoc />
         public override bool CanRead => _unsubscribe is not null;
+        /// <inheritdoc />
         public override bool CanSeek => false;
+        /// <inheritdoc />
         public override bool CanWrite => false;
+        /// <inheritdoc />
         public override long Length => throw new NotSupportedException();
+        /// <inheritdoc />
         public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        /// <inheritdoc />
         public override int Read(byte[] buffer, int offset, int count) => ReadAsync(buffer.AsMemory(offset, count)).AsTask().GetAwaiter().GetResult();
 
+        /// <inheritdoc />
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
             ObjectDisposedException.ThrowIf(_unsubscribe is null, this);
             return await _reader.ReadAsync(buffer, cancellationToken);
         }
 
+        /// <inheritdoc />
         protected override void Dispose(bool disposing)
         {
             if (disposing)
@@ -1257,6 +1329,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
             base.Dispose(disposing);
         }
 
+        /// <inheritdoc />
         public override async ValueTask DisposeAsync()
         {
             var unsubscribe = Interlocked.Exchange(ref _unsubscribe, null);
@@ -1268,9 +1341,13 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
             GC.SuppressFinalize(this);
         }
 
+        /// <inheritdoc />
         public override void Flush() => throw new NotSupportedException();
+        /// <inheritdoc />
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        /// <inheritdoc />
         public override void SetLength(long value) => throw new NotSupportedException();
+        /// <inheritdoc />
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 }

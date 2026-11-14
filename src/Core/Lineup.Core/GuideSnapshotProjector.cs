@@ -1,6 +1,3 @@
-using Lineup.Core.Common.Guides;
-using Lineup.Core.Extensibility.Guides;
-
 namespace Lineup.Core;
 
 /// <summary>
@@ -73,11 +70,7 @@ public sealed class GuideSnapshotProjector
         };
     }
 
-    private static GuideChannelSegment ProjectChannel(
-        TunerChannel channel,
-        IReadOnlyDictionary<string, GuideChannelSegment> segments,
-        long placeholderStart,
-        long placeholderEnd)
+    private static GuideChannelSegment ProjectChannel(TunerChannel channel, IReadOnlyDictionary<string, GuideChannelSegment> segments, long placeholderStart, long placeholderEnd)
     {
         var guideNumber = channel.GuideNumber.Trim();
         if (segments.TryGetValue(guideNumber, out var segment) && segment.Guide.Count > 0)

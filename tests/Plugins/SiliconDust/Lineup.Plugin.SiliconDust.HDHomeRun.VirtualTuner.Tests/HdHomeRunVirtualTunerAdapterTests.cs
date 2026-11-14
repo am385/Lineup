@@ -3,7 +3,6 @@ using System.Xml.Linq;
 using Lineup.Core.Common.Configuration;
 using Lineup.Core.Extensibility.Configuration;
 using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Lineup.Plugin.SiliconDust.HDHomeRun.Device.Models;
 using Lineup.Plugin.SiliconDust.HDHomeRun.Device.Protocol;
 using Xunit;

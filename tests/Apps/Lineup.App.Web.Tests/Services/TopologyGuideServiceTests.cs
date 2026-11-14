@@ -323,6 +323,43 @@ public sealed class TopologyGuideServiceTests
         await fixture.AssertNoActivationAsync();
     }
 
+    /// <summary>Verifies cached publication passes the selected XMLTV output's placeholder setting to the real publisher.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PublishAsync_XmltvPlaceholderPolicy_ReachesConfiguredPublisher(bool includeUnavailablePrograms)
+    {
+        // Arrange
+        using var fixture = new CachedPublicationFixture("xmltv");
+        await fixture.SeedAsync();
+        fixture.Configuration = fixture.Configuration with
+        {
+            GuideSources = [],
+            GuideOutputs =
+            [
+                fixture.Output with
+                {
+                    Adapter = new AdapterConfiguration("xmltv", JsonSerializer.SerializeToElement(new XmltvGuideOutputConfiguration
+                    {
+                        OutputPath = fixture.OutputPath,
+                        IncludeUnavailablePrograms = includeUnavailablePrograms
+                    }))
+                }
+            ]
+        };
+        var queries = new GuideQueryService(new StreamingTopologyStore(fixture), fixture.Store, fixture.Adapters);
+        var service = new TopologyGuideService(fixture.Settings, fixture.Guides, queries, fixture.Adapters, [new XmltvGuidePublisher()], fixture.Publications);
+
+        // Act
+        var result = Assert.Single(await service.PublishAsync(TestContext.Current.CancellationToken));
+
+        // Assert
+        Assert.True(result.Succeeded);
+        Assert.Equal(1, result.ChannelCount);
+        Assert.Equal(includeUnavailablePrograms ? ["Not Available"] : Array.Empty<string>(), await fixture.ReadTitlesAsync());
+        await fixture.AssertNoActivationAsync();
+    }
+
     /// <summary>Verifies current configuration restricts committed cache without provider activation or loss of exclusion diagnostics.</summary>
     [Theory]
     [InlineData("disabled", false)]
@@ -398,8 +435,7 @@ public sealed class TopologyGuideServiceTests
         Assert.True(result.Succeeded);
         Assert.Equal(0, result.ProgramCount);
         Assert.Equal(restriction is "disabled-device" or "disabled-virtual" ? 0 : 1, result.ChannelCount);
-        string[] expectedTitles = result.ChannelCount == 0 ? [] : ["Not Available"];
-        Assert.Equal(expectedTitles, await fixture.ReadTitlesAsync());
+        Assert.Empty(await fixture.ReadTitlesAsync());
         Assert.Equal(expected.HasValue, result.IsPartial);
         if (expected is { } code)
         {
@@ -1078,7 +1114,8 @@ public sealed class TopologyGuideServiceTests
         /// <summary>Gets or sets an owned query failure or cancellation callback.</summary>
         internal Action? OnContextCreation { get; set; }
 
-        /// <inheritdoc />
+        /// <summary>Creates db context.</summary>
+        /// <returns>The operation's result.</returns>
         public EpgDbContext CreateDbContext()
         {
             OnContextCreation?.Invoke();

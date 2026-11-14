@@ -17,16 +17,16 @@ public sealed class WebPlayerVirtualTunerDriver : IVirtualTunerDriver, IAdapterS
     /// <summary>Fixed display name for the built-in virtual device.</summary>
     public const string BuiltInName = "Web Player";
 
-    /// <inheritdoc />
+    /// <summary>Gets the kind.</summary>
     public string Kind => AdapterKind;
 
-    /// <inheritdoc />
+    /// <summary>Gets the display name.</summary>
     public string DisplayName => BuiltInName;
 
-    /// <inheritdoc />
+    /// <summary>Gets the supports user creation.</summary>
     public bool SupportsUserCreation => false;
 
-    /// <inheritdoc />
+    /// <summary>Gets the output capabilities.</summary>
     public VirtualOutputCapabilities OutputCapabilities { get; } = new()
     {
         RequiresExternalHosting = true,
@@ -42,26 +42,31 @@ public sealed class WebPlayerVirtualTunerDriver : IVirtualTunerDriver, IAdapterS
         ]
     };
 
-    /// <inheritdoc />
+    /// <summary>Gets the settings descriptor.</summary>
     public AdapterSettingsDescriptor SettingsDescriptor { get; } = new()
     {
         AdapterKind = WebPlayerVirtualTunerDriver.AdapterKind
     };
 
-    /// <inheritdoc />
+    /// <summary>Creates default configuration.</summary>
+    /// <param name="deviceId">Identity of the target device.</param>
+    /// <returns>The operation's result.</returns>
     public AdapterConfiguration CreateDefaultConfiguration(VirtualDeviceId deviceId) =>
         new(AdapterKind, JsonSerializer.SerializeToElement(new { }));
 
-    /// <inheritdoc />
+    /// <summary>Gets settings.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <returns>The operation's result.</returns>
     public AdapterSettingsSnapshot GetSettings(AdapterConfiguration configuration) => new()
     {
         AdapterKind = AdapterKind
     };
 
-    /// <inheritdoc />
-    public AdapterSettingsApplyResult ApplySettings(
-        AdapterConfiguration configuration,
-        IReadOnlyList<AdapterSettingEdit> edits)
+    /// <summary>Applies settings.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="edits">The edits value.</param>
+    /// <returns>The operation's result.</returns>
+    public AdapterSettingsApplyResult ApplySettings(AdapterConfiguration configuration, IReadOnlyList<AdapterSettingEdit> edits)
     {
         if (edits.Any(edit => edit.Action != AdapterSettingEditAction.Preserve))
         {
@@ -76,16 +81,19 @@ public sealed class WebPlayerVirtualTunerDriver : IVirtualTunerDriver, IAdapterS
         return new AdapterSettingsApplyResult { Configuration = configuration };
     }
 
-    /// <inheritdoc />
-    public StreamingConfiguration Normalize(
-        StreamingConfiguration configuration,
-        StreamingConfigurationInitializationContext context)
+    /// <summary>Executes normalize.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="context">Context used by the operation.</param>
+    /// <returns>The operation's result.</returns>
+    public StreamingConfiguration Normalize(StreamingConfiguration configuration, StreamingConfigurationInitializationContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
         return EnsureBuiltIn(configuration);
     }
 
-    /// <inheritdoc />
+    /// <summary>Validates the web player virtual tuner driver.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <returns>The operation's result.</returns>
     public IReadOnlyList<string> Validate(AdapterConfiguration configuration)
     {
         if (!string.Equals(configuration.Kind, Kind, StringComparison.Ordinal))

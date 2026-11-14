@@ -32,10 +32,14 @@ public class HDHomeRunService : IDisposable
     }
 
     /// <summary>
-    /// Runs connectivity diagnostics and returns detailed results
+    /// Runs connectivity diagnostics, reporting expected network failures while preserving caller cancellation.
     /// </summary>
+    /// <param name="addressOrHostname">Device IP address or hostname to probe.</param>
+    /// <param name="cancellationToken">Token used to cancel the diagnostic operation.</param>
+    /// <returns>The per-stage connectivity results.</returns>
     public async Task<DeviceDiagnostics> DiagnoseConnectivityAsync(string addressOrHostname, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var diagnostics = new DeviceDiagnostics
         {
             InputAddress = addressOrHostname,
@@ -67,7 +71,7 @@ public class HDHomeRunService : IDisposable
                     return diagnostics;
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is SocketException or ArgumentException)
             {
                 diagnostics.AddResult("DNS Resolution", false, $"Failed: {ex.Message}");
                 return diagnostics;
@@ -78,10 +82,10 @@ public class HDHomeRunService : IDisposable
         try
         {
             using var ping = new Ping();
-            var reply = await ping.SendPingAsync(ip, 2000);
+            var reply = await ping.SendPingAsync(ip, TimeSpan.FromSeconds(2), cancellationToken: cancellationToken);
             diagnostics.AddResult("Ping", reply.Status == IPStatus.Success, reply.Status == IPStatus.Success ? $"Success ({reply.RoundtripTime}ms)" : $"Failed: {reply.Status}");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is PingException or SocketException or NotSupportedException or InvalidOperationException)
         {
             diagnostics.AddResult("Ping", false, $"Error: {ex.Message}");
         }
@@ -90,7 +94,7 @@ public class HDHomeRunService : IDisposable
         try
         {
             using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-            var response = await httpClient.GetAsync($"http://{ip}/discover.json", cancellationToken);
+            using var response = await httpClient.GetAsync($"http://{ip}/discover.json", cancellationToken);
 
             if (response.IsSuccessStatusCode)
             {
@@ -103,7 +107,7 @@ public class HDHomeRunService : IDisposable
                 diagnostics.AddResult("HTTP API (port 80)", false, $"HTTP {(int)response.StatusCode}");
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && ex is HttpRequestException or IOException or OperationCanceledException)
         {
             diagnostics.AddResult("HTTP API (port 80)", false, $"Error: {ex.Message}");
         }
@@ -112,24 +116,19 @@ public class HDHomeRunService : IDisposable
         try
         {
             using var tcpClient = new TcpClient();
-            var connectTask = tcpClient.ConnectAsync(ip, HDHomeRunDiscovery.DiscoveryPort);
-            if (await Task.WhenAny(connectTask, Task.Delay(3000, cancellationToken)) == connectTask)
-            {
-                diagnostics.AddResult("TCP Port 65001", true, "Connection successful");
-                diagnostics.TcpPortOpen = true;
-            }
-            else
-            {
-                diagnostics.AddResult("TCP Port 65001", false, "Connection timeout");
-            }
+            using var connectTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            connectTimeout.CancelAfter(TimeSpan.FromSeconds(3));
+            await tcpClient.ConnectAsync(ip, HDHomeRunDiscovery.DiscoveryPort, connectTimeout.Token);
+            diagnostics.AddResult("TCP Port 65001", true, "Connection successful");
+            diagnostics.TcpPortOpen = true;
         }
         catch (SocketException ex)
         {
             diagnostics.AddResult("TCP Port 65001", false, $"Socket error: {ex.SocketErrorCode}");
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            diagnostics.AddResult("TCP Port 65001", false, $"Error: {ex.Message}");
+            diagnostics.AddResult("TCP Port 65001", false, "Connection timeout");
         }
 
         // Step 5: UDP discovery test
@@ -145,11 +144,12 @@ public class HDHomeRunService : IDisposable
             diagnostics.AddResult("UDP Packet Built", true, $"{packet.Length} bytes: {FormatHexDump(packet)}");
 
             var endpoint = new IPEndPoint(ip, HDHomeRunDiscovery.DiscoveryPort);
-            await udpClient.SendAsync(packet, packet.Length, endpoint);
+            await udpClient.SendAsync(packet, endpoint, cancellationToken);
 
             udpClient.Client.ReceiveTimeout = 3000;
 
-            using var cts = new CancellationTokenSource(3000);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(3));
             try
             {
                 var result = await udpClient.ReceiveAsync(cts.Token);
@@ -157,7 +157,7 @@ public class HDHomeRunService : IDisposable
                 diagnostics.AddResult("UDP Discovery", true, $"Received {result.Buffer.Length} bytes: {FormatHexDump(result.Buffer, 32)}");
                 diagnostics.UdpDiscoveryWorks = true;
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 diagnostics.AddResult("UDP Discovery", false, "No response (timeout)");
             }
@@ -166,11 +166,6 @@ public class HDHomeRunService : IDisposable
         {
             diagnostics.AddResult("UDP Discovery", false, $"Socket error: {ex.SocketErrorCode}");
         }
-        catch (Exception ex)
-        {
-            diagnostics.AddResult("UDP Discovery", false, $"Error: {ex.Message}");
-        }
-
         // Step 6: TCP Control protocol test with detailed packet logging
         if (diagnostics.TcpPortOpen)
         {
@@ -185,22 +180,27 @@ public class HDHomeRunService : IDisposable
                 diagnostics.AddResult("TCP Packet Built", true, $"{getPacket.Length} bytes: {FormatHexDump(getPacket)}");
 
                 using var tcpClient = new TcpClient();
-                await tcpClient.ConnectAsync(ip, HDHomeRunDiscovery.DiscoveryPort);
+                using (var connectTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+                {
+                    connectTimeout.CancelAfter(TimeSpan.FromSeconds(3));
+                    await tcpClient.ConnectAsync(ip, HDHomeRunDiscovery.DiscoveryPort, connectTimeout.Token);
+                }
 
                 var stream = tcpClient.GetStream();
                 stream.ReadTimeout = 5000;
                 stream.WriteTimeout = 5000;
 
                 // Send the packet
-                await stream.WriteAsync(getPacket);
-                await stream.FlushAsync();
+                await stream.WriteAsync(getPacket, cancellationToken);
+                await stream.FlushAsync(cancellationToken);
                 diagnostics.AddResult("TCP Packet Sent", true, "Packet sent successfully");
 
                 // Try to receive response
                 var buffer = new byte[1500];
                 try
                 {
-                    using var readCts = new CancellationTokenSource(5000);
+                    using var readCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    readCts.CancelAfter(TimeSpan.FromSeconds(5));
                     var bytesRead = await stream.ReadAsync(buffer.AsMemory(), readCts.Token);
 
                     if (bytesRead > 0)
@@ -239,7 +239,7 @@ public class HDHomeRunService : IDisposable
                         diagnostics.AddResult("TCP Response", false, "Connection closed (0 bytes)");
                     }
                 }
-                catch (OperationCanceledException)
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
                 {
                     diagnostics.AddResult("TCP Response", false, "Read timeout");
                 }
@@ -248,12 +248,13 @@ public class HDHomeRunService : IDisposable
                     diagnostics.AddResult("TCP Response", false, $"IO error: {ex.Message}");
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested && ex is SocketException or IOException or OperationCanceledException)
             {
                 diagnostics.AddResult("TCP Control Protocol", false, $"Error: {ex.Message}");
             }
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         return diagnostics;
     }
 

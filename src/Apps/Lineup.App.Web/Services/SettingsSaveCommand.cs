@@ -1,7 +1,5 @@
 using System.Text.Json;
-using Lineup.Core.Common.Configuration;
 using Lineup.Core.Common.Networking;
-using Lineup.Core.Extensibility.Configuration;
 using Lineup.Plugin.GuideOutputs.Xmltv.Plugin;
 using Microsoft.Extensions.Localization;
 

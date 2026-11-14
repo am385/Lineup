@@ -1,7 +1,11 @@
 namespace Lineup.Integration.Streaming.Sweep;
 
+/// <summary>Represents the JSON sequence.</summary>
 internal static class JsonSequence
 {
+    /// <summary>Reads the JSON sequence asynchronously.</summary>
+    /// <param name="path">Path used by the operation.</param>
+    /// <returns>The operation's result.</returns>
     public static async Task<IReadOnlyList<JsonNode>> ReadAsync(string path)
     {
         if (!File.Exists(path))

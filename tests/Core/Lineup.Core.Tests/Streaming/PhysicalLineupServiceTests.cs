@@ -1,7 +1,5 @@
 using System.Text.Json;
-using Lineup.Core.Common.Streaming;
 using Lineup.Core.Storage;
-using Lineup.Core.Extensibility.Streaming;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -268,6 +266,7 @@ public sealed class PhysicalLineupServiceTests
     {
         private readonly SqliteConnection _connection = new("Data Source=:memory:");
 
+        /// <summary>Initializes the fixture.</summary>
         public Fixture()
         {
             _connection.Open();
@@ -275,25 +274,36 @@ public sealed class PhysicalLineupServiceTests
             Service = new PhysicalLineupService(new PhysicalDeviceCatalog(new StreamingAdapterRegistry([Driver], [], [])), Store, Logger);
         }
 
+        /// <summary>Gets the driver.</summary>
         public FakeDriver Driver { get; } = new();
+        /// <summary>Gets the logger.</summary>
         public CapturedLogger Logger { get; } = new();
+        /// <summary>Gets the store.</summary>
         public StreamingTopologyStore Store { get; }
+        /// <summary>Gets the service.</summary>
         public PhysicalLineupService Service { get; }
 
+        /// <inheritdoc />
         public void Dispose() => _connection.Dispose();
     }
 
     private sealed class ContextFactory(DbContextOptions<EpgDbContext> options) : IDbContextFactory<EpgDbContext>
     {
+        /// <summary>Creates db context.</summary>
+        /// <returns>The operation's result.</returns>
         public EpgDbContext CreateDbContext() => new(options);
     }
 
     private sealed class CapturedLogger : ILogger<PhysicalLineupService>
     {
+        /// <summary>Gets the warnings.</summary>
         public System.Collections.Concurrent.ConcurrentQueue<string> Warnings { get; } = new();
+        /// <inheritdoc />
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        /// <inheritdoc />
         public bool IsEnabled(LogLevel logLevel) => true;
 
+        /// <inheritdoc />
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
             if (logLevel == LogLevel.Warning)
@@ -305,20 +315,41 @@ public sealed class PhysicalLineupServiceTests
 
     private sealed class FakeDriver : IPhysicalTunerDriver
     {
+        /// <summary>Stores the driver kind.</summary>
         public const string DriverKind = "test-lineup";
+        /// <summary>Gets the kind.</summary>
         public string Kind => DriverKind;
+        /// <summary>Gets the display name.</summary>
         public string DisplayName => "Test lineup driver";
+        /// <summary>Gets the supports user creation.</summary>
         public bool SupportsUserCreation => true;
+        /// <summary>Gets the capabilities.</summary>
         public DeviceCapabilities Capabilities { get; } = new();
+        /// <summary>Gets the created IDs.</summary>
         public System.Collections.Concurrent.ConcurrentQueue<PhysicalDeviceId> CreatedIds { get; } = new();
+        /// <summary>Gets the refreshed IDs.</summary>
         public System.Collections.Concurrent.ConcurrentQueue<PhysicalDeviceId> RefreshedIds { get; } = new();
+        /// <summary>Gets or sets the before create.</summary>
         public Action<CancellationToken>? BeforeCreate { get; set; }
+        /// <summary>Gets or sets the before refresh.</summary>
         public Action<CancellationToken>? BeforeRefresh { get; set; }
 
+        /// <summary>Creates default configuration.</summary>
+        /// <param name="deviceId">Identity of the target device.</param>
+        /// <returns>The operation's result.</returns>
         public AdapterConfiguration CreateDefaultConfiguration(PhysicalDeviceId deviceId) => new(DriverKind, JsonSerializer.SerializeToElement(new { Mode = "healthy" }));
 
+        /// <summary>Validates the fake driver.</summary>
+        /// <param name="configuration">Configuration to apply.</param>
+        /// <returns>The operation's result.</returns>
         public IReadOnlyList<string> Validate(AdapterConfiguration configuration) => configuration.Configuration.GetProperty("Mode").GetString() == "validation" ? [PrivateDetail] : [];
 
+        /// <summary>Creates the fake driver asynchronously.</summary>
+        /// <param name="deviceId">Identity of the target device.</param>
+        /// <param name="name">Name used by the operation.</param>
+        /// <param name="configuration">Configuration to apply.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
         public ValueTask<IPhysicalTunerDevice> CreateAsync(PhysicalDeviceId deviceId, string name, AdapterConfiguration configuration, CancellationToken cancellationToken = default)
         {
             CreatedIds.Enqueue(deviceId);
@@ -344,8 +375,12 @@ public sealed class PhysicalLineupServiceTests
 
     private sealed class FakeDevice(FakeDriver driver, PhysicalDeviceId id, string name, string? mode) : IPhysicalTunerDevice
     {
+        /// <summary>Gets the snapshot.</summary>
         public PhysicalDeviceSnapshot Snapshot { get; } = new() { Id = id, Kind = FakeDriver.DriverKind, Name = name, Capacity = new PhysicalTunerCapacity(1) };
 
+        /// <summary>Refreshes lineup asynchronously.</summary>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
         public Task<IReadOnlyList<PhysicalSourceChannel>> RefreshLineupAsync(CancellationToken cancellationToken = default)
         {
             driver.RefreshedIds.Enqueue(id);
@@ -356,6 +391,10 @@ public sealed class PhysicalLineupServiceTests
                 : Task.FromResult<IReadOnlyList<PhysicalSourceChannel>>(mode == "empty" ? [] : [Channel(id, "7", "Updated"), Channel(id, "9", "Alternate")]);
         }
 
+        /// <summary>Opens stream asynchronously.</summary>
+        /// <param name="request">The request value.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
         public ValueTask<IPhysicalStreamLease> OpenStreamAsync(PhysicalStreamRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }

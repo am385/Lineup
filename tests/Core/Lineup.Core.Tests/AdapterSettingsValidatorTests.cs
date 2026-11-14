@@ -1,6 +1,4 @@
 using System.Text.Json;
-using Lineup.Core.Common.Configuration;
-using Lineup.Core.Extensibility.Configuration;
 using Xunit;
 
 namespace Lineup.Core.Tests;

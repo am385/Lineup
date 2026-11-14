@@ -1,5 +1,4 @@
 using Lineup.Core.Common.Networking;
-using Lineup.Core.Settings;
 using Microsoft.AspNetCore.HttpOverrides;
 
 namespace Lineup.App.Web.Services;

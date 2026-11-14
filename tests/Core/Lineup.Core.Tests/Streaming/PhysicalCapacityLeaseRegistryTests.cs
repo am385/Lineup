@@ -1,5 +1,3 @@
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Xunit;
 
 namespace Lineup.Core.Tests.Streaming;

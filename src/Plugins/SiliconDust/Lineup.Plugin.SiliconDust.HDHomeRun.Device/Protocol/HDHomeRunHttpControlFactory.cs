@@ -27,13 +27,17 @@ public sealed class HDHomeRunHttpControlFactory : IHDHomeRunHttpControlFactory
         _logger = logger;
     }
 
-    /// <inheritdoc />
+    /// <summary>Creates the HDHomeRun HTTP control factory.</summary>
+    /// <param name="deviceAddress">The device address value.</param>
+    /// <returns>The operation's result.</returns>
     public HDHomeRunHttpControl Create(IPAddress deviceAddress)
     {
         return Create(new UriBuilder(Uri.UriSchemeHttp, deviceAddress.ToString()).Uri.AbsoluteUri);
     }
 
-    /// <inheritdoc />
+    /// <summary>Creates the HDHomeRun HTTP control factory.</summary>
+    /// <param name="baseUrl">The base URL value.</param>
+    /// <returns>The operation's result.</returns>
     public HDHomeRunHttpControl Create(string baseUrl)
     {
         var client = _httpClientFactory.CreateClient(HttpClientName);

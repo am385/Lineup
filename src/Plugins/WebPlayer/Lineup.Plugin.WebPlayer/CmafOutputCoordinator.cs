@@ -32,23 +32,18 @@ public interface ICmafOutputLease : IAsyncDisposable
 public interface ICmafOutputCoordinator : IAsyncDisposable, IStreamingProducerDiagnosticsContributor
 {
     /// <summary>Acquires or creates the output for a canonical transform.</summary>
-    ValueTask<ICmafOutputLease> AcquireAsync(
-        StreamTransformKey transformKey,
-        Func<CancellationToken, ValueTask<IAsyncDisposable>> startOutput,
-        CancellationToken cancellationToken = default);
+    ValueTask<ICmafOutputLease> AcquireAsync(StreamTransformKey transformKey, Func<CancellationToken, ValueTask<IAsyncDisposable>> startOutput, CancellationToken cancellationToken = default);
 
     /// <summary>Acquires or creates an output with state exposed to transport adapters.</summary>
-    ValueTask<ICmafOutputLease> AcquireAsync(
-        StreamTransformKey transformKey,
-        Func<CancellationToken, ValueTask<CmafOutputRegistration>> startOutput,
-        CancellationToken cancellationToken = default);
+    ValueTask<ICmafOutputLease> AcquireAsync(StreamTransformKey transformKey, Func<CancellationToken, ValueTask<CmafOutputRegistration>> startOutput, CancellationToken cancellationToken = default);
 
     /// <summary>Acquires an output for a caller-selected externally visible viewer identity.</summary>
     ValueTask<ICmafOutputLease> AcquireAsync(
         StreamTransformKey transformKey,
         StreamSessionId viewerSessionId,
         Func<CancellationToken, ValueTask<CmafOutputRegistration>> startOutput,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default
+    );
 
     /// <summary>Acquires an output with a configured idle producer reuse period.</summary>
     ValueTask<ICmafOutputLease> AcquireAsync(
@@ -56,7 +51,8 @@ public interface ICmafOutputCoordinator : IAsyncDisposable, IStreamingProducerDi
         StreamSessionId viewerSessionId,
         Func<CancellationToken, ValueTask<CmafOutputRegistration>> startOutput,
         TimeSpan keepWarmPeriod,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default
+    );
 
     /// <summary>Finds and touches one active viewer alias.</summary>
     bool TryGetViewer(StreamSessionId viewerSessionId, out CmafViewerSnapshot? viewer);
@@ -86,7 +82,7 @@ public interface ICmafOutputCoordinator : IAsyncDisposable, IStreamingProducerDi
 /// <summary>Thread-safe, host-neutral CMAF output and viewer coordinator.</summary>
 public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
 {
-    private static readonly TimeSpan DefaultInactivityTimeout = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan _defaultInactivityTimeout = TimeSpan.FromMinutes(2);
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly SemaphoreSlim _creationGate = new(1, 1);
     private readonly IMediaWorkAdmission? _mediaWork;
@@ -105,7 +101,7 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
         _mediaWork = mediaWork;
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets the active output count.</summary>
     public int ActiveOutputCount
     {
         get
@@ -122,11 +118,12 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
         }
     }
 
-    /// <inheritdoc />
-    public ValueTask<ICmafOutputLease> AcquireAsync(
-        StreamTransformKey transformKey,
-        Func<CancellationToken, ValueTask<IAsyncDisposable>> startOutput,
-        CancellationToken cancellationToken = default)
+    /// <summary>Executes acquire asynchronously.</summary>
+    /// <param name="transformKey">The transform key value.</param>
+    /// <param name="startOutput">The start output value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
+    public ValueTask<ICmafOutputLease> AcquireAsync(StreamTransformKey transformKey, Func<CancellationToken, ValueTask<IAsyncDisposable>> startOutput, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(startOutput);
         return AcquireAsync(
@@ -135,28 +132,42 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
             cancellationToken);
     }
 
-    /// <inheritdoc />
-    public async ValueTask<ICmafOutputLease> AcquireAsync(
-        StreamTransformKey transformKey,
-        Func<CancellationToken, ValueTask<CmafOutputRegistration>> startOutput,
-        CancellationToken cancellationToken = default)
+    /// <summary>Executes acquire asynchronously.</summary>
+    /// <param name="transformKey">The transform key value.</param>
+    /// <param name="startOutput">The start output value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
+    public async ValueTask<ICmafOutputLease> AcquireAsync(StreamTransformKey transformKey, Func<CancellationToken, ValueTask<CmafOutputRegistration>> startOutput, CancellationToken cancellationToken = default)
         => await AcquireAsync(transformKey, StreamSessionId.New(), startOutput, cancellationToken);
 
-    /// <inheritdoc />
+    /// <summary>Executes acquire asynchronously.</summary>
+    /// <param name="transformKey">The transform key value.</param>
+    /// <param name="viewerSessionId">The viewer session ID value.</param>
+    /// <param name="startOutput">The start output value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async ValueTask<ICmafOutputLease> AcquireAsync(
         StreamTransformKey transformKey,
         StreamSessionId viewerSessionId,
         Func<CancellationToken, ValueTask<CmafOutputRegistration>> startOutput,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default
+    )
         => await AcquireAsync(transformKey, viewerSessionId, startOutput, TimeSpan.Zero, cancellationToken);
 
-    /// <inheritdoc />
+    /// <summary>Executes acquire asynchronously.</summary>
+    /// <param name="transformKey">The transform key value.</param>
+    /// <param name="viewerSessionId">The viewer session ID value.</param>
+    /// <param name="startOutput">The start output value.</param>
+    /// <param name="keepWarmPeriod">The keep warm period value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async ValueTask<ICmafOutputLease> AcquireAsync(
         StreamTransformKey transformKey,
         StreamSessionId viewerSessionId,
         Func<CancellationToken, ValueTask<CmafOutputRegistration>> startOutput,
         TimeSpan keepWarmPeriod,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default
+    )
     {
         ArgumentNullException.ThrowIfNull(transformKey);
         ArgumentNullException.ThrowIfNull(startOutput);
@@ -281,6 +292,7 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
         private readonly Lock _gate = new();
         private Task? _disposal;
 
+        /// <inheritdoc />
         public ValueTask DisposeAsync()
         {
             lock (_gate)
@@ -299,7 +311,10 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Attempts to get viewer.</summary>
+    /// <param name="viewerSessionId">The viewer session ID value.</param>
+    /// <param name="viewer">The viewer value.</param>
+    /// <returns>The operation's result.</returns>
     public bool TryGetViewer(StreamSessionId viewerSessionId, out CmafViewerSnapshot? viewer)
     {
         _gate.Wait();
@@ -321,7 +336,10 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Releases viewer asynchronously.</summary>
+    /// <param name="viewerSessionId">The viewer session ID value.</param>
+    /// <param name="terminationCode">The termination code value.</param>
+    /// <returns>The operation's result.</returns>
     public async ValueTask<bool> ReleaseViewerAsync(StreamSessionId viewerSessionId, string? terminationCode = null)
     {
         IAsyncDisposable? outputOwner = null;
@@ -356,7 +374,10 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
         return true;
     }
 
-    /// <inheritdoc />
+    /// <summary>Releases output asynchronously.</summary>
+    /// <param name="outputId">The output ID value.</param>
+    /// <param name="terminationCode">The termination code value.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public async ValueTask ReleaseOutputAsync(StreamSessionId outputId, string? terminationCode = null)
     {
         IAsyncDisposable? owner = null;
@@ -392,7 +413,9 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets playback status.</summary>
+    /// <param name="viewerSessionId">The viewer session ID value.</param>
+    /// <returns>The operation's result.</returns>
     public CmafPlaybackStatus GetPlaybackStatus(StreamSessionId viewerSessionId)
     {
         _gate.Wait();
@@ -433,7 +456,8 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
         _terminations[viewerId] = (code, _timeProvider.GetTimestamp());
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets viewers.</summary>
+    /// <returns>The operation's result.</returns>
     public IReadOnlyList<CmafViewerSnapshot> GetViewers()
     {
         _gate.Wait();
@@ -447,7 +471,8 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets diagnostics.</summary>
+    /// <returns>The operation's result.</returns>
     public IReadOnlyList<CmafOutputDiagnostics> GetDiagnostics()
     {
         _gate.Wait();
@@ -469,7 +494,8 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets producer diagnostics.</summary>
+    /// <returns>The operation's result.</returns>
     public StreamingProducerDiagnostics GetProducerDiagnostics()
     {
         var diagnostics = GetDiagnostics();
@@ -479,7 +505,8 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
             diagnostics.Count);
     }
 
-    /// <inheritdoc />
+    /// <summary>Stops the CMAF output coordinator asynchronously.</summary>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public async ValueTask StopAsync()
     {
         IAsyncDisposable[] owners;
@@ -597,7 +624,7 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
 
     private static TimeSpan NormalizeTimeout(TimeSpan? timeout)
     {
-        var value = timeout ?? DefaultInactivityTimeout;
+        var value = timeout ?? _defaultInactivityTimeout;
         return value < TimeSpan.FromMilliseconds(10)
             ? TimeSpan.FromMilliseconds(10)
             : value > TimeSpan.FromHours(1)
@@ -674,24 +701,39 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
 
     private sealed class OutputEntry(StreamSessionId outputId, IAsyncDisposable owner, object state, Action<StreamSessionId>? viewerReleased)
     {
+        /// <summary>Gets the output ID.</summary>
         public StreamSessionId OutputId { get; } = outputId;
+        /// <summary>Gets the owner.</summary>
         public IAsyncDisposable Owner { get; } = owner;
+        /// <summary>Gets the state.</summary>
         public object State { get; } = state;
+        /// <summary>Gets the viewer released.</summary>
         public Action<StreamSessionId>? ViewerReleased { get; } = viewerReleased;
+        /// <summary>Gets or sets the reference count.</summary>
         public int ReferenceCount { get; set; }
+        /// <summary>Gets or sets the warm expiration cancellation.</summary>
         public CancellationTokenSource? WarmExpirationCancellation { get; set; }
     }
 
     private sealed class ViewerEntry(StreamSessionId viewerSessionId, StreamTransformKey transformKey, OutputEntry output, long lastAccessTimestamp, TimeSpan keepWarmPeriod)
     {
+        /// <summary>Gets the viewer session ID.</summary>
         public StreamSessionId ViewerSessionId { get; } = viewerSessionId;
+        /// <summary>Gets the transform key.</summary>
         public StreamTransformKey TransformKey { get; } = transformKey;
+        /// <summary>Gets the output.</summary>
         public OutputEntry Output { get; } = output;
+        /// <summary>Gets or sets the last access timestamp.</summary>
         public long LastAccessTimestamp { get; set; } = lastAccessTimestamp;
+        /// <summary>Gets the keep warm period.</summary>
         public TimeSpan KeepWarmPeriod { get; } = keepWarmPeriod;
+        /// <summary>Gets the expiration cancellation.</summary>
         public CancellationTokenSource ExpirationCancellation { get; } = new();
+        /// <summary>Gets or sets the expiration task.</summary>
         public Task? ExpirationTask { get; set; }
 
+        /// <summary>Creates snapshot.</summary>
+        /// <returns>The operation's result.</returns>
         public CmafViewerSnapshot CreateSnapshot() => new(ViewerSessionId, Output.OutputId, TransformKey, Output.State);
     }
 
@@ -699,11 +741,16 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
     {
         private CmafOutputCoordinator? _coordinator = coordinator;
 
+        /// <summary>Gets the viewer session ID.</summary>
         public StreamSessionId ViewerSessionId => viewer.ViewerSessionId;
+        /// <summary>Gets the output ID.</summary>
         public StreamSessionId OutputId => viewer.Output.OutputId;
+        /// <summary>Gets the transform key.</summary>
         public StreamTransformKey TransformKey => viewer.TransformKey;
+        /// <summary>Gets the state.</summary>
         public object State => viewer.Output.State;
 
+        /// <inheritdoc />
         public ValueTask DisposeAsync()
         {
             var owner = Interlocked.Exchange(ref _coordinator, null);

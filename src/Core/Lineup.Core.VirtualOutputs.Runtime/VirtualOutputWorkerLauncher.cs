@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Text.Json;
-using Lineup.Core.Common.Streaming;
 using Lineup.Core.VirtualOutputs.Protocol;
 using Microsoft.Extensions.Logging;
 
@@ -23,10 +22,7 @@ public interface IVirtualOutputWorkerProcess : IAsyncDisposable
 public interface IVirtualOutputWorkerLauncher
 {
     /// <summary>Starts one worker and sends its bootstrap descriptor through redirected standard input.</summary>
-    Task<IVirtualOutputWorkerProcess> StartAsync(
-        VirtualOutputWorkerPackage package,
-        VirtualOutputWorkerBootstrap bootstrap,
-        CancellationToken cancellationToken = default);
+    Task<IVirtualOutputWorkerProcess> StartAsync(VirtualOutputWorkerPackage package, VirtualOutputWorkerBootstrap bootstrap, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Process-based managed virtual-output worker launcher with activation-scoped temporary storage.</summary>
@@ -40,11 +36,12 @@ public sealed class VirtualOutputWorkerLauncher : IVirtualOutputWorkerLauncher
         _logger = logger;
     }
 
-    /// <inheritdoc />
-    public async Task<IVirtualOutputWorkerProcess> StartAsync(
-        VirtualOutputWorkerPackage package,
-        VirtualOutputWorkerBootstrap bootstrap,
-        CancellationToken cancellationToken = default)
+    /// <summary>Starts the virtual output worker launcher asynchronously.</summary>
+    /// <param name="package">The package value.</param>
+    /// <param name="bootstrap">The bootstrap value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
+    public async Task<IVirtualOutputWorkerProcess> StartAsync(VirtualOutputWorkerPackage package, VirtualOutputWorkerBootstrap bootstrap, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(package);
         ArgumentNullException.ThrowIfNull(bootstrap);
@@ -165,6 +162,12 @@ public sealed class VirtualOutputWorkerLauncher : IVirtualOutputWorkerLauncher
         private Task? _stderr;
         private int _disposed;
 
+        /// <summary>Initializes the managed virtual output worker process.</summary>
+        /// <param name="process">The process value.</param>
+        /// <param name="processLimits">The process limits value.</param>
+        /// <param name="temporaryDirectory">The temporary directory value.</param>
+        /// <param name="workerId">The worker ID value.</param>
+        /// <param name="logger">The logger value.</param>
         internal ManagedVirtualOutputWorkerProcess(Process process, IDisposable? processLimits, DirectoryInfo temporaryDirectory, string workerId, ILogger logger)
         {
             _process = process;
@@ -179,19 +182,23 @@ public sealed class VirtualOutputWorkerLauncher : IVirtualOutputWorkerLauncher
             }
         }
 
-        /// <inheritdoc />
+        /// <summary>Gets the process ID.</summary>
         public int ProcessId => _process.Id;
 
-        /// <inheritdoc />
+        /// <summary>Gets the completion.</summary>
         public Task<int> Completion => _completion.Task;
 
+        /// <summary>Starts output pumps.</summary>
         internal void StartOutputPumps()
         {
             _stdout = PumpAsync(_process.StandardOutput, LogLevel.Information);
             _stderr = PumpAsync(_process.StandardError, LogLevel.Warning);
         }
 
-        /// <inheritdoc />
+        /// <summary>Stops the managed virtual output worker process asynchronously.</summary>
+        /// <param name="timeout">The timeout value.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>A task that completes when the operation has finished.</returns>
         public async Task StopAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
         {
             if (_process.HasExited)

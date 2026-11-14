@@ -42,8 +42,8 @@ public static class LineupTelemetry
     /// <summary>Gets automatic worker restart attempts, without worker identities as labels.</summary>
     public static Counter<long> WorkerRestarts { get; } = Meter.CreateCounter<long>("lineup.worker.restarts", "{restart}");
 
-    private static readonly Histogram<double> Duration = Meter.CreateHistogram<double>("lineup.operation.duration", "s");
-    private static readonly Counter<long> Operations = Meter.CreateCounter<long>("lineup.operations", "{operation}");
+    private static readonly Histogram<double> _duration = Meter.CreateHistogram<double>("lineup.operation.duration", "s");
+    private static readonly Counter<long> _operations = Meter.CreateCounter<long>("lineup.operations", "{operation}");
 
     /// <summary>Starts a correlated operation; stage names must be fixed application constants, never external input.</summary>
     public static Operation Begin(string stage, string? parentId = null, CancellationToken cancellationToken = default) => new(stage, parentId, cancellationToken);
@@ -52,8 +52,8 @@ public static class LineupTelemetry
     public static void Record(string stage, string outcome, TimeSpan elapsed)
     {
         var tags = new TagList { { "stage", stage }, { "outcome", outcome } };
-        Operations.Add(1, tags);
-        Duration.Record(elapsed.TotalSeconds, tags);
+        _operations.Add(1, tags);
+        _duration.Record(elapsed.TotalSeconds, tags);
     }
 
     /// <summary>Owns one timed operation and its activity, including when no collector is attached.</summary>

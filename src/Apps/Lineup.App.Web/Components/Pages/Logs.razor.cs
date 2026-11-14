@@ -9,7 +9,7 @@ namespace Lineup.App.Web.Components.Pages;
 /// </summary>
 public partial class Logs : IDisposable
 {
-    private static readonly LogEventLevel[] DisplayLevels = [LogEventLevel.Verbose, LogEventLevel.Debug, LogEventLevel.Information, LogEventLevel.Warning, LogEventLevel.Error, LogEventLevel.Fatal];
+    private static readonly LogEventLevel[] _displayLevels = [LogEventLevel.Verbose, LogEventLevel.Debug, LogEventLevel.Information, LogEventLevel.Warning, LogEventLevel.Error, LogEventLevel.Fatal];
     private readonly Timer _timer;
     private LogEventLevel _minimumLevel = LogEventLevel.Information;
     private string _category = "";

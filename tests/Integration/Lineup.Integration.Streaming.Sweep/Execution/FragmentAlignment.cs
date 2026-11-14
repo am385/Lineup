@@ -118,7 +118,8 @@ internal static partial class FragmentAlignment
         int maximumDelta,
         TimestampEvidence? timestamps = null,
         DateTimeOffset? stableFromUtc = null,
-        DateTimeOffset? stableThroughUtc = null)
+        DateTimeOffset? stableThroughUtc = null
+    )
     {
         if (result.Failure is null)
         {

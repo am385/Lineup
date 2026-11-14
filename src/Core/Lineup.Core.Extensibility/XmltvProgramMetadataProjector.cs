@@ -8,7 +8,7 @@ namespace Lineup.Core.Extensibility.Guides;
 /// </summary>
 public static class XmltvProgramMetadataProjector
 {
-    private static readonly HashSet<string> CreditNames =
+    private static readonly HashSet<string> _creditNames =
     [
         "director",
         "actor",
@@ -35,7 +35,7 @@ public static class XmltvProgramMetadataProjector
 
         var elements = supplemental.Elements.Where(IsUnqualified).ToArray();
         var credits = Elements(elements, "credits")
-            .SelectMany(element => element.Elements().Where(child => IsUnqualified(child) && CreditNames.Contains(child.Name.LocalName)))
+            .SelectMany(element => element.Elements().Where(child => IsUnqualified(child) && _creditNames.Contains(child.Name.LocalName)))
             .Select(element => new XmltvCredit(
                 element.Name.LocalName,
                 element.Value.Trim(),

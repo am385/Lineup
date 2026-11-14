@@ -33,11 +33,11 @@ public class TranscodingSettingsTests
         context.Services.AddSingleton(timeZoneService);
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var component = context.Render<Settings>();
-        component.Find("#tab-streaming").Click();
+        await component.Find("#tab-streaming").ClickAsync(new());
         var selector = component.Find("#disabledChannelMode");
 
         // Act
-        selector.Change(DisabledChannelMode.StreamSlate.ToString());
+        await selector.ChangeAsync(DisabledChannelMode.StreamSlate.ToString());
         await component.Find("button.btn-primary").ClickAsync(new());
 
         // Assert

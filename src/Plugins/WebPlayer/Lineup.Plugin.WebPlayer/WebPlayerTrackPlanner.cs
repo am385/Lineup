@@ -1,5 +1,4 @@
 using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 
 namespace Lineup.Plugin.WebPlayer;
 
@@ -20,12 +19,7 @@ public static class WebPlayerTrackPlanner
     /// <summary>
     /// Validates source indexes and creates a selection with default audio and subtitles off.
     /// </summary>
-    public static WebPlayerTrackSelection SelectTracks(
-        MediaProbeResult source,
-        int? audioIndex,
-        int? subtitleIndex,
-        SubtitlePresentation? retrySubtitlePresentation = null,
-        bool retryEmbeddedClosedCaptions = false)
+    public static WebPlayerTrackSelection SelectTracks(MediaProbeResult source, int? audioIndex, int? subtitleIndex, SubtitlePresentation? retrySubtitlePresentation = null, bool retryEmbeddedClosedCaptions = false)
     {
         var audioTracks = source.Tracks.Where(track => track.Type == MediaTrackType.Audio).ToArray();
         MediaTrackMetadata? audio;

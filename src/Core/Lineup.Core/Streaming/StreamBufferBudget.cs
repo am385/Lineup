@@ -5,9 +5,9 @@ namespace Lineup.Core.Streaming;
 /// <summary>Accounts distinct shared payload arrays and evicts lagging subscriptions without blocking producers.</summary>
 internal sealed class StreamBufferBudget : IDisposable
 {
-    private static readonly Meter Metrics = new("Lineup.Streaming");
-    private static readonly UpDownCounter<long> BufferedPayload = Metrics.CreateUpDownCounter<long>("lineup.streaming.buffered_bytes", "By", "Distinct payload bytes retained by shared-stream queues.");
-    private static readonly Counter<long> BufferEvictions = Metrics.CreateCounter<long>("lineup.streaming.buffer_evictions", description: "Subscriptions evicted by bounded buffering policy.");
+    private static readonly Meter _metrics = new("Lineup.Streaming");
+    private static readonly UpDownCounter<long> _bufferedPayload = _metrics.CreateUpDownCounter<long>("lineup.streaming.buffered_bytes", "By", "Distinct payload bytes retained by shared-stream queues.");
+    private static readonly Counter<long> _bufferEvictions = _metrics.CreateCounter<long>("lineup.streaming.buffer_evictions", description: "Subscriptions evicted by bounded buffering policy.");
     private readonly Lock _gate = new();
     private readonly HashSet<Subscription> _subscriptions = [];
     private readonly TimeProvider _clock;
@@ -77,7 +77,7 @@ internal sealed class StreamBufferBudget : IDisposable
             {
                 var chunk = new Chunk(payload, _clock.GetTimestamp(), receivers.Length);
                 _retainedBytes += payload.Length;
-                BufferedPayload.Add(payload.Length);
+                _bufferedPayload.Add(payload.Length);
                 foreach (var subscription in receivers)
                 {
                     subscription.Queue.Enqueue(new Cursor(chunk));
@@ -178,7 +178,7 @@ internal sealed class StreamBufferBudget : IDisposable
     private void Evict(Subscription subscription, string reason, string code)
     {
         _evictions++;
-        BufferEvictions.Add(1, new KeyValuePair<string, object?>("reason", code));
+        _bufferEvictions.Add(1, new KeyValuePair<string, object?>("reason", code));
         Complete(subscription, new IOException(reason), discard: true);
         ThreadPool.QueueUserWorkItem(_ => subscription.Evicted());
     }
@@ -197,7 +197,7 @@ internal sealed class StreamBufferBudget : IDisposable
         if (--chunk.References == 0)
         {
             _retainedBytes -= chunk.Payload.Length;
-            BufferedPayload.Add(-chunk.Payload.Length);
+            _bufferedPayload.Add(-chunk.Payload.Length);
         }
     }
 

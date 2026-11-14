@@ -1,4 +1,3 @@
-using Lineup.Core.Common.Streaming;
 using Lineup.Core.Extensibility.Streaming;
 using Lineup.Plugin.SiliconDust.HDHomeRun.Device;
 using Lineup.Plugin.SiliconDust.HDHomeRun.Device.Protocol;

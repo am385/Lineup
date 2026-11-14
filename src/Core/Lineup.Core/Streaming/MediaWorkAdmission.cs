@@ -1,5 +1,3 @@
-using Lineup.Core.Common.Streaming;
-
 namespace Lineup.Core.Streaming;
 
 /// <summary>Reports deployment-wide media reservations and their effective restart-scoped limits.</summary>
@@ -15,7 +13,11 @@ public sealed class MediaWorkAdmission(StreamingResourceOptions options) : IMedi
     private readonly Lock _gate = new();
     private readonly Dictionary<Guid, Entry> _entries = [];
 
-    /// <inheritdoc />
+    /// <summary>Executes acquire asynchronously.</summary>
+    /// <param name="kind">The kind value.</param>
+    /// <param name="retireIdle">The retire idle value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async ValueTask<IAsyncDisposable> AcquireAsync(MediaWorkKind kind, Func<CancellationToken, Task<bool>>? retireIdle = null, CancellationToken cancellationToken = default)
     {
         if (!Enum.IsDefined(kind))
@@ -44,7 +46,9 @@ public sealed class MediaWorkAdmission(StreamingResourceOptions options) : IMedi
             $"The deployment-wide {kind.ToString().ToLowerInvariant()} limit has been reached.");
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes reclaim idle asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public async Task ReclaimIdleAsync(CancellationToken cancellationToken = default)
     {
         Entry[] entries;
@@ -59,7 +63,8 @@ public sealed class MediaWorkAdmission(StreamingResourceOptions options) : IMedi
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes check workspace.</summary>
+    /// <param name="path">Path used by the operation.</param>
     public void CheckWorkspace(string path) => MediaWorkspaceAdmission.Check(path, options.MinimumMediaFreeSpaceMib);
 
     /// <summary>Gets immutable usage and effective limits for management diagnostics.</summary>
@@ -76,6 +81,7 @@ public sealed class MediaWorkAdmission(StreamingResourceOptions options) : IMedi
 
     private sealed class Lease(MediaWorkAdmission owner, Guid id) : IAsyncDisposable
     {
+        /// <inheritdoc />
         public ValueTask DisposeAsync()
         {
             lock (owner._gate)

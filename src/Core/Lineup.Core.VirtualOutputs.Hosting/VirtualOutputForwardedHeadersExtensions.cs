@@ -16,10 +16,7 @@ public static class VirtualOutputForwardedHeadersExtensions
     /// <param name="hosting">Virtual-output listener configuration.</param>
     /// <param name="policies">Security policies indexed by key.</param>
     /// <returns>The request pipeline builder.</returns>
-    public static IApplicationBuilder UseVirtualOutputForwardedHeaders(
-        this IApplicationBuilder app,
-        VirtualOutputHostingDefinition hosting,
-        IReadOnlyDictionary<string, VirtualOutputSecurityPolicyDefinition> policies)
+    public static IApplicationBuilder UseVirtualOutputForwardedHeaders(this IApplicationBuilder app, VirtualOutputHostingDefinition hosting, IReadOnlyDictionary<string, VirtualOutputSecurityPolicyDefinition> policies)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(hosting);

@@ -386,17 +386,12 @@ public partial class Channels
         _ => channels
     };
 
-    private IOrderedEnumerable<PhysicalChannelIdentity> Sort<TKey>(
-        IEnumerable<PhysicalChannelIdentity> channels,
-        Func<PhysicalChannelIdentity, TKey> selector,
-        IComparer<TKey>? comparer = null) =>
+    private IOrderedEnumerable<PhysicalChannelIdentity> Sort<TKey>(IEnumerable<PhysicalChannelIdentity> channels, Func<PhysicalChannelIdentity, TKey> selector, IComparer<TKey>? comparer = null) =>
         _sortDirection == ChannelSortDirection.Ascending
             ? channels.OrderBy(selector, comparer)
             : channels.OrderByDescending(selector, comparer);
 
-    private IOrderedEnumerable<PhysicalChannelIdentity> SortNullableNumber(
-        IEnumerable<PhysicalChannelIdentity> channels,
-        Func<PhysicalChannelIdentity, int?> selector) =>
+    private IOrderedEnumerable<PhysicalChannelIdentity> SortNullableNumber(IEnumerable<PhysicalChannelIdentity> channels, Func<PhysicalChannelIdentity, int?> selector) =>
         _sortDirection == ChannelSortDirection.Ascending
             ? channels.OrderBy(channel => selector(channel).HasValue ? 0 : 1).ThenBy(channel => selector(channel))
             : channels.OrderBy(channel => selector(channel).HasValue ? 0 : 1).ThenByDescending(channel => selector(channel));

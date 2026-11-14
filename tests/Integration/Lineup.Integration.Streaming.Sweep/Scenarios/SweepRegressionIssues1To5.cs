@@ -1,7 +1,10 @@
 namespace Lineup.Integration.Streaming.Sweep;
 
+/// <summary>Represents the sweep harness.</summary>
 internal sealed partial class SweepHarness
 {
+    /// <summary>Executes verify issue1 asynchronously.</summary>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public async Task VerifyIssue1Async()
     {
         string[] requestedChannels = ["2.1", "4.1", "17.1"];
@@ -65,6 +68,8 @@ internal sealed partial class SweepHarness
         Console.WriteLine(runRoot);
     }
 
+    /// <summary>Executes verify issue2 asynchronously.</summary>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public async Task VerifyIssue2Async()
     {
         string[] requestedChannels = ["2.1", "4.1"];
@@ -159,6 +164,8 @@ internal sealed partial class SweepHarness
         Console.WriteLine(runRoot);
     }
 
+    /// <summary>Executes verify issue3 asynchronously.</summary>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public async Task VerifyIssue3Async()
     {
         const string channelNumber = "2.1";
@@ -244,6 +251,8 @@ internal sealed partial class SweepHarness
         Console.WriteLine(runRoot);
     }
 
+    /// <summary>Executes verify issue4 asynchronously.</summary>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public async Task VerifyIssue4Async()
     {
         const string controlChannelNumber = "2.1";
@@ -344,6 +353,8 @@ internal sealed partial class SweepHarness
         Console.WriteLine(runRoot);
     }
 
+    /// <summary>Executes verify issue5 asynchronously.</summary>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public async Task VerifyIssue5Async()
     {
         const string controlChannelNumber = "2.1";

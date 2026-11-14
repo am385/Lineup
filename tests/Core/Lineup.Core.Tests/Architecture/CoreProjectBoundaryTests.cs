@@ -8,8 +8,8 @@ namespace Lineup.Core.Tests.Architecture;
 /// </summary>
 public sealed class CoreProjectBoundaryTests
 {
-    private static readonly string[] ProviderNames = ["HDHomeRun", "SiliconDust"];
-    private static readonly string[] WebForbiddenProviderTypes =
+    private static readonly string[] _providerNames = ["HDHomeRun", "SiliconDust"];
+    private static readonly string[] _webForbiddenProviderTypes =
     [
         "HdHomeRunAdvertisedDevice",
         "HdHomeRunDiscoveryProtocol",
@@ -39,7 +39,7 @@ public sealed class CoreProjectBoundaryTests
             .ToArray();
 
         // Assert
-        Assert.DoesNotContain(dependencies, dependency => ProviderNames.Any(
+        Assert.DoesNotContain(dependencies, dependency => _providerNames.Any(
             provider => dependency.Contains(provider, StringComparison.OrdinalIgnoreCase)));
     }
 
@@ -55,7 +55,7 @@ public sealed class CoreProjectBoundaryTests
 
         // Act
         var violations = sourceFiles
-            .SelectMany(path => ProviderNames
+            .SelectMany(path => _providerNames
                 .Where(provider => File.ReadAllText(path).Contains(provider, StringComparison.OrdinalIgnoreCase))
                 .Select(provider => $"{Path.GetRelativePath(sourceDirectory, path)}: {provider}"))
             .ToArray();
@@ -76,7 +76,7 @@ public sealed class CoreProjectBoundaryTests
 
         // Act
         var violations = sourceFiles
-            .SelectMany(path => WebForbiddenProviderTypes
+            .SelectMany(path => _webForbiddenProviderTypes
                 .Where(type => File.ReadAllText(path).Contains($"class {type}", StringComparison.Ordinal)
                     || File.ReadAllText(path).Contains($"record {type}", StringComparison.Ordinal)
                     || File.ReadAllText(path).Contains($"interface {type}", StringComparison.Ordinal))

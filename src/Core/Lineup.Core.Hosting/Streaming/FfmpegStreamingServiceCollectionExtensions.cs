@@ -1,4 +1,3 @@
-using Lineup.Core.Streaming;
 using Lineup.Core.Streaming.FFmpeg;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;

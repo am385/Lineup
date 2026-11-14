@@ -1,5 +1,4 @@
 using Lineup.Core.Common.Guides;
-using Lineup.Core.Extensibility.Guides;
 using Lineup.Plugin.SiliconDust.HDHomeRun.Device.Models;
 
 namespace Lineup.Plugin.SiliconDust.HDHomeRun.PhysicalTuner;

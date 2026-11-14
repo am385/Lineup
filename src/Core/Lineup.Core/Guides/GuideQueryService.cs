@@ -1,6 +1,4 @@
 using Lineup.Core.Storage;
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Lineup.Core.Settings;
 
 namespace Lineup.Core.Guides;
@@ -10,7 +8,7 @@ namespace Lineup.Core.Guides;
 /// </summary>
 public sealed class GuideQueryService : IGuideQueryService
 {
-    private static readonly VirtualDeviceId UnionVirtualDeviceId = new(Guid.Parse("8F58C8DC-2B33-4C17-B3B3-18BA69936C73"));
+    private static readonly VirtualDeviceId _unionVirtualDeviceId = new(Guid.Parse("8F58C8DC-2B33-4C17-B3B3-18BA69936C73"));
     private readonly DeviceGuideStore _guides;
     private readonly IStreamingAdapterRegistry _adapters;
 
@@ -22,18 +20,28 @@ public sealed class GuideQueryService : IGuideQueryService
         _adapters = adapters;
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets source diagnostics.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <returns>The operation's result.</returns>
     public IReadOnlyList<GuideSourceDiagnostic> GetSourceDiagnostics(StreamingConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         return GuideSourceSubscriptionResolver.ResolveEligibleSources(configuration.GuideSources, configuration.PhysicalDevices, _adapters).Diagnostics;
     }
 
-    /// <inheritdoc />
+    /// <summary>Builds union snapshot asynchronously.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="startUtc">The start UTC value.</param>
+    /// <param name="endUtc">The end UTC value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public Task<VirtualGuideSnapshot> BuildUnionSnapshotAsync(StreamingConfiguration configuration, DateTimeOffset? startUtc = null, DateTimeOffset? endUtc = null, CancellationToken cancellationToken = default) =>
         BuildUnionAsync(configuration, startUtc, endUtc, true, cancellationToken);
 
-    /// <inheritdoc />
+    /// <summary>Builds union directory asynchronously.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public Task<VirtualGuideSnapshot> BuildUnionDirectoryAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default) =>
         BuildUnionAsync(configuration, null, null, false, cancellationToken);
 
@@ -43,7 +51,7 @@ public sealed class GuideQueryService : IGuideQueryService
         var unionDevice = CreateUnionDevice();
         var eligibility = GuideSourceSubscriptionResolver.ResolveEligibleSources(configuration.GuideSources, configuration.PhysicalDevices, _adapters, cancellationToken);
         var snapshot = await _guides.BuildResolvedSnapshotAsync(
-            UnionVirtualDeviceId,
+            _unionVirtualDeviceId,
             identities => ChannelTopologyResolver.Resolve(unionDevice, configuration.PhysicalDevices, identities).Channels,
             eligibility.Sources.Select(source => source.Scope).ToArray(),
             startUtc,
@@ -58,13 +66,20 @@ public sealed class GuideQueryService : IGuideQueryService
         };
     }
 
-    /// <inheritdoc />
+    /// <summary>Builds output snapshot asynchronously.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="output">The output value.</param>
+    /// <param name="startUtc">The start UTC value.</param>
+    /// <param name="endUtc">The end UTC value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async Task<VirtualGuideSnapshot> BuildOutputSnapshotAsync(
         StreamingConfiguration configuration,
         GuideOutputDefinition output,
         DateTimeOffset? startUtc = null,
         DateTimeOffset? endUtc = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default
+    )
     {
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(output);
@@ -113,7 +128,10 @@ public sealed class GuideQueryService : IGuideQueryService
         };
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets statistics asynchronously.</summary>
+    /// <param name="configuration">Configuration to apply.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async Task<GuideStatistics> GetStatisticsAsync(StreamingConfiguration configuration, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(configuration);
@@ -132,16 +150,14 @@ public sealed class GuideQueryService : IGuideQueryService
 
     private static VirtualDeviceDefinition CreateUnionDevice() => new()
     {
-        Id = UnionVirtualDeviceId,
+        Id = _unionVirtualDeviceId,
         Name = "Lineup",
         Enabled = true,
         Adapter = new AdapterConfiguration("lineup-union", default),
         Subscription = new PhysicalDeviceSubscription { Mode = PhysicalDeviceSubscriptionMode.All }
     };
 
-    private static IReadOnlyList<VirtualDeviceDefinition> ResolveSelectedVirtualDevices(
-        StreamingConfiguration configuration,
-        GuideOutputDefinition output)
+    private static IReadOnlyList<VirtualDeviceDefinition> ResolveSelectedVirtualDevices(StreamingConfiguration configuration, GuideOutputDefinition output)
     {
         var enabled = configuration.VirtualDevices.Where(device => device.Enabled).ToArray();
         return output.VirtualDeviceSelectionMode == GuideOutputSelectionMode.All ||
@@ -150,9 +166,7 @@ public sealed class GuideQueryService : IGuideQueryService
                 : enabled.Where(device => output.SelectedVirtualDeviceIds.Contains(device.Id)).ToArray();
     }
 
-    private static IReadOnlyList<GuideSourceDefinition> ResolveSelectedGuideSources(
-        StreamingConfiguration configuration,
-        GuideOutputDefinition output)
+    private static IReadOnlyList<GuideSourceDefinition> ResolveSelectedGuideSources(StreamingConfiguration configuration, GuideOutputDefinition output)
     {
         var enabled = configuration.GuideSources.Where(source => source.Enabled).ToArray();
         return output.GuideSourceSelectionMode == GuideOutputSelectionMode.All ||

@@ -1,8 +1,4 @@
 using System.Text.Json;
-using Lineup.Core.Common.Guides;
-using Lineup.Core.Extensibility.Guides;
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Xunit;
 
 namespace Lineup.Core.Tests.Streaming;
@@ -251,6 +247,7 @@ public sealed class StreamingConfigurationValidatorTests
     [InlineData("123 Sports", "output_123_sports")]
     public void CreateGuideOutputKey_DisplayName_ReturnsCodeSafeKey(string name, string expected)
     {
+        // Arrange
         // Act
         var key = GuideOutputKey.Create(name);
 

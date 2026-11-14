@@ -46,8 +46,7 @@ internal static class BrowserInteropExtensions
     /// <summary>
     /// Starts observing guide viewport size changes.
     /// </summary>
-    public static ValueTask SetupGuideResizeObserverAsync<T>(this IJSRuntime js, DotNetObjectReference<T> callbackReference)
-        where T : class =>
+    public static ValueTask SetupGuideResizeObserverAsync<T>(this IJSRuntime js, DotNetObjectReference<T> callbackReference) where T : class =>
         js.InvokeVoidAsync("setupGuideResizeObserver", callbackReference);
 
     /// <summary>
@@ -83,7 +82,8 @@ internal static class BrowserInteropExtensions
         string? fallbackAudioCodec,
         object subtitles,
         DotNetObjectReference<TCallback> callbackReference,
-        string sessionId)
+        string sessionId
+    )
         where TCallback : class =>
         js.InvokeAsync<TResult>(
             "initCmafPlayer",
@@ -110,7 +110,8 @@ internal static class BrowserInteropExtensions
         string? expectedAudioCodec,
         string? subtitleUrl,
         DotNetObjectReference<TCallback> callbackReference,
-        string sessionId)
+        string sessionId
+    )
         where TCallback : class =>
         js.InvokeAsync<TResult>(
             "initCmafTestPlayer",

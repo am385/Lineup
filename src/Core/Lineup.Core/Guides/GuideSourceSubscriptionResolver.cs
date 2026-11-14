@@ -1,6 +1,3 @@
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
-
 namespace Lineup.Core.Guides;
 
 /// <summary>
@@ -59,10 +56,7 @@ public static class GuideSourceSubscriptionResolver
         new() { SourceId = source.Id, SourceName = source.Name, Code = code, Message = message };
 
     /// <summary>Resolves one guide source's active physical-device scope.</summary>
-    public static GuideSourceScope Resolve(
-        GuideSourceDefinition source,
-        IReadOnlyList<PhysicalDeviceDefinition> physicalDevices,
-        IGuideSourceDriver driver)
+    public static GuideSourceScope Resolve(GuideSourceDefinition source, IReadOnlyList<PhysicalDeviceDefinition> physicalDevices, IGuideSourceDriver driver)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(physicalDevices);

@@ -14,16 +14,10 @@ public interface ILineupGuideReader
     Task<IReadOnlyList<GuideChannelSegment>> GetChannelDirectoryAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Gets active guide channels and their programs in an optional UTC window.</summary>
-    Task<IReadOnlyList<GuideChannelSegment>> GetChannelsAsync(
-        DateTimeOffset? startUtc = null,
-        DateTimeOffset? endUtc = null,
-        CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<GuideChannelSegment>> GetChannelsAsync(DateTimeOffset? startUtc = null, DateTimeOffset? endUtc = null, CancellationToken cancellationToken = default);
 
     /// <summary>Gets active programs in an optional UTC window.</summary>
-    Task<IReadOnlyList<GuideCacheProgram>> GetProgramsAsync(
-        DateTimeOffset? startUtc = null,
-        DateTimeOffset? endUtc = null,
-        CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<GuideCacheProgram>> GetProgramsAsync(DateTimeOffset? startUtc = null, DateTimeOffset? endUtc = null, CancellationToken cancellationToken = default);
 
     /// <summary>Gets statistics for the active union guide projection.</summary>
     Task<GuideStatistics> GetStatisticsAsync(CancellationToken cancellationToken = default);
@@ -44,37 +38,44 @@ public sealed class LineupGuideReader : ILineupGuideReader
         _settings = settings;
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets source diagnostics.</summary>
+    /// <returns>The operation's result.</returns>
     public IReadOnlyList<GuideSourceDiagnostic> GetSourceDiagnostics() => _guides.GetSourceDiagnostics(_settings.Settings.Streaming);
 
-    /// <inheritdoc />
+    /// <summary>Gets channel directory asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async Task<IReadOnlyList<GuideChannelSegment>> GetChannelDirectoryAsync(CancellationToken cancellationToken = default)
     {
         var snapshot = await _guides.BuildUnionDirectoryAsync(_settings.Settings.Streaming, cancellationToken);
         return snapshot.Channels.Select(MapChannel).ToArray();
     }
 
-    /// <inheritdoc />
-    public async Task<IReadOnlyList<GuideChannelSegment>> GetChannelsAsync(
-        DateTimeOffset? startUtc = null,
-        DateTimeOffset? endUtc = null,
-        CancellationToken cancellationToken = default)
+    /// <summary>Gets channels asynchronously.</summary>
+    /// <param name="startUtc">The start UTC value.</param>
+    /// <param name="endUtc">The end UTC value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
+    public async Task<IReadOnlyList<GuideChannelSegment>> GetChannelsAsync(DateTimeOffset? startUtc = null, DateTimeOffset? endUtc = null, CancellationToken cancellationToken = default)
     {
         var snapshot = await _guides.BuildUnionSnapshotAsync(_settings.Settings.Streaming, startUtc, endUtc, cancellationToken);
         return snapshot.Channels.Select(MapChannel).ToArray();
     }
 
-    /// <inheritdoc />
-    public async Task<IReadOnlyList<GuideCacheProgram>> GetProgramsAsync(
-        DateTimeOffset? startUtc = null,
-        DateTimeOffset? endUtc = null,
-        CancellationToken cancellationToken = default)
+    /// <summary>Gets programs asynchronously.</summary>
+    /// <param name="startUtc">The start UTC value.</param>
+    /// <param name="endUtc">The end UTC value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
+    public async Task<IReadOnlyList<GuideCacheProgram>> GetProgramsAsync(DateTimeOffset? startUtc = null, DateTimeOffset? endUtc = null, CancellationToken cancellationToken = default)
     {
         var channels = await GetChannelsAsync(startUtc, endUtc, cancellationToken);
         return channels.SelectMany(channel => channel.Guide).OrderBy(program => program.StartTime).ToArray();
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets statistics asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public Task<GuideStatistics> GetStatisticsAsync(CancellationToken cancellationToken = default) =>
         _guides.GetStatisticsAsync(_settings.Settings.Streaming, cancellationToken);
 

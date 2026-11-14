@@ -1,5 +1,6 @@
 namespace Lineup.Integration.Streaming.Sweep;
 
+/// <summary>Represents the sweep harness.</summary>
 internal sealed partial class SweepHarness
 {
 
@@ -23,6 +24,10 @@ internal sealed partial class SweepHarness
     private readonly SemaphoreSlim _checkpointGate = new(1, 1);
     private readonly HashSet<string> _allowedOrigins = new(StringComparer.Ordinal);
 
+    /// <summary>Initializes the sweep harness.</summary>
+    /// <param name="root">The root value.</param>
+    /// <param name="repositoryRoot">The repository root value.</param>
+    /// <param name="projectRoot">The project root value.</param>
     public SweepHarness(string root, string repositoryRoot, string projectRoot)
     {
         _root = root;

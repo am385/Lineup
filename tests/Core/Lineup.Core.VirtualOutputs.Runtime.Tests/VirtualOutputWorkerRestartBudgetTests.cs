@@ -84,8 +84,11 @@ public sealed class VirtualOutputWorkerRestartBudgetTests
     {
         private DateTimeOffset _utcNow = utcNow;
 
+        /// <inheritdoc />
         public override DateTimeOffset GetUtcNow() => _utcNow;
 
+        /// <summary>Executes advance.</summary>
+        /// <param name="duration">The duration value.</param>
         public void Advance(TimeSpan duration) => _utcNow = _utcNow.Add(duration);
     }
 }

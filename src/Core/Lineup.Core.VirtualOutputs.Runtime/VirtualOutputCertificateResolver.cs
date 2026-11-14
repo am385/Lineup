@@ -6,9 +6,7 @@ namespace Lineup.Core.VirtualOutputs.Runtime;
 public interface IVirtualOutputCertificateResolver
 {
     /// <summary>Resolves one configured certificate reference.</summary>
-    Task<VirtualOutputCertificateMaterial> ResolveAsync(
-        string certificateReference,
-        CancellationToken cancellationToken = default);
+    Task<VirtualOutputCertificateMaterial> ResolveAsync(string certificateReference, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Resolves passwordless PKCS#12 files without exposing their host path to output workers.</summary>
@@ -16,10 +14,11 @@ public sealed class FileVirtualOutputCertificateResolver : IVirtualOutputCertifi
 {
     private const int MaximumCertificateBytes = 512 * 1024;
 
-    /// <inheritdoc />
-    public async Task<VirtualOutputCertificateMaterial> ResolveAsync(
-        string certificateReference,
-        CancellationToken cancellationToken = default)
+    /// <summary>Resolves the file virtual output certificate resolver asynchronously.</summary>
+    /// <param name="certificateReference">The certificate reference value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
+    public async Task<VirtualOutputCertificateMaterial> ResolveAsync(string certificateReference, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(certificateReference);
         var path = Path.GetFullPath(certificateReference);

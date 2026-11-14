@@ -52,7 +52,7 @@ public sealed record PhysicalDeviceDefinition
     /// <summary>Gets the stable physical identity.</summary>
     public required PhysicalDeviceId Id { get; init; }
 
-    /// <summary>Gets the display name.</summary>
+    /// <summary>Gets or sets the name.</summary>
     public required string Name { get; init; }
 
     /// <summary>Gets whether the device participates in discovery and streaming.</summary>
@@ -77,7 +77,7 @@ public sealed record GuideSourceDefinition
     /// <summary>Gets the stable source identity.</summary>
     public required GuideSourceId Id { get; init; }
 
-    /// <summary>Gets the display name.</summary>
+    /// <summary>Gets or sets the name.</summary>
     public required string Name { get; init; }
 
     /// <summary>Gets whether guide refresh is enabled.</summary>
@@ -98,7 +98,7 @@ public sealed record VirtualDeviceDefinition
     /// <summary>Gets the stable virtual identity.</summary>
     public required VirtualDeviceId Id { get; init; }
 
-    /// <summary>Gets the display name.</summary>
+    /// <summary>Gets or sets the name.</summary>
     public required string Name { get; init; }
 
     /// <summary>Gets whether the virtual output is enabled.</summary>
@@ -137,7 +137,7 @@ public sealed record GuideOutputDefinition
     /// <summary>Gets the stable output identity.</summary>
     public required GuideOutputId Id { get; init; }
 
-    /// <summary>Gets the display name.</summary>
+    /// <summary>Gets or sets the name.</summary>
     public required string Name { get; init; }
 
     /// <summary>Gets the stable code-safe key used by named API routes and default destinations.</summary>

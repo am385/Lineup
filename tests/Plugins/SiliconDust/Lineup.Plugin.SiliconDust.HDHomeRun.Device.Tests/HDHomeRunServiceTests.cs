@@ -12,6 +12,23 @@ namespace Lineup.Plugin.SiliconDust.HDHomeRun.Device.Tests;
 /// </summary>
 public class HDHomeRunServiceTests
 {
+    /// <summary>Verifies canceled diagnostics do not start device connectivity probes or return a success-shaped result.</summary>
+    [Fact]
+    public async Task DiagnoseConnectivityAsync_CallerAlreadyCanceled_PropagatesCancellation()
+    {
+        // Arrange
+        using var service = CreateService();
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        cancellation.Cancel();
+
+        // Act
+        var exception = await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            service.DiagnoseConnectivityAsync("192.0.2.10", cancellation.Token));
+
+        // Assert
+        Assert.Equal(cancellation.Token, exception.CancellationToken);
+    }
+
     /// <summary>Verifies activation metadata initializes and caches control without using network discovery.</summary>
     [Theory]
     [InlineData("192.0.2.10")]

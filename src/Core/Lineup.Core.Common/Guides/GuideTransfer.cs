@@ -14,7 +14,7 @@ public static class GuideTransfer
     /// <summary>Gets the maximum exported or remotely ingested program count.</summary>
     public const int MaximumPrograms = 100_000;
 
-    private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions _serializerOptions = new(JsonSerializerDefaults.Web);
 
     /// <summary>Rejects counts outside the transfer envelope without truncating the guide.</summary>
     public static void ValidateCounts(int channels, long programs)
@@ -36,18 +36,12 @@ public static class GuideTransfer
     public static async Task<int> MeasureAsync<T>(T value, CancellationToken cancellationToken = default)
     {
         using var destination = new SizeSink();
-        await JsonSerializer.SerializeAsync(destination, value, SerializerOptions, cancellationToken);
+        await JsonSerializer.SerializeAsync(destination, value, _serializerOptions, cancellationToken);
         return checked((int)destination.Length);
     }
 
     /// <summary>Reads bounded JSON while checking collection counts before handing each input block to deserialization.</summary>
-    public static async Task<T> ReadAsync<T>(
-        Stream source,
-        CancellationToken cancellationToken = default,
-        int? frameLength = null,
-        int maximumBytes = MaximumBytes,
-        bool enforceCollectionLimits = true
-    )
+    public static async Task<T> ReadAsync<T>(Stream source, CancellationToken cancellationToken = default, int? frameLength = null, int maximumBytes = MaximumBytes, bool enforceCollectionLimits = true)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumBytes);
@@ -59,7 +53,7 @@ public static class GuideTransfer
         using var input = new ReadStream(source, frameLength, maximumBytes, enforceCollectionLimits);
         try
         {
-            return await JsonSerializer.DeserializeAsync<T>(input, SerializerOptions, cancellationToken)
+            return await JsonSerializer.DeserializeAsync<T>(input, _serializerOptions, cancellationToken)
                 ?? throw new InvalidDataException("The guide response was empty.");
         }
         catch (JsonException exception)
@@ -71,17 +65,29 @@ public static class GuideTransfer
     private sealed class SizeSink : Stream
     {
         private long _length;
+        /// <inheritdoc />
         public override bool CanRead => false;
+        /// <inheritdoc />
         public override bool CanSeek => false;
+        /// <inheritdoc />
         public override bool CanWrite => true;
+        /// <inheritdoc />
         public override long Length => _length;
+        /// <inheritdoc />
         public override long Position { get => _length; set => throw new NotSupportedException(); }
+        /// <inheritdoc />
         public override void Flush() { }
+        /// <inheritdoc />
         public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        /// <inheritdoc />
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        /// <inheritdoc />
         public override void SetLength(long value) => throw new NotSupportedException();
+        /// <inheritdoc />
         public override void Write(byte[] buffer, int offset, int count) => Add(count);
+        /// <inheritdoc />
         public override void Write(ReadOnlySpan<byte> buffer) => Add(buffer.Length);
+        /// <inheritdoc />
         public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -102,15 +108,25 @@ public static class GuideTransfer
     {
         private readonly CollectionCounter? _counter = enforceCollectionLimits ? new() : null;
         private int _read;
+        /// <inheritdoc />
         public override bool CanRead => true;
+        /// <inheritdoc />
         public override bool CanSeek => false;
+        /// <inheritdoc />
         public override bool CanWrite => false;
+        /// <inheritdoc />
         public override long Length => throw new NotSupportedException();
+        /// <inheritdoc />
         public override long Position { get => _read; set => throw new NotSupportedException(); }
+        /// <inheritdoc />
         public override void Flush() { }
+        /// <inheritdoc />
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        /// <inheritdoc />
         public override void SetLength(long value) => throw new NotSupportedException();
+        /// <inheritdoc />
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        /// <inheritdoc />
         public override int Read(byte[] buffer, int offset, int count)
         {
             if (count == 0) { return 0; }
@@ -119,6 +135,7 @@ public static class GuideTransfer
             Accept(destination[..read], CancellationToken.None);
             return read;
         }
+        /// <inheritdoc />
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -155,6 +172,10 @@ public static class GuideTransfer
         private int _channels;
         private int _programs;
 
+        /// <summary>Accepts the collection counter.</summary>
+        /// <param name="bytes">The bytes value.</param>
+        /// <param name="final">The final value.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
         internal void Accept(ReadOnlySpan<byte> bytes, bool final, CancellationToken cancellationToken)
         {
             if (_pending.Length - _pendingLength < bytes.Length)

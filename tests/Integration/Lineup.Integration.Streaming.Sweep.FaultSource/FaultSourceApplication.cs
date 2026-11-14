@@ -2,10 +2,14 @@ using System.Collections.Concurrent;
 
 namespace Lineup.Integration.Streaming.Sweep.FaultSource;
 
+/// <summary>Represents the fault source application.</summary>
 internal static class FaultSourceApplication
 {
     private const string BaseUrl = "http://fault-source:8090";
 
+    /// <summary>Builds the fault source application.</summary>
+    /// <param name="args">The args value.</param>
+    /// <returns>The operation's result.</returns>
     public static WebApplication Build(string[] args)
     {
         var builder = WebApplication.CreateSlimBuilder(args);

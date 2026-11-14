@@ -10,7 +10,6 @@ using Lineup.Plugin.LineupLink.Guides;
 using Lineup.Plugin.LineupLink.Physical;
 using Lineup.Plugin.LineupLink.Virtual;
 using Lineup.Plugin.SiliconDust.HDHomeRun.VirtualTuner;
-using Lineup.App.Tui;
 using Lineup.Plugin.GuideOutputs.Xmltv.Plugin;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;

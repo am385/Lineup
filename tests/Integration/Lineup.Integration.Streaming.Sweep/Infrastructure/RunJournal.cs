@@ -1,5 +1,6 @@
 namespace Lineup.Integration.Streaming.Sweep;
 
+/// <summary>Represents the run journal.</summary>
 internal sealed class RunJournal
 {
     private readonly string _path;
@@ -7,6 +8,9 @@ internal sealed class RunJournal
     private readonly JsonSerializerOptions _compactJson;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
+    /// <summary>Initializes the run journal.</summary>
+    /// <param name="root">The root value.</param>
+    /// <param name="json">The JSON value.</param>
     public RunJournal(string root, JsonSerializerOptions json)
     {
         _path = Path.Combine(root, "events.jsonl");
@@ -14,11 +18,23 @@ internal sealed class RunJournal
         _compactJson = new JsonSerializerOptions(json) { WriteIndented = false };
     }
 
+    /// <summary>Writes event asynchronously.</summary>
+    /// <param name="type">The type value.</param>
+    /// <param name="payload">The payload value.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public Task WriteEventAsync(string type, object payload) => AppendAsync(new { schemaVersion = SweepRun.CurrentSchema, utc = DateTimeOffset.UtcNow, type, payload });
 
+    /// <summary>Writes terminal asynchronously.</summary>
+    /// <param name="matrix">The matrix value.</param>
+    /// <param name="channel">The channel value.</param>
+    /// <param name="result">The result value.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public Task WriteTerminalAsync(string matrix, string channel, ChannelAttemptResult result) =>
         AppendAsync(new { schemaVersion = SweepRun.CurrentSchema, utc = DateTimeOffset.UtcNow, type = "channel-terminal", payload = new { matrix, channel, result } });
 
+    /// <summary>Reads terminal keys asynchronously.</summary>
+    /// <param name="requireVersion">The require version value.</param>
+    /// <returns>The operation's result.</returns>
     public async Task<HashSet<string>> ReadTerminalKeysAsync(bool requireVersion = false)
     {
         if (!File.Exists(_path))

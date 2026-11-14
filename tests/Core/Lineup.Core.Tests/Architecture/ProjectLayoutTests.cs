@@ -7,7 +7,7 @@ namespace Lineup.Core.Tests.Architecture;
 /// <summary>Verifies repository project layout and allowed production dependency directions.</summary>
 public sealed class ProjectLayoutTests
 {
-    private static readonly IReadOnlySet<string> PluginSupportProjects =
+    private static readonly IReadOnlySet<string> _pluginSupportProjects =
         new HashSet<string>(
         [
             "Lineup.Plugin.SiliconDust.HDHomeRun.Api",
@@ -20,7 +20,7 @@ public sealed class ProjectLayoutTests
             "Lineup.Plugin.SiliconDust.HDHomeRun.VirtualTuner"
         ], StringComparer.OrdinalIgnoreCase);
 
-    private static readonly IReadOnlySet<string> PluginCoreDependencies =
+    private static readonly IReadOnlySet<string> _pluginCoreDependencies =
         new HashSet<string>(
         [
             "Lineup.Core.Common",
@@ -30,7 +30,7 @@ public sealed class ProjectLayoutTests
             "Lineup.Core.VirtualOutputs.Protocol"
         ], StringComparer.OrdinalIgnoreCase);
 
-    private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> AllowedDependencies =
+    private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> _allowedDependencies =
         new Dictionary<string, IReadOnlySet<string>>(StringComparer.OrdinalIgnoreCase)
         {
             ["Apps"] = new HashSet<string>(["Core", "Plugins"], StringComparer.OrdinalIgnoreCase),
@@ -38,7 +38,7 @@ public sealed class ProjectLayoutTests
             ["Plugins"] = new HashSet<string>(["Core", "Plugins"], StringComparer.OrdinalIgnoreCase)
         };
 
-    private static readonly IReadOnlyDictionary<string, string[]> CoreProjectDependencies =
+    private static readonly IReadOnlyDictionary<string, string[]> _coreProjectDependencies =
         new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
         {
             ["Lineup.Core.Common"] = [],
@@ -54,7 +54,7 @@ public sealed class ProjectLayoutTests
             ]
         };
 
-    private static readonly IReadOnlySet<string> TrustedHostProjects = new HashSet<string>(
+    private static readonly IReadOnlySet<string> _trustedHostProjects = new HashSet<string>(
         ["Lineup.Core", "Lineup.Core.Hosting", "Lineup.Core.VirtualOutputs.Runtime", "Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryRuntime"],
         StringComparer.OrdinalIgnoreCase);
 
@@ -199,7 +199,7 @@ public sealed class ProjectLayoutTests
         var violations = projects
             .Select(path => Path.GetRelativePath(sourceRoot, path))
             .Where(path => path.Split(Path.DirectorySeparatorChar).Length < 3
-                || !AllowedDependencies.ContainsKey(path.Split(Path.DirectorySeparatorChar)[0]))
+                || !_allowedDependencies.ContainsKey(path.Split(Path.DirectorySeparatorChar)[0]))
             .ToArray();
 
         // Assert
@@ -399,7 +399,7 @@ public sealed class ProjectLayoutTests
                 .Select(element => element.Attribute("Include")?.Value)
                 .Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => Path.GetFileNameWithoutExtension(ResolveProjectReference(project, value!)))
-                .Where(name => TrustedHostProjects.Contains(name) || name == "Lineup.Core.Streaming.FFmpeg" || name.StartsWith("Lineup.App.", StringComparison.Ordinal))
+                .Where(name => _trustedHostProjects.Contains(name) || name == "Lineup.Core.Streaming.FFmpeg" || name.StartsWith("Lineup.App.", StringComparison.Ordinal))
                 .Select(name => $"{Path.GetFileName(project)} -> {name}"))
             .ToArray();
 
@@ -581,7 +581,7 @@ public sealed class ProjectLayoutTests
     }
 
     private static bool IsPortableProject(string name) =>
-        !TrustedHostProjects.Contains(name) && !name.StartsWith("Lineup.App.", StringComparison.OrdinalIgnoreCase);
+        !_trustedHostProjects.Contains(name) && !name.StartsWith("Lineup.App.", StringComparison.OrdinalIgnoreCase);
 
     private static string GetLayer(string sourceRoot, string projectPath)
     {
@@ -600,12 +600,12 @@ public sealed class ProjectLayoutTests
         var targetProjectName = Path.GetFileNameWithoutExtension(targetPath);
         if (string.Equals(sourceLayer, "Core", StringComparison.OrdinalIgnoreCase))
         {
-            return CoreProjectDependencies.TryGetValue(sourceProjectName, out var allowed)
+            return _coreProjectDependencies.TryGetValue(sourceProjectName, out var allowed)
                 && allowed.Contains(targetProjectName, StringComparer.OrdinalIgnoreCase);
         }
 
         var targetLayer = GetLayer(sourceRoot, targetPath);
-        if (!AllowedDependencies[sourceLayer].Contains(targetLayer))
+        if (!_allowedDependencies[sourceLayer].Contains(targetLayer))
         {
             return false;
         }
@@ -622,11 +622,11 @@ public sealed class ProjectLayoutTests
             {
                 return true;
             }
-            return PluginCoreDependencies.Contains(targetProjectName);
+            return _pluginCoreDependencies.Contains(targetProjectName);
         }
 
         return string.Equals(GetPluginFamily(sourceRoot, sourceProject), GetPluginFamily(sourceRoot, targetPath), StringComparison.OrdinalIgnoreCase)
-            && PluginSupportProjects.Contains(targetProjectName);
+            && _pluginSupportProjects.Contains(targetProjectName);
     }
 
     private static string GetPluginFamily(string sourceRoot, string projectPath) =>

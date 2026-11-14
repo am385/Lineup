@@ -12,23 +12,19 @@ namespace Lineup.Plugin.GuideOutputs.Xmltv;
 public sealed class LineupXmltvWriter
 {
     private const string PlaceholderTitle = "Not Available";
-    private static readonly string[] ProgramElementOrder =
+    private static readonly string[] _programElementOrder =
     [
         "title", "sub-title", "desc", "credits", "date", "category", "keyword", "language", "orig-language", "length", "icon", "url", "country",
         "episode-num", "video", "audio", "previously-shown", "premiere", "last-chance", "new", "subtitles", "rating", "star-rating", "review", "image"
     ];
 
     /// <summary>
-    /// Creates a deterministic XMLTV document from a normalized guide snapshot.
+    /// Creates deterministic XMLTV, optionally supplying unavailable programs for channels without guide data.
     /// </summary>
-    public byte[] Write(
-        XmltvGuideSnapshot snapshot,
-        IEnumerable<TunerChannel> channels,
-        DateTimeOffset placeholderStart,
-        DateTimeOffset placeholderStop)
+    public byte[] Write(XmltvGuideSnapshot snapshot, IEnumerable<TunerChannel> channels, DateTimeOffset placeholderStart, DateTimeOffset placeholderStop, bool includeUnavailablePrograms = false)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        return WriteCore(snapshot, channels, placeholderStart, placeholderStop);
+        return WriteCore(snapshot, channels, placeholderStart, placeholderStop, includeUnavailablePrograms);
     }
 
     /// <summary>
@@ -38,22 +34,15 @@ public sealed class LineupXmltvWriter
     /// <param name="channels">Physical channels to publish.</param>
     /// <param name="placeholderStart">Inclusive placeholder start for channels without programs.</param>
     /// <param name="placeholderStop">Exclusive placeholder end for channels without programs.</param>
+    /// <param name="includeUnavailablePrograms">Whether to generate programs for channels without guide data.</param>
     /// <returns>A complete XMLTV document.</returns>
-    public byte[] Write(
-        IEnumerable<GuideChannelSegment> segments,
-        IEnumerable<TunerChannel> channels,
-        DateTimeOffset placeholderStart,
-        DateTimeOffset placeholderStop)
+    public byte[] Write(IEnumerable<GuideChannelSegment> segments, IEnumerable<TunerChannel> channels, DateTimeOffset placeholderStart, DateTimeOffset placeholderStop, bool includeUnavailablePrograms = false)
     {
         ArgumentNullException.ThrowIfNull(segments);
-        return WriteCore(new XmltvGuideSnapshot { Segments = segments.ToArray() }, channels, placeholderStart, placeholderStop);
+        return WriteCore(new XmltvGuideSnapshot { Segments = segments.ToArray() }, channels, placeholderStart, placeholderStop, includeUnavailablePrograms);
     }
 
-    private static byte[] WriteCore(
-        XmltvGuideSnapshot snapshot,
-        IEnumerable<TunerChannel> channels,
-        DateTimeOffset placeholderStart,
-        DateTimeOffset placeholderStop)
+    private static byte[] WriteCore(XmltvGuideSnapshot snapshot, IEnumerable<TunerChannel> channels, DateTimeOffset placeholderStart, DateTimeOffset placeholderStop, bool includeUnavailablePrograms)
     {
         ArgumentNullException.ThrowIfNull(channels);
         if (placeholderStop <= placeholderStart)
@@ -96,7 +85,10 @@ public sealed class LineupXmltvWriter
                 : [];
             if (programs.Length == 0)
             {
-                root.Add(CreatePlaceholderProgram(channelIds[guideNumber], placeholderStart, placeholderStop));
+                if (includeUnavailablePrograms)
+                {
+                    root.Add(CreatePlaceholderProgram(channelIds[guideNumber], placeholderStart, placeholderStop));
+                }
                 continue;
             }
 
@@ -110,7 +102,7 @@ public sealed class LineupXmltvWriter
         using (var writer = XmlWriter.Create(stream, new XmlWriterSettings
         {
             Encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
-            // Jellyfin's XMLTV language parser skips the next node, which must be whitespace rather than the programme icon.
+            // Jellyfin's XMLTV language parser skips the next node, which must be whitespace rather than the program icon.
             Indent = true
         }))
         {
@@ -166,7 +158,7 @@ public sealed class LineupXmltvWriter
             new XAttribute("channel", channelId));
         ApplyAttributes(element, supplemental?.Attributes, "start", "stop", "channel");
         var supplementalElements = supplemental?.Elements ?? [];
-        foreach (var name in ProgramElementOrder)
+        foreach (var name in _programElementOrder)
         {
             AddProgramElements(element, name, program, supplemental, supplementalElements);
         }
@@ -180,12 +172,7 @@ public sealed class LineupXmltvWriter
         return element;
     }
 
-    private static void AddProgramElements(
-        XElement parent,
-        string name,
-        GuideCacheProgram program,
-        XmltvSupplementalMetadata? supplemental,
-        IReadOnlyList<XElement> supplementalElements)
+    private static void AddProgramElements(XElement parent, string name, GuideCacheProgram program, XmltvSupplementalMetadata? supplemental, IReadOnlyList<XElement> supplementalElements)
     {
         var preserved = supplementalElements.Where(element => IsUnqualifiedNamed(element, name)).ToArray();
         switch (name)
@@ -270,7 +257,7 @@ public sealed class LineupXmltvWriter
 
     private static bool IsOfficialProgramElement(XElement element) =>
         element.Name.Namespace == XNamespace.None &&
-        ProgramElementOrder.Contains(element.Name.LocalName, StringComparer.Ordinal);
+        _programElementOrder.Contains(element.Name.LocalName, StringComparer.Ordinal);
 
     private static bool IsUnqualifiedNamed(XElement element, string localName) =>
         element.Name.Namespace == XNamespace.None &&

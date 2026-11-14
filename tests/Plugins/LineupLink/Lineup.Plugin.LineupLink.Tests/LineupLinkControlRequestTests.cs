@@ -12,7 +12,7 @@ namespace Lineup.Plugin.LineupLink.Tests;
 /// <summary>Verifies bounded Lineup Link control requests without imposing a lifetime on live media.</summary>
 public sealed class LineupLinkControlRequestTests
 {
-    private static readonly TimeSpan Watchdog = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan _watchdog = TimeSpan.FromSeconds(3);
 
     /// <summary>Both declared and chunked over-limit guides fail as whole documents and do not poison a later refresh.</summary>
     [Theory]
@@ -51,14 +51,14 @@ public sealed class LineupLinkControlRequestTests
         // Act
         try
         {
-            await Assert.ThrowsAsync<GuideTransferLimitException>(() => client.GetGuideAsync(TestContext.Current.CancellationToken).WaitAsync(Watchdog, TestContext.Current.CancellationToken));
+            await Assert.ThrowsAsync<GuideTransferLimitException>(() => client.GetGuideAsync(TestContext.Current.CancellationToken).WaitAsync(_watchdog, TestContext.Current.CancellationToken));
         }
         finally
         {
             releaseHeaders.TrySetResult();
         }
         reject = false;
-        var recovered = await client.GetGuideAsync(TestContext.Current.CancellationToken).WaitAsync(Watchdog, TestContext.Current.CancellationToken);
+        var recovered = await client.GetGuideAsync(TestContext.Current.CancellationToken).WaitAsync(_watchdog, TestContext.Current.CancellationToken);
 
         // Assert
         Assert.Equal(id, recovered.VirtualDeviceId);
@@ -93,9 +93,9 @@ public sealed class LineupLinkControlRequestTests
 
         // Act
         var exception = await Assert.ThrowsAsync<InvalidDataException>(() =>
-            SendControlAsync(client, endpoint, TestContext.Current.CancellationToken).WaitAsync(Watchdog, TestContext.Current.CancellationToken));
+            SendControlAsync(client, endpoint, TestContext.Current.CancellationToken).WaitAsync(_watchdog, TestContext.Current.CancellationToken));
         valid = true;
-        await SendControlAsync(client, endpoint, TestContext.Current.CancellationToken).WaitAsync(Watchdog, TestContext.Current.CancellationToken);
+        await SendControlAsync(client, endpoint, TestContext.Current.CancellationToken).WaitAsync(_watchdog, TestContext.Current.CancellationToken);
 
         // Assert
         if (unsupportedProtocol)
@@ -147,12 +147,12 @@ public sealed class LineupLinkControlRequestTests
         var operation = SendControlAsync(client, endpoint, caller.Token);
         try
         {
-            await received.Task.WaitAsync(Watchdog, TestContext.Current.CancellationToken);
+            await received.Task.WaitAsync(_watchdog, TestContext.Current.CancellationToken);
             if (stalledPhase != "headers")
             {
                 clock.Advance(TimeSpan.FromSeconds(20));
                 releaseHeaders.SetResult();
-                await bodyStarted.Task.WaitAsync(Watchdog, TestContext.Current.CancellationToken);
+                await bodyStarted.Task.WaitAsync(_watchdog, TestContext.Current.CancellationToken);
                 clock.Advance(TimeSpan.FromSeconds(9));
             }
             else
@@ -161,7 +161,7 @@ public sealed class LineupLinkControlRequestTests
             }
             Assert.False(operation.IsCompleted);
             clock.Advance(TimeSpan.FromSeconds(1));
-            var exception = await Assert.ThrowsAsync<HttpRequestException>(() => operation.WaitAsync(Watchdog, TestContext.Current.CancellationToken));
+            var exception = await Assert.ThrowsAsync<HttpRequestException>(() => operation.WaitAsync(_watchdog, TestContext.Current.CancellationToken));
 
             // Assert
             Assert.Contains("timed out", exception.Message, StringComparison.OrdinalIgnoreCase);
@@ -202,12 +202,12 @@ public sealed class LineupLinkControlRequestTests
         using var client = new LineupLinkClient(CreateConfiguration(server.BaseUri), clock);
         using var caller = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         var operation = SendControlAsync(client, endpoint, caller.Token);
-        await received.Task.WaitAsync(Watchdog, TestContext.Current.CancellationToken);
+        await received.Task.WaitAsync(_watchdog, TestContext.Current.CancellationToken);
 
         // Act
         await caller.CancelAsync();
         clock.Advance(TimeSpan.FromSeconds(30));
-        var exception = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => operation.WaitAsync(Watchdog, TestContext.Current.CancellationToken));
+        var exception = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => operation.WaitAsync(_watchdog, TestContext.Current.CancellationToken));
 
         // Assert
         Assert.True(caller.IsCancellationRequested);
@@ -235,9 +235,9 @@ public sealed class LineupLinkControlRequestTests
         using var client = new LineupLinkClient(CreateConfiguration(server.BaseUri) with { VirtualDeviceId = virtualDeviceId }, clock);
 
         // Act
-        await SendControlAsync(client, endpoint, TestContext.Current.CancellationToken).WaitAsync(Watchdog, TestContext.Current.CancellationToken);
+        await SendControlAsync(client, endpoint, TestContext.Current.CancellationToken).WaitAsync(_watchdog, TestContext.Current.CancellationToken);
         clock.Advance(TimeSpan.FromMinutes(1));
-        await SendControlAsync(client, endpoint, TestContext.Current.CancellationToken).WaitAsync(Watchdog, TestContext.Current.CancellationToken);
+        await SendControlAsync(client, endpoint, TestContext.Current.CancellationToken).WaitAsync(_watchdog, TestContext.Current.CancellationToken);
 
         // Assert
         Assert.Equal(server.BaseUri, client.BaseUri);
@@ -266,7 +266,7 @@ public sealed class LineupLinkControlRequestTests
         var clock = new ManualTimeProvider();
         using var client = new LineupLinkClient(CreateConfiguration(server.BaseUri), clock);
         using var caller = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-        using var response = await client.OpenStreamAsync("7.1", caller.Token).WaitAsync(Watchdog, TestContext.Current.CancellationToken);
+        using var response = await client.OpenStreamAsync("7.1", caller.Token).WaitAsync(_watchdog, TestContext.Current.CancellationToken);
         await using var stream = await response.Content.ReadAsStreamAsync(caller.Token);
         var buffer = new byte[1];
         await stream.ReadExactlyAsync(buffer, caller.Token);
@@ -275,7 +275,7 @@ public sealed class LineupLinkControlRequestTests
         // Act
         clock.Advance(TimeSpan.FromMinutes(5));
         continueStream.SetResult();
-        await secondPacket.Task.WaitAsync(Watchdog, TestContext.Current.CancellationToken);
+        await secondPacket.Task.WaitAsync(_watchdog, TestContext.Current.CancellationToken);
         await stream.ReadExactlyAsync(buffer, caller.Token);
         var pendingRead = stream.ReadAsync(new byte[1], caller.Token).AsTask();
         await caller.CancelAsync();
@@ -283,7 +283,7 @@ public sealed class LineupLinkControlRequestTests
         // Assert
         Assert.Equal(0x48, buffer[0]);
         Assert.Equal(0, clock.ActiveTimerCount);
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pendingRead.WaitAsync(Watchdog, TestContext.Current.CancellationToken));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pendingRead.WaitAsync(_watchdog, TestContext.Current.CancellationToken));
     }
 
     private static async Task SendControlAsync(LineupLinkClient client, string endpoint, CancellationToken cancellationToken)
@@ -326,6 +326,8 @@ public sealed class LineupLinkControlRequestTests
         private readonly CancellationTokenSource _shutdown = new();
         private readonly Task _run;
 
+        /// <summary>Initializes the loopback server.</summary>
+        /// <param name="respond">The respond value.</param>
         public LoopbackServer(Func<HttpListenerContext, CancellationToken, Task> respond)
         {
             var portReservation = new TcpListener(IPAddress.Loopback, 0);
@@ -338,14 +340,16 @@ public sealed class LineupLinkControlRequestTests
             _run = RunAsync(respond);
         }
 
+        /// <summary>Gets the base URI.</summary>
         public Uri BaseUri { get; }
 
+        /// <inheritdoc />
         public async ValueTask DisposeAsync()
         {
             await _shutdown.CancelAsync();
             try
             {
-                await _run.WaitAsync(Watchdog);
+                await _run.WaitAsync(_watchdog);
             }
             catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
             {
@@ -382,6 +386,7 @@ public sealed class LineupLinkControlRequestTests
         private readonly List<ManualTimer> _timers = [];
         private TimeSpan _elapsed;
 
+        /// <summary>Gets the active timer count.</summary>
         public int ActiveTimerCount
         {
             get
@@ -393,6 +398,7 @@ public sealed class LineupLinkControlRequestTests
             }
         }
 
+        /// <inheritdoc />
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
         {
             var timer = new ManualTimer(this, callback, state);
@@ -400,6 +406,8 @@ public sealed class LineupLinkControlRequestTests
             return timer;
         }
 
+        /// <summary>Executes advance.</summary>
+        /// <param name="duration">The duration value.</param>
         public void Advance(TimeSpan duration)
         {
             ManualTimer[] elapsed;
@@ -420,10 +428,14 @@ public sealed class LineupLinkControlRequestTests
 
         private sealed class ManualTimer(ManualTimeProvider owner, TimerCallback callback, object? state) : ITimer
         {
+            /// <summary>Gets the callback.</summary>
             public TimerCallback Callback { get; } = callback;
+            /// <summary>Gets the state.</summary>
             public object? State { get; } = state;
+            /// <summary>Gets or sets the due.</summary>
             public TimeSpan Due { get; private set; }
 
+            /// <inheritdoc />
             public bool Change(TimeSpan dueTime, TimeSpan period)
             {
                 Assert.Equal(Timeout.InfiniteTimeSpan, period);
@@ -439,6 +451,7 @@ public sealed class LineupLinkControlRequestTests
                 }
             }
 
+            /// <inheritdoc />
             public void Dispose()
             {
                 lock (owner._timers)
@@ -447,6 +460,7 @@ public sealed class LineupLinkControlRequestTests
                 }
             }
 
+            /// <inheritdoc />
             public ValueTask DisposeAsync()
             {
                 Dispose();

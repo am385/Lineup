@@ -1,9 +1,5 @@
 using System.Text.Json;
-using Lineup.Core.Common.Guides;
-using Lineup.Core.Extensibility.Guides;
 using Lineup.Core.Storage;
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
@@ -413,11 +409,7 @@ public sealed class GuideOutputProjectionTests
         ProviderName = $"Channel {number}"
     };
 
-    private static async Task ImportAsync(
-        DeviceGuideStore store,
-        GuideSourceId sourceId,
-        string number,
-        CancellationToken cancellationToken)
+    private static async Task ImportAsync(DeviceGuideStore store, GuideSourceId sourceId, string number, CancellationToken cancellationToken)
     {
         var channelId = new GuideChannelId(sourceId, number);
         var start = DateTimeOffset.UtcNow;
@@ -447,38 +439,62 @@ public sealed class GuideOutputProjectionTests
 
     private sealed class FakeVirtualDriver : IVirtualTunerDriver
     {
+        /// <summary>Gets the kind.</summary>
         public string Kind => "virtual";
 
+        /// <summary>Gets the display name.</summary>
         public string DisplayName => "Virtual";
 
+        /// <summary>Gets the supports user creation.</summary>
         public bool SupportsUserCreation => true;
 
+        /// <summary>Creates default configuration.</summary>
+        /// <param name="deviceId">Identity of the target device.</param>
+        /// <returns>The operation's result.</returns>
         public AdapterConfiguration CreateDefaultConfiguration(VirtualDeviceId deviceId) => Adapter(Kind);
 
+        /// <summary>Validates the fake virtual driver.</summary>
+        /// <param name="configuration">Configuration to apply.</param>
+        /// <returns>The operation's result.</returns>
         public IReadOnlyList<string> Validate(AdapterConfiguration configuration) => [];
     }
 
     private sealed class FakeGuideDriver : IGuideSourceDriver
     {
+        /// <summary>Gets or sets the scope exception.</summary>
         public Exception? ScopeException { get; init; }
 
+        /// <summary>Gets the kind.</summary>
         public string Kind => "guide";
 
+        /// <summary>Gets the display name.</summary>
         public string DisplayName => "Guide";
 
+        /// <summary>Gets the supports user creation.</summary>
         public bool SupportsUserCreation => true;
 
+        /// <summary>Creates default configuration.</summary>
+        /// <param name="sourceId">The source ID value.</param>
+        /// <returns>The operation's result.</returns>
         public AdapterConfiguration CreateDefaultConfiguration(GuideSourceId sourceId) => Adapter(Kind);
 
+        /// <summary>Determines support for physical adapter.</summary>
+        /// <param name="physicalAdapterKind">The physical adapter kind value.</param>
+        /// <returns>The operation's result.</returns>
         public bool SupportsPhysicalAdapter(string physicalAdapterKind) => ScopeException is not null ? throw ScopeException : physicalAdapterKind == "physical";
 
+        /// <summary>Validates the fake guide driver.</summary>
+        /// <param name="configuration">Configuration to apply.</param>
+        /// <returns>The operation's result.</returns>
         public IReadOnlyList<string> Validate(AdapterConfiguration configuration) => [];
 
-        public ValueTask<IGuideSource> CreateAsync(
-            GuideSourceId sourceId,
-            AdapterConfiguration configuration,
-            IReadOnlyList<PhysicalDeviceId> physicalDeviceIds,
-            CancellationToken cancellationToken = default) =>
+        /// <summary>Creates the fake guide driver asynchronously.</summary>
+        /// <param name="sourceId">The source ID value.</param>
+        /// <param name="configuration">Configuration to apply.</param>
+        /// <param name="physicalDeviceIds">The physical device IDs value.</param>
+        /// <param name="cancellationToken">Token used to cancel the operation.</param>
+        /// <returns>The operation's result.</returns>
+        public ValueTask<IGuideSource> CreateAsync(GuideSourceId sourceId, AdapterConfiguration configuration, IReadOnlyList<PhysicalDeviceId> physicalDeviceIds, CancellationToken cancellationToken = default) =>
             throw new IOException("Projection tests use the last committed import.");
     }
 
@@ -488,11 +504,15 @@ public sealed class GuideOutputProjectionTests
             .UseSqlite($"Data Source={path}")
             .Options;
 
+        /// <summary>Creates db context.</summary>
+        /// <returns>The operation's result.</returns>
         public EpgDbContext CreateDbContext() => new(_options);
     }
 
     private sealed class ThrowingContextFactory(Exception exception) : IDbContextFactory<EpgDbContext>
     {
+        /// <summary>Creates db context.</summary>
+        /// <returns>The operation's result.</returns>
         public EpgDbContext CreateDbContext() => throw exception;
     }
 }

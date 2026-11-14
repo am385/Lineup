@@ -47,7 +47,8 @@ public sealed record ActiveStreamTrack(
     int? SourceHeight,
     int? SourceChannels,
     int? OutputChannels,
-    int? OutputSampleRate)
+    int? OutputSampleRate
+)
 {
     /// <summary>Gets the absolute source stream index.</summary>
     public int SourceIndex { get; init; }
@@ -84,15 +85,7 @@ public sealed record ActiveStreamTrack(
 }
 
 /// <summary>Describes one media track at a specific streaming stage.</summary>
-public sealed record ActiveStreamMediaTrack(
-    int Index,
-    MediaTrackType Type,
-    string Codec,
-    long? BitRate,
-    int? Width,
-    int? Height,
-    int? Channels,
-    int? SampleRate)
+public sealed record ActiveStreamMediaTrack(int Index, MediaTrackType Type, string Codec, long? BitRate, int? Width, int? Height, int? Channels, int? SampleRate)
 {
     /// <summary>Gets the language tag.</summary>
     public string? Language { get; init; }

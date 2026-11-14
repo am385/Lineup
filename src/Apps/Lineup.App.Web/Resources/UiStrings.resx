@@ -349,6 +349,8 @@
   <data name="Settings_GuideOutputDirectoryHelpPrefix" xml:space="preserve"><value>Lineup publishes atomically to</value></data>
   <data name="Settings_GuideOutputDirectoryHelpSuffix" xml:space="preserve"><value>in this directory.</value></data>
   <data name="Settings_GuideOutputDirectoryLabel" xml:space="preserve"><value>Output Directory</value></data>
+  <data name="Settings_GuideOutputIncludeUnavailableProgramsHelp" xml:space="preserve"><value>Publish a Not Available program for channels without guide data. Disabled by default to keep placeholders out of Jellyfin's On Now listings.</value></data>
+  <data name="Settings_GuideOutputIncludeUnavailableProgramsLabel" xml:space="preserve"><value>Include unavailable program placeholders</value></data>
   <data name="Settings_GuideOutputKeyHelp" xml:space="preserve"><value>Lineup formats this as a lowercase identifier containing only letters, digits, and underscores.</value></data>
   <data name="Settings_GuideOutputKeyLabel" xml:space="preserve"><value>Output key</value></data>
   <data name="Settings_GuideOutputKeyWarning" xml:space="preserve"><value>Changing this key changes the friendly API URL and generated filename. Existing clients using either location must be updated.</value></data>

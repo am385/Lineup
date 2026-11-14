@@ -99,8 +99,8 @@ public sealed class ConfigurationLifecycleTests
         using var fixture = new Fixture();
         await using var context = fixture.CreateContext();
         var component = context.Render<Settings>();
-        component.Find("#epgHistoryRetentionHours").Change(48);
-        component.Find("#redactApiClientAddresses").Change(false);
+        await component.Find("#epgHistoryRetentionHours").ChangeAsync(48);
+        await component.Find("#redactApiClientAddresses").ChangeAsync(false);
         fixture.FailWebWrites = true;
 
         // Act
@@ -129,8 +129,8 @@ public sealed class ConfigurationLifecycleTests
         using var fixture = new Fixture();
         await using var context = fixture.CreateContext();
         var component = context.Render<Settings>();
-        component.Find("#epgHistoryRetentionHours").Change(48);
-        component.Find("#redactApiClientAddresses").Change(false);
+        await component.Find("#epgHistoryRetentionHours").ChangeAsync(48);
+        await component.Find("#redactApiClientAddresses").ChangeAsync(false);
         fixture.FailWebWrites = true;
         await component.Find("button.btn-primary").ClickAsync(new());
         await fixture.Core.UpdateAsync(settings => settings.MaximumConcurrentStreams = 2);
@@ -156,8 +156,8 @@ public sealed class ConfigurationLifecycleTests
         await using var context = fixture.CreateContext();
         var first = context.Render<Settings>();
         var second = context.Render<Settings>();
-        first.Find("#epgHistoryRetentionHours").Change(48);
-        second.Find("#epgHistoryRetentionHours").Change(72);
+        await first.Find("#epgHistoryRetentionHours").ChangeAsync(48);
+        await second.Find("#epgHistoryRetentionHours").ChangeAsync(72);
         await first.Find("button.btn-primary").ClickAsync(new());
         var persisted = File.ReadAllText(fixture.Store.SettingsPath);
 
@@ -179,7 +179,7 @@ public sealed class ConfigurationLifecycleTests
         using var fixture = new Fixture();
         await using var context = fixture.CreateContext();
         var component = context.Render<Settings>();
-        component.Find("#epgHistoryRetentionHours").Change(48);
+        await component.Find("#epgHistoryRetentionHours").ChangeAsync(48);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         fixture.BeforeCoreWrite = async () =>
@@ -219,7 +219,7 @@ public sealed class ConfigurationLifecycleTests
         using var fixture = new Fixture();
         await using var context = fixture.CreateContext();
         var component = context.Render<Settings>();
-        component.Find("#epgHistoryRetentionHours").Change(48);
+        await component.Find("#epgHistoryRetentionHours").ChangeAsync(48);
         fixture.BeforeCoreWrite = () => fixture.Web.UpdateAsync(settings => settings.RedactApiDeviceAddresses = true);
 
         // Act
@@ -241,7 +241,7 @@ public sealed class ConfigurationLifecycleTests
         using var fixture = new Fixture();
         await using var context = fixture.CreateContext();
         var component = context.Render<Settings>();
-        component.Find("#epgHistoryRetentionHours").Change(48);
+        await component.Find("#epgHistoryRetentionHours").ChangeAsync(48);
         fixture.WebWriteFailure = new Exception("Controlled unexpected second-store failure.");
 
         // Act
@@ -457,7 +457,7 @@ public sealed class ConfigurationLifecycleTests
         using var fixture = new Fixture();
         await using var context = fixture.CreateContext();
         var component = context.Render<Settings>();
-        component.Find("#epgHistoryRetentionHours").Change(48);
+        await component.Find("#epgHistoryRetentionHours").ChangeAsync(48);
 
         // Act
         await component.InvokeAsync(() => fixture.Web.UpdateAsync(settings => settings.Theme = "dark"));
@@ -477,7 +477,7 @@ public sealed class ConfigurationLifecycleTests
         using var fixture = new Fixture();
         await using var context = fixture.CreateContext();
         var component = context.Render<Settings>();
-        component.Find("#epgHistoryRetentionHours").Change(48);
+        await component.Find("#epgHistoryRetentionHours").ChangeAsync(48);
         fixture.BeforeCoreWrite = () => fixture.Web.UpdateAsync(settings => settings.Theme = "dark");
 
         // Act
@@ -506,7 +506,7 @@ public sealed class ConfigurationLifecycleTests
         context.Services.AddSingleton(runtime);
         context.Services.AddSingleton(new LogFileService(runtime));
         var component = context.Render<Settings>();
-        component.Find("#enableFileLogging").Change(true);
+        await component.Find("#enableFileLogging").ChangeAsync(true);
 
         // Act
         await component.Find("button.btn-primary").ClickAsync(new());
@@ -570,7 +570,7 @@ public sealed class ConfigurationLifecycleTests
         var restart = Substitute.For<IApplicationRestartService>();
         context.Services.AddSingleton(restart);
         var component = context.Render<Settings>();
-        component.Find("#knownProxies").Change("127.0.0.1");
+        await component.Find("#knownProxies").ChangeAsync("127.0.0.1");
         fixture.FailWebWrites = true;
         await component.Find("button.btn-primary").ClickAsync(new());
         await restart.DidNotReceive().RestartAsync(Arg.Any<CancellationToken>());

@@ -1,5 +1,4 @@
 using System.Net;
-using Lineup.Integration.Streaming.Sweep;
 using Xunit;
 
 namespace Lineup.Integration.Streaming.Sweep.Tests;
@@ -243,6 +242,7 @@ public sealed class OwnedPlaybackTests
 
     private sealed class Handler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
     {
+        /// <inheritdoc />
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => Task.FromResult(respond(request));
     }
 }

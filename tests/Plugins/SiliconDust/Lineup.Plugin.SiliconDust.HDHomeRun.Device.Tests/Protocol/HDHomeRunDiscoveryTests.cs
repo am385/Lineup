@@ -12,6 +12,25 @@ namespace Lineup.Plugin.SiliconDust.HDHomeRun.Device.Tests.Protocol;
 public class HDHomeRunDiscoveryTests
 {
     /// <summary>
+    /// Verifies caller cancellation is surfaced before discovery sends any network datagram.
+    /// </summary>
+    [Fact]
+    public async Task DiscoverAsync_CallerAlreadyCanceled_PropagatesCancellation()
+    {
+        // Arrange
+        using var discovery = new HDHomeRunDiscovery(NullLogger<HDHomeRunDiscovery>.Instance);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        // Act
+        var exception = await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            discovery.DiscoverAsync(HDHomeRunDeviceType.Wildcard, HDHomeRunDeviceId.Wildcard, TimeSpan.FromSeconds(2), cancellation.Token));
+
+        // Assert
+        Assert.Equal(cancellation.Token, exception.CancellationToken);
+    }
+
+    /// <summary>
     /// Verifies short fixed-width values are ignored and do not prevent parsing a later valid response.
     /// </summary>
     [Fact]

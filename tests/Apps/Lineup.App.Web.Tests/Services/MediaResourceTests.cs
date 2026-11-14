@@ -1,4 +1,3 @@
-using Lineup.Core.Common.Streaming;
 using Xunit;
 
 namespace Lineup.App.Web.Tests.Services;
@@ -130,6 +129,7 @@ public sealed class MediaResourceTests
 
     private sealed class Owner(Func<Task> dispose) : IAsyncDisposable
     {
+        /// <inheritdoc />
         public ValueTask DisposeAsync() => new(dispose());
     }
 }

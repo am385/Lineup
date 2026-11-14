@@ -1,5 +1,4 @@
 using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Lineup.Plugin.WebPlayer.FFmpeg;
 using Xunit;
 
@@ -847,12 +846,7 @@ public class CmafStreamPlannerTests
     [Theory]
     [InlineData(CmafFallbackAudio.Eac3, "eac3", "640k", "6", "title=Fallback EAC3")]
     [InlineData(CmafFallbackAudio.Ac3, "ac3", "448k", "6", "title=Fallback AC3")]
-    public void CreateArguments_DolbyFallback_UsesSelectedProfile(
-        CmafFallbackAudio fallback,
-        string codec,
-        string bitRate,
-        string channels,
-        string title)
+    public void CreateArguments_DolbyFallback_UsesSelectedProfile(CmafFallbackAudio fallback, string codec, string bitRate, string channels, string title)
     {
         // Arrange
         var source = Source("ac4") with

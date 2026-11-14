@@ -29,7 +29,9 @@ public sealed class PluginConnectionBudget(ILineupSettingsService settings) : IP
     private readonly Lock _gate = new();
     private readonly Dictionary<Guid, VirtualDeviceId?> _connections = [];
 
-    /// <inheritdoc />
+    /// <summary>Attempts to acquire.</summary>
+    /// <param name="workerDeviceId">The worker device ID value.</param>
+    /// <returns>The operation's result.</returns>
     public IAsyncDisposable? TryAcquire(VirtualDeviceId? workerDeviceId = null)
     {
         lock (_gate)
@@ -45,7 +47,8 @@ public sealed class PluginConnectionBudget(ILineupSettingsService settings) : IP
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets snapshot.</summary>
+    /// <returns>The operation's result.</returns>
     public PluginConnectionBudgetSnapshot GetSnapshot()
     {
         lock (_gate)

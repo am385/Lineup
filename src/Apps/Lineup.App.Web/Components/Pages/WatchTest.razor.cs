@@ -732,7 +732,8 @@ public partial class WatchTest : IAsyncDisposable
         bool? Eac3,
         bool? Ac4,
         string BrowserIdentity = "unknown",
-        bool? HevcMain10 = null)
+        bool? HevcMain10 = null
+    )
     {
         /// <summary>Converts browser declarations into the persisted diagnostic contract.</summary>
         public CmafBrowserClaims ToClaims() =>
@@ -766,5 +767,6 @@ public partial class WatchTest : IAsyncDisposable
         string? Error = null,
         int? ErrorCode = null,
         JsonElement? ErrorDetails = null,
-        bool SubtitleCueVisible = false);
+        bool SubtitleCueVisible = false
+    );
 }

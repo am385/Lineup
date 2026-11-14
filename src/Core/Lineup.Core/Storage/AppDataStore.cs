@@ -197,7 +197,11 @@ public sealed class AppDataStore : IAppDataStore
         return _files.OpenRead(path);
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes stage write asynchronously.</summary>
+    /// <param name="destinationPath">The destination path value.</param>
+    /// <param name="content">The content value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public Task<IStagedFileWrite> StageWriteAsync(string destinationPath, ReadOnlyMemory<byte> content, CancellationToken cancellationToken = default) =>
         _files.StageWriteAsync(destinationPath, content, cancellationToken);
 }

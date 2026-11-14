@@ -9,7 +9,7 @@ namespace Lineup.Core.Streaming.FFmpeg;
 /// </summary>
 public sealed class MediaStreamProbe
 {
-    private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan _probeTimeout = TimeSpan.FromSeconds(20);
     private readonly ILogger _logger;
     private readonly IMediaProcessFactory _processFactory;
 
@@ -24,7 +24,7 @@ public sealed class MediaStreamProbe
     public async Task<MediaProbeResult> ProbeAsync(string sourceName, Stream input, CancellationToken cancellationToken)
     {
         using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutSource.CancelAfter(ProbeTimeout);
+        timeoutSource.CancelAfter(_probeTimeout);
         var probeToken = timeoutSource.Token;
         using var process = StartProcess(new MediaProcessRequest
         {
@@ -56,7 +56,7 @@ public sealed class MediaStreamProbe
         }
         catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new MpegTsTranscodeException($"FFprobe timed out after {ProbeTimeout.TotalSeconds:0} seconds for {sourceName}.", ex);
+            throw new MpegTsTranscodeException($"FFprobe timed out after {_probeTimeout.TotalSeconds:0} seconds for {sourceName}.", ex);
         }
         finally
         {
@@ -193,7 +193,7 @@ public static class MediaProbeParser
 {
     private const string ShowEntries = "stream=index,codec_type,codec_name,profile,level,bit_rate,width,height,field_order,channels,sample_rate,closed_captions:stream_tags=language,title:" +
         "stream_disposition=default,forced,hearing_impaired:frame=media_type,stream_index,interlaced_frame:frame_side_data=side_data_type:format=bit_rate";
-    private static readonly string[] CommonArguments =
+    private static readonly string[] _commonArguments =
     [
         "-v", "error",
         "-analyzeduration", "1000000",
@@ -207,7 +207,7 @@ public static class MediaProbeParser
     /// <returns>The FFprobe argument list.</returns>
     public static IReadOnlyList<string> CreateArguments(Uri inputUri) =>
     [
-        .. CommonArguments,
+        .. _commonArguments,
         "-rw_timeout", "10000000",
         "-reconnect", "1",
         "-reconnect_streamed", "1",
@@ -227,7 +227,7 @@ public static class MediaProbeParser
     /// <returns>The FFprobe argument list.</returns>
     public static IReadOnlyList<string> CreatePipeArguments() =>
     [
-        .. CommonArguments,
+        .. _commonArguments,
         "-read_intervals", "%+3",
         "-show_frames",
         "-show_entries", ShowEntries,

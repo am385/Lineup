@@ -1,5 +1,6 @@
 namespace Lineup.Integration.Streaming.Sweep;
 
+/// <summary>Represents the sweep harness.</summary>
 internal sealed partial class SweepHarness
 {
     private async Task ValidateMatrixInputsAsync(IEnumerable<MatrixDefinition> matrices, bool allowMissing)

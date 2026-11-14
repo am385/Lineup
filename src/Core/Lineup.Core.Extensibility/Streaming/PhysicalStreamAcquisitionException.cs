@@ -31,14 +31,7 @@ public enum PhysicalStreamFailureCategory
 public sealed class PhysicalStreamAcquisitionException : IOException
 {
     /// <summary>Initializes a provider-neutral physical stream failure.</summary>
-    public PhysicalStreamAcquisitionException(
-        PhysicalStreamFailureCategory category,
-        string code,
-        string message,
-        bool retryable,
-        PhysicalDeviceId deviceId,
-        SourceChannelId channelId,
-        Exception? innerException = null)
+    public PhysicalStreamAcquisitionException(PhysicalStreamFailureCategory category, string code, string message, bool retryable, PhysicalDeviceId deviceId, SourceChannelId channelId, Exception? innerException = null)
         : base(message, innerException)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(code);

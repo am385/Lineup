@@ -1,5 +1,4 @@
 using System.Text.Json;
-using Lineup.Core.Extensibility.Streaming;
 using Lineup.Core.Streaming.FFmpeg;
 
 namespace Lineup.Core.Hosting.Streaming;
@@ -43,7 +42,8 @@ public interface IEffectiveTunerStreamMultiplexer
         MediaProbeResult source,
         PhysicalTranscodeProfile physicalProfile,
         LineupSettings settings,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 
     /// <summary>Subscribes to a shared MPEG-TS output built from the effective physical source.</summary>
     ValueTask<Stream> SubscribeMpegTsAsync(
@@ -55,7 +55,8 @@ public interface IEffectiveTunerStreamMultiplexer
         VirtualTranscodeProfile virtualProfile,
         LineupSettings settings,
         TimeSpan keepWarmPeriod,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken
+    );
 
     /// <summary>Returns metadata describing the effective source.</summary>
     MediaProbeResult GetEffectiveSource(MediaProbeResult source, PhysicalTranscodeProfile physicalProfile);
@@ -73,7 +74,7 @@ public interface IStreamProducerCorrelation
 /// </summary>
 public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffectiveTunerStreamMultiplexer
 {
-    private static readonly TimeSpan CandidateAcquisitionTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan _candidateAcquisitionTimeout = TimeSpan.FromSeconds(10);
     private readonly IStreamingSessionGraph _graph;
     private readonly IMediaProcessFactory _processFactory;
     private readonly ILogger<TunerStreamMultiplexer> _logger;
@@ -81,21 +82,13 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
     private readonly StreamingResourceOptions _resources;
 
     /// <summary>Initializes the Core graph adapter.</summary>
-    public TunerStreamMultiplexer(
-        IStreamingSessionGraph graph,
-        IMediaProcessFactory processFactory,
-        ILogger<TunerStreamMultiplexer> logger)
+    public TunerStreamMultiplexer(IStreamingSessionGraph graph, IMediaProcessFactory processFactory, ILogger<TunerStreamMultiplexer> logger)
         : this(graph, processFactory, logger, TimeProvider.System)
     {
     }
 
     /// <summary>Initializes the graph adapter with a clock for physical acquisition deadlines.</summary>
-    public TunerStreamMultiplexer(
-        IStreamingSessionGraph graph,
-        IMediaProcessFactory processFactory,
-        ILogger<TunerStreamMultiplexer> logger,
-        TimeProvider timeProvider,
-        StreamingResourceOptions? resources = null)
+    public TunerStreamMultiplexer(IStreamingSessionGraph graph, IMediaProcessFactory processFactory, ILogger<TunerStreamMultiplexer> logger, TimeProvider timeProvider, StreamingResourceOptions? resources = null)
     {
         _graph = graph;
         _processFactory = processFactory;
@@ -105,7 +98,10 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
         _resources.Validate();
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes subscribe first available asynchronously.</summary>
+    /// <param name="route">The route value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async ValueTask<ResolvedTunerStream> SubscribeFirstAvailableAsync(ResolvedStreamingRoute route, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(route);
@@ -126,7 +122,7 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
                 failures.Add(new TimeoutException("The overall source acquisition deadline was exhausted."));
                 break;
             }
-            var slice = TimeSpan.FromTicks(Math.Min(CandidateAcquisitionTimeout.Ticks, Math.Max(1, remaining.Ticks / (route.Candidates.Count - index))));
+            var slice = TimeSpan.FromTicks(Math.Min(_candidateAcquisitionTimeout.Ticks, Math.Max(1, remaining.Ticks / (route.Candidates.Count - index))));
             using var deadline = new CancellationTokenSource(slice, _timeProvider);
             using var acquisition = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token, overallDeadline.Token);
             using var attempt = Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.Begin("source_candidate");
@@ -186,7 +182,11 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
         throw StreamAcquisitionException.Create(candidateFailures, failures);
     }
 
-    /// <inheritdoc />
+    /// <summary>Executes subscribe asynchronously.</summary>
+    /// <param name="descriptor">The descriptor value.</param>
+    /// <param name="acquisitionFactory">The acquisition factory value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async ValueTask<Stream> SubscribeAsync(StreamAcquisitionDescriptor descriptor, StreamAcquisitionFactory acquisitionFactory, CancellationToken cancellationToken)
     {
         var lease = await _graph.AcquireAsync(descriptor, acquisitionFactory, cancellationToken);
@@ -233,12 +233,7 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
         };
     }
 
-    private static StreamAcquisitionCandidateFailure CreateCandidateFailure(
-        ResolvedStreamingCandidate candidate,
-        PhysicalStreamFailureCategory category,
-        string code,
-        string message,
-        bool retryable) =>
+    private static StreamAcquisitionCandidateFailure CreateCandidateFailure(ResolvedStreamingCandidate candidate, PhysicalStreamFailureCategory category, string code, string message, bool retryable) =>
         new()
         {
             DeviceId = candidate.SourceChannelId.PhysicalDeviceId,
@@ -249,7 +244,15 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
             Retryable = retryable
         };
 
-    /// <inheritdoc />
+    /// <summary>Executes subscribe effective asynchronously.</summary>
+    /// <param name="descriptor">The descriptor value.</param>
+    /// <param name="acquisitionFactory">The acquisition factory value.</param>
+    /// <param name="sourceName">The source name value.</param>
+    /// <param name="source">The source value.</param>
+    /// <param name="physicalProfile">The physical profile value.</param>
+    /// <param name="settings">The settings value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async ValueTask<Stream> SubscribeEffectiveAsync(
         StreamAcquisitionDescriptor descriptor,
         StreamAcquisitionFactory acquisitionFactory,
@@ -257,7 +260,8 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
         MediaProbeResult source,
         PhysicalTranscodeProfile physicalProfile,
         LineupSettings settings,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         if (!SourceDeinterlacePlanner.ShouldNormalize(source, physicalProfile))
         {
@@ -272,11 +276,24 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
         return new SessionOwnedStream(lease);
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets effective source.</summary>
+    /// <param name="source">The source value.</param>
+    /// <param name="physicalProfile">The physical profile value.</param>
+    /// <returns>The operation's result.</returns>
     public MediaProbeResult GetEffectiveSource(MediaProbeResult source, PhysicalTranscodeProfile physicalProfile) =>
         SourceDeinterlacePlanner.CreateEffectiveSource(source, physicalProfile);
 
-    /// <inheritdoc />
+    /// <summary>Executes subscribe mpeg ts asynchronously.</summary>
+    /// <param name="descriptor">The descriptor value.</param>
+    /// <param name="acquisitionFactory">The acquisition factory value.</param>
+    /// <param name="sourceName">The source name value.</param>
+    /// <param name="source">The source value.</param>
+    /// <param name="physicalProfile">The physical profile value.</param>
+    /// <param name="virtualProfile">The virtual profile value.</param>
+    /// <param name="settings">The settings value.</param>
+    /// <param name="keepWarmPeriod">The keep warm period value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
     public async ValueTask<Stream> SubscribeMpegTsAsync(
         StreamAcquisitionDescriptor descriptor,
         StreamAcquisitionFactory acquisitionFactory,
@@ -286,7 +303,8 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
         VirtualTranscodeProfile virtualProfile,
         LineupSettings settings,
         TimeSpan keepWarmPeriod,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         var stages = new List<StreamTransformStage>();
         var effectiveSource = source;
@@ -317,7 +335,9 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
         return new SessionOwnedStream(lease);
     }
 
-    /// <inheritdoc />
+    /// <summary>Stops the tuner stream multiplexer asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A task that completes when the operation has finished.</returns>
     public Task StopAsync(CancellationToken cancellationToken) => _graph.StopAsync(cancellationToken);
 
     private StreamTransformStage CreateStage(string stage, IReadOnlyList<string> arguments, string sourceName)
@@ -334,17 +354,25 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
 
         private Stream Inner => _lease?.Stream ?? throw new ObjectDisposedException(nameof(SessionOwnedStream));
 
-        /// <inheritdoc />
+        /// <summary>Gets the producer node ID.</summary>
         public string ProducerNodeId => _lease?.ProducerNodeId ?? throw new ObjectDisposedException(nameof(SessionOwnedStream));
 
+        /// <inheritdoc />
         public override bool CanRead => _lease?.Stream.CanRead == true;
+        /// <inheritdoc />
         public override bool CanSeek => false;
+        /// <inheritdoc />
         public override bool CanWrite => false;
+        /// <inheritdoc />
         public override long Length => throw new NotSupportedException();
+        /// <inheritdoc />
         public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        /// <inheritdoc />
         public override int Read(byte[] buffer, int offset, int count) => Inner.Read(buffer, offset, count);
+        /// <inheritdoc />
         public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) => Inner.ReadAsync(buffer, cancellationToken);
 
+        /// <inheritdoc />
         protected override void Dispose(bool disposing)
         {
             if (disposing)
@@ -354,6 +382,7 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
             base.Dispose(disposing);
         }
 
+        /// <inheritdoc />
         public override async ValueTask DisposeAsync()
         {
             var owner = Interlocked.Exchange(ref _lease, null);
@@ -364,24 +393,26 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
             GC.SuppressFinalize(this);
         }
 
+        /// <inheritdoc />
         public override void Flush() => throw new NotSupportedException();
+        /// <inheritdoc />
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        /// <inheritdoc />
         public override void SetLength(long value) => throw new NotSupportedException();
+        /// <inheritdoc />
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     private sealed class LoggerAdapter<T>(ILogger logger) : ILogger<T>
     {
+        /// <inheritdoc />
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => logger.BeginScope(state);
 
+        /// <inheritdoc />
         public bool IsEnabled(LogLevel logLevel) => logger.IsEnabled(logLevel);
 
-        public void Log<TState>(
-            LogLevel logLevel,
-            EventId eventId,
-            TState state,
-            Exception? exception,
-            Func<TState, Exception?, string> formatter) =>
+        /// <inheritdoc />
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
             logger.Log(logLevel, eventId, state, exception, formatter);
     }
 }

@@ -32,10 +32,7 @@ public sealed record LineupLinkAccessGrant
 public static class LineupLinkAccessGrantAuthenticator
 {
     /// <summary>Authenticates one bearer token against the configured grants.</summary>
-    public static LineupLinkAuthenticatedGrant? Authenticate(
-        string? token,
-        LineupLinkVirtualConfiguration configuration,
-        DateTime utcNow)
+    public static LineupLinkAuthenticatedGrant? Authenticate(string? token, LineupLinkVirtualConfiguration configuration, DateTime utcNow)
     {
         if (string.IsNullOrWhiteSpace(token))
         {
@@ -86,11 +83,7 @@ public static class LineupLinkAccessGrantManager
             .ToArray();
 
     /// <summary>Creates one access grant and returns its plaintext token once.</summary>
-    public static LineupLinkAccessGrantMutation Create(
-        LineupLinkVirtualConfiguration configuration,
-        string name,
-        DateTime? expiresAtUtc,
-        DateTime utcNow)
+    public static LineupLinkAccessGrantMutation Create(LineupLinkVirtualConfiguration configuration, string name, DateTime? expiresAtUtc, DateTime utcNow)
     {
         var grants = configuration.AccessGrants.ToList();
         var normalizedName = name.Trim();
@@ -114,10 +107,7 @@ public static class LineupLinkAccessGrantManager
     }
 
     /// <summary>Rotates one access grant and returns its replacement plaintext token once.</summary>
-    public static LineupLinkAccessGrantMutation Rotate(
-        LineupLinkVirtualConfiguration configuration,
-        Guid grantId,
-        DateTime utcNow)
+    public static LineupLinkAccessGrantMutation Rotate(LineupLinkVirtualConfiguration configuration, Guid grantId, DateTime utcNow)
     {
         var grants = configuration.AccessGrants.ToList();
         var index = grants.FindIndex(grant => grant.Id == grantId);
@@ -141,10 +131,7 @@ public static class LineupLinkAccessGrantManager
     }
 
     /// <summary>Revokes one access grant permanently.</summary>
-    public static LineupLinkAccessGrantMutation Revoke(
-        LineupLinkVirtualConfiguration configuration,
-        Guid grantId,
-        DateTime utcNow)
+    public static LineupLinkAccessGrantMutation Revoke(LineupLinkVirtualConfiguration configuration, Guid grantId, DateTime utcNow)
     {
         var grants = configuration.AccessGrants.ToList();
         var index = grants.FindIndex(grant => grant.Id == grantId);
@@ -163,9 +150,7 @@ public static class LineupLinkAccessGrantManager
     }
 
     /// <summary>Permanently removes one revoked access grant.</summary>
-    public static LineupLinkAccessGrantMutation Purge(
-        LineupLinkVirtualConfiguration configuration,
-        Guid grantId)
+    public static LineupLinkAccessGrantMutation Purge(LineupLinkVirtualConfiguration configuration, Guid grantId)
     {
         var grants = configuration.AccessGrants.ToList();
         var index = grants.FindIndex(grant => grant.Id == grantId);
@@ -248,11 +233,7 @@ public static class LineupLinkAccessGrantManager
             RevokedAtUtc = grant.RevokedAtUtc
         };
 
-    private static IReadOnlyList<string> ValidateNewGrant(
-        IReadOnlyCollection<LineupLinkAccessGrant> grants,
-        string name,
-        DateTime? expiresAtUtc,
-        DateTime utcNow)
+    private static IReadOnlyList<string> ValidateNewGrant(IReadOnlyCollection<LineupLinkAccessGrant> grants, string name, DateTime? expiresAtUtc, DateTime utcNow)
     {
         var errors = new List<string>();
         if (grants.Count >= MaximumGrantCount)
@@ -286,11 +267,7 @@ public static class LineupLinkAccessGrantManager
         }
     }
 
-    private static LineupLinkAccessGrantMutation Success(
-        LineupLinkVirtualConfiguration configuration,
-        IReadOnlyList<LineupLinkAccessGrant> grants,
-        LineupLinkAccessGrant grant,
-        string? token) =>
+    private static LineupLinkAccessGrantMutation Success(LineupLinkVirtualConfiguration configuration, IReadOnlyList<LineupLinkAccessGrant> grants, LineupLinkAccessGrant grant, string? token) =>
         new(
             configuration with { AccessGrants = grants },
             ToSnapshot(grant),
@@ -306,8 +283,4 @@ public static class LineupLinkAccessGrantManager
 /// <param name="Grant">The affected safe grant snapshot.</param>
 /// <param name="GeneratedToken">The generated plaintext token shown once.</param>
 /// <param name="Errors">Validation failures.</param>
-public sealed record LineupLinkAccessGrantMutation(
-    LineupLinkVirtualConfiguration? Configuration,
-    AdapterAccessGrantSnapshot? Grant,
-    string? GeneratedToken,
-    IReadOnlyList<string> Errors);
+public sealed record LineupLinkAccessGrantMutation(LineupLinkVirtualConfiguration? Configuration, AdapterAccessGrantSnapshot? Grant, string? GeneratedToken, IReadOnlyList<string> Errors);

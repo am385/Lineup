@@ -399,7 +399,8 @@ public partial class Watch : IAsyncDisposable
         CmafFallbackAudio? streamFallbackAudio = null,
         CmafPreferredVideo? streamPreferredVideo = null,
         CmafPreferredAudio? streamPreferredAudio = null,
-        bool reconnect = false)
+        bool reconnect = false
+    )
     {
         var normalized = channelNumber?.Trim();
         _manualChannelNumber = normalized ?? string.Empty;
@@ -1245,7 +1246,8 @@ public partial class Watch : IAsyncDisposable
         bool HasSourceVideoRendition = false,
         string? SourceVideoCodec = null,
         string? FallbackAudioCodec = null,
-        string? StopUrl = null)
+        string? StopUrl = null
+    )
     {
         /// <summary>Gets the local worker identity captured when this session was acquired.</summary>
         internal VirtualDeviceId? WorkerId { get; init; }
@@ -1279,7 +1281,8 @@ public partial class Watch : IAsyncDisposable
         CmafPlayerAudio? Audio = null,
         CmafPlayerVideo? Video = null,
         bool? SourceVideoSupported = null,
-        bool? FallbackAudioSupported = null);
+        bool? FallbackAudioSupported = null
+    );
 
     /// <summary>Describes one asynchronous Shaka player event.</summary>
     /// <param name="Kind">The event category.</param>

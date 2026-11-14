@@ -1,5 +1,4 @@
 using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
 using Lineup.Core.Streaming.FFmpeg;
 
 namespace Lineup.Plugin.WebPlayer.FFmpeg;
@@ -10,22 +9,11 @@ namespace Lineup.Plugin.WebPlayer.FFmpeg;
 public static class ActiveStreamPlanFactory
 {
     /// <summary>Creates a transparent MPEG-TS snapshot from the effective topology profile.</summary>
-    public static ActiveStreamSnapshot CreateMpegTs(
-        string sessionId,
-        string channel,
-        DateTime startedAtUtc,
-        MediaProbeResult source,
-        VirtualTranscodeProfile profile)
+    public static ActiveStreamSnapshot CreateMpegTs(string sessionId, string channel, DateTime startedAtUtc, MediaProbeResult source, VirtualTranscodeProfile profile)
         => CreateMpegTs(sessionId, channel, startedAtUtc, source, source, profile);
 
     /// <summary>Creates a transparent MPEG-TS snapshot from raw and effective source media.</summary>
-    public static ActiveStreamSnapshot CreateMpegTs(
-        string sessionId,
-        string channel,
-        DateTime startedAtUtc,
-        MediaProbeResult rawSource,
-        MediaProbeResult source,
-        VirtualTranscodeProfile profile)
+    public static ActiveStreamSnapshot CreateMpegTs(string sessionId, string channel, DateTime startedAtUtc, MediaProbeResult rawSource, MediaProbeResult source, VirtualTranscodeProfile profile)
         => CreateMpegTsCore(
             sessionId,
             channel,
@@ -54,7 +42,8 @@ public static class ActiveStreamPlanFactory
         MediaProbeResult source,
         Func<MediaTrackMetadata, bool> transcodeVideo,
         int maximumVideoBitRateMbps,
-        Func<MediaTrackMetadata, string> resolveAudioCodec)
+        Func<MediaTrackMetadata, string> resolveAudioCodec
+    )
     {
         var tracks = source.Tracks.Select(track =>
         {
@@ -109,7 +98,8 @@ public static class ActiveStreamPlanFactory
         MediaProbeResult source,
         WebPlayerTrackSelection selection,
         CmafStreamRequest request,
-        VirtualTranscodeProfile profile)
+        VirtualTranscodeProfile profile
+    )
         => CreateCmaf(sessionId, channel, startedAtUtc, source, source, selection, request, profile);
 
     /// <summary>Creates CMAF stream metadata from raw source media and a worker's complete effective topology plan.</summary>
@@ -121,7 +111,8 @@ public static class ActiveStreamPlanFactory
         MediaProbeResult source,
         WebPlayerTrackSelection selection,
         CmafStreamRequest request,
-        VirtualTranscodeProfile profile)
+        VirtualTranscodeProfile profile
+    )
     {
         var audioRenditions = CmafStreamPlanner.CreatePresentationAudioRenditions(source, selection.Audio, request, profile);
         var sourceVideo = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video);
@@ -234,14 +225,7 @@ public static class ActiveStreamPlanFactory
         };
     }
 
-    private static ActiveStreamSnapshot CreateFixedTranscode(
-        string sessionId,
-        string channel,
-        HostedStreamFormat format,
-        DateTime startedAtUtc,
-        MediaProbeResult source,
-        long outputVideoBitRate,
-        bool copyVideo)
+    private static ActiveStreamSnapshot CreateFixedTranscode(string sessionId, string channel, HostedStreamFormat format, DateTime startedAtUtc, MediaProbeResult source, long outputVideoBitRate, bool copyVideo)
     {
         var video = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video)
             ?? new MediaTrackMetadata(0, MediaTrackType.Video, "unknown", null, null, null, null, null);
@@ -262,7 +246,9 @@ public static class ActiveStreamPlanFactory
         DateTime startedAtUtc,
         MediaProbeResult rawSource,
         MediaProbeResult source,
-        IReadOnlyList<ActiveStreamTrack> tracks) =>
+        IReadOnlyList<ActiveStreamTrack> tracks
+    )
+        =>
         new(sessionId, channel, format, startedAtUtc, source.BitRate, tracks)
         {
             PhysicalInput = ToMediaSnapshot(rawSource),

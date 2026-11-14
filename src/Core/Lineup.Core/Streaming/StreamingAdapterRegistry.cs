@@ -1,8 +1,3 @@
-using Lineup.Core.Common.Configuration;
-using Lineup.Core.Extensibility.Configuration;
-using Lineup.Core.Common.Guides;
-using Lineup.Core.Extensibility.Guides;
-
 namespace Lineup.Core.Streaming;
 
 /// <summary>
@@ -50,7 +45,8 @@ public sealed class StreamingAdapterRegistry : IStreamingAdapterRegistry
         IEnumerable<IPhysicalTunerDriver> physicalDrivers,
         IEnumerable<IVirtualTunerDriver> virtualDrivers,
         IEnumerable<IGuideSourceDriver> guideDrivers,
-        IEnumerable<IGuideOutputDriver> guideOutputDrivers)
+        IEnumerable<IGuideOutputDriver> guideOutputDrivers
+    )
     {
         _physical = CreateIndex(physicalDrivers, driver => driver.Kind, "physical");
         _virtual = CreateIndex(virtualDrivers, driver => driver.Kind, "virtual");
@@ -59,36 +55,49 @@ public sealed class StreamingAdapterRegistry : IStreamingAdapterRegistry
     }
 
     /// <summary>Initializes a registry without guide-output drivers.</summary>
-    public StreamingAdapterRegistry(
-        IEnumerable<IPhysicalTunerDriver> physicalDrivers,
-        IEnumerable<IVirtualTunerDriver> virtualDrivers,
-        IEnumerable<IGuideSourceDriver> guideDrivers)
+    public StreamingAdapterRegistry(IEnumerable<IPhysicalTunerDriver> physicalDrivers, IEnumerable<IVirtualTunerDriver> virtualDrivers, IEnumerable<IGuideSourceDriver> guideDrivers)
         : this(physicalDrivers, virtualDrivers, guideDrivers, [])
     {
     }
 
-    /// <inheritdoc />
+    /// <summary>Gets physical.</summary>
+    /// <param name="kind">The kind value.</param>
+    /// <returns>The operation's result.</returns>
     public IPhysicalTunerDriver GetPhysical(string kind) => Get(_physical, kind, "physical");
 
-    /// <inheritdoc />
+    /// <summary>Gets virtual.</summary>
+    /// <param name="kind">The kind value.</param>
+    /// <returns>The operation's result.</returns>
     public IVirtualTunerDriver GetVirtual(string kind) => Get(_virtual, kind, "virtual");
 
-    /// <inheritdoc />
+    /// <summary>Gets guide.</summary>
+    /// <param name="kind">The kind value.</param>
+    /// <returns>The operation's result.</returns>
     public IGuideSourceDriver GetGuide(string kind) => Get(_guides, kind, "guide");
 
-    /// <inheritdoc />
+    /// <summary>Gets guide output.</summary>
+    /// <param name="kind">The kind value.</param>
+    /// <returns>The operation's result.</returns>
     public IGuideOutputDriver GetGuideOutput(string kind) => Get(_guideOutputs, kind, "guide output");
 
-    /// <inheritdoc />
+    /// <summary>Gets physical settings.</summary>
+    /// <param name="kind">The kind value.</param>
+    /// <returns>The operation's result.</returns>
     public IAdapterSettingsProvider GetPhysicalSettings(string kind) => GetSettingsProvider(GetPhysical(kind), kind, "physical");
 
-    /// <inheritdoc />
+    /// <summary>Gets virtual settings.</summary>
+    /// <param name="kind">The kind value.</param>
+    /// <returns>The operation's result.</returns>
     public IAdapterSettingsProvider GetVirtualSettings(string kind) => GetSettingsProvider(GetVirtual(kind), kind, "virtual");
 
-    /// <inheritdoc />
+    /// <summary>Gets guide settings.</summary>
+    /// <param name="kind">The kind value.</param>
+    /// <returns>The operation's result.</returns>
     public IAdapterSettingsProvider GetGuideSettings(string kind) => GetSettingsProvider(GetGuide(kind), kind, "guide");
 
-    /// <inheritdoc />
+    /// <summary>Gets guide output settings.</summary>
+    /// <param name="kind">The kind value.</param>
+    /// <returns>The operation's result.</returns>
     public IAdapterSettingsProvider GetGuideOutputSettings(string kind) => GetSettingsProvider(GetGuideOutput(kind), kind, "guide output");
 
     private static IReadOnlyDictionary<string, TDriver> CreateIndex<TDriver>(IEnumerable<TDriver> drivers, Func<TDriver, string> getKind, string category)

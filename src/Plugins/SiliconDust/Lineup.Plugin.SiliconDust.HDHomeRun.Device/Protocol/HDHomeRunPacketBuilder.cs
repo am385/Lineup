@@ -152,7 +152,7 @@ public class HDHomeRunPacketBuilder
     }
 
     // Pre-computed CRC32 lookup table (same as libhdhomerun and Jellyfin)
-    private static readonly uint[] CrcTable =
+    private static readonly uint[] _crcTable =
     [
         0x00000000, 0x77073096, 0xee0e612c, 0x990951ba,
         0x076dc419, 0x706af48f, 0xe963a535, 0x9e6495a3,
@@ -231,7 +231,7 @@ public class HDHomeRunPacketBuilder
 
         foreach (var b in data)
         {
-            crc = (crc >> 8) ^ CrcTable[(b ^ crc) & 0xFF];
+            crc = (crc >> 8) ^ _crcTable[(b ^ crc) & 0xFF];
         }
 
         // Final XOR per CRC32 specification

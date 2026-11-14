@@ -1,5 +1,6 @@
 namespace Lineup.Integration.Streaming.Sweep;
 
+/// <summary>Represents the sweep harness.</summary>
 internal sealed partial class SweepHarness
 {
     /// <summary>Sets validated common policy before any deployment operation.</summary>
@@ -269,8 +270,7 @@ internal sealed partial class SweepHarness
         }
     }
 
-    private async Task<SweepAttempt> ObserveAsync(
-        IBrowserContext context, MatrixDefinition matrix, SelectedChannel row, int number, string matrixRoot, RunJournal journal, string purpose)
+    private async Task<SweepAttempt> ObserveAsync(IBrowserContext context, MatrixDefinition matrix, SelectedChannel row, int number, string matrixRoot, RunJournal journal, string purpose)
     {
         var attempt = new SweepAttempt { Id = Guid.NewGuid().ToString("N"), Key = row.Key, Purpose = purpose };
         _run!.Attempts.Add(attempt);
