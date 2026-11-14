@@ -17,7 +17,7 @@ public sealed class ChannelsTests
     public async Task Filters_SearchDeviceStateAndFlags_NarrowRows()
     {
         // Arrange
-        using var fixture = await ChannelFixture.CreateAsync();
+        await using var fixture = await ChannelFixture.CreateAsync();
         var component = fixture.Context.Render<Channels>();
         await component.WaitForAssertionAsync(() => Assert.Equal(3, ChannelRows(component).Count), TimeSpan.FromSeconds(30));
 
@@ -54,7 +54,7 @@ public sealed class ChannelsTests
     public async Task Sort_GlobalNumberHeader_TogglesNumericDirection()
     {
         // Arrange
-        using var fixture = await ChannelFixture.CreateAsync();
+        await using var fixture = await ChannelFixture.CreateAsync();
         var component = fixture.Context.Render<Channels>();
         await component.WaitForAssertionAsync(() => Assert.Equal(3, ChannelRows(component).Count), TimeSpan.FromSeconds(30));
         var globalNumber = component.FindAll("thead button").Single(button => button.TextContent.Contains("Global number", StringComparison.Ordinal));
@@ -79,7 +79,7 @@ public sealed class ChannelsTests
     public async Task Render_SortableHeader_DoesNotForceLightTheme()
     {
         // Arrange
-        using var fixture = await ChannelFixture.CreateAsync();
+        await using var fixture = await ChannelFixture.CreateAsync();
 
         // Act
         var component = fixture.Context.Render<Channels>();
@@ -94,7 +94,7 @@ public sealed class ChannelsTests
     public async Task GuideBinding_DuplicateProviderKeys_SelectsRequestedGuideSource()
     {
         // Arrange
-        using var fixture = await ChannelFixture.CreateAsync();
+        await using var fixture = await ChannelFixture.CreateAsync();
         var component = fixture.Context.Render<Channels>();
         component.WaitForAssertion(() => Assert.Contains("Multiple eligible guide channels match", component.Markup, StringComparison.Ordinal), timeout: LineupWebBunitContext.WaitTimeout);
         var select = component.Find("tr[data-provider-key='news'] select.guide-binding");
@@ -128,7 +128,7 @@ public sealed class ChannelsTests
     public async Task GuideBinding_NoAutomaticMatch_AllowsManualSelection()
     {
         // Arrange
-        using var fixture = await ChannelFixture.CreateAsync();
+        await using var fixture = await ChannelFixture.CreateAsync();
         var component = fixture.Context.Render<Channels>();
         component.WaitForAssertion(() =>
             Assert.Contains("No provider identity or number matched automatically", component.Markup, StringComparison.Ordinal), timeout: LineupWebBunitContext.WaitTimeout);
@@ -147,12 +147,61 @@ public sealed class ChannelsTests
         Assert.Equal(fixture.FirstGuideId, binding.SelectedGuideChannelId);
     }
 
+    /// <summary>Verifies a pending guide read cannot publish new channels without their matching edit state.</summary>
+    [Fact]
+    public async Task Refresh_PendingGuideRead_PreservesCoherentRenderedSnapshot()
+    {
+        // Arrange
+        await using var fixture = await ChannelFixture.CreateAsync();
+        var component = fixture.Context.Render<Channels>();
+        await component.WaitForAssertionAsync(() => Assert.Equal(3, ChannelRows(component).Count), TimeSpan.FromSeconds(30));
+        var topology = fixture.Context.Services.GetRequiredService<StreamingTopologyStore>();
+        var channels = await topology.ReadActiveAsync(Xunit.TestContext.Current.CancellationToken);
+        var backup = new PhysicalSourceChannel
+        {
+            Id = new SourceChannelId(fixture.BetaDeviceId, "backup"),
+            ProviderNumber = "2.1",
+            ProviderName = "News backup"
+        };
+        await topology.ReconcileAsync(fixture.BetaDeviceId,
+            [channels.Single(channel => channel.Source.Id.ProviderKey == "movies").Source, backup], Xunit.TestContext.Current.CancellationToken);
+        var guideReadEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseGuideRead = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.GuideContexts.BeforeCreateAsync = async token =>
+        {
+            guideReadEntered.TrySetResult();
+            await releaseGuideRead.Task.WaitAsync(token);
+        };
+
+        // Act
+        var observed = Record.ExceptionAsync(async () => await component.Find("button.btn-primary").ClickAsync(new())).AsTask();
+        try
+        {
+            await guideReadEntered.Task.WaitAsync(TimeSpan.FromSeconds(30), Xunit.TestContext.Current.CancellationToken);
+            await component.InvokeAsync(() => component.Render());
+
+            // Assert
+            Assert.Equal(3, ChannelRows(component).Count);
+            Assert.DoesNotContain("backup", ProviderKeys(component));
+            Assert.False(observed.IsCompleted);
+            releaseGuideRead.TrySetResult();
+            Assert.Null(await observed.WaitAsync(TimeSpan.FromSeconds(30), Xunit.TestContext.Current.CancellationToken));
+            await component.WaitForAssertionAsync(() => Assert.Equal(4, ChannelRows(component).Count), TimeSpan.FromSeconds(30));
+            Assert.Contains("backup", ProviderKeys(component));
+        }
+        finally
+        {
+            releaseGuideRead.TrySetResult();
+            await observed.WaitAsync(TimeSpan.FromSeconds(30), Xunit.TestContext.Current.CancellationToken);
+        }
+    }
+
     /// <summary>Verifies explicit same-content confirmation, group additions, and removal preserve guide choices and global identity.</summary>
     [Fact]
     public async Task Grouping_CreateAddRemove_RequiresConfirmationAndPreservesBindings()
     {
         // Arrange
-        using var fixture = await ChannelFixture.CreateAsync();
+        await using var fixture = await ChannelFixture.CreateAsync();
         var (topology, news, movies) = await PrepareGrouping(fixture);
         await fixture.GuideStore.SetBindingAsync(news, fixture.FirstGuideId, Xunit.TestContext.Current.CancellationToken);
         var component = fixture.Context.Render<Channels>();
@@ -219,7 +268,7 @@ public sealed class ChannelsTests
     public async Task Grouping_StalePreview_RejectsSave(string changed)
     {
         // Arrange
-        using var fixture = await ChannelFixture.CreateAsync();
+        await using var fixture = await ChannelFixture.CreateAsync();
         var (topology, news, movies) = await PrepareGrouping(fixture);
         var component = fixture.Context.Render<Channels>();
         await component.WaitForAssertionAsync(() => Assert.Equal(3, ChannelRows(component).Count), TimeSpan.FromSeconds(30));
@@ -262,7 +311,7 @@ public sealed class ChannelsTests
     public async Task Grouping_PublicationFails_RetainsCommittedGroupAndReportsFailure()
     {
         // Arrange
-        using var fixture = await ChannelFixture.CreateAsync();
+        await using var fixture = await ChannelFixture.CreateAsync();
         var (topology, news, _) = await PrepareGrouping(fixture);
         var publications = fixture.Context.Services.GetRequiredService<ITopologyGuideService>();
         publications.ApplyChannelChangeAsync(Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>()).Returns(async call =>
@@ -298,7 +347,7 @@ public sealed class ChannelsTests
     public async Task Grouping_OutputPreview_UsesEligibleOrderedSources(bool incompatible, bool disabled)
     {
         // Arrange
-        using var fixture = await ChannelFixture.CreateAsync();
+        await using var fixture = await ChannelFixture.CreateAsync();
         await PrepareGrouping(fixture, !disabled);
         if (incompatible)
         {
@@ -329,7 +378,7 @@ public sealed class ChannelsTests
     public async Task Grouping_PendingPublication_DisablesDuplicateSaveAndClose()
     {
         // Arrange
-        using var fixture = await ChannelFixture.CreateAsync();
+        await using var fixture = await ChannelFixture.CreateAsync();
         await PrepareGrouping(fixture);
         var completion = new TaskCompletionSource<IReadOnlyList<GuideOutputPublicationResult>>(TaskCreationOptions.RunContinuationsAsynchronously);
         var publications = fixture.Context.Services.GetRequiredService<ITopologyGuideService>();
@@ -379,13 +428,14 @@ public sealed class ChannelsTests
     private static AngleSharp.Dom.IElement FindGlobalNumberHeader(IRenderedComponent<Channels> component) =>
         component.FindAll("thead button").Single(button => button.TextContent.Contains("Global number", StringComparison.Ordinal));
 
-    private sealed class ChannelFixture : IDisposable
+    private sealed class ChannelFixture : IAsyncDisposable
     {
         private readonly string _databasePath;
 
         private ChannelFixture(
             BunitContext context,
             string databasePath,
+            TestDbContextFactory guideContexts,
             PhysicalDeviceId betaDeviceId,
             DeviceGuideStore guideStore,
             GuideChannelId firstGuideId,
@@ -393,6 +443,7 @@ public sealed class ChannelsTests
         {
             Context = context;
             _databasePath = databasePath;
+            GuideContexts = guideContexts;
             BetaDeviceId = betaDeviceId;
             GuideStore = guideStore;
             FirstGuideId = firstGuideId;
@@ -400,6 +451,9 @@ public sealed class ChannelsTests
         }
 
         public BunitContext Context { get; }
+
+        /// <summary>Gets the guide-store context factory for controlled read ordering.</summary>
+        internal TestDbContextFactory GuideContexts { get; }
 
         public PhysicalDeviceId BetaDeviceId { get; }
 
@@ -415,7 +469,8 @@ public sealed class ChannelsTests
             var options = new DbContextOptionsBuilder<EpgDbContext>().UseSqlite($"Data Source={databasePath};Pooling=False").Options;
             var contexts = new TestDbContextFactory(options);
             var topology = new StreamingTopologyStore(contexts);
-            var guides = new DeviceGuideStore(contexts);
+            var guideContexts = new TestDbContextFactory(options);
+            var guides = new DeviceGuideStore(guideContexts);
             var alpha = PhysicalDeviceId.New();
             var beta = PhysicalDeviceId.New();
             await topology.ReconcileAsync(
@@ -494,12 +549,13 @@ public sealed class ChannelsTests
             context.Services.AddSingleton(settings);
             context.Services.AddSingleton<IXmltvPublicationStore, XmltvPublicationStore>();
             context.Services.AddSingleton(timeZone);
-            return new ChannelFixture(context, databasePath, beta, guides, firstGuideId, secondGuideId);
+            return new ChannelFixture(context, databasePath, guideContexts, beta, guides, firstGuideId, secondGuideId);
         }
 
-        public void Dispose()
+        /// <inheritdoc />
+        public async ValueTask DisposeAsync()
         {
-            Context.Dispose();
+            await Context.DisposeAsync();
             File.Delete(_databasePath);
         }
 
@@ -582,9 +638,18 @@ public sealed class ChannelsTests
 
     private sealed class TestDbContextFactory(DbContextOptions<EpgDbContext> options) : IDbContextFactory<EpgDbContext>
     {
+        /// <summary>Gets or sets the asynchronous context-creation barrier.</summary>
+        internal Func<CancellationToken, Task>? BeforeCreateAsync { get; set; }
+
         public EpgDbContext CreateDbContext() => new(options);
 
-        public Task<EpgDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(CreateDbContext());
+        public async Task<EpgDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
+        {
+            if (BeforeCreateAsync is { } beforeCreate)
+            {
+                await beforeCreate(cancellationToken);
+            }
+            return CreateDbContext();
+        }
     }
 }

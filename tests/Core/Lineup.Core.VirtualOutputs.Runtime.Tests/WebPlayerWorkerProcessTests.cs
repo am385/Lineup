@@ -494,15 +494,15 @@ public sealed class WebPlayerWorkerProcessTests
         Assert.Empty(harness.ActiveStreams.GetActiveStreams());
     }
 
-    /// <summary>Verifies a crashed worker loses its lease and Core releases the orphaned broker stream.</summary>
+    /// <summary>Verifies a real worker crash releases its broker stream through disconnect handling without waiting for lease expiry.</summary>
     [Fact]
-    public async Task Worker_ProcessCrash_ReleasesBrokerStreamAfterLeaseExpiry()
+    public async Task Worker_ProcessCrash_ReleasesBrokerStreamOnDisconnect()
     {
         // Arrange
         await using var harness = await WebPlayerWorkerHarness.StartAsync(
             (request, _) => Task.FromResult(CreateBrokeredStream(request, new PacedPatternStream())),
             TestContext.Current.CancellationToken,
-            TimeSpan.FromSeconds(3));
+            TimeSpan.FromMinutes(5));
         using var request = harness.CreateRequest(HttpMethod.Post, "/media/start/2.1", "{}");
         using var response = await harness.Client.SendAsync(request, TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -510,7 +510,7 @@ public sealed class WebPlayerWorkerProcessTests
 
         // Act
         await harness.KillWorkerAsync();
-        await WaitUntilAsync(() => harness.ActiveStreams.GetActiveStreams().Count == 0, TimeSpan.FromSeconds(15));
+        await WaitUntilAsync(() => harness.ActiveStreams.GetActiveStreams().Count == 0, TimeSpan.FromSeconds(30));
 
         // Assert
         Assert.Empty(harness.ActiveStreams.GetActiveStreams());

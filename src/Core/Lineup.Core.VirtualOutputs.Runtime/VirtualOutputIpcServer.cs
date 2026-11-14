@@ -32,6 +32,17 @@ public sealed class VirtualOutputIpcServer : BackgroundService
     private readonly HashSet<Task> _connectionHandlers = [];
 
     /// <summary>Initializes the local IPC server.</summary>
+    /// <param name="endpoint">The local IPC listener endpoint.</param>
+    /// <param name="authority">The worker session authorization authority.</param>
+    /// <param name="broker">The host capability broker.</param>
+    /// <param name="status">The worker runtime status store.</param>
+    /// <param name="settings">The host settings service.</param>
+    /// <param name="activeStreams">The host stream registry.</param>
+    /// <param name="logger">The IPC service logger.</param>
+    /// <param name="connectionBudget">The shared plugin connection budget.</param>
+    /// <param name="mediaWork">Optional shared media admission accounting.</param>
+    /// <param name="resources">Optional streaming resource limits.</param>
+    /// <param name="timeProvider">Optional clock for broker stream expiration sweeps.</param>
     public VirtualOutputIpcServer(
         VirtualOutputIpcEndpoint endpoint,
         IVirtualOutputSessionAuthority authority,
@@ -42,7 +53,8 @@ public sealed class VirtualOutputIpcServer : BackgroundService
         ILogger<VirtualOutputIpcServer> logger,
         IPluginConnectionBudget connectionBudget,
         IMediaWorkAdmission? mediaWork = null,
-        StreamingResourceOptions? resources = null)
+        StreamingResourceOptions? resources = null,
+        TimeProvider? timeProvider = null)
     {
         _endpoint = endpoint;
         _authority = authority;
@@ -54,7 +66,7 @@ public sealed class VirtualOutputIpcServer : BackgroundService
         _connectionBudget = connectionBudget ?? throw new ArgumentNullException(nameof(connectionBudget));
         _resources = resources ?? new();
         _mediaWork = mediaWork ?? new MediaWorkAdmission(_resources);
-        _brokerStreams = new VirtualOutputBrokerStreamRegistry(authority, logger);
+        _brokerStreams = new VirtualOutputBrokerStreamRegistry(authority, logger, timeProvider);
         ValidateEndpoint(endpoint);
     }
 

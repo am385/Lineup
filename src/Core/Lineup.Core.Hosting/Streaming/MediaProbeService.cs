@@ -25,15 +25,29 @@ public sealed class MediaProbeService : IMediaProbeService
     private readonly ILogger<MediaProbeService> _logger;
     private readonly ITunerStreamMultiplexer _tunerStreamMultiplexer;
     private readonly IStreamingSessionGraph? _streamingGraph;
-    private readonly MediaStreamProbe _probe;
+    private readonly Func<string, Stream, CancellationToken, Task<MediaProbeResult>> _probe;
 
     /// <summary>Initializes shared acquisition probing with the portable process runner.</summary>
     public MediaProbeService(ILogger<MediaProbeService> logger, ITunerStreamMultiplexer tunerStreamMultiplexer, IMediaProcessFactory processFactory, IStreamingSessionGraph? streamingGraph = null)
+        : this(logger, tunerStreamMultiplexer, new MediaStreamProbe(logger, processFactory).ProbeAsync, streamingGraph)
+    {
+    }
+
+    /// <summary>Initializes acquisition orchestration with a controlled stream-level probe operation.</summary>
+    /// <param name="logger">The acquisition probe logger.</param>
+    /// <param name="tunerStreamMultiplexer">The physical acquisition multiplexer.</param>
+    /// <param name="probe">The stream-level metadata probe.</param>
+    /// <param name="streamingGraph">Optional shared acquisition metadata graph.</param>
+    internal MediaProbeService(
+        ILogger<MediaProbeService> logger,
+        ITunerStreamMultiplexer tunerStreamMultiplexer,
+        Func<string, Stream, CancellationToken, Task<MediaProbeResult>> probe,
+        IStreamingSessionGraph? streamingGraph = null)
     {
         _logger = logger;
         _tunerStreamMultiplexer = tunerStreamMultiplexer;
         _streamingGraph = streamingGraph;
-        _probe = new MediaStreamProbe(logger, processFactory);
+        _probe = probe;
     }
 
     /// <summary>Initializes the probe service with the default process factory.</summary>
@@ -61,7 +75,7 @@ public sealed class MediaProbeService : IMediaProbeService
                         descriptor,
                         acquisitionFactory,
                         MetadataKey,
-                        (stream, token) => _probe.ProbeAsync(sourceName, stream, token),
+                        (stream, token) => _probe(sourceName, stream, token),
                         new AcquisitionMetadataRefreshPolicy<MediaProbeResult>
                         {
                             IsReusable = MediaProbeResultPolicy.HasAudio,
@@ -85,7 +99,7 @@ public sealed class MediaProbeService : IMediaProbeService
                     descriptor,
                     acquisitionFactory,
                     MetadataKey,
-                    (stream, token) => _probe.ProbeAsync(sourceName, stream, token),
+                    (stream, token) => _probe(sourceName, stream, token),
                     cancellationToken),
                 sourceName);
             return MediaProbeResultPolicy.Assess(declaredVideoOnly, sourceMetadata);
@@ -117,6 +131,6 @@ public sealed class MediaProbeService : IMediaProbeService
     private async Task<MediaProbeResult> ProbeCoreAsync(StreamAcquisitionDescriptor descriptor, StreamAcquisitionFactory acquisitionFactory, string sourceName, CancellationToken cancellationToken)
     {
         await using var input = await _tunerStreamMultiplexer.SubscribeAsync(descriptor, acquisitionFactory, cancellationToken);
-        return await _probe.ProbeAsync(sourceName, input, cancellationToken);
+        return await _probe(sourceName, input, cancellationToken);
     }
 }

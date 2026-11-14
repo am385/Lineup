@@ -245,7 +245,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
     {
     }
 
-    /// <summary>Initializes the shared graph with a clock for keep-warm expiration.</summary>
+    /// <summary>Initializes the shared graph with a clock for metadata timing and keep-warm expiration.</summary>
     internal StreamingSessionGraph(IPhysicalCapacityLeaseRegistry capacity, ILogger<StreamingSessionGraph> logger, TimeProvider timeProvider)
         : this(capacity, logger, timeProvider, null)
     {
@@ -483,10 +483,10 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
             return snapshot.Value;
         }
 
-        var remainingDelay = refreshPolicy.RetryDelay - (DateTimeOffset.UtcNow - snapshot.ObservedAtUtc);
+        var remainingDelay = refreshPolicy.RetryDelay - (_timeProvider.GetUtcNow() - snapshot.ObservedAtUtc);
         if (remainingDelay > TimeSpan.Zero)
         {
-            await Task.Delay(remainingDelay, cancellationToken);
+            await Task.Delay(remainingDelay, _timeProvider, cancellationToken);
         }
         ThrowIfRuntimeUnavailable(descriptor);
 
@@ -524,7 +524,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         return refreshed.Value;
     }
 
-    private static Lazy<Task<AcquisitionMetadataSnapshot>> CreateMetadataFactory<T>(
+    private Lazy<Task<AcquisitionMetadataSnapshot>> CreateMetadataFactory<T>(
         SharedNode node,
         Func<Stream, CancellationToken, Task<T>> metadataFactory,
         TimeSpan operationTimeout,
@@ -532,7 +532,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         new(
             async () =>
             {
-                using var timeout = operationTimeout == Timeout.InfiniteTimeSpan ? null : new CancellationTokenSource(operationTimeout);
+                using var timeout = operationTimeout == Timeout.InfiniteTimeSpan ? null : new CancellationTokenSource(operationTimeout, _timeProvider);
                 using var operation = CancellationTokenSource.CreateLinkedTokenSource(node.LifetimeToken, timeout?.Token ?? CancellationToken.None);
                 var operationToken = operation.Token;
                 try
@@ -541,7 +541,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                     var value = (object?)await metadataFactory(lease.Stream, operationToken)
                         ?? throw new InvalidOperationException("Shared acquisition metadata cannot be null.");
                     operationToken.ThrowIfCancellationRequested();
-                    return new AcquisitionMetadataSnapshot(value, DateTimeOffset.UtcNow, refreshAttempted);
+                    return new AcquisitionMetadataSnapshot(value, _timeProvider.GetUtcNow(), refreshAttempted);
                 }
                 catch (OperationCanceledException exception) when (timeout?.IsCancellationRequested == true)
                 {
@@ -561,7 +561,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         {
             var snapshot = waitTimeout == default || waitTimeout == Timeout.InfiniteTimeSpan
                 ? await lazy.Value.WaitAsync(cancellationToken)
-                : await lazy.Value.WaitAsync(waitTimeout, cancellationToken);
+                : await lazy.Value.WaitAsync(waitTimeout, _timeProvider, cancellationToken);
             return new AcquisitionMetadataValue<T>((T)snapshot.Value, snapshot.ObservedAtUtc, snapshot.RefreshAttempted);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

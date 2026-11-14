@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Lineup.Core.Common.Configuration;
@@ -97,6 +98,39 @@ public sealed class VirtualOutputWorkerLauncherTests
         Assert.False(Directory.Exists(report.ArtifactDirectory));
     }
 
+    /// <summary>Verifies package cleanup waits for a transient Windows file lock and does not report success before deletion.</summary>
+    [Fact]
+    public async Task DisposeAsync_LockedPackageFile_WaitsForRelease()
+    {
+        Assert.SkipWhen(!OperatingSystem.IsWindows(), "Requires Windows file sharing semantics.");
+
+        // Arrange
+        var package = await WorkerProbePackage.CreateAsync();
+        using var locked = File.Open(Path.Combine(package.PackageRoot, "Lineup.TestSupport.FakeFFmpeg.dll"), FileMode.Open, FileAccess.Read, FileShare.Read);
+
+        // Act
+        var observed = Record.ExceptionAsync(() => package.DisposeAsync().AsTask()).AsTask();
+        try
+        {
+            Assert.False(observed.IsCompleted);
+            locked.Dispose();
+            var failure = await observed.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.Null(failure);
+            Assert.False(Directory.Exists(package.PackageRoot));
+        }
+        finally
+        {
+            locked.Dispose();
+            await observed.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            if (Directory.Exists(package.PackageRoot))
+            {
+                await package.DisposeAsync();
+            }
+        }
+    }
+
     /// <summary>Verifies failure to start the executable does not leak a worker temporary directory.</summary>
     [Fact]
     public async Task StartAsync_InvalidExecutable_RemovesTemporaryDirectory()
@@ -136,6 +170,9 @@ public sealed class VirtualOutputWorkerLauncherTests
     private sealed class WorkerProbePackage(DirectoryInfo directory, VirtualOutputWorkerPackage package) : IAsyncDisposable
     {
         private IVirtualOutputWorkerProcess? _worker;
+
+        /// <summary>Gets the test-owned package directory.</summary>
+        internal string PackageRoot => directory.FullName;
 
         /// <summary>Gets the unique activation descriptor supplied only through the child's standard input.</summary>
         internal VirtualOutputWorkerBootstrap Bootstrap { get; } = new()
@@ -246,7 +283,20 @@ public sealed class VirtualOutputWorkerLauncherTests
                     Directory.Delete(probeDirectory, recursive: true);
                 }
             }
-            directory.Delete(recursive: true);
+            var started = Stopwatch.GetTimestamp();
+            while (true)
+            {
+                try
+                {
+                    directory.Delete(recursive: true);
+                    return;
+                }
+                catch (Exception exception) when ((exception is IOException or UnauthorizedAccessException) && Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(15))
+                {
+                    // Windows can briefly retain worker image mappings after process exit.
+                    await Task.Delay(20, TestContext.Current.CancellationToken);
+                }
+            }
         }
     }
 }

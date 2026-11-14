@@ -6,6 +6,7 @@ using Lineup.Core.Streaming;
 using Lineup.Core.Streaming.FFmpeg;
 using Lineup.Core.VirtualOutputs.Hosting;
 using Lineup.Core.VirtualOutputs.Protocol;
+using Lineup.TestSupport;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Xunit;
@@ -15,6 +16,73 @@ namespace Lineup.Core.VirtualOutputs.Runtime.Tests;
 /// <summary>Verifies real local IPC framing, registration, authorization context, and typed broker dispatch.</summary>
 public sealed class VirtualOutputIpcServerTests
 {
+    /// <summary>Verifies a still-connected orphan survives a live lease and is closed by the controlled expiration sweep.</summary>
+    [Fact]
+    public async Task Client_LeaseExpires_ClosesBrokerStreamWithoutClientDisconnect()
+    {
+        // Arrange
+        var clock = new ControlledTimeProvider();
+        using var authority = new VirtualOutputSessionAuthority(clock);
+        var deviceId = VirtualDeviceId.New();
+        var ticket = authority.CreateActivation(deviceId, "expiry-worker", new HashSet<VirtualOutputCapability> { VirtualOutputCapability.OpenStream },
+            TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(10));
+        var activeStreams = new ActiveStreamRegistry();
+        var streamSessionId = StreamSessionId.New();
+        activeStreams.Register(new ActiveStreamSnapshot(streamSessionId.ToString(), "48.3", HostedStreamFormat.MpegTs, clock.GetUtcNow().UtcDateTime, null, []));
+        var media = new MediaProbeResult([], null);
+        var mediaStream = new BlockingReadStream();
+        var broker = Substitute.For<IVirtualOutputBroker>();
+        broker.OpenStreamAsync(Arg.Any<VirtualOutputOpenStreamRequest>(), Arg.Any<CancellationToken>()).Returns(new VirtualOutputBrokeredStream(
+            activeStreams, new VirtualMpegTsOutput(mediaStream, media, media, new VirtualTranscodeProfile(), new ActiveStreamFlowContext()),
+            new VirtualOutputOpenStreamResponse { Accepted = true, StreamSessionId = streamSessionId, ContentType = "video/mp2t", Source = media }));
+        var endpoint = CreateEndpoint();
+        using var server = new VirtualOutputIpcServer(endpoint, authority, broker, new VirtualOutputRuntimeStatus(),
+            CreateSettings(deviceId, maximumOutstandingBrokerCalls: 1), activeStreams, NullLogger<VirtualOutputIpcServer>.Instance,
+            Substitute.For<IPluginConnectionBudget>(), timeProvider: clock);
+        await server.StartAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            var client = new VirtualOutputBrokerClient(endpoint);
+            var registration = await client.RegisterAsync(new VirtualOutputWorkerRegistrationRequest
+            {
+                WorkerId = ticket.WorkerId,
+                VirtualDeviceId = deviceId,
+                Generation = ticket.Generation,
+                BootstrapToken = ticket.BootstrapToken,
+                MinimumProtocolVersion = VirtualOutputProtocol.MinimumVersion,
+                MaximumProtocolVersion = VirtualOutputProtocol.MaximumVersion
+            }, TestContext.Current.CancellationToken);
+            await using var opened = await client.OpenStreamAsync(new VirtualOutputOpenStreamRequest
+            {
+                Session = new VirtualOutputSessionContext { SessionId = registration.SessionId!.Value, Generation = ticket.Generation },
+                RequestId = VirtualOutputStreamRequestId.New(),
+                ChannelKey = "48.3"
+            }, TestContext.Current.CancellationToken);
+            await clock.WaitForTimerAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+            // Act
+            clock.Advance(TimeSpan.FromSeconds(5));
+            await clock.WaitForTimerAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            Assert.False(mediaStream.IsDisposed);
+            Assert.Single(activeStreams.GetActiveStreams());
+            clock.Advance(TimeSpan.FromSeconds(10));
+            await mediaStream.Disposed.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            var received = await opened.Stream.ReadAsync(new byte[1], TestContext.Current.CancellationToken).AsTask()
+                .WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.Equal(0, received);
+            Assert.True(mediaStream.IsDisposed);
+            Assert.Empty(activeStreams.GetActiveStreams());
+            var closeFailure = await Assert.ThrowsAsync<VirtualOutputClientException>(() => opened.DisposeAsync().AsTask());
+            Assert.Equal(VirtualOutputFailureCode.Unauthorized, closeFailure.FailureCode);
+        }
+        finally
+        {
+            await server.StopAsync(TestContext.Current.CancellationToken);
+        }
+    }
+
     /// <summary>Over-limit or canceled guide reads return no partial snapshot and do not poison a newer coherent response.</summary>
     [Theory]
     [InlineData(false)]

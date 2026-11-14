@@ -44,7 +44,7 @@ public partial class Channels
 
     private IReadOnlyList<PhysicalChannelIdentity> _topologyChannels = [];
     private IReadOnlyDictionary<SourceChannelId, SourceGuideBindingState> _guideBindings = new Dictionary<SourceChannelId, SourceGuideBindingState>();
-    private readonly Dictionary<SourceChannelId, ChannelIdentityEdit> _channelEdits = [];
+    private Dictionary<SourceChannelId, ChannelIdentityEdit> _channelEdits = [];
     private string _search = string.Empty;
     private string _deviceFilter = string.Empty;
     private ChannelStateFilter _stateFilter;
@@ -89,17 +89,16 @@ public partial class Channels
 
     private async Task LoadTopologyAsync()
     {
-        _topologyChannels = await TopologyStore.ReadActiveAsync();
-        _guideBindings = (await GuideStore.ReadBindingStatesAsync(activeGuideScopes: GetActiveGuideScopes())).ToDictionary(binding => binding.SourceChannelId);
-        _channelEdits.Clear();
-        foreach (var channel in _topologyChannels)
+        var channels = await TopologyStore.ReadActiveAsync();
+        var guideBindings = (await GuideStore.ReadBindingStatesAsync(activeGuideScopes: GetActiveGuideScopes())).ToDictionary(binding => binding.SourceChannelId);
+        var edits = channels.ToDictionary(channel => channel.Source.Id, channel => new ChannelIdentityEdit
         {
-            _channelEdits[channel.Source.Id] = new ChannelIdentityEdit
-            {
-                NumberOverride = channel.NumberOverride ?? string.Empty,
-                NameOverride = channel.NameOverride ?? string.Empty
-            };
-        }
+            NumberOverride = channel.NumberOverride ?? string.Empty,
+            NameOverride = channel.NameOverride ?? string.Empty
+        });
+        _topologyChannels = channels;
+        _guideBindings = guideBindings;
+        _channelEdits = edits;
     }
 
     private async Task SaveIdentity(PhysicalChannelIdentity channel)

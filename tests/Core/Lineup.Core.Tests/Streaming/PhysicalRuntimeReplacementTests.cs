@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Lineup.Core.Common.Streaming;
 using Lineup.Core.Extensibility.Streaming;
+using Lineup.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -36,8 +37,11 @@ public sealed class PhysicalRuntimeReplacementTests
                 OperationTimeout = TimeSpan.FromMilliseconds(50)
             }, fixture.Token);
 
+        await fixture.Clock.WaitForTimerAsync(TimeSpan.FromMilliseconds(50), fixture.Token);
+        fixture.Clock.Advance(TimeSpan.FromMilliseconds(50));
+
         // Assert
-        await Assert.ThrowsAsync<TimeoutException>(() => probe);
+        await Assert.ThrowsAsync<TimeoutException>(() => probe.WaitAsync(fixture.Token));
         Assert.Empty(fixture.Graph.GetDiagnostics().Nodes);
         Assert.Empty(fixture.Graph.GetDiagnostics().Capacity);
     }
@@ -397,6 +401,7 @@ public sealed class PhysicalRuntimeReplacementTests
             });
             var services = new ServiceCollection();
             services.AddLogging();
+            services.AddSingleton<TimeProvider>(Clock);
             services.AddSingleton(driver);
             services.AddEpgCore();
             _services = services.BuildServiceProvider();
@@ -411,6 +416,8 @@ public sealed class PhysicalRuntimeReplacementTests
 
         /// <summary>Gets the reconfigured tuner identity.</summary>
         internal PhysicalDeviceId DeviceId { get; } = PhysicalDeviceId.New();
+        /// <summary>Gets the controlled clock used by the production graph composition.</summary>
+        internal ControlledTimeProvider Clock { get; } = new();
         /// <summary>Gets an unaffected tuner identity.</summary>
         internal PhysicalDeviceId UnrelatedId { get; } = PhysicalDeviceId.New();
         /// <summary>Gets the production graph.</summary>

@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Net;
 using Lineup.App.Web.Controllers;
 using Lineup.App.Web.Services.Playback;
+using Lineup.TestSupport;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -40,6 +41,40 @@ public sealed class CmafSharingTests
         Assert.Equal(failed ? "source_failure" : "source_eof", status.Code);
         Assert.False(first.Service.GetPlaybackStatus(stopped.SessionId).Retryable);
         await WaitUntilAsync(() => fixture.ActiveInputs == 0 && !fixture.IsEncoderRunning);
+    }
+
+    /// <summary>Verifies producer cleanup cannot block later process-exit callbacks needed by its owned media tasks.</summary>
+    [Fact]
+    public async Task Service_ProcessExitCleanup_DoesNotBlockLaterExitCallbacks()
+    {
+        // Arrange
+        await using var fixture = new Fixture();
+        var started = fixture.BeginServiceStart("viewer");
+        var presentation = Assert.IsType<ManagementPlaybackPresentation>((await started.Start).Presentation);
+        var producer = Assert.IsType<ManagementPlaybackService.PendingCmafOutput>(Assert.Single(fixture.Outputs.GetViewers()).State);
+        var session = Assert.IsType<ManagementPlaybackService.CmafSession>(producer.Session);
+        var exitCallbackCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        producer.Tasks.Track(exitCallbackCompleted.Task, NullLogger.Instance, "later process-exit callback");
+        session.Process!.Exited += (_, _) => exitCallbackCompleted.TrySetResult();
+
+        // Act
+        try
+        {
+            await fixture.TerminateEncoderAsync();
+            await producer.Stopped.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.True(exitCallbackCompleted.Task.IsCompletedSuccessfully);
+            Assert.False(started.Service.GetPlaybackStatus(presentation.SessionId).IsActive);
+            Assert.Empty(fixture.ActiveStreams.GetActiveStreams());
+            Assert.Equal(0, fixture.ActiveInputs);
+            Assert.False(fixture.HasEncoderDirectory);
+        }
+        finally
+        {
+            exitCallbackCompleted.TrySetResult();
+            await producer.Stopped.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
     }
 
     /// <summary>Synthetic presentations also include their immutable quality/media plan in sharing identity.</summary>
@@ -214,16 +249,27 @@ public sealed class CmafSharingTests
     public async Task Service_StartupFailure_ReturnsTypedFailureAndCleansResources(string failure, ManagementPlaybackFailureKind kind, string code)
     {
         // Arrange
+        var startupTimeout = failure == "timeout" ? TimeSpan.FromMilliseconds(500) : TimeSpan.FromSeconds(30);
         await using var fixture = new Fixture
         {
             HoldReadiness = true,
             ProcessFailure = failure == "process" ? new MediaProcessException("PRIVATE diagnostics") : null,
             InputFailure = failure == "input" ? new IOException("Upstream failed.") : null,
-            StartupTimeout = failure == "timeout" ? TimeSpan.FromMilliseconds(500) : TimeSpan.FromSeconds(30)
+            StartupTimeout = startupTimeout
         };
         var started = fixture.BeginServiceStart("viewer");
+        if (failure == "timeout")
+        {
+            await fixture.EncoderStarted.WaitAsync(BunitContext.WaitTimeout, TestContext.Current.CancellationToken);
+            await fixture.StartupClock.WaitForTimerAsync(startupTimeout, TestContext.Current.CancellationToken);
+            await fixture.StartupClock.WaitForTimerAsync(startupTimeout, TestContext.Current.CancellationToken);
+        }
 
         // Act
+        if (failure == "timeout")
+        {
+            fixture.StartupClock.Advance(startupTimeout);
+        }
         var result = await started.Start.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         await WaitUntilAsync(() => !fixture.IsEncoderRunning && !fixture.HasEncoderDirectory && fixture.ActiveInputs == 0);
 
@@ -883,6 +929,7 @@ public sealed class CmafSharingTests
     }
 
     /// <summary>Verifies producer-owned failure or deadline still reaches a surviving viewer after the initiator leaves.</summary>
+    /// <param name="encoderExits">Whether the encoder exits explicitly instead of exhausting its controlled startup deadline.</param>
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -890,20 +937,28 @@ public sealed class CmafSharingTests
     {
         // Arrange
         await using var fixture = new Fixture { HoldReadiness = true };
-        var first = fixture.BeginStart("owner", startupTimeout: TimeSpan.FromSeconds(2));
-        await fixture.EncoderStarted.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        var startupTimeout = TimeSpan.FromSeconds(2);
+        var first = fixture.BeginStart("owner", startupTimeout: startupTimeout);
+        await fixture.EncoderStarted.WaitAsync(BunitContext.WaitTimeout, TestContext.Current.CancellationToken);
+        await fixture.StartupClock.WaitForTimerAsync(startupTimeout, TestContext.Current.CancellationToken);
+        await fixture.StartupClock.WaitForTimerAsync(startupTimeout, TestContext.Current.CancellationToken);
         var second = fixture.BeginStart("survivor", startupTimeout: TimeSpan.FromSeconds(10));
         await WaitUntilAsync(() => fixture.Outputs.GetViewers().Count == 2);
+        var producer = Assert.IsType<ManagementPlaybackService.PendingCmafOutput>(fixture.Outputs.GetViewers().First().State);
         first.Cancellation.Cancel();
-        Assert.IsType<EmptyResult>(await first.Start);
+        Assert.IsType<EmptyResult>(await first.Start.WaitAsync(BunitContext.WaitTimeout, TestContext.Current.CancellationToken));
 
         // Act
         if (encoderExits)
         {
             await fixture.TerminateEncoderAsync();
         }
-        var result = Assert.IsType<ObjectResult>(await second.Start.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
-        await WaitUntilAsync(() => fixture.ActiveInputs == 0 && !fixture.IsEncoderRunning && !fixture.HasEncoderDirectory);
+        else
+        {
+            fixture.StartupClock.Advance(startupTimeout);
+        }
+        var result = Assert.IsType<ObjectResult>(await second.Start.WaitAsync(BunitContext.WaitTimeout, TestContext.Current.CancellationToken));
+        await producer.Stopped.WaitAsync(BunitContext.WaitTimeout, TestContext.Current.CancellationToken);
 
         // Assert
         Assert.False(second.Cancellation.IsCancellationRequested);
@@ -911,6 +966,9 @@ public sealed class CmafSharingTests
         Assert.Equal(0, fixture.Outputs.ActiveOutputCount);
         Assert.Empty(fixture.Outputs.GetViewers());
         Assert.Empty(fixture.ActiveStreams.GetActiveStreams());
+        Assert.Equal(0, fixture.ActiveInputs);
+        Assert.False(fixture.IsEncoderRunning);
+        Assert.False(fixture.HasEncoderDirectory);
     }
 
     /// <summary>Verifies sharing does not bypass the independently counted viewer admission limit.</summary>
@@ -1106,6 +1164,9 @@ public sealed class CmafSharingTests
         /// <summary>Gets the controllable logical inactivity clock.</summary>
         internal LogicalClock Clock { get; } = new();
 
+        /// <summary>Gets the controlled startup deadline clock, independent of coordinator inactivity.</summary>
+        internal ControlledTimeProvider StartupClock { get; } = new();
+
         /// <summary>Completes the retained input independently of viewer and process cancellation.</summary>
         internal void EndSource(Exception? failure) => _sourceCompletion.TrySetResult(failure);
 
@@ -1186,7 +1247,8 @@ public sealed class CmafSharingTests
             _playback ??= new ManagementPlaybackService(
                 httpClients, Substitute.For<ILineupGuideReader>(), _settings, _topology, _probe, ActiveStreams,
                 _slates, _multiplexer, NullLogger<ManagementPlaybackService>.Instance,
-                transientData: _files, mediaProcessFactory: _processes, streamRoutes: _routes, cmafOutputs: PlaybackOutputs ?? Outputs, cmafStartupTimeout: StartupTimeout);
+                timeProvider: StartupClock, transientData: _files, mediaProcessFactory: _processes, streamRoutes: _routes,
+                cmafOutputs: PlaybackOutputs ?? Outputs, cmafStartupTimeout: StartupTimeout);
             var start = _playback.StartAsync("7.1", (request ?? new CmafStreamRequest()) with { ClientId = clientId },
                 $"127.0.0.1:{10_000 + _cancellations.Count}", cancellationToken: cancellation.Token);
             _serviceStarts.Add(start);
@@ -1207,7 +1269,7 @@ public sealed class CmafSharingTests
             var controller = new StreamController(
                 httpClients, Substitute.For<ILineupGuideReader>(), _settings, _topology, _probe, ActiveStreams,
                 _slates, _multiplexer, NullLogger<StreamController>.Instance,
-                transientData: _files, mediaProcessFactory: _processes, streamRoutes: _routes, cmafOutputs: Outputs, cmafStartupTimeout: startupTimeout)
+                timeProvider: StartupClock, transientData: _files, mediaProcessFactory: _processes, streamRoutes: _routes, cmafOutputs: Outputs, cmafStartupTimeout: startupTimeout)
             {
                 ControllerContext = new ControllerContext
                 {

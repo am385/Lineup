@@ -378,15 +378,28 @@ public class ActiveStreamServiceTests
     {
         // Arrange
         var registry = new ActiveStreamRegistry();
-        registry.Register(new ActiveStreamSnapshot("one", "2.1", HostedStreamFormat.MpegTs, DateTime.UtcNow, null, []), () => { });
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(20));
+        var stopRequested = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        registry.Register(new ActiveStreamSnapshot("one", "2.1", HostedStreamFormat.MpegTs, DateTime.UtcNow, null, []), () => stopRequested.TrySetResult());
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
 
         // Act
-        var exception = await Record.ExceptionAsync(() => registry.StopAllAsync(cancellation.Token));
+        var observed = Record.ExceptionAsync(() => registry.StopAllAsync(cancellation.Token)).AsTask();
+        try
+        {
+            await stopRequested.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            Assert.False(observed.IsCompleted);
+            cancellation.Cancel();
 
-        // Assert
-        Assert.IsAssignableFrom<OperationCanceledException>(exception);
-        Assert.Equal("one", Assert.Single(registry.GetActiveStreams()).SessionId);
+            // Assert
+            Assert.IsAssignableFrom<OperationCanceledException>(await observed.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+            Assert.Equal("one", Assert.Single(registry.GetActiveStreams()).SessionId);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await observed.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            await stopRequested.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
     }
 
     /// <summary>
@@ -398,17 +411,43 @@ public class ActiveStreamServiceTests
         // Arrange
         var registry = new ActiveStreamRegistry();
         using var releaseStop = new ManualResetEventSlim();
+        var stopEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopExited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         registry.Register(
             new ActiveStreamSnapshot("one", "2.1", HostedStreamFormat.Cmaf, DateTime.UtcNow, null, []),
-            () => releaseStop.Wait(TestContext.Current.CancellationToken));
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(20));
+            () =>
+            {
+                stopEntered.TrySetResult();
+                try
+                {
+                    releaseStop.Wait(TestContext.Current.CancellationToken);
+                }
+                finally
+                {
+                    stopExited.TrySetResult();
+                }
+            });
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
 
         // Act
-        var exception = await Record.ExceptionAsync(() => registry.StopAllAsync(cancellation.Token));
-        releaseStop.Set();
+        var observed = Record.ExceptionAsync(() => registry.StopAllAsync(cancellation.Token)).AsTask();
+        try
+        {
+            await stopEntered.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            Assert.False(observed.IsCompleted);
+            cancellation.Cancel();
 
-        // Assert
-        Assert.IsAssignableFrom<OperationCanceledException>(exception);
+            // Assert
+            Assert.IsAssignableFrom<OperationCanceledException>(await observed.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+            Assert.False(stopExited.Task.IsCompleted);
+        }
+        finally
+        {
+            releaseStop.Set();
+            cancellation.Cancel();
+            await observed.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            await stopExited.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
     }
 
     /// <summary>

@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Lineup.Core.Streaming;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -106,24 +105,10 @@ public sealed class MediaProbeServiceTests
     {
         var multiplexer = Substitute.For<ITunerStreamMultiplexer>();
         multiplexer.SubscribeAsync(Arg.Any<StreamAcquisitionDescriptor>(), Arg.Any<StreamAcquisitionFactory>(), Arg.Any<CancellationToken>()).Returns(_ => new MemoryStream());
-        var factory = Substitute.For<IMediaProcessFactory>();
-        factory.Start(Arg.Any<MediaProcessRequest>()).Returns(_ =>
+        return new MediaProbeService(NullLogger<MediaProbeService>.Instance, multiplexer, (_, _, cancellationToken) =>
         {
-            var configuration = new DirectoryInfo(AppContext.BaseDirectory).Name;
-            var executable = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "Lineup.TestSupport.FakeFFmpeg", configuration, "Lineup.TestSupport.FakeFFmpeg.dll"));
-            var start = new ProcessStartInfo("dotnet")
-            {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true
-            };
-            start.ArgumentList.Add(executable);
-            start.ArgumentList.Add("probe-json");
-            start.ArgumentList.Add(nextMetadata());
-            return Process.Start(start) ?? throw new InvalidOperationException("Unable to start the owned metadata probe.");
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(MediaProbeParser.Parse(nextMetadata()));
         });
-        return new MediaProbeService(NullLogger<MediaProbeService>.Instance, multiplexer, factory);
     }
 }

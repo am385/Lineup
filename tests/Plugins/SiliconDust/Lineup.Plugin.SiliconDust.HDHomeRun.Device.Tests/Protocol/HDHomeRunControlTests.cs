@@ -1,4 +1,5 @@
 using Lineup.Plugin.SiliconDust.HDHomeRun.Device.Protocol;
+using Lineup.TestSupport;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -64,16 +65,30 @@ public class HDHomeRunControlTests
     {
         // Arrange
         var request = CreateRequest();
+        var clock = new ControlledTimeProvider();
+        var timeout = TimeSpan.FromMilliseconds(30);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         using var stream = new HangingDuplexStream([]);
-        using var control = new HDHomeRunControl(stream, NullLogger<HDHomeRunControl>.Instance, TimeSpan.FromMilliseconds(30));
+        using var control = new HDHomeRunControl(stream, NullLogger<HDHomeRunControl>.Instance, timeout, timeProvider: clock);
 
         // Act
-        var exception = await Assert.ThrowsAsync<TimeoutException>(
-            () => control.SendAndReceiveAsync(request, TestContext.Current.CancellationToken));
+        var observed = Record.ExceptionAsync(() => control.SendAndReceiveAsync(request, cancellation.Token)).AsTask();
+        try
+        {
+            await stream.ReadBlocked.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            await clock.WaitForTimerAsync(timeout, TestContext.Current.CancellationToken);
+            clock.Advance(timeout);
+            var exception = await observed.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
 
-        // Assert
-        Assert.Contains("timed out", exception.Message);
-        Assert.True(stream.WasDisposed);
+            // Assert
+            Assert.Contains("timed out", Assert.IsType<TimeoutException>(exception).Message);
+            Assert.True(stream.WasDisposed);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await observed.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
     }
 
     /// <summary>
@@ -85,16 +100,31 @@ public class HDHomeRunControlTests
         // Arrange
         var request = CreateRequest();
         var response = CreateResponse("partial");
+        var clock = new ControlledTimeProvider();
+        var timeout = TimeSpan.FromMilliseconds(30);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         using var stream = new HangingDuplexStream(response[..6]);
-        using var control = new HDHomeRunControl(stream, NullLogger<HDHomeRunControl>.Instance, TimeSpan.FromMilliseconds(30));
+        using var control = new HDHomeRunControl(stream, NullLogger<HDHomeRunControl>.Instance, timeout, timeProvider: clock);
 
         // Act
-        await Assert.ThrowsAsync<TimeoutException>(
-            () => control.SendAndReceiveAsync(request, TestContext.Current.CancellationToken));
+        var observed = Record.ExceptionAsync(() => control.SendAndReceiveAsync(request, cancellation.Token)).AsTask();
+        try
+        {
+            await stream.ReadBlocked.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            Assert.Equal(6, stream.ReadCount);
+            await clock.WaitForTimerAsync(timeout, TestContext.Current.CancellationToken);
+            clock.Advance(timeout);
 
-        // Assert
-        Assert.True(stream.WasDisposed);
-        Assert.Equal(6, stream.ReadCount);
+            // Assert
+            Assert.IsType<TimeoutException>(await observed.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+            Assert.True(stream.WasDisposed);
+            Assert.Equal(6, stream.ReadCount);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await observed.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
     }
 
     /// <summary>
@@ -105,18 +135,29 @@ public class HDHomeRunControlTests
     {
         // Arrange
         var request = CreateRequest();
+        var clock = new ControlledTimeProvider();
         using var stream = new HangingDuplexStream([]);
-        using var control = new HDHomeRunControl(stream, NullLogger<HDHomeRunControl>.Instance, TimeSpan.FromSeconds(2));
+        using var control = new HDHomeRunControl(stream, NullLogger<HDHomeRunControl>.Instance, TimeSpan.FromSeconds(2), timeProvider: clock);
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-        cancellation.CancelAfter(TimeSpan.FromMilliseconds(30));
 
         // Act
-        var exception = await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => control.SendAndReceiveAsync(request, cancellation.Token));
+        var observed = Record.ExceptionAsync(() => control.SendAndReceiveAsync(request, cancellation.Token)).AsTask();
+        try
+        {
+            await stream.ReadBlocked.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            Assert.False(observed.IsCompleted);
+            cancellation.Cancel();
 
-        // Assert
-        Assert.IsNotType<TimeoutException>(exception);
-        Assert.True(cancellation.IsCancellationRequested);
+            // Assert
+            Assert.IsAssignableFrom<OperationCanceledException>(await observed.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+            Assert.True(cancellation.IsCancellationRequested);
+            Assert.True(stream.WasDisposed);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await observed.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
     }
 
     /// <summary>
@@ -127,28 +168,38 @@ public class HDHomeRunControlTests
     {
         // Arrange
         var request = CreateRequest();
+        var clock = new ControlledTimeProvider();
+        var timeout = TimeSpan.FromMilliseconds(30);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         var connectionStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        Task<Stream> ConnectAsync(CancellationToken cancellationToken)
+        async Task<Stream> ConnectAsync(CancellationToken cancellationToken)
         {
             connectionStarted.TrySetResult();
-            return Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken)
-                .ContinueWith<Stream>(
-                    _ => throw new InvalidOperationException(),
-                    cancellationToken,
-                    TaskContinuationOptions.ExecuteSynchronously,
-                    TaskScheduler.Default);
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException("The stalled connection unexpectedly completed.");
         }
 
-        using var control = new HDHomeRunControl(ConnectAsync, NullLogger<HDHomeRunControl>.Instance, TimeSpan.FromMilliseconds(30));
+        using var control = new HDHomeRunControl(ConnectAsync, NullLogger<HDHomeRunControl>.Instance, timeout, clock);
 
         // Act
-        var exchange = control.SendAndReceiveAsync(request, TestContext.Current.CancellationToken);
-        await connectionStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
-        var exception = await Assert.ThrowsAsync<TimeoutException>(() => exchange);
+        var observed = Record.ExceptionAsync(() => control.SendAndReceiveAsync(request, cancellation.Token)).AsTask();
+        try
+        {
+            await connectionStarted.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            await clock.WaitForTimerAsync(timeout, TestContext.Current.CancellationToken);
+            await clock.WaitForTimerAsync(timeout, TestContext.Current.CancellationToken);
+            clock.Advance(timeout);
+            var exception = await observed.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
 
-        // Assert
-        Assert.Contains("timed out", exception.Message);
-        Assert.False(control.IsConnected);
+            // Assert
+            Assert.Contains("timed out", Assert.IsType<TimeoutException>(exception).Message);
+            Assert.False(control.IsConnected);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await observed.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
     }
 
     /// <summary>
@@ -497,6 +548,9 @@ public class HDHomeRunControlTests
     {
         private int _position;
 
+        /// <summary>Gets the signal that all supplied bytes were consumed and reading is blocked.</summary>
+        public TaskCompletionSource ReadBlocked { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public bool WasDisposed { get; private set; }
 
         public int ReadCount => _position;
@@ -523,6 +577,7 @@ public class HDHomeRunControlTests
                 return 1;
             }
 
+            ReadBlocked.TrySetResult();
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             return 0;
         }

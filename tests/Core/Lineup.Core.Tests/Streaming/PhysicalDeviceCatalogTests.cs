@@ -221,29 +221,43 @@ public sealed class PhysicalDeviceCatalogTests
         var configuration = new StreamingConfiguration { PhysicalDevices = [retained, changed] };
         await catalog.ApplyAsync(configuration, cancellation.Token);
         var original = catalog.Devices.Cast<FakePhysicalDevice>().ToArray();
-        driver.BeforeCreate = (name, token) =>
+        var activationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        driver.BeforeCreate = async (name, token) =>
         {
             if (name == "Cancel")
             {
-                cancellation.Cancel();
-                token.ThrowIfCancellationRequested();
+                activationEntered.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, token);
             }
         };
 
         // Act
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => catalog.ApplyAsync(configuration with
+        var applying = catalog.ApplyAsync(configuration with
         {
             PhysicalDevices = [retained, changed with
             {
                 Name = "Replacement",
                 Adapter = new AdapterConfiguration(FakePhysicalDriver.DriverKind, JsonSerializer.SerializeToElement(new { address = "replacement" }))
             }, CreateDefinition(PhysicalDeviceId.New(), "Cancel", 2, true)]
-        }, cancellation.Token));
+        }, cancellation.Token);
+        var observed = Record.ExceptionAsync(() => applying).AsTask();
+        try
+        {
+            await activationEntered.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            Assert.False(applying.IsCompleted);
+            cancellation.Cancel();
 
-        // Assert
-        Assert.Equal(original, catalog.Devices);
-        Assert.All(original, device => Assert.False(device.IsDisposed));
-        Assert.True(Assert.Single(driver.Created, device => device.Snapshot.Name == "Replacement").IsDisposed);
+            // Assert
+            Assert.IsAssignableFrom<OperationCanceledException>(await observed.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+            Assert.Equal(original, catalog.Devices);
+            Assert.All(original, device => Assert.False(device.IsDisposed));
+            Assert.True(Assert.Single(driver.Created, device => device.Snapshot.Name == "Replacement").IsDisposed);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await observed.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
     }
 
     /// <summary>Verifies removing or disabling a definition disposes only that runtime and updates the published configuration identity.</summary>
@@ -297,7 +311,7 @@ public sealed class PhysicalDeviceCatalogTests
         public bool FailActivation { get; set; } = true;
 
         /// <summary>Gets or sets an activation hook for deterministic cancellation.</summary>
-        public Action<string, CancellationToken>? BeforeCreate { get; set; }
+        public Func<string, CancellationToken, Task>? BeforeCreate { get; set; }
 
         /// <summary>Gets owned fake runtime instances for rollback checks.</summary>
         public System.Collections.Concurrent.ConcurrentQueue<FakePhysicalDevice> Created { get; } = new();
@@ -315,26 +329,29 @@ public sealed class PhysicalDeviceCatalogTests
 
         public IReadOnlyList<string> Validate(AdapterConfiguration configuration) => [];
 
-        public ValueTask<IPhysicalTunerDevice> CreateAsync(
+        public async ValueTask<IPhysicalTunerDevice> CreateAsync(
             PhysicalDeviceId deviceId,
             string name,
             AdapterConfiguration configuration,
             CancellationToken cancellationToken = default)
         {
             Interlocked.Increment(ref _createCount);
-            BeforeCreate?.Invoke(name, cancellationToken);
+            if (BeforeCreate is { } beforeCreate)
+            {
+                await beforeCreate(name, cancellationToken);
+            }
             if (name is not ("Unauthorized" or "HttpTimeout") && (name != "Fail" || !FailActivation))
             {
                 var device = new FakePhysicalDevice(deviceId, name);
                 Created.Enqueue(device);
-                return ValueTask.FromResult<IPhysicalTunerDevice>(device);
+                return device;
             }
             return name switch
             {
-                "Fail" => ValueTask.FromException<IPhysicalTunerDevice>(new IOException("Unavailable")),
-                "Unauthorized" => ValueTask.FromException<IPhysicalTunerDevice>(new UnauthorizedAccessException("Rejected")),
-                "HttpTimeout" => ValueTask.FromException<IPhysicalTunerDevice>(new HttpRequestException("Remote control request timed out.", new TaskCanceledException())),
-                _ => ValueTask.FromResult<IPhysicalTunerDevice>(new FakePhysicalDevice(deviceId, name))
+                "Fail" => throw new IOException("Unavailable"),
+                "Unauthorized" => throw new UnauthorizedAccessException("Rejected"),
+                "HttpTimeout" => throw new HttpRequestException("Remote control request timed out.", new TaskCanceledException()),
+                _ => new FakePhysicalDevice(deviceId, name)
             };
         }
     }

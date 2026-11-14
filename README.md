@@ -766,6 +766,7 @@ owned process. Delayed registration, renewal or health status from an older gene
 Management-hosted Watch Test startup owns its encoder and transient files until the manifests, fragments, and codec metadata are ready and its viewer is registered. Cancellation, readiness timeout, encoder exit, and startup errors terminate the encoder and remove its files even before registration. Successful presentations remain available until their viewer stops or expires.
 
 Both management-hosted and dedicated shared Watch startup own readiness and their bounded deadline at the producer, not at the initiating HTTP request.
+Management-hosted request and producer deadlines use the injected clock while retaining independent cancellation lifetimes.
 Canceling or stopping one pending viewer releases only that viewer; remaining viewers still receive the ready presentation or the producer's terminal failure.
 Dedicated startup preserves a known producer failure when cleanup cancels its viewers, retaining the specific process-failure or timeout response; explicit request cancellation remains cancellation.
 Releasing the final viewer cancels pending work and cleans its encoder, input, and files when keep-warm is zero. Dedicated host-initiated stops are

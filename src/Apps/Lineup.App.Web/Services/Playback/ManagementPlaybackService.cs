@@ -1367,7 +1367,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
 
     private Task StartCmafErrorMonitor(Process process, CmafSession session, ConcurrentQueue<string> errors, bool parseSourceMetadata, long outputVideoBitRate)
     {
-        process.Exited += (_, _) =>
+        process.Exited += (_, _) => _preflightTasks.Track(Task.Run(() =>
         {
             try
             {
@@ -1377,7 +1377,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
             {
                 _logger.LogError(exception, "Unable to release exited management playback producer {SessionId}", session.SessionId);
             }
-        };
+        }), _logger, "exited producer cleanup");
         process.EnableRaisingEvents = true;
         return Task.Run(async () =>
         {
@@ -1639,8 +1639,8 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
             }
             try
             {
-                using var startupCancellation = CancellationTokenSource.CreateLinkedTokenSource(LifetimeToken);
-                startupCancellation.CancelAfter(timeout);
+                using var startupDeadline = new CancellationTokenSource(timeout, owner._timeProvider);
+                using var startupCancellation = CancellationTokenSource.CreateLinkedTokenSource(LifetimeToken, startupDeadline.Token);
                 var result = await start(startupCancellation.Token);
                 if (result.Failure is null)
                 {

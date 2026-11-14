@@ -42,7 +42,7 @@ public static class CoreServiceExtensions
         services.AddSingleton<IStreamingSessionGraph>(provider => new StreamingSessionGraph(
             provider.GetRequiredService<IPhysicalCapacityLeaseRegistry>(),
             provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<StreamingSessionGraph>>(),
-            TimeProvider.System,
+            provider.GetService<TimeProvider>() ?? TimeProvider.System,
             provider.GetRequiredService<PhysicalDeviceRuntimeState>(),
             provider.GetRequiredService<StreamingResourceOptions>(),
             provider.GetRequiredService<Lineup.Core.Common.Streaming.IMediaWorkAdmission>()));

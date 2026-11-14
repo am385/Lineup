@@ -363,11 +363,24 @@ public sealed class HDHomeRunPhysicalTunerDriverTests
         var deviceId = PhysicalDeviceId.New();
         var device = await driver.CreateAsync(deviceId, "Office", Configuration("device"), TestContext.Current.CancellationToken);
         var request = new PhysicalStreamRequest { ChannelId = new SourceChannelId(deviceId, "5.1") };
-        var firstLease = await device.OpenStreamAsync(request, TestContext.Current.CancellationToken);
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+        await using var firstLease = await device.OpenStreamAsync(request, TestContext.Current.CancellationToken);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
 
         // Act
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await device.OpenStreamAsync(request, cancellation.Token));
+        var waiting = device.OpenStreamAsync(request, cancellation.Token).AsTask();
+        var observed = Record.ExceptionAsync(async () => await waiting).AsTask();
+        try
+        {
+            Assert.False(waiting.IsCompleted);
+            Assert.Equal(1, streamRequestCount);
+            cancellation.Cancel();
+            Assert.IsAssignableFrom<OperationCanceledException>(await observed.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await observed.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
         await firstLease.DisposeAsync();
         await using var replacementLease = await device.OpenStreamAsync(request, TestContext.Current.CancellationToken);
 
@@ -464,19 +477,32 @@ public sealed class HDHomeRunPhysicalTunerDriverTests
     public async Task CreateAsync_PreservesDiscoveryCancellation()
     {
         // Arrange
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var driver = CreateDriver(async (_, cancellationToken) =>
         {
+            started.TrySetResult();
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             throw new InvalidOperationException("The canceled request unexpectedly completed.");
         });
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
 
         // Act
-        var exception = await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            async () => await driver.CreateAsync(PhysicalDeviceId.New(), "Canceled", Configuration("device"), cancellation.Token));
+        var observed = Record.ExceptionAsync(async () => await driver.CreateAsync(PhysicalDeviceId.New(), "Canceled", Configuration("device"), cancellation.Token)).AsTask();
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            Assert.False(observed.IsCompleted);
+            cancellation.Cancel();
 
-        // Assert
-        Assert.Equal(cancellation.Token, exception.CancellationToken);
+            // Assert
+            var exception = Assert.IsAssignableFrom<OperationCanceledException>(await observed.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+            Assert.Equal(cancellation.Token, exception.CancellationToken);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await observed.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
     }
 
     /// <summary>

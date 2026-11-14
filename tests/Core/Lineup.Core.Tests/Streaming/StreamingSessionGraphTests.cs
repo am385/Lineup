@@ -905,11 +905,16 @@ public sealed class StreamingSessionGraphTests
     }
 
     /// <summary>Verifies one caller can use provisional metadata while a shared refresh continues for a later caller.</summary>
-    [Fact]
-    public async Task GetOrRefreshAcquisitionMetadataAsync_RefreshWaitExpires_ReturnsProvisionalAndRetainsRefresh()
+    /// <param name="retryMilliseconds">The controlled delay before refreshing provisional metadata.</param>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(100)]
+    public async Task GetOrRefreshAcquisitionMetadataAsync_RefreshWaitExpires_ReturnsProvisionalAndRetainsRefresh(int retryMilliseconds)
     {
         // Arrange
-        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var clock = new ControlledTimeProvider();
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance, clock);
         var source = new ControlledSourceStream();
         var descriptor = CreateDescriptor(PhysicalDeviceId.New(), "7.1", capacity: 1);
         await using var continuity = await graph.AcquireAsync(
@@ -918,6 +923,7 @@ public sealed class StreamingSessionGraphTests
             TestContext.Current.CancellationToken);
         var starts = 0;
         var refreshStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var refreshCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseRefresh = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         async Task<int> CreateMetadata(Stream stream, CancellationToken cancellationToken)
         {
@@ -926,7 +932,14 @@ public sealed class StreamingSessionGraphTests
             if (attempt == 2)
             {
                 refreshStarted.SetResult();
-                await releaseRefresh.Task.WaitAsync(cancellationToken);
+                try
+                {
+                    await releaseRefresh.Task.WaitAsync(cancellationToken);
+                }
+                finally
+                {
+                    refreshCompleted.TrySetResult();
+                }
             }
             return attempt == 1 ? 0 : 1;
         }
@@ -934,7 +947,7 @@ public sealed class StreamingSessionGraphTests
         {
             IsReusable = metadata => metadata > 0,
             Merge = Math.Max,
-            RetryDelay = TimeSpan.Zero,
+            RetryDelay = TimeSpan.FromMilliseconds(retryMilliseconds),
             OperationTimeout = TimeSpan.FromSeconds(5),
             RefreshWaitTimeout = TimeSpan.FromMilliseconds(50)
         };
@@ -946,22 +959,45 @@ public sealed class StreamingSessionGraphTests
             "probe",
             CreateMetadata,
             policy,
-            TestContext.Current.CancellationToken);
-        await refreshStarted.Task.WaitAsync(TestContext.Current.CancellationToken);
-        var first = await firstTask;
-        releaseRefresh.SetResult();
-        var second = await graph.GetOrRefreshAcquisitionMetadataAsync(
-            descriptor,
-            _ => throw new InvalidOperationException(),
-            "probe",
-            CreateMetadata,
-            policy,
-            TestContext.Current.CancellationToken);
+            cancellation.Token);
+        var observed = Record.ExceptionAsync(async () => await firstTask).AsTask();
+        try
+        {
+            if (retryMilliseconds > 0)
+            {
+                await clock.WaitForTimerAsync(policy.RetryDelay, TestContext.Current.CancellationToken);
+                Assert.False(refreshStarted.Task.IsCompleted);
+                clock.Advance(policy.RetryDelay);
+            }
+            await refreshStarted.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            await clock.WaitForTimerAsync(policy.RefreshWaitTimeout, TestContext.Current.CancellationToken);
+            clock.Advance(policy.RefreshWaitTimeout);
+            var first = await firstTask.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            Assert.False(refreshCompleted.Task.IsCompleted);
+            releaseRefresh.TrySetResult();
+            var second = await graph.GetOrRefreshAcquisitionMetadataAsync(
+                descriptor,
+                _ => throw new InvalidOperationException(),
+                "probe",
+                CreateMetadata,
+                policy,
+                TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
 
-        // Assert
-        Assert.Equal(0, first);
-        Assert.Equal(1, second);
-        Assert.Equal(2, starts);
+            // Assert
+            Assert.Equal(0, first);
+            Assert.Equal(1, second);
+            Assert.Equal(2, starts);
+        }
+        finally
+        {
+            releaseRefresh.TrySetResult();
+            cancellation.Cancel();
+            await observed.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            if (refreshStarted.Task.IsCompleted)
+            {
+                await refreshCompleted.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            }
+        }
     }
 
     /// <summary>Verifies a shared metadata operation cannot outlive its independent operation budget.</summary>
@@ -969,7 +1005,8 @@ public sealed class StreamingSessionGraphTests
     public async Task GetOrRefreshAcquisitionMetadataAsync_OperationTimeout_CancelsAndEvictsMetadata()
     {
         // Arrange
-        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance);
+        var clock = new ControlledTimeProvider();
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance, clock);
         var source = new ControlledSourceStream();
         var descriptor = CreateDescriptor(PhysicalDeviceId.New(), "7.1", capacity: 1);
         await using var continuity = await graph.AcquireAsync(
@@ -980,8 +1017,10 @@ public sealed class StreamingSessionGraphTests
         async Task<int> CreateMetadata(Stream stream, CancellationToken cancellationToken)
         {
             _ = stream;
-            Interlocked.Increment(ref starts);
-            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            if (Interlocked.Increment(ref starts) == 1)
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
             return 1;
         }
         var policy = new AcquisitionMetadataRefreshPolicy<int>
@@ -1008,10 +1047,30 @@ public sealed class StreamingSessionGraphTests
             policy,
             TestContext.Current.CancellationToken);
 
-        // Assert
-        await Assert.ThrowsAsync<TimeoutException>(() => first);
-        await Assert.ThrowsAsync<TimeoutException>(() => second);
-        Assert.Equal(1, starts);
+        try
+        {
+            await clock.WaitForTimerAsync(policy.OperationTimeout, TestContext.Current.CancellationToken);
+            Assert.False(first.IsCompleted);
+            Assert.False(second.IsCompleted);
+            clock.Advance(policy.OperationTimeout);
+
+            // Assert
+            await Assert.ThrowsAsync<TimeoutException>(() => first.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+            await Assert.ThrowsAsync<TimeoutException>(() => second.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+            Assert.Equal(1, starts);
+            var replacement = await graph.GetOrRefreshAcquisitionMetadataAsync(
+                descriptor, _ => throw new InvalidOperationException(), "probe", CreateMetadata, policy, TestContext.Current.CancellationToken);
+            Assert.Equal(1, replacement);
+            Assert.Equal(2, starts);
+        }
+        finally
+        {
+            clock.Advance(policy.OperationTimeout);
+            await Assert.ThrowsAsync<TimeoutException>(() => first.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+            await Assert.ThrowsAsync<TimeoutException>(() => second.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+            Assert.True(first.IsCompleted);
+            Assert.True(second.IsCompleted);
+        }
     }
 
     /// <summary>

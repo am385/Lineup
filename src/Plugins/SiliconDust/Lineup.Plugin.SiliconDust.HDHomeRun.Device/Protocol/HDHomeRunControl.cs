@@ -19,6 +19,7 @@ public class HDHomeRunControl : IDisposable
     private readonly SemaphoreSlim _connectLock = new(1, 1);
     private readonly SemaphoreSlim _requestLock = new(1, 1);
     private readonly TimeSpan _exchangeTimeout;
+    private readonly TimeProvider _timeProvider = TimeProvider.System;
     private readonly Func<CancellationToken, Task<Stream>>? _connectAsync;
     private readonly Func<uint> _createLockKey;
     private TcpClient? _tcpClient;
@@ -67,13 +68,15 @@ public class HDHomeRunControl : IDisposable
     /// <param name="logger">Logger instance.</param>
     /// <param name="exchangeTimeout">The timeout applied to each serialized exchange.</param>
     /// <param name="createLockKey">Optional lock-key generator.</param>
-    internal HDHomeRunControl(Stream stream, ILogger<HDHomeRunControl> logger, TimeSpan? exchangeTimeout = null, Func<uint>? createLockKey = null)
+    /// <param name="timeProvider">Optional clock for connection and exchange deadlines.</param>
+    internal HDHomeRunControl(Stream stream, ILogger<HDHomeRunControl> logger, TimeSpan? exchangeTimeout = null, Func<uint>? createLockKey = null, TimeProvider? timeProvider = null)
     {
         _logger = logger;
         _endpoint = new IPEndPoint(IPAddress.None, ControlPort);
         _stream = stream;
         _exchangeTimeout = exchangeTimeout ?? DefaultTimeout;
         _createLockKey = createLockKey ?? CreateRandomLockKey;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     /// <summary>
@@ -82,13 +85,15 @@ public class HDHomeRunControl : IDisposable
     /// <param name="connectAsync">The operation that establishes a duplex stream.</param>
     /// <param name="logger">Logger instance.</param>
     /// <param name="exchangeTimeout">The timeout applied to connection and exchange operations.</param>
-    internal HDHomeRunControl(Func<CancellationToken, Task<Stream>> connectAsync, ILogger<HDHomeRunControl> logger, TimeSpan? exchangeTimeout = null)
+    /// <param name="timeProvider">Optional clock for connection and exchange deadlines.</param>
+    internal HDHomeRunControl(Func<CancellationToken, Task<Stream>> connectAsync, ILogger<HDHomeRunControl> logger, TimeSpan? exchangeTimeout = null, TimeProvider? timeProvider = null)
     {
         _logger = logger;
         _endpoint = new IPEndPoint(IPAddress.None, ControlPort);
         _connectAsync = connectAsync;
         _exchangeTimeout = exchangeTimeout ?? DefaultTimeout;
         _createLockKey = CreateRandomLockKey;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     /// <summary>
@@ -98,8 +103,8 @@ public class HDHomeRunControl : IDisposable
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
 
-        using var connectionCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        connectionCancellation.CancelAfter(_exchangeTimeout);
+        using var connectionDeadline = new CancellationTokenSource(_exchangeTimeout, _timeProvider);
+        using var connectionCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, connectionDeadline.Token);
         var connectionToken = connectionCancellation.Token;
         var lockTaken = false;
 
@@ -409,8 +414,8 @@ public class HDHomeRunControl : IDisposable
         try
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-            using var exchangeCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            exchangeCancellation.CancelAfter(_exchangeTimeout);
+            using var exchangeDeadline = new CancellationTokenSource(_exchangeTimeout, _timeProvider);
+            using var exchangeCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, exchangeDeadline.Token);
             var exchangeToken = exchangeCancellation.Token;
 
             try

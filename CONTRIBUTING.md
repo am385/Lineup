@@ -126,6 +126,8 @@ The app starts on `http://localhost:8080`.
 - When testing an in-flight operation, retain the `ClickAsync` task, assert the pending state, release any controlled dependency, and await the task before disposing the component.
 - Pass the shared `LineupWebBunitContext.WaitTimeout` explicitly to bUnit waits instead of mutating the process-wide `DefaultWaitTimeout`.
 - Use `ControlledTimeProvider` for elapsed-time behavior and wait for timer registration before advancing time. Use completion barriers or an operation's known pending state instead of sleeps to establish concurrency.
+- Do not use short real cancellation timers to establish test ordering. First prove the intended operation is blocked, then cancel explicitly or advance its injected clock. Keep request, producer, and maintenance deadlines on the intended clocks.
+- Do not let short worker leases bound real-process setup. Test crash/disconnect cleanup separately from precise lease expiration; use the same controlled clock for session authorization and maintenance sweeps in expiry tests.
 - Release controlled dependencies in `finally` and observe all owned work before teardown. Keep real-time watchdogs bounded, but do not use elapsed-time performance thresholds to prove lifecycle ordering.
 - Unobserved task calls (`CS4014`) and unawaited async assertions (`xUnit2021`) are errors in test code; retain and eventually await tasks intentionally started in flight.
 
