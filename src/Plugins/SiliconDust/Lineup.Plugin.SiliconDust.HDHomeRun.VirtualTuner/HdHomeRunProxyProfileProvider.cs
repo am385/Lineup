@@ -1,0 +1,83 @@
+using System.Globalization;
+using System.Text.Json;
+using Lineup.Core.Common.Streaming;
+using Lineup.Core.Extensibility.Streaming;
+
+namespace Lineup.Plugin.SiliconDust.HDHomeRun.VirtualTuner;
+
+/// <summary>Adapts current application settings to virtual HDHomeRun runtime profiles.</summary>
+public sealed class HdHomeRunProxyProfileProvider : IHdHomeRunProxyProfileProvider
+{
+    private readonly Func<IReadOnlyList<VirtualDeviceDefinition>> _virtualDevices;
+    private readonly IPhysicalDeviceResolver _physicalDevices;
+    private readonly HdHomeRunVirtualTunerDriver _driver;
+
+    /// <summary>Initializes the profile provider.</summary>
+    public HdHomeRunProxyProfileProvider(Func<IReadOnlyList<VirtualDeviceDefinition>> virtualDevices, IPhysicalDeviceResolver physicalDevices, HdHomeRunVirtualTunerDriver driver)
+    {
+        _virtualDevices = virtualDevices;
+        _physicalDevices = physicalDevices;
+        _driver = driver;
+    }
+
+    /// <summary>Gets profiles asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
+    public Task<IReadOnlyList<HdHomeRunProxyProfileSnapshot>> GetProfilesAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var enabled = GetEnabledDevices();
+        IReadOnlyList<HdHomeRunProxyProfileSnapshot> profiles = enabled
+            .Select(device => CreateSnapshot(device, OwnsRootRoutes(device, enabled)))
+            .ToArray();
+        return Task.FromResult(profiles);
+    }
+
+    /// <summary>Gets primary profile asynchronously.</summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
+    public Task<HdHomeRunProxyProfileSnapshot?> GetPrimaryProfileAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var device = GetEnabledDevices().FirstOrDefault();
+        return Task.FromResult(device is null ? null : CreateSnapshot(device, true));
+    }
+
+    /// <summary>Executes find profile asynchronously.</summary>
+    /// <param name="virtualDeviceId">The virtual device ID value.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation's result.</returns>
+    public Task<HdHomeRunProxyProfileSnapshot?> FindProfileAsync(string virtualDeviceId, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var enabled = GetEnabledDevices();
+        var device = enabled.FirstOrDefault(candidate =>
+            _driver.GetDeviceId(candidate).Equals(virtualDeviceId, StringComparison.OrdinalIgnoreCase));
+        return Task.FromResult(device is null ? null : CreateSnapshot(device, OwnsRootRoutes(device, enabled)));
+    }
+
+    private static bool OwnsRootRoutes(VirtualDeviceDefinition device, IReadOnlyList<VirtualDeviceDefinition> enabled) =>
+        device.Hosting is not null || device == enabled.FirstOrDefault(candidate => candidate.Hosting is null);
+
+    private VirtualDeviceDefinition[] GetEnabledDevices() =>
+        _virtualDevices()
+            .Where(device => device.Enabled && string.Equals(device.Adapter.Kind, HdHomeRunVirtualTunerDriver.AdapterKind, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+    private HdHomeRunProxyProfileSnapshot CreateSnapshot(VirtualDeviceDefinition device, bool isPrimary)
+    {
+        var configuration = device.Adapter.Configuration.Deserialize<HdHomeRunVirtualTunerConfiguration>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+        var deviceId = _driver.GetDeviceId(device);
+        return new HdHomeRunProxyProfileSnapshot
+        {
+            VirtualDevice = device,
+            IsPrimary = isPrimary,
+            DeviceId = uint.Parse(deviceId, NumberStyles.HexNumber, CultureInfo.InvariantCulture),
+            DeviceAuth = HdHomeRunProxyIdentity.CreateDeviceAuth(device.Id.Value.ToString("N")),
+            TunerCount = _driver.GetTunerCount(device, _physicalDevices.Devices.Select(physical => physical.Snapshot)),
+            TunerCountCap = configuration.TunerCountCap,
+            FriendlyName = device.Name,
+            AdvertisedBaseUrl = configuration.AdvertisedBaseUrl
+        };
+    }
+}

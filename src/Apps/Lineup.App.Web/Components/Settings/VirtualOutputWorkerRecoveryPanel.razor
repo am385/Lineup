@@ -1,0 +1,43 @@
+@if (_recovery is not null && (_snapshot is not null || _rejected))
+{
+    <section class="card worker-recovery" data-device-id="@VirtualDeviceId">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">@Text["Settings_WorkerRecoveryHeading"]</h5>
+            <button type="button" class="btn btn-sm btn-outline-secondary refresh-worker-status" disabled="@_busy" @onclick="Refresh">
+                @Text["Common_Refresh"]
+            </button>
+        </div>
+        <div class="card-body">
+            <p class="small text-body-secondary">@Text["Settings_WorkerRecoveryHelp"]</p>
+            @if (_rejected)
+            {
+                <div class="alert alert-warning worker-recovery-result" role="alert">@Text["Settings_WorkerRetryRejected"]</div>
+            }
+            else if (_accepted && _snapshot?.State != VirtualOutputRuntimeState.Failed)
+            {
+                <div class="alert alert-info worker-recovery-result" role="status">@Text["Settings_WorkerRetryAccepted"]</div>
+            }
+            @if (_snapshot?.State == VirtualOutputRuntimeState.Failed)
+            {
+                <div class="alert alert-danger worker-failure" role="alert">
+                    @Text["Settings_WorkerRetryFailed"]
+                    <div>@_snapshot.LastFailure</div>
+                </div>
+                <button type="button" class="btn btn-outline-primary retry-worker" disabled="@_busy" @onclick="RetryAsync">
+                    <span class="bi bi-arrow-clockwise me-1"></span>@Text[_busy ? "Settings_WorkerRetrying" : "Settings_WorkerRetry"]
+                </button>
+            }
+            else if (_snapshot is not null)
+            {
+                <p class="worker-readiness" role="status">@Text[_snapshot.State == VirtualOutputRuntimeState.Healthy ? "Settings_WorkerReady" : "Settings_WorkerWaiting"]</p>
+            }
+            @if (!string.IsNullOrWhiteSpace(_snapshot?.PreviousFailure))
+            {
+                <details class="worker-previous-failure mt-3">
+                    <summary>@Text["Settings_WorkerPreviousFailure"]</summary>
+                    <p class="small mb-0">@_snapshot.PreviousFailure</p>
+                </details>
+            }
+        </div>
+    </section>
+}

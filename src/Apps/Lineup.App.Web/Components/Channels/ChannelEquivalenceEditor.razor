@@ -1,0 +1,270 @@
+@inject IStreamingAdapterRegistry Adapters
+@inject ILogger<ChannelEquivalenceEditor> Logger
+
+<div class="modal show d-block" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="channel-group-title" style="background-color: rgba(0,0,0,0.5);">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content channel-equivalence-editor">
+            <div class="modal-header">
+                <h5 class="modal-title" id="channel-group-title">@Text["Channels_ManageGroup"]: @Anchor.EffectiveNumber · @Anchor.EffectiveName</h5>
+                <button type="button" class="btn-close" aria-label="@Text["Common_Close"]" disabled="@Saving" @onclick="() => CloseRequested.InvokeAsync()"></button>
+            </div>
+            <div class="modal-body">
+                <p>@Text["Channels_GroupHelp"]</p>
+                <p class="text-body-secondary">@Text["Channels_GroupPolicy"]</p>
+                @if (!_remove)
+                {
+                    <fieldset disabled="@Saving">
+                        @foreach (var channel in Candidates)
+                        {
+                            var existing = IsExistingMember(channel);
+                            var otherGroup = channel.EquivalenceGroupId.HasValue && !existing;
+                            <label class="d-block mb-2 group-candidate" data-provider-key="@channel.Source.Id.ProviderKey">
+                                <input type="checkbox" class="form-check-input me-2 group-source"
+                                       checked="@_selected.Contains(channel.Source.Id)" disabled="@(existing || otherGroup || channel.Source.Id == Anchor.Source.Id)"
+                                       @onchange="args => Select(channel.Source.Id, args.Value is true)" />
+                                @channel.EffectiveNumber · @GetSourceLabel(channel.Source.Id)
+                                @if (!IsEnabled(channel))
+                                {
+                                    <span class="badge text-bg-secondary">@Text["Common_Disabled"]</span>
+                                }
+                                @if (otherGroup)
+                                {
+                                    <span class="text-body-secondary">@Text["Channels_GroupAlready"]</span>
+                                }
+                            </label>
+                        }
+                    </fieldset>
+                }
+                else
+                {
+                    <p class="fw-semibold">@Text["Channels_GroupRemove"]: @GetSourceLabel(Anchor.Source.Id)</p>
+                }
+                @foreach (var preview in _previews)
+                {
+                    <section class="border rounded p-3 mb-3 group-output-preview" data-output-name="@preview.Name">
+                        <h6>@preview.Name</h6>
+                        @if (preview.Error is not null)
+                        {
+                            <div class="alert alert-danger" role="alert">@Text["Common_ErrorProcessingRequest"] @preview.Error</div>
+                        }
+                        else
+                        {
+                            <div class="row">
+                                @foreach (var state in new[] { (Label: Text["Channels_GroupCurrent"].Value, Resolution: preview.Current!), (Label: Text["Channels_GroupProposed"].Value, Resolution: preview.Proposed!) })
+                                {
+                                    var channel = state.Resolution.Channels.SingleOrDefault(channel => channel.Number.Equals(Anchor.EffectiveNumber, StringComparison.OrdinalIgnoreCase));
+                                    var conflicts = state.Resolution.Conflicts.Where(conflict => conflict.Number.Equals(Anchor.EffectiveNumber, StringComparison.OrdinalIgnoreCase)).ToArray();
+                                    <div class="col-md-6 group-projection">
+                                        <strong>@state.Label</strong>
+                                        @if (channel is null)
+                                        {
+                                            <p>@Text["Channels_GroupUnavailable"]</p>
+                                        }
+                                        else
+                                        {
+                                            <div>@channel.Number · @channel.Name</div>
+                                            <ol class="group-source-priority">
+                                                @foreach (var source in channel.Sources)
+                                                {
+                                                    <li>@GetSourceLabel(source)</li>
+                                                }
+                                            </ol>
+                                            <div>@Text["Channels_AuthoritativeGuideColumn"]: @GetGuideLabel(channel.Sources)</div>
+                                            @if (ProtectedContentMetadata.IsProtected(channel.Metadata))
+                                            {
+                                                <span class="badge text-bg-danger">@Text["Channels_DrmProtected"]</span>
+                                            }
+                                        }
+                                        <div class="group-conflict-count">@Text["Channels_GroupConflicts", conflicts.Length]</div>
+                                        @foreach (var conflict in conflicts)
+                                        {
+                                            <div class="text-warning">@GetSourceLabel(conflict.ConflictingSource)</div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </section>
+                }
+                @if (Configuration.GuideOutputs.Any(output => output.Enabled))
+                {
+                    <p>@Text["Channels_GroupPublications", string.Join(", ", Configuration.GuideOutputs.Where(output => output.Enabled).Select(output => output.Name))]</p>
+                }
+                <label class="d-block">
+                    <input type="checkbox" class="form-check-input me-2 confirm-channel-content" disabled="@Saving" @bind="_confirmed" />
+                    @Text[_remove ? "Channels_GroupRemoveConfirm" : "Channels_GroupConfirm"]
+                </label>
+            </div>
+            <div class="modal-footer">
+                @if (Anchor.EquivalenceGroupId.HasValue)
+                {
+                    <button class="btn btn-outline-danger change-group-mode me-auto" disabled="@Saving" @onclick="ToggleRemoval">
+                        @Text[_remove ? "Channels_ManageGroup" : "Channels_GroupRemove"]
+                    </button>
+                }
+                <button class="btn btn-secondary" disabled="@Saving" @onclick="() => CloseRequested.InvokeAsync()">@Text["Common_Cancel"]</button>
+                <button class="btn btn-primary save-channel-group" disabled="@(!CanSave)" @onclick="Save">
+                    @Text[_remove ? "Channels_GroupRemove" : "Channels_GroupAction"]
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>Gets or sets the saved source whose same-channel group is being edited.</summary>
+    [Parameter, EditorRequired]
+    public PhysicalChannelIdentity Anchor { get; set; } = default!;
+
+    /// <summary>Gets or sets the saved topology captured for this preview.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<PhysicalChannelIdentity> Channels { get; set; } = [];
+
+    /// <summary>Gets or sets the saved guide choices captured for this preview.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyDictionary<SourceChannelId, SourceGuideBindingState> GuideBindings { get; set; } = new Dictionary<SourceChannelId, SourceGuideBindingState>();
+
+    /// <summary>Gets or sets the immutable configuration used for subscription and priority previews.</summary>
+    [Parameter, EditorRequired]
+    public StreamingConfiguration Configuration { get; set; } = default!;
+
+    /// <summary>Gets or sets whether a confirmed change is being saved and published.</summary>
+    [Parameter]
+    public bool Saving { get; set; }
+
+    /// <summary>Gets or sets the callback for confirmed grouping or additions.</summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<SourceChannelId>> GroupRequested { get; set; }
+
+    /// <summary>Gets or sets the callback for confirmed removal.</summary>
+    [Parameter]
+    public EventCallback<SourceChannelId> RemoveRequested { get; set; }
+
+    /// <summary>Gets or sets the close callback.</summary>
+    [Parameter]
+    public EventCallback CloseRequested { get; set; }
+
+    private readonly HashSet<SourceChannelId> _selected = [];
+    private readonly Guid _previewGroup = Guid.NewGuid();
+    private readonly List<OutputPreview> _previews = [];
+    private bool _confirmed;
+    private bool _remove;
+
+    private IEnumerable<PhysicalChannelIdentity> Candidates => Channels
+        .Where(channel => IsExistingMember(channel) || channel.EffectiveNumber.Equals(Anchor.EffectiveNumber, StringComparison.OrdinalIgnoreCase))
+        .OrderBy(channel => Configuration.PhysicalDevices.SingleOrDefault(device => device.Id == channel.Source.Id.PhysicalDeviceId)?.Order ?? int.MaxValue)
+        .ThenBy(channel => channel.Source.Id.PhysicalDeviceId.Value)
+        .ThenBy(channel => channel.Source.Id.ProviderKey, StringComparer.Ordinal);
+
+    private bool CanSave => !Saving && _confirmed && _previews.All(preview => preview.Error is null) &&
+        (_remove ? Anchor.EquivalenceGroupId.HasValue : _selected.Count >= 2 && _selected.Count > Channels.Count(IsExistingMember) &&
+            Channels.Where(channel => _selected.Contains(channel.Source.Id)).All(channel => channel.EffectiveNumber.Equals(Anchor.EffectiveNumber, StringComparison.OrdinalIgnoreCase)));
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        _selected.Add(Anchor.Source.Id);
+        foreach (var channel in Channels.Where(IsExistingMember))
+        {
+            _selected.Add(channel.Source.Id);
+        }
+        RebuildPreview();
+    }
+
+    private bool IsExistingMember(PhysicalChannelIdentity channel) =>
+        Anchor.EquivalenceGroupId.HasValue && channel.EquivalenceGroupId == Anchor.EquivalenceGroupId;
+
+    private bool IsEnabled(PhysicalChannelIdentity channel) =>
+        channel.IsEnabled && Configuration.PhysicalDevices.Any(device => device.Id == channel.Source.Id.PhysicalDeviceId && device.Enabled);
+
+    private void Select(SourceChannelId id, bool selected)
+    {
+        if (selected)
+        {
+            _selected.Add(id);
+        }
+        else
+        {
+            _selected.Remove(id);
+        }
+        _confirmed = false;
+        RebuildPreview();
+    }
+
+    private void ToggleRemoval()
+    {
+        _remove = !_remove;
+        _confirmed = false;
+        RebuildPreview();
+    }
+
+    private async Task Save()
+    {
+        if (CanSave)
+        {
+            if (_remove)
+            {
+                await RemoveRequested.InvokeAsync(Anchor.Source.Id);
+            }
+            else
+            {
+                await GroupRequested.InvokeAsync(_selected.ToArray());
+            }
+        }
+    }
+
+    private void RebuildPreview()
+    {
+        var proposed = Channels.Select(channel =>
+            _remove
+                ? channel.Source.Id == Anchor.Source.Id ? channel with { EquivalenceGroupId = null } : channel
+                : _selected.Contains(channel.Source.Id) ? channel with { EquivalenceGroupId = Anchor.EquivalenceGroupId ?? _previewGroup } : channel).ToArray();
+        _previews.Clear();
+        var union = new VirtualDeviceDefinition
+        {
+            Id = new VirtualDeviceId(Guid.Empty),
+            Name = Text["Channels_GroupGlobalGuide"],
+            Adapter = new AdapterConfiguration("preview-union", default)
+        };
+        _previews.Add(BuildPreview(union, Configuration.PhysicalDevices, proposed));
+        foreach (var output in Configuration.VirtualDevices.Where(output => output.Enabled))
+        {
+            try
+            {
+                var physical = VirtualDeviceSubscriptionResolver.Resolve(output, Configuration.PhysicalDevices, Adapters.GetVirtual(output.Adapter.Kind));
+                _previews.Add(BuildPreview(output, physical, proposed));
+            }
+            catch (InvalidOperationException exception)
+            {
+                Logger.LogWarning(exception, "Unable to preview same-channel sources for output {OutputId}", output.Id);
+                _previews.Add(new OutputPreview(output.Name, null, null, exception.Message));
+            }
+        }
+    }
+
+    private OutputPreview BuildPreview(VirtualDeviceDefinition output, IReadOnlyList<PhysicalDeviceDefinition> physical, IReadOnlyList<PhysicalChannelIdentity> proposed) =>
+        new(output.Name, ChannelTopologyResolver.Resolve(output, physical, Channels), ChannelTopologyResolver.Resolve(output, physical, proposed), null);
+
+    private string GetSourceLabel(SourceChannelId source)
+    {
+        var channel = Channels.Single(channel => channel.Source.Id == source);
+        var device = Configuration.PhysicalDevices.SingleOrDefault(device => device.Id == source.PhysicalDeviceId);
+        return $"{device?.Name ?? source.PhysicalDeviceId.ToString()} · {channel.Source.ProviderNumber} · {channel.Source.ProviderName} ({source.ProviderKey})";
+    }
+
+    private string GetGuideLabel(IReadOnlyList<SourceChannelId> sources)
+    {
+        foreach (var source in sources)
+        {
+            if (GuideBindings.TryGetValue(source, out var binding) && binding.State is GuideBindingState.Automatic or GuideBindingState.Manual &&
+                binding.SelectedGuideChannel is { } guide)
+            {
+                var name = Configuration.GuideSources.SingleOrDefault(candidate => candidate.Id == guide.Id.GuideSourceId)?.Name;
+                return $"{name} · {guide.Number} · {guide.Name}";
+            }
+        }
+        return Text["Channels_GuideStateUnavailable"];
+    }
+
+    private sealed record OutputPreview(string Name, VirtualChannelResolution? Current, VirtualChannelResolution? Proposed, string? Error);
+}

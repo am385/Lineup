@@ -31,3 +31,7 @@ csharp_style_prefer_primary_constructors = false
 
 # IDE0305: Do not require collection expression syntax.
 dotnet_diagnostic.IDE0305.severity = none
+
+[tests/**/*.cs]
+dotnet_diagnostic.CS4014.severity = error
+dotnet_diagnostic.xUnit2021.severity = error

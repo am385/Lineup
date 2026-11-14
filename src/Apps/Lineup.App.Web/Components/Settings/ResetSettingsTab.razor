@@ -1,0 +1,63 @@
+<div id="resetSettingsTab" class="@CssClass" role="tabpanel" aria-labelledby="tab-reset">
+    <ResetSettingsPanel IsRestarting="IsRestarting"
+                        ShowFactoryResetConfirmation="ShowFactoryResetConfirmation"
+                        FactoryResetConfirmed="FactoryResetConfirmed"
+                        FactoryResetConfirmedChanged="FactoryResetConfirmedChanged"
+                        IsFactoryResetting="IsFactoryResetting"
+                        CanFactoryReset="CanFactoryReset"
+                        ResetDefaultsRequested="ResetDefaultsRequested"
+                        RestartRequested="RestartRequested"
+                        ShowFactoryResetRequested="ShowFactoryResetRequested"
+                        FactoryResetRequested="FactoryResetRequested"
+                        CancelFactoryResetRequested="CancelFactoryResetRequested" />
+</div>
+
+@code {
+    /// <summary>Gets or sets the tab visibility class.</summary>
+    [Parameter]
+    public string CssClass { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets whether Lineup is restarting.</summary>
+    [Parameter]
+    public bool IsRestarting { get; set; }
+
+    /// <summary>Gets or sets whether reset confirmation is visible.</summary>
+    [Parameter]
+    public bool ShowFactoryResetConfirmation { get; set; }
+
+    /// <summary>Gets or sets whether the user confirmed the factory reset.</summary>
+    [Parameter]
+    public bool FactoryResetConfirmed { get; set; }
+
+    /// <summary>Gets or sets the factory-reset confirmation callback.</summary>
+    [Parameter]
+    public EventCallback<bool> FactoryResetConfirmedChanged { get; set; }
+
+    /// <summary>Gets or sets whether factory reset is active.</summary>
+    [Parameter]
+    public bool IsFactoryResetting { get; set; }
+
+    /// <summary>Gets or sets whether factory reset can be confirmed.</summary>
+    [Parameter]
+    public bool CanFactoryReset { get; set; }
+
+    /// <summary>Gets or sets the reset-defaults callback.</summary>
+    [Parameter]
+    public EventCallback ResetDefaultsRequested { get; set; }
+
+    /// <summary>Gets or sets the restart callback.</summary>
+    [Parameter]
+    public EventCallback RestartRequested { get; set; }
+
+    /// <summary>Gets or sets the show-confirmation callback.</summary>
+    [Parameter]
+    public EventCallback ShowFactoryResetRequested { get; set; }
+
+    /// <summary>Gets or sets the factory-reset callback.</summary>
+    [Parameter]
+    public EventCallback FactoryResetRequested { get; set; }
+
+    /// <summary>Gets or sets the cancel-confirmation callback.</summary>
+    [Parameter]
+    public EventCallback CancelFactoryResetRequested { get; set; }
+}

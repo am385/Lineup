@@ -1,0 +1,148 @@
+.streaming-flow-scroll {
+    overflow-x: auto;
+    padding-bottom: .5rem;
+}
+
+.streaming-flow-lanes {
+    display: grid;
+    grid-template-columns: minmax(10rem, 1fr) 2rem minmax(10rem, 1fr) 2rem minmax(10rem, 1fr) 2rem minmax(10rem, 1fr) 2rem minmax(10rem, 1fr) 2rem minmax(12rem, 1fr);
+    min-width: 76rem;
+    align-items: stretch;
+}
+
+.streaming-flow-lane {
+    border: 1px solid var(--bs-border-color);
+    border-radius: .5rem;
+    background: var(--bs-tertiary-bg);
+    padding: .75rem;
+}
+
+.streaming-flow-lane h6 {
+    min-height: 2.25rem;
+    margin-bottom: .75rem;
+    color: var(--bs-secondary-color);
+    text-align: center;
+}
+
+.streaming-flow-node-list {
+    display: grid;
+    gap: .65rem;
+}
+
+.streaming-flow-node {
+    display: grid;
+    gap: .3rem;
+    width: 100%;
+    border: 2px solid var(--bs-border-color);
+    border-radius: .5rem;
+    background: var(--bs-body-bg);
+    color: var(--bs-body-color);
+    padding: .65rem;
+    text-align: left;
+    transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+
+.streaming-flow-node:hover,
+.streaming-flow-node:focus-visible {
+    border-color: var(--bs-primary);
+    box-shadow: 0 0 0 .2rem rgb(var(--bs-primary-rgb) / .18);
+}
+
+.streaming-flow-node:active {
+    transform: translateY(1px);
+}
+
+.streaming-flow-node-title {
+    font-weight: 600;
+}
+
+.streaming-flow-node-subtitle {
+    color: var(--bs-secondary-color);
+    font-size: .8rem;
+    overflow-wrap: anywhere;
+}
+
+.streaming-flow-channel-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .25rem;
+}
+
+.streaming-flow-node.state-active {
+    border-color: var(--bs-primary);
+}
+
+.streaming-flow-node.state-transcoding {
+    border-color: var(--bs-info);
+}
+
+.streaming-flow-node.state-shared {
+    border-color: var(--bs-success);
+}
+
+.streaming-flow-node.state-warm {
+    border-color: var(--bs-warning);
+}
+
+.streaming-flow-node.state-unavailable {
+    border-color: var(--bs-danger);
+}
+
+.streaming-flow-node.state-disabled {
+    opacity: .65;
+}
+
+.streaming-flow-node.selected {
+    box-shadow: 0 0 0 .15rem var(--bs-body-bg), 0 0 0 .35rem var(--bs-emphasis-color);
+    transform: translateY(-1px);
+}
+
+.streaming-flow-arrow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--bs-secondary-color);
+    font-size: 1.25rem;
+}
+
+.streaming-flow-lane-empty {
+    color: var(--bs-secondary-color);
+    font-size: .85rem;
+    text-align: center;
+}
+
+.streaming-flow-state-dot {
+    display: inline-block;
+    width: .65rem;
+    height: .65rem;
+    margin-right: .35rem;
+    border-radius: 50%;
+    background: var(--bs-secondary);
+}
+
+.streaming-flow-state-dot.state-active {
+    background: var(--bs-primary);
+}
+
+.streaming-flow-state-dot.state-transcoding {
+    background: var(--bs-info);
+}
+
+.streaming-flow-state-dot.state-shared {
+    background: var(--bs-success);
+}
+
+.streaming-flow-state-dot.state-warm {
+    background: var(--bs-warning);
+}
+
+.streaming-flow-state-dot.state-unavailable {
+    background: var(--bs-danger);
+}
+
+.streaming-flow-details {
+    border: 1px solid var(--bs-border-color);
+    border-radius: .5rem;
+    background: var(--bs-tertiary-bg);
+    padding: 1rem;
+}

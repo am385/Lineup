@@ -7,6 +7,7 @@ Thank you for considering contributing to Lineup! This document provides guideli
 ### Prerequisites
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download) (version pinned in `global.json`)
+- [Node.js 24 LTS](https://nodejs.org/) for dependency-free browser regression tests
 - An HDHomeRun device on your local network (for integration testing)
 - Git
 
@@ -22,16 +23,55 @@ dotnet restore
 dotnet build
 ```
 
+All project build outputs and intermediate files are centralized beneath the repository-level `out` directory.
+Web builds also restore hash-pinned browser dependencies into `out/browser-assets`, reusing verified cached files offline.
+An empty or corrupt cache requires network access. The .NET-only restore tool and `build/browser-assets.json` are checked in;
+downloaded libraries, fonts, licenses, and notices are not. Standard publishing includes these assets for offline playback.
+Browser-asset targets must evaluate with both `dotnet` MSBuild and Visual Studio's .NET Framework MSBuild; use
+MSBuild's cross-runtime path helpers rather than framework-specific overloads. Project-load evaluation does not download assets.
+Cached content must register its physical content root so development/F5 serves the same files as publishing.
+Browser-asset regressions exercise original and fingerprinted asset URLs over HTTP in both Debug and Release development hosts.
+
 ### Running Tests
 
 ```bash
 dotnet test
 ```
 
+The browser subtitle poller's deterministic JavaScript regressions use Node.js's built-in test runner, with no npm dependencies:
+
+```powershell
+node --test tests\Apps\Lineup.App.Web.Tests\Browser\subtitle-polling.test.cjs
+node --test tests\Apps\Lineup.App.Web.Tests\Browser\shutdown.test.cjs
+```
+
+Run these tests when changing incremental caption delivery. They execute the production player script with controlled responses and timers;
+they do not launch a browser or require tuner hardware. The dedicated worker's CORS response-header regressions also run in the normal .NET gate.
+The shutdown regressions exercise owned stop routing, repeated-stop HTTP 404 handling, explicit HTTP/network failures,
+player destruction failures and isolation from replacement players.
+
+Ordinary CI and development/release publishing share `.github/workflows/validate.yml`. Both Linux and Windows run the full Release build/test gate,
+the browser regressions, formatting verification, and installed-worker smoke tests. The smoke tests use the hash-verified worker packages installed
+by the Web host build, exercising Web Player startup/captions/stop and shared HDHomeRun/Lineup Link admission and crash recovery without physical hardware.
+Publishing waits for both platforms to pass.
+
+The streaming-sweep harness is checked in as an opt-in hardware certification test:
+
+```bash
+dotnet run --project tests/Integration/Lineup.Integration.Streaming.Sweep/Lineup.Integration.Streaming.Sweep.csproj -c Release -- verify-outcome-reporting
+```
+
+It is intentionally excluded from the solution and CI/CD because the full sweep requires exclusive access to physical tuner hardware. See [`tests/Integration/Lineup.Integration.Streaming.Sweep/README.md`](tests/Integration/Lineup.Integration.Streaming.Sweep/README.md).
+The separate `Lineup.Integration.Streaming.Sweep.Tests` xunit project participates in the normal solution gate and
+exercises only deterministic policies, persistence, ownership and reports; it never launches the live harness.
+
+Packaging regressions run in `Lineup.Tools.VirtualOutputWorkerPackager.Tests` as part of the solution gate. They use the installed SDK to publish tiny owned temporary projects and verify shared inventory, manifests, cache repair and real MSBuild publish/opt-out behavior without hardware.
+For installed Windows or Linux worker validation, set `LINEUP_TEST_WORKER_PACKAGE_ROOT` to a package tree before running `HdHomeRunWorkerProcessTests` or the `Worker_*` cases in `WebPlayerWorkerProcessTests`. These fixtures resolve hash-verified packaged workers instead of test-output assemblies and exercise local authenticated IPC, loopback HTTP and deterministic media cleanup. Explicit worker paths used by host-build tests take precedence. Leave the variable unset for ordinary source tests.
+
 ### Running the Web App
 
 ```bash
-cd src/Lineup.Web
+cd src/Apps/Lineup.App.Web
 dotnet run
 ```
 
@@ -80,6 +120,16 @@ The app starts on `http://localhost:8080`.
 - Every test must contain explicit `// Arrange`, `// Act`, and `// Assert` sections.
 - Test the requested outcome directly, including meaningful failure and edge cases.
 - Keep tests deterministic and independent of execution order.
+- The Web UI's `Dashboard_RemainingDurationFormat` and `Dashboard_ChannelGapDurationFormat` resources are executable .NET `TimeSpan` formats, not ordinary translated text. Preserve `d`, `h`, and `m` numeric tokens and quote literal units, for example `h' hrs 'm' min'`. `UiLocalizationTests` exercises both formats with zero, hourly, and multi-day durations in every supported culture.
+- Own bUnit contexts with `await using` so component cleanup finishes before scoped services are disposed. The shared `LineupWebBunitContext` also surfaces renderer disposal failures.
+- In bUnit tests, await `ClickAsync(new())`, `ChangeAsync(...)`, and other async event dispatch when the handler performs asynchronous work before asserting completion. Use synchronous dispatch only for synchronous handlers.
+- When testing an in-flight operation, retain the `ClickAsync` task, assert the pending state, release any controlled dependency, and await the task before disposing the component.
+- Pass the shared `LineupWebBunitContext.WaitTimeout` explicitly to bUnit waits instead of mutating the process-wide `DefaultWaitTimeout`.
+- Use `ControlledTimeProvider` for elapsed-time behavior and wait for timer registration before advancing time. Use completion barriers or an operation's known pending state instead of sleeps to establish concurrency.
+- Do not use short real cancellation timers to establish test ordering. First prove the intended operation is blocked, then cancel explicitly or advance its injected clock. Keep request, producer, and maintenance deadlines on the intended clocks.
+- Do not let short worker leases bound real-process setup. Test crash/disconnect cleanup separately from precise lease expiration; use the same controlled clock for session authorization and maintenance sweeps in expiry tests.
+- Release controlled dependencies in `finally` and observe all owned work before teardown. Keep real-time watchdogs bounded, but do not use elapsed-time performance thresholds to prove lifecycle ordering.
+- Unobserved task calls (`CS4014`) and unawaited async assertions (`xUnit2021`) are errors in test code; retain and eventually await tasks intentionally started in flight.
 
 #### Formatting
 
@@ -118,6 +168,7 @@ Run the smallest relevant tests while developing. Before submitting any code cha
 ```powershell
 dotnet build Lineup.slnx -c Release --no-restore
 dotnet test Lineup.slnx -c Release --no-build --no-restore
+node --test tests\Apps\Lineup.App.Web.Tests\Browser\subtitle-polling.test.cjs tests\Apps\Lineup.App.Web.Tests\Browser\shutdown.test.cjs
 dotnet format Lineup.slnx --verify-no-changes --no-restore
 git diff --check
 ```
@@ -132,13 +183,58 @@ Restore dependencies first only when they are missing or dependency manifests ch
 
 ## Project Structure
 
+Production and test projects are grouped by dependency role:
+
+- `src/Apps` — executable Web and TUI hosts.
+- `src/Core` — the dependency-free shared model, stable plugin API, and provider-neutral application and streaming foundations.
+- `src/Plugins` — independently composable adapters and their support libraries, grouped by provider or product family (`SiliconDust`, `LineupLink`, and `WebPlayer`).
+- `tests` — a hierarchy that mirrors the production project roles.
+
+Project directories, `.csproj` filenames, root namespaces, and assembly names must agree. Use `Lineup.App.*` for application hosts, `Lineup.Core` or `Lineup.Core.*` for foundations, and `Lineup.Plugin.*` for plugin families and their support libraries.
+Use `Lineup.Integration.*` for integration harnesses, `Lineup.TestSupport.*` for test helpers, and `Lineup.Tools.*` for build tools. Automated test projects use their subject project's name followed by `.Tests`, with the same root namespace.
+
+`Lineup.Core.Common` has no project or package dependencies and contains only shared data types. `Lineup.Core.Extensibility` references only `Lineup.Core.Common` and contains plugin/runtime interfaces, portable diagnostics and boundary validation. Production plugin projects may reference it, the provider-neutral `Lineup.Core.Streaming.FFmpeg` foundation when media processing is required, and designated support libraries in the same provider family, but must not reference `Lineup.Core`.
+Provider family folders are organizational only; every adapter and support library remains an independently referenced assembly. Support libraries may not depend on adapters or projects from another plugin family.
+
+Architecture tests check direct production dependencies and transitive paths from portable libraries and worker executables to trusted host implementations.
+`Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryRuntime` is a trusted host-side supervisor, not a portable worker, and may reference the trusted worker runtime.
+`Lineup.Core.Streaming.FFmpeg` contains portable process execution, media probing, metadata policies, and immutable-profile planners.
+Core graph leases, application settings, cached channel metadata, subtitle storage, and DI composition belong in
+`Lineup.Core.Hosting.Streaming`. Portable media libraries and worker executables must not depend transitively on Core, hosting, EF, or SQLite.
+There is no portable-media dependency exception.
+Common and Extensibility remain package-free, and portable projects may not add direct Entity Framework or SQLite implementation packages.
+
 | Project | Description |
 |---|---|
-| `Lineup.HDHomeRun.Device` | Local device communication — discovery, channel lineup, native binary protocol |
-| `Lineup.HDHomeRun.Api` | Remote API client — fetches EPG data from `api.hdhomerun.com` |
-| `Lineup.Core` | Core business logic — orchestration, XMLTV conversion, caching |
-| `Lineup.Web` | Blazor Server web app — dashboard, EPG viewer, settings, live TV |
-| `Lineup.Tui` | Terminal UI — interactive menu using Spectre.Console |
+| `Lineup.Core.Common` | Dependency-free identifiers, configuration records, normalized guide models, streaming DTOs, and serialized metadata types |
+| `Lineup.Core.Extensibility` | Plugin/runtime interfaces, portable diagnostics/validation, and narrow host capabilities built on `Lineup.Core.Common` |
+| `Lineup.Plugin.SiliconDust.HDHomeRun.Device` | Local device communication — discovery, channel lineup, native binary protocol |
+| `Lineup.Plugin.SiliconDust.HDHomeRun.Api` | Remote API client — fetches EPG data from `api.hdhomerun.com` |
+| `Lineup.Core` | Provider-neutral business logic — orchestration, topology, guides, and storage |
+| `Lineup.Core.Hosting` | Trusted topology/guide workers and graph, settings, storage, and FFmpeg application adapters |
+| `Lineup.Core.Streaming.FFmpeg` | Portable FFmpeg execution, FFprobe probing, media metadata, and immutable-profile planners |
+| `Lineup.Core.VirtualOutputs.Protocol` | Versioned local IPC contracts and framing shared by the trusted host and workers |
+| `Lineup.Core.VirtualOutputs.Hosting` | Worker-side bootstrap, broker client, and lease handling |
+| `Lineup.Core.VirtualOutputs.Runtime` | Trusted package validation, process supervision, IPC server, and capability broker |
+| `Lineup.Plugin.GuideOutputs.Json` | Public versioned JSON guide document and serialization/deserialization API |
+| `Lineup.Plugin.GuideOutputs.Json.Plugin` | JSON Guide Output driver, publisher adapter, settings, and host registration |
+| `Lineup.Plugin.GuideOutputs.Xmltv` | Public serializer for normalized Lineup guide snapshots to XMLTV |
+| `Lineup.Plugin.GuideOutputs.Xmltv.Plugin` | XMLTV Guide Output driver, global-output normalization, publisher adapter, and host registration |
+| `Lineup.Plugin.SiliconDust.HDHomeRun.PhysicalTuner` | Physical HDHomeRun plugin |
+| `Lineup.Plugin.SiliconDust.HDHomeRun.VirtualTuner` | Virtual HDHomeRun output plugin |
+| `Lineup.Plugin.SiliconDust.HDHomeRun.VirtualOutputHost` | Isolated virtual HDHomeRun listener executable |
+| `Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryRuntime` | Trusted shared-discovery snapshot reconciler |
+| `Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryHost` | Isolated shared UDP and SSDP discovery executable |
+| `Lineup.Plugin.WebPlayer` | Built-in Web Player contracts, compatibility policy, and shared output lifecycle |
+| `Lineup.Plugin.WebPlayer.FFmpeg` | FFmpeg CMAF planning, manifest processing, and browser compatibility-test generation |
+| `Lineup.Plugin.WebPlayer.VirtualOutputHost` | Isolated CMAF/HLS/DASH media executable |
+| `Lineup.Plugin.SiliconDust.GuideSource` | SiliconDust guide-source plugin |
+| `Lineup.Plugin.LineupLink` | Cohesive remote Lineup physical, virtual, guide, and protocol plugin |
+| `Lineup.Plugin.LineupLink.VirtualOutputHost` | Isolated Lineup Link listener executable |
+| `Lineup.App.Web` | Blazor Server web app — dashboard, EPG viewer, settings, live TV |
+| `Lineup.App.Tui` | Terminal UI — interactive menu using Spectre.Console |
+| `Lineup.Integration.Streaming.Sweep` | Opt-in six-matrix Docker/HDHomeRun and existing-instance streaming harness (not a solution test entry point) |
+| `Lineup.Integration.Streaming.Sweep.Tests` | Non-live deterministic sweep regression tests in the normal solution gate |
 
 ## License
 

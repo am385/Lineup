@@ -1,0 +1,134 @@
+<div id="appearanceSettings" class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0">@Text["General_AppearanceHeading"]</h5>
+    </div>
+    <div class="card-body">
+        <div class="mb-3">
+            <label class="form-label">@Text["General_ThemeLabel"]</label>
+            <div class="btn-group d-flex" role="group">
+                @foreach (var option in ThemeOptions)
+                {
+                    <input type="radio"
+                           class="btn-check"
+                           name="theme"
+                           id="@option.Id"
+                           value="@option.Value"
+                           checked="@(Theme == option.Value)"
+                           @onchange="() => SetThemeAsync(option.Value)" />
+                    <label class="btn btn-outline-secondary" for="@option.Id">
+                        <span class="bi @option.Icon me-1"></span>@option.Label
+                    </label>
+                }
+            </div>
+            <div class="form-text">@Text["General_ThemeHelp"]</div>
+        </div>
+    </div>
+</div>
+
+<div id="regionalSettings" class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0">@Text["General_RegionalHeading"]</h5>
+    </div>
+    <div class="card-body">
+        <div class="mb-3">
+            <label for="timeZone" class="form-label">@Text["General_TimeZoneLabel"]</label>
+            <select class="form-select" id="timeZone" value="@TimeZoneId" @onchange="ChangeTimeZoneAsync">
+                <option value="">@Text["General_SystemDefault"]</option>
+                @foreach (var timeZone in TimeZoneInfo.GetSystemTimeZones())
+                {
+                    <option value="@timeZone.Id">@timeZone.DisplayName</option>
+                }
+            </select>
+            <div class="form-text">
+                @Text["General_TimeZoneHelpPrefix"] <code>TZ</code> @Text["General_TimeZoneHelpSuffix"]
+                @Text["General_CurrentTimeZone"] <strong>@CurrentTimeZoneDisplayName</strong>
+            </div>
+        </div>
+        <div class="mb-3">
+            <label for="uiLanguage" class="form-label">@Text["General_LanguageLabel"]</label>
+            <select class="form-select" id="uiLanguage" value="@UiCulture" @onchange="ChangeUiCultureAsync">
+                @foreach (var culture in UiLocalization.SupportedCultures)
+                {
+                    <option value="@culture">@UiLocalization.GetNativeName(culture)</option>
+                }
+            </select>
+            <div class="form-text">@Text["General_LanguageHelp"]</div>
+        </div>
+    </div>
+</div>
+
+<div id="networkSettings" class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0">@Text["General_NetworkHeading"]</h5>
+    </div>
+    <div class="card-body">
+        <div class="mb-3">
+            <label for="knownProxies" class="form-label">@Text["General_KnownProxiesLabel"]</label>
+            <textarea id="knownProxies"
+                      class="form-control"
+                      rows="4"
+                      placeholder="@KnownProxiesPlaceholder"
+                      value="@KnownProxies"
+                      @onchange="ChangeKnownProxiesAsync"></textarea>
+            <div class="form-text">@Text["General_KnownProxiesHelp"]</div>
+        </div>
+        <div class="alert alert-info mb-0" role="note">
+            <span class="bi bi-info-circle me-1"></span>@Text["General_KnownProxiesRestartHelp"]
+        </div>
+    </div>
+</div>
+
+@code {
+    private const string KnownProxiesPlaceholder = "127.0.0.1\n172.18.0.0/16";
+
+    private (string Id, string Value, string Icon, string Label)[] ThemeOptions =>
+    [
+        ("themeLight", "light", "bi-sun-fill", Text["General_ThemeLight"]),
+        ("themeDark", "dark", "bi-moon-stars-fill", Text["General_ThemeDark"]),
+        ("themeAuto", "auto", "bi-circle-half", Text["General_ThemeAuto"])
+    ];
+
+    /// <summary>Gets or sets the selected theme.</summary>
+    [Parameter, EditorRequired]
+    public string Theme { get; set; } = "auto";
+
+    /// <summary>Gets or sets the callback raised when the selected theme changes.</summary>
+    [Parameter]
+    public EventCallback<string> ThemeChanged { get; set; }
+
+    /// <summary>Gets or sets the selected timezone identifier.</summary>
+    [Parameter]
+    public string? TimeZoneId { get; set; }
+
+    /// <summary>Gets or sets the callback raised when the timezone changes.</summary>
+    [Parameter]
+    public EventCallback<string?> TimeZoneIdChanged { get; set; }
+
+    /// <summary>Gets or sets the selected Web UI culture.</summary>
+    [Parameter, EditorRequired]
+    public string UiCulture { get; set; } = UiLocalization.DefaultCulture;
+
+    /// <summary>Gets or sets the callback raised when the Web UI culture changes.</summary>
+    [Parameter]
+    public EventCallback<string> UiCultureChanged { get; set; }
+
+    /// <summary>Gets or sets trusted management-listener proxy addresses and networks.</summary>
+    [Parameter]
+    public string KnownProxies { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the callback raised when trusted management proxies change.</summary>
+    [Parameter]
+    public EventCallback<string> KnownProxiesChanged { get; set; }
+
+    /// <summary>Gets or sets the current effective timezone display name.</summary>
+    [Parameter, EditorRequired]
+    public string CurrentTimeZoneDisplayName { get; set; } = string.Empty;
+
+    private Task SetThemeAsync(string theme) => ThemeChanged.InvokeAsync(theme);
+
+    private Task ChangeTimeZoneAsync(ChangeEventArgs args) => TimeZoneIdChanged.InvokeAsync(args.Value?.ToString());
+
+    private Task ChangeUiCultureAsync(ChangeEventArgs args) => UiCultureChanged.InvokeAsync(UiLocalization.Normalize(args.Value?.ToString()));
+
+    private Task ChangeKnownProxiesAsync(ChangeEventArgs args) => KnownProxiesChanged.InvokeAsync(args.Value?.ToString() ?? string.Empty);
+}

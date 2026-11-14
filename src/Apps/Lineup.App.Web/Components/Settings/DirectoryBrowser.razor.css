@@ -1,0 +1,8 @@
+.directory-list {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.xmltv-directory {
+    cursor: pointer;
+}

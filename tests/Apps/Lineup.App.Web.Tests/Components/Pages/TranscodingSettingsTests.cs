@@ -1,0 +1,47 @@
+using Bunit;
+using Lineup.App.Web.Components.Pages;
+using Microsoft.Extensions.DependencyInjection;
+using NSubstitute;
+using Xunit;
+
+namespace Lineup.App.Web.Tests.Components.Pages;
+
+/// <summary>
+/// Verifies transcoding settings behavior on the Settings page.
+/// </summary>
+public class TranscodingSettingsTests
+{
+    /// <summary>
+    /// Verifies the disabled-channel behavior defaults to an error and persists edits.
+    /// </summary>
+    [Fact]
+    public async Task Save_DisabledChannelMode_PersistsValue()
+    {
+        // Arrange
+        await using var context = new BunitContext();
+        var settings = new LineupSettings { IsSetupComplete = true };
+        var settingsService = Substitute.For<ILineupSettingsService>();
+        settingsService.Settings.Returns(settings);
+        settingsService.UpdateAsync(Arg.Any<Action<LineupSettings>>()).Returns(callInfo =>
+        {
+            callInfo.Arg<Action<LineupSettings>>()(settings);
+            return Task.CompletedTask;
+        });
+        var timeZoneService = Substitute.For<ITimeZoneService>();
+        timeZoneService.TimeZone.Returns(TimeZoneInfo.Utc);
+        context.Services.AddSingleton(settingsService);
+        context.Services.AddSingleton(timeZoneService);
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        var component = context.Render<Settings>();
+        await component.Find("#tab-streaming").ClickAsync(new());
+        var selector = component.Find("#disabledChannelMode");
+
+        // Act
+        await selector.ChangeAsync(DisabledChannelMode.StreamSlate.ToString());
+        await component.Find("button.btn-primary").ClickAsync(new());
+
+        // Assert
+        Assert.Equal(DisabledChannelMode.StreamSlate, settings.DisabledChannelMode);
+        await settingsService.Received(1).UpdateAsync(Arg.Any<Action<LineupSettings>>());
+    }
+}

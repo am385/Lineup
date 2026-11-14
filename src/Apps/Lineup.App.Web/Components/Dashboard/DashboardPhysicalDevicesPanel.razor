@@ -1,0 +1,123 @@
+<div class="card mb-4">
+    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div>
+            <h5 class="mb-0"><span class="bi bi-router me-1"></span>@Text["Dashboard_PhysicalDevicesHeading"]</h5>
+            <small class="text-muted">@Summary</small>
+        </div>
+        <div class="d-flex align-items-center ms-auto">
+            <button class="btn btn-sm btn-outline-primary" @onclick="() => RefreshRequested.InvokeAsync()" disabled="@IsRefreshing">
+                @if (IsRefreshing)
+                {
+                    <span class="spinner-border spinner-border-sm me-1"></span>
+                }
+                <span class="bi bi-arrow-clockwise me-1"></span>@Text["Common_Refresh"]
+            </button>
+            <button id="toggleDeviceSection" type="button" class="btn btn-sm btn-outline-secondary ms-2"
+                    aria-expanded="@(Expanded ? "true" : "false")" aria-controls="deviceSection"
+                    @onclick="() => ToggleRequested.InvokeAsync()">
+                <span class="@(Expanded ? "bi bi-chevron-up" : "bi bi-chevron-down")"></span>
+            </button>
+        </div>
+    </div>
+    <div id="deviceSection" class="card-body" hidden="@(!Expanded)">
+        @if (Devices.Count == 0)
+        {
+            <p class="text-muted mb-0">@Text["Dashboard_NoActivePhysicalDevices"]</p>
+        }
+        @foreach (var device in Devices)
+        {
+            var status = device.Status;
+            <div class="card mb-3 @(device.Error is null ? null : "border-danger")">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <strong>@device.Device.Name</strong>
+                    <span class="badge text-bg-secondary">@device.Device.Kind</span>
+                </div>
+                <div class="card-body">
+                    @if (device.Error is not null)
+                    {
+                        <div class="alert alert-danger">@device.Error</div>
+                    }
+                    <div class="row mb-3">
+                        @foreach (var detail in status?.Details ?? new Dictionary<string, string>())
+                        {
+                            <div class="col-md-4"><strong>@detail.Key:</strong> @detail.Value</div>
+                        }
+                    </div>
+                    @if (status?.Receivers.Count > 0)
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-sm mb-0">
+                                <thead><tr><th>@Text["Dashboard_ReceiverColumn"]</th><th>@Text["Common_Status"]</th><th>@Text["Common_Channel"]</th><th>@Text["Dashboard_SignalColumn"]</th><th>@Text["Dashboard_TargetColumn"]</th><th></th></tr></thead>
+                                <tbody>
+                                    @foreach (var receiver in status.Receivers)
+                                    {
+                                        var receiverKey = (device.Device.Id, receiver.Index);
+                                        <tr>
+                                            <td>@receiver.Index</td>
+                                            <td>@Text[receiver.IsStreaming ? "Dashboard_ReceiverStreaming" : receiver.IsActive ? "Dashboard_ReceiverTuned" : "Dashboard_ReceiverIdle"]</td>
+                                            <td>@(receiver.VirtualChannel ?? receiver.Channel ?? "-")</td>
+                                            <td>@(receiver.HasLock ? $"{receiver.SignalStrength ?? 0}%" : "-")</td>
+                                            <td><code>@(receiver.Target ?? "-")</code></td>
+                                            <td>
+                                                @if (device.SupportsReceiverControl && (receiver.IsStreaming || receiver.IsActive))
+                                                {
+                                                    <button class="btn btn-sm btn-outline-danger"
+                                                            disabled="@StoppingReceivers.Contains(receiverKey)"
+                                                            @onclick="() => StopReceiverRequested.InvokeAsync(receiverKey)">@Text["Common_Stop"]</button>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    @if (device.SupportsRestart)
+                    {
+                        <div class="d-flex justify-content-end mt-3">
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => RestartDeviceRequested.InvokeAsync(device.Device.Id)">@Text["Dashboard_RestartDevice"]</button>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>Gets or sets whether the panel is expanded.</summary>
+    [Parameter]
+    public bool Expanded { get; set; }
+
+    /// <summary>Gets or sets the panel summary.</summary>
+    [Parameter, EditorRequired]
+    public string Summary { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the physical-device statuses.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<PhysicalDeviceRuntimeStatus> Devices { get; set; } = [];
+
+    /// <summary>Gets or sets whether a refresh is in progress.</summary>
+    [Parameter]
+    public bool IsRefreshing { get; set; }
+
+    /// <summary>Gets or sets the receivers currently being stopped.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlySet<(PhysicalDeviceId DeviceId, int ReceiverIndex)> StoppingReceivers { get; set; } = new HashSet<(PhysicalDeviceId, int)>();
+
+    /// <summary>Gets or sets the refresh callback.</summary>
+    [Parameter]
+    public EventCallback RefreshRequested { get; set; }
+
+    /// <summary>Gets or sets the section toggle callback.</summary>
+    [Parameter]
+    public EventCallback ToggleRequested { get; set; }
+
+    /// <summary>Gets or sets the receiver stop callback.</summary>
+    [Parameter]
+    public EventCallback<(PhysicalDeviceId DeviceId, int ReceiverIndex)> StopReceiverRequested { get; set; }
+
+    /// <summary>Gets or sets the device restart callback.</summary>
+    [Parameter]
+    public EventCallback<PhysicalDeviceId> RestartDeviceRequested { get; set; }
+}

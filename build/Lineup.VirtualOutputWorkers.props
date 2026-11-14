@@ -1,0 +1,16 @@
+<Project>
+  <ItemGroup>
+    <_LineupBuiltInWorker Include="lineup-link" AdapterKind="lineup-link"
+                          ProjectPath="src/Plugins/LineupLink/Lineup.Plugin.LineupLink.VirtualOutputHost/Lineup.Plugin.LineupLink.VirtualOutputHost.csproj"
+                          AssemblyName="Lineup.Plugin.LineupLink.VirtualOutputHost" />
+    <_LineupBuiltInWorker Include="hdhomerun" AdapterKind="hdhomerun"
+                          ProjectPath="src/Plugins/SiliconDust/Lineup.Plugin.SiliconDust.HDHomeRun.VirtualOutputHost/Lineup.Plugin.SiliconDust.HDHomeRun.VirtualOutputHost.csproj"
+                          AssemblyName="Lineup.Plugin.SiliconDust.HDHomeRun.VirtualOutputHost" />
+    <_LineupBuiltInWorker Include="hdhomerun-discovery" AdapterKind="hdhomerun-discovery"
+                          ProjectPath="src/Plugins/SiliconDust/Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryHost/Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryHost.csproj"
+                          AssemblyName="Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryHost" />
+    <_LineupBuiltInWorker Include="web-player" AdapterKind="web-player"
+                          ProjectPath="src/Plugins/WebPlayer/Lineup.Plugin.WebPlayer.VirtualOutputHost/Lineup.Plugin.WebPlayer.VirtualOutputHost.csproj"
+                          AssemblyName="Lineup.Plugin.WebPlayer.VirtualOutputHost" />
+  </ItemGroup>
+</Project>

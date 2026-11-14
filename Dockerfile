@@ -8,19 +8,42 @@ ARG BUILD_VERSION=""
 
 # Copy project files first for better layer caching
 COPY Directory.Build.props ./
-COPY src/Lineup.HDHomeRun.Api/Lineup.HDHomeRun.Api.csproj src/Lineup.HDHomeRun.Api/
-COPY src/Lineup.HDHomeRun.Device/Lineup.HDHomeRun.Device.csproj src/Lineup.HDHomeRun.Device/
-COPY src/Lineup.Core/Lineup.Core.csproj src/Lineup.Core/
-COPY src/Lineup.Web/Lineup.Web.csproj src/Lineup.Web/
+COPY src/Core/Lineup.Core.Common/Lineup.Core.Common.csproj src/Core/Lineup.Core.Common/
+COPY src/Apps/Lineup.App.Web/Lineup.App.Web.csproj src/Apps/Lineup.App.Web/
+COPY src/Core/Lineup.Core.Extensibility/Lineup.Core.Extensibility.csproj src/Core/Lineup.Core.Extensibility/
+COPY src/Core/Lineup.Core/Lineup.Core.csproj src/Core/Lineup.Core/
+COPY src/Core/Lineup.Core.Hosting/Lineup.Core.Hosting.csproj src/Core/Lineup.Core.Hosting/
+COPY src/Core/Lineup.Core.Streaming.FFmpeg/Lineup.Core.Streaming.FFmpeg.csproj src/Core/Lineup.Core.Streaming.FFmpeg/
+COPY src/Core/Lineup.Core.VirtualOutputs.Protocol/Lineup.Core.VirtualOutputs.Protocol.csproj src/Core/Lineup.Core.VirtualOutputs.Protocol/
+COPY src/Core/Lineup.Core.VirtualOutputs.Hosting/Lineup.Core.VirtualOutputs.Hosting.csproj src/Core/Lineup.Core.VirtualOutputs.Hosting/
+COPY src/Core/Lineup.Core.VirtualOutputs.Runtime/Lineup.Core.VirtualOutputs.Runtime.csproj src/Core/Lineup.Core.VirtualOutputs.Runtime/
+COPY src/Plugins/GuideOutputs/Lineup.Plugin.GuideOutputs.Json/Lineup.Plugin.GuideOutputs.Json.csproj src/Plugins/GuideOutputs/Lineup.Plugin.GuideOutputs.Json/
+COPY src/Plugins/GuideOutputs/Lineup.Plugin.GuideOutputs.Json.Plugin/Lineup.Plugin.GuideOutputs.Json.Plugin.csproj src/Plugins/GuideOutputs/Lineup.Plugin.GuideOutputs.Json.Plugin/
+COPY src/Plugins/GuideOutputs/Lineup.Plugin.GuideOutputs.Xmltv/Lineup.Plugin.GuideOutputs.Xmltv.csproj src/Plugins/GuideOutputs/Lineup.Plugin.GuideOutputs.Xmltv/
+COPY src/Plugins/GuideOutputs/Lineup.Plugin.GuideOutputs.Xmltv.Plugin/Lineup.Plugin.GuideOutputs.Xmltv.Plugin.csproj src/Plugins/GuideOutputs/Lineup.Plugin.GuideOutputs.Xmltv.Plugin/
+COPY src/Plugins/SiliconDust/Lineup.Plugin.SiliconDust.HDHomeRun.Api/Lineup.Plugin.SiliconDust.HDHomeRun.Api.csproj src/Plugins/SiliconDust/Lineup.Plugin.SiliconDust.HDHomeRun.Api/
+COPY src/Plugins/SiliconDust/Lineup.Plugin.SiliconDust.HDHomeRun.Device/Lineup.Plugin.SiliconDust.HDHomeRun.Device.csproj src/Plugins/SiliconDust/Lineup.Plugin.SiliconDust.HDHomeRun.Device/
+COPY src/Plugins/SiliconDust/Lineup.Plugin.SiliconDust.GuideSource/Lineup.Plugin.SiliconDust.GuideSource.csproj src/Plugins/SiliconDust/Lineup.Plugin.SiliconDust.GuideSource/
+COPY src/Plugins/LineupLink/Lineup.Plugin.LineupLink/Lineup.Plugin.LineupLink.csproj src/Plugins/LineupLink/Lineup.Plugin.LineupLink/
+COPY src/Plugins/SiliconDust/Lineup.Plugin.SiliconDust.HDHomeRun.PhysicalTuner/Lineup.Plugin.SiliconDust.HDHomeRun.PhysicalTuner.csproj src/Plugins/SiliconDust/Lineup.Plugin.SiliconDust.HDHomeRun.PhysicalTuner/
+COPY src/Plugins/SiliconDust/Lineup.Plugin.SiliconDust.HDHomeRun.VirtualTuner/Lineup.Plugin.SiliconDust.HDHomeRun.VirtualTuner.csproj src/Plugins/SiliconDust/Lineup.Plugin.SiliconDust.HDHomeRun.VirtualTuner/
+COPY src/Plugins/SiliconDust/Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryRuntime/Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryRuntime.csproj src/Plugins/SiliconDust/Lineup.Plugin.SiliconDust.HDHomeRun.DiscoveryRuntime/
+COPY src/Plugins/WebPlayer/Lineup.Plugin.WebPlayer/Lineup.Plugin.WebPlayer.csproj src/Plugins/WebPlayer/Lineup.Plugin.WebPlayer/
+COPY src/Plugins/WebPlayer/Lineup.Plugin.WebPlayer.FFmpeg/Lineup.Plugin.WebPlayer.FFmpeg.csproj src/Plugins/WebPlayer/Lineup.Plugin.WebPlayer.FFmpeg/
 
 # Restore dependencies
-RUN dotnet restore src/Lineup.Web/Lineup.Web.csproj
+RUN dotnet restore src/Apps/Lineup.App.Web/Lineup.App.Web.csproj
+
+# Cache browser downloads independently of application source changes.
+COPY build/browser-assets.json ./build/browser-assets.json
+COPY scripts/Lineup.Tools.BrowserAssets/ ./scripts/Lineup.Tools.BrowserAssets/
+RUN dotnet run --project scripts/Lineup.Tools.BrowserAssets --configuration Release --no-launch-profile \
+    -p:SourceRevisionId="${GIT_HASH}" -- build/browser-assets.json out/browser-assets
 
 # Copy remaining source code
-COPY src/Lineup.HDHomeRun.Api/ src/Lineup.HDHomeRun.Api/
-COPY src/Lineup.HDHomeRun.Device/ src/Lineup.HDHomeRun.Device/
-COPY src/Lineup.Core/ src/Lineup.Core/
-COPY src/Lineup.Web/ src/Lineup.Web/
+COPY src/ ./src/
+COPY build/ ./build/
+COPY scripts/Lineup.Tools.VirtualOutputWorkerPackager/ ./scripts/Lineup.Tools.VirtualOutputWorkerPackager/
 
 # Publish the application
 # Note: Cannot use --no-restore here because the publish step needs to resolve
@@ -31,7 +54,7 @@ RUN set -eux; \
     if [ -n "${BUILD_VERSION}" ]; then \
         set -- "-p:Version=${BUILD_VERSION}" "-p:IncludeSourceRevisionInInformationalVersion=false"; \
     fi; \
-    dotnet publish src/Lineup.Web/Lineup.Web.csproj \
+    dotnet publish src/Apps/Lineup.App.Web/Lineup.App.Web.csproj \
         -c Release \
         -p:SourceRevisionId="${GIT_HASH}" \
         "$@" \
@@ -72,7 +95,7 @@ RUN test "$(readlink -f "$(command -v ffmpeg)")" = "/usr/lib/jellyfin-ffmpeg/ffm
     ffmpeg -hide_banner -h muxer=dash 2>&1 | grep -q 'hls_playlist'
 
 # Create directories for persistent data and transient stream artifacts
-RUN mkdir -p /appdata /xmltv /transient
+RUN mkdir -p /appdata /guide /transient
 
 COPY --from=build /app/publish .
 
@@ -88,9 +111,9 @@ ENV ASPNETCORE_ENVIRONMENT=Production
 # Do not use ASPNETCORE_HTTP_PORTS; configure Lineup__HttpPort instead.
 ENV ASPNETCORE_HTTP_PORTS=""
 ENV Lineup__AppDataPath=/appdata
-ENV Lineup__XmltvPath=/xmltv
+ENV Lineup__GuideOutputDir=/guide
 ENV Lineup__TransientPath=/transient
 ENV Lineup__HttpPort=8080
 ENV Lineup__HttpsPort=8443
 
-ENTRYPOINT ["dotnet", "Lineup.Web.dll"]
+ENTRYPOINT ["dotnet", "Lineup.App.Web.dll"]

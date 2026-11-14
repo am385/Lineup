@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Lineup.Core.VirtualOutputs.Runtime.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Lineup.Core.Common\Lineup.Core.Common.csproj" />
+    <ProjectReference Include="..\Lineup.Core\Lineup.Core.csproj" />
+    <ProjectReference Include="..\Lineup.Core.Hosting\Lineup.Core.Hosting.csproj" />
+    <ProjectReference Include="..\Lineup.Core.Extensibility\Lineup.Core.Extensibility.csproj" />
+    <ProjectReference Include="..\Lineup.Core.Streaming.FFmpeg\Lineup.Core.Streaming.FFmpeg.csproj" />
+    <ProjectReference Include="..\Lineup.Core.VirtualOutputs.Protocol\Lineup.Core.VirtualOutputs.Protocol.csproj" />
+  </ItemGroup>
+</Project>

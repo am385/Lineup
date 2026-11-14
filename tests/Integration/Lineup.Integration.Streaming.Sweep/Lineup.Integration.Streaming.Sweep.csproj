@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Playwright" Version="1.55.0" />
+    <ProjectReference Include="..\..\..\src\Core\Lineup.Core.Common\Lineup.Core.Common.csproj" />
+    <ProjectReference Include="..\..\..\src\Core\Lineup.Core\Lineup.Core.csproj" />
+    <ProjectReference Include="..\..\..\src\Plugins\LineupLink\Lineup.Plugin.LineupLink\Lineup.Plugin.LineupLink.csproj" />
+    <ProjectReference Include="..\..\..\src\Plugins\SiliconDust\Lineup.Plugin.SiliconDust.GuideSource\Lineup.Plugin.SiliconDust.GuideSource.csproj" />
+    <ProjectReference Include="..\..\..\src\Plugins\SiliconDust\Lineup.Plugin.SiliconDust.HDHomeRun.PhysicalTuner\Lineup.Plugin.SiliconDust.HDHomeRun.PhysicalTuner.csproj" />
+    <ProjectReference Include="..\..\..\src\Plugins\WebPlayer\Lineup.Plugin.WebPlayer\Lineup.Plugin.WebPlayer.csproj" />
+  </ItemGroup>
+</Project>

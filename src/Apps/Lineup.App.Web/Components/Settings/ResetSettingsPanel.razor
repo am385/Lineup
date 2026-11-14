@@ -1,0 +1,113 @@
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0"><span class="bi bi-sliders me-1"></span>@Text["Settings_ResetDefaultsHeading"]</h5>
+    </div>
+    <div class="card-body">
+        <p>@Text["Settings_ResetDefaultsDescription"]</p>
+        <button id="resetSettings" type="button" class="btn btn-outline-secondary" @onclick="() => ResetDefaultsRequested.InvokeAsync()">
+            <span class="bi bi-arrow-counterclockwise me-1"></span>@Text["Settings_ResetDefaultsButton"]
+        </button>
+    </div>
+</div>
+
+<div id="restartLineupCard" class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0"><span class="bi bi-arrow-repeat me-1"></span>@Text["Settings_RestartHeading"]</h5>
+    </div>
+    <div class="card-body">
+        <p>@Text["Settings_RestartDescription"]</p>
+        <button id="restartLineup" type="button" class="btn btn-outline-primary" @onclick="() => RestartRequested.InvokeAsync()" disabled="@IsRestarting">
+            <span class="bi bi-arrow-repeat me-1"></span>@Text["Settings_RestartButton"]
+        </button>
+    </div>
+</div>
+
+<div id="factoryResetCard" class="card border-danger mb-4">
+    <div class="card-header text-bg-danger">
+        <h5 class="mb-0"><span class="bi bi-exclamation-triangle me-1"></span>@Text["Settings_FactoryResetHeading"]</h5>
+    </div>
+    <div class="card-body">
+        <p>
+            @Text["Settings_FactoryResetDescription"]
+        </p>
+        @if (!ShowFactoryResetConfirmation)
+        {
+            <button id="showFactoryResetConfirmation" type="button" class="btn btn-outline-danger" @onclick="() => ShowFactoryResetRequested.InvokeAsync()">
+                <span class="bi bi-trash3 me-1"></span>@Text["Settings_FactoryResetButton"]
+            </button>
+        }
+        else
+        {
+            <div id="factoryResetConfirmation" class="alert alert-danger mb-0">
+                <div class="form-check mb-3">
+                    <input id="factoryResetConfirmationCheck" type="checkbox" class="form-check-input"
+                           checked="@FactoryResetConfirmed" @onchange="ChangeConfirmationAsync" disabled="@IsFactoryResetting" />
+                    <label for="factoryResetConfirmationCheck" class="form-check-label">
+                        @Text["Settings_FactoryResetConfirmationLabel"]
+                    </label>
+                </div>
+                <div class="d-flex gap-2">
+                    <button id="confirmFactoryReset" type="button" class="btn btn-danger" @onclick="() => FactoryResetRequested.InvokeAsync()"
+                            disabled="@(!CanFactoryReset || IsFactoryResetting)">
+                        @if (IsFactoryResetting)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        <span class="bi bi-trash3 me-1"></span>@Text["Settings_FactoryResetConfirmButton"]
+                    </button>
+                    <button id="cancelFactoryReset" type="button" class="btn btn-outline-secondary" @onclick="() => CancelFactoryResetRequested.InvokeAsync()"
+                            disabled="@IsFactoryResetting">@Text["Settings_CancelButton"]</button>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>Gets or sets whether Lineup is restarting.</summary>
+    [Parameter]
+    public bool IsRestarting { get; set; }
+
+    /// <summary>Gets or sets whether factory reset confirmation is visible.</summary>
+    [Parameter]
+    public bool ShowFactoryResetConfirmation { get; set; }
+
+    /// <summary>Gets or sets whether the user confirmed the factory reset.</summary>
+    [Parameter]
+    public bool FactoryResetConfirmed { get; set; }
+
+    /// <summary>Gets or sets the factory-reset confirmation callback.</summary>
+    [Parameter]
+    public EventCallback<bool> FactoryResetConfirmedChanged { get; set; }
+
+    /// <summary>Gets or sets whether a factory reset is in progress.</summary>
+    [Parameter]
+    public bool IsFactoryResetting { get; set; }
+
+    /// <summary>Gets or sets whether the factory reset can be confirmed.</summary>
+    [Parameter]
+    public bool CanFactoryReset { get; set; }
+
+    /// <summary>Gets or sets the reset-defaults callback.</summary>
+    [Parameter]
+    public EventCallback ResetDefaultsRequested { get; set; }
+
+    /// <summary>Gets or sets the restart callback.</summary>
+    [Parameter]
+    public EventCallback RestartRequested { get; set; }
+
+    /// <summary>Gets or sets the show-confirmation callback.</summary>
+    [Parameter]
+    public EventCallback ShowFactoryResetRequested { get; set; }
+
+    /// <summary>Gets or sets the factory reset callback.</summary>
+    [Parameter]
+    public EventCallback FactoryResetRequested { get; set; }
+
+    /// <summary>Gets or sets the cancel-confirmation callback.</summary>
+    [Parameter]
+    public EventCallback CancelFactoryResetRequested { get; set; }
+
+    private Task ChangeConfirmationAsync(ChangeEventArgs args) =>
+        FactoryResetConfirmedChanged.InvokeAsync(args.Value is true);
+}

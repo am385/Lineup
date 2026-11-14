@@ -1,0 +1,68 @@
+name: Validate Lineup
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Restore dependencies
+        run: dotnet restore Lineup.slnx
+
+      - name: Restore browser asset cache
+        uses: actions/cache@v4
+        with:
+          path: out/browser-assets
+          key: browser-assets-${{ runner.os }}-${{ hashFiles('build/browser-assets.json') }}
+
+      - name: Build
+        run: dotnet build Lineup.slnx -c Release --no-restore
+
+      - name: Run tests
+        run: dotnet test Lineup.slnx -c Release --no-build --no-restore
+
+      - name: Run browser regressions
+        run: |
+          node --test `
+            (Resolve-Path 'tests\Apps\Lineup.App.Web.Tests\Browser\subtitle-polling.test.cjs').Path `
+            (Resolve-Path 'tests\Apps\Lineup.App.Web.Tests\Browser\shutdown.test.cjs').Path
+
+      - name: Verify formatting
+        run: dotnet format Lineup.slnx --verify-no-changes --no-restore
+
+      - name: Verify patch whitespace
+        run: git diff --check
+
+      - name: Run installed-worker smoke tests
+        run: |
+          $env:LINEUP_TEST_WORKER_PACKAGE_ROOT = (Resolve-Path 'out\bin\Lineup.App.Web\release\virtual-output-workers').Path
+          $project = (Resolve-Path 'tests\Core\Lineup.Core.VirtualOutputs.Runtime.Tests\Lineup.Core.VirtualOutputs.Runtime.Tests.csproj').Path
+          dotnet test $project -c Release --no-build --no-restore `
+            --filter 'FullyQualifiedName~WebPlayerWorkerProcessTests.Worker_StartAndStop_ReportsFinalPresentationAndCaptions|FullyQualifiedName~HdHomeRunWorkerProcessTests.Admission_LineupLinkAndHdHomeRunProcesses_ShareBudgetAndRecoverAfterCrash'

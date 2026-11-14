@@ -1,0 +1,43 @@
+<Project>
+  <PropertyGroup>
+    <LineupRepositoryRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</LineupRepositoryRoot>
+    <LineupVirtualOutputWorkerPackager>$([System.IO.Path]::Combine('$(LineupRepositoryRoot)', 'scripts', 'Lineup.Tools.VirtualOutputWorkerPackager', 'Lineup.Tools.VirtualOutputWorkerPackager.csproj'))</LineupVirtualOutputWorkerPackager>
+    <LineupWorkerPackagerRuntimeArguments Condition="'$(RuntimeIdentifier)' != ''">--runtime &quot;$(RuntimeIdentifier)&quot;</LineupWorkerPackagerRuntimeArguments>
+    <LineupWorkerPackagerSelfContainedArgument Condition="'$(SelfContained)' == 'true'">--self-contained</LineupWorkerPackagerSelfContainedArgument>
+    <LineupWorkerPackagerSourceRevisionArgument Condition="'$(SourceRevisionId)' != ''">--source-revision &quot;$(SourceRevisionId)&quot;</LineupWorkerPackagerSourceRevisionArgument>
+  </PropertyGroup>
+
+  <Import Project="Lineup.VirtualOutputWorkers.props" Condition="'$(SkipVirtualOutputWorkerPublish)' != 'true'" />
+
+  <ItemGroup Condition="'$(SkipVirtualOutputWorkerPublish)' != 'true'">
+    <UpToDateCheckInput Include="$(LineupRepositoryRoot)\src\**\*;$(LineupRepositoryRoot)\build\**\*;$(LineupRepositoryRoot)\scripts\Lineup.Tools.VirtualOutputWorkerPackager\**\*;$(LineupRepositoryRoot)\*.props;$(LineupRepositoryRoot)\*.targets;$(LineupRepositoryRoot)\NuGet.Config;$(LineupRepositoryRoot)\global.json;$(LineupRepositoryRoot)\.editorconfig"
+                        Set="VirtualOutputPackaging"
+                        Exclude="$(LineupRepositoryRoot)\**\bin\**;$(LineupRepositoryRoot)\**\obj\**" />
+    <UpToDateCheckOutput Include="$(OutputPath)virtual-output-workers\packaging.stamp;$(OutputPath)virtual-output-workers\packaging.files" Set="VirtualOutputPackaging" />
+    <UpToDateCheckOutput Include="@(_LineupBuiltInWorker->'$(OutputPath)virtual-output-workers\%(Identity)\%(Identity).virtual-output.json');@(_LineupBuiltInWorker->'$(OutputPath)virtual-output-workers\%(Identity)\%(AssemblyName).dll');@(_LineupBuiltInWorker->'$(OutputPath)virtual-output-workers\%(Identity)\%(AssemblyName).deps.json');@(_LineupBuiltInWorker->'$(OutputPath)virtual-output-workers\%(Identity)\%(AssemblyName).runtimeconfig.json')"
+                         Set="VirtualOutputPackageFiles" />
+  </ItemGroup>
+
+  <Target Name="PrepareVirtualOutputWorkersForBuild"
+          AfterTargets="Build"
+          Condition="'$(DesignTimeBuild)' != 'true' and '$(SkipVirtualOutputWorkerPublish)' != 'true'">
+    <Exec Command="dotnet run --project &quot;$(LineupVirtualOutputWorkerPackager)&quot; --artifacts-path &quot;$(IntermediateOutputPath)worker-packager&quot; --configuration Release --no-launch-profile -p:SourceRevisionId=&quot;$(SourceRevisionId)&quot; -- --repository-root &quot;$(LineupRepositoryRoot)&quot; --output &quot;$(TargetDir)virtual-output-workers&quot; --configuration &quot;$(Configuration)&quot; $(LineupWorkerPackagerRuntimeArguments) $(LineupWorkerPackagerSelfContainedArgument) --version &quot;$(Version)&quot; $(LineupWorkerPackagerSourceRevisionArgument)" />
+  </Target>
+
+  <Target Name="PublishVirtualOutputWorkersWithHost"
+          BeforeTargets="ComputeFilesToPublish"
+          DependsOnTargets="PrepareVirtualOutputWorkersForBuild"
+          Condition="'$(DesignTimeBuild)' != 'true' and '$(SkipVirtualOutputWorkerPublish)' != 'true'">
+    <ReadLinesFromFile File="$(TargetDir)virtual-output-workers\packaging.files">
+      <Output TaskParameter="Lines" ItemName="_LineupWorkerPublishFile" />
+    </ReadLinesFromFile>
+    <ItemGroup>
+      <_LineupWorkerPublishFile Include="packaging.files;packaging.stamp" />
+      <ResolvedFileToPublish Include="@(_LineupWorkerPublishFile->'$(TargetDir)virtual-output-workers\%(Identity)')">
+        <RelativePath>virtual-output-workers\%(_LineupWorkerPublishFile.Identity)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+</Project>

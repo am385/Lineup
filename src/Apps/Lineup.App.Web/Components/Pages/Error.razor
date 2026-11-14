@@ -1,0 +1,24 @@
+@page "/Error"
+
+<PageTitle>@Text["Common_ErrorPageTitle"]</PageTitle>
+
+<h1 class="text-danger">@Text["Common_ErrorHeading"]</h1>
+<h2 class="text-danger">@Text["Common_ErrorProcessingRequest"]</h2>
+
+@if (ShowRequestId)
+{
+    <p>
+        <strong>@Text["Common_RequestIdLabel"]:</strong> <code>@RequestId</code>
+    </p>
+}
+
+<h3>@Text["Common_DevelopmentModeHeading"]</h3>
+<p>
+    @Text["Common_DevelopmentModeDetailsPrefix"] <strong>Development</strong> @Text["Common_DevelopmentModeDetailsSuffix"]
+</p>
+<p>
+    <strong>@Text["Common_DevelopmentModeWarning"]</strong>
+    @Text["Common_DevelopmentModeSensitiveInformation"]
+    @Text["Common_DevelopmentModeLocalDebugPrefix"] <strong>Development</strong> @Text["Common_DevelopmentModeLocalDebugMiddle"] <strong>ASPNETCORE_ENVIRONMENT</strong>
+    @Text["Common_DevelopmentModeLocalDebugSuffix"] <strong>Development</strong> @Text["Common_AndRestartingApp"]
+</p>

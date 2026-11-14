@@ -1,0 +1,52 @@
+@page "/guide"
+
+<PageTitle>@Text["Guide_PageTitle"]</PageTitle>
+
+<h1><span class="bi bi-grid-3x3 me-2"></span>@Text["Guide_Heading"]</h1>
+
+<GuideDateNavigator Today="Today"
+                    SelectedDate="_selectedDate"
+                    CanGoPrevious="@(_windowStartUtc > DayStartUtc)"
+                    CanGoNext="@(_windowStartUtc < LastWindowStartUtc)"
+                    TimeRange="@FormatTimeRange()"
+                    IsShowingCurrentTime="@IsShowingCurrentTime()"
+                    DateSelected="SelectDate"
+                    JumpToNow="JumpToNow"
+                    PreviousRequested="PreviousTimeBlock"
+                    NextRequested="NextTimeBlock" />
+
+<GuideSourceWarnings Diagnostics="_sourceDiagnostics" />
+
+@if (_isLoading)
+{
+    <div class="text-center py-5">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">@Text["Common_Loading"]</span>
+        </div>
+        <p class="text-muted mt-2">@Text["Guide_LoadingData"]</p>
+    </div>
+}
+else if (_loadFailed)
+{
+    <div class="alert alert-danger" role="alert">
+        @Text["Common_ErrorProcessingRequest"] @Text["Common_RetryOrReload"]
+        <button class="btn btn-outline-danger ms-2" @onclick="LoadDataAsync">@Text["Common_Retry"]</button>
+    </div>
+}
+else if (_channels.Count == 0)
+{
+    <div class="alert alert-info">
+        <span class="bi bi-info-circle me-2"></span>
+        @Text["Guide_NoEpgData"]
+    </div>
+}
+else
+{
+    <GuideScheduleGrid Channels="_channels"
+                       Programs="_programs"
+                       TimeSlots="_timeSlots"
+                       DisplayTimeZone="_displayTimeZone"
+                       ProgramSelected="ShowProgramDetails" />
+}
+
+<GuideProgramDetailsModal Program="_selectedProgram" CloseRequested="CloseModal" />

@@ -9,7 +9,7 @@ START LINEUP
 4. Open http://localhost:8080 if your browser does not open automatically.
 5. Complete Settings > Device using your HDHomeRun's LAN IP address or hostname.
 
-Always use Start-Lineup.cmd. Do not launch app\Lineup.Web.exe directly because
+Always use Start-Lineup.cmd. Do not launch app\Lineup.App.Web.exe directly because
 the launcher configures the safe user-local data locations.
 
 STOP LINEUP
@@ -22,7 +22,7 @@ Settings and guide data:
   %LOCALAPPDATA%\Lineup\data
 
 Generated XMLTV:
-  %LOCALAPPDATA%\Lineup\xmltv\epg.xml
+  %LOCALAPPDATA%\Lineup\guide\epg.xml
 
 These folders are outside the extracted application folder and remain in place
 when the application files are replaced during an update.
