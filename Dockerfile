@@ -86,6 +86,7 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*
 
 ENV PATH="/usr/lib/jellyfin-ffmpeg:${PATH}"
+ENV NVIDIA_DRIVER_CAPABILITIES="video,compute,utility"
 
 # Fail the build if PATH does not select Jellyfin FFmpeg or required CMAF capabilities are missing.
 RUN test "$(readlink -f "$(command -v ffmpeg)")" = "/usr/lib/jellyfin-ffmpeg/ffmpeg" && \

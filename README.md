@@ -622,7 +622,8 @@ Containers need the same driver/runtime support as native execution; exposing a 
 
 The pinned Linux amd64 Jellyfin FFmpeg package includes the AMD RadeonSI and Intel iHD/i965 VA-API userspace drivers.
 The host still supplies the GPU and kernel driver. NVIDIA's matching driver libraries are exposed by the NVIDIA
-Container Toolkit; setting an environment variable alone does not install or activate that runtime.
+Container Toolkit. The runtime image defaults `NVIDIA_DRIVER_CAPABILITIES` to `video,compute,utility`, so a separate
+container variable is not required. This default does not install or activate the NVIDIA runtime or expose a GPU.
 
 ##### Unraid container settings
 
@@ -633,7 +634,7 @@ edit **Extra Parameters**.
 |---|---|---|---|
 | AMD | `--device=/dev/dri` | None normally required | VA-API |
 | Intel | `--device=/dev/dri` | None normally required | QSV or VA-API |
-| NVIDIA | `--runtime=nvidia` | `NVIDIA_VISIBLE_DEVICES=<GPU-UUID>` and `NVIDIA_DRIVER_CAPABILITIES=video,compute,utility` | NVENC |
+| NVIDIA | `--runtime=nvidia` | `NVIDIA_VISIBLE_DEVICES=<GPU-UUID>` | NVENC |
 
 Prefer exposing only the selected render node, such as `--device=/dev/dri/renderD128`, when access to the whole directory
 is unnecessary. Select that same container-visible path in Lineup. A non-root container user also needs the render node's
