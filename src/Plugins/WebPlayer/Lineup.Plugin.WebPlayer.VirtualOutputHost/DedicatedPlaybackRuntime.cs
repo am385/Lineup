@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using Lineup.Core.Common.Streaming;
 using Lineup.Core.Streaming.FFmpeg;
 using Lineup.Core.VirtualOutputs.Hosting;
@@ -71,7 +72,7 @@ internal sealed partial class DedicatedPlaybackRuntime : IAsyncDisposable
             }, TimeSpan.FromSeconds(source.Response.KeepWarmPeriodSeconds), cancellationToken);
             var shared = (Producer)lease.State;
             shared.Id ??= lease.OutputId.ToString();
-            viewer = new Viewer(this, id, channel, source, shared, lease);
+            viewer = new Viewer(this, id, channel, source, plan, shared, lease);
             if (!_viewers.TryAdd(id, viewer))
             {
                 await lease.DisposeAsync();
@@ -94,7 +95,7 @@ internal sealed partial class DedicatedPlaybackRuntime : IAsyncDisposable
             {
                 throw new OperationCanceledException("The viewer was stopped during startup.");
             }
-            return new PlaybackView(id.ToString(), session.Directory, session.Plan);
+            return new PlaybackView(id.ToString(), session.Directory, CreateViewerPlan(viewer, session.Plan));
         }
         catch (Exception exception)
         {
@@ -197,10 +198,28 @@ internal sealed partial class DedicatedPlaybackRuntime : IAsyncDisposable
         }
     }
 
+    private static DedicatedCmafSessionPlan CreateViewerPlan(Viewer viewer, DedicatedCmafSessionPlan producerPlan)
+    {
+        var request = viewer.Plan.Request;
+        var profile = producerPlan.HardwareFallbackApplied ? viewer.Plan.Profile with { HardwareEncoding = new() } : viewer.Plan.Profile;
+        if (producerPlan.SourceAudioFallbackApplied)
+        {
+            request = request with { PreferredAudio = CmafPreferredAudio.Fallback, Overrides = request.Overrides with { Audio = CmafPreferredAudio.Fallback } };
+        }
+        return producerPlan with
+        {
+            Request = request,
+            Profile = profile,
+            Selection = viewer.Plan.Selection,
+            RequestedVideoEncoder = viewer.Plan.RequestedVideoEncoder,
+            AudioRenditions = CmafStreamPlanner.CreatePresentationAudioRenditions(producerPlan.Source, viewer.Plan.Selection.Audio, request, profile)
+        };
+    }
+
     private async Task<bool> ReportAsync(Viewer viewer, DedicatedCmafSessionPlan plan, VirtualOutputStreamStartupStage stage, bool release, CancellationToken cancellationToken)
     {
         var streamId = viewer.Source.Response.StreamSessionId ?? throw new InvalidDataException("The broker did not return a stream identity.");
-        var snapshot = plan.CreateActiveStreamSnapshot(streamId.ToString(), viewer.Channel, viewer.StartedAtUtc);
+        var snapshot = CreateViewerPlan(viewer, plan).CreateActiveStreamSnapshot(streamId.ToString(), viewer.Channel, viewer.StartedAtUtc);
         var result = await _worker.Broker.ReportStreamStatusAsync(new VirtualOutputStreamStatusReport
         {
             Session = _worker.Context!,
@@ -214,6 +233,9 @@ internal sealed partial class DedicatedPlaybackRuntime : IAsyncDisposable
             PhysicalInput = snapshot.PhysicalInput,
             PhysicalOutput = snapshot.PhysicalOutput,
             VirtualOutput = snapshot.VirtualOutput,
+            VideoEncoding = stage == VirtualOutputStreamStartupStage.Ready && snapshot.ActiveVideoEncoder is { } encoder
+                ? new(encoder, snapshot.RequestedVideoEncoder, snapshot.HardwareFallbackApplied)
+                : null,
             StartupStage = stage
         }, cancellationToken);
         if (!result.Updated)
@@ -294,12 +316,13 @@ internal sealed partial class DedicatedPlaybackRuntime : IAsyncDisposable
         private readonly Lock _gate = new();
         private Task? _closing;
         /// <summary>Initializes an independently admitted viewer over a producer-owned source.</summary>
-        internal Viewer(DedicatedPlaybackRuntime owner, StreamSessionId id, string channel, VirtualOutputClientStream source, Producer producer, ICmafOutputLease lease)
+        internal Viewer(DedicatedPlaybackRuntime owner, StreamSessionId id, string channel, VirtualOutputClientStream source, DedicatedCmafSessionPlan plan, Producer producer, ICmafOutputLease lease)
         {
             _owner = owner;
             Id = id;
             Channel = channel;
             Source = source;
+            Plan = plan;
             Producer = producer;
             Lease = lease;
             Token = Lifetime.Token;
@@ -313,6 +336,8 @@ internal sealed partial class DedicatedPlaybackRuntime : IAsyncDisposable
         internal DateTime StartedAtUtc { get; } = DateTime.UtcNow;
         /// <summary>Gets this viewer's independently admitted broker input.</summary>
         internal VirtualOutputClientStream Source { get; }
+        /// <summary>Gets this viewer's resolved policy independently of the shared producer's originating viewer.</summary>
+        internal DedicatedCmafSessionPlan Plan { get; }
         /// <summary>Gets the producer shared by equivalent viewers.</summary>
         internal Producer Producer { get; }
         /// <summary>Gets the coordinator lease corresponding to this alias.</summary>
@@ -432,28 +457,48 @@ internal sealed partial class DedicatedPlaybackRuntime : IAsyncDisposable
                 using var deadline = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
                 deadline.CancelAfter(TimeSpan.FromSeconds(20));
                 var plan = InitialPlan;
-                Session = await StartMediaSessionAsync(Id!, directory, Source, plan, owner._logger, owner._mediaWork);
-                stage = DedicatedWorkerStartupStage.Readiness;
-                try
+                var hardware = plan.Profile.HardwareEncoding;
+                if (hardware.Encoder != HardwareVideoEncoder.Software && plan.Arguments.Contains(HardwareVideoEncodingPlanner.GetEncoderName(hardware.Encoder)) &&
+                    !await HardwareEncodingRuntime.VerifyAsync(hardware, new DedicatedProbeFactory(directory, owner._mediaWork), owner._logger, deadline.Token))
                 {
-                    await WaitForOutputAsync(Session, TimeSpan.FromSeconds(20), deadline.Token);
+                    plan = plan.CreateSoftwareFallback(directory);
                 }
-                catch (MediaProcessException) when (!deadline.IsCancellationRequested && Session.Process.HasExited)
+                while (true)
                 {
-                    var diagnostics = await Session.ErrorTask.WaitAsync(deadline.Token);
-                    if (!CmafStreamPlanner.ShouldRetryWithFallback(plan.Request, plan.Source.Tracks.Where(track => track.Type == MediaTrackType.Audio), [diagnostics]))
-                    {
-                        throw;
-                    }
-                    await Session.StopMediaAsync();
-                    await MediaSessionStartupGuard.DeleteDirectoryAsync(directory);
-                    Directory.CreateDirectory(directory);
-                    deadline.Token.ThrowIfCancellationRequested();
-                    plan = plan.CreateFallback(directory);
                     stage = DedicatedWorkerStartupStage.Process;
                     Session = await StartMediaSessionAsync(Id!, directory, Source, plan, owner._logger, owner._mediaWork);
                     stage = DedicatedWorkerStartupStage.Readiness;
-                    await WaitForOutputAsync(Session, TimeSpan.FromSeconds(20), deadline.Token);
+                    try
+                    {
+                        await WaitForOutputAsync(Session, TimeSpan.FromSeconds(20), deadline.Token);
+                        break;
+                    }
+                    catch (MediaProcessException) when (!deadline.IsCancellationRequested && Session.Process.HasExited)
+                    {
+                        var diagnostics = await Session.ErrorTask.WaitAsync(deadline.Token);
+                        var retryHardware = !plan.HardwareFallbackApplied && hardware.AllowSoftwareFallback &&
+                            plan.Profile.HardwareEncoding.Encoder != HardwareVideoEncoder.Software &&
+                            HardwareEncodingRuntime.IsInitializationFailure(diagnostics);
+                        var retryAudio = !plan.SourceAudioFallbackApplied &&
+                            CmafStreamPlanner.ShouldRetryWithFallback(plan.Request, plan.AudioRenditions.Where(rendition => rendition.Plan.CopySource).Select(rendition => rendition.Source), [diagnostics]);
+                        if (!retryHardware && !retryAudio)
+                        {
+                            throw;
+                        }
+                        await Session.StopMediaAsync();
+                        await MediaSessionStartupGuard.DeleteDirectoryAsync(directory);
+                        Directory.CreateDirectory(directory);
+                        deadline.Token.ThrowIfCancellationRequested();
+                        if (retryHardware)
+                        {
+                            owner._logger.LogWarning("Requested hardware encoder {Encoder} failed before publication. Owned media was released; retrying with software.", hardware.Encoder);
+                            plan = plan.CreateSoftwareFallback(directory);
+                        }
+                        else
+                        {
+                            plan = plan.CreateFallback(directory);
+                        }
+                    }
                 }
                 deadline.Token.ThrowIfCancellationRequested();
                 _ready.TrySetResult(Session);
@@ -469,6 +514,13 @@ internal sealed partial class DedicatedPlaybackRuntime : IAsyncDisposable
                 _ = _ready.Task.Exception;
                 owner.Track(owner._outputs.ReleaseOutputAsync(new StreamSessionId(Guid.ParseExact(Id!, "N"))).AsTask());
             }
+        }
+
+        private sealed class DedicatedProbeFactory(string directory, IMediaWorkAdmission admission) : IMediaProcessFactory
+        {
+            /// <inheritdoc />
+            public Process Start(MediaProcessRequest request) =>
+                StartMediaProcess(directory, request.Arguments, admission, redirectStandardOutput: true);
         }
 
         /// <inheritdoc />

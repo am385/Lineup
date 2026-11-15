@@ -138,6 +138,7 @@ public static class WebPlayerPlaybackPlanner
             $"a={audioCodec}",
             $"deinterlace={effective.Deinterlace}",
             $"preset={effective.VideoPreset}",
+            $"hardware={System.Text.Json.JsonSerializer.Serialize(effective.HardwareEncoding)}",
             $"quality={effective.VideoQuality.ToString(CultureInfo.InvariantCulture)}",
             $"br={effective.MaximumVideoBitRateMbps.ToString(CultureInfo.InvariantCulture)}",
             $"height={request.MaximumHeight?.ToString(CultureInfo.InvariantCulture) ?? "source"}",

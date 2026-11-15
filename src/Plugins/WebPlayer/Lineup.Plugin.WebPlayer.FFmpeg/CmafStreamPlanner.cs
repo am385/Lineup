@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Lineup.Core.Common.Streaming;
+using Lineup.Core.Streaming.FFmpeg;
 
 namespace Lineup.Plugin.WebPlayer.FFmpeg;
 
@@ -187,7 +188,7 @@ public static class CmafStreamPlanner
             {
                 var rendition = renditions[index];
                 var marker = $"NAME=\"audio_{index + 1}\"";
-                var replacement = $"NAME=\"{EscapeHlsAttribute(rendition.Plan.Title)}\"";
+                var replacement = $"NAME=\"{EscapeHlsAttribute(CreateAudioTitle(rendition.Source, rendition.Plan.MediaTitle))}\"";
                 var language = rendition.Source.Language;
                 if (!string.IsNullOrWhiteSpace(language))
                 {
@@ -206,7 +207,8 @@ public static class CmafStreamPlanner
             .ToArray();
         for (var index = 0; index < Math.Min(audioSets.Length, renditions.Count); index++)
         {
-            audioSets[index].AddFirst(new System.Xml.Linq.XElement(root.Name.Namespace + "Label", renditions[index].Plan.Title));
+            var rendition = renditions[index];
+            audioSets[index].AddFirst(new System.Xml.Linq.XElement(root.Name.Namespace + "Label", CreateAudioTitle(rendition.Source, rendition.Plan.MediaTitle)));
         }
         return document.ToString(System.Xml.Linq.SaveOptions.DisableFormatting);
     }
@@ -464,7 +466,7 @@ public static class CmafStreamPlanner
             : request.PreferredVideo == CmafPreferredVideo.Auto
                 ? "Auto · Fallback H.264 (source unverified)"
                 : "Fallback H.264";
-        var fallback = new CmafVideoPlan(false, "h264", null, fallbackTitle);
+        var fallback = new CmafVideoPlan(false, "h264", null, fallbackTitle) { MediaTitle = "Fallback H.264" };
         var canSignalSource = !string.Equals(video?.Codec, "hevc", StringComparison.OrdinalIgnoreCase) || CreateHevcCodecString(video) is not null;
         var autoProfile = request.PreferredVideo == CmafPreferredVideo.Auto && CmafCompatibilityProfilePolicy.IsUsable(request.CompatibilityProfile)
             ? request.CompatibilityProfile
@@ -486,7 +488,7 @@ public static class CmafStreamPlanner
             : request.PreferredVideo == CmafPreferredVideo.Auto
                 ? "Auto · Source (browser tested)"
                 : "Source";
-        var source = new CmafVideoPlan(true, video!.Codec, video.BitRate, sourceTitle);
+        var source = new CmafVideoPlan(true, video!.Codec, video.BitRate, sourceTitle) { MediaTitle = "Source" };
         return [source];
     }
 
@@ -605,18 +607,47 @@ public static class CmafStreamPlanner
             arguments.AddRange(["-map", $"0:{subtitle.Index}", "-c:s", "webvtt", "-f", "webvtt", "-y", webVttPath]);
         }
 
-        return arguments;
+        return HardwareVideoEncodingPlanner.Apply(arguments, profile.HardwareEncoding);
     }
 
-    /// <summary>Creates a stable output-plan identity independent of the owning viewer.</summary>
+    /// <summary>Creates a stable identity from shared media metadata and the effective initial and permitted startup-retry plans.</summary>
     public static string CreatePlanKey(VirtualTranscodeProfile profile, MediaProbeResult source, WebPlayerTrackSelection selection, CmafStreamRequest request)
     {
         var subtitlePaths = GetSelectableSubtitles(source).ToDictionary(
             subtitle => subtitle.Index,
             subtitle => $"captions-{subtitle.Index}.vtt");
         var arguments = CreateArguments(profile, source, selection, request, DashManifestName, subtitlePaths);
-        var canonical = $"{JsonSerializer.Serialize(request with { ClientId = null })}\u001e{JsonSerializer.Serialize(profile)}\u001e" +
-            string.Join('\u001f', arguments.Select(argument => $"{argument.Length}:{argument}"));
+        List<IReadOnlyList<string>> plans = [arguments];
+        var audioRetry = request.PreferredAudio is CmafPreferredAudio.Source or CmafPreferredAudio.Auto &&
+            CreatePresentationAudioRenditions(source, selection.Audio, request, profile).Any(rendition => rendition.Plan.CopySource);
+        var fallbackRequest = request with
+        {
+            PreferredAudio = CmafPreferredAudio.Fallback,
+            Overrides = request.Overrides with { Audio = CmafPreferredAudio.Fallback }
+        };
+        if (audioRetry)
+        {
+            plans.Add(CreateArguments(profile, source, selection, fallbackRequest, DashManifestName, subtitlePaths));
+        }
+        var hardware = profile.HardwareEncoding;
+        if (hardware.AllowSoftwareFallback && hardware.Encoder != HardwareVideoEncoder.Software &&
+            HardwareVideoEncodingPlanner.GetVideoEncoder(arguments) == HardwareVideoEncodingPlanner.GetEncoderName(hardware.Encoder))
+        {
+            var software = profile with { HardwareEncoding = new() };
+            plans.Add(CreateArguments(software, source, selection, request, DashManifestName, subtitlePaths));
+            if (audioRetry)
+            {
+                plans.Add(CreateArguments(software, source, selection, fallbackRequest, DashManifestName, subtitlePaths));
+            }
+        }
+        var canonical = JsonSerializer.Serialize(new
+        {
+            Plans = plans,
+            SourceVideoCodec = HardwareVideoEncodingPlanner.GetVideoEncoder(arguments) == "copy"
+                ? CreateHevcCodecString(source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video))
+                : null,
+            Subtitles = GetSelectableSubtitles(source).Select(track => new { track.Index, track.Language, track.Title, track.IsEmbeddedClosedCaptions })
+        });
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
     }
 
@@ -652,7 +683,7 @@ public static class CmafStreamPlanner
                 $"-ac{streamSpecifier}", plan.Channels!.Value.ToString()
             ]);
         }
-        arguments.AddRange([$"-metadata:s{streamSpecifier}", $"title={plan.Title}"]);
+        arguments.AddRange([$"-metadata:s{streamSpecifier}", $"title={CreateAudioTitle(rendition.Source, plan.MediaTitle)}"]);
         if (!string.IsNullOrWhiteSpace(rendition.Source.Language))
         {
             arguments.AddRange([$"-metadata:s{streamSpecifier}", $"language={rendition.Source.Language}"]);
@@ -782,7 +813,7 @@ public static class CmafStreamPlanner
         var streamSpecifier = $":v:{outputIndex}";
         if (plan.CopySource)
         {
-            arguments.AddRange([$"-c{streamSpecifier}", "copy", $"-metadata:s{streamSpecifier}", $"title={plan.Title}"]);
+            arguments.AddRange([$"-c{streamSpecifier}", "copy", $"-metadata:s{streamSpecifier}", $"title={plan.MediaTitle}"]);
             if (string.Equals(plan.Codec, "h264", StringComparison.OrdinalIgnoreCase))
             {
                 arguments.AddRange([$"-tag{streamSpecifier}", "avc1"]);
@@ -809,7 +840,7 @@ public static class CmafStreamPlanner
             "-flags", "+cgop", "-g", "120", "-keyint_min", "60", "-sc_threshold", "0",
             // Absolute two-second targets can land less than two seconds apart at fractional frame rates, causing DASH to skip a cut.
             $"-force_key_frames{streamSpecifier}", "expr:if(isnan(prev_forced_t),1,gte(t,prev_forced_t+2))",
-            $"-metadata:s{streamSpecifier}", $"title={plan.Title}"
+            $"-metadata:s{streamSpecifier}", $"title={plan.MediaTitle}"
         ]);
         if (burnIn)
         {

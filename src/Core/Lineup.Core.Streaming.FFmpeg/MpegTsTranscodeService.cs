@@ -160,7 +160,7 @@ public static class MpegTsTranscodePlanner
 
         arguments.AddRange(["-max_muxing_queue_size", "1024", "-mpegts_flags", "+resend_headers", "-muxdelay", "0", "-f", "mpegts", "pipe:1"]);
 
-        return arguments;
+        return HardwareVideoEncodingPlanner.Apply(arguments, profile.HardwareEncoding, subtitleStreams?.Any(track => track.IsEmbeddedClosedCaptions) == true);
     }
 
     private static string ResolveAudioCodec(string codec, VirtualTranscodeProfile profile)

@@ -63,10 +63,12 @@ internal sealed record StreamingConfigurationStatusResponse(
 );
 
 /// <summary>Represents one effective transcoding profile.</summary>
-internal sealed record TranscodeProfileStatusResponse(bool ConvertHevcToH264, string Deinterlace, string Audio, string Ac4Audio, string VideoPreset, int VideoQuality, int MaximumVideoBitRateMbps);
+internal sealed record TranscodeProfileStatusResponse(
+    bool ConvertHevcToH264, string Deinterlace, string Audio, string Ac4Audio, string VideoPreset, int VideoQuality, int MaximumVideoBitRateMbps, HardwareEncodingSettings HardwareEncoding);
 
 /// <summary>Represents sparse transcoding overrides.</summary>
-internal sealed record TranscodeOverridesStatusResponse(bool? ConvertHevcToH264, string? Deinterlace, string? Audio, string? Ac4Audio, string? VideoPreset, int? VideoQuality, int? MaximumVideoBitRateMbps);
+internal sealed record TranscodeOverridesStatusResponse(
+    bool? ConvertHevcToH264, string? Deinterlace, string? Audio, string? Ac4Audio, string? VideoPreset, int? VideoQuality, int? MaximumVideoBitRateMbps, HardwareEncodingSettings? HardwareEncoding);
 
 /// <summary>Represents safe adapter-owned settings without secret values.</summary>
 internal sealed record AdapterConfigurationStatusResponse(string Kind, string? Error, IReadOnlyList<AdapterSettingStatusResponse> Settings);
@@ -230,7 +232,8 @@ internal sealed record StreamingFlowNodeStatusResponse(
     string State,
     IReadOnlyDictionary<string, string> Details,
     IReadOnlyList<string> ActiveChannels,
-    int ActiveSessionCount
+    int ActiveSessionCount,
+    IReadOnlyList<VideoEncodingSnapshot> VideoEncodings
 );
 
 /// <summary>Represents one active consumer's end-to-end streaming path.</summary>
@@ -254,5 +257,6 @@ internal sealed record StreamingFlowStageStatusResponse(
     string Subtitle,
     IReadOnlyDictionary<string, string> Details,
     ActiveStreamMediaStatusResponse? InputMedia,
-    ActiveStreamMediaStatusResponse? OutputMedia
+    ActiveStreamMediaStatusResponse? OutputMedia,
+    VideoEncodingSnapshot? VideoEncoding
 );

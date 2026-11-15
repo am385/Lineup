@@ -36,11 +36,20 @@
                                         aria-pressed="@(_selectedNodeId == node.Id ? "true" : "false")"
                                         aria-expanded="@(_selectedNodeId == node.Id ? "true" : "false")"
                                         aria-controls="streamingFlowDetails"
-                                        aria-label="@Text["Streaming_NodeAriaLabel", node.Label, FormatState(node.State), node.ActiveSessionCount]"
+                                        aria-label="@GetNodeAriaLabel(node)"
                                         @onclick="() => SelectNode(node.Id)">
                                     <span class="streaming-flow-node-title">@node.Label</span>
                                     <span class="streaming-flow-node-subtitle">@node.Subtitle</span>
                                     <span class="badge @GetBadgeClass(node.State)">@FormatState(node.State)</span>
+                                    @foreach (var encoding in node.VideoEncodings)
+                                    {
+                                        <VideoEncoderBadge Encoding="encoding" />
+                                    }
+                                    @if (node.VideoEncodings.Count == 0 && node.ActiveSessionCount > 0 &&
+                                         node.Lane is StreamingFlowLane.PhysicalProcessing or StreamingFlowLane.VirtualProcessing)
+                                    {
+                                        <VideoEncoderBadge Encoding="null" />
+                                    }
                                     @if (node.ActiveChannels.Count > 0)
                                     {
                                         <span class="streaming-flow-channel-list">
@@ -116,6 +125,16 @@
     public StreamingFlowSnapshot Snapshot { get; set; } = new([], [], 0, 0, 0);
 
     private StreamingFlowNode? SelectedNode => Snapshot.Nodes.SingleOrDefault(node => node.Id == _selectedNodeId);
+
+    private string GetNodeAriaLabel(StreamingFlowNode node)
+    {
+        var label = Text["Streaming_NodeAriaLabel", node.Label, FormatState(node.State), node.ActiveSessionCount].Value;
+        return node.VideoEncodings.Count > 0
+            ? $"{label}, {string.Join(", ", node.VideoEncodings.Select(encoding => encoding.Encoder))}"
+            : node.ActiveSessionCount > 0 && node.Lane is StreamingFlowLane.PhysicalProcessing or StreamingFlowLane.VirtualProcessing
+                ? $"{label}, {Text["Streaming_EncoderUnknown"]}"
+                : label;
+    }
 
     /// <inheritdoc />
     protected override void OnParametersSet()

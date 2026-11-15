@@ -87,6 +87,7 @@ public static class SourceDeinterlacePlanner
         ArgumentNullException.ThrowIfNull(profile);
         var effective = CreateEffectiveSource(source, new PhysicalTranscodeProfile
         {
+            HardwareEncoding = profile.HardwareEncoding,
             ConvertHevcToH264 = profile.ConvertHevcToH264,
             Deinterlace = profile.Deinterlace,
             Audio = profile.Audio,
@@ -192,7 +193,7 @@ public static class SourceDeinterlacePlanner
             "-muxdelay", "0",
             "pipe:1"
         ]);
-        return arguments;
+        return HardwareVideoEncodingPlanner.Apply(arguments, profile.HardwareEncoding, source.Tracks.Any(track => track.IsEmbeddedClosedCaptions));
     }
 
     /// <summary>

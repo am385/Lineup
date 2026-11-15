@@ -628,6 +628,7 @@ public sealed class TopologySettingsEditorTests
         var model = editor.Edit(TopologySettingsEditor.CreateDefault());
         var device = editor.AddPhysicalDevice(model, new TestPhysicalTunerDriver());
         device.Address = "unsaved-device.local";
+        device.TranscodeProfile = "internet540";
 
         // Act
         var probeConfiguration = editor.BuildPhysicalAdapter(device);
@@ -639,6 +640,33 @@ public sealed class TopologySettingsEditorTests
         Assert.Equal(savedConfiguration.Kind, probeConfiguration.Kind);
         Assert.Equal(savedConfiguration.Configuration.GetRawText(), probeConfiguration.Configuration.GetRawText());
         Assert.Equal("unsaved-device.local", probeConfiguration.Configuration.GetProperty("Address").GetString());
+        Assert.Equal("internet540", probeConfiguration.Configuration.GetProperty("TranscodeProfile").GetString());
+        Assert.Equal("internet540", Assert.Single(editor.Edit(persisted).PhysicalDevices).TranscodeProfile);
+    }
+
+    /// <summary>Verifies global hardware defaults and explicit per-device software settings survive Web editing and persisted JSON.</summary>
+    [Fact]
+    public void TryBuild_HardwareSettings_RoundTripsInheritanceAndExplicitSoftware()
+    {
+        // Arrange
+        var editor = new TopologySettingsEditor();
+        var model = editor.Edit(TopologySettingsEditor.CreateDefault());
+        model.VirtualDefaults.HardwareEncoding = new() { Encoder = HardwareVideoEncoder.Nvenc, Device = "1", AllowSoftwareFallback = true, AdvancedArguments = "preset=p6" };
+        var device = Assert.Single(model.VirtualDevices);
+        device.OverrideHardwareEncoding = true;
+        device.HardwareEncoding = new();
+
+        // Act
+        var errors = editor.TryBuild(model, out var saved);
+        var restored = editor.Edit(JsonSerializer.Deserialize<StreamingConfiguration>(JsonSerializer.Serialize(saved))!);
+
+        // Assert
+        Assert.Empty(errors);
+        Assert.Equal(model.VirtualDefaults.HardwareEncoding, restored.VirtualDefaults.HardwareEncoding);
+        var restoredDevice = Assert.Single(restored.VirtualDevices);
+        Assert.True(restoredDevice.OverrideHardwareEncoding);
+        Assert.Equal(HardwareVideoEncoder.Software, restoredDevice.HardwareEncoding.Encoder);
+        Assert.Equal(HardwareVideoEncoder.Software, Assert.Single(saved.VirtualDevices).TranscodeOverrides.Apply(saved.VirtualDefaults).HardwareEncoding.Encoder);
     }
 
     /// <summary>

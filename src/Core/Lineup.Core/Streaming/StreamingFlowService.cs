@@ -61,6 +61,9 @@ public sealed record StreamingFlowDetail(string Label, string Value);
 /// <summary>One selectable node in the configured and live streaming topology.</summary>
 public sealed record StreamingFlowNode(string Id, StreamingFlowLane Lane, string Label, string Subtitle, StreamingFlowState State, IReadOnlyList<StreamingFlowDetail> Details)
 {
+    /// <summary>Gets distinct encoder outcomes reported by active outputs, not inferred from device settings.</summary>
+    public IReadOnlyList<VideoEncodingSnapshot> VideoEncodings { get; init; } = [];
+
     /// <summary>Gets active virtual channel numbers associated with the node.</summary>
     public IReadOnlyList<string> ActiveChannels { get; init; } = [];
 
@@ -71,6 +74,9 @@ public sealed record StreamingFlowNode(string Id, StreamingFlowLane Lane, string
 /// <summary>Describes one selectable stage in an active streaming path.</summary>
 public sealed record StreamingFlowPathStage(StreamingFlowStageKind Kind, string Label, string Subtitle, IReadOnlyList<StreamingFlowDetail> Details)
 {
+    /// <summary>Gets the actual encoder reported for this processing stage, when available.</summary>
+    public VideoEncodingSnapshot? VideoEncoding { get; init; }
+
     /// <summary>Gets the media entering this stage.</summary>
     public ActiveStreamMediaSnapshot? InputMedia { get; init; }
 
@@ -186,6 +192,8 @@ public sealed class StreamingFlowSnapshotService : IStreamingFlowSnapshotService
                     new("Shared receivers", physicalTransforms.Sum(node => node.ReceiverCount).ToString())
                 ])
             {
+                VideoEncodings = relatedStreams.Select(stream => GetSourceVideoEncoding(stream, nodesById))
+                    .Concat(physicalTransforms.Select(node => node.VideoEncoding)).OfType<VideoEncodingSnapshot>().Distinct().ToArray(),
                 ActiveChannels = channels,
                 ActiveSessionCount = relatedStreams.Length
             });
@@ -271,6 +279,7 @@ public sealed class StreamingFlowSnapshotService : IStreamingFlowSnapshotService
                     new("Active consumers", relatedStreams.Length.ToString())
                 ])
             {
+                VideoEncodings = relatedStreams.Select(stream => GetOutputVideoEncoding(stream, nodesById)).OfType<VideoEncodingSnapshot>().Distinct().ToArray(),
                 ActiveChannels = channels,
                 ActiveSessionCount = relatedStreams.Length
             });
@@ -318,7 +327,7 @@ public sealed class StreamingFlowSnapshotService : IStreamingFlowSnapshotService
             .GroupBy(GetShareKey, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
         var paths = streams
-            .Select(stream => CreatePath(stream, configuration, graph, graphPhysicalDevices, sharedReceiverCounts[GetShareKey(stream)]))
+            .Select(stream => CreatePath(stream, configuration, nodesById, sharedReceiverCounts[GetShareKey(stream)]))
             .OrderBy(path => path.StartedAtUtc)
             .ThenBy(path => path.SessionId, StringComparer.Ordinal)
             .ToArray();
@@ -329,8 +338,7 @@ public sealed class StreamingFlowSnapshotService : IStreamingFlowSnapshotService
     private static StreamingFlowPath CreatePath(
         ActiveStreamSnapshot stream,
         StreamingConfiguration configuration,
-        StreamingSessionGraphDiagnostics graph,
-        IReadOnlyDictionary<string, PhysicalDeviceId?> graphPhysicalDevices,
+        IReadOnlyDictionary<string, StreamNodeDiagnostics> nodesById,
         int sharedReceiverCount
     )
     {
@@ -343,8 +351,7 @@ public sealed class StreamingFlowSnapshotService : IStreamingFlowSnapshotService
             : null;
         var physicalName = physicalDefinition?.Name ?? flow?.PhysicalDeviceId?.ToString() ?? flow?.SyntheticSource ?? "Generated source";
         var virtualName = virtualDefinition?.Name ?? flow?.VirtualDeviceId?.ToString() ?? "Unassigned virtual output";
-        var physicalTranscoding = flow?.PhysicalDeviceId is { } deviceId &&
-                                  graph.Nodes.Any(node => node.Stage == "source-normalization" && graphPhysicalDevices[node.NodeId] == deviceId);
+        var physicalTranscoding = FindProcessingNode(stream, "source-normalization", nodesById) is not null;
         var outputTranscoding = stream.Tracks.Any(track => track.IsSelected && !string.Equals(track.OutputCodec, "copy", StringComparison.OrdinalIgnoreCase));
         var producerDescription = flow?.ReusableOutputId is not null
             ? $"Reusable output {FormatCompactId(flow.ReusableOutputId.Value)}"
@@ -375,6 +382,7 @@ public sealed class StreamingFlowSnapshotService : IStreamingFlowSnapshotService
                     new("Effective policy", physicalDefinition is null ? "Not applicable" : Describe(physicalDefinition.TranscodeOverrides.Apply(configuration.PhysicalDefaults)))
                 ])
             {
+                VideoEncoding = GetSourceVideoEncoding(stream, nodesById),
                 InputMedia = stream.PhysicalInput,
                 OutputMedia = stream.PhysicalOutput
             },
@@ -413,6 +421,7 @@ public sealed class StreamingFlowSnapshotService : IStreamingFlowSnapshotService
                     new("Effective policy", virtualDefinition is null ? "Not available" : Describe(virtualDefinition.TranscodeOverrides.Apply(configuration.VirtualDefaults)))
                 ])
             {
+                VideoEncoding = GetOutputVideoEncoding(stream, nodesById),
                 InputMedia = stream.PhysicalOutput,
                 OutputMedia = stream.VirtualOutput
             },
@@ -451,6 +460,35 @@ public sealed class StreamingFlowSnapshotService : IStreamingFlowSnapshotService
             : !string.IsNullOrWhiteSpace(stream.Flow?.ProducerNodeId)
                 ? $"producer:{stream.Flow.ProducerNodeId}"
                 : $"session:{stream.SessionId}";
+
+    private static VideoEncodingSnapshot? GetOutputVideoEncoding(ActiveStreamSnapshot stream, IReadOnlyDictionary<string, StreamNodeDiagnostics> nodes) =>
+        string.IsNullOrWhiteSpace(stream.ActiveVideoEncoder)
+            ? FindProcessingNode(stream, "virtual-mpegts", nodes)?.VideoEncoding
+            : new(stream.ActiveVideoEncoder, stream.RequestedVideoEncoder, stream.HardwareFallbackApplied);
+
+    private static VideoEncodingSnapshot? GetSourceVideoEncoding(ActiveStreamSnapshot stream, IReadOnlyDictionary<string, StreamNodeDiagnostics> nodes)
+    {
+        var source = FindProcessingNode(stream, "source-normalization", nodes);
+        if (source is not null)
+        {
+            return source.VideoEncoding;
+        }
+        return FindProcessingNode(stream, null, nodes) is not null ? new("copy", null, false) : null;
+    }
+
+    private static StreamNodeDiagnostics? FindProcessingNode(ActiveStreamSnapshot stream, string? stage, IReadOnlyDictionary<string, StreamNodeDiagnostics> nodes)
+    {
+        var nodeId = stream.Flow?.ProducerNodeId;
+        for (var depth = 0; depth < nodes.Count && nodeId is not null && nodes.TryGetValue(nodeId, out var node); depth++)
+        {
+            if (stage is null ? node.Kind == "acquisition" : node.Stage == stage)
+            {
+                return node;
+            }
+            nodeId = node.ParentNodeId;
+        }
+        return null;
+    }
 
     private static string FormatCompactId(StreamSessionId id)
     {

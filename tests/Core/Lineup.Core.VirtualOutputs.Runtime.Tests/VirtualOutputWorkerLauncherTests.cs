@@ -36,9 +36,15 @@ public sealed class VirtualOutputWorkerLauncherTests
         {
             Assert.Equal(temporaryPath, Path.TrimEndingDirectorySeparator(Assert.IsType<string>(report.Variables[variable])));
         }
-        var allowedVariables = new[] { "PATH", "DOTNET_ROOT", "DOTNET_ROOT_X64", "SystemRoot", "WINDIR", "DOTNET_EnableDiagnostics", "TMP", "TEMP", "TMPDIR", "SystemTemp" };
+        var allowedVariables = new[]
+        {
+            "PATH", "DOTNET_ROOT", "DOTNET_ROOT_X64", "SystemRoot", "WINDIR", "DOTNET_EnableDiagnostics", "LINEUP_PROCESS_PIPE_ROOT", "LINEUP_WORKER_JOB", "TMP", "TEMP", "TMPDIR", "SystemTemp",
+            "LD_LIBRARY_PATH", "LIBVA_DRIVER_NAME", "LIBVA_DRIVERS_PATH", "CUDA_VISIBLE_DEVICES", "CUDA_DEVICE_ORDER", "NVIDIA_VISIBLE_DEVICES", "NVIDIA_DRIVER_CAPABILITIES",
+            "ONEVPL_SEARCH_PATH", "ONEVPL_PRIORITY_PATH"
+        };
         Assert.All(report.Variables.Keys, key => Assert.Contains(key, allowedVariables, StringComparer.OrdinalIgnoreCase));
         Assert.Equal("0", report.Variables["DOTNET_EnableDiagnostics"]);
+        Assert.Equal(Path.GetTempPath(), report.Variables["LINEUP_PROCESS_PIPE_ROOT"]);
         Assert.DoesNotContain(report.Arguments, argument => argument.Contains(package.Bootstrap.BootstrapToken, StringComparison.Ordinal));
     }
 

@@ -74,4 +74,30 @@ public sealed class ResourcePolicyPreflightTests
         // Assert
         Assert.Null(error);
     }
+
+    /// <summary>Verifies macOS supports managed lifetime ownership without advertising unsupported resource enforcement.</summary>
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(64, 0)]
+    [InlineData(0, 25)]
+    public void Preflight_MacOS_SeparatesLifetimeAndResourceEnforcement(int memoryMib, int cpuPercent)
+    {
+        // Arrange
+        Assert.SkipWhen(!OperatingSystem.IsMacOS(), "Requires the macOS lifetime platform.");
+        var policy = new VirtualOutputWorkerPolicyDefinition { Key = "mac", Name = "Mac", MaximumMemoryMib = memoryMib, MaximumCpuPercent = cpuPercent };
+
+        // Act
+        var failure = Record.Exception(() => VirtualOutputProcessLimits.Preflight(policy));
+
+        // Assert
+        if (memoryMib == 0 && cpuPercent == 0)
+        {
+            Assert.Null(failure);
+        }
+        else
+        {
+            var policyFailure = Assert.IsType<VirtualOutputResourcePolicyException>(failure);
+            Assert.IsType<PlatformNotSupportedException>(policyFailure.InnerException);
+        }
+    }
 }

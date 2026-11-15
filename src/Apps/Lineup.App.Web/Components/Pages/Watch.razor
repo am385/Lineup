@@ -1,5 +1,6 @@
 @page "/watch"
 @page "/watch/{ChannelNumber}"
+@using Lineup.App.Web.Components.Streaming
 
 <PageTitle>@Text["Watch_Title"]</PageTitle>
 
@@ -223,6 +224,14 @@
                                 <p class="small mb-1">
                                     <strong>@Text["Watch_PlaybackProtocol"]</strong> @_effectiveProtocol
                                 </p>
+                                <div class="small mb-1" data-encoding-stage="SourceProcessing">
+                                    <strong>@Text["Streaming_LaneSourceProcessing"]</strong>
+                                    <VideoEncoderBadge Encoding="_sourceVideoEncoding" />
+                                </div>
+                                <div class="small mb-1" data-encoding-stage="OutputProcessing">
+                                    <strong>@Text["Streaming_LaneOutputProcessing"]</strong>
+                                    <VideoEncoderBadge Encoding="_outputVideoEncoding" />
+                                </div>
                                 @foreach (var track in _activeStream.Tracks)
                                 {
                                     <div class="small mb-1">

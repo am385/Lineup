@@ -1,0 +1,26 @@
+<Project>
+  <!-- Executable references reached through both portable and RID-specific graph paths can export two runtime configurations.
+       Package the helper assets alongside the exact FFmpeg assembly selected by publish, never a different RID's configuration. -->
+  <Target Name="SelectOwnedMediaProcessPublishAssets" BeforeTargets="_HandleFileConflictsForPublish">
+    <ItemGroup>
+      <_OwnedMediaAssembly Include="@(ResolvedFileToPublish)" Condition="'%(RelativePath)' == 'Lineup.Core.Streaming.FFmpeg.dll'" />
+    </ItemGroup>
+    <PropertyGroup Condition="'@(_OwnedMediaAssembly)' != ''">
+      <_OwnedMediaDirectory>@(_OwnedMediaAssembly->'%(RootDir)%(Directory)')</_OwnedMediaDirectory>
+    </PropertyGroup>
+    <ItemGroup Condition="'@(_OwnedMediaAssembly)' != ''">
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="'%(RelativePath)' == 'Lineup.Core.Streaming.FFmpeg.deps.json' Or '%(RelativePath)' == 'Lineup.Core.Streaming.FFmpeg.runtimeconfig.json'
+                                     Or '%(RelativePath)' == 'Lineup.Core.Streaming.FFmpeg' Or '%(RelativePath)' == 'Lineup.Core.Streaming.FFmpeg.exe'" />
+      <ResolvedFileToPublish Include="$(_OwnedMediaDirectory)Lineup.Core.Streaming.FFmpeg.deps.json"
+                             RelativePath="Lineup.Core.Streaming.FFmpeg.deps.json" CopyToPublishDirectory="PreserveNewest" />
+      <ResolvedFileToPublish Include="$(_OwnedMediaDirectory)Lineup.Core.Streaming.FFmpeg.runtimeconfig.json"
+                             RelativePath="Lineup.Core.Streaming.FFmpeg.runtimeconfig.json" CopyToPublishDirectory="PreserveNewest" />
+      <ResolvedFileToPublish Include="$(_OwnedMediaDirectory)Lineup.Core.Streaming.FFmpeg$(_NativeExecutableExtension)"
+                             RelativePath="Lineup.Core.Streaming.FFmpeg$(_NativeExecutableExtension)" CopyToPublishDirectory="PreserveNewest"
+                             Condition="Exists('$(_OwnedMediaDirectory)Lineup.Core.Streaming.FFmpeg$(_NativeExecutableExtension)')" />
+    </ItemGroup>
+    <Error Condition="'@(_OwnedMediaAssembly)' != '' And '$(SelfContained)' == 'true' And !Exists('$(_OwnedMediaDirectory)Lineup.Core.Streaming.FFmpeg$(_NativeExecutableExtension)')"
+           Text="A self-contained media host requires the matching owned-process helper apphost." />
+  </Target>
+</Project>

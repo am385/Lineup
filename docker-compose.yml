@@ -1,4 +1,6 @@
 services:
+  # Optional GPU access: merge docker-compose.gpu-dri.yml OR docker-compose.gpu-nvidia.yml.
+  # Neither GPU access nor hardware encoding is enabled by default. See README.
   lineup:
     image: ${DOCKER_IMAGE:-lineup:latest}
     build:

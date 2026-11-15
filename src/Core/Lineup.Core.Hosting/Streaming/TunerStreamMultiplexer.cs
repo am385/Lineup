@@ -271,7 +271,9 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
         var stage = CreateStage(
             "source-normalization",
             SourceDeinterlacePlanner.CreateArguments(source, physicalProfile),
-            sourceName);
+            sourceName,
+            physicalProfile.HardwareEncoding,
+            SourceDeinterlacePlanner.CreateArguments(source, physicalProfile with { HardwareEncoding = new() }));
         var lease = await _graph.AcquireTransformAsync(descriptor, stage.Key, acquisitionFactory, stage.Transform, cancellationToken);
         return new SessionOwnedStream(lease);
     }
@@ -311,7 +313,8 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
         if (SourceDeinterlacePlanner.ShouldNormalize(source, physicalProfile))
         {
             var physicalArguments = SourceDeinterlacePlanner.CreateArguments(source, physicalProfile);
-            stages.Add(CreateStage("source-normalization", physicalArguments, sourceName));
+            stages.Add(CreateStage("source-normalization", physicalArguments, sourceName, physicalProfile.HardwareEncoding,
+                SourceDeinterlacePlanner.CreateArguments(source, physicalProfile with { HardwareEncoding = new() })));
             effectiveSource = SourceDeinterlacePlanner.CreateEffectiveSource(source, physicalProfile);
         }
 
@@ -329,7 +332,11 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
             subtitles,
             sourceVideo?.ScanType == VideoScanType.Interlaced).ToList();
         virtualArguments[virtualArguments.IndexOf("http://lineup.invalid/source")] = "pipe:0";
-        stages.Add(CreateStage("virtual-mpegts", virtualArguments, sourceName));
+        var softwareArguments = MpegTsTranscodePlanner.CreateFfmpegArguments(
+            new Uri("http://lineup.invalid/source"), sourceVideo?.Codec, audioStreams, virtualProfile with { HardwareEncoding = new() },
+            subtitles, sourceVideo?.ScanType == VideoScanType.Interlaced).ToList();
+        softwareArguments[softwareArguments.IndexOf("http://lineup.invalid/source")] = "pipe:0";
+        stages.Add(CreateStage("virtual-mpegts", virtualArguments, sourceName, virtualProfile.HardwareEncoding, softwareArguments));
 
         var lease = await _graph.AcquirePipelineAsync(descriptor, acquisitionFactory, stages, keepWarmPeriod, cancellationToken);
         return new SessionOwnedStream(lease);
@@ -340,12 +347,13 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
     /// <returns>A task that completes when the operation has finished.</returns>
     public Task StopAsync(CancellationToken cancellationToken) => _graph.StopAsync(cancellationToken);
 
-    private StreamTransformStage CreateStage(string stage, IReadOnlyList<string> arguments, string sourceName)
+    private StreamTransformStage CreateStage(string stage, IReadOnlyList<string> arguments, string sourceName, HardwareEncodingSettings hardware, IReadOnlyList<string> softwareArguments)
     {
-        var settingsKey = JsonSerializer.Serialize(arguments);
+        var effectiveHardware = hardware.Encoder != HardwareVideoEncoder.Software && arguments.Contains(HardwareVideoEncodingPlanner.GetEncoderName(hardware.Encoder)) ? hardware : null;
+        var settingsKey = JsonSerializer.Serialize(new { Arguments = arguments, Hardware = effectiveHardware });
         return new StreamTransformStage(
             new StreamTransformKey(stage, settingsKey),
-            new FfmpegGraphTransform(new FfmpegStreamTransform(arguments, _processFactory, _logger, sourceName)));
+            new FfmpegGraphTransform(new FfmpegStreamTransform(arguments, _processFactory, _logger, sourceName, hardware, softwareArguments)));
     }
 
     private sealed class SessionOwnedStream(IStreamSessionLease lease) : Stream, IStreamProducerCorrelation

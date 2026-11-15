@@ -74,6 +74,25 @@ public sealed class HDHomeRunPhysicalTunerDriver : IPhysicalTunerDriver, IPhysic
                 Kind = AdapterSettingKind.Text,
                 IsRequired = true,
                 CanClear = false
+            },
+            new AdapterSettingDescriptor
+            {
+                Key = "transcodeProfile",
+                Label = "EXTEND video profile",
+                Description = "EXTEND models only. Device default leaves requests unchanged, not forced native video. Audio is not transcoded; heavy can remain interlaced.",
+                Kind = AdapterSettingKind.Choice,
+                IsRequired = true,
+                CanClear = false,
+                Choices =
+                [
+                    new() { Value = "default", Label = "Device default" },
+                    new() { Value = "heavy", Label = "Heavy (source resolution and interlacing)" },
+                    new() { Value = "mobile", Label = "Mobile (up to 720p30)" },
+                    new() { Value = "internet540", Label = "Internet 540p30" },
+                    new() { Value = "internet480", Label = "Internet 480p30" },
+                    new() { Value = "internet360", Label = "Internet 360p30" },
+                    new() { Value = "internet240", Label = "Internet 240p30" }
+                ]
             }
         ]
     };
@@ -100,6 +119,12 @@ public sealed class HDHomeRunPhysicalTunerDriver : IPhysicalTunerDriver, IPhysic
                     Key = "address",
                     Value = JsonSerializer.SerializeToElement(typed?.Address ?? string.Empty),
                     HasValue = !string.IsNullOrWhiteSpace(typed?.Address)
+                },
+                new AdapterSettingSnapshot
+                {
+                    Key = "transcodeProfile",
+                    Value = JsonSerializer.SerializeToElement(typed?.TranscodeProfile ?? "default"),
+                    HasValue = true
                 }
             ]
         };
@@ -114,9 +139,27 @@ public sealed class HDHomeRunPhysicalTunerDriver : IPhysicalTunerDriver, IPhysic
         var current = configuration.Configuration.Deserialize<HDHomeRunPhysicalTunerConfiguration>(_serializerOptions)
             ?? new HDHomeRunPhysicalTunerConfiguration { Address = DefaultAddress };
         var address = current.Address;
+        var transcodeProfile = current.TranscodeProfile;
         var errors = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
         foreach (var edit in edits)
         {
+            if (string.Equals(edit.Key, "transcodeProfile", StringComparison.Ordinal))
+            {
+                if (edit.Action == AdapterSettingEditAction.Preserve)
+                {
+                    continue;
+                }
+                if (edit.Action != AdapterSettingEditAction.Set ||
+                    edit.Value is not JsonElement profileValue ||
+                    profileValue.ValueKind != JsonValueKind.String ||
+                    !HDHomeRunPhysicalTunerConfiguration.IsValidProfile(profileValue.GetString()))
+                {
+                    errors[edit.Key] = ["Select Device default or a documented EXTEND video profile."];
+                    continue;
+                }
+                transcodeProfile = profileValue.GetString()!;
+                continue;
+            }
             if (!string.Equals(edit.Key, "address", StringComparison.Ordinal))
             {
                 errors[edit.Key] = ["Unknown setting."];
@@ -142,7 +185,7 @@ public sealed class HDHomeRunPhysicalTunerDriver : IPhysicalTunerDriver, IPhysic
         {
             return new AdapterSettingsApplyResult { Errors = errors };
         }
-        var updated = new AdapterConfiguration(Kind, JsonSerializer.SerializeToElement(new HDHomeRunPhysicalTunerConfiguration { Address = address }));
+        var updated = new AdapterConfiguration(Kind, JsonSerializer.SerializeToElement(current with { Address = address, TranscodeProfile = transcodeProfile }));
         var validation = Validate(updated);
         return validation.Count == 0
             ? new AdapterSettingsApplyResult { Configuration = updated }
@@ -181,6 +224,10 @@ public sealed class HDHomeRunPhysicalTunerDriver : IPhysicalTunerDriver, IPhysic
         {
             errors.Add("Address must be a host name, IP address, or absolute HTTP or HTTPS address without a path, query, or fragment.");
         }
+        if (typedConfiguration is not null && !HDHomeRunPhysicalTunerConfiguration.IsValidProfile(typedConfiguration.TranscodeProfile))
+        {
+            errors.Add("TranscodeProfile must be default, heavy, mobile, internet540, internet480, internet360, or internet240.");
+        }
 
         return errors;
     }
@@ -205,6 +252,7 @@ public sealed class HDHomeRunPhysicalTunerDriver : IPhysicalTunerDriver, IPhysic
             connection.DeviceClient,
             connection.HttpClient,
             connection.Address,
+            connection.TranscodeProfile,
             _deviceService,
             _loggerFactory.CreateLogger<HDHomeRunPhysicalTunerDevice>());
     }
@@ -228,7 +276,8 @@ public sealed class HDHomeRunPhysicalTunerDriver : IPhysicalTunerDriver, IPhysic
                 Detail("Device ID", deviceInfo.DeviceID),
                 Detail("Tuners", deviceInfo.TunerCount.ToString(System.Globalization.CultureInfo.InvariantCulture)),
                 Detail("Firmware", $"{deviceInfo.FirmwareName} {deviceInfo.FirmwareVersion}".Trim()),
-                Detail("Base URL", deviceInfo.BaseURL)
+                Detail("Base URL", deviceInfo.BaseURL),
+                Detail("EXTEND video transcoding", HDHomeRunPhysicalTunerDevice.SupportsTranscoding(deviceInfo) ? "Supported (audio unchanged)" : "Not supported")
             ]
         };
     }
@@ -255,8 +304,13 @@ public sealed class HDHomeRunPhysicalTunerDriver : IPhysicalTunerDriver, IPhysic
             {
                 throw new InvalidOperationException($"HDHomeRun device '{deviceInfo.DeviceID}' reported invalid tuner count {deviceInfo.TunerCount}.");
             }
+            if (typedConfiguration.TranscodeProfile != "default" && !HDHomeRunPhysicalTunerDevice.SupportsTranscoding(deviceInfo))
+            {
+                throw new InvalidOperationException(
+                    $"HDHomeRun model '{deviceInfo.ModelNumber}' does not support EXTEND video profiles. Select Device default or use an HDTC-2US, HDTC-2US-M, or HDTC-2US-L.");
+            }
 
-            return new HDHomeRunConnection(baseAddress.DnsSafeHost, httpClient, deviceClient, deviceInfo);
+            return new HDHomeRunConnection(baseAddress.DnsSafeHost, httpClient, deviceClient, deviceInfo, typedConfiguration.TranscodeProfile);
         }
         catch
         {
@@ -296,5 +350,5 @@ public sealed class HDHomeRunPhysicalTunerDriver : IPhysicalTunerDriver, IPhysic
         return true;
     }
 
-    private sealed record HDHomeRunConnection(string Address, HttpClient HttpClient, HDHomeRunDeviceClient DeviceClient, HDHomeRunDeviceInfo DeviceInfo);
+    private sealed record HDHomeRunConnection(string Address, HttpClient HttpClient, HDHomeRunDeviceClient DeviceClient, HDHomeRunDeviceInfo DeviceInfo, string TranscodeProfile);
 }

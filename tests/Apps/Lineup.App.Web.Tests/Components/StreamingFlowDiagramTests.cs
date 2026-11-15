@@ -7,6 +7,71 @@ namespace Lineup.App.Web.Tests.Components;
 /// <summary>Verifies the accessible dashboard streaming-flow visualization and active paths.</summary>
 public sealed class StreamingFlowDiagramTests
 {
+    /// <summary>Verifies actual GPU, software fallback and copy outcomes are visible without expanding a dashboard path or node.</summary>
+    [Theory]
+    [InlineData("h264_amf", false, "GPU encoding", false)]
+    [InlineData("libx264", true, "Software encoding", true)]
+    [InlineData("copy", false, "Video copied", false)]
+    [InlineData("unknown_encoder", false, "Video encoder:", false)]
+    public async Task Render_RuntimeEncoder_ShowsOutcomeOnTopologyAndActivePath(string encoder, bool fallback, string label, bool showsFallback)
+    {
+        // Arrange
+        await using var context = new BunitContext();
+        var encoding = new VideoEncodingSnapshot(encoder, HardwareVideoEncoder.Amf, fallback);
+        var sourceEncoding = new VideoEncodingSnapshot("h264_qsv", HardwareVideoEncoder.Qsv, false);
+        var snapshot = new StreamingFlowSnapshot(
+            [new StreamingFlowNode("source", StreamingFlowLane.PhysicalProcessing, "Source Transcoder", "HDHomeRun", StreamingFlowState.Transcoding, [])
+                { VideoEncodings = [sourceEncoding] },
+             new StreamingFlowNode("output", StreamingFlowLane.VirtualProcessing, "Output Transcoder", "Web Player", StreamingFlowState.Transcoding, [])
+                { VideoEncodings = [encoding] }],
+            [new StreamingFlowPath("path", "session", "localhost", HostedStreamFormat.Cmaf, "2.1", DateTime.UtcNow,
+                [new StreamingFlowPathStage(StreamingFlowStageKind.SourceProcessing, "Source Transcoder", "HDHomeRun", []) { VideoEncoding = sourceEncoding },
+                 new StreamingFlowPathStage(StreamingFlowStageKind.OutputProcessing, "CMAF transcode", "Web Player", []) { VideoEncoding = encoding }], false, false, 1)],
+            1, 1, 0);
+
+        // Act
+        var topology = context.Render<StreamingFlowDiagram>(parameters => parameters.Add(component => component.Snapshot, snapshot));
+        var paths = context.Render<StreamingFlowPaths>(parameters => parameters.Add(component => component.Snapshot, snapshot));
+
+        // Assert
+        Assert.Contains(label, topology.Find("[data-flow-node-id='output'] .video-encoder-badge").TextContent);
+        Assert.Contains(encoder, topology.Find("[data-flow-node-id='output'] .video-encoder-badge").TextContent);
+        Assert.Contains("GPU encoding", topology.Find("[data-flow-node-id='source']").TextContent);
+        Assert.Contains("h264_qsv", paths.Find("[data-flow-stage='SourceProcessing']").TextContent);
+        Assert.Contains(encoder, topology.Find("[data-flow-node-id='output']").GetAttribute("aria-label"));
+        Assert.Contains(label, paths.Find("[data-flow-stage='OutputProcessing']").TextContent);
+        Assert.Equal("Requested encoder: Amf", paths.Find("[data-flow-stage='OutputProcessing'] .video-encoder-badge").GetAttribute("title"));
+        Assert.Equal(showsFallback, paths.FindAll(".video-encoder-fallback").Count == 1);
+        Assert.Equal(showsFallback, topology.FindAll(".video-encoder-fallback").Count == 1);
+        Assert.Empty(paths.FindAll(".streaming-flow-path-details"));
+        Assert.Empty(topology.FindAll("#streamingFlowDetails"));
+    }
+
+    /// <summary>Verifies missing producer telemetry is explicit on active processing cards instead of suggesting a configured GPU is in use.</summary>
+    [Theory]
+    [InlineData(StreamingFlowLane.PhysicalProcessing, StreamingFlowStageKind.SourceProcessing)]
+    [InlineData(StreamingFlowLane.VirtualProcessing, StreamingFlowStageKind.OutputProcessing)]
+    public async Task Render_ActiveProcessingWithoutTelemetry_ShowsNotReported(StreamingFlowLane lane, StreamingFlowStageKind kind)
+    {
+        // Arrange
+        await using var context = new BunitContext();
+        var snapshot = new StreamingFlowSnapshot(
+            [new StreamingFlowNode("processing", lane, "Transcoder", "Device", StreamingFlowState.Active, []) { ActiveSessionCount = 1 }],
+            [new StreamingFlowPath("path", "session", "localhost", HostedStreamFormat.Cmaf, "2.1", DateTime.UtcNow,
+                [new StreamingFlowPathStage(kind, "Transcoder", "Device", [])], false, false, 1)], 1, 1, 0);
+
+        // Act
+        var topology = context.Render<StreamingFlowDiagram>(parameters => parameters.Add(component => component.Snapshot, snapshot));
+        var paths = context.Render<StreamingFlowPaths>(parameters => parameters.Add(component => component.Snapshot, snapshot));
+
+        // Assert
+        Assert.Equal("Video encoder not reported", topology.Find(".video-encoder-unknown").TextContent);
+        Assert.Equal("Video encoder not reported", paths.Find(".video-encoder-unknown").TextContent);
+        Assert.Contains("Video encoder not reported", topology.Find("[data-flow-node-id='processing']").GetAttribute("aria-label"));
+        Assert.Empty(topology.FindAll(".video-encoder-badge"));
+        Assert.Empty(paths.FindAll(".video-encoder-badge"));
+    }
+
     /// <summary>Verifies a session path exposes compact metadata and contextual stage details.</summary>
     [Fact]
     public async Task Render_ActiveSharedPath_OpensAndReplacesStageDetails()

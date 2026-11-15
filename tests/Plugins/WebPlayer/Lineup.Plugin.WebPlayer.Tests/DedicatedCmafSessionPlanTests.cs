@@ -8,6 +8,31 @@ namespace Lineup.Plugin.WebPlayer.Tests;
 /// <summary>Verifies dedicated workers build browser presentations with the shared CMAF planner.</summary>
 public sealed class DedicatedCmafSessionPlanTests
 {
+    /// <summary>Verifies explicit software fallback reports requested and actual encoders without losing the source-audio retry policy.</summary>
+    [Fact]
+    public void CreateSoftwareFallback_ReportsActualEncoderAndPreservesAudioFallback()
+    {
+        // Arrange
+        var response = CreateMixedAudioResponse(OutputAudioPolicy.Copy, OutputAudioPolicy.Copy);
+        response = response with { Profile = response.Profile! with { HardwareEncoding = new() { Encoder = HardwareVideoEncoder.Nvenc, AllowSoftwareFallback = true } } };
+        var directory = Path.GetTempPath();
+        var plan = DedicatedCmafSessionPlan.Create(response, new CmafStreamRequest { PreferredVideo = CmafPreferredVideo.Fallback }, directory);
+
+        // Act
+        var fallback = plan.CreateSoftwareFallback(directory).CreateFallback(directory);
+        var result = fallback.CreateResponse("hardware-test", new Uri("http://localhost:8600/"));
+        var snapshot = fallback.CreateActiveStreamSnapshot("hardware-test", "1.1", DateTime.UtcNow);
+
+        // Assert
+        Assert.True(result.HardwareFallbackApplied);
+        Assert.True(result.SourceAudioFallbackApplied);
+        Assert.Equal(HardwareVideoEncoder.Nvenc, result.RequestedVideoEncoder);
+        Assert.Equal("libx264", result.ActiveVideoEncoder);
+        Assert.Equal("libx264", snapshot.ActiveVideoEncoder);
+        Assert.True(snapshot.HardwareFallbackApplied);
+        Assert.NotEqual(plan.SharingKey, fallback.SharingKey);
+    }
+
     /// <summary>Verifies equivalent dedicated presentations share an identity across viewer IDs and output directories.</summary>
     [Fact]
     public void SharingKey_EquivalentPlans_IgnoresViewerAndOutputDirectory()
@@ -15,7 +40,7 @@ public sealed class DedicatedCmafSessionPlanTests
         // Arrange
         var response = CreateMixedAudioResponse(OutputAudioPolicy.Copy, OutputAudioPolicy.Copy);
         var profile = response.Profile!;
-        var request = new CmafStreamRequest { ClientId = "first-viewer", AudioTrack = 4 };
+        var request = new CmafStreamRequest { ClientId = "first-viewer", AudioTrack = 4, PreferredVideo = CmafPreferredVideo.Fallback };
 
         // Act
         var first = DedicatedCmafSessionPlan.Create(response, request, Path.Combine("media-plan-tests", "first"));
@@ -440,7 +465,7 @@ public sealed class DedicatedCmafSessionPlanTests
             AssertOption(plan.Arguments, $"-c:a:{index}", encoder);
             Assert.Contains(plan.Arguments.Select((value, position) => (value, position)),
                 item => item.value == "-map" && plan.Arguments[item.position + 1] == $"0:{rendition.Source.Index}");
-            Assert.Contains($"title={rendition.Plan.Title}", plan.Arguments);
+            Assert.Contains($"title=Audio #{rendition.Source.Index} · {rendition.Source.Language} · {rendition.Plan.MediaTitle}", plan.Arguments);
             Assert.Equal(expectedCodec, output.Codec);
             Assert.Equal(rendition.Plan.Channels, output.Channels);
             Assert.Equal(rendition.Plan.BitRate, output.BitRate);

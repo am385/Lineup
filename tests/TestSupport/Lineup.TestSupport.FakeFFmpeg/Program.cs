@@ -1,6 +1,35 @@
 using System.Diagnostics;
 using System.Text.Json;
 
+if (Environment.GetEnvironmentVariable("LINEUP_FAKE_FFMPEG_HARDWARE_MODE") == "probe-passes-playback-fails")
+{
+    var log = Environment.GetEnvironmentVariable("LINEUP_FAKE_FFMPEG_HARDWARE_LOG");
+    var phase = args.Contains("-encoders", StringComparer.Ordinal) ? "encoders" :
+        args.Contains("lavfi", StringComparer.Ordinal) ? "probe" :
+        args.Any(argument => argument is "h264_nvenc" or "h264_qsv" or "h264_vaapi" or "h264_amf" or "h264_videotoolbox") ? "hardware-failure" : "software-playback";
+    if (!string.IsNullOrEmpty(log))
+    {
+        await File.AppendAllTextAsync(log, phase + Environment.NewLine);
+    }
+    if (phase == "encoders")
+    {
+        foreach (var encoder in new[] { "h264_nvenc", "h264_qsv", "h264_vaapi", "h264_amf", "h264_videotoolbox" })
+        {
+            await Console.Out.WriteLineAsync($" V....D {encoder} Synthetic hardware encoder");
+        }
+        return 0;
+    }
+    if (phase == "probe")
+    {
+        return 0;
+    }
+    if (phase == "hardware-failure")
+    {
+        await Console.Error.WriteLineAsync("Error while opening encoder: Synthetic hardware playback initialization failure.");
+        return 1;
+    }
+}
+
 if (args is ["orphan", var readyPath])
 {
     await File.WriteAllTextAsync(readyPath + ".tmp", Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));

@@ -1,5 +1,6 @@
 using Bunit;
 using Lineup.App.Web.Components.Pages;
+using Lineup.App.Web.Components.Transcoding;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using Xunit;
@@ -11,6 +12,28 @@ namespace Lineup.App.Web.Tests.Components.Pages;
 /// </summary>
 public class TranscodingSettingsTests
 {
+    /// <summary>Verifies selecting a new backend cannot retain incompatible device and advanced options.</summary>
+    [Fact]
+    public async Task HardwareEncoder_ChangingBackend_ClearsBackendSpecificSettings()
+    {
+        // Arrange
+        await using var context = new BunitContext();
+        HardwareEncodingSettings? changed = null;
+        var component = context.Render<HardwareEncoderSettings>(parameters => parameters
+            .Add(editor => editor.IdPrefix, "hardware")
+            .Add(editor => editor.Value, new HardwareEncodingSettings { Encoder = HardwareVideoEncoder.Nvenc, Device = "1", AdvancedArguments = "preset=p6" })
+            .Add(editor => editor.ValueChanged, value => changed = value));
+
+        // Act
+        await component.Find("#hardwareEncoder").ChangeAsync(HardwareVideoEncoder.Software.ToString());
+
+        // Assert
+        Assert.NotNull(changed);
+        Assert.Equal(HardwareVideoEncoder.Software, changed.Encoder);
+        Assert.Empty(changed.Device);
+        Assert.Empty(changed.AdvancedArguments);
+    }
+
     /// <summary>
     /// Verifies the disabled-channel behavior defaults to an error and persists edits.
     /// </summary>

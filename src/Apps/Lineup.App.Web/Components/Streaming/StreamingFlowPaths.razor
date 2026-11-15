@@ -49,6 +49,10 @@
                                 @onclick="() => SelectStage(path.Id, stage.Kind)">
                             <span class="streaming-flow-path-stage-label">@stage.Label</span>
                             <span class="streaming-flow-path-stage-subtitle">@stage.Subtitle</span>
+                            @if (stage.Kind is StreamingFlowStageKind.SourceProcessing or StreamingFlowStageKind.OutputProcessing)
+                            {
+                                <VideoEncoderBadge Encoding="stage.VideoEncoding" />
+                            }
                         </button>
                         @if (stageIndex < path.Stages.Count - 1)
                         {

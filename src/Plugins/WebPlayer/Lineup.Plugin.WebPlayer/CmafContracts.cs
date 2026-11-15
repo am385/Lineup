@@ -129,10 +129,18 @@ public sealed record CmafStreamResponse(string SessionId, string HlsManifestUrl,
 public sealed record CmafSubtitleRendition(int SourceIndex, string Label, string? Language, string Url, bool IsEmbeddedClosedCaptions);
 
 /// <summary>Describes the effective CMAF audio output.</summary>
-public sealed record CmafAudioPlan(bool CopySource, string Codec, int? Channels, long? BitRate, int? SampleRate, string Title);
+public sealed record CmafAudioPlan(bool CopySource, string Codec, int? Channels, long? BitRate, int? SampleRate, string Title)
+{
+    /// <summary>Gets the rendition label without viewer-specific policy provenance, for shared media metadata.</summary>
+    public string MediaTitle { get; init; } = Title;
+}
 
 /// <summary>Associates one packaged CMAF audio output with its source track.</summary>
 public sealed record CmafAudioRendition(MediaTrackMetadata Source, CmafAudioPlan Plan);
 
 /// <summary>Describes one CMAF video output.</summary>
-public sealed record CmafVideoPlan(bool CopySource, string Codec, long? BitRate, string Title);
+public sealed record CmafVideoPlan(bool CopySource, string Codec, long? BitRate, string Title)
+{
+    /// <summary>Gets the rendition label without viewer-specific policy provenance, for shared media metadata.</summary>
+    public string MediaTitle { get; init; } = Title;
+}

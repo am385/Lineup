@@ -8,6 +8,7 @@ ARG BUILD_VERSION=""
 
 # Copy project files first for better layer caching
 COPY Directory.Build.props ./
+COPY Directory.Build.targets ./
 COPY src/Core/Lineup.Core.Common/Lineup.Core.Common.csproj src/Core/Lineup.Core.Common/
 COPY src/Apps/Lineup.App.Web/Lineup.App.Web.csproj src/Apps/Lineup.App.Web/
 COPY src/Core/Lineup.Core.Extensibility/Lineup.Core.Extensibility.csproj src/Core/Lineup.Core.Extensibility/

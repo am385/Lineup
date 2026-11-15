@@ -7,6 +7,26 @@ namespace Lineup.Core.Tests.Streaming;
 /// </summary>
 public sealed class TranscodeOverrideTests
 {
+    /// <summary>Verifies a device can inherit GPU settings or explicitly clear every field by choosing Software.</summary>
+    [Fact]
+    public void Apply_HardwareSettings_InheritsOrReplacesAsOneUnit()
+    {
+        // Arrange
+        var hardware = new HardwareEncodingSettings { Encoder = HardwareVideoEncoder.Nvenc, Device = "1", AdvancedArguments = "preset=p6", AllowSoftwareFallback = true };
+        var physical = new PhysicalTranscodeProfile { HardwareEncoding = hardware };
+        var virtualProfile = new VirtualTranscodeProfile { HardwareEncoding = hardware };
+
+        // Act
+        var inherited = new PhysicalTranscodeOverrides().Apply(physical);
+        var software = new PhysicalTranscodeOverrides { HardwareEncoding = new() }.Apply(physical);
+        var virtualSoftware = new VirtualTranscodeOverrides { HardwareEncoding = new() }.Apply(virtualProfile);
+
+        // Assert
+        Assert.Equal(hardware, inherited.HardwareEncoding);
+        Assert.Equal(new HardwareEncodingSettings(), software.HardwareEncoding);
+        Assert.Equal(new HardwareEncodingSettings(), virtualSoftware.HardwareEncoding);
+    }
+
     /// <summary>
     /// Verifies unspecified virtual values continue to inherit global defaults.
     /// </summary>

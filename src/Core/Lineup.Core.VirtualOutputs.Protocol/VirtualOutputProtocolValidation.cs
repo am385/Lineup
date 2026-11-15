@@ -131,6 +131,11 @@ public static class VirtualOutputProtocolValidation
         {
             errors.Add("The stream startup stage is invalid.");
         }
+        if (report.VideoEncoding is { } encoding &&
+            (IsInvalidCodec(encoding.Encoder) || encoding.RequestedEncoder is { } requested && !Enum.IsDefined(requested)))
+        {
+            errors.Add("The reported video encoder is invalid or oversized.");
+        }
         if (report.LastFailure?.Length > VirtualOutputProtocol.MaximumStreamFailureLength)
         {
             errors.Add($"The stream failure cannot exceed {VirtualOutputProtocol.MaximumStreamFailureLength} characters.");

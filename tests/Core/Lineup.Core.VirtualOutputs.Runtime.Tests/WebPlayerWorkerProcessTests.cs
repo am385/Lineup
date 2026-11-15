@@ -418,6 +418,10 @@ public sealed class WebPlayerWorkerProcessTests
         Assert.Equal(HostedStreamFormat.Cmaf, stream.Format);
         Assert.Equal(nameof(VirtualOutputStreamStartupStage.Ready), stream.WorkerStartupStage);
         Assert.Equal(["h264", audioCodec, "webvtt"], stream.VirtualOutput!.Tracks.Select(track => track.Codec));
+        Assert.Equal("libx264", stream.ActiveVideoEncoder);
+        Assert.Equal(HardwareVideoEncoder.Software, stream.RequestedVideoEncoder);
+        Assert.False(stream.HardwareFallbackApplied);
+        Assert.Equal(payload["activeVideoEncoder"]!.GetValue<string>(), stream.ActiveVideoEncoder);
         Assert.Single(harness.MediaStarts);
         Assert.Equal(HttpStatusCode.NoContent, stopResponse.StatusCode);
         Assert.Empty(harness.ActiveStreams.GetActiveStreams());
@@ -516,16 +520,23 @@ public sealed class WebPlayerWorkerProcessTests
 
     /// <summary>Verifies independently admitted viewer aliases share one producer and stopping its initiating viewer leaves the other playing.</summary>
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Worker_EquivalentViewers_ShareProducerAndStopIndependently(bool stopFromHost)
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, true)]
+    public async Task Worker_EquivalentViewers_ShareProducerAndStopIndependently(bool stopFromHost, bool equivalentOverrides, bool equivalentProfiles)
     {
         // Arrange
+        var admissions = 0;
         await using var harness = await WebPlayerWorkerHarness.StartAsync(
-            (request, _) => Task.FromResult(CreateBrokeredStream(request, new PacedPatternStream(), "physical-generation-one")),
+            (request, _) => Task.FromResult(CreateBrokeredStream(request, new PacedPatternStream(), "physical-generation-one",
+                profile: new() { Audio = equivalentProfiles && Interlocked.Increment(ref admissions) > 1 ? OutputAudioPolicy.Ac3 : OutputAudioPolicy.Copy })),
             TestContext.Current.CancellationToken);
-        using var firstRequest = harness.CreateRequest(HttpMethod.Post, "/media/start/2.1", "{}");
-        using var secondRequest = harness.CreateRequest(HttpMethod.Post, "/media/start/2.1", "{}");
+        using var firstRequest = harness.CreateRequest(HttpMethod.Post, "/media/start/2.1",
+            equivalentProfiles ? """{"preferredAudio":1,"fallbackAudio":3}""" : "{}");
+        using var secondRequest = harness.CreateRequest(HttpMethod.Post, "/media/start/2.1",
+            equivalentOverrides ? """{"overrides":{"enabled":true,"audio":0,"protocol":1}}""" : "{}");
 
         // Act
         using var firstResponse = await harness.Client.SendAsync(firstRequest, TestContext.Current.CancellationToken);
@@ -553,6 +564,12 @@ public sealed class WebPlayerWorkerProcessTests
         Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
         Assert.Equal(HttpStatusCode.OK, secondResponse.StatusCode);
         Assert.Equal(2, joined.Count);
+        Assert.Equal(equivalentOverrides ? 1 : 0,
+            joined.Count(stream => stream.VirtualOutput!.Tracks.Any(track => track.Type == MediaTrackType.Audio && track.RenditionTitle!.Contains("Override", StringComparison.Ordinal))));
+        if (equivalentProfiles)
+        {
+            Assert.All(joined, stream => Assert.Equal("ac3", Assert.Single(stream.Tracks, track => track.Type == MediaTrackType.Audio).OutputCodec));
+        }
         Assert.Equal(2, joined.Select(stream => stream.WorkerMediaSessionId).Distinct().Count());
         Assert.NotNull(Assert.Single(joined.Select(stream => stream.Flow!.ReusableOutputId).Distinct()));
         Assert.Single(harness.MediaStarts);
@@ -708,12 +725,13 @@ public sealed class WebPlayerWorkerProcessTests
         Assert.Equal(2, producers.Length);
     }
 
-    private static VirtualOutputBrokeredStream CreateBrokeredStream(VirtualOutputOpenStreamRequest request, Stream stream, string? producerNodeId = null, int keepWarmSeconds = 0)
+    private static VirtualOutputBrokeredStream CreateBrokeredStream(VirtualOutputOpenStreamRequest request, Stream stream, string? producerNodeId = null, int keepWarmSeconds = 0, VirtualTranscodeProfile? profile = null)
     {
         var activeStreams = WebPlayerWorkerHarness.CurrentActiveStreams
             ?? throw new InvalidOperationException("The test broker is not attached to an active worker harness.");
         var streamSessionId = StreamSessionId.New();
         var source = CreateSourceMetadata();
+        profile ??= new VirtualTranscodeProfile();
         var flow = new ActiveStreamFlowContext { ProducerNodeId = producerNodeId };
         var brokered = new VirtualOutputBrokeredStream(
             activeStreams,
@@ -721,7 +739,7 @@ public sealed class WebPlayerWorkerProcessTests
                 stream,
                 source,
                 source,
-                new VirtualTranscodeProfile(),
+                profile,
                 flow),
             new VirtualOutputOpenStreamResponse
             {
@@ -730,7 +748,7 @@ public sealed class WebPlayerWorkerProcessTests
                 StreamSessionId = streamSessionId,
                 RawSource = source,
                 Source = source,
-                Profile = new VirtualTranscodeProfile(),
+                Profile = profile,
                 ProducerNodeId = producerNodeId,
                 KeepWarmPeriodSeconds = keepWarmSeconds
             }, retainedProducerSource: request.RetainSourceForProducer);

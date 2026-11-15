@@ -18,6 +18,58 @@ public partial class WatchTests
 {
     private const string PreferencesStorageKey = "lineup-watch-cmaf-preferences-v2";
 
+    /// <summary>Verifies Stream Information independently displays source and output encoders for management and dedicated viewers.</summary>
+    [Theory]
+    [InlineData("h264_amf", "libx264", true, false)]
+    [InlineData("libx264", "h264_nvenc", false, true)]
+    [InlineData("copy", "copy", false, false)]
+    [InlineData(null, null, false, true)]
+    public async Task StreamInformation_ShowsStageSpecificEncoders(string? sourceEncoder, string? outputEncoder, bool outputFallback, bool dedicated)
+    {
+        // Arrange
+        var physicalId = PhysicalDeviceId.New();
+        var registry = new ActiveStreamRegistry();
+        var graph = Substitute.For<IStreamingSessionGraph>();
+        graph.GetDiagnostics().Returns(new StreamingSessionGraphDiagnostics(
+        [
+            new("acquisition", "raw", 1, true) { NodeId = "raw", PhysicalDeviceId = physicalId },
+            new("transform", "source", 1, true)
+            {
+                NodeId = "source",
+                ParentNodeId = "raw",
+                Stage = "source-normalization",
+                VideoEncoding = sourceEncoder is null ? null : new(sourceEncoder, HardwareVideoEncoder.Amf, sourceEncoder == "libx264")
+            }
+        ], []));
+        await using var context = CreateContext(registry: registry, graph: graph);
+        ConfigureSuccessfulSession(context);
+        var component = context.Render<Watch>(parameters => parameters.Add(page => page.ChannelNumber, "42.1"));
+        component.WaitForAssertion(() => Assert.NotNull(component.Find("#cmafVideoPlayer")), timeout: LineupWebBunitContext.WaitTimeout);
+        var clientId = Assert.IsType<string>(typeof(Watch).GetField("_clientId", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(component.Instance));
+
+        // Act
+        registry.Register(new ActiveStreamSnapshot("registered-viewer", "42.1", HostedStreamFormat.Cmaf, DateTime.UtcNow, null, [])
+        {
+            ClientId = dedicated ? null : clientId,
+            WorkerMediaSessionId = dedicated ? "session-1" : null,
+            Flow = new() { PhysicalDeviceId = physicalId, ProducerNodeId = "source" },
+            RequestedVideoEncoder = HardwareVideoEncoder.Nvenc,
+            ActiveVideoEncoder = outputEncoder,
+            HardwareFallbackApplied = outputFallback
+        });
+        await RefreshStreamInfoAsync(component);
+
+        // Assert
+        var source = component.Find("[data-encoding-stage='SourceProcessing']");
+        var output = component.Find("[data-encoding-stage='OutputProcessing']");
+        Assert.Contains("Source Processing", source.TextContent);
+        Assert.Contains("Output Processing", output.TextContent);
+        Assert.Contains(sourceEncoder ?? "Video encoder not reported", source.TextContent);
+        Assert.Contains(outputEncoder ?? "Video encoder not reported", output.TextContent);
+        Assert.Equal(sourceEncoder == "libx264", source.QuerySelector(".video-encoder-fallback") is not null);
+        Assert.Equal(outputFallback, output.QuerySelector(".video-encoder-fallback") is not null);
+    }
+
     /// <summary>Verifies channel numbers are ordered numerically instead of alphabetically.</summary>
     [Fact]
     public async Task ChannelList_MixedChannelNumbers_OrdersByNumericValue()
@@ -1722,7 +1774,8 @@ public partial class WatchTests
         ILineupGuideReader? repository = null,
         IPhysicalDeviceStatusService? deviceState = null,
         ILineupSettingsService? settingsService = null,
-        IActiveStreamRegistry? registry = null
+        IActiveStreamRegistry? registry = null,
+        IStreamingSessionGraph? graph = null
     )
     {
         var context = new BunitContext();
@@ -1746,6 +1799,13 @@ public partial class WatchTests
         context.Services.AddSingleton(deviceState);
         context.Services.AddSingleton(settingsService);
         context.Services.AddSingleton(registry ?? new ActiveStreamRegistry());
+        if (graph is null)
+        {
+            graph = Substitute.For<IStreamingSessionGraph>();
+            graph.GetDiagnostics().Returns(new StreamingSessionGraphDiagnostics([], []));
+        }
+        context.Services.AddSingleton<IStreamingFlowSnapshotService>(services => new StreamingFlowSnapshotService(
+            settingsService, graph, [], services.GetRequiredService<IActiveStreamRegistry>(), deviceState));
         context.Services.AddSingleton<IStatusNotificationService>(new StatusNotificationService());
         context.Services.AddScoped<IBrowserDataStore, BrowserDataStore>();
         context.JSInterop.Setup<string?>("localStorage.getItem", PreferencesStorageKey).SetResult(preferencesJson);

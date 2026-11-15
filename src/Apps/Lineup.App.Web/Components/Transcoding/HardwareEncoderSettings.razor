@@ -1,0 +1,74 @@
+<div class="hardware-encoder-settings row g-3">
+    <div class="col-md-6">
+        <label for="@(IdPrefix + "Encoder")" class="form-label">@Text["Transcoding_HardwareEncoder"]</label>
+        <select id="@(IdPrefix + "Encoder")" class="form-select" @bind:get="Value.Encoder" @bind:set="SetEncoderAsync">
+            @foreach (var encoder in Enum.GetValues<HardwareVideoEncoder>())
+            {
+                <option value="@encoder">@EncoderLabel(encoder)</option>
+            }
+        </select>
+        <div class="form-text">@Text["Transcoding_HardwareHelp"]</div>
+    </div>
+    @if (Value.Encoder != HardwareVideoEncoder.Software)
+    {
+        <div class="col-md-6">
+            <label for="@(IdPrefix + "Device")" class="form-label">@Text["Transcoding_HardwareDevice"]</label>
+            <input id="@(IdPrefix + "Device")" class="form-control" maxlength="256" @bind:get="Value.Device" @bind:set="SetDeviceAsync" />
+            <div class="form-text">@Text["Transcoding_HardwareDeviceHelp"]</div>
+        </div>
+        <div class="col-md-6">
+            <label for="@(IdPrefix + "Tuning")" class="form-label">@Text["Transcoding_HardwareTuning"]</label>
+            <select id="@(IdPrefix + "Tuning")" class="form-select" @bind:get="Value.Tuning" @bind:set="SetTuningAsync">
+                @foreach (var tuning in Enum.GetValues<HardwareEncoderTuning>().Where(tuning => Value.Encoder != HardwareVideoEncoder.Vaapi || tuning == HardwareEncoderTuning.Balanced))
+                {
+                    <option value="@tuning">@Text[$"Transcoding_HardwareTuning{tuning}"]</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-6">
+            <div class="form-check mt-4">
+                <input id="@(IdPrefix + "Fallback")" class="form-check-input" type="checkbox" @bind:get="Value.AllowSoftwareFallback" @bind:set="SetFallbackAsync" />
+                <label for="@(IdPrefix + "Fallback")" class="form-check-label">@Text["Transcoding_HardwareFallback"]</label>
+            </div>
+            <div class="form-text">@Text["Transcoding_HardwareFallbackHelp"]</div>
+        </div>
+        <div class="col-12">
+            <label for="@(IdPrefix + "Arguments")" class="form-label">@Text["Transcoding_HardwareArguments"]</label>
+            <textarea id="@(IdPrefix + "Arguments")" class="form-control font-monospace" rows="3" maxlength="4096"
+                      @bind:get="Value.AdvancedArguments" @bind:set="SetArgumentsAsync"></textarea>
+            <div class="form-text">@Text["Transcoding_HardwareArgumentsHelp"]</div>
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>Gets or sets the immutable hardware encoding configuration.</summary>
+    [Parameter, EditorRequired]
+    public HardwareEncodingSettings Value { get; set; } = new();
+
+    /// <summary>Gets or sets the configuration change notification.</summary>
+    [Parameter]
+    public EventCallback<HardwareEncodingSettings> ValueChanged { get; set; }
+
+    /// <summary>Gets or sets the unique form identifier prefix.</summary>
+    [Parameter, EditorRequired]
+    public string IdPrefix { get; set; } = string.Empty;
+
+    private string EncoderLabel(HardwareVideoEncoder encoder) => encoder switch
+    {
+        HardwareVideoEncoder.Software => Text["Transcoding_SoftwareEncoder"],
+        HardwareVideoEncoder.Qsv => "Intel QSV",
+        HardwareVideoEncoder.Nvenc => "NVIDIA NVENC",
+        HardwareVideoEncoder.Vaapi => "VA-API",
+        HardwareVideoEncoder.Amf => "AMD AMF",
+        HardwareVideoEncoder.VideoToolbox => "Apple VideoToolbox",
+        _ => encoder.ToString()
+    };
+
+    private Task SetEncoderAsync(HardwareVideoEncoder encoder) =>
+        ValueChanged.InvokeAsync(Value with { Encoder = encoder, Device = string.Empty, AdvancedArguments = string.Empty, Tuning = HardwareEncoderTuning.Balanced });
+    private Task SetDeviceAsync(string device) => ValueChanged.InvokeAsync(Value with { Device = device });
+    private Task SetTuningAsync(HardwareEncoderTuning tuning) => ValueChanged.InvokeAsync(Value with { Tuning = tuning });
+    private Task SetFallbackAsync(bool fallback) => ValueChanged.InvokeAsync(Value with { AllowSoftwareFallback = fallback });
+    private Task SetArgumentsAsync(string arguments) => ValueChanged.InvokeAsync(Value with { AdvancedArguments = arguments });
+}

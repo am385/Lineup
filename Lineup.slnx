@@ -85,6 +85,7 @@
   </Folder>
   <Folder Name="/tests/TestSupport/">
     <Project Path="tests/TestSupport/Lineup.TestSupport.FakeFFmpeg/Lineup.TestSupport.FakeFFmpeg.csproj" />
+    <Project Path="tests/TestSupport/Lineup.TestSupport.OwnedProcessHost/Lineup.TestSupport.OwnedProcessHost.csproj" />
   </Folder>
   <Folder Name="/tests/Tools/">
     <Project Path="tests/Tools/Lineup.Tools.BrowserAssets.Tests/Lineup.Tools.BrowserAssets.Tests.csproj" />
@@ -97,6 +98,7 @@
     <File Path=".gitignore" />
     <File Path="CONTRIBUTING.md" />
     <File Path="Directory.Build.props" />
+    <File Path="Directory.Build.targets" />
     <File Path="docker-compose.prod.yml" />
     <File Path="docker-compose.yml" />
     <File Path="Dockerfile" />

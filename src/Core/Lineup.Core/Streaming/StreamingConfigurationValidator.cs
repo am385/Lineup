@@ -20,6 +20,8 @@ public static class StreamingConfigurationValidator
     {
         ArgumentNullException.ThrowIfNull(configuration);
         var errors = new List<string>();
+        errors.AddRange(Lineup.Core.Extensibility.Streaming.HardwareEncodingValidation.Validate(configuration.PhysicalDefaults.HardwareEncoding));
+        errors.AddRange(Lineup.Core.Extensibility.Streaming.HardwareEncodingValidation.Validate(configuration.VirtualDefaults.HardwareEncoding));
         if (configuration.SchemaVersion != StreamingConfiguration.CurrentSchemaVersion)
         {
             errors.Add($"Streaming settings schema {configuration.SchemaVersion} is incompatible with required schema {StreamingConfiguration.CurrentSchemaVersion}.");
@@ -40,6 +42,10 @@ public static class StreamingConfigurationValidator
         var physicalIds = new HashSet<PhysicalDeviceId>();
         foreach (var device in configuration.PhysicalDevices)
         {
+            if (device.TranscodeOverrides.HardwareEncoding is { } hardware)
+            {
+                errors.AddRange(Lineup.Core.Extensibility.Streaming.HardwareEncodingValidation.Validate(hardware));
+            }
             if (!physicalIds.Add(device.Id))
             {
                 errors.Add($"Physical device ID {device.Id} is duplicated.");
@@ -95,6 +101,10 @@ public static class StreamingConfigurationValidator
         ValidateVirtualOutputPolicies(configuration, errors);
         foreach (var device in configuration.VirtualDevices)
         {
+            if (device.TranscodeOverrides.HardwareEncoding is { } hardware)
+            {
+                errors.AddRange(Lineup.Core.Extensibility.Streaming.HardwareEncodingValidation.Validate(hardware));
+            }
             if (!virtualIds.Add(device.Id))
             {
                 errors.Add($"Virtual device ID {device.Id} is duplicated.");

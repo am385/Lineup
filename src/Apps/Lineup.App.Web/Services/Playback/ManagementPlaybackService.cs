@@ -556,8 +556,15 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
             if (result.Presentation is null)
             {
                 await sharedOutput.Stopped;
+                return result;
             }
-            return result.Presentation is { } presentation ? result with { Presentation = presentation with { SessionId = sessionId } } : result;
+            _activeStreamRegistry.TryUpdate(sessionId, current => current with
+            {
+                RequestedVideoEncoder = sharedOutput.ActiveVideoEncoder is null ? null : virtualProfile.HardwareEncoding.Encoder,
+                ActiveVideoEncoder = sharedOutput.ActiveVideoEncoder,
+                Flow = current.Flow is { SyntheticSource: null } flow ? flow with { ProducerNodeId = sharedOutput.Tasks.SourceProducerNodeId } : current.Flow
+            });
+            return result with { Presentation = result.Presentation with { SessionId = sessionId } };
         }
         catch (OperationCanceledException) when (startupToken.IsCancellationRequested && ownsProducer)
         {
@@ -675,7 +682,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                         await errorMonitorTask.WaitAsync(producerToken);
                         if (!usingSlate && CmafStreamPlanner.ShouldRetryWithFallback(
                             request,
-                            source.Tracks.Where(track => track.Type == MediaTrackType.Audio),
+                            session.AudioRenditions.Where(rendition => rendition.Plan.CopySource).Select(rendition => rendition.Source),
                             errors))
                         {
                             _logger.LogInformation(
@@ -684,10 +691,11 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                                 sessionId,
                                 fallbackAudio);
                             var retryRequest = request with { PreferredAudio = CmafPreferredAudio.Fallback };
+                            ffmpegArguments = CmafStreamPlanner.CreateArguments(virtualProfile, source, selection, retryRequest, manifestPath, subtitlePaths);
                             var retryProcess = _mediaProcessFactory.Start(new MediaProcessRequest
                             {
                                 FileName = "ffmpeg",
-                                Arguments = CmafStreamPlanner.CreateArguments(virtualProfile, source, selection, retryRequest, manifestPath, subtitlePaths),
+                                Arguments = ffmpegArguments,
                                 WorkingDirectory = directory,
                                 RedirectStandardInput = true,
                                 RedirectStandardOutput = true,
@@ -842,7 +850,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                                 subtitle.Language,
                                 subtitle.IsEmbeddedClosedCaptions)).ToArray()
                         };
-                        pendingOutput.Complete(session);
+                        pendingOutput.Complete(session, usingSlate ? null : HardwareVideoEncodingPlanner.GetVideoEncoder(ffmpegArguments!));
                         return new ManagementPlaybackStartResult { Presentation = response };
                     }
                     await Task.Delay(100, producerToken);
@@ -1220,6 +1228,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
     {
         tasks.SourceTerminationCode = null;
         await using var input = await SubscribeEffectiveSourceAsync(candidate, source, settings, cancellationToken);
+        tasks.SourceProducerNodeId = (input as IStreamProducerCorrelation)?.ProducerNodeId;
         await MediaStreamPump.PumpAsync(input, process, _logger, candidate.DiagnosticUri.AbsoluteUri, cancellationToken, code => tasks.SourceTerminationCode = code);
     }
 
@@ -1499,6 +1508,9 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         /// <summary>Records only source read termination, never intentional cancellation or a closed processor pipe.</summary>
         public volatile string? SourceTerminationCode;
 
+        /// <summary>Identifies the exact effective source used by this producer for stage-specific diagnostics.</summary>
+        public volatile string? SourceProducerNodeId;
+
         private readonly Lock _gate = new();
         private readonly List<Task> _observations = [];
         private readonly List<CancellationTokenSource> _cancellations = [];
@@ -1605,6 +1617,9 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         /// <summary>Gets the completed media session once readiness succeeds.</summary>
         public CmafSession? Session { get; private set; }
 
+        /// <summary>Gets the primary video encoder from the ready producer's launched arguments, including for later shared viewers.</summary>
+        public string? ActiveVideoEncoder { get; private set; }
+
         /// <summary>Gets tasks owned by this producer before and after readiness.</summary>
         public CmafMediaTasks Tasks { get; } = new();
 
@@ -1687,12 +1702,13 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         }
 
         /// <summary>Transfers pending resources into a ready media session.</summary>
-        public void Complete(CmafSession session)
+        public void Complete(CmafSession session, string? activeVideoEncoder = null)
         {
             lock (_gate)
             {
                 LifetimeToken.ThrowIfCancellationRequested();
                 Session = session;
+                ActiveVideoEncoder = activeVideoEncoder;
                 _process = null;
                 _captionProcess = null;
                 _captionErrorTask = null;

@@ -51,6 +51,7 @@ public sealed class TopologySettingsEditor
             MaximumPluginConnections = configuration.MaximumPluginConnections,
             PhysicalDefaults = new PhysicalTranscodeSettingsModel
             {
+                HardwareEncoding = configuration.PhysicalDefaults.HardwareEncoding,
                 ConvertHevcToH264 = configuration.PhysicalDefaults.ConvertHevcToH264,
                 Deinterlace = configuration.PhysicalDefaults.Deinterlace,
                 Audio = configuration.PhysicalDefaults.Audio,
@@ -61,6 +62,7 @@ public sealed class TopologySettingsEditor
             },
             VirtualDefaults = new VirtualTranscodeSettingsModel
             {
+                HardwareEncoding = configuration.VirtualDefaults.HardwareEncoding,
                 ConvertHevcToH264 = configuration.VirtualDefaults.ConvertHevcToH264,
                 Deinterlace = configuration.VirtualDefaults.Deinterlace,
                 Audio = configuration.VirtualDefaults.Audio,
@@ -73,12 +75,15 @@ public sealed class TopologySettingsEditor
             PreservedVirtualOutputWorkerPolicies = configuration.VirtualOutputWorkerPolicies.ToList(),
             PhysicalDevices = configuration.PhysicalDevices.Select(device => new PhysicalDeviceSettingsModel
             {
+                OverrideHardwareEncoding = device.TranscodeOverrides.HardwareEncoding is not null,
+                HardwareEncoding = device.TranscodeOverrides.HardwareEncoding ?? configuration.PhysicalDefaults.HardwareEncoding,
                 Id = device.Id,
                 Name = device.Name,
                 Enabled = device.Enabled,
                 Kind = device.Adapter.Kind,
                 AdapterConfiguration = device.Adapter.Configuration.Clone(),
                 Address = ReadString(device.Adapter.Configuration, "Address"),
+                TranscodeProfile = ReadString(device.Adapter.Configuration, "TranscodeProfile") is { Length: > 0 } transcodeProfile ? transcodeProfile : "default",
                 LinkBaseUrl = ReadString(device.Adapter.Configuration, "BaseUrl"),
                 LinkVirtualDeviceId = ReadGuid(device.Adapter.Configuration, "VirtualDeviceId"),
                 LinkAccessToken = ReadString(device.Adapter.Configuration, "AccessToken"),
@@ -149,6 +154,8 @@ public sealed class TopologySettingsEditor
                 }
                 var settings = new VirtualDeviceSettingsModel
                 {
+                    OverrideHardwareEncoding = device.TranscodeOverrides.HardwareEncoding is not null,
+                    HardwareEncoding = device.TranscodeOverrides.HardwareEncoding ?? configuration.VirtualDefaults.HardwareEncoding,
                     Id = device.Id,
                     Name = device.Name,
                     Enabled = device.Enabled,
@@ -230,6 +237,7 @@ public sealed class TopologySettingsEditor
             MaximumPluginConnections = model.MaximumPluginConnections,
             PhysicalDefaults = new PhysicalTranscodeProfile
             {
+                HardwareEncoding = model.PhysicalDefaults.HardwareEncoding,
                 ConvertHevcToH264 = model.PhysicalDefaults.ConvertHevcToH264,
                 Deinterlace = model.PhysicalDefaults.Deinterlace,
                 Audio = model.PhysicalDefaults.Audio,
@@ -240,6 +248,7 @@ public sealed class TopologySettingsEditor
             },
             VirtualDefaults = new VirtualTranscodeProfile
             {
+                HardwareEncoding = model.VirtualDefaults.HardwareEncoding,
                 ConvertHevcToH264 = model.VirtualDefaults.ConvertHevcToH264,
                 Deinterlace = model.VirtualDefaults.Deinterlace,
                 Audio = model.VirtualDefaults.Audio,
@@ -273,6 +282,7 @@ public sealed class TopologySettingsEditor
                 Adapter = BuildPhysicalAdapter(device),
                 TranscodeOverrides = new PhysicalTranscodeOverrides
                 {
+                    HardwareEncoding = device.OverrideHardwareEncoding ? device.HardwareEncoding : null,
                     ConvertHevcToH264 = device.OverrideConvertHevcToH264 ? device.ConvertHevcToH264 : null,
                     Deinterlace = device.OverrideDeinterlace ? device.Deinterlace : null,
                     Audio = device.OverrideAudio ? device.Audio : null,
@@ -321,6 +331,7 @@ public sealed class TopologySettingsEditor
                 },
                 TranscodeOverrides = new VirtualTranscodeOverrides
                 {
+                    HardwareEncoding = device.OverrideHardwareEncoding ? device.HardwareEncoding : null,
                     ConvertHevcToH264 = device.OverrideConvertHevcToH264 ? device.ConvertHevcToH264 : null,
                     Deinterlace = device.OverrideDeinterlace ? device.Deinterlace : null,
                     Audio = device.OverrideAudio ? device.Audio : null,
@@ -462,6 +473,7 @@ public sealed class TopologySettingsEditor
 
         var device = new PhysicalDeviceSettingsModel
         {
+            HardwareEncoding = model.PhysicalDefaults.HardwareEncoding,
             Id = id,
             Name = $"{driver.DisplayName} {model.PhysicalDevices.Count(device => string.Equals(device.Kind, driver.Kind, StringComparison.OrdinalIgnoreCase)) + 1}",
             Kind = driver.Kind,
@@ -503,6 +515,7 @@ public sealed class TopologySettingsEditor
 
         var device = new VirtualDeviceSettingsModel
         {
+            HardwareEncoding = model.VirtualDefaults.HardwareEncoding,
             Id = id,
             Name = $"{driver.DisplayName} {model.VirtualDevices.Count(device => string.Equals(device.Kind, driver.Kind, StringComparison.OrdinalIgnoreCase)) + 1}",
             Kind = driver.Kind,
@@ -679,7 +692,7 @@ public sealed class TopologySettingsEditor
             return new AdapterConfiguration(device.Kind, configuration);
         }
 
-        return new AdapterConfiguration(PhysicalHdHomeRunKind, JsonSerializer.SerializeToElement(new { Address = device.Address.Trim() }));
+        return new AdapterConfiguration(PhysicalHdHomeRunKind, JsonSerializer.SerializeToElement(new { Address = device.Address.Trim(), device.TranscodeProfile }));
     }
 
     private static AdapterConfiguration BuildVirtualAdapter(VirtualDeviceSettingsModel device)
@@ -1051,6 +1064,9 @@ public sealed class TopologySettingsModel
 /// <summary>Defines editable transcoder settings shared by global and device forms.</summary>
 public interface ITranscodeSettingsModel
 {
+    /// <summary>Gets or sets the complete optional hardware encoder settings.</summary>
+    HardwareEncodingSettings HardwareEncoding { get; set; }
+
     /// <summary>Gets or sets HEVC conversion.</summary>
     bool ConvertHevcToH264 { get; set; }
 
@@ -1076,6 +1092,9 @@ public interface ITranscodeSettingsModel
 /// <summary>Defines editable sparse transcoder overrides for a device.</summary>
 public interface ITranscodeOverrideSettingsModel : ITranscodeSettingsModel
 {
+    /// <summary>Gets or sets whether hardware encoder settings are overridden as one unit.</summary>
+    bool OverrideHardwareEncoding { get; set; }
+
     /// <summary>Gets or sets whether HEVC conversion is overridden.</summary>
     bool OverrideConvertHevcToH264 { get; set; }
 
@@ -1101,6 +1120,9 @@ public interface ITranscodeOverrideSettingsModel : ITranscodeSettingsModel
 /// <summary>Editable physical-stage defaults.</summary>
 public sealed class PhysicalTranscodeSettingsModel : ITranscodeSettingsModel
 {
+    /// <summary>Gets or sets optional hardware encoder settings.</summary>
+    public HardwareEncodingSettings HardwareEncoding { get; set; } = new();
+
     /// <summary>Gets or sets HEVC conversion.</summary>
     public bool ConvertHevcToH264 { get; set; }
 
@@ -1126,6 +1148,9 @@ public sealed class PhysicalTranscodeSettingsModel : ITranscodeSettingsModel
 /// <summary>Editable virtual-stage defaults.</summary>
 public sealed class VirtualTranscodeSettingsModel : ITranscodeSettingsModel
 {
+    /// <summary>Gets or sets optional hardware encoder settings.</summary>
+    public HardwareEncodingSettings HardwareEncoding { get; set; } = new();
+
     /// <summary>Gets or sets HEVC conversion.</summary>
     public bool ConvertHevcToH264 { get; set; }
 
@@ -1215,6 +1240,15 @@ public sealed class LineupLinkAccessGrantSettingsModel
 /// <summary>Editable physical device.</summary>
 public sealed class PhysicalDeviceSettingsModel : ITranscodeOverrideSettingsModel
 {
+    /// <summary>Gets or sets the operator-selected HDHomeRun EXTEND hardware transcode profile.</summary>
+    public string TranscodeProfile { get; set; } = "default";
+
+    /// <summary>Gets or sets whether hardware encoder settings override global defaults.</summary>
+    public bool OverrideHardwareEncoding { get; set; }
+
+    /// <summary>Gets or sets optional hardware encoder settings.</summary>
+    public HardwareEncodingSettings HardwareEncoding { get; set; } = new();
+
     /// <summary>Gets or sets identity.</summary>
     public PhysicalDeviceId Id { get; set; }
 
@@ -1397,6 +1431,12 @@ public sealed class AdapterSettingFieldSettingsModel
 /// <summary>Editable virtual device.</summary>
 public sealed class VirtualDeviceSettingsModel : ITranscodeOverrideSettingsModel
 {
+    /// <summary>Gets or sets whether hardware encoder settings override global defaults.</summary>
+    public bool OverrideHardwareEncoding { get; set; }
+
+    /// <summary>Gets or sets optional hardware encoder settings.</summary>
+    public HardwareEncodingSettings HardwareEncoding { get; set; } = new();
+
     /// <summary>Gets or sets identity.</summary>
     public VirtualDeviceId Id { get; set; }
 

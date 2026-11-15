@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Lineup.Core.Streaming.FFmpeg;
 using Lineup.Core.VirtualOutputs.Protocol;
 using Microsoft.Extensions.Logging;
 
@@ -28,6 +29,15 @@ public interface IVirtualOutputWorkerLauncher
 /// <summary>Process-based managed virtual-output worker launcher with activation-scoped temporary storage.</summary>
 public sealed class VirtualOutputWorkerLauncher : IVirtualOutputWorkerLauncher
 {
+    // Keep driver discovery/device selection consistent with host-side probes, without inheriting application configuration or credentials.
+    private static readonly string[] _preservedEnvironmentVariables =
+    [
+        "PATH", "DOTNET_ROOT", "DOTNET_ROOT_X64", "SystemRoot", "WINDIR",
+        "LD_LIBRARY_PATH", "LIBVA_DRIVER_NAME", "LIBVA_DRIVERS_PATH",
+        "CUDA_VISIBLE_DEVICES", "CUDA_DEVICE_ORDER", "NVIDIA_VISIBLE_DEVICES", "NVIDIA_DRIVER_CAPABILITIES",
+        "ONEVPL_SEARCH_PATH", "ONEVPL_PRIORITY_PATH"
+    ];
+
     private readonly ILogger<VirtualOutputWorkerLauncher> _logger;
 
     /// <summary>Initializes a worker process launcher.</summary>
@@ -68,7 +78,7 @@ public sealed class VirtualOutputWorkerLauncher : IVirtualOutputWorkerLauncher
             startInfo.ArgumentList.Add(executablePath);
         }
         VirtualOutputProcessLimits.ConfigureLifetimeContainment(startInfo);
-        var preservedEnvironment = new[] { "PATH", "DOTNET_ROOT", "DOTNET_ROOT_X64", "SystemRoot", "WINDIR" }
+        var preservedEnvironment = _preservedEnvironmentVariables
             .Select(key => new KeyValuePair<string, string?>(key, Environment.GetEnvironmentVariable(key)))
             .Where(item => !string.IsNullOrEmpty(item.Value))
             .ToArray();
@@ -78,33 +88,34 @@ public sealed class VirtualOutputWorkerLauncher : IVirtualOutputWorkerLauncher
             startInfo.Environment[item.Key] = item.Value;
         }
         startInfo.Environment["DOTNET_EnableDiagnostics"] = "0";
+        startInfo.Environment["LINEUP_PROCESS_PIPE_ROOT"] = Path.GetTempPath();
+        var jobName = OperatingSystem.IsWindows() ? $"Lineup.Worker.{Guid.NewGuid():N}" : null;
+        if (jobName is not null)
+        {
+            startInfo.Environment["LINEUP_WORKER_JOB"] = jobName;
+        }
         var temporaryDirectory = Directory.CreateTempSubdirectory($"lineup-worker-{bootstrap.VirtualDevice.Id}-");
         foreach (var variable in new[] { "TMP", "TEMP", "TMPDIR", "SystemTemp" })
         {
             startInfo.Environment[variable] = temporaryDirectory.FullName;
         }
-        var process = new Process
-        {
-            StartInfo = startInfo,
-            EnableRaisingEvents = true
-        };
+        Process? process = null;
         var processStarted = false;
         IDisposable? processLimits = null;
         try
         {
-            processStarted = process.Start();
-            if (!processStarted)
+            process = OwnedMediaProcess.Start(startInfo, launched =>
             {
-                throw new InvalidOperationException($"Virtual-output worker '{package.Manifest.WorkerId}' could not be started.");
-            }
-            try
-            {
-                processLimits = VirtualOutputProcessLimits.Apply(process, bootstrap.WorkerPolicy);
-            }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException or System.ComponentModel.Win32Exception)
-            {
-                throw new VirtualOutputResourcePolicyException("The worker could not be attached to its requested CPU/memory enforcement scope. Correct the deployment permissions before retrying.", exception);
-            }
+                try
+                {
+                    processLimits = VirtualOutputProcessLimits.Apply(launched, bootstrap.WorkerPolicy, jobName);
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException or System.ComponentModel.Win32Exception)
+                {
+                    throw new VirtualOutputResourcePolicyException("The worker could not be attached to its requested CPU/memory enforcement scope. Correct the deployment permissions before retrying.", exception);
+                }
+            }, !OperatingSystem.IsWindows());
+            processStarted = true;
             var bootstrapJson = JsonSerializer.Serialize(bootstrap, new JsonSerializerOptions(JsonSerializerDefaults.Web));
             await process.StandardInput.WriteLineAsync(bootstrapJson.AsMemory(), cancellationToken);
             await process.StandardInput.FlushAsync(cancellationToken);
@@ -124,7 +135,7 @@ public sealed class VirtualOutputWorkerLauncher : IVirtualOutputWorkerLauncher
         {
             try
             {
-                if (processStarted)
+                if (processStarted && process is not null)
                 {
                     VirtualOutputProcessLimits.Terminate(process, processLimits);
                     KillRunningProcessTree(process);
@@ -134,7 +145,7 @@ public sealed class VirtualOutputWorkerLauncher : IVirtualOutputWorkerLauncher
             finally
             {
                 processLimits?.Dispose();
-                process.Dispose();
+                process?.Dispose();
                 DeleteTemporaryDirectory(temporaryDirectory, package.Manifest.WorkerId, _logger);
             }
             throw;
@@ -196,7 +207,7 @@ public sealed class VirtualOutputWorkerLauncher : IVirtualOutputWorkerLauncher
         internal ManagedVirtualOutputWorkerProcess(Process process, IDisposable? processLimits, DirectoryInfo temporaryDirectory, string workerId, TimeSpan terminationTimeout, ILogger logger)
         {
             _process = process;
-            _processId = process.Id;
+            _processId = OwnedMediaProcess.GetTargetProcessId(process);
             _processLimits = processLimits;
             _temporaryDirectory = temporaryDirectory;
             _workerId = workerId;

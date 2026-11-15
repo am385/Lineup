@@ -39,14 +39,29 @@ internal sealed class HDHomeRunPhysicalStreamLease : IPhysicalStreamLease
             return;
         }
 
+        await CloseResponseAsync(Stream, _response, _capacity);
+    }
+
+    /// <summary>Closes the HTTP response before making its tuner slot available, including failed stream startup or disposal.</summary>
+    internal static async ValueTask CloseResponseAsync(Stream? stream, HttpResponseMessage? response, SemaphoreSlim capacity)
+    {
         try
         {
-            await Stream.DisposeAsync();
+            if (stream is not null)
+            {
+                await stream.DisposeAsync();
+            }
         }
         finally
         {
-            _response.Dispose();
-            _capacity.Release();
+            try
+            {
+                response?.Dispose();
+            }
+            finally
+            {
+                capacity.Release();
+            }
         }
     }
 }

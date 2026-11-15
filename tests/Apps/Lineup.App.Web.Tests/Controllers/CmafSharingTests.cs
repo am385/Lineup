@@ -17,6 +17,131 @@ namespace Lineup.App.Web.Tests.Controllers;
 /// <summary>Verifies typed management playback and its HTTP adapter with real coordinator lifetimes, storage, and encoder processes.</summary>
 public sealed class CmafSharingTests
 {
+    /// <summary>Equivalent Auto and manual browser policies share one GPU producer while retaining independent viewer diagnostics and lifetimes.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Service_EquivalentResolvedPolicies_ShareOneEncoder(bool joinPending)
+    {
+        // Arrange
+        await using var fixture = new Fixture { HoldReadiness = true };
+        fixture.Settings.Streaming = fixture.Settings.Streaming with
+        {
+            VirtualDefaults = new() { HardwareEncoding = new() { Encoder = HardwareVideoEncoder.Amf } }
+        };
+        fixture.ProbeOverride = new MediaProbeResult(
+        [
+            new MediaTrackMetadata(0, MediaTrackType.Video, "mpeg2video", null, 704, 480, null, null),
+            new MediaTrackMetadata(1, MediaTrackType.Audio, "ac3", 192_000, null, null, 2, 48_000) { Language = "eng" }
+        ], null);
+        var automatic = new CmafStreamRequest
+        {
+            CompatibilityProfile = new()
+            {
+                BrowserIdentity = "automatic-browser",
+                CompletedAtUtc = DateTimeOffset.UtcNow,
+                Claims = new() { Aac = true },
+                Results = CmafCompatibilityTestCatalog.All.Select(test => new CmafCapabilityResult
+                {
+                    CaseId = test.Id,
+                    Kind = test.Kind,
+                    Request = test.Request,
+                    Status = test.IsUnavailable ? CmafCapabilityStatus.Unavailable :
+                        test.Kind == CmafCapabilityKind.Audio && test.Request.AudioCodec != CmafTestAudioCodec.Aac ? CmafCapabilityStatus.Failed : CmafCapabilityStatus.Passed
+                }).ToArray()
+            },
+            Overrides = new() { Enabled = true, Quality = WebPlayerQuality.High, FallbackAudio = CmafFallbackAudio.AacStereo, Protocol = CmafPlaybackProtocol.Hls }
+        };
+        var manual = automatic with
+        {
+            CompatibilityProfile = automatic.CompatibilityProfile with { BrowserIdentity = "manual-browser", CompletedAtUtc = DateTimeOffset.UtcNow.AddMinutes(-1) },
+            Overrides = automatic.Overrides with { Audio = CmafPreferredAudio.Fallback, Video = CmafPreferredVideo.Source, Protocol = CmafPlaybackProtocol.Dash }
+        };
+        var first = fixture.BeginServiceStart("automatic", automatic);
+        await fixture.EncoderStarted.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        // Act
+        if (!joinPending)
+        {
+            fixture.PublishReadiness();
+            await first.Start;
+        }
+        var second = fixture.BeginServiceStart("manual", manual);
+        await WaitUntilAsync(() => fixture.Outputs.GetViewers().Count == 2);
+        fixture.PublishReadiness();
+        var presentations = (await Task.WhenAll(first.Start, second.Start)).Select(result => Assert.IsType<ManagementPlaybackPresentation>(result.Presentation)).ToArray();
+
+        // Assert
+        Assert.NotEqual(presentations[0].SessionId, presentations[1].SessionId);
+        Assert.Equal(1, fixture.EncoderCount);
+        Assert.Equal(1, fixture.Outputs.ActiveOutputCount);
+        Assert.Equal(1, fixture.ActiveInputs);
+        Assert.Contains("h264_amf", Assert.Single(fixture.EncoderRequests).Arguments);
+        var streams = fixture.ActiveStreams.GetActiveStreams();
+        Assert.Equal(2, streams.Count);
+        Assert.All(streams, stream => Assert.Equal("h264_amf", stream.ActiveVideoEncoder));
+        Assert.Contains("Auto", Assert.Single(streams.Single(stream => stream.ClientId == "automatic").VirtualOutput!.Tracks, track => track.Type == MediaTrackType.Audio).RenditionTitle!, StringComparison.Ordinal);
+        Assert.Contains("Override", Assert.Single(streams.Single(stream => stream.ClientId == "manual").VirtualOutput!.Tracks, track => track.Type == MediaTrackType.Audio).RenditionTitle!, StringComparison.Ordinal);
+        Assert.True(first.Service.Stop(presentations[0].SessionId));
+        Assert.True(second.Service.GetPlaybackStatus(presentations[1].SessionId).IsActive);
+        Assert.True(fixture.IsEncoderRunning);
+        Assert.True(second.Service.Stop(presentations[1].SessionId));
+        await WaitUntilAsync(() => fixture.ActiveInputs == 0 && !fixture.IsEncoderRunning);
+    }
+
+    /// <summary>Verifies local Watch viewers report the launched encoder, including viewers joining pending or ready producers.</summary>
+    [Theory]
+    [InlineData(HardwareVideoEncoder.Amf, WebPlayerQuality.Medium, "h264_amf", false)]
+    [InlineData(HardwareVideoEncoder.Amf, WebPlayerQuality.Medium, "h264_amf", true)]
+    [InlineData(HardwareVideoEncoder.Software, WebPlayerQuality.Medium, "libx264", false)]
+    [InlineData(HardwareVideoEncoder.Software, WebPlayerQuality.Medium, "libx264", true)]
+    [InlineData(HardwareVideoEncoder.Amf, WebPlayerQuality.AppDefault, "copy", false)]
+    [InlineData(HardwareVideoEncoder.Amf, WebPlayerQuality.AppDefault, "copy", true)]
+    public async Task Service_ReadyViewers_ReportActualEncoder(HardwareVideoEncoder encoder, WebPlayerQuality quality, string actualEncoder, bool joinPending)
+    {
+        // Arrange
+        await using var fixture = new Fixture { HoldReadiness = true };
+        fixture.Settings.Streaming = fixture.Settings.Streaming with
+        {
+            VirtualDefaults = new() { HardwareEncoding = new() { Encoder = encoder } }
+        };
+        var request = new CmafStreamRequest { Quality = quality };
+        var first = fixture.BeginServiceStart("first", request);
+        await fixture.EncoderStarted.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Null(Assert.Single(fixture.ActiveStreams.GetActiveStreams()).ActiveVideoEncoder);
+
+        // Act
+        Task<ManagementPlaybackStartResult> second;
+        if (joinPending)
+        {
+            second = fixture.BeginServiceStart("second", request).Start;
+            await WaitUntilAsync(() => fixture.Outputs.GetViewers().Count == 2);
+            fixture.PublishReadiness();
+        }
+        else
+        {
+            fixture.PublishReadiness();
+            await first.Start;
+            second = fixture.BeginServiceStart("second", request).Start;
+        }
+        var results = await Task.WhenAll(first.Start, second);
+
+        // Assert
+        Assert.All(results, result => Assert.NotNull(result.Presentation));
+        var arguments = Assert.Single(fixture.EncoderRequests).Arguments;
+        Assert.Equal(actualEncoder, arguments[Array.IndexOf(arguments.ToArray(), "-c:v:0") + 1]);
+        var streams = fixture.ActiveStreams.GetActiveStreams();
+        Assert.Equal(2, streams.Count);
+        Assert.Equal(["first", "second"], streams.Select(stream => stream.ClientId).Order());
+        Assert.All(streams, stream =>
+        {
+            Assert.Equal(encoder, stream.RequestedVideoEncoder);
+            Assert.Equal(actualEncoder, stream.ActiveVideoEncoder);
+            Assert.False(stream.HardwareFallbackApplied);
+            Assert.Equal("effective-producer", stream.Flow!.ProducerNodeId);
+        });
+    }
+
     /// <summary>Real input EOF/failure reaches passive viewer status without reviving an explicitly stopped peer.</summary>
     [Theory]
     [InlineData(false)]
@@ -1005,9 +1130,10 @@ public sealed class CmafSharingTests
     {
         // Arrange
         await using var fixture = new Fixture();
-        var first = fixture.BeginStart("same-viewer");
+        var baselineRequest = new CmafStreamRequest { PreferredVideo = change == "profile" ? CmafPreferredVideo.Fallback : CmafPreferredVideo.Source };
+        var first = fixture.BeginStart("same-viewer", baselineRequest);
         var firstResponse = await ResponseAsync(first.Start);
-        var request = new CmafStreamRequest();
+        var request = baselineRequest;
         var channel = "7.1";
         switch (change)
         {
@@ -1486,9 +1612,12 @@ public sealed class CmafSharingTests
         internal void Advance(TimeSpan duration) => Interlocked.Add(ref _timestamp, duration.Ticks);
     }
 
-    private sealed class BlockingInput(Action? disposed = null, Task<Exception?>? completion = null) : Stream
+    private sealed class BlockingInput(Action? disposed = null, Task<Exception?>? completion = null) : Stream, IStreamProducerCorrelation
     {
         private int _disposed;
+
+        /// <inheritdoc />
+        public string ProducerNodeId => "effective-producer";
 
         /// <inheritdoc />
         public override bool CanRead => true;

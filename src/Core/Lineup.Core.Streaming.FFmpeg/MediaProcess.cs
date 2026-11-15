@@ -64,7 +64,7 @@ public sealed class MediaProcessFactory(Lineup.Core.Common.Streaming.IMediaWorkA
         try
         {
             return MediaProcessAdmission.Start(
-                () => Process.Start(startInfo) ?? throw new MediaProcessException($"Failed to start {request.FileName}."), admission, request.WorkingDirectory);
+                () => OwnedMediaProcess.Start(startInfo), admission, request.WorkingDirectory);
         }
         catch (System.ComponentModel.Win32Exception ex)
         {

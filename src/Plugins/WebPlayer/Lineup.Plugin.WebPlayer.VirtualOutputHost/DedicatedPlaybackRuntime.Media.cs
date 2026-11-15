@@ -8,7 +8,7 @@ namespace Lineup.Plugin.WebPlayer.VirtualOutputHost;
 
 internal sealed partial class DedicatedPlaybackRuntime
 {
-    private static Process StartMediaProcess(string directory, IReadOnlyList<string> arguments, IMediaWorkAdmission? admission = null)
+    private static Process StartMediaProcess(string directory, IReadOnlyList<string> arguments, IMediaWorkAdmission? admission = null, bool redirectStandardOutput = false)
     {
         var configuredExecutable = Environment.GetEnvironmentVariable("LINEUP_FFMPEG_EXECUTABLE");
         var executable = string.IsNullOrWhiteSpace(configuredExecutable) ? "ffmpeg" : configuredExecutable;
@@ -19,6 +19,7 @@ internal sealed partial class DedicatedPlaybackRuntime
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardInput = true,
+            RedirectStandardOutput = redirectStandardOutput,
             RedirectStandardError = true
         };
         if (executable.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
@@ -30,7 +31,7 @@ internal sealed partial class DedicatedPlaybackRuntime
             startInfo.ArgumentList.Add(argument);
         }
         return MediaProcessAdmission.Start(
-            () => Process.Start(startInfo) ?? throw new InvalidOperationException("Unable to start FFmpeg for the Web Player output."), admission, directory);
+            () => OwnedMediaProcess.Start(startInfo), admission, directory);
     }
 
     private static async Task<MediaSession> StartMediaSessionAsync(string id, string directory, VirtualOutputClientStream source, DedicatedCmafSessionPlan plan, ILogger logger, IMediaWorkAdmission? admission = null)

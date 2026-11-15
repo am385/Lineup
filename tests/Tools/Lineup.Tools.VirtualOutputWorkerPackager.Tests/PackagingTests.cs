@@ -9,6 +9,62 @@ namespace Lineup.Tools.VirtualOutputWorkerPackager.Tests;
 /// <summary>Verifies shared packaging entrypoints, real SDK publishing, manifest contracts and verified-cache repair.</summary>
 public sealed class PackagingTests
 {
+    /// <summary>Verifies portable and RID-specific reference paths cannot publish the wrong helper runtime configuration or duplicate helper files.</summary>
+    [Fact]
+    public async Task OwnedMediaPublish_SelectsAssetsBesideResolvedAssembly()
+    {
+        // Arrange
+        var root = Directory.CreateDirectory(Path.Combine(RepositoryRoot(), "out", $"owned-publish-{Guid.NewGuid():N}"));
+        try
+        {
+            var portable = Directory.CreateDirectory(Path.Combine(root.FullName, "portable"));
+            var selected = Directory.CreateDirectory(Path.Combine(root.FullName, "selected"));
+            var output = Directory.CreateDirectory(Path.Combine(root.FullName, "published"));
+            const string assembly = "Lineup.Core.Streaming.FFmpeg";
+            var extension = OperatingSystem.IsWindows() ? ".exe" : string.Empty;
+            var names = new[] { assembly + ".deps.json", assembly + ".runtimeconfig.json", assembly + extension };
+            foreach (var name in names)
+            {
+                await File.WriteAllTextAsync(Path.Combine(portable.FullName, name), "wrong portable asset", TestContext.Current.CancellationToken);
+                await File.WriteAllTextAsync(Path.Combine(selected.FullName, name), "selected runtime asset", TestContext.Current.CancellationToken);
+            }
+            await File.WriteAllTextAsync(Path.Combine(selected.FullName, assembly + ".dll"), "resolved assembly", TestContext.Current.CancellationToken);
+            var items = new XElement("ItemGroup",
+                new XElement("ResolvedFileToPublish", new XAttribute("Include", Path.Combine(selected.FullName, assembly + ".dll")), new XAttribute("RelativePath", assembly + ".dll")));
+            foreach (var directory in new[] { portable, selected })
+            {
+                foreach (var name in names)
+                {
+                    items.Add(new XElement("ResolvedFileToPublish", new XAttribute("Include", Path.Combine(directory.FullName, name)), new XAttribute("RelativePath", name)));
+                }
+            }
+            var project = new XDocument(new XElement("Project",
+                new XElement("PropertyGroup", new XElement("SelfContained", "true"), new XElement("_NativeExecutableExtension", extension)),
+                new XElement("Import", new XAttribute("Project", Path.Combine(RepositoryRoot(), "Directory.Build.targets"))),
+                items,
+                new XElement("Target", new XAttribute("Name", "PublishFixture"), new XAttribute("DependsOnTargets", "SelectOwnedMediaProcessPublishAssets"),
+                    new XElement("Copy", new XAttribute("SourceFiles", "@(ResolvedFileToPublish)"),
+                        new XAttribute("DestinationFolder", output.FullName)))));
+            var projectPath = Path.Combine(root.FullName, "fixture.proj");
+            await File.WriteAllTextAsync(projectPath, project.ToString(), TestContext.Current.CancellationToken);
+
+            // Act
+            await RunDotnetAsync(root.FullName, ["msbuild", projectPath, "-target:PublishFixture", "-nologo"]);
+
+            // Assert
+            Assert.Equal(names.Length + 1, Directory.GetFiles(output.FullName).Length);
+            foreach (var name in names)
+            {
+                Assert.Equal("selected runtime asset", await File.ReadAllTextAsync(Path.Combine(output.FullName, name), TestContext.Current.CancellationToken));
+            }
+            Assert.Equal("resolved assembly", await File.ReadAllTextAsync(Path.Combine(output.FullName, assembly + ".dll"), TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
     /// <summary>Verifies Docker, MSBuild and Windows use the common packaging path rather than duplicate worker lists or manifests.</summary>
     [Fact]
     public void DistributionEntrypoints_ShareInventoryAndPackager()

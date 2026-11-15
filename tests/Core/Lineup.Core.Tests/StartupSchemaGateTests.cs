@@ -139,6 +139,29 @@ public sealed class StartupSchemaGateTests
         Assert.Null(state.Reason);
     }
 
+    /// <summary>Verifies valid hardware configuration remains readable without initializing a device or changing the schema.</summary>
+    [Fact]
+    public void CheckSettingsContent_HardwareEncoderConfigured_DoesNotRequireGpu()
+    {
+        // Arrange
+        var settings = new LineupSettings
+        {
+            Streaming = new StreamingConfiguration
+            {
+                PhysicalDefaults = new PhysicalTranscodeProfile { HardwareEncoding = new() { Encoder = HardwareVideoEncoder.VideoToolbox } },
+                VirtualDefaults = new VirtualTranscodeProfile { HardwareEncoding = new() { Encoder = HardwareVideoEncoder.Vaapi, Device = "/dev/dri/renderD129" } }
+            }
+        };
+
+        // Act
+        var state = StartupSchemaGate.CheckSettingsContent(JsonSerializer.Serialize(settings));
+        var legacy = JsonSerializer.Deserialize<PhysicalTranscodeProfile>("{}");
+
+        // Assert
+        Assert.Equal(LineupStartupStatus.Ready, state.Status);
+        Assert.Equal(HardwareVideoEncoder.Software, legacy!.HardwareEncoding.Encoder);
+    }
+
     /// <summary>Verifies current schema numbers cannot hide settings deserialization or preparation failures.</summary>
     [Theory]
     [InlineData("AutoFetchInterval", "\"invalid\"")]

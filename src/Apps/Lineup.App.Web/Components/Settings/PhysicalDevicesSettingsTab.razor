@@ -123,6 +123,18 @@
                                                     <input id="@($"physicalAddress-{index}")" class="form-control physical-address" @bind="device.Address" @bind:after="() => Host.ClearPhysicalDeviceProbeState(device)" />
                                                     <div class="form-text">@Text["Settings_PhysicalAddressHelp"]</div>
                                                 </div>
+                                                <div class="col-md-6">
+                                                    <label class="form-label" for="@($"physicalTranscodeProfile-{index}")">@Text["Settings_ExtendProfile"]</label>
+                                                    <select id="@($"physicalTranscodeProfile-{index}")" class="form-select physical-transcode-profile"
+                                                            @bind="device.TranscodeProfile" @bind:after="() => Host.ClearPhysicalDeviceProbeState(device)">
+                                                        <option value="default">@Text["Settings_ExtendDefault"]</option>
+                                                        @foreach (var profile in new[] { "heavy", "mobile", "internet540", "internet480", "internet360", "internet240" })
+                                                        {
+                                                            <option value="@profile">@profile</option>
+                                                        }
+                                                    </select>
+                                                    <div class="form-text">@Text["Settings_ExtendProfileHelp"]</div>
+                                                </div>
                                             }
                                             else if (device.IsLineupLink)
                                             {

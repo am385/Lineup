@@ -172,6 +172,31 @@ public sealed class VirtualOutputProtocolTests
         Assert.Equal(9, errors.Count);
     }
 
+    /// <summary>Verifies worker encoder reports reject missing, oversized, or undefined encoder metadata at the IPC boundary.</summary>
+    [Theory]
+    [InlineData("", HardwareVideoEncoder.Amf, true)]
+    [InlineData("h264_amf", (HardwareVideoEncoder)999, true)]
+    [InlineData("oversized", HardwareVideoEncoder.Nvenc, true)]
+    [InlineData("h264_amf", HardwareVideoEncoder.Amf, false)]
+    public void Validate_ReportedVideoEncoder_RejectsMalformedOutcomes(string encoder, HardwareVideoEncoder requested, bool invalid)
+    {
+        // Arrange
+        var report = new VirtualOutputStreamStatusReport
+        {
+            Session = new() { SessionId = VirtualOutputWorkerSessionId.New(), Generation = 1 },
+            RequestId = VirtualOutputStreamRequestId.New(),
+            StreamSessionId = StreamSessionId.New(),
+            WorkerMediaSessionId = "viewer",
+            VideoEncoding = new(encoder == "oversized" ? new string('x', VirtualOutputProtocol.MaximumStreamCodecLength + 1) : encoder, requested, false)
+        };
+
+        // Act
+        var errors = VirtualOutputProtocolValidation.Validate(report);
+
+        // Assert
+        Assert.Equal(invalid, errors.Contains("The reported video encoder is invalid or oversized."));
+    }
+
     /// <summary>Verifies producer retention is restricted to the physical-effective media stage.</summary>
     [Theory]
     [InlineData(VirtualOutputStreamStage.PhysicalOutput, 0)]
