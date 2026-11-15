@@ -897,6 +897,8 @@
   <data name="Streaming_ConfiguredTopologyAriaLabel" xml:space="preserve"><value>Skonfigurowana topologia strumieniowania</value></data>
   <data name="Streaming_ConsumerCountMany" xml:space="preserve"><value>Odbiorcy: {0}</value></data>
   <data name="Streaming_ConsumerCountOne" xml:space="preserve"><value>Odbiorca: {0}</value></data>
+  <data name="Streaming_DeinterlaceAutomatic" xml:space="preserve"><value>Automatyczne usuwanie przeplotu QSV: {0}</value></data>
+  <data name="Streaming_DeinterlaceEffective" xml:space="preserve"><value>Usuwanie przeplotu: {0}</value></data>
   <data name="Streaming_DeliveredStreamComponents" xml:space="preserve"><value>Dostarczone składniki strumienia</value></data>
   <data name="Streaming_EffectiveSourceComponents" xml:space="preserve"><value>Efektywne składniki źródła</value></data>
   <data name="Streaming_EncoderActual" xml:space="preserve"><value>Koder wideo: {0}</value></data>
@@ -907,6 +909,7 @@
   <data name="Streaming_EncoderSoftware" xml:space="preserve"><value>Kodowanie programowe · {0}</value></data>
   <data name="Streaming_EncoderUnknown" xml:space="preserve"><value>Nie zgłoszono kodera wideo</value></data>
   <data name="Streaming_FlowSummaryAriaLabel" xml:space="preserve"><value>Podsumowanie przepływu strumieniowania</value></data>
+  <data name="Streaming_GopUnknownRate" xml:space="preserve"><value>GOP: {0} klatek; częstotliwość nieznana</value></data>
   <data name="Streaming_LaneConsumers" xml:space="preserve"><value>Odbiorcy</value></data>
   <data name="Streaming_LaneMultiplexer" xml:space="preserve"><value>Multiplekser</value></data>
   <data name="Streaming_LaneOutputProcessing" xml:space="preserve"><value>Przetwarzanie wyjścia</value></data>

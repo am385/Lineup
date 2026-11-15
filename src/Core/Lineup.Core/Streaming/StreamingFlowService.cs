@@ -464,7 +464,7 @@ public sealed class StreamingFlowSnapshotService : IStreamingFlowSnapshotService
     private static VideoEncodingSnapshot? GetOutputVideoEncoding(ActiveStreamSnapshot stream, IReadOnlyDictionary<string, StreamNodeDiagnostics> nodes) =>
         string.IsNullOrWhiteSpace(stream.ActiveVideoEncoder)
             ? FindProcessingNode(stream, "virtual-mpegts", nodes)?.VideoEncoding
-            : new(stream.ActiveVideoEncoder, stream.RequestedVideoEncoder, stream.HardwareFallbackApplied);
+            : new(stream.ActiveVideoEncoder, stream.RequestedVideoEncoder, stream.HardwareFallbackApplied) { Processing = stream.VideoProcessing };
 
     private static VideoEncodingSnapshot? GetSourceVideoEncoding(ActiveStreamSnapshot stream, IReadOnlyDictionary<string, StreamNodeDiagnostics> nodes)
     {

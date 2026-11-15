@@ -896,6 +896,8 @@
   <data name="Streaming_ConfiguredTopologyAriaLabel" xml:space="preserve"><value>已配置的流式传输拓扑</value></data>
   <data name="Streaming_ConsumerCountMany" xml:space="preserve"><value>{0} 个使用方</value></data>
   <data name="Streaming_ConsumerCountOne" xml:space="preserve"><value>{0} 个使用方</value></data>
+  <data name="Streaming_DeinterlaceAutomatic" xml:space="preserve"><value>QSV 自动去隔行：{0}</value></data>
+  <data name="Streaming_DeinterlaceEffective" xml:space="preserve"><value>去隔行：{0}</value></data>
   <data name="Streaming_DeliveredStreamComponents" xml:space="preserve"><value>已交付的流组件</value></data>
   <data name="Streaming_EffectiveSourceComponents" xml:space="preserve"><value>有效源组件</value></data>
   <data name="Streaming_EncoderActual" xml:space="preserve"><value>视频编码器：{0}</value></data>
@@ -906,6 +908,7 @@
   <data name="Streaming_EncoderSoftware" xml:space="preserve"><value>软件编码 · {0}</value></data>
   <data name="Streaming_EncoderUnknown" xml:space="preserve"><value>未报告视频编码器</value></data>
   <data name="Streaming_FlowSummaryAriaLabel" xml:space="preserve"><value>流式传输流程摘要</value></data>
+  <data name="Streaming_GopUnknownRate" xml:space="preserve"><value>GOP：{0} 帧；帧率未知</value></data>
   <data name="Streaming_LaneConsumers" xml:space="preserve"><value>使用方</value></data>
   <data name="Streaming_LaneMultiplexer" xml:space="preserve"><value>复用器</value></data>
   <data name="Streaming_LaneOutputProcessing" xml:space="preserve"><value>输出处理</value></data>

@@ -82,7 +82,8 @@ public sealed class StreamingFlowSnapshotServiceTests
         {
             RequestedVideoEncoder = HardwareVideoEncoder.Amf,
             ActiveVideoEncoder = encoder,
-            HardwareFallbackApplied = fallback
+            HardwareFallbackApplied = fallback,
+            VideoProcessing = new(SourceDeinterlacePolicy.SourceFieldRate, true, new(60000, 1001), 120, false)
         };
         var activeStreams = Substitute.For<IActiveStreamRegistry>();
         activeStreams.GetActiveStreams().Returns([stream, stream with { SessionId = "two" }]);
@@ -109,6 +110,7 @@ public sealed class StreamingFlowSnapshotServiceTests
             Assert.Equal(fallback, actual.SoftwareFallbackApplied);
             Assert.Equal(HardwareVideoEncoder.Amf, actual.RequestedEncoder);
             Assert.Equal(actual, stage.VideoEncoding);
+            Assert.Equal(stream.VideoProcessing, actual.Processing);
         }
     }
 

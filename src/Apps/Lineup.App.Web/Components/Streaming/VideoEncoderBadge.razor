@@ -13,6 +13,22 @@ else
     {
         <span class="badge text-bg-warning video-encoder-fallback">@Text["Streaming_EncoderFallback", Encoding.RequestedEncoder?.ToString() ?? "?"]</span>
     }
+    @if (Encoding.Processing is { } processing)
+    {
+        @if (processing.Deinterlace != SourceDeinterlacePolicy.Preserve)
+        {
+            <span class="badge text-bg-secondary video-deinterlace"
+                  data-deinterlace="@processing.Deinterlace"
+                  data-automatic-deinterlace="@processing.AutomaticDeinterlace.ToString().ToLowerInvariant()">
+                @Text[processing.AutomaticDeinterlace ? "Streaming_DeinterlaceAutomatic" : "Streaming_DeinterlaceEffective",
+                    Text[processing.Deinterlace == SourceDeinterlacePolicy.SourceFieldRate ? "Transcoding_DeinterlaceSourceFieldRate" : "Transcoding_DeinterlaceSourceFrameRate"].Value]
+            </span>
+        }
+        @if (processing.UnknownGopRate)
+        {
+            <span class="badge text-bg-warning video-gop-rate-unknown">@Text["Streaming_GopUnknownRate", processing.GopFrames?.ToString() ?? "?"]</span>
+        }
+    }
 }
 
 @code {

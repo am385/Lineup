@@ -7,6 +7,28 @@ namespace Lineup.App.Web.Tests.Services;
 /// </summary>
 public class SourceDeinterlacePlannerTests
 {
+    /// <summary>Verifies normalized frame rates describe physical filtering exactly once.</summary>
+    [Theory]
+    [InlineData(SourceDeinterlacePolicy.SourceFrameRate, 30000)]
+    [InlineData(SourceDeinterlacePolicy.SourceFieldRate, 60000)]
+    public void CreateEffectiveSource_Deinterlacing_PropagatesFrameRateOnce(SourceDeinterlacePolicy mode, int expectedNumerator)
+    {
+        // Arrange
+        var source = new MediaProbeResult(
+            [new MediaTrackMetadata(0, MediaTrackType.Video, "mpeg2video", null, 1920, 1080, null, null)
+                { ScanType = VideoScanType.Interlaced, FrameRate = new(30000, 1001) }], null);
+        var profile = new PhysicalTranscodeProfile { Deinterlace = mode };
+
+        // Act
+        var effective = SourceDeinterlacePlanner.CreateEffectiveSource(source, profile);
+        var second = SourceDeinterlacePlanner.CreateVirtualMpegTsSource(effective, new VirtualTranscodeProfile { Deinterlace = mode });
+
+        // Assert
+        Assert.Equal(new MediaFrameRate(expectedNumerator, 1001), Assert.Single(effective.Tracks).FrameRate);
+        Assert.Equal(VideoScanType.Progressive, Assert.Single(effective.Tracks).ScanType);
+        Assert.Equal(effective.Tracks, second.Tracks);
+    }
+
     /// <summary>Verifies the effective physical topology profile controls source normalization arguments.</summary>
     [Fact]
     public void CreateArguments_TopologyPhysicalProfile_ControlsNormalization()

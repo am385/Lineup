@@ -138,6 +138,7 @@ The app starts on `http://localhost:8080`.
 - Wrap a method or constructor declaration only when its complete unwrapped form would exceed 225 characters. When wrapping is required, place one parameter per line and keep the closing parenthesis on its own line.
 - Keep every C# line within 225 characters.
 - Avoid unrelated formatting changes.
+- Keep `<data>` entries in every `src/Apps/Lineup.App.Web/Resources/UiStrings*.resx` file sorted by their `name` using case-sensitive ordinal ordering (`StringComparer.Ordinal`). Preserve resource values and XML formatting when reordering entries.
 
 ```csharp
 public static WatchTrackSelection SelectTracks(MediaProbeResult source, int? audioIndex, int? subtitleIndex, SubtitlePresentation? subtitlePresentation = null)

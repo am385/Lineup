@@ -896,6 +896,8 @@
   <data name="Streaming_ConfiguredTopologyAriaLabel" xml:space="preserve"><value>Topología de streaming configurada</value></data>
   <data name="Streaming_ConsumerCountMany" xml:space="preserve"><value>{0} consumidores</value></data>
   <data name="Streaming_ConsumerCountOne" xml:space="preserve"><value>{0} consumidor</value></data>
+  <data name="Streaming_DeinterlaceAutomatic" xml:space="preserve"><value>Desentrelaçamento QSV automático: {0}</value></data>
+  <data name="Streaming_DeinterlaceEffective" xml:space="preserve"><value>Desentrelaçamento: {0}</value></data>
   <data name="Streaming_DeliveredStreamComponents" xml:space="preserve"><value>Componentes de fluxo entregues</value></data>
   <data name="Streaming_EffectiveSourceComponents" xml:space="preserve"><value>Componentes fonte efectivos</value></data>
   <data name="Streaming_EncoderActual" xml:space="preserve"><value>Codificador de vídeo: {0}</value></data>
@@ -906,6 +908,7 @@
   <data name="Streaming_EncoderSoftware" xml:space="preserve"><value>Codificação por software · {0}</value></data>
   <data name="Streaming_EncoderUnknown" xml:space="preserve"><value>Codificador de vídeo não informado</value></data>
   <data name="Streaming_FlowSummaryAriaLabel" xml:space="preserve"><value>Resumen do fluxo de streaming</value></data>
+  <data name="Streaming_GopUnknownRate" xml:space="preserve"><value>GOP: {0} quadros; taxa indisponível</value></data>
   <data name="Streaming_LaneConsumers" xml:space="preserve"><value>Consumidores</value></data>
   <data name="Streaming_LaneMultiplexer" xml:space="preserve"><value>multiplexador</value></data>
   <data name="Streaming_LaneOutputProcessing" xml:space="preserve"><value>Processamento de saída</value></data>

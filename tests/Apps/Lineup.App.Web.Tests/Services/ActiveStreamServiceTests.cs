@@ -8,6 +8,52 @@ namespace Lineup.App.Web.Tests.Services;
 /// </summary>
 public class ActiveStreamServiceTests
 {
+    /// <summary>Verifies rational frame-rate parsing prefers usable averages and rejects invalid metadata.</summary>
+    [Theory]
+    [InlineData("30000/1001", "60/1", 30000, 1001)]
+    [InlineData("0/0", "60000/1001", 60000, 1001)]
+    [InlineData(null, "25/1", 25, 1)]
+    [InlineData("bad", "0/0", null, null)]
+    [InlineData("30/0", null, null, null)]
+    [InlineData("-30/1", null, null, null)]
+    [InlineData("2147483648/1", null, null, null)]
+    public void MediaProbe_RationalFrameRates_PrefersValidAverage(string? average, string? reported, int? numerator, int? denominator)
+    {
+        // Arrange
+        var json = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            streams = new[] { new { index = 0, codec_type = "video", codec_name = "mpeg2video", avg_frame_rate = average, r_frame_rate = reported } }
+        });
+
+        // Act
+        var source = MediaProbeParser.Parse(json);
+        var rate = source.Tracks.Single().FrameRate;
+        var roundTrip = System.Text.Json.JsonSerializer.Deserialize<MediaProbeResult>(System.Text.Json.JsonSerializer.Serialize(source));
+
+        // Assert
+        Assert.Equal(numerator, rate?.Numerator);
+        Assert.Equal(denominator, rate?.Denominator);
+        Assert.Equal(rate, Assert.Single(roundTrip!.Tracks).FrameRate);
+        Assert.All(new[] { MediaProbeParser.CreatePipeArguments(), MediaProbeParser.CreateArguments(new Uri("http://tuner/source")) },
+            arguments => Assert.Contains(arguments, argument => argument.Contains("avg_frame_rate,r_frame_rate", StringComparison.Ordinal)));
+    }
+
+    /// <summary>Verifies a partial refresh does not discard the known rate used for shared video scheduling.</summary>
+    [Fact]
+    public void MediaProbeMerge_PartialRefresh_PreservesKnownRate()
+    {
+        // Arrange
+        var prior = MediaProbeParser.Parse("""{"streams":[{"index":0,"codec_type":"video","avg_frame_rate":"30000/1001"}]}""");
+        var refreshed = MediaProbeParser.Parse("""{"streams":[{"index":0,"codec_type":"video"},{"index":1,"codec_type":"audio"}]}""");
+
+        // Act
+        var merged = MediaProbeResultPolicy.Merge(prior, refreshed);
+
+        // Assert
+        Assert.Equal(new MediaFrameRate(30000, 1001), merged.Tracks.Single(track => track.Type == MediaTrackType.Video).FrameRate);
+        Assert.Equal(2, merged.Tracks.Count);
+    }
+
     /// <summary>
     /// Verifies shared CMAF metadata identifies one source-copy rendition per audio track plus the selected subtitle output.
     /// </summary>

@@ -11,6 +11,183 @@ namespace Lineup.Plugin.WebPlayer.Tests;
 /// <summary>Verifies optional GPU encoding preserves copy-first media policy and owns initialization failures.</summary>
 public sealed class HardwareVideoEncodingTests
 {
+    /// <summary>Verifies QSV schedules closed GOPs from the actual progressive output rate without forced timestamps.</summary>
+    [Theory]
+    [InlineData(25, 1, VideoScanType.Progressive, SourceDeinterlacePolicy.Preserve, 50, false)]
+    [InlineData(30000, 1001, VideoScanType.Progressive, SourceDeinterlacePolicy.Preserve, 60, false)]
+    [InlineData(60000, 1001, VideoScanType.Progressive, SourceDeinterlacePolicy.SourceFieldRate, 120, false)]
+    [InlineData(30000, 1001, VideoScanType.Interlaced, SourceDeinterlacePolicy.SourceFrameRate, 60, false)]
+    [InlineData(30000, 1001, VideoScanType.Interlaced, SourceDeinterlacePolicy.SourceFieldRate, 120, false)]
+    [InlineData(30000, 1001, VideoScanType.Interlaced, SourceDeinterlacePolicy.Preserve, 120, true)]
+    public void Cmaf_QsvCadence_UsesEffectiveFrameRate(int numerator, int denominator, VideoScanType scan, SourceDeinterlacePolicy mode, int gop, bool automatic)
+    {
+        // Arrange
+        var source = new MediaProbeResult([new MediaTrackMetadata(0, MediaTrackType.Video, "mpeg2video", null, 720, 480, null, null)
+            { ScanType = scan, FrameRate = new(numerator, denominator) }], null);
+        var profile = new VirtualTranscodeProfile { Deinterlace = mode, HardwareEncoding = new() { Encoder = HardwareVideoEncoder.Qsv } };
+        var request = new CmafStreamRequest { PreferredVideo = CmafPreferredVideo.Fallback };
+        var selection = CmafStreamPlanner.SelectTracks(source, request);
+
+        // Act
+        var arguments = CmafStreamPlanner.CreateArguments(profile, source, selection, request, "manifest.mpd").ToList();
+        var processing = CmafStreamPlanner.CreateVideoProcessing(profile, source, selection, request);
+        var snapshot = ActiveStreamPlanFactory.CreateCmaf("test", "2.3", DateTime.UnixEpoch, source, selection, request, profile);
+
+        // Assert
+        Assert.Equal(gop.ToString(), arguments[arguments.IndexOf("-g:v:0") + 1]);
+        Assert.Equal(gop.ToString(), arguments[arguments.IndexOf("-keyint_min:v:0") + 1]);
+        Assert.Contains("+cgop", arguments);
+        Assert.DoesNotContain(arguments, value => value.StartsWith("-force_key_frames", StringComparison.Ordinal));
+        Assert.Equal(automatic, processing!.AutomaticDeinterlace);
+        Assert.False(processing.UnknownGopRate);
+        Assert.Equal(processing, snapshot.VideoProcessing);
+        Assert.Equal(mode, profile.Deinterlace);
+        if (scan == VideoScanType.Interlaced)
+        {
+            var expectedMode = mode == SourceDeinterlacePolicy.SourceFrameRate ? "send_frame" : "send_field";
+            Assert.Contains(arguments, value => value.Contains($"bwdif=mode={expectedMode}", StringComparison.Ordinal));
+            Assert.Contains("-copyts", arguments);
+            Assert.Contains("-start_at_zero", arguments);
+            Assert.Contains("-fps_mode:v:0", arguments);
+        }
+        else
+        {
+            Assert.DoesNotContain(arguments, value => value.Contains("bwdif", StringComparison.Ordinal));
+        }
+    }
+
+    /// <summary>Verifies unavailable or unrepresentable frame rates retain a finite, explicitly unknown GOP policy.</summary>
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData(30, 0)]
+    [InlineData(-30, 1)]
+    [InlineData(int.MaxValue, 1)]
+    public void Cmaf_QsvUnknownRate_RetainsBoundedGop(int? numerator, int? denominator)
+    {
+        // Arrange
+        var source = new MediaProbeResult([new MediaTrackMetadata(0, MediaTrackType.Video, "mpeg2video", null, 720, 480, null, null)
+            { FrameRate = numerator.HasValue ? new(numerator.Value, denominator!.Value) : null }], null);
+        var profile = new VirtualTranscodeProfile { HardwareEncoding = new() { Encoder = HardwareVideoEncoder.Qsv } };
+        var request = new CmafStreamRequest { PreferredVideo = CmafPreferredVideo.Fallback };
+        var selection = CmafStreamPlanner.SelectTracks(source, request);
+
+        // Act
+        var arguments = CmafStreamPlanner.CreateArguments(profile, source, selection, request, "manifest.mpd").ToList();
+        var processing = CmafStreamPlanner.CreateVideoProcessing(profile, source, selection, request);
+
+        // Assert
+        Assert.Equal("120", arguments[arguments.IndexOf("-g:v:0") + 1]);
+        Assert.Equal("120", arguments[arguments.IndexOf("-keyint_min:v:0") + 1]);
+        Assert.True(processing!.UnknownGopRate);
+        Assert.DoesNotContain(arguments, value => value.StartsWith("-force_key_frames", StringComparison.Ordinal));
+    }
+
+    /// <summary>Verifies the automatic QSV exception never turns a copy plan into a video transcode.</summary>
+    [Theory]
+    [InlineData(VideoScanType.Interlaced)]
+    [InlineData(VideoScanType.Progressive)]
+    [InlineData(VideoScanType.Unknown)]
+    public void Cmaf_QsvSourceCopy_DoesNotEnableDeinterlacing(VideoScanType scan)
+    {
+        // Arrange
+        var source = new MediaProbeResult([new MediaTrackMetadata(0, MediaTrackType.Video, "h264", null, 1920, 1080, null, null)
+            { ScanType = scan, FrameRate = new(30000, 1001) }], null);
+        var profile = new VirtualTranscodeProfile { HardwareEncoding = new() { Encoder = HardwareVideoEncoder.Qsv } };
+        var request = new CmafStreamRequest { PreferredVideo = CmafPreferredVideo.Source };
+        var selection = CmafStreamPlanner.SelectTracks(source, request);
+
+        // Act
+        var arguments = CmafStreamPlanner.CreateArguments(profile, source, selection, request, "manifest.mpd");
+        var processing = CmafStreamPlanner.CreateVideoProcessing(profile, source, selection, request);
+
+        // Assert
+        Assert.Null(processing);
+        Assert.Contains("copy", arguments);
+        Assert.DoesNotContain("h264_qsv", arguments);
+        Assert.DoesNotContain(arguments, value => value.Contains("bwdif", StringComparison.Ordinal));
+    }
+
+    /// <summary>Verifies cadence changes affect sharing while equivalent effective QSV plans share across viewer IDs.</summary>
+    [Fact]
+    public void Cmaf_QsvEffectiveCadence_CanonicalizesSharing()
+    {
+        // Arrange
+        var video = new MediaTrackMetadata(0, MediaTrackType.Video, "mpeg2video", null, 720, 480, null, null) { ScanType = VideoScanType.Interlaced, FrameRate = new(30000, 1001) };
+        var source = new MediaProbeResult([video], null);
+        var profile = new VirtualTranscodeProfile { HardwareEncoding = new() { Encoder = HardwareVideoEncoder.Qsv } };
+        var request = new CmafStreamRequest { PreferredVideo = CmafPreferredVideo.Fallback, ClientId = "one" };
+        var selection = CmafStreamPlanner.SelectTracks(source, request);
+
+        // Act
+        var automatic = CmafStreamPlanner.CreatePlanKey(profile, source, selection, request);
+        var explicitField = CmafStreamPlanner.CreatePlanKey(profile with { Deinterlace = SourceDeinterlacePolicy.SourceFieldRate }, source, selection, request with { ClientId = "two" });
+        var explicitFrame = CmafStreamPlanner.CreatePlanKey(profile with { Deinterlace = SourceDeinterlacePolicy.SourceFrameRate }, source, selection, request);
+        var changedRate = CmafStreamPlanner.CreatePlanKey(profile, source with { Tracks = [video with { FrameRate = new(25, 1) }] }, selection, request);
+
+        // Assert
+        Assert.Equal(automatic, explicitField);
+        Assert.NotEqual(automatic, explicitFrame);
+        Assert.NotEqual(automatic, changedRate);
+    }
+
+    /// <summary>Verifies automatic QSV filtering precedes scaling and bitmap overlay without changing audio maps.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Cmaf_QsvAutomaticDeinterlace_ComposesScalingAndBurnIn(bool burnIn)
+    {
+        // Arrange
+        var source = new MediaProbeResult(
+        [
+            new MediaTrackMetadata(0, MediaTrackType.Video, "mpeg2video", null, 720, 480, null, null) { ScanType = VideoScanType.Interlaced, FrameRate = new(30000, 1001) },
+            new MediaTrackMetadata(1, MediaTrackType.Audio, "aac", null, null, null, 2, 48000),
+            new MediaTrackMetadata(2, MediaTrackType.Subtitle, "dvb_subtitle", null, null, null, null, null) { SubtitlePresentation = SubtitlePresentation.BurnIn }
+        ], null);
+        var selection = new WebPlayerTrackSelection(source.Tracks[1], burnIn ? source.Tracks[2] : null);
+        var profile = new VirtualTranscodeProfile { HardwareEncoding = new() { Encoder = HardwareVideoEncoder.Qsv } };
+        var request = new CmafStreamRequest { Quality = WebPlayerQuality.Medium };
+
+        // Act
+        var arguments = CmafStreamPlanner.CreateArguments(profile, source, selection, request, "manifest.mpd").ToList();
+        var filter = arguments[arguments.IndexOf(burnIn ? "-filter_complex" : "-filter:v:0") + 1];
+
+        // Assert
+        Assert.True(filter.IndexOf("bwdif=mode=send_field", StringComparison.Ordinal) < filter.IndexOf("scale=", StringComparison.Ordinal));
+        if (burnIn)
+        {
+            Assert.True(filter.IndexOf("bwdif=", StringComparison.Ordinal) < filter.IndexOf("overlay", StringComparison.Ordinal));
+        }
+        Assert.Contains("0:1", arguments);
+        Assert.Contains("-fps_mode:v:0", arguments);
+        Assert.Equal("120", arguments[arguments.IndexOf("-g:v:0") + 1]);
+    }
+
+    /// <summary>Verifies other encoders keep Preserve and existing timestamp-based CMAF scheduling.</summary>
+    [Theory]
+    [InlineData(HardwareVideoEncoder.Software)]
+    [InlineData(HardwareVideoEncoder.Nvenc)]
+    [InlineData(HardwareVideoEncoder.Vaapi)]
+    [InlineData(HardwareVideoEncoder.Amf)]
+    [InlineData(HardwareVideoEncoder.VideoToolbox)]
+    public void Cmaf_NonQsvTranscode_PreservesExistingCadenceAndFiltering(HardwareVideoEncoder encoder)
+    {
+        // Arrange
+        var source = new MediaProbeResult([new MediaTrackMetadata(0, MediaTrackType.Video, "mpeg2video", null, 720, 480, null, null)
+            { ScanType = VideoScanType.Interlaced, FrameRate = new(30000, 1001) }], null);
+        var profile = new VirtualTranscodeProfile { HardwareEncoding = new() { Encoder = encoder } };
+        var request = new CmafStreamRequest { PreferredVideo = CmafPreferredVideo.Fallback };
+        var selection = CmafStreamPlanner.SelectTracks(source, request);
+
+        // Act
+        var arguments = CmafStreamPlanner.CreateArguments(profile, source, selection, request, "manifest.mpd").ToList();
+
+        // Assert
+        Assert.Contains("expr:if(isnan(prev_forced_t),1,gte(t,prev_forced_t+2))", arguments);
+        Assert.Equal("120", arguments[arguments.IndexOf("-g") + 1]);
+        Assert.DoesNotContain(arguments, value => value.Contains("bwdif", StringComparison.Ordinal));
+        Assert.False(CmafStreamPlanner.CreateVideoProcessing(profile, source, selection, request)!.AutomaticDeinterlace);
+    }
+
     /// <summary>Verifies all supported backends replace x264 only in actual physical and virtual video transforms.</summary>
     [Theory]
     [InlineData(HardwareVideoEncoder.Qsv, "h264_qsv")]

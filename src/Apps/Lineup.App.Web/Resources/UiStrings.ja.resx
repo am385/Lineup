@@ -896,6 +896,8 @@
   <data name="Streaming_ConfiguredTopologyAriaLabel" xml:space="preserve"><value>設定済みのストリーミングトポロジ</value></data>
   <data name="Streaming_ConsumerCountMany" xml:space="preserve"><value>コンシューマー {0} 件</value></data>
   <data name="Streaming_ConsumerCountOne" xml:space="preserve"><value>コンシューマー {0} 件</value></data>
+  <data name="Streaming_DeinterlaceAutomatic" xml:space="preserve"><value>QSV 自動インターレース解除: {0}</value></data>
+  <data name="Streaming_DeinterlaceEffective" xml:space="preserve"><value>インターレース解除: {0}</value></data>
   <data name="Streaming_DeliveredStreamComponents" xml:space="preserve"><value>配信ストリームのコンポーネント</value></data>
   <data name="Streaming_EffectiveSourceComponents" xml:space="preserve"><value>有効なソースコンポーネント</value></data>
   <data name="Streaming_EncoderActual" xml:space="preserve"><value>映像エンコーダー: {0}</value></data>
@@ -906,6 +908,7 @@
   <data name="Streaming_EncoderSoftware" xml:space="preserve"><value>ソフトウェアエンコード · {0}</value></data>
   <data name="Streaming_EncoderUnknown" xml:space="preserve"><value>映像エンコーダーは未報告です</value></data>
   <data name="Streaming_FlowSummaryAriaLabel" xml:space="preserve"><value>ストリーミングフローの概要</value></data>
+  <data name="Streaming_GopUnknownRate" xml:space="preserve"><value>GOP: {0} フレーム、フレームレート不明</value></data>
   <data name="Streaming_LaneConsumers" xml:space="preserve"><value>コンシューマー</value></data>
   <data name="Streaming_LaneMultiplexer" xml:space="preserve"><value>マルチプレクサー</value></data>
   <data name="Streaming_LaneOutputProcessing" xml:space="preserve"><value>出力処理</value></data>

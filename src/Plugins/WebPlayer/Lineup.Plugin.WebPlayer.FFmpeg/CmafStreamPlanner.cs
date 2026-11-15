@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Lineup.Core.Common.Streaming;
 using Lineup.Core.Streaming.FFmpeg;
+using Microsoft.Extensions.Logging;
 
 namespace Lineup.Plugin.WebPlayer.FFmpeg;
 
@@ -534,7 +535,9 @@ public static class CmafStreamPlanner
         var audioRenditions = CreatePresentationAudioRenditions(source, selection.Audio, request, profile);
         var burnIn = selection.SubtitlePresentation == SubtitlePresentation.BurnIn;
         var sourceVideo = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video);
-        var deinterlaceMode = profile.Deinterlace;
+        var processing = CreateVideoProcessing(profile, source, selection, request);
+        var deinterlaceMode = processing?.Deinterlace ?? profile.Deinterlace;
+        profile = profile with { Deinterlace = deinterlaceMode };
         var deinterlace = CmafDeinterlacePlanner.ShouldDeinterlace(sourceVideo, deinterlaceMode);
         var videoPlans = CreateVideoRenditions(sourceVideo, request, burnIn, deinterlaceMode);
         List<string> arguments =
@@ -572,7 +575,7 @@ public static class CmafStreamPlanner
 
         for (var index = 0; index < videoPlans.Count; index++)
         {
-            AddVideoArguments(arguments, profile, videoPlans[index], index, request.Quality, burnIn, deinterlace);
+            AddVideoArguments(arguments, profile, videoPlans[index], index, request.Quality, burnIn, deinterlace, processing?.GopFrames);
         }
         foreach (var rendition in audioRenditions)
         {
@@ -607,7 +610,43 @@ public static class CmafStreamPlanner
             arguments.AddRange(["-map", $"0:{subtitle.Index}", "-c:s", "webvtt", "-f", "webvtt", "-y", webVttPath]);
         }
 
-        return HardwareVideoEncodingPlanner.Apply(arguments, profile.HardwareEncoding);
+        return HardwareVideoEncodingPlanner.Apply(arguments, profile.HardwareEncoding, preserveMinimumKeyframeInterval: profile.HardwareEncoding.Encoder == HardwareVideoEncoder.Qsv);
+    }
+
+    /// <summary>Resolves effective filtering and cadence without making hardware selection alone force video encoding.</summary>
+    public static CmafVideoProcessingSnapshot? CreateVideoProcessing(VirtualTranscodeProfile profile, MediaProbeResult source, WebPlayerTrackSelection selection, CmafStreamRequest request)
+    {
+        var video = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video);
+        var plans = CreateVideoRenditions(video, request, selection.SubtitlePresentation == SubtitlePresentation.BurnIn, profile.Deinterlace);
+        if (plans.All(plan => plan.CopySource))
+        {
+            return null;
+        }
+        var qsv = profile.HardwareEncoding.Encoder == HardwareVideoEncoder.Qsv;
+        var automatic = qsv && video?.ScanType == VideoScanType.Interlaced && profile.Deinterlace == SourceDeinterlacePolicy.Preserve;
+        var mode = automatic ? SourceDeinterlacePolicy.SourceFieldRate : profile.Deinterlace;
+        var deinterlace = CmafDeinterlacePlanner.ShouldDeinterlace(video, mode);
+        var rate = video?.FrameRate is { IsUsable: true } usable ? usable : null;
+        if (deinterlace && mode == SourceDeinterlacePolicy.SourceFieldRate)
+        {
+            rate = rate?.Double();
+        }
+        var calculatedGop = rate is null ? 0 : decimal.Ceiling((decimal)rate.Numerator * SegmentDurationSeconds / rate.Denominator);
+        var knownGop = calculatedGop is > 0 and <= int.MaxValue;
+        return new(deinterlace ? mode : SourceDeinterlacePolicy.Preserve, automatic, rate, qsv ? knownGop ? (int)calculatedGop : 120 : null, qsv && !knownGop);
+    }
+
+    /// <summary>Reports effective processing once at producer startup, independently of viewer attachments.</summary>
+    public static void ReportVideoProcessing(CmafVideoProcessingSnapshot? processing, ILogger logger)
+    {
+        if (processing?.AutomaticDeinterlace == true)
+        {
+            logger.LogInformation("QSV CMAF output automatically deinterlaces confirmed interlaced video at source field rate; the saved Preserve setting is unchanged.");
+        }
+        if (processing?.UnknownGopRate == true)
+        {
+            logger.LogWarning("QSV CMAF output has no usable frame rate for segment scheduling; retaining a bounded {GopFrames}-frame GOP without timestamp-forced keyframes.", processing.GopFrames);
+        }
     }
 
     /// <summary>Creates a stable identity from shared media metadata and the effective initial and permitted startup-retry plans.</summary>
@@ -808,7 +847,16 @@ public static class CmafStreamPlanner
 
     private sealed record HlsFragmentLine(int LineIndex, int RepresentationId, long SegmentNumber, double DurationSeconds);
 
-    private static void AddVideoArguments(List<string> arguments, VirtualTranscodeProfile profile, CmafVideoPlan plan, int outputIndex, WebPlayerQuality quality, bool burnIn, bool deinterlace)
+    private static void AddVideoArguments(
+        List<string> arguments,
+        VirtualTranscodeProfile profile,
+        CmafVideoPlan plan,
+        int outputIndex,
+        WebPlayerQuality quality,
+        bool burnIn,
+        bool deinterlace,
+        int? qsvGopFrames
+    )
     {
         var streamSpecifier = $":v:{outputIndex}";
         if (plan.CopySource)
@@ -837,11 +885,15 @@ public static class CmafStreamPlanner
             "-tune", "zerolatency", "-crf", crf.ToString(),
             $"-maxrate{streamSpecifier}", $"{maximumBitRate}M", $"-bufsize{streamSpecifier}", $"{maximumBitRate * 2}M",
             $"-profile{streamSpecifier}", "high", $"-level{streamSpecifier}", "4.2", $"-pix_fmt{streamSpecifier}", "yuv420p",
-            "-flags", "+cgop", "-g", "120", "-keyint_min", "60", "-sc_threshold", "0",
-            // Absolute two-second targets can land less than two seconds apart at fractional frame rates, causing DASH to skip a cut.
-            $"-force_key_frames{streamSpecifier}", "expr:if(isnan(prev_forced_t),1,gte(t,prev_forced_t+2))",
-            $"-metadata:s{streamSpecifier}", $"title={plan.MediaTitle}"
+            "-flags", "+cgop", qsvGopFrames is null ? "-g" : $"-g{streamSpecifier}", (qsvGopFrames ?? 120).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            qsvGopFrames is null ? "-keyint_min" : $"-keyint_min{streamSpecifier}", (qsvGopFrames ?? 60).ToString(System.Globalization.CultureInfo.InvariantCulture), "-sc_threshold", "0"
         ]);
+        if (qsvGopFrames is null)
+        {
+            // Relative targets avoid DASH skipping cuts at fractional rates; QSV instead schedules keyframes by GOP.
+            arguments.AddRange([$"-force_key_frames{streamSpecifier}", "expr:if(isnan(prev_forced_t),1,gte(t,prev_forced_t+2))"]);
+        }
+        arguments.AddRange([$"-metadata:s{streamSpecifier}", $"title={plan.MediaTitle}"]);
         if (burnIn)
         {
             if (deinterlace)

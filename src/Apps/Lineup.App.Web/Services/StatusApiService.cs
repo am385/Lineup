@@ -240,7 +240,8 @@ internal sealed record ActiveStreamStatusResponse(
     ActiveStreamMediaStatusResponse? VirtualOutput,
     string? RequestedVideoEncoder,
     string? ActiveVideoEncoder,
-    bool HardwareFallbackApplied
+    bool HardwareFallbackApplied,
+    CmafVideoProcessingSnapshot? VideoProcessing
 );
 
 /// <summary>Represents media tracks at one active-stream processing boundary.</summary>
@@ -1203,7 +1204,8 @@ internal sealed class StatusApiService
             ToMediaStatus(stream.VirtualOutput),
             stream.RequestedVideoEncoder?.ToString(),
             stream.ActiveVideoEncoder,
-            stream.HardwareFallbackApplied)).ToArray();
+            stream.HardwareFallbackApplied,
+            stream.VideoProcessing)).ToArray();
         return new ActiveStreamsStatusResponse(streams.Length, streams);
     }
 

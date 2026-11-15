@@ -466,6 +466,7 @@ internal sealed partial class DedicatedPlaybackRuntime : IAsyncDisposable
                 while (true)
                 {
                     stage = DedicatedWorkerStartupStage.Process;
+                    CmafStreamPlanner.ReportVideoProcessing(CmafStreamPlanner.CreateVideoProcessing(plan.Profile, plan.Source, plan.Selection, plan.Request), owner._logger);
                     Session = await StartMediaSessionAsync(Id!, directory, Source, plan, owner._logger, owner._mediaWork);
                     stage = DedicatedWorkerStartupStage.Readiness;
                     try

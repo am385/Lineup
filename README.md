@@ -563,6 +563,16 @@ speed or quality tuning and its advanced options. MPEG-TS sources requiring embe
 with currently unverified hardware encoders; select Software or NVENC for those sources. CMAF keeps its parallel caption
 extraction. HDR tone mapping, additional codecs and zero-copy/hardware decode are not implemented.
 
+QSV Web Player transcodes use closed, frame-rate-based GOP scheduling instead of timestamp-forced keyframes:
+the GOP and minimum keyframe interval are the ceiling of two seconds times the effective output frame rate.
+If probing cannot supply a usable rate, Lineup retains a bounded 120-frame GOP and reports the missing rate;
+two-second cadence is not guaranteed in that case. Already-transcoded, confirmed-interlaced QSV Web Player video
+automatically uses source-field-rate deinterlacing when the saved policy is Preserve. Explicit frame-rate and
+field-rate policies are honored; progressive, unknown-scan and copy-only paths are unchanged.
+The automatic exception leaves saved settings intact and is visible in output diagnostics. Field-rate deinterlacing
+preserves field motion by doubling the progressive output frame rate, with additional CPU filtering and encoding work.
+This behavior is specific to QSV Web Player output, not general physical or MPEG-TS hardware transcoding.
+
 VA-API uses its driver's default preset (Balanced); numeric preset scales differ between Intel and Mesa/AMD drivers.
 Use an explicitly supported `compression_level` in advanced options instead of assuming a portable speed/quality number.
 

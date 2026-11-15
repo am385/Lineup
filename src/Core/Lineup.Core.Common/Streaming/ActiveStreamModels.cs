@@ -105,7 +105,14 @@ public sealed record ActiveStreamMediaSnapshot(long? BitRate, IReadOnlyList<Acti
 }
 
 /// <summary>Reports the video encoder selected by a running media producer, independently of its configured preference.</summary>
-public sealed record VideoEncodingSnapshot(string Encoder, HardwareVideoEncoder? RequestedEncoder, bool SoftwareFallbackApplied);
+public sealed record VideoEncodingSnapshot(string Encoder, HardwareVideoEncoder? RequestedEncoder, bool SoftwareFallbackApplied)
+{
+    /// <summary>Gets effective CMAF video processing when supplied by its producer.</summary>
+    public CmafVideoProcessingSnapshot? Processing { get; init; }
+}
+
+/// <summary>Describes effective CMAF filtering and QSV segment scheduling independently of saved settings.</summary>
+public sealed record CmafVideoProcessingSnapshot(SourceDeinterlacePolicy Deinterlace, bool AutomaticDeinterlace, MediaFrameRate? FrameRate, int? GopFrames, bool UnknownGopRate);
 
 /// <summary>Represents an active stream hosted by Lineup.</summary>
 public sealed record ActiveStreamSnapshot(string SessionId, string Channel, HostedStreamFormat Format, DateTime StartedAtUtc, long? SourceBitRate, IReadOnlyList<ActiveStreamTrack> Tracks)
@@ -118,6 +125,9 @@ public sealed record ActiveStreamSnapshot(string SessionId, string Channel, Host
 
     /// <summary>Gets whether an explicitly enabled pre-publication hardware-to-software fallback occurred.</summary>
     public bool HardwareFallbackApplied { get; init; }
+
+    /// <summary>Gets the effective video processing selected for the CMAF output.</summary>
+    public CmafVideoProcessingSnapshot? VideoProcessing { get; init; }
 
     /// <summary>Gets the originating trace identity, without credentials or network addresses.</summary>
     public string? CorrelationId { get; init; }

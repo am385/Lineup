@@ -65,10 +65,27 @@ public sealed partial record MediaTrackMetadata
     public bool HasClosedCaptions { get; init; }
     /// <summary>Gets the scan type reported for a video track.</summary>
     public VideoScanType ScanType { get; init; }
+    /// <summary>Gets the source frame rate as a rational number, or null when unknown.</summary>
+    public MediaFrameRate? FrameRate { get; init; }
     /// <summary>Gets whether this synthetic subtitle track represents captions embedded in a video stream.</summary>
     public bool IsEmbeddedClosedCaptions { get; init; }
     /// <summary>Gets the supported subtitle presentation.</summary>
     public SubtitlePresentation SubtitlePresentation { get; init; }
+}
+
+/// <summary>Describes a rational video frame rate without rounding fractional broadcast rates.</summary>
+/// <param name="Numerator">The positive frame-rate numerator.</param>
+/// <param name="Denominator">The positive frame-rate denominator.</param>
+public sealed record MediaFrameRate(int Numerator, int Denominator)
+{
+    /// <summary>Gets whether the rate has usable positive terms.</summary>
+    public bool IsUsable => Numerator > 0 && Denominator > 0;
+
+    /// <summary>Returns the doubled field rate, or unknown when it cannot be represented safely.</summary>
+    public MediaFrameRate? Double() =>
+        !IsUsable ? null :
+        Denominator % 2 == 0 ? new(Numerator, Denominator / 2) :
+        Numerator <= int.MaxValue / 2 ? new(Numerator * 2, Denominator) : null;
 }
 
 /// <summary>Describes all media tracks and the overall source bitrate reported by a source probe.</summary>

@@ -7,6 +7,27 @@ namespace Lineup.App.Web.Tests.Components;
 /// <summary>Verifies the accessible dashboard streaming-flow visualization and active paths.</summary>
 public sealed class StreamingFlowDiagramTests
 {
+    /// <summary>Verifies effective automatic deinterlacing and uncalculated cadence are visible in the shared diagnostic badge.</summary>
+    [Fact]
+    public async Task Render_QsvProcessing_ReportsAutomaticModeAndUnknownRate()
+    {
+        // Arrange
+        await using var context = new BunitContext();
+        var encoding = new VideoEncodingSnapshot("h264_qsv", HardwareVideoEncoder.Qsv, false)
+        {
+            Processing = new(SourceDeinterlacePolicy.SourceFieldRate, true, null, 120, true)
+        };
+
+        // Act
+        var cut = context.Render<VideoEncoderBadge>(parameters => parameters.Add(component => component.Encoding, encoding));
+
+        // Assert
+        Assert.Equal("SourceFieldRate", cut.Find(".video-deinterlace").GetAttribute("data-deinterlace"));
+        Assert.Equal("true", cut.Find(".video-deinterlace").GetAttribute("data-automatic-deinterlace"));
+        Assert.Contains("Automatic QSV deinterlacing", cut.Find(".video-deinterlace").TextContent);
+        Assert.Contains("120 frames; frame rate unavailable", cut.Find(".video-gop-rate-unknown").TextContent);
+    }
+
     /// <summary>Verifies actual GPU, software fallback and copy outcomes are visible without expanding a dashboard path or node.</summary>
     [Theory]
     [InlineData("h264_amf", false, "GPU encoding", false)]

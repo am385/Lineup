@@ -32,7 +32,7 @@ public static class HardwareVideoEncodingPlanner
     };
 
     /// <summary>Replaces software encoder options only when the existing plan already encodes video.</summary>
-    public static IReadOnlyList<string> Apply(IReadOnlyList<string> softwareArguments, HardwareEncodingSettings settings, bool requiresClosedCaptions = false)
+    public static IReadOnlyList<string> Apply(IReadOnlyList<string> softwareArguments, HardwareEncodingSettings settings, bool requiresClosedCaptions = false, bool preserveMinimumKeyframeInterval = false)
     {
         var errors = HardwareEncodingValidation.Validate(settings);
         if (errors.Count > 0)
@@ -55,7 +55,8 @@ public static class HardwareVideoEncodingPlanner
         for (var index = arguments.Count - 2; index >= 0; index--)
         {
             var name = arguments[index].Split(':')[0];
-            if (name is "-preset" or "-tune" or "-crf" or "-x264-params" or "-sc_threshold" or "-keyint_min" ||
+            if (name is "-preset" or "-tune" or "-crf" or "-x264-params" or "-sc_threshold" ||
+                name == "-keyint_min" && !preserveMinimumKeyframeInterval ||
                 name == "-a53cc" && settings.Encoder != HardwareVideoEncoder.Nvenc ||
                 name == "-pix_fmt" && settings.Encoder == HardwareVideoEncoder.Vaapi)
             {

@@ -53,6 +53,9 @@ public static class SourceDeinterlacePlanner
                     BitRate = profile.MaximumVideoBitRateMbps * 1_000_000L,
                     Profile = "High",
                     Level = 42,
+                    FrameRate = ShouldDeinterlace(primaryVideo, profile.Deinterlace) && profile.Deinterlace == SourceDeinterlacePolicy.SourceFieldRate
+                        ? primaryVideo.FrameRate?.Double()
+                        : primaryVideo.FrameRate,
                     ScanType = SourceDeinterlacePlanner.ShouldDeinterlace(primaryVideo, profile.Deinterlace)
                         ? VideoScanType.Progressive
                         : primaryVideo.ScanType

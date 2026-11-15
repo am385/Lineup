@@ -602,6 +602,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                 }
                 else
                 {
+                    CmafStreamPlanner.ReportVideoProcessing(CmafStreamPlanner.CreateVideoProcessing(virtualProfile, source, selection, request), _logger);
                     process = _mediaProcessFactory.Start(new MediaProcessRequest
                     {
                         FileName = "ffmpeg",
