@@ -119,6 +119,129 @@ public class FactoryResetServiceTests
         root.Delete(recursive: true);
     }
 
+    /// <summary>Verifies interruption after application-data cleanup leaves the durable request available for the next startup.</summary>
+    [Fact]
+    public async Task ApplyPendingReset_InterruptedAfterApplicationCleanup_RetriesPendingRequest()
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-reset-interrupted-");
+        try
+        {
+            var app = new AppDataStore(root.CreateSubdirectory("config").FullName);
+            var transient = new TransientDataStore(root.CreateSubdirectory("transient").FullName);
+            var output = Path.Combine(root.CreateSubdirectory("guide").FullName, "guide.xml");
+            await File.WriteAllTextAsync(app.SettingsPath, "settings", TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync(output, "guide", TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync(Path.Combine(transient.RootPath, "segment.ts"), "segment", TestContext.Current.CancellationToken);
+            await FactoryResetCoordinator.WriteRequestAsync(app, new FactoryResetRequest(), TestContext.Current.CancellationToken);
+            var originalRequest = app.ReadAllText(app.FactoryResetRequestPath);
+            var interrupted = Substitute.For<IAppDataStore>();
+            interrupted.RootPath.Returns(app.RootPath);
+            interrupted.FactoryResetRequestPath.Returns(app.FactoryResetRequestPath);
+            interrupted.FileExists(app.FactoryResetRequestPath).Returns(_ => app.FileExists(app.FactoryResetRequestPath));
+            interrupted.ReadAllText(app.FactoryResetRequestPath).Returns(_ => app.ReadAllText(app.FactoryResetRequestPath));
+            interrupted.When(store => store.DeleteContents()).Do(_ =>
+            {
+                app.DeleteContents();
+                throw new IOException("Simulated interruption after application-data cleanup.");
+            });
+
+            // Act
+            Assert.Throws<IOException>(() => FactoryResetCoordinator.ApplyPendingReset(interrupted, output, transient, new XmltvPublicationStore()));
+
+            // Assert
+            Assert.Equal(originalRequest, app.ReadAllText(app.FactoryResetRequestPath));
+            Assert.Equal(app.FactoryResetRequestPath, Assert.Single(Directory.EnumerateFileSystemEntries(app.RootPath)));
+            Assert.Empty(Directory.EnumerateFileSystemEntries(transient.RootPath));
+            Assert.False(File.Exists(output));
+            Assert.True(FactoryResetCoordinator.ApplyPendingReset(new AppDataStore(app.RootPath), output, transient, new XmltvPublicationStore()));
+            Assert.Empty(Directory.EnumerateFileSystemEntries(app.RootPath));
+            Assert.False(FactoryResetCoordinator.ApplyPendingReset(app, output, transient, new XmltvPublicationStore()));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>Verifies a locked Data Protection key cannot consume the reset request after earlier cleanup has succeeded.</summary>
+    [Fact]
+    public async Task ApplyPendingReset_LockedKey_PreservesRequestAndRetriesCleanup()
+    {
+        // Arrange
+        Assert.SkipWhen(!OperatingSystem.IsWindows(), "Requires Windows file-sharing deletion semantics.");
+        var root = Directory.CreateTempSubdirectory("lineup-reset-locked-key-");
+        try
+        {
+            var app = new AppDataStore(root.CreateSubdirectory("config").FullName);
+            var transient = new TransientDataStore(root.CreateSubdirectory("transient").FullName);
+            var output = Path.Combine(root.CreateSubdirectory("guide").FullName, "guide.xml");
+            var key = Path.Combine(Directory.CreateDirectory(app.DataProtectionKeysPath).FullName, "key-test.xml");
+            await File.WriteAllTextAsync(key, "key", TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync(app.SettingsPath, "settings", TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync(output, "guide", TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync(Path.Combine(transient.RootPath, "segment.ts"), "segment", TestContext.Current.CancellationToken);
+            await FactoryResetCoordinator.WriteRequestAsync(app, new FactoryResetRequest(), TestContext.Current.CancellationToken);
+            var originalRequest = app.ReadAllText(app.FactoryResetRequestPath);
+
+            // Act
+            using (var lockedKey = new FileStream(key, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                Assert.Throws<IOException>(() => FactoryResetCoordinator.ApplyPendingReset(app, output, transient, new XmltvPublicationStore()));
+
+                // Assert
+                Assert.Equal(originalRequest, app.ReadAllText(app.FactoryResetRequestPath));
+                Assert.True(File.Exists(key));
+                Assert.False(File.Exists(app.SettingsPath));
+                Assert.False(File.Exists(output));
+                Assert.Empty(Directory.EnumerateFileSystemEntries(transient.RootPath));
+            }
+            Assert.True(FactoryResetCoordinator.ApplyPendingReset(new AppDataStore(app.RootPath), output, transient, new XmltvPublicationStore()));
+            Assert.False(File.Exists(key));
+            Assert.Empty(Directory.EnumerateFileSystemEntries(app.RootPath));
+            Assert.False(FactoryResetCoordinator.ApplyPendingReset(app, output, transient, new XmltvPublicationStore()));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>Verifies failure to consume the final marker leaves a completed cleanup safely retryable.</summary>
+    [Fact]
+    public async Task ApplyPendingReset_LockedRequest_CleansOwnedDataBeforeConsumingRequest()
+    {
+        // Arrange
+        Assert.SkipWhen(!OperatingSystem.IsWindows(), "Requires Windows file-sharing deletion semantics.");
+        var root = Directory.CreateTempSubdirectory("lineup-reset-locked-request-");
+        try
+        {
+            var app = new AppDataStore(root.CreateSubdirectory("config").FullName);
+            var transient = new TransientDataStore(root.CreateSubdirectory("transient").FullName);
+            await File.WriteAllTextAsync(app.SettingsPath, "settings", TestContext.Current.CancellationToken);
+            await FactoryResetCoordinator.WriteRequestAsync(app, new FactoryResetRequest(), TestContext.Current.CancellationToken);
+            var originalRequest = app.ReadAllText(app.FactoryResetRequestPath);
+            var output = Path.Combine(root.FullName, "guide.xml");
+
+            // Act
+            using (var lockedRequest = new FileStream(app.FactoryResetRequestPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                Assert.Throws<IOException>(() => FactoryResetCoordinator.ApplyPendingReset(app, output, transient, new XmltvPublicationStore()));
+
+                // Assert
+                Assert.Equal(originalRequest, app.ReadAllText(app.FactoryResetRequestPath));
+                Assert.Equal(app.FactoryResetRequestPath, Assert.Single(Directory.EnumerateFileSystemEntries(app.RootPath)));
+            }
+            Assert.True(FactoryResetCoordinator.ApplyPendingReset(new AppDataStore(app.RootPath), output, transient, new XmltvPublicationStore()));
+            Assert.Empty(Directory.EnumerateFileSystemEntries(app.RootPath));
+            Assert.False(FactoryResetCoordinator.ApplyPendingReset(app, output, transient, new XmltvPublicationStore()));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
     /// <summary>
     /// Verifies that a reset request is durable before graceful shutdown starts.
     /// </summary>

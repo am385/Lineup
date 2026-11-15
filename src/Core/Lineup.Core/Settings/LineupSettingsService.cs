@@ -332,6 +332,7 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
     private string _persistedStreamingRevision;
     private string _persistedPhysicalRevision;
     private bool _preserveBackupOnNextSave;
+    private string? _settingsLoadFailure;
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {
         WriteIndented = true
@@ -381,6 +382,10 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
         {
             LoadSettingsSync();
         }
+        else
+        {
+            _logger.LogWarning("Core settings are restricted to recovery mode: {Reason}", _startupState.Reason);
+        }
         _persistedStreamingRevision = ConfigurationRevision.Create(Settings.Streaming);
         _persistedPhysicalRevision = ConfigurationRevision.Create(Settings.Streaming.PhysicalDevices);
     }
@@ -425,6 +430,7 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
     private void LoadSettingsSync()
     {
         var primaryExists = _appDataStore.FileExists(SettingsPath);
+        var backupExists = _appDataStore.FileExists(BackupPath);
         if (TryLoadSettingsSync(SettingsPath, out var settings))
         {
             ApplyLoadedSettings(settings);
@@ -440,7 +446,8 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
             return;
         }
 
-        _logger.LogInformation("No valid settings file found, using defaults");
+        ThrowIfSettingsLoadFailed(primaryExists || backupExists);
+        _logger.LogInformation("No settings file found, using defaults");
         Settings = CreateDefaultSettings();
     }
 
@@ -455,10 +462,9 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
         try
         {
             settings = DeserializeSettings(_appDataStore.ReadAllText(path));
-            PrepareLoadedSettings(settings);
             return true;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
         {
             _logger.LogError(ex, "Error loading settings from {Path}", path);
             return false;
@@ -467,14 +473,13 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
 
     private static LineupSettings DeserializeSettings(string json)
     {
-        var schemaState = StartupSchemaGate.CheckSettingsContent(json);
+        var schemaState = StartupSchemaGate.CheckSettingsContent(json, out var settings);
         if (schemaState.IsFactoryResetRequired)
         {
             throw new FactoryResetRequiredException(schemaState.Reason!);
         }
 
-        return JsonSerializer.Deserialize<LineupSettings>(json) ??
-            throw new JsonException("The settings document contained a null root value.");
+        return settings ?? throw new JsonException("The settings document contained a null root value.");
     }
 
     private void ApplyLoadedSettings(LineupSettings settings)
@@ -511,7 +516,9 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
         return Path.GetFullPath(outputPath);
     }
 
-    private void PrepareLoadedSettings(LineupSettings settings)
+    /// <summary>Validates load-time settings and normalizes optional operational collections.</summary>
+    /// <param name="settings">Deserialized settings.</param>
+    internal static void PrepareLoadedSettings(LineupSettings settings)
     {
         ValidateXmltvOutputPath(settings.XmltvOutputPath);
         settings.GuideSourceSchedules ??= [];
@@ -558,7 +565,9 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
         await _lock.WaitAsync();
         try
         {
+            ThrowIfFactoryResetRequired();
             var primaryExists = _appDataStore.FileExists(SettingsPath);
+            var backupExists = _appDataStore.FileExists(BackupPath);
             var settings = await TryLoadSettingsAsync(SettingsPath);
             if (settings != null)
             {
@@ -573,11 +582,14 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
                 ApplyLoadedSettings(settings);
                 _preserveBackupOnNextSave = primaryExists;
                 _logger.LogWarning("Recovered settings from backup {Path}", BackupPath);
+                return;
             }
+            ThrowIfSettingsLoadFailed(primaryExists || backupExists);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error loading settings");
+            throw;
         }
         finally
         {
@@ -594,11 +606,9 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
 
         try
         {
-            var settings = DeserializeSettings(await _appDataStore.ReadAllTextAsync(path));
-            PrepareLoadedSettings(settings);
-            return settings;
+            return DeserializeSettings(await _appDataStore.ReadAllTextAsync(path));
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
         {
             _logger.LogError(ex, "Error loading settings from {Path}", path);
             return null;
@@ -613,6 +623,7 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
         await _lock.WaitAsync();
         try
         {
+            ThrowIfFactoryResetRequired();
             await PersistSettingsAsync(CloneSettings(Settings));
         }
         catch (Exception ex)
@@ -662,6 +673,7 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
         await _lock.WaitAsync();
         try
         {
+            ThrowIfFactoryResetRequired();
             var updatedSettings = CloneSettings(Settings);
             updateAction(updatedSettings);
             await PersistSettingsAsync(updatedSettings);
@@ -699,6 +711,8 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
     }
 
     bool IPhysicalConfigurationAuthority.IsDesired(StreamingConfiguration configuration) =>
+        !_startupState.IsFactoryResetRequired &&
+        Volatile.Read(ref _settingsLoadFailure) is null &&
         string.Equals(Volatile.Read(ref _persistedPhysicalRevision), ConfigurationRevision.Create(configuration.PhysicalDevices), StringComparison.Ordinal);
 
     async Task<bool> IPhysicalConfigurationAuthority.TryPublishAsync(StreamingConfiguration configuration, Func<CancellationToken, Task> publish, CancellationToken cancellationToken)
@@ -729,6 +743,21 @@ public class LineupSettingsService : ILineupSettingsService, IEpgRetentionPolicy
         if (_startupState.IsFactoryResetRequired)
         {
             throw new FactoryResetRequiredException(_startupState.Reason!);
+        }
+        if (Volatile.Read(ref _settingsLoadFailure) is { } reason)
+        {
+            throw new FactoryResetRequiredException(reason);
+        }
+    }
+
+    private void ThrowIfSettingsLoadFailed(bool persistedSettingsExist)
+    {
+        if (persistedSettingsExist || _appDataStore.FileExists(SettingsPath) || _appDataStore.FileExists(BackupPath))
+        {
+            const string reason = "The persisted settings could not be loaded from the primary document or backup. Recovery is required before settings can be saved.";
+            Volatile.Write(ref _settingsLoadFailure, reason);
+            _logger.LogError("{Reason}", reason);
+            throw new FactoryResetRequiredException(reason);
         }
     }
 }

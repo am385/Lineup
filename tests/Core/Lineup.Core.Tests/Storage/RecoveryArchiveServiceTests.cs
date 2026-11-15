@@ -372,7 +372,7 @@ public sealed class RecoveryArchiveServiceTests
         var output = Path.Combine(fixture.Root, "backup.zip");
 
         // Act
-        await Assert.ThrowsAsync<JsonException>(() => new RecoveryArchiveService(fixture.Store.RootPath).BackupAsync(output, TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<InvalidDataException>(() => new RecoveryArchiveService(fixture.Store.RootPath).BackupAsync(output, TestContext.Current.CancellationToken));
 
         // Assert
         Assert.False(File.Exists(output));

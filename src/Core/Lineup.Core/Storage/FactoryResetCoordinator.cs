@@ -26,7 +26,7 @@ public static class FactoryResetCoordinator
     public static Task WriteRequestAsync(string appDataPath, FactoryResetRequest request, CancellationToken cancellationToken = default) =>
         WriteRequestAsync(new AppDataStore(appDataPath), request, cancellationToken);
 
-    /// <summary>Removes all Lineup-owned application and transient data when a reset request is present.</summary>
+    /// <summary>Removes all Lineup-owned application and transient data, consuming the durable reset request only after cleanup succeeds.</summary>
     public static bool ApplyPendingReset(IAppDataStore appDataStore, string? configuredXmltvPath, ITransientDataStore transientDataStore, IXmltvPublicationStore publicationStore)
     {
         if (!appDataStore.FileExists(appDataStore.FactoryResetRequestPath))
@@ -54,6 +54,7 @@ public static class FactoryResetCoordinator
 
         transientDataStore.DeleteContents();
         appDataStore.DeleteContents();
+        appDataStore.DeleteFile(appDataStore.FactoryResetRequestPath);
         return true;
     }
 

@@ -159,11 +159,11 @@ public sealed class AppDataStore : IAppDataStore
     }
 
     /// <summary>
-    /// Deletes every file and directory beneath the app-data root.
+    /// Deletes every file and directory beneath the app-data root except the durable Factory Reset request.
     /// </summary>
     public void DeleteContents()
     {
-        _files.DeleteContents();
+        _files.DeleteContents(FactoryResetRequestPath);
     }
 
     /// <summary>

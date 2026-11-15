@@ -67,6 +67,7 @@ public sealed class VirtualOutputWorkerLauncher : IVirtualOutputWorkerLauncher
         {
             startInfo.ArgumentList.Add(executablePath);
         }
+        VirtualOutputProcessLimits.ConfigureLifetimeContainment(startInfo);
         var preservedEnvironment = new[] { "PATH", "DOTNET_ROOT", "DOTNET_ROOT_X64", "SystemRoot", "WINDIR" }
             .Select(key => new KeyValuePair<string, string?>(key, Environment.GetEnvironmentVariable(key)))
             .Where(item => !string.IsNullOrEmpty(item.Value))
@@ -113,6 +114,7 @@ public sealed class VirtualOutputWorkerLauncher : IVirtualOutputWorkerLauncher
                 processLimits,
                 temporaryDirectory,
                 package.Manifest.WorkerId,
+                TimeSpan.FromSeconds(Math.Max(1, bootstrap.WorkerPolicy.DrainTimeoutSeconds)),
                 _logger);
             processLimits = null;
             managed.StartOutputPumps();
@@ -122,10 +124,11 @@ public sealed class VirtualOutputWorkerLauncher : IVirtualOutputWorkerLauncher
         {
             try
             {
-                if (processStarted && !process.HasExited)
+                if (processStarted)
                 {
-                    process.Kill(entireProcessTree: true);
-                    await process.WaitForExitAsync(CancellationToken.None);
+                    VirtualOutputProcessLimits.Terminate(process, processLimits);
+                    KillRunningProcessTree(process);
+                    await process.WaitForExitAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(Math.Max(1, bootstrap.WorkerPolicy.DrainTimeoutSeconds)));
                 }
             }
             finally
@@ -135,6 +138,21 @@ public sealed class VirtualOutputWorkerLauncher : IVirtualOutputWorkerLauncher
                 DeleteTemporaryDirectory(temporaryDirectory, package.Manifest.WorkerId, _logger);
             }
             throw;
+        }
+    }
+
+    private static void KillRunningProcessTree(Process process)
+    {
+        if (process.HasExited)
+        {
+            return;
+        }
+        try
+        {
+            process.Kill(entireProcessTree: true);
+        }
+        catch (Exception exception) when ((exception is InvalidOperationException or System.ComponentModel.Win32Exception) && process.HasExited)
+        {
         }
     }
 
@@ -153,27 +171,36 @@ public sealed class VirtualOutputWorkerLauncher : IVirtualOutputWorkerLauncher
     private sealed class ManagedVirtualOutputWorkerProcess : IVirtualOutputWorkerProcess
     {
         private readonly Process _process;
+        private readonly int _processId;
         private readonly IDisposable? _processLimits;
         private readonly DirectoryInfo _temporaryDirectory;
         private readonly string _workerId;
+        private readonly TimeSpan _terminationTimeout;
         private readonly ILogger _logger;
+        private readonly object _disposeLock = new();
+        private readonly object _terminationLock = new();
+        private readonly CancellationTokenSource _outputCancellation = new();
         private readonly TaskCompletionSource<int> _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private Task? _stdout;
         private Task? _stderr;
-        private int _disposed;
+        private Task? _disposal;
+        private bool _terminationRequested;
 
         /// <summary>Initializes the managed virtual output worker process.</summary>
         /// <param name="process">The process value.</param>
         /// <param name="processLimits">The process limits value.</param>
         /// <param name="temporaryDirectory">The temporary directory value.</param>
         /// <param name="workerId">The worker ID value.</param>
+        /// <param name="terminationTimeout">Bounded forced-termination and output-join budget.</param>
         /// <param name="logger">The logger value.</param>
-        internal ManagedVirtualOutputWorkerProcess(Process process, IDisposable? processLimits, DirectoryInfo temporaryDirectory, string workerId, ILogger logger)
+        internal ManagedVirtualOutputWorkerProcess(Process process, IDisposable? processLimits, DirectoryInfo temporaryDirectory, string workerId, TimeSpan terminationTimeout, ILogger logger)
         {
             _process = process;
+            _processId = process.Id;
             _processLimits = processLimits;
             _temporaryDirectory = temporaryDirectory;
             _workerId = workerId;
+            _terminationTimeout = terminationTimeout;
             _logger = logger;
             _process.Exited += ProcessExited;
             if (_process.HasExited)
@@ -183,7 +210,7 @@ public sealed class VirtualOutputWorkerLauncher : IVirtualOutputWorkerLauncher
         }
 
         /// <summary>Gets the process ID.</summary>
-        public int ProcessId => _process.Id;
+        public int ProcessId => _processId;
 
         /// <summary>Gets the completion.</summary>
         public Task<int> Completion => _completion.Task;
@@ -203,6 +230,7 @@ public sealed class VirtualOutputWorkerLauncher : IVirtualOutputWorkerLauncher
         {
             if (_process.HasExited)
             {
+                TerminateOwnedProcesses();
                 return;
             }
             _process.CloseMainWindow();
@@ -212,55 +240,80 @@ public sealed class VirtualOutputWorkerLauncher : IVirtualOutputWorkerLauncher
             }
             catch (TimeoutException)
             {
-                if (!_process.HasExited)
-                {
-                    _process.Kill(entireProcessTree: true);
-                }
-                await Completion.WaitAsync(cancellationToken);
+                TerminateOwnedProcesses();
+                await Completion.WaitAsync(_terminationTimeout, cancellationToken);
             }
+            TerminateOwnedProcesses();
         }
 
         /// <inheritdoc />
-        public async ValueTask DisposeAsync()
+        public ValueTask DisposeAsync()
         {
-            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            lock (_disposeLock)
             {
-                return;
+                return new ValueTask(_disposal ??= DisposeCoreAsync());
             }
+        }
+
+        private async Task DisposeCoreAsync()
+        {
             _process.Exited -= ProcessExited;
+            using var deadline = new CancellationTokenSource(_terminationTimeout);
             try
             {
+                TerminateOwnedProcesses();
                 if (!_process.HasExited)
                 {
-                    _process.Kill(entireProcessTree: true);
-                    await _process.WaitForExitAsync();
+                    await _process.WaitForExitAsync(deadline.Token);
                 }
-                if (_stdout is not null)
-                {
-                    await _stdout;
-                }
-                if (_stderr is not null)
-                {
-                    await _stderr;
-                }
+                await Task.WhenAll(_stdout ?? Task.CompletedTask, _stderr ?? Task.CompletedTask).WaitAsync(deadline.Token);
+                Complete();
+            }
+            catch (OperationCanceledException exception) when (deadline.IsCancellationRequested)
+            {
+                _logger.LogError(exception, "Virtual-output worker {WorkerId} did not finish owned process cleanup within {Timeout}.", _workerId, _terminationTimeout);
+                throw new TimeoutException($"Virtual-output worker '{_workerId}' did not finish owned process cleanup within {_terminationTimeout}.", exception);
             }
             finally
             {
+                _outputCancellation.Cancel();
                 _process.Dispose();
                 _processLimits?.Dispose();
+                _outputCancellation.Dispose();
                 DeleteTemporaryDirectory(_temporaryDirectory, _workerId, _logger);
+            }
+        }
+
+        private void TerminateOwnedProcesses()
+        {
+            lock (_terminationLock)
+            {
+                if (_terminationRequested)
+                {
+                    return;
+                }
+                VirtualOutputProcessLimits.Terminate(_process, _processLimits);
+                KillRunningProcessTree(_process);
+                _terminationRequested = true;
             }
         }
 
         private async Task PumpAsync(StreamReader reader, LogLevel level)
         {
-            while (await reader.ReadLineAsync() is { } line)
+            var cancellationToken = _outputCancellation.Token;
+            try
             {
-                if (line.Length > 4096)
+                while (await reader.ReadLineAsync(cancellationToken) is { } line)
                 {
-                    line = line[..4096];
+                    if (line.Length > 4096)
+                    {
+                        line = line[..4096];
+                    }
+                    _logger.Log(level, "Virtual-output worker {WorkerId}: {WorkerMessage}", _workerId, line);
                 }
-                _logger.Log(level, "Virtual-output worker {WorkerId}: {WorkerMessage}", _workerId, line);
+            }
+            catch (Exception exception) when (cancellationToken.IsCancellationRequested && (exception is OperationCanceledException or ObjectDisposedException or IOException))
+            {
             }
         }
 

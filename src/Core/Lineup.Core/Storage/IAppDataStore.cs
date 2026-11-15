@@ -53,7 +53,7 @@ public interface IAppDataStore
     /// <summary>Deletes a contained app-data directory when present.</summary>
     void DeleteDirectory(string path, bool recursive = false);
 
-    /// <summary>Deletes every file and directory beneath the app-data root.</summary>
+    /// <summary>Deletes every file and directory beneath the app-data root except the durable Factory Reset request.</summary>
     void DeleteContents();
 
     /// <summary>Deletes matching files directly beneath a contained directory.</summary>

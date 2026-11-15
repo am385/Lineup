@@ -778,14 +778,39 @@ public sealed class VirtualOutputSupervisor : BackgroundService, IVirtualOutputW
         await gate.WaitAsync();
         try
         {
-            if (_active.TryGetValue(deviceId, out var current) && ReferenceEquals(current, worker))
+            var ownsCurrent = _active.TryGetValue(deviceId, out var current) && ReferenceEquals(current, worker);
+            if (ownsCurrent)
             {
                 _active.TryRemove(deviceId, out _);
                 _authority.Revoke(deviceId, "The virtual output worker exited.");
+            }
+            try
+            {
+                await worker.Process.DisposeAsync();
+            }
+            catch (Exception exception) when (exception is TimeoutException or IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+            {
+                _logger.LogError(exception, "Could not finish owned process cleanup for virtual output {VirtualDeviceId}.", deviceId);
+                if (ownsCurrent)
+                {
+                    _quarantinedFingerprints[deviceId] = worker.Fingerprint;
+                    _status.Set(new VirtualOutputRuntimeSnapshot
+                    {
+                        VirtualDeviceId = deviceId,
+                        State = VirtualOutputRuntimeState.Failed,
+                        Generation = worker.Generation,
+                        ProcessId = worker.Process.ProcessId,
+                        Bindings = worker.Bindings,
+                        LastFailure = "The worker exited, but owned process cleanup failed. Check the host logs and remaining processes before retrying."
+                    });
+                }
+                return;
+            }
+            if (ownsCurrent)
+            {
                 RecordManagedWorkerFailure(deviceId, worker, $"The worker exited with code {exitCode}.");
                 _logger.LogWarning("Virtual-output worker for {VirtualDeviceId} exited with code {ExitCode}", deviceId, exitCode);
             }
-            await worker.Process.DisposeAsync();
         }
         finally
         {

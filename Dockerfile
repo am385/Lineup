@@ -67,7 +67,7 @@ WORKDIR /app
 # Install Jellyfin FFmpeg for AC-4 stream decoding
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends ca-certificates curl gnupg; \
+    apt-get install -y --no-install-recommends ca-certificates curl gnupg util-linux; \
     mkdir -p /etc/apt/keyrings; \
     curl -fsSL https://repo.jellyfin.org/jellyfin_team.gpg.key \
         | gpg --dearmor --yes -o /etc/apt/keyrings/jellyfin.gpg; \

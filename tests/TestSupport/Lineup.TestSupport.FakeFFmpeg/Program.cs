@@ -1,4 +1,13 @@
+using System.Diagnostics;
 using System.Text.Json;
+
+if (args is ["orphan", var readyPath])
+{
+    await File.WriteAllTextAsync(readyPath + ".tmp", Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    File.Move(readyPath + ".tmp", readyPath);
+    await Task.Delay(Timeout.InfiniteTimeSpan);
+    return 0;
+}
 
 if (args.Length == 0)
 {
@@ -15,6 +24,25 @@ if (args.Length == 0)
     {
         writeError = exception.GetType().Name;
     }
+    var mode = bootstrap.RootElement.GetProperty("virtualDevice").GetProperty("name").GetString();
+    using var descendant = mode == "descendant" ? Process.Start(new ProcessStartInfo
+    {
+        FileName = "dotnet",
+        UseShellExecute = false,
+        RedirectStandardInput = true,
+        ArgumentList = { typeof(Program).Assembly.Location, "orphan", Path.Combine(artifactDirectory, "descendant.ready") }
+    }) ?? throw new InvalidOperationException("The worker probe could not start its descendant.") : null;
+    if (descendant is not null)
+    {
+        while (!File.Exists(Path.Combine(artifactDirectory, "descendant.ready")))
+        {
+            if (descendant.HasExited)
+            {
+                throw new InvalidOperationException("The descendant exited before reporting readiness.");
+            }
+            await Task.Delay(10);
+        }
+    }
     var report = new
     {
         TemporaryPath = temporaryPath,
@@ -22,12 +50,14 @@ if (args.Length == 0)
         WriteError = writeError,
         Variables = Environment.GetEnvironmentVariables().Cast<System.Collections.DictionaryEntry>()
             .ToDictionary(item => (string)item.Key, item => (string?)item.Value),
-        Arguments = Environment.GetCommandLineArgs()
+        Arguments = Environment.GetCommandLineArgs(),
+        WorkerProcessId = Environment.ProcessId,
+        DescendantProcessId = descendant?.Id
     };
     var reportPath = Path.Combine(Environment.CurrentDirectory, "worker-environment.json");
     await File.WriteAllTextAsync(reportPath + ".tmp", JsonSerializer.Serialize(report));
-    File.Move(reportPath + ".tmp", reportPath);
-    if (bootstrap.RootElement.GetProperty("virtualDevice").GetProperty("name").GetString() != "exit")
+    File.Move(reportPath + ".tmp", reportPath, overwrite: true);
+    if (mode != "exit")
     {
         await Task.Delay(Timeout.InfiniteTimeSpan);
     }
