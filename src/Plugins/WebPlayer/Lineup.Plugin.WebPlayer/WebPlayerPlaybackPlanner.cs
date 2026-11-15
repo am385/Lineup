@@ -126,7 +126,8 @@ public static class WebPlayerPlaybackPlanner
 
         var burnIn = subtitle?.SubtitleMode == WebPlayerSubtitleMode.BurnIn;
         var encodeVideo = video is not null &&
-            (burnIn ||
+            (effective.AlwaysTranscodeVideo ||
+             burnIn ||
              request.MaximumHeight.HasValue ||
              !_cmafVideoCodecs.Contains(video.Codec) ||
              effective.ConvertHevcToH264 && string.Equals(video.Codec, "hevc", StringComparison.OrdinalIgnoreCase) ||

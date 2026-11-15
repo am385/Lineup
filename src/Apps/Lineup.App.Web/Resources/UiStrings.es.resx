@@ -952,6 +952,8 @@
   <data name="Streaming_WarmProducerCountMany" xml:space="preserve"><value>{0} productores en espera activa</value></data>
   <data name="Streaming_WarmProducerCountOne" xml:space="preserve"><value>{0} productor en espera activa</value></data>
   <data name="Transcoding_Ac4Audio" xml:space="preserve"><value>Audio AC-4</value></data>
+  <data name="Transcoding_AlwaysTranscodeVideo" xml:space="preserve"><value>Transcodificar siempre el vídeo</value></data>
+  <data name="Transcoding_AlwaysTranscodeVideoHelp" xml:space="preserve"><value>Recodifica todo el vídeo como H.264 con el codificador y el límite de tasa de bits seleccionados. El audio y los datos de transporte son adicionales.</value></data>
   <data name="Transcoding_Audio" xml:space="preserve"><value>Audio</value></data>
   <data name="Transcoding_AudioCopy" xml:space="preserve"><value>Copiar</value></data>
   <data name="Transcoding_ConvertHevcHelp" xml:space="preserve"><value>Cuando está habilitado, el video HEVC/H.265 se codifica como H.264 para una compatibilidad de reproducción más amplia. Otros códecs de video no cambian.</value></data>
@@ -1000,6 +1002,7 @@
   <data name="Transcoding_MaximumVideoBitrate" xml:space="preserve"><value>Velocidad de bits máxima de video</value></data>
   <data name="Transcoding_NonAc4Audio" xml:space="preserve"><value>Audio que no es AC-4</value></data>
   <data name="Transcoding_OverrideAc4Audio" xml:space="preserve"><value>Anular audio AC-4</value></data>
+  <data name="Transcoding_OverrideAlwaysTranscodeVideo" xml:space="preserve"><value>Anular transcodificar siempre el vídeo</value></data>
   <data name="Transcoding_OverrideBitrate" xml:space="preserve"><value>Anular la tasa de bits</value></data>
   <data name="Transcoding_OverrideDeinterlacing" xml:space="preserve"><value>Anular el desentrelazado</value></data>
   <data name="Transcoding_OverrideEncoderPreset" xml:space="preserve"><value>Anular el preajuste del codificador</value></data>

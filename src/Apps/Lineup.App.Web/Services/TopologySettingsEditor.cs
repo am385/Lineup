@@ -51,6 +51,7 @@ public sealed class TopologySettingsEditor
             MaximumPluginConnections = configuration.MaximumPluginConnections,
             PhysicalDefaults = new PhysicalTranscodeSettingsModel
             {
+                AlwaysTranscodeVideo = configuration.PhysicalDefaults.AlwaysTranscodeVideo,
                 HardwareEncoding = configuration.PhysicalDefaults.HardwareEncoding,
                 ConvertHevcToH264 = configuration.PhysicalDefaults.ConvertHevcToH264,
                 Deinterlace = configuration.PhysicalDefaults.Deinterlace,
@@ -62,6 +63,7 @@ public sealed class TopologySettingsEditor
             },
             VirtualDefaults = new VirtualTranscodeSettingsModel
             {
+                AlwaysTranscodeVideo = configuration.VirtualDefaults.AlwaysTranscodeVideo,
                 HardwareEncoding = configuration.VirtualDefaults.HardwareEncoding,
                 ConvertHevcToH264 = configuration.VirtualDefaults.ConvertHevcToH264,
                 Deinterlace = configuration.VirtualDefaults.Deinterlace,
@@ -75,6 +77,8 @@ public sealed class TopologySettingsEditor
             PreservedVirtualOutputWorkerPolicies = configuration.VirtualOutputWorkerPolicies.ToList(),
             PhysicalDevices = configuration.PhysicalDevices.Select(device => new PhysicalDeviceSettingsModel
             {
+                OverrideAlwaysTranscodeVideo = device.TranscodeOverrides.AlwaysTranscodeVideo.HasValue,
+                AlwaysTranscodeVideo = device.TranscodeOverrides.AlwaysTranscodeVideo ?? configuration.PhysicalDefaults.AlwaysTranscodeVideo,
                 OverrideHardwareEncoding = device.TranscodeOverrides.HardwareEncoding is not null,
                 HardwareEncoding = device.TranscodeOverrides.HardwareEncoding ?? configuration.PhysicalDefaults.HardwareEncoding,
                 Id = device.Id,
@@ -193,6 +197,8 @@ public sealed class TopologySettingsEditor
                     MaximumCpuPercent = workerPolicy?.MaximumCpuPercent ?? 0,
                     SubscriptionMode = device.Subscription.Mode,
                     SelectedDeviceIds = device.Subscription.SelectedDeviceIds.ToHashSet(),
+                    OverrideAlwaysTranscodeVideo = device.TranscodeOverrides.AlwaysTranscodeVideo.HasValue,
+                    AlwaysTranscodeVideo = device.TranscodeOverrides.AlwaysTranscodeVideo ?? configuration.VirtualDefaults.AlwaysTranscodeVideo,
                     OverrideConvertHevcToH264 = device.TranscodeOverrides.ConvertHevcToH264.HasValue,
                     ConvertHevcToH264 = device.TranscodeOverrides.ConvertHevcToH264 ?? configuration.VirtualDefaults.ConvertHevcToH264,
                     OverrideDeinterlace = device.TranscodeOverrides.Deinterlace.HasValue,
@@ -237,6 +243,7 @@ public sealed class TopologySettingsEditor
             MaximumPluginConnections = model.MaximumPluginConnections,
             PhysicalDefaults = new PhysicalTranscodeProfile
             {
+                AlwaysTranscodeVideo = model.PhysicalDefaults.AlwaysTranscodeVideo,
                 HardwareEncoding = model.PhysicalDefaults.HardwareEncoding,
                 ConvertHevcToH264 = model.PhysicalDefaults.ConvertHevcToH264,
                 Deinterlace = model.PhysicalDefaults.Deinterlace,
@@ -248,6 +255,7 @@ public sealed class TopologySettingsEditor
             },
             VirtualDefaults = new VirtualTranscodeProfile
             {
+                AlwaysTranscodeVideo = model.VirtualDefaults.AlwaysTranscodeVideo,
                 HardwareEncoding = model.VirtualDefaults.HardwareEncoding,
                 ConvertHevcToH264 = model.VirtualDefaults.ConvertHevcToH264,
                 Deinterlace = model.VirtualDefaults.Deinterlace,
@@ -282,6 +290,7 @@ public sealed class TopologySettingsEditor
                 Adapter = BuildPhysicalAdapter(device),
                 TranscodeOverrides = new PhysicalTranscodeOverrides
                 {
+                    AlwaysTranscodeVideo = device.OverrideAlwaysTranscodeVideo ? device.AlwaysTranscodeVideo : null,
                     HardwareEncoding = device.OverrideHardwareEncoding ? device.HardwareEncoding : null,
                     ConvertHevcToH264 = device.OverrideConvertHevcToH264 ? device.ConvertHevcToH264 : null,
                     Deinterlace = device.OverrideDeinterlace ? device.Deinterlace : null,
@@ -331,6 +340,7 @@ public sealed class TopologySettingsEditor
                 },
                 TranscodeOverrides = new VirtualTranscodeOverrides
                 {
+                    AlwaysTranscodeVideo = device.OverrideAlwaysTranscodeVideo ? device.AlwaysTranscodeVideo : null,
                     HardwareEncoding = device.OverrideHardwareEncoding ? device.HardwareEncoding : null,
                     ConvertHevcToH264 = device.OverrideConvertHevcToH264 ? device.ConvertHevcToH264 : null,
                     Deinterlace = device.OverrideDeinterlace ? device.Deinterlace : null,
@@ -473,6 +483,7 @@ public sealed class TopologySettingsEditor
 
         var device = new PhysicalDeviceSettingsModel
         {
+            AlwaysTranscodeVideo = model.PhysicalDefaults.AlwaysTranscodeVideo,
             HardwareEncoding = model.PhysicalDefaults.HardwareEncoding,
             Id = id,
             Name = $"{driver.DisplayName} {model.PhysicalDevices.Count(device => string.Equals(device.Kind, driver.Kind, StringComparison.OrdinalIgnoreCase)) + 1}",
@@ -515,6 +526,7 @@ public sealed class TopologySettingsEditor
 
         var device = new VirtualDeviceSettingsModel
         {
+            AlwaysTranscodeVideo = model.VirtualDefaults.AlwaysTranscodeVideo,
             HardwareEncoding = model.VirtualDefaults.HardwareEncoding,
             Id = id,
             Name = $"{driver.DisplayName} {model.VirtualDevices.Count(device => string.Equals(device.Kind, driver.Kind, StringComparison.OrdinalIgnoreCase)) + 1}",
@@ -1064,6 +1076,9 @@ public sealed class TopologySettingsModel
 /// <summary>Defines editable transcoder settings shared by global and device forms.</summary>
 public interface ITranscodeSettingsModel
 {
+    /// <summary>Gets or sets whether all video is encoded as H.264.</summary>
+    bool AlwaysTranscodeVideo { get; set; }
+
     /// <summary>Gets or sets the complete optional hardware encoder settings.</summary>
     HardwareEncodingSettings HardwareEncoding { get; set; }
 
@@ -1092,6 +1107,9 @@ public interface ITranscodeSettingsModel
 /// <summary>Defines editable sparse transcoder overrides for a device.</summary>
 public interface ITranscodeOverrideSettingsModel : ITranscodeSettingsModel
 {
+    /// <summary>Gets or sets whether always-transcode behavior is overridden.</summary>
+    bool OverrideAlwaysTranscodeVideo { get; set; }
+
     /// <summary>Gets or sets whether hardware encoder settings are overridden as one unit.</summary>
     bool OverrideHardwareEncoding { get; set; }
 
@@ -1120,6 +1138,9 @@ public interface ITranscodeOverrideSettingsModel : ITranscodeSettingsModel
 /// <summary>Editable physical-stage defaults.</summary>
 public sealed class PhysicalTranscodeSettingsModel : ITranscodeSettingsModel
 {
+    /// <summary>Gets or sets whether all video is encoded before multiplexing.</summary>
+    public bool AlwaysTranscodeVideo { get; set; }
+
     /// <summary>Gets or sets optional hardware encoder settings.</summary>
     public HardwareEncodingSettings HardwareEncoding { get; set; } = new();
 
@@ -1148,6 +1169,9 @@ public sealed class PhysicalTranscodeSettingsModel : ITranscodeSettingsModel
 /// <summary>Editable virtual-stage defaults.</summary>
 public sealed class VirtualTranscodeSettingsModel : ITranscodeSettingsModel
 {
+    /// <summary>Gets or sets whether all output video is encoded as H.264.</summary>
+    public bool AlwaysTranscodeVideo { get; set; }
+
     /// <summary>Gets or sets optional hardware encoder settings.</summary>
     public HardwareEncodingSettings HardwareEncoding { get; set; } = new();
 
@@ -1240,6 +1264,12 @@ public sealed class LineupLinkAccessGrantSettingsModel
 /// <summary>Editable physical device.</summary>
 public sealed class PhysicalDeviceSettingsModel : ITranscodeOverrideSettingsModel
 {
+    /// <summary>Gets or sets whether always-transcode behavior overrides physical defaults.</summary>
+    public bool OverrideAlwaysTranscodeVideo { get; set; }
+
+    /// <summary>Gets or sets whether all video is encoded before multiplexing.</summary>
+    public bool AlwaysTranscodeVideo { get; set; }
+
     /// <summary>Gets or sets the operator-selected HDHomeRun EXTEND hardware transcode profile.</summary>
     public string TranscodeProfile { get; set; } = "default";
 
@@ -1431,6 +1461,12 @@ public sealed class AdapterSettingFieldSettingsModel
 /// <summary>Editable virtual device.</summary>
 public sealed class VirtualDeviceSettingsModel : ITranscodeOverrideSettingsModel
 {
+    /// <summary>Gets or sets whether always-transcode behavior overrides virtual defaults.</summary>
+    public bool OverrideAlwaysTranscodeVideo { get; set; }
+
+    /// <summary>Gets or sets whether all output video is encoded as H.264.</summary>
+    public bool AlwaysTranscodeVideo { get; set; }
+
     /// <summary>Gets or sets whether hardware encoder settings override global defaults.</summary>
     public bool OverrideHardwareEncoding { get; set; }
 

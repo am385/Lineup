@@ -14,6 +14,45 @@ namespace Lineup.App.Web.Tests.Services;
 /// </summary>
 public sealed class TopologySettingsEditorTests
 {
+    /// <summary>Verifies both stages retain forced encoding defaults and sparse inherited, enabled or disabled device overrides.</summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ForcedVideo_RoundTrip_PreservesDefaultsAndSparseOverrides(bool? force)
+    {
+        // Arrange
+        var editor = new TopologySettingsEditor();
+        var model = editor.Edit(TopologySettingsEditor.CreateDefault());
+        model.PhysicalDefaults.AlwaysTranscodeVideo = true;
+        model.VirtualDefaults.AlwaysTranscodeVideo = true;
+        var physical = editor.AddPhysicalDevice(model, new TestPhysicalTunerDriver());
+        var virtualDevice = Assert.Single(model.VirtualDevices);
+        physical.OverrideAlwaysTranscodeVideo = force.HasValue;
+        physical.AlwaysTranscodeVideo = force ?? true;
+        virtualDevice.OverrideAlwaysTranscodeVideo = force.HasValue;
+        virtualDevice.AlwaysTranscodeVideo = force ?? true;
+
+        // Act
+        var errors = editor.TryBuild(model, out var configuration);
+        var roundTrip = editor.Edit(configuration);
+        var physicalEffective = configuration.PhysicalDevices[0].TranscodeOverrides.Apply(configuration.PhysicalDefaults);
+        var virtualEffective = configuration.VirtualDevices[0].TranscodeOverrides.Apply(configuration.VirtualDefaults);
+
+        // Assert
+        Assert.Empty(errors);
+        Assert.True(configuration.PhysicalDefaults.AlwaysTranscodeVideo);
+        Assert.True(configuration.VirtualDefaults.AlwaysTranscodeVideo);
+        Assert.Equal(force, configuration.PhysicalDevices[0].TranscodeOverrides.AlwaysTranscodeVideo);
+        Assert.Equal(force, configuration.VirtualDevices[0].TranscodeOverrides.AlwaysTranscodeVideo);
+        Assert.Equal(force ?? true, physicalEffective.AlwaysTranscodeVideo);
+        Assert.Equal(force ?? true, virtualEffective.AlwaysTranscodeVideo);
+        Assert.Equal(force.HasValue, roundTrip.PhysicalDevices[0].OverrideAlwaysTranscodeVideo);
+        Assert.Equal(force.HasValue, roundTrip.VirtualDevices[0].OverrideAlwaysTranscodeVideo);
+        Assert.Equal(force ?? true, roundTrip.PhysicalDevices[0].AlwaysTranscodeVideo);
+        Assert.Equal(force ?? true, roundTrip.VirtualDevices[0].AlwaysTranscodeVideo);
+    }
+
     /// <summary>Verifies malformed editable host text cannot throw during preview or become a valid topology.</summary>
     [Theory]
     [InlineData("bad host")]

@@ -1208,10 +1208,10 @@ public sealed class TopologySettingsTests
     }
 
     /// <summary>
-    /// Verifies physical encoder controls appear only when the effective profile requests video transcoding.
+    /// Verifies physical encoder controls appear when video conversion is requested, including forced encoding.
     /// </summary>
     [Fact]
-    public async Task Render_PhysicalVideoTranscoding_ShowsEncoderControlsOnlyWhenApplicable()
+    public async Task Render_PhysicalVideoTranscoding_ShowsApplicableEncoderControls()
     {
         // Arrange
         await using var context = CreateContext(out _, out _);
@@ -1224,6 +1224,16 @@ public sealed class TopologySettingsTests
         Assert.Empty(component.FindAll(".physical-global-video-encoder-settings"));
         Assert.NotNull(component.Find("#physicalDefaultAudio"));
 
+        // Act
+        await component.Find("#physicalDefaultAlwaysVideo").ChangeAsync(true);
+
+        // Assert
+        Assert.NotNull(component.Find("#physicalDefaultPreset"));
+        Assert.NotNull(component.Find("#physicalDefaultQuality"));
+        Assert.NotNull(component.Find("#physicalDefaultBitrate"));
+
+        // Act
+        await component.Find("#physicalDefaultAlwaysVideo").ChangeAsync(false);
         await component.Find("#addPhysicalDevice").ClickAsync(new());
         await component.Find(".physical-device-type").ClickAsync(new());
 
@@ -1246,6 +1256,19 @@ public sealed class TopologySettingsTests
 
         await component.Find("#physicalOverrideHevc-0").ChangeAsync(true);
 
+        Assert.Empty(component.FindAll("#physicalOverridePreset-0"));
+
+        // Act
+        await component.Find("#physicalOverrideAlwaysVideo-0").ChangeAsync(true);
+        await component.Find("#physicalAlwaysVideo-0").ChangeAsync(true);
+
+        // Assert
+        Assert.NotNull(component.Find("#physicalOverridePreset-0"));
+
+        // Act
+        await component.Find("#physicalAlwaysVideo-0").ChangeAsync(false);
+
+        // Assert
         Assert.Empty(component.FindAll("#physicalOverridePreset-0"));
 
         await component.Find("#physicalOverrideDeinterlace-0").ChangeAsync(true);

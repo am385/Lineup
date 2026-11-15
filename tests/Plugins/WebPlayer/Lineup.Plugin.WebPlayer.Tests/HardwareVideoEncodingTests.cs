@@ -11,6 +11,45 @@ namespace Lineup.Plugin.WebPlayer.Tests;
 /// <summary>Verifies optional GPU encoding preserves copy-first media policy and owns initialization failures.</summary>
 public sealed class HardwareVideoEncodingTests
 {
+    /// <summary>Verifies an explicit source-video request cannot bypass configured forced encoding or its bitrate constraint.</summary>
+    [Theory]
+    [InlineData(HardwareVideoEncoder.Software, "libx264")]
+    [InlineData(HardwareVideoEncoder.Qsv, "h264_qsv")]
+    public void Cmaf_ForcedVideo_EncodesSourceWithConfiguredCeiling(HardwareVideoEncoder encoder, string expectedEncoder)
+    {
+        // Arrange
+        var source = new MediaProbeResult([new MediaTrackMetadata(0, MediaTrackType.Video, "h264", 12_000_000, 1920, 1080, null, null)
+            { ScanType = VideoScanType.Progressive, FrameRate = new(25, 1) }], null);
+        var profile = new VirtualTranscodeProfile
+        {
+            AlwaysTranscodeVideo = true,
+            HardwareEncoding = new() { Encoder = encoder },
+            MaximumVideoBitRateMbps = 3
+        };
+        var request = new CmafStreamRequest
+        {
+            PreferredVideo = CmafPreferredVideo.Source,
+            Overrides = new() { Enabled = true, Video = CmafPreferredVideo.Source }
+        };
+        var selection = CmafStreamPlanner.SelectTracks(source, request);
+
+        // Act
+        var arguments = CmafStreamPlanner.CreateArguments(profile, source, selection, request, "manifest.mpd").ToList();
+        var processing = CmafStreamPlanner.CreateVideoProcessing(profile, source, selection, request);
+        var snapshot = ActiveStreamPlanFactory.CreateCmaf("forced", "2.3", DateTime.UnixEpoch, source, selection, request, profile);
+
+        // Assert
+        Assert.Equal(expectedEncoder, arguments[arguments.IndexOf("-c:v:0") + 1]);
+        Assert.Equal("3M", arguments[arguments.IndexOf("-maxrate:v:0") + 1]);
+        Assert.Equal("6M", arguments[arguments.IndexOf("-bufsize:v:0") + 1]);
+        Assert.NotNull(processing);
+        Assert.Equal(processing, snapshot.VideoProcessing);
+        Assert.DoesNotContain(arguments, value => value.Contains("bwdif", StringComparison.Ordinal));
+        var rendition = Assert.Single(CmafStreamPlanner.CreateVideoRenditions(
+            source.Tracks[0], request, false, profile.Deinterlace, profile.AlwaysTranscodeVideo));
+        Assert.False(rendition.CopySource);
+    }
+
     /// <summary>Verifies QSV schedules closed GOPs from the actual progressive output rate without forced timestamps.</summary>
     [Theory]
     [InlineData(25, 1, VideoScanType.Progressive, SourceDeinterlacePolicy.Preserve, 50, false)]

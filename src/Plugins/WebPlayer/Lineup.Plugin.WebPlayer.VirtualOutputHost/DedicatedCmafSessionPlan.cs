@@ -122,7 +122,8 @@ internal sealed record DedicatedCmafSessionPlan
             sourceVideo,
             request,
             selection.SubtitlePresentation == SubtitlePresentation.BurnIn,
-            profile.Deinterlace);
+            profile.Deinterlace,
+            profile.AlwaysTranscodeVideo);
         var hasSourceVideoRendition = videoRenditions.Any(plan => plan.CopySource);
         return new DedicatedCmafSessionPlan
         {

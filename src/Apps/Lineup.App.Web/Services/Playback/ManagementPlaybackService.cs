@@ -655,7 +655,8 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                         source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video),
                         request,
                         selection.SubtitlePresentation == SubtitlePresentation.BurnIn,
-                        virtualProfile.Deinterlace)
+                        virtualProfile.Deinterlace,
+                        virtualProfile.AlwaysTranscodeVideo)
                         .Any(plan => plan.CopySource)
                             ? CmafStreamPlanner.CreateHevcCodecString(source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video))
                             : null,
@@ -843,7 +844,8 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                                 source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video),
                                 request,
                                 selection.SubtitlePresentation == SubtitlePresentation.BurnIn,
-                                virtualProfile.Deinterlace).Any(plan => plan.CopySource),
+                                virtualProfile.Deinterlace,
+                                virtualProfile.AlwaysTranscodeVideo).Any(plan => plan.CopySource),
                             SourceVideoCodec = session.SourceVideoCodec,
                             Subtitles = selectableSubtitles.Select(subtitle => new ManagementPlaybackSubtitle(
                                 subtitle.Index,

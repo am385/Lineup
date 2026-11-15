@@ -27,7 +27,8 @@ public static class SourceDeinterlacePlanner
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(profile);
         var video = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video);
-        return ShouldDeinterlace(video, profile.Deinterlace)
+        return video is not null && profile.AlwaysTranscodeVideo
+            || ShouldDeinterlace(video, profile.Deinterlace)
             || profile.ConvertHevcToH264 && string.Equals(video?.Codec, "hevc", StringComparison.OrdinalIgnoreCase)
             || source.Tracks.Any(track => track.Type == MediaTrackType.Audio && ResolveAudioCodec(track.Codec, profile) != "copy");
     }
@@ -90,6 +91,7 @@ public static class SourceDeinterlacePlanner
         ArgumentNullException.ThrowIfNull(profile);
         var effective = CreateEffectiveSource(source, new PhysicalTranscodeProfile
         {
+            AlwaysTranscodeVideo = profile.AlwaysTranscodeVideo,
             HardwareEncoding = profile.HardwareEncoding,
             ConvertHevcToH264 = profile.ConvertHevcToH264,
             Deinterlace = profile.Deinterlace,
@@ -211,7 +213,8 @@ public static class SourceDeinterlacePlanner
         };
 
     private static bool ShouldTranscodeVideo(MediaTrackMetadata? video, PhysicalTranscodeProfile profile) =>
-        ShouldDeinterlace(video, profile.Deinterlace)
+        video is not null && profile.AlwaysTranscodeVideo
+        || ShouldDeinterlace(video, profile.Deinterlace)
         || profile.ConvertHevcToH264 && string.Equals(video?.Codec, "hevc", StringComparison.OrdinalIgnoreCase);
 
     private static string ResolveAudioCodec(string codec, PhysicalTranscodeProfile profile)

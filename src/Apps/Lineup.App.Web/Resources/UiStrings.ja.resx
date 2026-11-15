@@ -952,6 +952,8 @@
   <data name="Streaming_WarmProducerCountMany" xml:space="preserve"><value>待機中のプロデューサー {0} 件</value></data>
   <data name="Streaming_WarmProducerCountOne" xml:space="preserve"><value>待機中のプロデューサー {0} 件</value></data>
   <data name="Transcoding_Ac4Audio" xml:space="preserve"><value>AC-4 音声</value></data>
+  <data name="Transcoding_AlwaysTranscodeVideo" xml:space="preserve"><value>映像を常にトランスコード</value></data>
+  <data name="Transcoding_AlwaysTranscodeVideoHelp" xml:space="preserve"><value>選択したエンコーダーと映像ビットレート上限で、すべての映像を H.264 に再エンコードします。音声と転送の追加データは別途必要です。</value></data>
   <data name="Transcoding_Audio" xml:space="preserve"><value>音声</value></data>
   <data name="Transcoding_AudioCopy" xml:space="preserve"><value>コピー</value></data>
   <data name="Transcoding_ConvertHevcHelp" xml:space="preserve"><value>有効にすると、再生互換性を高めるため HEVC/H.265 映像を H.264 にエンコードします。その他の映像コーデックは変更されません。</value></data>
@@ -1000,6 +1002,7 @@
   <data name="Transcoding_MaximumVideoBitrate" xml:space="preserve"><value>最大映像ビットレート</value></data>
   <data name="Transcoding_NonAc4Audio" xml:space="preserve"><value>AC-4 以外の音声</value></data>
   <data name="Transcoding_OverrideAc4Audio" xml:space="preserve"><value>AC-4 音声をオーバーライド</value></data>
+  <data name="Transcoding_OverrideAlwaysTranscodeVideo" xml:space="preserve"><value>映像の常時トランスコードをオーバーライド</value></data>
   <data name="Transcoding_OverrideBitrate" xml:space="preserve"><value>ビットレートをオーバーライド</value></data>
   <data name="Transcoding_OverrideDeinterlacing" xml:space="preserve"><value>デインターレースをオーバーライド</value></data>
   <data name="Transcoding_OverrideEncoderPreset" xml:space="preserve"><value>エンコーダープリセットをオーバーライド</value></data>

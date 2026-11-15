@@ -547,6 +547,14 @@ Physical and virtual **Transcoding Defaults**, and their per-device overrides, i
 Software remains the default, including for existing settings files. The complete hardware setting inherits as one unit;
 an explicit device override of **Software** disables inherited GPU encoding. Selecting a GPU does not force conversion:
 copy-only and audio-only conversions remain unchanged. Hardware settings also participate in producer-sharing identities.
+**Always transcode video** is an opt-in physical and virtual profile setting, with independent per-device overrides.
+Physical encoding happens once in the shared source pipeline before multiplexing; virtual encoding happens for that output.
+It encodes video as H.264 even when the source could otherwise be copied, using the selected encoder and video bitrate limit.
+An explicit device override of **Off** disables inherited forced encoding without disabling other conversion policies.
+Encoder controls are shown when the effective profile requests video encoding, including this option.
+Enabling forced encoding at both stages performs two encoding passes. Leave it off at stages that should retain normal copy selection.
+The bitrate limit uses encoder rate control with a buffering window; it is not an instantaneous network traffic limit.
+Allow additional bandwidth for audio and transport overhead, including bursts while downloading HLS/DASH segments.
 
 | Backend | Native platform | FFmpeg H.264 encoder | Optional device |
 |---|---|---|---|

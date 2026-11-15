@@ -170,6 +170,9 @@ public sealed record GuideOutputDefinition
 /// </summary>
 public sealed record PhysicalTranscodeProfile
 {
+    /// <summary>Gets whether every video source is encoded as H.264 before multiplexing.</summary>
+    public bool AlwaysTranscodeVideo { get; init; }
+
     /// <summary>Gets optional hardware video encoding settings.</summary>
     public HardwareEncodingSettings HardwareEncoding { get; init; } = new();
 
@@ -200,6 +203,9 @@ public sealed record PhysicalTranscodeProfile
 /// </summary>
 public sealed record PhysicalTranscodeOverrides
 {
+    /// <summary>Gets an optional always-transcode override; false explicitly permits normal copy selection.</summary>
+    public bool? AlwaysTranscodeVideo { get; init; }
+
     /// <summary>Gets an optional complete hardware encoding override; null inherits global settings.</summary>
     public HardwareEncodingSettings? HardwareEncoding { get; init; }
 
@@ -227,6 +233,7 @@ public sealed record PhysicalTranscodeOverrides
     /// <summary>Overlays these values on global defaults.</summary>
     public PhysicalTranscodeProfile Apply(PhysicalTranscodeProfile defaults) => defaults with
     {
+        AlwaysTranscodeVideo = AlwaysTranscodeVideo ?? defaults.AlwaysTranscodeVideo,
         HardwareEncoding = HardwareEncoding ?? defaults.HardwareEncoding,
         ConvertHevcToH264 = ConvertHevcToH264 ?? defaults.ConvertHevcToH264,
         Deinterlace = Deinterlace ?? defaults.Deinterlace,
@@ -243,6 +250,9 @@ public sealed record PhysicalTranscodeOverrides
 /// </summary>
 public sealed record VirtualTranscodeProfile
 {
+    /// <summary>Gets whether every video source is encoded as H.264 rather than copied.</summary>
+    public bool AlwaysTranscodeVideo { get; init; }
+
     /// <summary>Gets optional hardware video encoding settings.</summary>
     public HardwareEncodingSettings HardwareEncoding { get; init; } = new();
 
@@ -273,6 +283,9 @@ public sealed record VirtualTranscodeProfile
 /// </summary>
 public sealed record VirtualTranscodeOverrides
 {
+    /// <summary>Gets an optional always-transcode override; false explicitly permits normal copy selection.</summary>
+    public bool? AlwaysTranscodeVideo { get; init; }
+
     /// <summary>Gets an optional complete hardware encoding override; null inherits global settings.</summary>
     public HardwareEncodingSettings? HardwareEncoding { get; init; }
 
@@ -300,6 +313,7 @@ public sealed record VirtualTranscodeOverrides
     /// <summary>Overlays these values on global defaults.</summary>
     public VirtualTranscodeProfile Apply(VirtualTranscodeProfile defaults) => defaults with
     {
+        AlwaysTranscodeVideo = AlwaysTranscodeVideo ?? defaults.AlwaysTranscodeVideo,
         HardwareEncoding = HardwareEncoding ?? defaults.HardwareEncoding,
         ConvertHevcToH264 = ConvertHevcToH264 ?? defaults.ConvertHevcToH264,
         Deinterlace = Deinterlace ?? defaults.Deinterlace,

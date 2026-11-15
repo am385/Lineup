@@ -28,6 +28,26 @@
     <div class="border rounded p-3 mb-3 @VideoSettingsClass">
         <div class="fw-semibold mb-2">@Text["Transcoding_Video"]</div>
         <div class="row g-3">
+            <div class="col-12">
+                <div class="form-check mb-2">
+                    <input id="@($"{IdPrefix}OverrideAlwaysVideo-{Index}")" class="form-check-input" type="checkbox" @bind="Settings.OverrideAlwaysTranscodeVideo" />
+                    <label class="form-check-label" for="@($"{IdPrefix}OverrideAlwaysVideo-{Index}")">
+                        @Text["Transcoding_OverrideAlwaysTranscodeVideo"]
+                        @if (!Settings.OverrideAlwaysTranscodeVideo)
+                        {
+                            <span class="text-body-secondary">@Text["Transcoding_Inherits", Defaults.AlwaysTranscodeVideo]</span>
+                        }
+                    </label>
+                </div>
+                @if (Settings.OverrideAlwaysTranscodeVideo)
+                {
+                    <div class="form-check form-switch">
+                        <input id="@($"{IdPrefix}AlwaysVideo-{Index}")" class="form-check-input" type="checkbox" @bind="Settings.AlwaysTranscodeVideo" />
+                        <label class="form-check-label" for="@($"{IdPrefix}AlwaysVideo-{Index}")">@Text["Transcoding_AlwaysTranscodeVideo"]</label>
+                    </div>
+                }
+                <div class="form-text">@Text["Transcoding_AlwaysTranscodeVideoHelp"]</div>
+            </div>
             <div class="col-md-6">
                 <div class="form-check mb-2">
                     <input id="@HevcOverrideId" class="form-check-input" type="checkbox" @bind="Settings.OverrideConvertHevcToH264" />
@@ -222,7 +242,8 @@
     private SourceDeinterlacePolicy EffectiveDeinterlace => Settings.OverrideDeinterlace ? Settings.Deinterlace : Defaults.Deinterlace;
     private OutputAudioPolicy EffectiveAudio => Settings.OverrideAudio ? Settings.Audio : Defaults.Audio;
     private OutputAudioPolicy EffectiveAc4Audio => Settings.OverrideAc4Audio ? Settings.Ac4Audio : Defaults.Ac4Audio;
-    private bool RequestsVideoTranscoding => EffectiveHevc || EffectiveDeinterlace != SourceDeinterlacePolicy.Preserve;
+    private bool EffectiveAlwaysVideo => Settings.OverrideAlwaysTranscodeVideo ? Settings.AlwaysTranscodeVideo : Defaults.AlwaysTranscodeVideo;
+    private bool RequestsVideoTranscoding => EffectiveAlwaysVideo || EffectiveHevc || EffectiveDeinterlace != SourceDeinterlacePolicy.Preserve;
     private bool RequestsTranscoding => RequestsVideoTranscoding || EffectiveAudio != OutputAudioPolicy.Copy || EffectiveAc4Audio != OutputAudioPolicy.Copy;
     private string HevcOverrideId => $"{IdPrefix}OverrideHevc-{Index}";
     private string DeinterlaceOverrideId => $"{IdPrefix}OverrideDeinterlace-{Index}";

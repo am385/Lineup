@@ -50,7 +50,7 @@ public static class HardwareVideoEncodingPlanner
 
         var arguments = softwareArguments.ToList();
         var codecIndex = arguments.IndexOf("libx264");
-        var streamSuffix = arguments[codecIndex - 1].StartsWith("-c:v:", StringComparison.Ordinal) ? arguments[codecIndex - 1][2..] : ":v:0";
+        var streamSuffix = arguments[codecIndex - 1].StartsWith("-c:v", StringComparison.Ordinal) ? arguments[codecIndex - 1][2..] : ":v:0";
         arguments[codecIndex] = GetEncoderName(settings.Encoder);
         for (var index = arguments.Count - 2; index >= 0; index--)
         {

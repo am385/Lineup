@@ -952,6 +952,8 @@
   <data name="Streaming_WarmProducerCountMany" xml:space="preserve"><value>{0} 个预热生产者</value></data>
   <data name="Streaming_WarmProducerCountOne" xml:space="preserve"><value>{0} 个预热生产者</value></data>
   <data name="Transcoding_Ac4Audio" xml:space="preserve"><value>AC-4 音频</value></data>
+  <data name="Transcoding_AlwaysTranscodeVideo" xml:space="preserve"><value>始终转码视频</value></data>
+  <data name="Transcoding_AlwaysTranscodeVideoHelp" xml:space="preserve"><value>使用所选编码器和视频码率上限，将所有视频重新编码为 H.264。音频和传输开销需要额外带宽。</value></data>
   <data name="Transcoding_Audio" xml:space="preserve"><value>音频</value></data>
   <data name="Transcoding_AudioCopy" xml:space="preserve"><value>复制</value></data>
   <data name="Transcoding_ConvertHevcHelp" xml:space="preserve"><value>启用后，会将 HEVC/H.265 视频编码为 H.264，以获得更广泛的播放兼容性。其他视频编解码器保持不变。</value></data>
@@ -1000,6 +1002,7 @@
   <data name="Transcoding_MaximumVideoBitrate" xml:space="preserve"><value>最大视频比特率</value></data>
   <data name="Transcoding_NonAc4Audio" xml:space="preserve"><value>非 AC-4 音频</value></data>
   <data name="Transcoding_OverrideAc4Audio" xml:space="preserve"><value>覆盖 AC-4 音频</value></data>
+  <data name="Transcoding_OverrideAlwaysTranscodeVideo" xml:space="preserve"><value>覆盖始终转码视频设置</value></data>
   <data name="Transcoding_OverrideBitrate" xml:space="preserve"><value>覆盖比特率</value></data>
   <data name="Transcoding_OverrideDeinterlacing" xml:space="preserve"><value>覆盖去隔行设置</value></data>
   <data name="Transcoding_OverrideEncoderPreset" xml:space="preserve"><value>覆盖编码器预设</value></data>

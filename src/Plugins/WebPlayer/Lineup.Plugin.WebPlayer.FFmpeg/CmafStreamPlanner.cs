@@ -455,7 +455,13 @@ public static class CmafStreamPlanner
     }
 
     /// <summary>Creates the video renditions packaged into one shared CMAF presentation.</summary>
-    public static IReadOnlyList<CmafVideoPlan> CreateVideoRenditions(MediaTrackMetadata? video, CmafStreamRequest request, bool burnIn, SourceDeinterlacePolicy deinterlaceMode = SourceDeinterlacePolicy.Preserve)
+    public static IReadOnlyList<CmafVideoPlan> CreateVideoRenditions(
+        MediaTrackMetadata? video,
+        CmafStreamRequest request,
+        bool burnIn,
+        SourceDeinterlacePolicy deinterlaceMode = SourceDeinterlacePolicy.Preserve,
+        bool alwaysTranscodeVideo = false
+    )
     {
         if (!Enum.IsDefined(request.PreferredVideo))
         {
@@ -474,7 +480,8 @@ public static class CmafStreamPlanner
             : null;
         var copyRequested = request.PreferredVideo == CmafPreferredVideo.Source ||
             request.PreferredVideo == CmafPreferredVideo.Auto && (autoProfile is null || CmafCompatibilityProfilePolicy.SupportsVideo(autoProfile, video));
-        if (burnIn ||
+        if (alwaysTranscodeVideo ||
+            burnIn ||
             CmafDeinterlacePlanner.ShouldDeinterlace(video, deinterlaceMode) ||
             !copyRequested ||
             request.Quality != WebPlayerQuality.AppDefault ||
@@ -539,7 +546,7 @@ public static class CmafStreamPlanner
         var deinterlaceMode = processing?.Deinterlace ?? profile.Deinterlace;
         profile = profile with { Deinterlace = deinterlaceMode };
         var deinterlace = CmafDeinterlacePlanner.ShouldDeinterlace(sourceVideo, deinterlaceMode);
-        var videoPlans = CreateVideoRenditions(sourceVideo, request, burnIn, deinterlaceMode);
+        var videoPlans = CreateVideoRenditions(sourceVideo, request, burnIn, deinterlaceMode, profile.AlwaysTranscodeVideo);
         List<string> arguments =
         [
             "-hide_banner", "-loglevel", "info",
@@ -617,7 +624,7 @@ public static class CmafStreamPlanner
     public static CmafVideoProcessingSnapshot? CreateVideoProcessing(VirtualTranscodeProfile profile, MediaProbeResult source, WebPlayerTrackSelection selection, CmafStreamRequest request)
     {
         var video = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video);
-        var plans = CreateVideoRenditions(video, request, selection.SubtitlePresentation == SubtitlePresentation.BurnIn, profile.Deinterlace);
+        var plans = CreateVideoRenditions(video, request, selection.SubtitlePresentation == SubtitlePresentation.BurnIn, profile.Deinterlace, profile.AlwaysTranscodeVideo);
         if (plans.All(plan => plan.CopySource))
         {
             return null;

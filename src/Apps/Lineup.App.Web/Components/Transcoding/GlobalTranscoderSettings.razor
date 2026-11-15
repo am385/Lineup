@@ -13,6 +13,13 @@
 <div class="border rounded p-3 mb-3 @VideoSettingsClass">
     <div class="fw-semibold mb-2">@Text["Transcoding_Video"]</div>
     <div class="row g-3">
+        <div class="col-12">
+            <div class="form-check form-switch">
+                <input id="@(IdPrefix + "AlwaysVideo")" class="form-check-input" type="checkbox" @bind="Settings.AlwaysTranscodeVideo" @bind:after="NotifySettingsChanged" />
+                <label class="form-check-label" for="@(IdPrefix + "AlwaysVideo")">@Text["Transcoding_AlwaysTranscodeVideo"]</label>
+            </div>
+            <div class="form-text">@Text["Transcoding_AlwaysTranscodeVideoHelp"]</div>
+        </div>
         <div class="col-md-6">
             <div class="form-check form-switch mt-4">
                 <input id="@HevcId" class="form-check-input" type="checkbox" @bind="Settings.ConvertHevcToH264" @bind:after="NotifySettingsChanged" />
@@ -135,6 +142,7 @@
     public EventCallback SettingsChanged { get; set; }
 
     private bool RequestsVideoTranscoding =>
+        Settings.AlwaysTranscodeVideo ||
         Settings.ConvertHevcToH264 ||
         Settings.Deinterlace != SourceDeinterlacePolicy.Preserve;
 

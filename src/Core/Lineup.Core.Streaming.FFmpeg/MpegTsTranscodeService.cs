@@ -108,11 +108,11 @@ public static class MpegTsTranscodePlanner
             var inputIndex = arguments.IndexOf("-i");
             arguments.InsertRange(inputIndex, ["-copyts", "-start_at_zero"]);
         }
-        if (deinterlace || profile.ConvertHevcToH264 && string.Equals(sourceVideoCodec, "hevc", StringComparison.OrdinalIgnoreCase))
+        if (profile.AlwaysTranscodeVideo || deinterlace || profile.ConvertHevcToH264 && string.Equals(sourceVideoCodec, "hevc", StringComparison.OrdinalIgnoreCase))
         {
             arguments.AddRange(
             [
-                "-c:v:0", "libx264",
+                profile.AlwaysTranscodeVideo ? "-c:v" : "-c:v:0", "libx264",
                 "-preset", profile.VideoPreset.ToString().ToLowerInvariant(),
                 "-tune", "zerolatency",
                 "-crf", profile.VideoQuality.ToString(),
