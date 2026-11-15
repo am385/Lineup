@@ -166,6 +166,7 @@ internal static class Program
         }
         Directory.CreateDirectory(workerOutput);
 
+        // A global SelfContained=false splits executable-reference graph nodes that write to the same intermediate directory.
         var arguments = new List<string>
         {
             "publish",
@@ -174,10 +175,9 @@ internal static class Program
             options.Configuration,
             "--artifacts-path",
             Path.Combine(cacheDirectory, "build"),
-            "--self-contained",
-            options.SelfContained.ToString().ToLowerInvariant(),
             "--output",
             workerOutput,
+            $"-p:PublishSelfContained={options.SelfContained.ToString().ToLowerInvariant()}",
             $"-p:Version={options.Version}",
             "-p:IncludeSourceRevisionInInformationalVersion=false"
         };

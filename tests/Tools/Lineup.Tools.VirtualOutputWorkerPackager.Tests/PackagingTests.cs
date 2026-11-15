@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Xml.Linq;
@@ -245,6 +246,92 @@ public sealed class PackagingTests
             // Assert
             Assert.DoesNotContain("Verified virtual-output worker packages", skipped, StringComparison.Ordinal);
             Assert.False(Directory.Exists(Path.Combine(optedOut, "virtual-output-workers")));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>Verifies executable references compile once per intermediate directory and retain the requested deployment mode.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Main_ExecutableReferenceGraph_CompilesOncePerIntermediateDirectory(bool selfContained)
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-packager-graph-");
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(root.FullName, "scripts", "Lineup.Tools.VirtualOutputWorkerPackager"));
+            var helper = Directory.CreateDirectory(Path.Combine(root.FullName, "src", "Helper"));
+            var library = Directory.CreateDirectory(Path.Combine(root.FullName, "src", "Library"));
+            var fixture = Directory.CreateDirectory(Path.Combine(root.FullName, "src", "Fixture"));
+            var build = Directory.CreateDirectory(Path.Combine(root.FullName, "build"));
+            await File.WriteAllTextAsync(Path.Combine(root.FullName, "Directory.Build.props"), """
+                <Project>
+                  <PropertyGroup><TargetFramework>net10.0</TargetFramework><UseArtifactsOutput>true</UseArtifactsOutput></PropertyGroup>
+                </Project>
+                """, TestContext.Current.CancellationToken);
+            File.Copy(Path.Combine(RepositoryRoot(), "Directory.Build.targets"), Path.Combine(root.FullName, "Directory.Build.targets"));
+            await File.WriteAllTextAsync(Path.Combine(helper.FullName, "Lineup.Core.Streaming.FFmpeg.csproj"), """
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup><OutputType>Exe</OutputType><UseAppHost>true</UseAppHost></PropertyGroup>
+                  <Target Name="RecordHelperCompilation" BeforeTargets="CoreCompile">
+                    <MakeDir Directories="$(IntermediateOutputPath)compile-visits" />
+                    <WriteLinesToFile File="$(IntermediateOutputPath)compile-visits/$([System.Guid]::NewGuid()).txt" Lines="$(SelfContained)" />
+                  </Target>
+                </Project>
+                """, TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync(Path.Combine(helper.FullName, "Program.cs"), """System.Console.WriteLine("helper");""", TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync(Path.Combine(library.FullName, "Library.csproj"), """
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <ItemGroup><ProjectReference Include="../Helper/Lineup.Core.Streaming.FFmpeg.csproj" /></ItemGroup>
+                </Project>
+                """, TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync(Path.Combine(fixture.FullName, "Fixture.csproj"), """
+                <Project Sdk="Microsoft.NET.Sdk.Web">
+                  <ItemGroup><ProjectReference Include="../Library/Library.csproj" /></ItemGroup>
+                </Project>
+                """, TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync(Path.Combine(fixture.FullName, "Program.cs"), """System.Console.WriteLine("fixture");""", TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync(Path.Combine(build.FullName, "Lineup.VirtualOutputWorkers.props"),
+                """<Project><ItemGroup><_LineupBuiltInWorker Include="fixture" AdapterKind="fixture-adapter" ProjectPath="src/Fixture/Fixture.csproj" AssemblyName="Fixture" /></ItemGroup></Project>""",
+                TestContext.Current.CancellationToken);
+            var output = Path.Combine(root.FullName, "installed");
+            var arguments = new List<string>
+            {
+                "--repository-root", root.FullName, "--output", output, "--configuration", "Release",
+                "--version", "3.0.0", "--source-revision", "packaging-graph-test"
+            };
+            if (selfContained)
+            {
+                arguments.AddRange(["--runtime", RuntimeInformation.RuntimeIdentifier, "--self-contained"]);
+            }
+
+            // Act
+            var result = await Program.Main(arguments.ToArray());
+
+            // Assert
+            Assert.Equal(0, result);
+            var cache = Directory.GetDirectories(Path.Combine(root.FullName, "out", "virtual-output-worker-packages")).Single();
+            var compilations = Directory.GetFiles(Path.Combine(cache, "build", "obj", "Lineup.Core.Streaming.FFmpeg"), "*.txt", SearchOption.AllDirectories)
+                .Where(path => Path.GetFileName(Path.GetDirectoryName(path)) == "compile-visits")
+                .GroupBy(Path.GetDirectoryName).ToArray();
+            Assert.NotEmpty(compilations);
+            Assert.All(compilations, compilation => Assert.Single(compilation));
+            if (!selfContained)
+            {
+                Assert.Single(compilations);
+            }
+            foreach (var assembly in new[] { "Fixture", "Lineup.Core.Streaming.FFmpeg" })
+            {
+                using var configuration = JsonDocument.Parse(await File.ReadAllTextAsync(
+                    Path.Combine(output, "fixture", $"{assembly}.runtimeconfig.json"), TestContext.Current.CancellationToken));
+                Assert.Equal(selfContained, configuration.RootElement.GetProperty("runtimeOptions").TryGetProperty("includedFrameworks", out _));
+            }
+            var execution = await RunDotnetAsync(root.FullName, [Path.Combine(output, "fixture", "Fixture.dll")]);
+            Assert.Contains("fixture", execution, StringComparison.Ordinal);
         }
         finally
         {

@@ -66,6 +66,7 @@ The separate `Lineup.Integration.Streaming.Sweep.Tests` xunit project participat
 exercises only deterministic policies, persistence, ownership and reports; it never launches the live harness.
 
 Packaging regressions run in `Lineup.Tools.VirtualOutputWorkerPackager.Tests` as part of the solution gate. They use the installed SDK to publish tiny owned temporary projects and verify shared inventory, manifests, cache repair and real MSBuild publish/opt-out behavior without hardware.
+Worker publishing sets deployment mode with `PublishSelfContained`, not a global `SelfContained=false`: the latter can create distinct executable-reference build nodes that concurrently overwrite the same intermediate assembly. The real-SDK graph regression verifies one compilation per helper intermediate directory and preserves portable/self-contained runtime configurations.
 For installed Windows or Linux worker validation, set `LINEUP_TEST_WORKER_PACKAGE_ROOT` to a package tree before running `HdHomeRunWorkerProcessTests` or the `Worker_*` cases in `WebPlayerWorkerProcessTests`. These fixtures resolve hash-verified packaged workers instead of test-output assemblies and exercise local authenticated IPC, loopback HTTP and deterministic media cleanup. Explicit worker paths used by host-build tests take precedence. Leave the variable unset for ordinary source tests.
 
 ### Running the Web App
