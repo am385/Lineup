@@ -4,8 +4,10 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using Lineup.Core.Common.Configuration;
 using Lineup.Core.Common.Streaming;
+using Lineup.Core.Settings;
 using Lineup.Core.VirtualOutputs.Protocol;
 using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
 using Xunit;
 
 namespace Lineup.Core.VirtualOutputs.Runtime.Tests;
@@ -165,7 +167,154 @@ public sealed class VirtualOutputWorkerLauncherTests
         Assert.Empty(Directory.GetDirectories(Path.GetTempPath(), $"lineup-worker-{package.Bootstrap.VirtualDevice.Id}-*"));
     }
 
-    private sealed record WorkerEnvironmentReport(string TemporaryPath, string ArtifactDirectory, string? WriteError, Dictionary<string, string?> Variables, string[] Arguments);
+    /// <summary>Verifies worker-only crashes and forced stops terminate noncooperative descendants before disposal completes.</summary>
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(1024, false)]
+    [InlineData(0, true)]
+    [InlineData(1024, true)]
+    public async Task DisposeAsync_NoncooperativeDescendant_TerminatesOwnedTree(int memoryMib, bool stopWorker)
+    {
+        // Arrange
+        Assert.SkipWhen(memoryMib > 0 && !OperatingSystem.IsWindows(), "Requires native Windows job resource policy.");
+        await using var package = await WorkerProbePackage.CreateAsync();
+        var bootstrap = package.Bootstrap with
+        {
+            VirtualDevice = package.Bootstrap.VirtualDevice with { Name = "descendant" },
+            WorkerPolicy = package.Bootstrap.WorkerPolicy with { MaximumMemoryMib = memoryMib, DrainTimeoutSeconds = 1 }
+        };
+        var worker = await package.StartAsync(bootstrap);
+        var report = await package.ReadReportAsync();
+        using var descendant = Process.GetProcessById(Assert.IsType<int>(report.DescendantProcessId));
+        Task? disposal = null;
+        try
+        {
+            // Act
+            if (stopWorker)
+            {
+                await worker.StopAsync(TimeSpan.Zero, TestContext.Current.CancellationToken);
+            }
+            else
+            {
+                using var parent = Process.GetProcessById(worker.ProcessId);
+                parent.Kill(entireProcessTree: false);
+                await worker.Completion.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            }
+            disposal = worker.DisposeAsync().AsTask();
+            await Task.WhenAll(disposal, worker.DisposeAsync().AsTask()).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            await descendant.WaitForExitAsync(TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.True(descendant.HasExited);
+            Assert.False(Directory.Exists(report.TemporaryPath));
+        }
+        finally
+        {
+            if (!descendant.HasExited)
+            {
+                descendant.Kill(entireProcessTree: true);
+                await descendant.WaitForExitAsync(CancellationToken.None);
+            }
+            if (disposal is not null)
+            {
+                await disposal.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken.None);
+            }
+        }
+    }
+
+    /// <summary>Verifies actual worker-only crash cleanup permits operator recovery and subsequent hosted shutdown.</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1024)]
+    public async Task Supervisor_WorkerOnlyCrash_CleansDescendantBeforeRecoveryAndShutdown(int memoryMib)
+    {
+        // Arrange
+        Assert.SkipWhen(memoryMib > 0 && !OperatingSystem.IsWindows(), "Requires native Windows job resource policy.");
+        await using var package = await WorkerProbePackage.CreateAsync();
+        using var authority = new VirtualOutputSessionAuthority();
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(30));
+        var token = deadline.Token;
+        var policy = package.Bootstrap.WorkerPolicy with { MaximumMemoryMib = memoryMib, MaximumRestarts = 0, DrainTimeoutSeconds = 1 };
+        var device = package.Bootstrap.VirtualDevice with
+        {
+            Name = "descendant",
+            Hosting = new VirtualOutputHostingDefinition { ExecutionMode = VirtualOutputExecutionMode.ManagedProcess, WorkerPolicyKey = policy.Key }
+        };
+        var settings = Substitute.For<ILineupSettingsService>();
+        settings.Settings.Returns(new LineupSettings { Streaming = new StreamingConfiguration { VirtualDevices = [device], VirtualOutputWorkerPolicies = [policy] } });
+        var catalog = Substitute.For<IVirtualOutputWorkerCatalog>();
+        catalog.ResolveAsync("probe", Arg.Any<CancellationToken>()).Returns(Task.FromResult(package.Package));
+        var launched = new System.Collections.Concurrent.ConcurrentQueue<IVirtualOutputWorkerProcess>();
+        var launcher = Substitute.For<IVirtualOutputWorkerLauncher>();
+        launcher.StartAsync(Arg.Any<VirtualOutputWorkerPackage>(), Arg.Any<VirtualOutputWorkerBootstrap>(), Arg.Any<CancellationToken>()).Returns(async call =>
+        {
+            var worker = await package.StartAsync(call.Arg<VirtualOutputWorkerBootstrap>());
+            launched.Enqueue(worker);
+            return worker;
+        });
+        var status = new VirtualOutputRuntimeStatus();
+        using var supervisor = new VirtualOutputSupervisor(settings,
+            new VirtualOutputRuntimeOptions { WorkerPackageRoot = package.PackageRoot, IpcEndpoint = package.Bootstrap.Endpoint }, catalog, launcher,
+            Substitute.For<IVirtualOutputCertificateResolver>(), authority, status, new VirtualOutputExternalEnrollmentStore(), NullLogger<VirtualOutputSupervisor>.Instance);
+        Process? firstDescendant = null;
+        Process? replacementDescendant = null;
+        try
+        {
+            await supervisor.StartAsync(token);
+            var first = await package.ReadReportAsync();
+            firstDescendant = Process.GetProcessById(Assert.IsType<int>(first.DescendantProcessId));
+
+            // Act
+            using (var parent = Process.GetProcessById(first.WorkerProcessId))
+            {
+                parent.Kill(entireProcessTree: false);
+            }
+            while (status.GetSnapshots().Single().State != VirtualOutputRuntimeState.Failed)
+            {
+                await Task.Delay(10, token);
+            }
+            Assert.True(firstDescendant.HasExited);
+            var recovery = await supervisor.RetryAsync(device.Id, token).WaitAsync(TimeSpan.FromSeconds(10), token);
+            while (launched.Count < 2)
+            {
+                await Task.Delay(10, token);
+            }
+            var replacement = await package.ReadReportAsync();
+            replacementDescendant = Process.GetProcessById(Assert.IsType<int>(replacement.DescendantProcessId));
+            await supervisor.StopAsync(token).WaitAsync(TimeSpan.FromSeconds(10), token);
+
+            // Assert
+            Assert.True(recovery.Accepted);
+            Assert.NotEqual(first.WorkerProcessId, replacement.WorkerProcessId);
+            Assert.True(replacementDescendant.HasExited);
+            Assert.False(Directory.Exists(first.TemporaryPath));
+            Assert.False(Directory.Exists(replacement.TemporaryPath));
+        }
+        finally
+        {
+            foreach (var process in new[] { firstDescendant, replacementDescendant }.OfType<Process>())
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync(CancellationToken.None);
+                }
+                process.Dispose();
+            }
+            await supervisor.StopAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(15), CancellationToken.None);
+        }
+    }
+
+    private sealed record WorkerEnvironmentReport(
+        string TemporaryPath,
+        string ArtifactDirectory,
+        string? WriteError,
+        Dictionary<string, string?> Variables,
+        string[] Arguments,
+        int WorkerProcessId,
+        int? DescendantProcessId
+    );
 
     private sealed class WorkerProbePackage(DirectoryInfo directory, VirtualOutputWorkerPackage package) : IAsyncDisposable
     {
@@ -173,6 +322,9 @@ public sealed class VirtualOutputWorkerLauncherTests
 
         /// <summary>Gets the test-owned package directory.</summary>
         internal string PackageRoot => directory.FullName;
+
+        /// <summary>Gets the hash-verified test package used by the production supervisor.</summary>
+        internal VirtualOutputWorkerPackage Package => package;
 
         /// <summary>Gets the unique activation descriptor supplied only through the child's standard input.</summary>
         internal VirtualOutputWorkerBootstrap Bootstrap { get; } = new()
@@ -252,17 +404,24 @@ public sealed class VirtualOutputWorkerLauncherTests
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
             timeout.CancelAfter(TimeSpan.FromSeconds(15));
             var path = Path.Combine(directory.FullName, "worker-environment.json");
-            while (!File.Exists(path))
+            while (true)
             {
+                if (File.Exists(path) && _worker is not null)
+                {
+                    await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                    var report = await JsonSerializer.DeserializeAsync<WorkerEnvironmentReport>(stream, cancellationToken: timeout.Token)
+                        ?? throw new InvalidDataException("The worker probe returned an empty report.");
+                    if (report.WorkerProcessId == _worker.ProcessId)
+                    {
+                        return report;
+                    }
+                }
                 if (_worker?.Completion.IsCompleted == true)
                 {
                     throw new InvalidOperationException($"The worker probe exited with code {await _worker.Completion} before reporting its environment.");
                 }
                 await Task.Delay(20, timeout.Token);
             }
-            await using var stream = File.OpenRead(path);
-            return await JsonSerializer.DeserializeAsync<WorkerEnvironmentReport>(stream, cancellationToken: timeout.Token)
-                ?? throw new InvalidDataException("The worker probe returned an empty report.");
         }
 
         /// <inheritdoc />

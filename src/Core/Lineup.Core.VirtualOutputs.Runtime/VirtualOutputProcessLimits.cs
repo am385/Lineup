@@ -6,7 +6,7 @@ using Lineup.Core.Common.Streaming;
 
 namespace Lineup.Core.VirtualOutputs.Runtime;
 
-/// <summary>Enforces configured worker CPU and memory limits using Windows jobs or Linux cgroups.</summary>
+/// <summary>Contains worker lifetimes and enforces configured CPU and memory limits using Windows jobs or Linux process groups and cgroups.</summary>
 internal static class VirtualOutputProcessLimits
 {
     /// <summary>Probes requested enforcement before creating a worker or consuming its restart allowance.</summary>
@@ -15,10 +15,6 @@ internal static class VirtualOutputProcessLimits
         if (policy.MaximumMemoryMib < 0 || policy.MaximumCpuPercent is < 0 or > 100)
         {
             throw new VirtualOutputResourcePolicyException("Worker memory must be nonnegative and CPU percentage must be between zero and 100.");
-        }
-        if (policy.MaximumMemoryMib == 0 && policy.MaximumCpuPercent == 0)
-        {
-            return;
         }
         try
         {
@@ -29,15 +25,20 @@ internal static class VirtualOutputProcessLimits
             }
             if (OperatingSystem.IsLinux())
             {
-                LinuxCgroupLimits.Preflight(policy);
+                _ = GetSessionLauncher();
+                if (policy.MaximumMemoryMib > 0 || policy.MaximumCpuPercent > 0)
+                {
+                    LinuxCgroupLimits.Preflight(policy);
+                }
                 return;
             }
-            throw new PlatformNotSupportedException("Worker CPU and memory enforcement is supported only on Windows and Linux.");
+            throw new PlatformNotSupportedException("Worker lifetime containment is supported only on Windows and Linux.");
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException or Win32Exception)
         {
             throw new VirtualOutputResourcePolicyException(
-                "The requested worker CPU/memory policy cannot be enforced. On Linux, configure LINEUP_CGROUP_ROOT to a writable delegated cgroup v2 with the requested controllers enabled. " +
+                "Worker lifetime containment or the requested CPU/memory policy cannot be enforced. On Linux, install util-linux (setsid) and configure LINEUP_CGROUP_ROOT " +
+                "to a writable delegated cgroup v2 when resource limits are requested. " +
                 "Worker limits do not cover host-side FFmpeg or graph buffers. Disable the requested limits or correct the deployment permissions.", exception);
         }
     }
@@ -45,25 +46,72 @@ internal static class VirtualOutputProcessLimits
     /// <summary>Probes one explicitly owned Linux cgroup root without modifying process-wide configuration.</summary>
     internal static void PreflightLinux(VirtualOutputWorkerPolicyDefinition policy, string root) => LinuxCgroupLimits.Preflight(policy, root);
 
+    /// <summary>Starts Linux workers in their own session so descendants remain addressable after the worker exits.</summary>
+    /// <param name="startInfo">Worker executable and arguments before launch.</param>
+    internal static void ConfigureLifetimeContainment(ProcessStartInfo startInfo)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+        if (Path.IsPathRooted(startInfo.FileName) &&
+            (File.GetUnixFileMode(startInfo.FileName) & (UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute)) == 0)
+        {
+            throw new Win32Exception(13, "The virtual-output worker executable does not have execute permission.");
+        }
+        var executable = startInfo.FileName;
+        var arguments = startInfo.ArgumentList.ToArray();
+        startInfo.FileName = GetSessionLauncher();
+        startInfo.ArgumentList.Clear();
+        startInfo.ArgumentList.Add("--");
+        startInfo.ArgumentList.Add(executable);
+        foreach (var argument in arguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+    }
+
+    /// <summary>Terminates owned descendants even when their worker has already exited.</summary>
+    /// <param name="process">Worker whose lifetime scope is being terminated.</param>
+    /// <param name="limits">Owned Windows job or optional Linux resource enforcement.</param>
+    internal static void Terminate(Process process, IDisposable? limits)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            limits?.Dispose();
+        }
+        else if (OperatingSystem.IsLinux() && KillProcessGroup(-process.Id, 9) != 0)
+        {
+            var error = Marshal.GetLastWin32Error();
+            if (error != 3)
+            {
+                throw new Win32Exception(error, "Could not terminate the virtual-output worker process group.");
+            }
+        }
+    }
+
+    private static string GetSessionLauncher() =>
+        new[] { "/usr/bin/setsid", "/bin/setsid" }.FirstOrDefault(File.Exists) ??
+        throw new PlatformNotSupportedException("Worker lifetime containment requires util-linux (setsid).");
+
+    [DllImport("libc", EntryPoint = "kill", SetLastError = true)]
+    private static extern int KillProcessGroup(int processId, int signal);
+
     /// <summary>Attaches the configured resource limits to a worker process.</summary>
     /// <param name="process">Worker process to constrain.</param>
     /// <param name="policy">CPU and memory limits to enforce.</param>
-    /// <returns>The owned enforcement handle, or null when both limits are disabled.</returns>
+    /// <returns>The mandatory Windows lifetime job, optional Linux enforcement handle, or null for an unlimited Linux worker.</returns>
     internal static IDisposable? Apply(Process process, VirtualOutputWorkerPolicyDefinition policy)
     {
         ArgumentNullException.ThrowIfNull(process);
         ArgumentNullException.ThrowIfNull(policy);
-        if (policy.MaximumMemoryMib == 0 && policy.MaximumCpuPercent == 0)
-        {
-            return null;
-        }
         if (OperatingSystem.IsWindows())
         {
             return WindowsJobLimits.Apply(process, policy);
         }
         if (OperatingSystem.IsLinux())
         {
-            return LinuxCgroupLimits.Apply(process, policy);
+            return policy.MaximumMemoryMib == 0 && policy.MaximumCpuPercent == 0 ? null : LinuxCgroupLimits.Apply(process, policy);
         }
         throw new PlatformNotSupportedException("Virtual-output process CPU and memory limits are supported only on Windows and Linux.");
     }

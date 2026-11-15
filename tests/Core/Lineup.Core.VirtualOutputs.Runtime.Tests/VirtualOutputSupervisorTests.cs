@@ -15,6 +15,35 @@ namespace Lineup.Core.VirtualOutputs.Runtime.Tests;
 /// <summary>Verifies desired-versus-applied virtual-output worker supervision.</summary>
 public sealed class VirtualOutputSupervisorTests
 {
+    /// <summary>Verifies failed descendant cleanup is visible and cannot automatically launch a replacement worker.</summary>
+    [Fact]
+    public async Task ObserveExitAsync_CleanupFails_QuarantinesOutputWithoutRestart()
+    {
+        // Arrange
+        await using var fixture = new OwnershipFixture();
+        var device = fixture.CreateDevice(VirtualOutputExecutionMode.ManagedProcess);
+        fixture.Configuration = fixture.Configuration with { VirtualDevices = [device] };
+        await fixture.ReconcileAsync();
+        var process = fixture.GetProcess(device.Id)!;
+        process.DisposeAsync().Returns(_ => ValueTask.FromException(new IOException("Synthetic owned process cleanup failure.")));
+        try
+        {
+            // Act
+            fixture.ExitProcess(process);
+            await WaitUntilAsync(() => fixture.Status.GetSnapshots().Single().State == VirtualOutputRuntimeState.Failed,
+                TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            await fixture.ReconcileAsync();
+
+            // Assert
+            Assert.Equal(1, fixture.ActivationAttempts);
+            Assert.Contains("owned process cleanup failed", fixture.Status.GetSnapshots().Single().LastFailure!, StringComparison.Ordinal);
+        }
+        finally
+        {
+            process.DisposeAsync().Returns(ValueTask.CompletedTask);
+        }
+    }
+
     /// <summary>Verifies explicit recovery revalidates one unchanged quarantined output without disturbing its healthy sibling.</summary>
     /// <param name="mode">The failed output's ownership mode.</param>
     [Theory]

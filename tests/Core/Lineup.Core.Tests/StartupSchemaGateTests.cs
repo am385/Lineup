@@ -1,10 +1,14 @@
 using Lineup.Core.Settings;
 using Lineup.Core.Storage;
+using Lineup.Core.Streaming;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
 using Xunit;
 
 namespace Lineup.Core.Tests;
@@ -133,6 +137,249 @@ public sealed class StartupSchemaGateTests
         // Assert
         Assert.Equal(LineupStartupStatus.Ready, state.Status);
         Assert.Null(state.Reason);
+    }
+
+    /// <summary>Verifies current schema numbers cannot hide settings deserialization or preparation failures.</summary>
+    [Theory]
+    [InlineData("AutoFetchInterval", "\"invalid\"")]
+    [InlineData("NextAutoFetchTime", "\"invalid\"")]
+    [InlineData("ProtectedContentMode", "{}")]
+    [InlineData("XmltvOutputPath", "\"\"")]
+    public void CheckSettingsContent_UnreadableCurrentSettings_RequiresRecovery(string property, string value)
+    {
+        // Arrange
+        var document = JsonSerializer.SerializeToNode(new LineupSettings())!.AsObject();
+        document[property] = JsonNode.Parse(value);
+
+        // Act
+        var state = StartupSchemaGate.CheckSettingsContent(document.ToJsonString());
+
+        // Assert
+        Assert.True(state.IsFactoryResetRequired);
+        Assert.NotEmpty(state.Reason!);
+    }
+
+    /// <summary>Verifies unreadable current settings cannot prune saved channels or bindings, while a validated backup restores the configured devices.</summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task Check_UnreadableCurrentSettings_PreservesTopologyAndRecoversOnlyValidBackup(bool validBackup, bool backupExists)
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-settings-recovery-");
+        try
+        {
+            var app = new AppDataStore(root.FullName);
+            var options = new DbContextOptionsBuilder<EpgDbContext>().UseSqlite($"Data Source={app.DatabasePath};Pooling=False").Options;
+            var contexts = new PooledDbContextFactory<EpgDbContext>(options);
+            var topology = new StreamingTopologyStore(contexts);
+            var guides = new DeviceGuideStore(contexts);
+            var deviceId = PhysicalDeviceId.New();
+            var sourceId = new SourceChannelId(deviceId, "saved-channel");
+            var guideId = new GuideChannelId(GuideSourceId.New(), "saved-guide");
+            var token = TestContext.Current.CancellationToken;
+            await topology.ReconcileAsync(deviceId, [new PhysicalSourceChannel { Id = sourceId, ProviderNumber = "7", ProviderName = "Saved channel" }], token);
+            await guides.ImportAsync(new GuideImport
+            {
+                SourceId = guideId.GuideSourceId,
+                Channels = [new GuideChannel { Id = guideId, Number = "7", Name = "Saved guide" }],
+                Programs = [],
+                CoverageStartUtc = DateTimeOffset.UtcNow,
+                CoverageEndUtc = DateTimeOffset.UtcNow.AddHours(1)
+            }, token);
+            await guides.SetBindingAsync(sourceId, guideId, token);
+            var intended = new LineupSettings
+            {
+                Streaming = new StreamingConfiguration
+                {
+                    PhysicalDevices = [new PhysicalDeviceDefinition
+                    {
+                        Id = deviceId,
+                        Name = "Saved device",
+                        Enabled = false,
+                        Adapter = new AdapterConfiguration("test-no-hardware", JsonSerializer.SerializeToElement(new { }))
+                    }]
+                },
+                AutoFetchInterval = TimeSpan.FromHours(24)
+            };
+            var document = JsonSerializer.SerializeToNode(intended)!.AsObject();
+            document[nameof(LineupSettings.AutoFetchInterval)] = "invalid";
+            var primary = document.ToJsonString();
+            var backup = validBackup ? JsonSerializer.Serialize(intended) : primary;
+            await File.WriteAllTextAsync(app.SettingsPath, primary, token);
+            if (backupExists)
+            {
+                await File.WriteAllTextAsync(app.SettingsBackupPath, backup, token);
+            }
+
+            // Act
+            var state = StartupSchemaGate.Check(app);
+            var service = new LineupSettingsService(NullLogger<LineupSettingsService>.Instance, app, new ConfigurationBuilder().Build(), state);
+            var authority = (IPhysicalConfigurationAuthority)service;
+            var published = await authority.TryPublishAsync(service.Settings.Streaming, _ => Task.CompletedTask, token);
+            var catalog = new PhysicalDeviceCatalog(new StreamingAdapterRegistry([], [], []), new PhysicalDeviceRuntimeState(), authority: authority);
+            await new PhysicalLineupService(catalog, topology).RefreshAsync(service.Settings.Streaming, token);
+
+            // Assert
+            Assert.Equal(!validBackup, state.IsFactoryResetRequired);
+            Assert.Equal(validBackup, published);
+            await using (var context = await contexts.CreateDbContextAsync(token))
+            {
+                Assert.Single(await context.PhysicalSourceChannels.ToArrayAsync(token));
+                Assert.Single(await context.SourceGuideBindings.ToArrayAsync(token));
+            }
+            Assert.Equal(primary, await File.ReadAllTextAsync(app.SettingsPath, token));
+            Assert.Equal(backupExists, File.Exists(app.SettingsBackupPath));
+            if (backupExists)
+            {
+                Assert.Equal(backup, await File.ReadAllTextAsync(app.SettingsBackupPath, token));
+            }
+            if (validBackup)
+            {
+                Assert.Equal(deviceId, Assert.Single(service.Settings.Streaming.PhysicalDevices).Id);
+                Assert.Equal(intended.AutoFetchInterval, service.Settings.AutoFetchInterval);
+                await service.UpdateAsync(settings => settings.TargetDays = 7);
+                Assert.Equal(backup, await File.ReadAllTextAsync(app.SettingsBackupPath, token));
+                var restored = JsonSerializer.Deserialize<LineupSettings>(await File.ReadAllTextAsync(app.SettingsPath, token))!;
+                Assert.Equal(deviceId, Assert.Single(restored.Streaming.PhysicalDevices).Id);
+            }
+            else
+            {
+                await Assert.ThrowsAsync<FactoryResetRequiredException>(() => service.SaveAsync());
+                await Assert.ThrowsAsync<FactoryResetRequiredException>(() => service.UpdateAsync(settings => settings.Streaming = new()));
+                Assert.Equal(primary, await File.ReadAllTextAsync(app.SettingsPath, token));
+            }
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>Verifies corruption after the startup check cannot make the constructor publish default settings.</summary>
+    [Fact]
+    public async Task Constructor_SettingsBecomeUnreadableAfterStartupCheck_RejectsDefaults()
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-settings-race-");
+        try
+        {
+            var app = new AppDataStore(root.FullName);
+            await File.WriteAllTextAsync(app.SettingsPath, JsonSerializer.Serialize(new LineupSettings()), TestContext.Current.CancellationToken);
+            var state = StartupSchemaGate.Check(app);
+            var document = JsonSerializer.SerializeToNode(new LineupSettings())!.AsObject();
+            document[nameof(LineupSettings.AutoFetchInterval)] = "invalid";
+            var primary = document.ToJsonString();
+            await File.WriteAllTextAsync(app.SettingsPath, primary, TestContext.Current.CancellationToken);
+
+            // Act
+            var failure = Assert.Throws<FactoryResetRequiredException>(() =>
+                new LineupSettingsService(NullLogger<LineupSettingsService>.Instance, app, new ConfigurationBuilder().Build(), state));
+
+            // Assert
+            Assert.False(state.IsFactoryResetRequired);
+            Assert.NotEmpty(failure.Message);
+            Assert.Equal(primary, await File.ReadAllTextAsync(app.SettingsPath, TestContext.Current.CancellationToken));
+            Assert.False(File.Exists(app.SettingsBackupPath));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>Verifies a failed reload surfaces recovery without replacing previously loaded settings or overwriting the unreadable document.</summary>
+    [Fact]
+    public async Task LoadAsync_UnreadableSettingsWithoutBackup_ThrowsAndPreservesLoadedSettings()
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-settings-reload-");
+        try
+        {
+            var app = new AppDataStore(root.FullName);
+            var saved = new LineupSettings { TargetDays = 7 };
+            await File.WriteAllTextAsync(app.SettingsPath, JsonSerializer.Serialize(saved), TestContext.Current.CancellationToken);
+            var service = new LineupSettingsService(NullLogger<LineupSettingsService>.Instance, app, new ConfigurationBuilder().Build());
+            var loaded = service.Settings;
+            var document = JsonSerializer.SerializeToNode(saved)!.AsObject();
+            document[nameof(LineupSettings.AutoFetchInterval)] = "invalid";
+            var primary = document.ToJsonString();
+            await File.WriteAllTextAsync(app.SettingsPath, primary, TestContext.Current.CancellationToken);
+
+            // Act
+            await Assert.ThrowsAsync<FactoryResetRequiredException>(() => service.LoadAsync());
+
+            // Assert
+            Assert.Same(loaded, service.Settings);
+            Assert.Equal(7, service.Settings.TargetDays);
+            await Assert.ThrowsAsync<FactoryResetRequiredException>(() => service.SaveAsync());
+            await Assert.ThrowsAsync<FactoryResetRequiredException>(() => service.UpdateAsync(settings => settings.TargetDays = 9));
+            Assert.False(((IPhysicalConfigurationAuthority)service).IsDesired(service.Settings.Streaming));
+            Assert.Equal(primary, await File.ReadAllTextAsync(app.SettingsPath, TestContext.Current.CancellationToken));
+            Assert.False(File.Exists(app.SettingsBackupPath));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>Verifies writes queued behind a failing reload cannot overwrite unreadable persisted settings.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LoadAsync_FailsWhileWriteIsQueued_BlocksQueuedWrite(bool directSave)
+    {
+        // Arrange
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var store = Substitute.For<IAppDataStore>();
+        store.SettingsPath.Returns("settings.json");
+        store.SettingsBackupPath.Returns("settings.json.bak");
+        store.FileExists(store.SettingsPath).Returns(true);
+        store.ReadAllText(store.SettingsPath).Returns(JsonSerializer.Serialize(new LineupSettings { TargetDays = 7 }));
+        store.ReadAllTextAsync(store.SettingsPath, Arg.Any<CancellationToken>()).Returns(async _ =>
+        {
+            entered.TrySetResult();
+            await release.Task;
+            return """{"SchemaVersion":1,"Streaming":{"SchemaVersion":1},"AutoFetchInterval":"invalid"}""";
+        });
+        var state = new LineupStartupState(LineupStartupStatus.Ready);
+        var service = new LineupSettingsService(NullLogger<LineupSettingsService>.Instance, store, new ConfigurationBuilder().Build(), state);
+        var mutationInvoked = false;
+        var reload = service.LoadAsync();
+        Task? write = null;
+        try
+        {
+            // Act
+            await entered.Task.WaitAsync(TestContext.Current.CancellationToken);
+            write = directSave ? service.SaveAsync() : service.UpdateAsync(settings =>
+            {
+                mutationInvoked = true;
+                settings.TargetDays = 9;
+            });
+        }
+        finally
+        {
+            release.TrySetResult();
+            try
+            {
+                await Assert.ThrowsAsync<FactoryResetRequiredException>(() => reload);
+            }
+            finally
+            {
+                if (write is not null)
+                {
+                    await Assert.ThrowsAsync<FactoryResetRequiredException>(() => write);
+                }
+            }
+        }
+
+        // Assert
+        Assert.False(mutationInvoked);
+        Assert.Equal(7, service.Settings.TargetDays);
+        await store.DidNotReceive().WriteAtomicallyAsync(Arg.Any<string>(), Arg.Any<Func<Stream, CancellationToken, Task>>(), Arg.Any<string?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
     }
 
     /// <summary>

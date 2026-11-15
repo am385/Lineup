@@ -109,9 +109,15 @@ internal sealed class ContainedFileStore
         }
     }
 
-    /// <summary>Deletes every file and directory beneath the storage root.</summary>
-    public void DeleteContents()
+    /// <summary>Deletes every file and directory beneath the storage root except an optional top-level file.</summary>
+    /// <param name="preservedFilePath">Contained top-level file to retain during cleanup.</param>
+    public void DeleteContents(string? preservedFilePath = null)
     {
+        var preserved = preservedFilePath is null ? null : EnsureContainedPath(preservedFilePath);
+        if (preserved is not null && !PathsEqual(Path.GetDirectoryName(preserved)!, RootPath))
+        {
+            throw new InvalidOperationException("The preserved file must be directly beneath the storage root.");
+        }
         if (!Directory.Exists(RootPath))
         {
             Directory.CreateDirectory(RootPath);
@@ -120,6 +126,10 @@ internal sealed class ContainedFileStore
 
         foreach (var path in Directory.EnumerateFiles(RootPath, "*", SearchOption.TopDirectoryOnly))
         {
+            if (preserved is not null && PathsEqual(path, preserved))
+            {
+                continue;
+            }
             File.Delete(EnsureContainedPath(path));
         }
 
