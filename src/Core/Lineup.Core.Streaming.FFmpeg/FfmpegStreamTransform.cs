@@ -11,6 +11,9 @@ public interface IMediaStreamLease : IAsyncDisposable
 
     /// <summary>Gets the output content type when known.</summary>
     string? ContentType { get; }
+
+    /// <summary>Gets the encoder outcome of the launched transform, or null when the producer does not report one.</summary>
+    VideoEncodingSnapshot? VideoEncoding => null;
 }
 
 /// <summary>
@@ -22,31 +25,81 @@ public sealed class FfmpegStreamTransform
     private readonly IMediaProcessFactory _processFactory;
     private readonly ILogger _logger;
     private readonly string _sourceName;
+    private readonly HardwareEncodingSettings? _hardware;
+    private readonly IReadOnlyList<string>? _softwareArguments;
 
     /// <summary>Initializes an FFmpeg stream transform.</summary>
-    public FfmpegStreamTransform(IReadOnlyList<string> arguments, IMediaProcessFactory processFactory, ILogger logger, string sourceName)
+    public FfmpegStreamTransform(
+        IReadOnlyList<string> arguments,
+        IMediaProcessFactory processFactory,
+        ILogger logger,
+        string sourceName,
+        HardwareEncodingSettings? hardware = null,
+        IReadOnlyList<string>? softwareArguments = null
+    )
     {
         _arguments = arguments;
         _processFactory = processFactory;
         _logger = logger;
         _sourceName = sourceName;
+        _hardware = hardware;
+        _softwareArguments = softwareArguments;
     }
 
     /// <summary>Starts the media process and returns ownership of its output and cleanup without taking ownership of the input stream.</summary>
-    public ValueTask<IMediaStreamLease> StartAsync(Stream input, CancellationToken cancellationToken)
+    public async ValueTask<IMediaStreamLease> StartAsync(Stream input, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var process = _processFactory.Start(new MediaProcessRequest
+        var arguments = _arguments;
+        var usingHardware = false;
+        var requiresHardware = _hardware is { Encoder: not HardwareVideoEncoder.Software } && _arguments.Contains(HardwareVideoEncodingPlanner.GetEncoderName(_hardware.Encoder));
+        if (requiresHardware)
         {
-            FileName = "ffmpeg",
-            Arguments = _arguments,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true
-        });
-        var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var pumpTask = MediaStreamPump.PumpAsync(input, process, _logger, _sourceName, lifetime.Token);
-        var errorTask = MediaProcessDiagnostics.ReadTailAsync(process.StandardError, lifetime.Token);
-        return ValueTask.FromResult<IMediaStreamLease>(new ProcessOutputLease(process, pumpTask, errorTask, lifetime));
+            usingHardware = await HardwareEncodingRuntime.VerifyAsync(_hardware!, _processFactory, _logger, cancellationToken);
+            if (!usingHardware)
+            {
+                arguments = _softwareArguments ?? throw new InvalidOperationException("The software fallback plan is missing.");
+            }
+        }
+        while (true)
+        {
+            var process = _processFactory.Start(new MediaProcessRequest
+            {
+                FileName = "ffmpeg",
+                Arguments = arguments,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true
+            });
+            var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var pumpTask = MediaStreamPump.PumpAsync(input, process, _logger, _sourceName, lifetime.Token);
+            var errorTask = MediaProcessDiagnostics.ReadTailAsync(process.StandardError, lifetime.Token);
+            var encoding = new VideoEncodingSnapshot(HardwareVideoEncodingPlanner.GetVideoEncoder(arguments), _hardware?.Encoder, requiresHardware && !usingHardware);
+            var lease = new ProcessOutputLease(process, pumpTask, errorTask, lifetime, encoding);
+            if (!usingHardware)
+            {
+                return lease;
+            }
+            try
+            {
+                using var startup = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                startup.CancelAfter(TimeSpan.FromSeconds(20));
+                await lease.PrimeAsync(startup.Token);
+                return lease;
+            }
+            catch (MediaProcessException exception) when (_hardware is { AllowSoftwareFallback: true } hardware && HardwareEncodingRuntime.IsInitializationFailure(exception.Diagnostics))
+            {
+                await lease.DisposeAsync();
+                cancellationToken.ThrowIfCancellationRequested();
+                _logger.LogWarning(exception, "Requested hardware encoder {Encoder} failed before publication. Owned media was released; retrying with software.", hardware.Encoder);
+                arguments = _softwareArguments ?? throw new InvalidOperationException("The software fallback plan is missing.");
+                usingHardware = false;
+            }
+            catch
+            {
+                await lease.DisposeAsync();
+                throw;
+            }
+        }
     }
 
     private sealed class ProcessOutputLease : IMediaStreamLease
@@ -55,27 +108,35 @@ public sealed class FfmpegStreamTransform
         private readonly Task _pumpTask;
         private readonly Task<string> _errorTask;
         private readonly CancellationTokenSource _lifetime;
-        private readonly Stream _output;
+        private readonly ValidatedOutputStream _output;
 
         /// <summary>Initializes the process output lease.</summary>
         /// <param name="process">The process value.</param>
         /// <param name="pumpTask">The pump task value.</param>
         /// <param name="errorTask">The error task value.</param>
         /// <param name="lifetime">The lifetime value.</param>
-        public ProcessOutputLease(Process process, Task pumpTask, Task<string> errorTask, CancellationTokenSource lifetime)
+        /// <param name="videoEncoding">The outcome of the launched transform.</param>
+        public ProcessOutputLease(Process process, Task pumpTask, Task<string> errorTask, CancellationTokenSource lifetime, VideoEncodingSnapshot videoEncoding)
         {
             _process = process;
             _pumpTask = pumpTask;
             _errorTask = errorTask;
             _lifetime = lifetime;
             _output = new ValidatedOutputStream(process.StandardOutput.BaseStream, process, errorTask);
+            VideoEncoding = videoEncoding;
         }
+
+        /// <inheritdoc />
+        public VideoEncodingSnapshot VideoEncoding { get; }
 
         /// <summary>Gets the stream.</summary>
         public Stream Stream => _process is null ? Stream.Null : _output;
 
         /// <summary>Gets the content type.</summary>
         public string? ContentType => "video/mp2t";
+
+        /// <summary>Waits for the first output bytes without publishing them or losing the transport-stream prefix.</summary>
+        public async Task PrimeAsync(CancellationToken cancellationToken) => await _output.PrimeAsync(cancellationToken);
 
         /// <inheritdoc />
         public async ValueTask DisposeAsync()
@@ -169,6 +230,19 @@ public sealed class FfmpegStreamTransform
         {
             private readonly object _gate = new();
             private Task? _validation;
+            private ReadOnlyMemory<byte> _prefix;
+
+            /// <summary>Retains the first media bytes for the eventual stream consumer.</summary>
+            public async Task PrimeAsync(CancellationToken cancellationToken)
+            {
+                var prefix = new byte[188];
+                var count = await ReadAsync(prefix, cancellationToken);
+                if (count == 0)
+                {
+                    throw new HardwareEncodingException("The hardware encoder exited without producing any media. Check the source, encoder, and driver diagnostics.");
+                }
+                _prefix = prefix.AsMemory(0, count);
+            }
 
             /// <inheritdoc />
             public override bool CanRead => output.CanRead;
@@ -184,6 +258,10 @@ public sealed class FfmpegStreamTransform
             /// <inheritdoc />
             public override int Read(byte[] buffer, int offset, int count)
             {
+                if (!_prefix.IsEmpty && count > 0)
+                {
+                    return ReadPrefix(buffer.AsMemory(offset, count));
+                }
                 var read = output.Read(buffer, offset, count);
                 if (read == 0)
                 {
@@ -195,12 +273,24 @@ public sealed class FfmpegStreamTransform
             /// <inheritdoc />
             public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
             {
+                if (!_prefix.IsEmpty && !buffer.IsEmpty)
+                {
+                    return ReadPrefix(buffer);
+                }
                 var read = await output.ReadAsync(buffer, cancellationToken);
                 if (read == 0)
                 {
                     await EnsureSuccessAsync(cancellationToken);
                 }
                 return read;
+            }
+
+            private int ReadPrefix(Memory<byte> buffer)
+            {
+                var count = Math.Min(buffer.Length, _prefix.Length);
+                _prefix[..count].CopyTo(buffer);
+                _prefix = _prefix[count..];
+                return count;
             }
 
             private Task EnsureSuccessAsync(CancellationToken cancellationToken)

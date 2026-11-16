@@ -18,7 +18,7 @@ public interface IMediaProbeService
 /// <summary>Adapts physical acquisitions and shared graph metadata to the portable FFprobe process.</summary>
 public sealed class MediaProbeService : IMediaProbeService
 {
-    private const string MetadataKey = "ffprobe-v2";
+    private const string MetadataKey = "ffprobe-v3-frame-rate";
     private static readonly TimeSpan _sharedProbeOperationTimeout = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan _sharedProbeRefreshWaitTimeout = TimeSpan.FromSeconds(8);
     private static readonly TimeSpan _provisionalRetryDelay = TimeSpan.FromSeconds(1);

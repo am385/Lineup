@@ -3,10 +3,11 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 using Lineup.Core.Common.Streaming;
+using Lineup.Core.Streaming.FFmpeg;
 
 namespace Lineup.Core.VirtualOutputs.Runtime;
 
-/// <summary>Contains worker lifetimes and enforces configured CPU and memory limits using Windows jobs or Linux process groups and cgroups.</summary>
+/// <summary>Contains worker lifetimes using Windows jobs or guarded Unix sessions, with optional Windows/Linux CPU and memory enforcement.</summary>
 internal static class VirtualOutputProcessLimits
 {
     /// <summary>Probes requested enforcement before creating a worker or consuming its restart allowance.</summary>
@@ -32,7 +33,11 @@ internal static class VirtualOutputProcessLimits
                 }
                 return;
             }
-            throw new PlatformNotSupportedException("Worker lifetime containment is supported only on Windows and Linux.");
+            if (OperatingSystem.IsMacOS() && policy.MaximumMemoryMib == 0 && policy.MaximumCpuPercent == 0)
+            {
+                return;
+            }
+            throw new PlatformNotSupportedException("Worker lifetime containment requires Windows, Linux, or macOS. CPU/memory enforcement is not available on macOS.");
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException or Win32Exception)
         {
@@ -80,7 +85,7 @@ internal static class VirtualOutputProcessLimits
         {
             limits?.Dispose();
         }
-        else if (OperatingSystem.IsLinux() && KillProcessGroup(-process.Id, 9) != 0)
+        else if ((OperatingSystem.IsLinux() || OperatingSystem.IsMacOS()) && KillProcessGroup(-OwnedMediaProcess.GetProcessGroupId(process), 9) != 0)
         {
             var error = Marshal.GetLastWin32Error();
             if (error != 3)
@@ -100,18 +105,23 @@ internal static class VirtualOutputProcessLimits
     /// <summary>Attaches the configured resource limits to a worker process.</summary>
     /// <param name="process">Worker process to constrain.</param>
     /// <param name="policy">CPU and memory limits to enforce.</param>
+    /// <param name="jobName">Optional activation-unique Windows job identity for safe inheritance checks inside workers.</param>
     /// <returns>The mandatory Windows lifetime job, optional Linux enforcement handle, or null for an unlimited Linux worker.</returns>
-    internal static IDisposable? Apply(Process process, VirtualOutputWorkerPolicyDefinition policy)
+    internal static IDisposable? Apply(Process process, VirtualOutputWorkerPolicyDefinition policy, string? jobName = null)
     {
         ArgumentNullException.ThrowIfNull(process);
         ArgumentNullException.ThrowIfNull(policy);
         if (OperatingSystem.IsWindows())
         {
-            return WindowsJobLimits.Apply(process, policy);
+            return WindowsJobLimits.Apply(process, policy, jobName);
         }
         if (OperatingSystem.IsLinux())
         {
             return policy.MaximumMemoryMib == 0 && policy.MaximumCpuPercent == 0 ? null : LinuxCgroupLimits.Apply(process, policy);
+        }
+        if (OperatingSystem.IsMacOS() && policy.MaximumMemoryMib == 0 && policy.MaximumCpuPercent == 0)
+        {
+            return null;
         }
         throw new PlatformNotSupportedException("Virtual-output process CPU and memory limits are supported only on Windows and Linux.");
     }
@@ -226,10 +236,11 @@ internal static class VirtualOutputProcessLimits
         /// <summary>Applies the windows job limits.</summary>
         /// <param name="process">The process value.</param>
         /// <param name="policy">The policy value.</param>
+        /// <param name="jobName">Activation-unique Windows job identity.</param>
         /// <returns>The operation's result.</returns>
-        internal static IDisposable Apply(Process process, VirtualOutputWorkerPolicyDefinition policy)
+        internal static IDisposable Apply(Process process, VirtualOutputWorkerPolicyDefinition policy, string? jobName)
         {
-            var job = Create(policy);
+            var job = Create(policy, jobName);
             if (!AssignProcessToJobObject(job, process.Handle))
             {
                 var error = Marshal.GetLastWin32Error();
@@ -240,9 +251,9 @@ internal static class VirtualOutputProcessLimits
         }
 
         /// <summary>Creates and configures a job without attaching a running worker.</summary>
-        internal static SafeFileHandle Create(VirtualOutputWorkerPolicyDefinition policy)
+        internal static SafeFileHandle Create(VirtualOutputWorkerPolicyDefinition policy, string? name = null)
         {
-            var job = CreateJobObject(IntPtr.Zero, null);
+            var job = CreateJobObject(IntPtr.Zero, name);
             if (job.IsInvalid)
             {
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not create a virtual-output worker job object.");

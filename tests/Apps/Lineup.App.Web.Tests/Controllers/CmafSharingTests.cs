@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Xunit;
@@ -17,6 +18,131 @@ namespace Lineup.App.Web.Tests.Controllers;
 /// <summary>Verifies typed management playback and its HTTP adapter with real coordinator lifetimes, storage, and encoder processes.</summary>
 public sealed class CmafSharingTests
 {
+    /// <summary>Equivalent Auto and manual browser policies share one GPU producer while retaining independent viewer diagnostics and lifetimes.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Service_EquivalentResolvedPolicies_ShareOneEncoder(bool joinPending)
+    {
+        // Arrange
+        await using var fixture = new Fixture { HoldReadiness = true };
+        fixture.Settings.Streaming = fixture.Settings.Streaming with
+        {
+            VirtualDefaults = new() { HardwareEncoding = new() { Encoder = HardwareVideoEncoder.Amf } }
+        };
+        fixture.ProbeOverride = new MediaProbeResult(
+        [
+            new MediaTrackMetadata(0, MediaTrackType.Video, "mpeg2video", null, 704, 480, null, null),
+            new MediaTrackMetadata(1, MediaTrackType.Audio, "ac3", 192_000, null, null, 2, 48_000) { Language = "eng" }
+        ], null);
+        var automatic = new CmafStreamRequest
+        {
+            CompatibilityProfile = new()
+            {
+                BrowserIdentity = "automatic-browser",
+                CompletedAtUtc = DateTimeOffset.UtcNow,
+                Claims = new() { Aac = true },
+                Results = CmafCompatibilityTestCatalog.All.Select(test => new CmafCapabilityResult
+                {
+                    CaseId = test.Id,
+                    Kind = test.Kind,
+                    Request = test.Request,
+                    Status = test.IsUnavailable ? CmafCapabilityStatus.Unavailable :
+                        test.Kind == CmafCapabilityKind.Audio && test.Request.AudioCodec != CmafTestAudioCodec.Aac ? CmafCapabilityStatus.Failed : CmafCapabilityStatus.Passed
+                }).ToArray()
+            },
+            Overrides = new() { Enabled = true, Quality = WebPlayerQuality.High, FallbackAudio = CmafFallbackAudio.AacStereo, Protocol = CmafPlaybackProtocol.Hls }
+        };
+        var manual = automatic with
+        {
+            CompatibilityProfile = automatic.CompatibilityProfile with { BrowserIdentity = "manual-browser", CompletedAtUtc = DateTimeOffset.UtcNow.AddMinutes(-1) },
+            Overrides = automatic.Overrides with { Audio = CmafPreferredAudio.Fallback, Video = CmafPreferredVideo.Source, Protocol = CmafPlaybackProtocol.Dash }
+        };
+        var first = fixture.BeginServiceStart("automatic", automatic);
+        await fixture.EncoderStarted.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        // Act
+        if (!joinPending)
+        {
+            fixture.PublishReadiness();
+            await first.Start;
+        }
+        var second = fixture.BeginServiceStart("manual", manual);
+        await WaitUntilAsync(() => fixture.Outputs.GetViewers().Count == 2);
+        fixture.PublishReadiness();
+        var presentations = (await Task.WhenAll(first.Start, second.Start)).Select(result => Assert.IsType<ManagementPlaybackPresentation>(result.Presentation)).ToArray();
+
+        // Assert
+        Assert.NotEqual(presentations[0].SessionId, presentations[1].SessionId);
+        Assert.Equal(1, fixture.EncoderCount);
+        Assert.Equal(1, fixture.Outputs.ActiveOutputCount);
+        Assert.Equal(1, fixture.ActiveInputs);
+        Assert.Contains("h264_amf", Assert.Single(fixture.EncoderRequests).Arguments);
+        var streams = fixture.ActiveStreams.GetActiveStreams();
+        Assert.Equal(2, streams.Count);
+        Assert.All(streams, stream => Assert.Equal("h264_amf", stream.ActiveVideoEncoder));
+        Assert.Contains("Auto", Assert.Single(streams.Single(stream => stream.ClientId == "automatic").VirtualOutput!.Tracks, track => track.Type == MediaTrackType.Audio).RenditionTitle!, StringComparison.Ordinal);
+        Assert.Contains("Override", Assert.Single(streams.Single(stream => stream.ClientId == "manual").VirtualOutput!.Tracks, track => track.Type == MediaTrackType.Audio).RenditionTitle!, StringComparison.Ordinal);
+        Assert.True(first.Service.Stop(presentations[0].SessionId));
+        Assert.True(second.Service.GetPlaybackStatus(presentations[1].SessionId).IsActive);
+        Assert.True(fixture.IsEncoderRunning);
+        Assert.True(second.Service.Stop(presentations[1].SessionId));
+        await WaitUntilAsync(() => fixture.ActiveInputs == 0 && !fixture.IsEncoderRunning);
+    }
+
+    /// <summary>Verifies local Watch viewers report the launched encoder, including viewers joining pending or ready producers.</summary>
+    [Theory]
+    [InlineData(HardwareVideoEncoder.Amf, WebPlayerQuality.Medium, "h264_amf", false)]
+    [InlineData(HardwareVideoEncoder.Amf, WebPlayerQuality.Medium, "h264_amf", true)]
+    [InlineData(HardwareVideoEncoder.Software, WebPlayerQuality.Medium, "libx264", false)]
+    [InlineData(HardwareVideoEncoder.Software, WebPlayerQuality.Medium, "libx264", true)]
+    [InlineData(HardwareVideoEncoder.Amf, WebPlayerQuality.AppDefault, "copy", false)]
+    [InlineData(HardwareVideoEncoder.Amf, WebPlayerQuality.AppDefault, "copy", true)]
+    public async Task Service_ReadyViewers_ReportActualEncoder(HardwareVideoEncoder encoder, WebPlayerQuality quality, string actualEncoder, bool joinPending)
+    {
+        // Arrange
+        await using var fixture = new Fixture { HoldReadiness = true };
+        fixture.Settings.Streaming = fixture.Settings.Streaming with
+        {
+            VirtualDefaults = new() { HardwareEncoding = new() { Encoder = encoder } }
+        };
+        var request = new CmafStreamRequest { Quality = quality };
+        var first = fixture.BeginServiceStart("first", request);
+        await fixture.EncoderStarted.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Null(Assert.Single(fixture.ActiveStreams.GetActiveStreams()).ActiveVideoEncoder);
+
+        // Act
+        Task<ManagementPlaybackStartResult> second;
+        if (joinPending)
+        {
+            second = fixture.BeginServiceStart("second", request).Start;
+            await WaitUntilAsync(() => fixture.Outputs.GetViewers().Count == 2);
+            fixture.PublishReadiness();
+        }
+        else
+        {
+            fixture.PublishReadiness();
+            await first.Start;
+            second = fixture.BeginServiceStart("second", request).Start;
+        }
+        var results = await Task.WhenAll(first.Start, second);
+
+        // Assert
+        Assert.All(results, result => Assert.NotNull(result.Presentation));
+        var arguments = Assert.Single(fixture.EncoderRequests).Arguments;
+        Assert.Equal(actualEncoder, arguments[Array.IndexOf(arguments.ToArray(), "-c:v:0") + 1]);
+        var streams = fixture.ActiveStreams.GetActiveStreams();
+        Assert.Equal(2, streams.Count);
+        Assert.Equal(["first", "second"], streams.Select(stream => stream.ClientId).Order());
+        Assert.All(streams, stream =>
+        {
+            Assert.Equal(encoder, stream.RequestedVideoEncoder);
+            Assert.Equal(actualEncoder, stream.ActiveVideoEncoder);
+            Assert.False(stream.HardwareFallbackApplied);
+            Assert.Equal("effective-producer", stream.Flow!.ProducerNodeId);
+        });
+    }
+
     /// <summary>Real input EOF/failure reaches passive viewer status without reviving an explicitly stopped peer.</summary>
     [Theory]
     [InlineData(false)]
@@ -56,6 +182,18 @@ public sealed class CmafSharingTests
         var exitCallbackCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         producer.Tasks.Track(exitCallbackCompleted.Task, NullLogger.Instance, "later process-exit callback");
         session.Process!.Exited += (_, _) => exitCallbackCompleted.TrySetResult();
+        var processId = session.Process.Id;
+        var cancellation = producer.Tasks.CreateCancellation(TestContext.Current.CancellationToken);
+        var processAssociation = ReadProcessIdAfterCancellationAsync();
+        producer.Tasks.Track(processAssociation, fixture.Logger, "process association");
+
+        async Task<int> ReadProcessIdAfterCancellationAsync()
+        {
+            var canceled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var registration = cancellation.Token.Register(() => canceled.TrySetResult());
+            await canceled.Task;
+            return session.Process.Id;
+        }
 
         // Act
         try
@@ -65,6 +203,7 @@ public sealed class CmafSharingTests
 
             // Assert
             Assert.True(exitCallbackCompleted.Task.IsCompletedSuccessfully);
+            Assert.Equal(processId, await processAssociation);
             Assert.False(started.Service.GetPlaybackStatus(presentation.SessionId).IsActive);
             Assert.Empty(fixture.ActiveStreams.GetActiveStreams());
             Assert.Equal(0, fixture.ActiveInputs);
@@ -75,6 +214,88 @@ public sealed class CmafSharingTests
             exitCallbackCompleted.TrySetResult();
             await producer.Stopped.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
         }
+    }
+
+    /// <summary>Unexpected published exits retain drained stderr and exit status at Warning, including a clean but unrequested exit.</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(234)]
+    public async Task Service_PublishedProcessorExits_LogsDrainedBoundedDiagnostics(int exitCode)
+    {
+        // Arrange
+        await using var fixture = new Fixture { EncoderExitCode = exitCode };
+        var started = fixture.BeginServiceStart("diagnostics");
+        var presentation = Assert.IsType<ManagementPlaybackPresentation>((await started.Start).Presentation);
+        var producer = Assert.IsType<ManagementPlaybackService.PendingCmafOutput>(Assert.Single(fixture.Outputs.GetViewers()).State);
+
+        // Act
+        fixture.EndSource(null);
+        await producer.Stopped.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        // Assert
+        var values = Assert.Single(fixture.Logger.ReceivedCalls()
+            .Where(call => call.GetMethodInfo().Name == "Log" && Equals(call.GetArguments()[0], LogLevel.Warning))
+            .Select(call => Assert.IsAssignableFrom<IEnumerable<KeyValuePair<string, object?>>>(call.GetArguments()[2]).ToDictionary(pair => pair.Key, pair => pair.Value)),
+            state => state.ContainsKey("ProcessExitCode"));
+        Assert.Equal(presentation.SessionId, values["MediaSessionId"]);
+        Assert.Equal(exitCode, values["ProcessExitCode"]);
+        Assert.Equal("source_eof", values["SourceTerminationCode"]);
+        var diagnostics = Assert.IsType<string>(values["DiagnosticTail"]);
+        Assert.InRange(diagnostics.Length, 1, 16_384);
+        Assert.InRange(diagnostics.Split('\n').Length, 1, 50);
+        Assert.EndsWith("final-error", diagnostics, StringComparison.Ordinal);
+        Assert.Equal(0, fixture.ActiveInputs);
+        Assert.False(fixture.HasEncoderDirectory);
+    }
+
+    /// <summary>Explicit viewer stop never reports the intentionally terminated encoder as an unexpected playback exit.</summary>
+    [Fact]
+    public async Task Service_ExplicitStop_DoesNotLogUnexpectedProcessorExit()
+    {
+        // Arrange
+        await using var fixture = new Fixture();
+        var started = fixture.BeginServiceStart("stopping");
+        var presentation = Assert.IsType<ManagementPlaybackPresentation>((await started.Start).Presentation);
+
+        // Act
+        Assert.True(started.Service.Stop(presentation.SessionId));
+
+        // Assert
+        Assert.DoesNotContain(fixture.Logger.ReceivedCalls(), call =>
+            call.GetMethodInfo().Name == "Log" &&
+            Assert.IsAssignableFrom<IEnumerable<KeyValuePair<string, object?>>>(call.GetArguments()[2]).Any(pair => pair.Key == "ProcessExitCode"));
+        Assert.Equal(0, fixture.ActiveInputs);
+        Assert.False(fixture.IsEncoderRunning);
+    }
+
+    /// <summary>A failed diagnostic monitor or exit-log provider cannot strand an exited producer's input, viewer, or artifacts.</summary>
+    [Theory]
+    [InlineData(LogLevel.Debug)]
+    [InlineData(LogLevel.Warning)]
+    public async Task Service_ExitDiagnosticsFail_StillReleasesProducer(LogLevel failureLevel)
+    {
+        // Arrange
+        await using var fixture = new Fixture { EncoderExitCode = 234 };
+        var logger = new FailingDiagnosticLogger(fixture.Logger, failureLevel);
+        fixture.Logger = logger;
+        var started = fixture.BeginServiceStart("failed-diagnostics");
+        var presentation = Assert.IsType<ManagementPlaybackPresentation>((await started.Start).Presentation);
+        var producer = Assert.IsType<ManagementPlaybackService.PendingCmafOutput>(Assert.Single(fixture.Outputs.GetViewers()).State);
+        if (failureLevel == LogLevel.Debug)
+        {
+            await logger.Failed.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        }
+
+        // Act
+        await fixture.TerminateEncoderAsync();
+        await producer.Stopped.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.True(logger.Failed.Task.IsCompletedSuccessfully);
+        Assert.False(started.Service.GetPlaybackStatus(presentation.SessionId).IsActive);
+        Assert.Empty(fixture.ActiveStreams.GetActiveStreams());
+        Assert.Equal(0, fixture.ActiveInputs);
+        Assert.False(fixture.HasEncoderDirectory);
     }
 
     /// <summary>Synthetic presentations also include their immutable quality/media plan in sharing identity.</summary>
@@ -447,9 +668,13 @@ public sealed class CmafSharingTests
 
     /// <summary>Verifies both caption and media pumps are owned and terminal before the service reports producer cleanup complete.</summary>
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Service_EmbeddedCaptions_StopObservesEveryOwnedTask(bool captionInputFails)
+    [InlineData(false, HardwareVideoEncoder.Software)]
+    [InlineData(true, HardwareVideoEncoder.Software)]
+    [InlineData(false, HardwareVideoEncoder.Qsv)]
+    [InlineData(true, HardwareVideoEncoder.Qsv)]
+    [InlineData(false, HardwareVideoEncoder.Vaapi)]
+    [InlineData(true, HardwareVideoEncoder.Vaapi)]
+    public async Task Service_EmbeddedCaptions_StopObservesEveryOwnedTask(bool captionInputFails, HardwareVideoEncoder encoder)
     {
         // Arrange
         await using var fixture = new Fixture
@@ -465,6 +690,10 @@ public sealed class CmafSharingTests
                     IsEmbeddedClosedCaptions = true
                 }
             ], null)
+        };
+        fixture.Settings.Streaming = fixture.Settings.Streaming with
+        {
+            VirtualDefaults = new() { AlwaysTranscodeVideo = true, HardwareEncoding = new() { Encoder = encoder } }
         };
         var started = fixture.BeginServiceStart("captions");
         var result = await started.Start;
@@ -1005,9 +1234,10 @@ public sealed class CmafSharingTests
     {
         // Arrange
         await using var fixture = new Fixture();
-        var first = fixture.BeginStart("same-viewer");
+        var baselineRequest = new CmafStreamRequest { PreferredVideo = change == "profile" ? CmafPreferredVideo.Fallback : CmafPreferredVideo.Source };
+        var first = fixture.BeginStart("same-viewer", baselineRequest);
         var firstResponse = await ResponseAsync(first.Start);
-        var request = new CmafStreamRequest();
+        var request = baselineRequest;
         var channel = "7.1";
         switch (change)
         {
@@ -1179,6 +1409,12 @@ public sealed class CmafSharingTests
         /// <summary>Gets independently admitted viewer diagnostics.</summary>
         internal ActiveStreamRegistry ActiveStreams { get; } = new();
 
+        /// <summary>Gets captured structured management-playback logs.</summary>
+        internal ILogger<ManagementPlaybackService> Logger { get; set; } = Substitute.For<ILogger<ManagementPlaybackService>>();
+
+        /// <summary>Gets or sets the diagnostic processor's exit code after input completion, or null for a quiet waiting processor.</summary>
+        internal int? EncoderExitCode { get; set; }
+
         /// <summary>Gets mutable trusted settings for plan-isolation checks.</summary>
         internal LineupSettings Settings { get; } = new()
         {
@@ -1246,7 +1482,7 @@ public sealed class CmafSharingTests
             httpClients.CreateClient("StreamProxy").Returns(_diagnosticClient);
             _playback ??= new ManagementPlaybackService(
                 httpClients, Substitute.For<ILineupGuideReader>(), _settings, _topology, _probe, ActiveStreams,
-                _slates, _multiplexer, NullLogger<ManagementPlaybackService>.Instance,
+                _slates, _multiplexer, Logger,
                 timeProvider: StartupClock, transientData: _files, mediaProcessFactory: _processes, streamRoutes: _routes,
                 cmafOutputs: PlaybackOutputs ?? Outputs, cmafStartupTimeout: StartupTimeout);
             var start = _playback.StartAsync("7.1", (request ?? new CmafStreamRequest()) with { ClientId = clientId },
@@ -1376,7 +1612,12 @@ public sealed class CmafSharingTests
             };
             start.Environment.Remove("LINEUP_FAKE_FFMPEG_FAIL");
             start.ArgumentList.Add(executable);
-            start.ArgumentList.Add("hold");
+            foreach (var argument in EncoderExitCode is int exitCode
+                ? new[] { "diagnostics", "65536", exitCode.ToString(System.Globalization.CultureInfo.InvariantCulture), "hold" }
+                : ["hold"])
+            {
+                start.ArgumentList.Add(argument);
+            }
             var process = Process.Start(start) ?? throw new InvalidOperationException("Unable to start the deterministic CMAF encoder.");
             _encoders.Enqueue((Process.GetProcessById(process.Id), directory));
             if (!HoldReadiness)
@@ -1486,9 +1727,36 @@ public sealed class CmafSharingTests
         internal void Advance(TimeSpan duration) => Interlocked.Add(ref _timestamp, duration.Ticks);
     }
 
-    private sealed class BlockingInput(Action? disposed = null, Task<Exception?>? completion = null) : Stream
+    private sealed class FailingDiagnosticLogger(ILogger<ManagementPlaybackService> inner, LogLevel failureLevel) : ILogger<ManagementPlaybackService>
+    {
+        /// <summary>Gets the deterministic signal that diagnostic delivery failed.</summary>
+        public TaskCompletionSource Failed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <inheritdoc />
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => inner.BeginScope(state);
+
+        /// <inheritdoc />
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        /// <inheritdoc />
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == failureLevel && state is IEnumerable<KeyValuePair<string, object?>> values &&
+                values.Any(pair => pair.Key == (failureLevel == LogLevel.Debug ? "Line" : "ProcessExitCode")))
+            {
+                Failed.TrySetResult();
+                throw new IOException("Synthetic diagnostic delivery failure.");
+            }
+            inner.Log(logLevel, eventId, state, exception, formatter);
+        }
+    }
+
+    private sealed class BlockingInput(Action? disposed = null, Task<Exception?>? completion = null) : Stream, IStreamProducerCorrelation
     {
         private int _disposed;
+
+        /// <inheritdoc />
+        public string ProducerNodeId => "effective-producer";
 
         /// <inheritdoc />
         public override bool CanRead => true;

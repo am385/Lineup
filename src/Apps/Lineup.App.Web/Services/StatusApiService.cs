@@ -237,7 +237,11 @@ internal sealed record ActiveStreamStatusResponse(
     IReadOnlyList<ActiveStreamTrackStatusResponse> Tracks,
     ActiveStreamMediaStatusResponse? PhysicalInput,
     ActiveStreamMediaStatusResponse? PhysicalOutput,
-    ActiveStreamMediaStatusResponse? VirtualOutput
+    ActiveStreamMediaStatusResponse? VirtualOutput,
+    string? RequestedVideoEncoder,
+    string? ActiveVideoEncoder,
+    bool HardwareFallbackApplied,
+    CmafVideoProcessingSnapshot? VideoProcessing
 );
 
 /// <summary>Represents media tracks at one active-stream processing boundary.</summary>
@@ -683,7 +687,8 @@ internal sealed class StatusApiService
             FormatName(profile.Ac4Audio),
             FormatName(profile.VideoPreset),
             profile.VideoQuality,
-            profile.MaximumVideoBitRateMbps);
+            profile.MaximumVideoBitRateMbps,
+            profile.HardwareEncoding);
 
     private static TranscodeProfileStatusResponse ToTranscodeProfile(VirtualTranscodeProfile profile) =>
         new(
@@ -693,7 +698,8 @@ internal sealed class StatusApiService
             FormatName(profile.Ac4Audio),
             FormatName(profile.VideoPreset),
             profile.VideoQuality,
-            profile.MaximumVideoBitRateMbps);
+            profile.MaximumVideoBitRateMbps,
+            profile.HardwareEncoding);
 
     private static TranscodeOverridesStatusResponse ToTranscodeOverrides(PhysicalTranscodeOverrides overrides) =>
         new(
@@ -703,7 +709,8 @@ internal sealed class StatusApiService
             overrides.Ac4Audio is null ? null : FormatName(overrides.Ac4Audio.Value),
             overrides.VideoPreset is null ? null : FormatName(overrides.VideoPreset.Value),
             overrides.VideoQuality,
-            overrides.MaximumVideoBitRateMbps);
+            overrides.MaximumVideoBitRateMbps,
+            overrides.HardwareEncoding);
 
     private static TranscodeOverridesStatusResponse ToTranscodeOverrides(VirtualTranscodeOverrides overrides) =>
         new(
@@ -713,7 +720,8 @@ internal sealed class StatusApiService
             overrides.Ac4Audio is null ? null : FormatName(overrides.Ac4Audio.Value),
             overrides.VideoPreset is null ? null : FormatName(overrides.VideoPreset.Value),
             overrides.VideoQuality,
-            overrides.MaximumVideoBitRateMbps);
+            overrides.MaximumVideoBitRateMbps,
+            overrides.HardwareEncoding);
 
     private async Task<ChannelsStatusResponse> GetChannelsStatusAsync(StreamingConfiguration configuration, WebSettings settings, CancellationToken cancellationToken)
     {
@@ -818,7 +826,8 @@ internal sealed class StatusApiService
                 FormatName(node.State),
                 FilterFlowDetails(node.Details, settings, node.Lane == StreamingFlowLane.Consumer),
                 node.ActiveChannels,
-                node.ActiveSessionCount)).ToArray(),
+                node.ActiveSessionCount,
+                node.VideoEncodings)).ToArray(),
             snapshot.ActivePaths.Select(path => new StreamingFlowPathStatusResponse(
                 path.Id,
                 path.SessionId,
@@ -835,7 +844,8 @@ internal sealed class StatusApiService
                     stage.Subtitle,
                     FilterFlowDetails(stage.Details, settings, stage.Kind == StreamingFlowStageKind.Consumer),
                     ToMediaStatus(stage.InputMedia),
-                    ToMediaStatus(stage.OutputMedia))).ToArray())).ToArray());
+                    ToMediaStatus(stage.OutputMedia),
+                    stage.VideoEncoding)).ToArray())).ToArray());
     }
 
     private static IReadOnlyDictionary<string, string> FilterFlowDetails(IReadOnlyList<StreamingFlowDetail> details, WebSettings settings, bool isConsumer) =>
@@ -1191,7 +1201,11 @@ internal sealed class StatusApiService
                 track.SubtitlePresentation is null ? null : FormatName(track.SubtitlePresentation.Value))).ToArray(),
             ToMediaStatus(stream.PhysicalInput),
             ToMediaStatus(stream.PhysicalOutput),
-            ToMediaStatus(stream.VirtualOutput))).ToArray();
+            ToMediaStatus(stream.VirtualOutput),
+            stream.RequestedVideoEncoder?.ToString(),
+            stream.ActiveVideoEncoder,
+            stream.HardwareFallbackApplied,
+            stream.VideoProcessing)).ToArray();
         return new ActiveStreamsStatusResponse(streams.Length, streams);
     }
 

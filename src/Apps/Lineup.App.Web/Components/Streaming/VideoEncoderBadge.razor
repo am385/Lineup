@@ -1,0 +1,45 @@
+@if (Encoding is null)
+{
+    <span class="badge text-bg-secondary video-encoder-unknown">@Text["Streaming_EncoderUnknown"]</span>
+}
+else
+{
+    <span class="badge @(Encoding.SoftwareFallbackApplied ? "text-bg-warning" : IsHardware ? "text-bg-success" : "text-bg-secondary") video-encoder-badge"
+          data-video-encoder="@Encoding.Encoder"
+          title="@RequestedDescription">
+        @Text[LabelKey, Encoding.Encoder]
+    </span>
+    @if (Encoding.SoftwareFallbackApplied)
+    {
+        <span class="badge text-bg-warning video-encoder-fallback">@Text["Streaming_EncoderFallback", Encoding.RequestedEncoder?.ToString() ?? "?"]</span>
+    }
+    @if (Encoding.Processing is { } processing)
+    {
+        @if (processing.Deinterlace != SourceDeinterlacePolicy.Preserve)
+        {
+            <span class="badge text-bg-secondary video-deinterlace"
+                  data-deinterlace="@processing.Deinterlace"
+                  data-automatic-deinterlace="@processing.AutomaticDeinterlace.ToString().ToLowerInvariant()">
+                @Text[processing.AutomaticDeinterlace ? "Streaming_DeinterlaceAutomatic" : "Streaming_DeinterlaceEffective",
+                    Text[processing.Deinterlace == SourceDeinterlacePolicy.SourceFieldRate ? "Transcoding_DeinterlaceSourceFieldRate" : "Transcoding_DeinterlaceSourceFrameRate"].Value]
+            </span>
+        }
+        @if (processing.UnknownGopRate)
+        {
+            <span class="badge text-bg-warning video-gop-rate-unknown">@Text["Streaming_GopUnknownRate", processing.GopFrames?.ToString() ?? "?"]</span>
+        }
+    }
+}
+
+@code {
+    /// <summary>Gets the encoder outcome reported by the running media producer.</summary>
+    [Parameter, EditorRequired]
+    public VideoEncodingSnapshot? Encoding { get; set; }
+
+    private bool IsHardware => Encoding?.Encoder is "h264_amf" or "h264_nvenc" or "h264_qsv" or "h264_vaapi" or "h264_videotoolbox";
+
+    private string LabelKey => Encoding?.Encoder == "copy" ? "Streaming_EncoderCopy" :
+        IsHardware ? "Streaming_EncoderHardware" : Encoding?.Encoder == "libx264" ? "Streaming_EncoderSoftware" : "Streaming_EncoderActual";
+
+    private string RequestedDescription => Encoding?.RequestedEncoder is { } requested ? Text["Streaming_EncoderRequested", requested].Value : string.Empty;
+}

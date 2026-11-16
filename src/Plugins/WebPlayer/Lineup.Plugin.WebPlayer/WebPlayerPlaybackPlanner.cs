@@ -126,7 +126,8 @@ public static class WebPlayerPlaybackPlanner
 
         var burnIn = subtitle?.SubtitleMode == WebPlayerSubtitleMode.BurnIn;
         var encodeVideo = video is not null &&
-            (burnIn ||
+            (effective.AlwaysTranscodeVideo ||
+             burnIn ||
              request.MaximumHeight.HasValue ||
              !_cmafVideoCodecs.Contains(video.Codec) ||
              effective.ConvertHevcToH264 && string.Equals(video.Codec, "hevc", StringComparison.OrdinalIgnoreCase) ||
@@ -138,6 +139,7 @@ public static class WebPlayerPlaybackPlanner
             $"a={audioCodec}",
             $"deinterlace={effective.Deinterlace}",
             $"preset={effective.VideoPreset}",
+            $"hardware={System.Text.Json.JsonSerializer.Serialize(effective.HardwareEncoding)}",
             $"quality={effective.VideoQuality.ToString(CultureInfo.InvariantCulture)}",
             $"br={effective.MaximumVideoBitRateMbps.ToString(CultureInfo.InvariantCulture)}",
             $"height={request.MaximumHeight?.ToString(CultureInfo.InvariantCulture) ?? "source"}",

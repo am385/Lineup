@@ -7,6 +7,67 @@ namespace Lineup.App.Web.Tests.Services;
 /// </summary>
 public class SourceDeinterlacePlannerTests
 {
+    /// <summary>Verifies physical forcing creates the shared pre-multiplexer encoder without enabling deinterlacing or changing copied audio.</summary>
+    [Theory]
+    [InlineData(HardwareVideoEncoder.Software, "libx264")]
+    [InlineData(HardwareVideoEncoder.Qsv, "h264_qsv")]
+    public void ForcedPhysicalVideo_NormalizesCompatibleSourceBeforeMultiplexing(HardwareVideoEncoder encoder, string expectedEncoder)
+    {
+        // Arrange
+        var source = new MediaProbeResult(
+        [
+            new MediaTrackMetadata(0, MediaTrackType.Video, "h264", 12_000_000, 1920, 1080, null, null)
+                { ScanType = VideoScanType.Progressive, FrameRate = new(25, 1) },
+            new MediaTrackMetadata(1, MediaTrackType.Audio, "aac", 128_000, null, null, 2, 48_000)
+        ], null);
+        var profile = new PhysicalTranscodeProfile
+        {
+            AlwaysTranscodeVideo = true,
+            HardwareEncoding = new() { Encoder = encoder },
+            MaximumVideoBitRateMbps = 3
+        };
+
+        // Act
+        var normalize = SourceDeinterlacePlanner.ShouldNormalize(source, profile);
+        var arguments = SourceDeinterlacePlanner.CreateArguments(source, profile);
+        var effective = SourceDeinterlacePlanner.CreateEffectiveSource(source, profile);
+        var virtualSource = SourceDeinterlacePlanner.CreateVirtualMpegTsSource(source, new VirtualTranscodeProfile { AlwaysTranscodeVideo = true, MaximumVideoBitRateMbps = 3 });
+
+        // Assert
+        Assert.True(normalize);
+        Assert.False(SourceDeinterlacePlanner.ShouldNormalize(source, profile with { AlwaysTranscodeVideo = false }));
+        AssertOption(arguments, "-c:v:0", expectedEncoder);
+        AssertOption(arguments, "-maxrate:v:0", "3M");
+        Assert.DoesNotContain("-filter:v:0", arguments);
+        var video = Assert.Single(effective.Tracks, track => track.Type == MediaTrackType.Video);
+        Assert.Equal(3_000_000, video.BitRate);
+        Assert.Equal(new MediaFrameRate(25, 1), video.FrameRate);
+        Assert.Equal("aac", Assert.Single(effective.Tracks, track => track.Type == MediaTrackType.Audio).Codec);
+        Assert.Equal(video, Assert.Single(virtualSource.Tracks, track => track.Type == MediaTrackType.Video));
+    }
+
+    /// <summary>Verifies normalized frame rates describe physical filtering exactly once.</summary>
+    [Theory]
+    [InlineData(SourceDeinterlacePolicy.SourceFrameRate, 30000)]
+    [InlineData(SourceDeinterlacePolicy.SourceFieldRate, 60000)]
+    public void CreateEffectiveSource_Deinterlacing_PropagatesFrameRateOnce(SourceDeinterlacePolicy mode, int expectedNumerator)
+    {
+        // Arrange
+        var source = new MediaProbeResult(
+            [new MediaTrackMetadata(0, MediaTrackType.Video, "mpeg2video", null, 1920, 1080, null, null)
+                { ScanType = VideoScanType.Interlaced, FrameRate = new(30000, 1001) }], null);
+        var profile = new PhysicalTranscodeProfile { Deinterlace = mode };
+
+        // Act
+        var effective = SourceDeinterlacePlanner.CreateEffectiveSource(source, profile);
+        var second = SourceDeinterlacePlanner.CreateVirtualMpegTsSource(effective, new VirtualTranscodeProfile { Deinterlace = mode });
+
+        // Assert
+        Assert.Equal(new MediaFrameRate(expectedNumerator, 1001), Assert.Single(effective.Tracks).FrameRate);
+        Assert.Equal(VideoScanType.Progressive, Assert.Single(effective.Tracks).ScanType);
+        Assert.Equal(effective.Tracks, second.Tracks);
+    }
+
     /// <summary>Verifies the effective physical topology profile controls source normalization arguments.</summary>
     [Fact]
     public void CreateArguments_TopologyPhysicalProfile_ControlsNormalization()

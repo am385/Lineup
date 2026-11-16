@@ -8,7 +8,7 @@ namespace Lineup.Plugin.WebPlayer.VirtualOutputHost;
 
 internal sealed partial class DedicatedPlaybackRuntime
 {
-    private static Process StartMediaProcess(string directory, IReadOnlyList<string> arguments, IMediaWorkAdmission? admission = null)
+    private static Process StartMediaProcess(string directory, IReadOnlyList<string> arguments, IMediaWorkAdmission? admission = null, bool redirectStandardOutput = false)
     {
         var configuredExecutable = Environment.GetEnvironmentVariable("LINEUP_FFMPEG_EXECUTABLE");
         var executable = string.IsNullOrWhiteSpace(configuredExecutable) ? "ffmpeg" : configuredExecutable;
@@ -19,6 +19,7 @@ internal sealed partial class DedicatedPlaybackRuntime
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardInput = true,
+            RedirectStandardOutput = redirectStandardOutput,
             RedirectStandardError = true
         };
         if (executable.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
@@ -30,7 +31,7 @@ internal sealed partial class DedicatedPlaybackRuntime
             startInfo.ArgumentList.Add(argument);
         }
         return MediaProcessAdmission.Start(
-            () => Process.Start(startInfo) ?? throw new InvalidOperationException("Unable to start FFmpeg for the Web Player output."), admission, directory);
+            () => OwnedMediaProcess.Start(startInfo), admission, directory);
     }
 
     private static async Task<MediaSession> StartMediaSessionAsync(string id, string directory, VirtualOutputClientStream source, DedicatedCmafSessionPlan plan, ILogger logger, IMediaWorkAdmission? admission = null)
@@ -115,8 +116,19 @@ internal sealed partial class DedicatedPlaybackRuntime
 
     private static async Task ObserveProcessAsync(MediaSession session, ICmafOutputCoordinator sessions)
     {
-        await session.Process.WaitForExitAsync();
-        await sessions.ReleaseOutputAsync(new StreamSessionId(Guid.ParseExact(session.Id, "N")), session.SourceTerminationCode);
+        var exitCode = await session.ExitTask;
+        try
+        {
+            var diagnostics = await session.ErrorTask;
+            if (!session.Lifetime.IsCancellationRequested)
+            {
+                MediaProcessDiagnostics.LogUnexpectedExit(session.Logger, session.Id, exitCode, diagnostics, session.SourceTerminationCode);
+            }
+        }
+        finally
+        {
+            await sessions.ReleaseOutputAsync(new StreamSessionId(Guid.ParseExact(session.Id, "N")), session.SourceTerminationCode);
+        }
     }
 
     private static Task WaitForOutputAsync(MediaSession session, TimeSpan timeout, CancellationToken cancellationToken) =>
@@ -170,6 +182,7 @@ internal sealed partial class DedicatedPlaybackRuntime
             Plan = plan;
             Lifetime = lifetime;
             Logger = logger;
+            ExitTask = WaitForExitCodeAsync(process);
             ErrorTask = ReadDiagnosticTailAsync(process.StandardError);
             CaptionErrorTask = captionProcess is null ? null : ReadDiagnosticTailAsync(captionProcess.StandardError);
         }
@@ -204,6 +217,9 @@ internal sealed partial class DedicatedPlaybackRuntime
         /// <summary>Gets the bounded, continuously drained media diagnostics.</summary>
         public Task<string> ErrorTask { get; }
 
+        /// <summary>Gets the process exit code before cleanup can dispose its process association.</summary>
+        public Task<int> ExitTask { get; }
+
         /// <summary>Gets the bounded, continuously drained caption diagnostics.</summary>
         public Task<string>? CaptionErrorTask { get; }
 
@@ -212,6 +228,12 @@ internal sealed partial class DedicatedPlaybackRuntime
 
         /// <summary>Drains FFmpeg stderr without owning the reader, retaining at most fifty non-empty lines from the last 16,384 characters with normalized LF separators.</summary>
         internal static Task<string> ReadDiagnosticTailAsync(TextReader reader) => MediaProcessDiagnostics.ReadTailAsync(reader);
+
+        private static async Task<int> WaitForExitCodeAsync(Process process)
+        {
+            await process.WaitForExitAsync();
+            return process.ExitCode;
+        }
 
         /// <inheritdoc />
         public async ValueTask DisposeAsync()
@@ -257,9 +279,8 @@ internal sealed partial class DedicatedPlaybackRuntime
                 {
                     CaptionProcess.Kill(entireProcessTree: true);
                 }
-                await Process.WaitForExitAsync();
+                ExitCode = await ExitTask;
                 await MediaProcessAdmission.WaitForReleaseAsync(Process);
-                ExitCode = Process.ExitCode;
                 if (CaptionProcess is not null)
                 {
                     await CaptionProcess.WaitForExitAsync();

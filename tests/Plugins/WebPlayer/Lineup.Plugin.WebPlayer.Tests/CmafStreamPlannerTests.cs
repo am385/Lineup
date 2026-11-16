@@ -124,6 +124,81 @@ public class CmafStreamPlannerTests
             CmafStreamPlanner.CreateArguments(profile, source, selection, second, "manifest.mpd"));
     }
 
+    /// <summary>Verifies browser identity, protocol and Auto versus Override labels do not split equivalent encoded media.</summary>
+    [Fact]
+    public void CreatePlanKey_EquivalentResolvedPolicies_SharesMediaWithoutLosingViewerDiagnostics()
+    {
+        // Arrange
+        var source = Source("ac3");
+        var profile = new VirtualTranscodeProfile { HardwareEncoding = new() { Encoder = HardwareVideoEncoder.Amf } };
+        var automatic = CmafStreamPlanner.ApplyOverrides(new CmafStreamRequest
+        {
+            CompatibilityProfile = CreateAacOnlyCompatibilityProfile(),
+            Overrides = new() { Enabled = true, Quality = WebPlayerQuality.High, FallbackAudio = CmafFallbackAudio.AacStereo, Protocol = CmafPlaybackProtocol.Hls }
+        });
+        var manual = CmafStreamPlanner.ApplyOverrides(automatic with
+        {
+            CompatibilityProfile = automatic.CompatibilityProfile! with { BrowserIdentity = "another-browser", CompletedAtUtc = DateTimeOffset.UtcNow.AddMinutes(-1) },
+            Overrides = automatic.Overrides with { Audio = CmafPreferredAudio.Fallback, Video = CmafPreferredVideo.Source, Protocol = CmafPlaybackProtocol.Dash }
+        });
+        var selection = CmafStreamPlanner.SelectTracks(source, automatic);
+
+        // Act
+        var automaticKey = CmafStreamPlanner.CreatePlanKey(profile, source, selection, automatic);
+        var manualKey = CmafStreamPlanner.CreatePlanKey(profile, source, selection, manual);
+        var automaticRenditions = CmafStreamPlanner.CreatePresentationAudioRenditions(source, selection.Audio, automatic, profile);
+        var manualRenditions = CmafStreamPlanner.CreatePresentationAudioRenditions(source, selection.Audio, manual, profile);
+        const string manifest = "#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,NAME=\"audio_1\",URI=\"audio.m3u8\"";
+        var automaticManifest = CmafStreamPlanner.RewriteManifestAudioLabels(manifest, automaticRenditions);
+        var manualManifest = CmafStreamPlanner.RewriteManifestAudioLabels(manifest, manualRenditions);
+
+        // Assert
+        Assert.Equal(automaticKey, manualKey);
+        Assert.Equal(
+            CmafStreamPlanner.CreateArguments(profile, source, selection, automatic, "manifest.mpd"),
+            CmafStreamPlanner.CreateArguments(profile, source, selection, manual, "manifest.mpd"));
+        Assert.Contains("Auto", Assert.Single(automaticRenditions).Plan.Title, StringComparison.Ordinal);
+        Assert.Contains("Override", Assert.Single(manualRenditions).Plan.Title, StringComparison.Ordinal);
+        Assert.Equal(automaticManifest, manualManifest);
+        Assert.Contains("Fallback AAC Stereo", automaticManifest, StringComparison.Ordinal);
+        Assert.DoesNotContain("Auto", automaticManifest, StringComparison.Ordinal);
+        Assert.DoesNotContain("Override", manualManifest, StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies equal initial media cannot bypass differing source-audio or software-encoder startup fallback contracts.</summary>
+    [Theory]
+    [InlineData("audio")]
+    [InlineData("hardware")]
+    [InlineData("software-quality")]
+    public void CreatePlanKey_DifferentPermittedFallbacks_RemainIsolated(string change)
+    {
+        // Arrange
+        var source = Source("aac");
+        var profile = new VirtualTranscodeProfile
+        {
+            HardwareEncoding = new() { Encoder = HardwareVideoEncoder.Amf, AllowSoftwareFallback = true }
+        };
+        var request = new CmafStreamRequest { PreferredVideo = CmafPreferredVideo.Fallback };
+        var selection = CmafStreamPlanner.SelectTracks(source, request);
+        var changedRequest = change == "audio" ? request with { FallbackAudio = CmafFallbackAudio.Ac3 } : request;
+        var changedProfile = change switch
+        {
+            "hardware" => profile with { HardwareEncoding = profile.HardwareEncoding with { AllowSoftwareFallback = false } },
+            "software-quality" => profile with { VideoQuality = profile.VideoQuality + 1 },
+            _ => profile
+        };
+
+        // Act
+        var baseline = CmafStreamPlanner.CreatePlanKey(profile, source, selection, request);
+        var changed = CmafStreamPlanner.CreatePlanKey(changedProfile, source, selection, changedRequest);
+
+        // Assert
+        Assert.Equal(
+            CmafStreamPlanner.CreateArguments(profile, source, selection, request, "manifest.mpd"),
+            CmafStreamPlanner.CreateArguments(changedProfile, source, selection, changedRequest, "manifest.mpd"));
+        Assert.NotEqual(baseline, changed);
+    }
+
     /// <summary>Verifies removing viewer identity does not collapse incompatible media or topology plans.</summary>
     [Theory]
     [InlineData("quality")]
@@ -140,7 +215,10 @@ public class CmafStreamPlannerTests
         {
             Tracks =
             [
-                Track(0, MediaTrackType.Video, "h264"),
+                Track(0, MediaTrackType.Video, change == "profile" ? "mpeg2video" : "h264") with
+                {
+                    ScanType = change == "deinterlace" ? VideoScanType.Interlaced : VideoScanType.Progressive
+                },
                 Track(1, MediaTrackType.Audio, "aac") with { Channels = 2 },
                 Track(2, MediaTrackType.Subtitle, "hdmv_pgs_subtitle") with { SubtitlePresentation = SubtitlePresentation.BurnIn }
             ]
@@ -174,7 +252,7 @@ public class CmafStreamPlannerTests
     {
         // Arrange
         var profile = new VirtualTranscodeProfile { MaximumVideoBitRateMbps = 13 };
-        var source = Source("aac");
+        var source = Source("ac3");
         var selection = WebPlayerTrackPlanner.SelectTracks(source, 1, null);
         var baseline = new CmafStreamRequest { PreferredAudio = CmafPreferredAudio.Source };
         var fallback = baseline with { PreferredAudio = CmafPreferredAudio.Fallback, FallbackAudio = CmafFallbackAudio.Eac3 };
@@ -189,18 +267,13 @@ public class CmafStreamPlannerTests
         };
         var compatibility = baseline with
         {
-            CompatibilityProfile = new CmafCompatibilityProfile
-            {
-                BrowserIdentity = "browser-a",
-                Claims = new CmafBrowserClaims { Aac = false, Ac3 = true },
-                Results = []
-            }
+            CompatibilityProfile = CreateAacOnlyCompatibilityProfile()
         };
 
         // Act
         var baselineKey = CmafStreamPlanner.CreatePlanKey(profile, source, selection, baseline);
         var fallbackKey = CmafStreamPlanner.CreatePlanKey(profile, source, selection, fallback);
-        var overrideKey = CmafStreamPlanner.CreatePlanKey(profile, source, selection, overridden);
+        var overrideKey = CmafStreamPlanner.CreatePlanKey(profile, source, selection, CmafStreamPlanner.ApplyOverrides(overridden));
         var compatibilityKey = CmafStreamPlanner.CreatePlanKey(profile, source, selection, compatibility);
 
         // Assert

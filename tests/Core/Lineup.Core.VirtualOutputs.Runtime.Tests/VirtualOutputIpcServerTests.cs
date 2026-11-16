@@ -907,6 +907,7 @@ public sealed class VirtualOutputIpcServerTests
             StreamSessionId = streamSessionId,
             WorkerMediaSessionId = "worker-media-session",
             WorkerProducerId = StreamSessionId.New().ToString(),
+            VideoEncoding = new("libx264", HardwareVideoEncoder.Nvenc, true),
             Format = HostedStreamFormat.Cmaf,
             Tracks = presentationTracks,
             PhysicalInput = new ActiveStreamMediaSnapshot(9_000_000, rawSource.Tracks.Select(ToMediaTrack).ToArray()),
@@ -936,6 +937,9 @@ public sealed class VirtualOutputIpcServerTests
         Assert.Equal(request.RequestId.ToString(), snapshot.BrokerRequestId);
         Assert.Equal("worker-media-session", snapshot.WorkerMediaSessionId);
         Assert.Equal(nameof(VirtualOutputStreamStartupStage.Ready), snapshot.WorkerStartupStage);
+        Assert.Equal("libx264", snapshot.ActiveVideoEncoder);
+        Assert.Equal(HardwareVideoEncoder.Nvenc, snapshot.RequestedVideoEncoder);
+        Assert.True(snapshot.HardwareFallbackApplied);
         Assert.Equal(["h264", "aac"], snapshot.VirtualOutput!.Tracks.Select(track => track.Codec));
         Assert.DoesNotContain(snapshot.VirtualOutput.Tracks, track => track.Type == MediaTrackType.Subtitle);
         var mismatched = await Assert.ThrowsAsync<VirtualOutputClientException>(() =>

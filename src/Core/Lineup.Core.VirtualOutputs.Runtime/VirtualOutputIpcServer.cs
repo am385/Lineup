@@ -736,6 +736,9 @@ public sealed class VirtualOutputIpcServer : BackgroundService
             PhysicalInput = report.PhysicalInput ?? current.PhysicalInput,
             PhysicalOutput = report.PhysicalOutput ?? current.PhysicalOutput,
             VirtualOutput = report.VirtualOutput ?? current.VirtualOutput,
+            RequestedVideoEncoder = report.VideoEncoding?.RequestedEncoder,
+            ActiveVideoEncoder = report.VideoEncoding?.Encoder,
+            HardwareFallbackApplied = report.VideoEncoding?.SoftwareFallbackApplied ?? false,
             BrokerRequestId = report.RequestId.ToString(),
             WorkerMediaSessionId = report.WorkerMediaSessionId,
             Flow = report.WorkerProducerId is { } producerId && current.Flow is { } flow

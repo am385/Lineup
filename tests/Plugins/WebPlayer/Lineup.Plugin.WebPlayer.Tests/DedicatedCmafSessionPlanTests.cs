@@ -8,6 +8,65 @@ namespace Lineup.Plugin.WebPlayer.Tests;
 /// <summary>Verifies dedicated workers build browser presentations with the shared CMAF planner.</summary>
 public sealed class DedicatedCmafSessionPlanTests
 {
+    /// <summary>Verifies brokered rates drive dedicated QSV filters and software fallback retains the saved Preserve policy.</summary>
+    [Fact]
+    public void Create_QsvAutomaticDeinterlace_RoundTripsAndDoesNotLeakIntoFallback()
+    {
+        // Arrange
+        var response = CreateMixedAudioResponse(OutputAudioPolicy.Copy, OutputAudioPolicy.Copy);
+        response = response with
+        {
+            Source = new MediaProbeResult([new MediaTrackMetadata(0, MediaTrackType.Video, "mpeg2video", null, 720, 480, null, null)
+                { ScanType = VideoScanType.Interlaced, FrameRate = new(30000, 1001) }], null),
+            RawSource = null,
+            Profile = response.Profile! with { Deinterlace = SourceDeinterlacePolicy.Preserve, HardwareEncoding = new() { Encoder = HardwareVideoEncoder.Qsv, AllowSoftwareFallback = true } }
+        };
+        var wire = System.Text.Json.JsonSerializer.Deserialize<VirtualOutputOpenStreamResponse>(System.Text.Json.JsonSerializer.Serialize(response))!;
+        var request = new CmafStreamRequest { PreferredVideo = CmafPreferredVideo.Fallback };
+
+        // Act
+        var plan = DedicatedCmafSessionPlan.Create(wire, request, Path.GetTempPath());
+        var snapshot = plan.CreateActiveStreamSnapshot("qsv-test", "2.3", DateTime.UnixEpoch);
+        var fallback = plan.CreateSoftwareFallback(Path.GetTempPath());
+        var fallbackSnapshot = fallback.CreateActiveStreamSnapshot("qsv-test", "2.3", DateTime.UnixEpoch);
+
+        // Assert
+        Assert.Contains(plan.Arguments, value => value.Contains("bwdif=mode=send_field", StringComparison.Ordinal));
+        Assert.Equal(120, snapshot.VideoProcessing!.GopFrames);
+        Assert.True(snapshot.VideoProcessing.AutomaticDeinterlace);
+        Assert.Equal(new MediaFrameRate(60000, 1001), snapshot.VideoProcessing.FrameRate);
+        Assert.DoesNotContain(fallback.Arguments, value => value.Contains("bwdif", StringComparison.Ordinal));
+        Assert.Contains("expr:if(isnan(prev_forced_t),1,gte(t,prev_forced_t+2))", fallback.Arguments);
+        Assert.False(fallbackSnapshot.VideoProcessing!.AutomaticDeinterlace);
+        Assert.Equal(SourceDeinterlacePolicy.Preserve, fallbackSnapshot.VideoProcessing.Deinterlace);
+        Assert.True(fallbackSnapshot.HardwareFallbackApplied);
+    }
+
+    /// <summary>Verifies explicit software fallback reports requested and actual encoders without losing the source-audio retry policy.</summary>
+    [Fact]
+    public void CreateSoftwareFallback_ReportsActualEncoderAndPreservesAudioFallback()
+    {
+        // Arrange
+        var response = CreateMixedAudioResponse(OutputAudioPolicy.Copy, OutputAudioPolicy.Copy);
+        response = response with { Profile = response.Profile! with { HardwareEncoding = new() { Encoder = HardwareVideoEncoder.Nvenc, AllowSoftwareFallback = true } } };
+        var directory = Path.GetTempPath();
+        var plan = DedicatedCmafSessionPlan.Create(response, new CmafStreamRequest { PreferredVideo = CmafPreferredVideo.Fallback }, directory);
+
+        // Act
+        var fallback = plan.CreateSoftwareFallback(directory).CreateFallback(directory);
+        var result = fallback.CreateResponse("hardware-test", new Uri("http://localhost:8600/"));
+        var snapshot = fallback.CreateActiveStreamSnapshot("hardware-test", "1.1", DateTime.UtcNow);
+
+        // Assert
+        Assert.True(result.HardwareFallbackApplied);
+        Assert.True(result.SourceAudioFallbackApplied);
+        Assert.Equal(HardwareVideoEncoder.Nvenc, result.RequestedVideoEncoder);
+        Assert.Equal("libx264", result.ActiveVideoEncoder);
+        Assert.Equal("libx264", snapshot.ActiveVideoEncoder);
+        Assert.True(snapshot.HardwareFallbackApplied);
+        Assert.NotEqual(plan.SharingKey, fallback.SharingKey);
+    }
+
     /// <summary>Verifies equivalent dedicated presentations share an identity across viewer IDs and output directories.</summary>
     [Fact]
     public void SharingKey_EquivalentPlans_IgnoresViewerAndOutputDirectory()
@@ -15,7 +74,7 @@ public sealed class DedicatedCmafSessionPlanTests
         // Arrange
         var response = CreateMixedAudioResponse(OutputAudioPolicy.Copy, OutputAudioPolicy.Copy);
         var profile = response.Profile!;
-        var request = new CmafStreamRequest { ClientId = "first-viewer", AudioTrack = 4 };
+        var request = new CmafStreamRequest { ClientId = "first-viewer", AudioTrack = 4, PreferredVideo = CmafPreferredVideo.Fallback };
 
         // Act
         var first = DedicatedCmafSessionPlan.Create(response, request, Path.Combine("media-plan-tests", "first"));
@@ -440,7 +499,7 @@ public sealed class DedicatedCmafSessionPlanTests
             AssertOption(plan.Arguments, $"-c:a:{index}", encoder);
             Assert.Contains(plan.Arguments.Select((value, position) => (value, position)),
                 item => item.value == "-map" && plan.Arguments[item.position + 1] == $"0:{rendition.Source.Index}");
-            Assert.Contains($"title={rendition.Plan.Title}", plan.Arguments);
+            Assert.Contains($"title=Audio #{rendition.Source.Index} · {rendition.Source.Language} · {rendition.Plan.MediaTitle}", plan.Arguments);
             Assert.Equal(expectedCodec, output.Codec);
             Assert.Equal(rendition.Plan.Channels, output.Channels);
             Assert.Equal(rendition.Plan.BitRate, output.BitRate);

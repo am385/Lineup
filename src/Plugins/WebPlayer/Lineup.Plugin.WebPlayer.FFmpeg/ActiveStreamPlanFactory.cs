@@ -20,7 +20,7 @@ public static class ActiveStreamPlanFactory
             startedAtUtc,
             rawSource,
             source,
-            track => profile.ConvertHevcToH264 && string.Equals(track.Codec, "hevc", StringComparison.OrdinalIgnoreCase)
+            track => profile.AlwaysTranscodeVideo || profile.ConvertHevcToH264 && string.Equals(track.Codec, "hevc", StringComparison.OrdinalIgnoreCase)
                 || SourceDeinterlacePlanner.ShouldDeinterlace(track, profile.Deinterlace),
             profile.MaximumVideoBitRateMbps,
             track =>
@@ -116,11 +116,13 @@ public static class ActiveStreamPlanFactory
     {
         var audioRenditions = CmafStreamPlanner.CreatePresentationAudioRenditions(source, selection.Audio, request, profile);
         var sourceVideo = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video);
+        var processing = CmafStreamPlanner.CreateVideoProcessing(profile, source, selection, request);
         var videoPlans = CmafStreamPlanner.CreateVideoRenditions(
             sourceVideo,
             request,
             selection.SubtitlePresentation == SubtitlePresentation.BurnIn,
-            profile.Deinterlace);
+            processing?.Deinterlace ?? profile.Deinterlace,
+            profile.AlwaysTranscodeVideo);
         var primaryVideoPlan = videoPlans[0];
         var outputVideoBitRate = WebVideoTranscodePlanner.GetMaximumBitRate(profile, request.Quality);
         var tracks = source.Tracks
@@ -190,7 +192,10 @@ public static class ActiveStreamPlanFactory
             });
         }
 
-        return CreateSnapshot(sessionId, channel, HostedStreamFormat.Cmaf, startedAtUtc, rawSource, source, tracks.OrderBy(track => track.SourceIndex).ToArray());
+        return CreateSnapshot(sessionId, channel, HostedStreamFormat.Cmaf, startedAtUtc, rawSource, source, tracks.OrderBy(track => track.SourceIndex).ToArray()) with
+        {
+            VideoProcessing = processing
+        };
     }
 
     /// <summary>

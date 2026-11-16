@@ -541,6 +541,227 @@ in MPEG-TS but cannot be synthesized as a Watch text track.
 
 Virtual Tuner Video can optionally transcode HEVC to H.264 for clients that cannot process HEVC Live TV, at the cost of CPU and generation loss. Virtual Tuner Audio can preserve non-AC-4 codecs or transcode those tracks to AC-3/E-AC-3. AC-4 can be preserved for compatible receivers or transcoded separately. Audio above 5.1 channels is capped at 5.1 when transcoded. Transcoding is configured through inherited physical and virtual device profiles; topology routes reject unsupported per-request HDHomeRun hardware profile parameters.
 
+#### Optional GPU video encoding
+
+Physical and virtual **Transcoding Defaults**, and their per-device overrides, include a **Video encoder** setting.
+Software remains the default, including for existing settings files. The complete hardware setting inherits as one unit;
+an explicit device override of **Software** disables inherited GPU encoding. Selecting a GPU does not force conversion:
+copy-only and audio-only conversions remain unchanged. Hardware settings also participate in producer-sharing identities.
+**Always transcode video** is an opt-in physical and virtual profile setting, with independent per-device overrides.
+Physical encoding happens once in the shared source pipeline before multiplexing; virtual encoding happens for that output.
+It encodes video as H.264 even when the source could otherwise be copied, using the selected encoder and video bitrate limit.
+An explicit device override of **Off** disables inherited forced encoding without disabling other conversion policies.
+Encoder controls are shown when the effective profile requests video encoding, including this option.
+Enabling forced encoding at both stages performs two encoding passes. Leave it off at stages that should retain normal copy selection.
+The bitrate limit uses encoder rate control with a buffering window; it is not an instantaneous network traffic limit.
+Allow additional bandwidth for audio and transport overhead, including bursts while downloading HLS/DASH segments.
+
+| Backend | Native platform | FFmpeg H.264 encoder | Optional device |
+|---|---|---|---|
+| Intel QSV | Windows, Linux | `h264_qsv` | Windows adapter index; Linux `/dev/dri/renderD128`-style render node |
+| NVIDIA NVENC | Windows, Linux | `h264_nvenc` | Numeric GPU index visible to FFmpeg |
+| VA-API | Linux | `h264_vaapi` | Render node; defaults to `/dev/dri/renderD128` |
+| AMD AMF | Windows | `h264_amf` | Numeric adapter index |
+| Apple VideoToolbox | macOS | `h264_videotoolbox` | System-selected device |
+
+This first implementation accelerates **encoding**, not decoding or filtering. Deinterlacing, scaling and subtitle burn-in
+remain CPU filters; VA-API explicitly uploads their output. Audio conversion, source/copy policy, captions and CMAF
+keyframe cadence remain independent. Software presets/CRF are not GPU quality controls: use the backend's balanced,
+speed or quality tuning and its advanced options. QSV and VA-API MPEG-TS encodes repack embedded captions after deinterlacing
+and before hardware upload/encoding, keeping rate-correct A53 packets within Intel's SEI limits without disabling captions.
+Docker and Windows packages bundle Jellyfin FFmpeg **8.1.3-2**, including its oversized QSV A53 caption SEI guard.
+Caption normalization remains necessary to preserve captions instead of relying on that guard to drop oversized packets.
+Caption-preserving QSV MPEG-TS encoding also retains `async_depth=1`: multiple in-flight caption payloads crashed the previously
+bundled Intel runtime even after normalization. A conflicting advanced `async_depth` is rejected; QSV paths without embedded-caption
+insertion retain their configured/default submission depth.
+This requires a known output rate of 24, 24000/1001, 30, 30000/1001, 60, or 60000/1001 frames per second;
+other or unknown rates and currently unverified caption encoders fail explicitly. Select Software or NVENC for those sources. CMAF keeps its parallel caption
+extraction. QSV and VA-API Web Player transcodes explicitly disable redundant embedded A53 caption insertion, avoiding
+broadcast-caption SEI payload handling in those encoders while retaining the separate WebVTT captions. VA-API's other
+default SEI messages remain enabled. Copy-only video and other encoders retain their existing caption policy.
+
+Jellyfin caches HDHomeRun live-TV probe metadata by channel, independently of Lineup's current output profile. Changing a
+channel from forced H.264 encoding back to MPEG-2 pass-through can therefore leave Jellyfin copying MPEG-2 into a browser
+session negotiated as H.264, producing audio without decoded video. Browser reloads do not clear that server-side cache.
+Keep a stable output codec for a Jellyfin virtual device, or invalidate the affected Jellyfin live-TV probe cache when changing
+its codec policy. Lineup does not change Jellyfin settings or automatically clear its cache.
+HDR tone mapping, additional codecs and zero-copy/hardware decode are not implemented.
+
+QSV Web Player transcodes use closed, frame-rate-based GOP scheduling instead of timestamp-forced keyframes:
+the GOP and minimum keyframe interval are the ceiling of two seconds times the effective output frame rate.
+If probing cannot supply a usable rate, Lineup retains a bounded 120-frame GOP and reports the missing rate;
+two-second cadence is not guaranteed in that case. Already-transcoded, confirmed-interlaced QSV Web Player video
+automatically uses source-field-rate deinterlacing when the saved policy is Preserve. Explicit frame-rate and
+field-rate policies are honored; progressive, unknown-scan and copy-only paths are unchanged.
+The automatic exception leaves saved settings intact and is visible in output diagnostics. Field-rate deinterlacing
+preserves field motion by doubling the progressive output frame rate, with additional CPU filtering and encoding work.
+This behavior is specific to QSV Web Player output, not general physical or MPEG-TS hardware transcoding.
+
+VA-API uses its driver's default preset (Balanced); numeric preset scales differ between Intel and Mesa/AMD drivers.
+Use an explicitly supported `compression_level` in advanced options instead of assuming a portable speed/quality number.
+
+The advanced field accepts **one `option=value` per line**, without a leading dash, up to 16 options and 4096 characters.
+Options are backend-specific and allowlisted; values are single bounded tokens, not shell text. For example, NVENC accepts
+`preset=p6` and `cq=23`. It cannot change inputs, outputs, stream maps, protocol access or arbitrary initialization commands.
+Structured device selection supplies the initialization flags. A driver may still reject an otherwise well-formed
+backend option; that is reported as a startup failure rather than a successful software stream.
+
+Native applications need a GPU supported by the selected encoder, a compatible FFmpeg build, and the vendor's driver and
+userspace runtime. The service identity must have permission to access the device; running FFmpeg successfully in an
+interactive desktop account does not prove a system service can do so. The `-hwaccel` flag alone selects hardware
+**decoding**, not the H.264 encoder. Listing `ffmpeg -encoders` or `ffmpeg -hwaccels` proves build support, not usable hardware.
+Lineup checks encoder availability and performs a bounded synthetic encode in the actual host/worker launch environment
+before consuming live input. Settings load/save never requires a GPU.
+
+Startup fails with actionable diagnostics by default. **Allow software fallback before playback** is opt-in. It permits
+software when the bounded GPU check fails or when the actual encoder reports a recognized initialization failure before
+publication, and only after the previous process has been released. Input, network, muxer, cancellation and cleanup errors
+are not general fallback permission. Existing source-audio fallback remains separate. Published streams never silently
+restart with a different encoder. Requested encoder, successful checks and fallback are logged; dedicated Web Player
+responses and active-stream diagnostics also report the requested/selected encoder and whether fallback occurred.
+The Dashboard's Source Processing and Output Processing nodes and active-path stages show their respective runtime encoders, for example
+**GPU encoding · h264_amf**, **Software encoding · libx264**, or **Video copied (copy)**, with an explicit software-fallback
+badge when applicable. These badges use producer-reported outcomes, not the configured GPU preference. Stages that do not
+report an encoder display **Video encoder not reported**, never an inferred GPU label. Look under **Active Streams → Streaming Flow → Source Processing / Output Processing**,
+or in the corresponding processing cards under **Active Paths**. Watch's **Stream Information** card shows separate
+**Source Processing** and **Output Processing** encoder rows using the same stage projection. Both local Watch playback and
+dedicated Web Player workers report the launched encoder after readiness, including viewers joining a shared producer.
+Physical and MPEG-TS output transforms retain their actual hardware/software/fallback outcomes in the shared graph.
+Each active path follows its exact producer ancestry; a GPU used by another channel on the same device is not attributed to it.
+Copied video may still accompany audio conversion or remuxing; a video-copy badge does not mean all media processing is bypassed.
+Viewers of the same physical source share one Web Player encoder when their effective media and permitted startup fallback
+plans match. Browser identities, compatibility-test timestamps, DASH versus HLS playback, and Auto versus Override provenance
+do not independently create another encoder. Shared track labels describe the media rather than the first viewer's policy;
+per-viewer stream diagnostics retain the requested policy labels. Different encodings, selected tracks, subtitle processing,
+source generations, or fallback contracts remain separate producers.
+
+#### GPU access in Docker
+
+The default Compose files remain CPU-only. Device exposure and Lineup's encoder selection are **two separate steps**.
+Containers need the same driver/runtime support as native execution; exposing a node does not install a working driver.
+
+- **Linux Intel/AMD:** use `docker-compose.gpu-dri.yml` with either default Compose file. Set `LINEUP_RENDER_NODE` if needed
+  and set `LINEUP_RENDER_GID` to the numeric group owning that render node (`stat -c '%g' /dev/dri/renderD128` on the host).
+  Then run `docker compose -f docker-compose.yml -f docker-compose.gpu-dri.yml up -d` and select QSV or VA-API in Lineup.
+  The selected node keeps the same path inside the container. Use a compatible Intel media/VA-API or Mesa driver in the
+  image; ARM and older Intel devices may require different drivers. Do not use privileged mode or world-writable devices.
+- **NVIDIA:** install a supported host driver and [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html),
+  then use `docker compose -f docker-compose.yml -f docker-compose.gpu-nvidia.yml up -d`. `LINEUP_NVIDIA_GPU` selects the
+  host GPU index or UUID (default `0`); the override grants `video,compute,utility` driver capabilities. Select NVENC and
+  the container-visible GPU index in Lineup, not necessarily its original host index.
+- **Docker Desktop on Windows:** GPU access is documented for NVIDIA through WSL2; it is not a promise that a particular
+  image, driver and NVENC build work. See [Docker GPU support](https://docs.docker.com/desktop/features/gpu/).
+- **Docker on macOS:** ordinary Linux containers cannot use the host's VideoToolbox API. Use native macOS execution for
+  VideoToolbox; Linux-container GPU support must not be inferred from native availability.
+
+The pinned Linux amd64 Jellyfin FFmpeg package includes the AMD RadeonSI and Intel iHD/i965 VA-API userspace drivers.
+The host still supplies the GPU and kernel driver. NVIDIA's matching driver libraries are exposed by the NVIDIA
+Container Toolkit. The runtime image defaults `NVIDIA_DRIVER_CAPABILITIES` to `video,compute,utility`, so a separate
+container variable is not required. This default does not install or activate the NVIDIA runtime or expose a GPU.
+
+##### Unraid container settings
+
+These are deployment settings, separate from Lineup's transcoder settings. Enable Unraid's advanced container view to
+edit **Extra Parameters**.
+
+| GPU | Extra Parameters | Container variables | Lineup encoder |
+|---|---|---|---|
+| AMD | `--device=/dev/dri` | None normally required | VA-API |
+| Intel | `--device=/dev/dri` | None normally required | QSV or VA-API |
+| NVIDIA | `--runtime=nvidia` | `NVIDIA_VISIBLE_DEVICES=<GPU-UUID>` | NVENC |
+
+Prefer exposing only the selected render node, such as `--device=/dev/dri/renderD128`, when access to the whole directory
+is unnecessary. Select that same container-visible path in Lineup. A non-root container user also needs the render node's
+numeric group, using `--group-add=<gid>` or the DRI Compose override. Do not solve permission failures with privileged mode
+or world-writable devices.
+
+For AMD/Intel, first configure the appropriate host graphics driver and verify that the render node exists on the Unraid
+host. The older `modprobe i915` advice applies to supported Intel GPUs, not AMD or every Intel generation; host-driver
+setup belongs on Unraid, not inside the container. NVIDIA requires Unraid's compatible NVIDIA driver/runtime setup.
+The NVIDIA Compose override uses Docker GPU reservations instead of the Unraid `--runtime`/`NVIDIA_VISIBLE_DEVICES`
+configuration and already requests the `video` driver capability needed for NVENC.
+
+**AMD AMF is the Windows-native option in Lineup; choose VA-API for AMD Linux containers.** Docker Desktop's documented
+Windows/WSL2 passthrough supports NVIDIA, not this AMD `/dev/dri` deployment path. Working AMF encoding in a Windows
+debug session does not demonstrate GPU access from its Linux containers.
+
+##### Verify actual encoding inside the deployed container
+
+Run the matching command on the Docker host after configuring passthrough. These checks use synthetic video, consume no
+tuner, produce no media files, and exit after two frames. Replace `lineup` if the deployed container has another name and
+adjust the render-node path or container-visible NVIDIA index when necessary. Use the same container user as the service.
+
+AMD or Intel VA-API:
+
+```sh
+docker exec lineup ffmpeg -hide_banner -loglevel error \
+  -init_hw_device vaapi=lineup_hw:/dev/dri/renderD128 -filter_hw_device lineup_hw \
+  -f lavfi -i testsrc2=size=128x128:rate=25 -frames:v 2 \
+  -vf format=nv12,hwupload -c:v h264_vaapi -b:v 1M -f null -
+```
+
+Intel QSV:
+
+```sh
+docker exec lineup ffmpeg -hide_banner -loglevel error \
+  -init_hw_device vaapi=lineup_va:/dev/dri/renderD128 \
+  -init_hw_device qsv=lineup_hw@lineup_va -filter_hw_device lineup_hw \
+  -f lavfi -i testsrc2=size=128x128:rate=25 -frames:v 2 \
+  -pix_fmt nv12 -c:v h264_qsv -b:v 1M -f null -
+```
+
+NVIDIA NVENC:
+
+```sh
+docker exec lineup ffmpeg -hide_banner -loglevel error \
+  -f lavfi -i testsrc2=size=128x128:rate=25 -frames:v 2 \
+  -c:v h264_nvenc -gpu 0 -b:v 1M -f null -
+```
+
+Exit code zero verifies a real encode with the explicitly named backend; these commands do not fall back to software.
+Missing devices, permission errors, missing driver libraries or unsupported hardware are failures, not successful GPU
+verification. Encoder listings and `nvidia-smi` alone do not prove that encoding works. Finally, force video encoding
+through Lineup with software fallback disabled and confirm the actual encoder in the Dashboard or Watch stream information;
+this additionally checks the application's host/worker path. A video-copy stream does not exercise the GPU.
+
+Media processes are owned by their launching host or dedicated worker. Disconnect, cancellation, startup failure and normal
+shutdown terminate and await owned media before releasing admission; worker recovery waits for predecessor cleanup.
+OS lifetime containment also reaps media when an owner crashes, including host-launched FFmpeg/FFprobe and worker media.
+Cleanup failure remains an error/quarantine, never permission to start overlapping GPU sessions. Driver or firmware hangs
+cannot be universally repaired by Lineup: it never resets a shared GPU or kills unrelated processes by name.
+
+Hardware certification remains manually invoked using `skills/lineup-streaming-sweep/SKILL.md`, outside the solution and
+CI. Deterministic settings/planner/process tests are not certification of a specific GPU, driver or Docker host.
+See [FFmpeg hardware devices](https://ffmpeg.org/ffmpeg-doc.html#Hardware-Devices),
+[FFmpeg video encoders](https://ffmpeg.org/ffmpeg-codecs.html#Video-Encoders), and
+[Docker Compose GPU reservations](https://docs.docker.com/compose/how-tos/gpu-support/).
+
+#### HDHomeRun EXTEND device-side transcoding
+
+Each HDHomeRun physical device has an operator-controlled **HDHomeRun EXTEND device transcoding** profile.
+**Device default** adds no `transcode` parameter, preserving existing behavior and the device's own defaults; it does not
+force an EXTEND configured for transcoding back to native video. Explicit profiles are allowed only for discovered
+EXTEND model families (`HDTC-2US`, `HDTC-2US-M`, `HDTC-2US-L`), never inferred from an editable friendly name.
+
+| Profile | Device behavior |
+|---|---|
+| `heavy` | High-bandwidth H.264; can retain the original resolution, frame rate and interlacing |
+| `mobile` | H.264 up to 720p30 |
+| `internet540`, `internet480`, `internet360`, `internet240` | Progressively lower-resolution, bandwidth-oriented H.264 |
+
+The selected profile is safely merged into both ordinary and diagnostic lineup HTTP stream requests. Existing query
+parameters are retained; explicit profiles replace every existing `transcode` entry with one selected value (including
+case-insensitive or percent-encoded parameter names). Device default leaves the original URL unchanged. Unsupported models/profiles fail
+explicitly rather than silently ignoring the setting; HDHomeRun error `802` is reported as an unknown transcode profile.
+Adapter descriptors, configuration and model-based capability diagnostics expose the choice.
+
+EXTEND has two tuner/transcoder paths. FLEX, CONNECT and PRIME are not interchangeable general-purpose transcoders.
+**EXTEND does not transcode audio**, so it cannot solve AC-4 compatibility; downstream Lineup audio conversion may still
+be required. Lineup keeps its normal metadata/deinterlace policies for the returned stream instead of assuming every profile
+is progressive. Closing and disposing the upstream HTTP stream releases the tuner; device-side transcoding does not create
+a Lineup-owned GPU process. Client route query parameters do not override the configured device profile.
+See SiliconDust's [HTTP development documentation](https://info.hdhomerun.com/info/http_development).
+
 The Physical Devices and Virtual Devices tabs provide inherited Video and Audio transcoder profiles. Physical deinterlacing normalizes confirmed interlaced input once before the shared multiplexer, while virtual-device settings create consumer-specific output targets afterward. Source-frame-rate mode converts 29.97-frame interlaced video to 29.97p (or 25 to 25p) with lower CPU use; source-field-rate mode preserves temporal motion as 59.94p (or 50p) at higher CPU cost. Progressive sources retain the copy-first path unless another enabled conversion requires transcoding.
 
 Lineup builds each live stream as a reference-counted graph: exact physical acquisition, optional physical normalization, and virtual output packaging. Consumers share the longest byte-identical prefix, including across different virtual devices, and branch only where their effective output settings differ. Physical failover is resolved to an exact device before its profile is applied, so a fallback source shares with other consumers of that source and uses its own overrides. FFprobe metadata is also shared for the lifetime of the acquisition. The Dashboard visualizes the full configured topology and highlights active, shared, transcoding, and warm paths above the detailed Active Streams table. The status API exposes active graph nodes, stable node and parent identities, processing stages, receiver counts, warm state, subscription totals, and physical-capacity use.
@@ -1230,6 +1451,8 @@ Graph shutdown normally drains transforms before stopping physical acquisitions.
 every acquisition to stop; graph-owned cleanup continues and retains capacity until the owned source is disposed.
 
 Shared FFmpeg transforms, MPEG-TS slates, and management/dedicated caption processes continuously drain diagnostics while retaining only the last 16,384 characters and at most fifty non-empty lines. Long warning lines cannot accumulate lifetime stderr in the trusted host; nonzero exits retain their exit code and recent diagnostic tail.
+Unexpected exits after Web Player publication are reported at Warning with the exit code, drained diagnostic tail, and
+any independently observed source-termination reason. Intentional stops are not reported as unexpected encoder exits.
 
 Network discovery is disabled by default to avoid UDP port conflicts. To enable it, turn on **Enable UDP and SSDP network discovery**. A management-hosted
 virtual HDHomeRun requires an absolute HTTP or HTTPS **Advertised base URL** reachable by media servers. A dedicated listener advertises its effective

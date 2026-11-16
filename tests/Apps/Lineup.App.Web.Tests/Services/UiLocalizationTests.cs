@@ -14,6 +14,26 @@ namespace Lineup.App.Web.Tests.Services;
 /// <summary>Verifies Web UI culture configuration and request application.</summary>
 public sealed class UiLocalizationTests
 {
+    /// <summary>Verifies neutral and translated resource entries remain sorted by ordinal key order.</summary>
+    [Fact]
+    public void ResourceCatalog_Entries_AreOrdinallySorted()
+    {
+        // Arrange
+        var resourceDirectory = Path.Combine(FindRepositoryRoot(), "src", "Apps", "Lineup.App.Web", "Resources");
+        var resourcePaths = Directory.GetFiles(resourceDirectory, "UiStrings*.resx");
+
+        // Act
+        var unorderedCatalogs = resourcePaths.Where(path =>
+        {
+            var keys = XDocument.Load(path).Root!.Elements("data").Select(element => element.Attribute("name")!.Value).ToArray();
+            return !keys.SequenceEqual(keys.Order(StringComparer.Ordinal), StringComparer.Ordinal);
+        }).ToArray();
+
+        // Assert
+        Assert.NotEmpty(resourcePaths);
+        Assert.Empty(unorderedCatalogs);
+    }
+
     /// <summary>Provides each duration resource and representative duration in every supported culture.</summary>
     public static IEnumerable<object[]> DurationFormats()
     {

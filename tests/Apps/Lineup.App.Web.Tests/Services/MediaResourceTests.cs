@@ -14,8 +14,9 @@ public sealed class MediaResourceTests
         var factory = new MediaProcessFactory(admission);
         var configuration = new DirectoryInfo(AppContext.BaseDirectory).Name;
         var executable = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "Lineup.TestSupport.FakeFFmpeg", configuration, "Lineup.TestSupport.FakeFFmpeg.dll"));
-        var process = factory.Start(new MediaProcessRequest { FileName = "dotnet", Arguments = [executable, "hold"], RedirectStandardInput = true });
-        using var observer = System.Diagnostics.Process.GetProcessById(process.Id);
+        var readyPath = Path.Combine(Path.GetTempPath(), $"lineup-admission-{Guid.NewGuid():N}.ready");
+        var process = factory.Start(new MediaProcessRequest { FileName = "dotnet", Arguments = [executable, "orphan", readyPath], RedirectStandardInput = true });
+        using var observer = System.Diagnostics.Process.GetProcessById(OwnedMediaProcess.GetTargetProcessId(process));
         try
         {
             // Act
@@ -24,9 +25,7 @@ public sealed class MediaResourceTests
             var beforeExit = admission.GetDiagnostics().Processing;
             observer.Kill(entireProcessTree: true);
             await observer.WaitForExitAsync(TestContext.Current.CancellationToken);
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-            timeout.CancelAfter(TimeSpan.FromSeconds(5));
-            while (admission.GetDiagnostics().Processing != 0) { await Task.Delay(10, timeout.Token); }
+            await MediaProcessAdmission.WaitForReleaseAsync(process).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
             Assert.Throws<MediaProcessException>(() => factory.Start(new MediaProcessRequest { FileName = "lineup-nonexistent-processor", Arguments = [] }));
 
             // Assert
@@ -38,6 +37,7 @@ public sealed class MediaResourceTests
         {
             if (!observer.HasExited) { observer.Kill(entireProcessTree: true); await observer.WaitForExitAsync(CancellationToken.None); }
             process.Dispose();
+            File.Delete(readyPath);
         }
     }
 

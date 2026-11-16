@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Xml.Linq;
@@ -9,6 +10,62 @@ namespace Lineup.Tools.VirtualOutputWorkerPackager.Tests;
 /// <summary>Verifies shared packaging entrypoints, real SDK publishing, manifest contracts and verified-cache repair.</summary>
 public sealed class PackagingTests
 {
+    /// <summary>Verifies portable and RID-specific reference paths cannot publish the wrong helper runtime configuration or duplicate helper files.</summary>
+    [Fact]
+    public async Task OwnedMediaPublish_SelectsAssetsBesideResolvedAssembly()
+    {
+        // Arrange
+        var root = Directory.CreateDirectory(Path.Combine(RepositoryRoot(), "out", $"owned-publish-{Guid.NewGuid():N}"));
+        try
+        {
+            var portable = Directory.CreateDirectory(Path.Combine(root.FullName, "portable"));
+            var selected = Directory.CreateDirectory(Path.Combine(root.FullName, "selected"));
+            var output = Directory.CreateDirectory(Path.Combine(root.FullName, "published"));
+            const string assembly = "Lineup.Core.Streaming.FFmpeg";
+            var extension = OperatingSystem.IsWindows() ? ".exe" : string.Empty;
+            var names = new[] { assembly + ".deps.json", assembly + ".runtimeconfig.json", assembly + extension };
+            foreach (var name in names)
+            {
+                await File.WriteAllTextAsync(Path.Combine(portable.FullName, name), "wrong portable asset", TestContext.Current.CancellationToken);
+                await File.WriteAllTextAsync(Path.Combine(selected.FullName, name), "selected runtime asset", TestContext.Current.CancellationToken);
+            }
+            await File.WriteAllTextAsync(Path.Combine(selected.FullName, assembly + ".dll"), "resolved assembly", TestContext.Current.CancellationToken);
+            var items = new XElement("ItemGroup",
+                new XElement("ResolvedFileToPublish", new XAttribute("Include", Path.Combine(selected.FullName, assembly + ".dll")), new XAttribute("RelativePath", assembly + ".dll")));
+            foreach (var directory in new[] { portable, selected })
+            {
+                foreach (var name in names)
+                {
+                    items.Add(new XElement("ResolvedFileToPublish", new XAttribute("Include", Path.Combine(directory.FullName, name)), new XAttribute("RelativePath", name)));
+                }
+            }
+            var project = new XDocument(new XElement("Project",
+                new XElement("PropertyGroup", new XElement("SelfContained", "true"), new XElement("_NativeExecutableExtension", extension)),
+                new XElement("Import", new XAttribute("Project", Path.Combine(RepositoryRoot(), "Directory.Build.targets"))),
+                items,
+                new XElement("Target", new XAttribute("Name", "PublishFixture"), new XAttribute("DependsOnTargets", "SelectOwnedMediaProcessPublishAssets"),
+                    new XElement("Copy", new XAttribute("SourceFiles", "@(ResolvedFileToPublish)"),
+                        new XAttribute("DestinationFolder", output.FullName)))));
+            var projectPath = Path.Combine(root.FullName, "fixture.proj");
+            await File.WriteAllTextAsync(projectPath, project.ToString(), TestContext.Current.CancellationToken);
+
+            // Act
+            await RunDotnetAsync(root.FullName, ["msbuild", projectPath, "-target:PublishFixture", "-nologo"]);
+
+            // Assert
+            Assert.Equal(names.Length + 1, Directory.GetFiles(output.FullName).Length);
+            foreach (var name in names)
+            {
+                Assert.Equal("selected runtime asset", await File.ReadAllTextAsync(Path.Combine(output.FullName, name), TestContext.Current.CancellationToken));
+            }
+            Assert.Equal("resolved assembly", await File.ReadAllTextAsync(Path.Combine(output.FullName, assembly + ".dll"), TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
     /// <summary>Verifies Docker, MSBuild and Windows use the common packaging path rather than duplicate worker lists or manifests.</summary>
     [Fact]
     public void DistributionEntrypoints_ShareInventoryAndPackager()
@@ -189,6 +246,112 @@ public sealed class PackagingTests
             // Assert
             Assert.DoesNotContain("Verified virtual-output worker packages", skipped, StringComparison.Ordinal);
             Assert.False(Directory.Exists(Path.Combine(optedOut, "virtual-output-workers")));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>Verifies executable references compile once per intermediate directory and retain the deployment mode and target architecture.</summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Main_ExecutableReferenceGraph_CompilesOncePerIntermediateDirectory(bool selfContained, bool crossArchitecture)
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-packager-graph-");
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(root.FullName, "scripts", "Lineup.Tools.VirtualOutputWorkerPackager"));
+            var helper = Directory.CreateDirectory(Path.Combine(root.FullName, "src", "Helper"));
+            var library = Directory.CreateDirectory(Path.Combine(root.FullName, "src", "Library"));
+            var fixture = Directory.CreateDirectory(Path.Combine(root.FullName, "src", "Fixture"));
+            var build = Directory.CreateDirectory(Path.Combine(root.FullName, "build"));
+            await File.WriteAllTextAsync(Path.Combine(root.FullName, "Directory.Build.props"), """
+                <Project>
+                  <PropertyGroup><TargetFramework>net10.0</TargetFramework><UseArtifactsOutput>true</UseArtifactsOutput></PropertyGroup>
+                </Project>
+                """, TestContext.Current.CancellationToken);
+            File.Copy(Path.Combine(RepositoryRoot(), "Directory.Build.targets"), Path.Combine(root.FullName, "Directory.Build.targets"));
+            await File.WriteAllTextAsync(Path.Combine(helper.FullName, "Lineup.Core.Streaming.FFmpeg.csproj"), """
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup><OutputType>Exe</OutputType><UseAppHost>true</UseAppHost></PropertyGroup>
+                  <Target Name="RecordHelperCompilation" BeforeTargets="CoreCompile">
+                    <MakeDir Directories="$(IntermediateOutputPath)compile-visits" />
+                    <WriteLinesToFile File="$(IntermediateOutputPath)compile-visits/$([System.Guid]::NewGuid()).txt" Lines="$(SelfContained)" />
+                  </Target>
+                </Project>
+                """, TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync(Path.Combine(helper.FullName, "Program.cs"), """System.Console.WriteLine("helper");""", TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync(Path.Combine(library.FullName, "Library.csproj"), """
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <ItemGroup><ProjectReference Include="../Helper/Lineup.Core.Streaming.FFmpeg.csproj" /></ItemGroup>
+                </Project>
+                """, TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync(Path.Combine(fixture.FullName, "Fixture.csproj"), """
+                <Project Sdk="Microsoft.NET.Sdk.Web">
+                  <ItemGroup><ProjectReference Include="../Library/Library.csproj" /></ItemGroup>
+                </Project>
+                """, TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync(Path.Combine(fixture.FullName, "Program.cs"), """System.Console.WriteLine("fixture");""", TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync(Path.Combine(build.FullName, "Lineup.VirtualOutputWorkers.props"),
+                """<Project><ItemGroup><_LineupBuiltInWorker Include="fixture" AdapterKind="fixture-adapter" ProjectPath="src/Fixture/Fixture.csproj" AssemblyName="Fixture" /></ItemGroup></Project>""",
+                TestContext.Current.CancellationToken);
+            var output = Path.Combine(root.FullName, "installed");
+            var arguments = new List<string>
+            {
+                "--repository-root", root.FullName, "--output", output, "--configuration", "Release",
+                "--version", "3.0.0", "--source-revision", "packaging-graph-test"
+            };
+            var runtime = RuntimeInformation.RuntimeIdentifier;
+            if (crossArchitecture)
+            {
+                runtime = runtime[..(runtime.LastIndexOf('-') + 1)] + (RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "x64" : "arm64");
+            }
+            if (selfContained || crossArchitecture)
+            {
+                arguments.AddRange(["--runtime", runtime]);
+            }
+            if (selfContained)
+            {
+                arguments.Add("--self-contained");
+            }
+
+            // Act
+            var result = await Program.Main(arguments.ToArray());
+
+            // Assert
+            Assert.Equal(0, result);
+            var cache = Directory.GetDirectories(Path.Combine(root.FullName, "out", "virtual-output-worker-packages")).Single();
+            var compilations = Directory.GetFiles(Path.Combine(cache, "build", "obj", "Lineup.Core.Streaming.FFmpeg"), "*.txt", SearchOption.AllDirectories)
+                .Where(path => Path.GetFileName(Path.GetDirectoryName(path)) == "compile-visits")
+                .GroupBy(Path.GetDirectoryName).ToArray();
+            Assert.NotEmpty(compilations);
+            Assert.All(compilations, compilation => Assert.Single(compilation));
+            if (!selfContained)
+            {
+                Assert.Single(compilations);
+            }
+            foreach (var assembly in new[] { "Fixture", "Lineup.Core.Streaming.FFmpeg" })
+            {
+                using var configuration = JsonDocument.Parse(await File.ReadAllTextAsync(
+                    Path.Combine(output, "fixture", $"{assembly}.runtimeconfig.json"), TestContext.Current.CancellationToken));
+                Assert.Equal(selfContained, configuration.RootElement.GetProperty("runtimeOptions").TryGetProperty("includedFrameworks", out _));
+                if (selfContained || crossArchitecture)
+                {
+                    using var dependencies = JsonDocument.Parse(await File.ReadAllTextAsync(
+                        Path.Combine(output, "fixture", $"{assembly}.deps.json"), TestContext.Current.CancellationToken));
+                    Assert.EndsWith("/" + runtime, dependencies.RootElement.GetProperty("runtimeTarget").GetProperty("name").GetString(), StringComparison.Ordinal);
+                }
+            }
+            if (!crossArchitecture)
+            {
+                var execution = await RunDotnetAsync(root.FullName, [Path.Combine(output, "fixture", "Fixture.dll")]);
+                Assert.Contains("fixture", execution, StringComparison.Ordinal);
+            }
         }
         finally
         {

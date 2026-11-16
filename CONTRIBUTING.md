@@ -66,7 +66,17 @@ The separate `Lineup.Integration.Streaming.Sweep.Tests` xunit project participat
 exercises only deterministic policies, persistence, ownership and reports; it never launches the live harness.
 
 Packaging regressions run in `Lineup.Tools.VirtualOutputWorkerPackager.Tests` as part of the solution gate. They use the installed SDK to publish tiny owned temporary projects and verify shared inventory, manifests, cache repair and real MSBuild publish/opt-out behavior without hardware.
+Worker publishing sets deployment mode with `PublishSelfContained`, not a global `SelfContained=false`: the latter can create distinct executable-reference build nodes that concurrently overwrite the same intermediate assembly. The real-SDK graph regression verifies one compilation per helper intermediate directory and preserves portable/self-contained runtime configurations.
+RID-specific worker publishing also sets `PublishRuntimeIdentifier`: project-reference negotiation can remove `RuntimeIdentifier`,
+otherwise causing executable helpers to infer the build host's architecture instead of the deployment target. The graph regression
+cross-publishes to a different architecture and verifies both worker and helper dependency manifests without executing foreign binaries.
 For installed Windows or Linux worker validation, set `LINEUP_TEST_WORKER_PACKAGE_ROOT` to a package tree before running `HdHomeRunWorkerProcessTests` or the `Worker_*` cases in `WebPlayerWorkerProcessTests`. These fixtures resolve hash-verified packaged workers instead of test-output assemblies and exercise local authenticated IPC, loopback HTTP and deterministic media cleanup. Explicit worker paths used by host-build tests take precedence. Leave the variable unset for ordinary source tests.
+
+Guide-reader regressions retain pooled concurrent connections and verify distinct native handles while every owner remains open,
+then begin independent read transactions. SQLite provider versions before 10.0.13 can lend the same pooled handle to two live owners
+([upstream fix](https://github.com/dotnet/efcore/pull/39012)), causing nested-transaction failures. The direct `Microsoft.Data.Sqlite.Core`
+reference supplies that driver fix without requiring an EF Core or Extensions upgrade. Preserve this coverage rather than
+serializing readers or disabling pooling to hide the race.
 
 ### Running the Web App
 
@@ -129,6 +139,10 @@ The app starts on `http://localhost:8080`.
 - Do not use short real cancellation timers to establish test ordering. First prove the intended operation is blocked, then cancel explicitly or advance its injected clock. Keep request, producer, and maintenance deadlines on the intended clocks.
 - Do not let short worker leases bound real-process setup. Test crash/disconnect cleanup separately from precise lease expiration; use the same controlled clock for session authorization and maintenance sweeps in expiry tests.
 - Release controlled dependencies in `finally` and observe all owned work before teardown. Keep real-time watchdogs bounded, but do not use elapsed-time performance thresholds to prove lifecycle ordering.
+- Keep real-process readiness reports activation-specific so recovery never replaces a report still being inspected. Include drained child output when reporting an early process exit.
+- When replacing a stateful NSubstitute callback, use `Configure()` so configuring a failure does not execute the previous callback. Verify Arrange leaves controlled workers alive until the intended exit or stop.
+- Observe short-lived test processes through their original `Process` instance before handing ownership to the code under test; retain exit signals after disposal instead of reopening a PID that may already be gone. Cover probes that exit before the factory returns.
+- Real Web Player process tests run in an isolated collection to keep unrelated launch/IPC stress from consuming production admission deadlines. Keep their explicit concurrent-viewer tests and production deadlines unchanged.
 - Unobserved task calls (`CS4014`) and unawaited async assertions (`xUnit2021`) are errors in test code; retain and eventually await tasks intentionally started in flight.
 
 #### Formatting
@@ -138,6 +152,7 @@ The app starts on `http://localhost:8080`.
 - Wrap a method or constructor declaration only when its complete unwrapped form would exceed 225 characters. When wrapping is required, place one parameter per line and keep the closing parenthesis on its own line.
 - Keep every C# line within 225 characters.
 - Avoid unrelated formatting changes.
+- Keep `<data>` entries in every `src/Apps/Lineup.App.Web/Resources/UiStrings*.resx` file sorted by their `name` using case-sensitive ordinal ordering (`StringComparer.Ordinal`). Preserve resource values and XML formatting when reordering entries.
 
 ```csharp
 public static WatchTrackSelection SelectTracks(MediaProbeResult source, int? audioIndex, int? subtitleIndex, SubtitlePresentation? subtitlePresentation = null)

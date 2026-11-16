@@ -10,6 +10,41 @@ namespace Lineup.Core.Tests.Streaming;
 /// </summary>
 public sealed class StreamingSessionGraphTests
 {
+    /// <summary>Verifies runtime encoder outcomes survive graph ownership wrappers and remain distinct for each shared pipeline stage.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GetDiagnostics_PipelineEncoders_RetainsStageSpecificOutcomes(bool fallback)
+    {
+        // Arrange
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance);
+        var descriptor = CreateDescriptor(PhysicalDeviceId.New(), "7.1", 1);
+        var physicalEncoding = new VideoEncodingSnapshot(fallback ? "libx264" : "h264_amf", HardwareVideoEncoder.Amf, fallback);
+        var outputEncoding = new VideoEncodingSnapshot("copy", HardwareVideoEncoder.Nvenc, false);
+        StreamAcquisitionFactory open = _ => ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(new ControlledSourceStream()));
+        StreamTransformStage[] stages =
+        [
+            new(new("source-normalization", "physical"), new PassthroughTransform { VideoEncoding = physicalEncoding }),
+            new(new("virtual-mpegts", "output"), new PassthroughTransform { VideoEncoding = outputEncoding })
+        ];
+
+        // Act
+        await using var first = await graph.AcquirePipelineAsync(descriptor, open, stages, TimeSpan.Zero, TestContext.Current.CancellationToken);
+        await using var second = await graph.AcquirePipelineAsync(descriptor, open, stages, TimeSpan.Zero, TestContext.Current.CancellationToken);
+        var diagnostics = graph.GetDiagnostics();
+
+        // Assert
+        Assert.Equal(3, diagnostics.Nodes.Count);
+        Assert.Null(diagnostics.Nodes.Single(node => node.Kind == "acquisition").VideoEncoding);
+        Assert.Equal(physicalEncoding, diagnostics.Nodes.Single(node => node.Stage == "source-normalization").VideoEncoding);
+        Assert.Equal(outputEncoding, diagnostics.Nodes.Single(node => node.Stage == "virtual-mpegts").VideoEncoding);
+        Assert.Equal(first.ProducerNodeId, second.ProducerNodeId);
+        await second.DisposeAsync();
+        await first.DisposeAsync();
+        await graph.StopAsync(TestContext.Current.CancellationToken);
+        Assert.Empty(graph.GetDiagnostics().Nodes);
+    }
+
     /// <summary>Equivalent acquisitions join at saturation, but a new retained transform cannot bypass the producer budget.</summary>
     [Fact]
     public async Task AcquirePipelineAsync_ProducerLimit_AllowsOnlyExistingProducerJoins()
@@ -1778,6 +1813,9 @@ public sealed class StreamingSessionGraphTests
     {
         private int _startCount;
 
+        /// <summary>Gets the test producer's reported encoder.</summary>
+        public VideoEncodingSnapshot? VideoEncoding { get; init; }
+
         /// <summary>Gets the start count.</summary>
         public int StartCount => _startCount;
 
@@ -1788,7 +1826,7 @@ public sealed class StreamingSessionGraphTests
         public ValueTask<IStreamSourceLease> StartAsync(Stream input, CancellationToken cancellationToken)
         {
             Interlocked.Increment(ref _startCount);
-            return ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(input));
+            return ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(input) { VideoEncoding = VideoEncoding });
         }
     }
 
@@ -1843,6 +1881,9 @@ public sealed class StreamingSessionGraphTests
 
     private sealed class TestSourceLease(Stream stream, Action? onDispose = null, Func<ValueTask>? beforeDispose = null) : IStreamSourceLease
     {
+        /// <inheritdoc />
+        public VideoEncodingSnapshot? VideoEncoding { get; init; }
+
         /// <summary>Gets the stream.</summary>
         public Stream Stream { get; } = stream;
 

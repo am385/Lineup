@@ -174,6 +174,69 @@ public sealed class GuideReadScalingTests(ITestOutputHelper output)
         Assert.NotEqual(during.Generation?.ImportRevision, after.Generation?.ImportRevision);
     }
 
+    /// <summary>Verifies pooled concurrent guide readers own distinct native connections and independent read transactions.</summary>
+    [Fact]
+    public async Task Readers_ConcurrentPoolCheckout_RetainsIndependentTransactions()
+    {
+        // Arrange
+        await using var fixture = new Fixture();
+        await fixture.SeedAsync(1);
+        await using var control = fixture.CreateDbContext();
+        var pool = (SqliteConnection)control.Database.GetDbConnection();
+
+        for (var wave = 0; wave < 512; wave++)
+        {
+            SqliteConnection.ClearPool(pool);
+            var contexts = Enumerable.Range(0, 16).Select(_ => fixture.CreateDbContext()).ToArray();
+            var transactions = new List<EpgReadTransaction>();
+            var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var opens = contexts.Select(context => Task.Run(async () =>
+            {
+                await start.Task.WaitAsync(fixture.Token);
+                await context.Database.OpenConnectionAsync(fixture.Token);
+            })).ToArray();
+
+            try
+            {
+                // Act
+                start.TrySetResult();
+                await Task.WhenAll(opens);
+                var handles = contexts.Select(context => ((SqliteConnection)context.Database.GetDbConnection()).Handle!.DangerousGetHandle()).ToArray();
+
+                // Assert
+                Assert.DoesNotContain(IntPtr.Zero, handles);
+                Assert.Equal(contexts.Length, handles.Distinct().Count());
+
+                // Act
+                foreach (var context in contexts)
+                {
+                    transactions.Add(await EpgReadTransaction.BeginAsync(context, fixture.Token));
+                }
+                var counts = await Task.WhenAll(contexts.Select(context => context.PhysicalSourceChannels.CountAsync(fixture.Token)));
+
+                // Assert
+                Assert.All(counts, count => Assert.Equal(1, count));
+            }
+            finally
+            {
+                try
+                {
+                    foreach (var transaction in transactions)
+                    {
+                        await transaction.DisposeAsync();
+                    }
+                }
+                finally
+                {
+                    foreach (var context in contexts)
+                    {
+                        await context.DisposeAsync();
+                    }
+                }
+            }
+        }
+    }
+
     /// <summary>Measures rich projection against aggregates without machine-sensitive timing assertions in CI.</summary>
     [Theory]
     [InlineData(100)]

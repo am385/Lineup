@@ -8,6 +8,7 @@ ARG BUILD_VERSION=""
 
 # Copy project files first for better layer caching
 COPY Directory.Build.props ./
+COPY Directory.Build.targets ./
 COPY src/Core/Lineup.Core.Common/Lineup.Core.Common.csproj src/Core/Lineup.Core.Common/
 COPY src/Apps/Lineup.App.Web/Lineup.App.Web.csproj src/Apps/Lineup.App.Web/
 COPY src/Core/Lineup.Core.Extensibility/Lineup.Core.Extensibility.csproj src/Core/Lineup.Core.Extensibility/
@@ -81,10 +82,11 @@ RUN set -eux; \
         'Signed-By: /etc/apt/keyrings/jellyfin.gpg' \
         > /etc/apt/sources.list.d/jellyfin.sources; \
     apt-get update; \
-    apt-get install -y --no-install-recommends fonts-dejavu-core jellyfin-ffmpeg8=8.1.2-4-noble; \
+    apt-get install -y --no-install-recommends fonts-dejavu-core jellyfin-ffmpeg8=8.1.3-2-noble; \
     rm -rf /var/lib/apt/lists/*
 
 ENV PATH="/usr/lib/jellyfin-ffmpeg:${PATH}"
+ENV NVIDIA_DRIVER_CAPABILITIES="video,compute,utility"
 
 # Fail the build if PATH does not select Jellyfin FFmpeg or required CMAF capabilities are missing.
 RUN test "$(readlink -f "$(command -v ffmpeg)")" = "/usr/lib/jellyfin-ffmpeg/ffmpeg" && \

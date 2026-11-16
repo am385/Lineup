@@ -27,7 +27,8 @@ public static class SourceDeinterlacePlanner
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(profile);
         var video = source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video);
-        return ShouldDeinterlace(video, profile.Deinterlace)
+        return video is not null && profile.AlwaysTranscodeVideo
+            || ShouldDeinterlace(video, profile.Deinterlace)
             || profile.ConvertHevcToH264 && string.Equals(video?.Codec, "hevc", StringComparison.OrdinalIgnoreCase)
             || source.Tracks.Any(track => track.Type == MediaTrackType.Audio && ResolveAudioCodec(track.Codec, profile) != "copy");
     }
@@ -53,6 +54,9 @@ public static class SourceDeinterlacePlanner
                     BitRate = profile.MaximumVideoBitRateMbps * 1_000_000L,
                     Profile = "High",
                     Level = 42,
+                    FrameRate = ShouldDeinterlace(primaryVideo, profile.Deinterlace) && profile.Deinterlace == SourceDeinterlacePolicy.SourceFieldRate
+                        ? primaryVideo.FrameRate?.Double()
+                        : primaryVideo.FrameRate,
                     ScanType = SourceDeinterlacePlanner.ShouldDeinterlace(primaryVideo, profile.Deinterlace)
                         ? VideoScanType.Progressive
                         : primaryVideo.ScanType
@@ -87,6 +91,8 @@ public static class SourceDeinterlacePlanner
         ArgumentNullException.ThrowIfNull(profile);
         var effective = CreateEffectiveSource(source, new PhysicalTranscodeProfile
         {
+            AlwaysTranscodeVideo = profile.AlwaysTranscodeVideo,
+            HardwareEncoding = profile.HardwareEncoding,
             ConvertHevcToH264 = profile.ConvertHevcToH264,
             Deinterlace = profile.Deinterlace,
             Audio = profile.Audio,
@@ -192,7 +198,9 @@ public static class SourceDeinterlacePlanner
             "-muxdelay", "0",
             "pipe:1"
         ]);
-        return arguments;
+        var captionFrameRate = deinterlace && profile.Deinterlace == SourceDeinterlacePolicy.SourceFieldRate ? video?.FrameRate?.Double() : video?.FrameRate;
+        return HardwareVideoEncodingPlanner.Apply(arguments, profile.HardwareEncoding,
+            source.Tracks.Any(track => track.IsEmbeddedClosedCaptions) || video?.HasClosedCaptions == true, closedCaptionFrameRate: captionFrameRate);
     }
 
     /// <summary>
@@ -207,7 +215,8 @@ public static class SourceDeinterlacePlanner
         };
 
     private static bool ShouldTranscodeVideo(MediaTrackMetadata? video, PhysicalTranscodeProfile profile) =>
-        ShouldDeinterlace(video, profile.Deinterlace)
+        video is not null && profile.AlwaysTranscodeVideo
+        || ShouldDeinterlace(video, profile.Deinterlace)
         || profile.ConvertHevcToH264 && string.Equals(video?.Codec, "hevc", StringComparison.OrdinalIgnoreCase);
 
     private static string ResolveAudioCodec(string codec, PhysicalTranscodeProfile profile)

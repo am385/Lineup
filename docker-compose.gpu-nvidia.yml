@@ -1,0 +1,13 @@
+# Optional NVIDIA Container Toolkit access. Never applied by the default Compose files.
+# Example: docker compose -f docker-compose.yml -f docker-compose.gpu-nvidia.yml up -d
+services:
+  lineup:
+    environment:
+      NVIDIA_DRIVER_CAPABILITIES: video,compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${LINEUP_NVIDIA_GPU:-0}"]
+              capabilities: [gpu]

@@ -50,6 +50,26 @@ internal sealed record DedicatedCmafSessionPlan
     /// <summary>Gets whether a recognized source-audio muxer failure required a fallback-only restart.</summary>
     internal bool SourceAudioFallbackApplied { get; init; }
 
+    /// <summary>Gets whether explicitly enabled software encoding replaced a failed hardware startup check.</summary>
+    internal bool HardwareFallbackApplied { get; init; }
+
+    /// <summary>Gets the originally requested encoder independently of startup fallback.</summary>
+    internal HardwareVideoEncoder RequestedVideoEncoder { get; init; }
+
+    private string ActiveVideoEncoder => HardwareVideoEncodingPlanner.GetVideoEncoder(Arguments);
+
+    /// <summary>Creates software encoding arguments while retaining the admitted viewer's source and track policy.</summary>
+    internal DedicatedCmafSessionPlan CreateSoftwareFallback(string directory)
+    {
+        var software = Profile with { HardwareEncoding = new() };
+        return this with
+        {
+            Profile = software,
+            Arguments = CmafStreamPlanner.CreateArguments(software, Source, Selection, Request, Path.Combine(directory, CmafStreamPlanner.DashManifestName), SubtitlePaths),
+            HardwareFallbackApplied = true
+        };
+    }
+
     /// <summary>Creates a fallback-only plan without reapplying a source-audio browser override.</summary>
     internal DedicatedCmafSessionPlan CreateFallback(string directory)
     {
@@ -102,7 +122,8 @@ internal sealed record DedicatedCmafSessionPlan
             sourceVideo,
             request,
             selection.SubtitlePresentation == SubtitlePresentation.BurnIn,
-            profile.Deinterlace);
+            profile.Deinterlace,
+            profile.AlwaysTranscodeVideo);
         var hasSourceVideoRendition = videoRenditions.Any(plan => plan.CopySource);
         return new DedicatedCmafSessionPlan
         {
@@ -110,6 +131,7 @@ internal sealed record DedicatedCmafSessionPlan
             Source = source,
             RawSource = rawSource,
             Profile = profile,
+            RequestedVideoEncoder = profile.HardwareEncoding.Encoder,
             Selection = selection,
             AudioRenditions = audioRenditions,
             Subtitles = subtitles,
@@ -132,7 +154,12 @@ internal sealed record DedicatedCmafSessionPlan
             Source,
             Selection,
             Request,
-            Profile);
+            Profile) with
+        {
+            RequestedVideoEncoder = RequestedVideoEncoder,
+            ActiveVideoEncoder = ActiveVideoEncoder,
+            HardwareFallbackApplied = HardwareFallbackApplied
+        };
     }
 
     /// <summary>Creates the public dedicated-worker start response.</summary>
@@ -148,6 +175,9 @@ internal sealed record DedicatedCmafSessionPlan
             new Uri(mediaRoot, CmafStreamPlanner.DashManifestName).AbsoluteUri)
         {
             SourceAudioFallbackApplied = SourceAudioFallbackApplied,
+            RequestedVideoEncoder = RequestedVideoEncoder,
+            ActiveVideoEncoder = ActiveVideoEncoder,
+            HardwareFallbackApplied = HardwareFallbackApplied,
             FallbackAudioTitle = fallback?.Title,
             FallbackAudioCodec = fallback?.Codec,
             Subtitles = Subtitles.Select(subtitle => new CmafSubtitleRendition(
@@ -166,6 +196,15 @@ internal sealed record DedicatedCmafSessionPlan
 /// <summary>Describes one started CMAF presentation hosted by the dedicated worker.</summary>
 internal sealed record DedicatedCmafStartResponse(string SessionId, string HlsManifestUrl, string DashManifestUrl)
 {
+    /// <summary>Gets the originally configured video encoder.</summary>
+    public HardwareVideoEncoder RequestedVideoEncoder { get; init; }
+
+    /// <summary>Gets the selected FFmpeg video encoder, copy, or none.</summary>
+    public string? ActiveVideoEncoder { get; init; }
+
+    /// <summary>Gets whether a pre-publication software encoding retry was required.</summary>
+    public bool HardwareFallbackApplied { get; init; }
+
     /// <summary>Gets whether source audio required a fallback-only startup retry.</summary>
     public bool SourceAudioFallbackApplied { get; init; }
 

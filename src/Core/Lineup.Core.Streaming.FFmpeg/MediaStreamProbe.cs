@@ -175,7 +175,8 @@ public static class MediaProbeResultPolicy
         var tracks = prior.Tracks.ToDictionary(track => (track.Index, track.Type));
         foreach (var track in refreshed.Tracks)
         {
-            tracks[(track.Index, track.Type)] = track;
+            tracks.TryGetValue((track.Index, track.Type), out var previous);
+            tracks[(track.Index, track.Type)] = track with { FrameRate = track.FrameRate ?? previous?.FrameRate };
         }
         return new MediaProbeResult(
             tracks.Values.OrderBy(track => track.Index).ThenBy(track => track.Type).ToArray(),
@@ -191,7 +192,8 @@ public static class MediaProbeResultPolicy
 /// </summary>
 public static class MediaProbeParser
 {
-    private const string ShowEntries = "stream=index,codec_type,codec_name,profile,level,bit_rate,width,height,field_order,channels,sample_rate,closed_captions:stream_tags=language,title:" +
+    private const string ShowEntries = "stream=index,codec_type,codec_name,profile,level,bit_rate,width,height,field_order,avg_frame_rate,r_frame_rate,channels,sample_rate,closed_captions:" +
+        "stream_tags=language,title:" +
         "stream_disposition=default,forced,hearing_impaired:frame=media_type,stream_index,interlaced_frame:frame_side_data=side_data_type:format=bit_rate";
     private static readonly string[] _commonArguments =
     [
@@ -301,6 +303,7 @@ public static class MediaProbeParser
                 IsForced = stream.Disposition?.Forced == 1,
                 IsHearingImpaired = stream.Disposition?.HearingImpaired == 1,
                 HasClosedCaptions = type == MediaTrackType.Video && (stream.ClosedCaptions > 0 || hasEmbeddedClosedCaptions),
+                FrameRate = type == MediaTrackType.Video ? ParseFrameRate(stream.AverageFrameRate) ?? ParseFrameRate(stream.ReportedFrameRate) : null,
                 ScanType = type == MediaTrackType.Video
                     ? hasInterlacedVideoFrames ? VideoScanType.Interlaced : ParseVideoScanType(stream.FieldOrder)
                     : VideoScanType.Unknown,
@@ -313,6 +316,16 @@ public static class MediaProbeParser
     private static long? ParseLong(string? value)
     {
         return long.TryParse(value, out var parsed) && parsed > 0 ? parsed : null;
+    }
+
+    private static MediaFrameRate? ParseFrameRate(string? value)
+    {
+        var parts = value?.Split('/');
+        return parts is { Length: 2 } &&
+            int.TryParse(parts[0], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var numerator) && numerator > 0 &&
+            int.TryParse(parts[1], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var denominator) && denominator > 0
+            ? new(numerator, denominator)
+            : null;
     }
 
     private static int? ParseInt(string? value)
@@ -427,6 +440,14 @@ public static class MediaProbeParser
         /// <summary>Gets the video field order.</summary>
         [JsonPropertyName("field_order")]
         public string? FieldOrder { get; init; }
+
+        /// <summary>Gets the average video frame rate.</summary>
+        [JsonPropertyName("avg_frame_rate")]
+        public string? AverageFrameRate { get; init; }
+
+        /// <summary>Gets the reported video frame rate.</summary>
+        [JsonPropertyName("r_frame_rate")]
+        public string? ReportedFrameRate { get; init; }
 
         /// <summary>
         /// Gets or sets channels.

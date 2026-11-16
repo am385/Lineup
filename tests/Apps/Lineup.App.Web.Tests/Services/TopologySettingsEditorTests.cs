@@ -14,6 +14,45 @@ namespace Lineup.App.Web.Tests.Services;
 /// </summary>
 public sealed class TopologySettingsEditorTests
 {
+    /// <summary>Verifies both stages retain forced encoding defaults and sparse inherited, enabled or disabled device overrides.</summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ForcedVideo_RoundTrip_PreservesDefaultsAndSparseOverrides(bool? force)
+    {
+        // Arrange
+        var editor = new TopologySettingsEditor();
+        var model = editor.Edit(TopologySettingsEditor.CreateDefault());
+        model.PhysicalDefaults.AlwaysTranscodeVideo = true;
+        model.VirtualDefaults.AlwaysTranscodeVideo = true;
+        var physical = editor.AddPhysicalDevice(model, new TestPhysicalTunerDriver());
+        var virtualDevice = Assert.Single(model.VirtualDevices);
+        physical.OverrideAlwaysTranscodeVideo = force.HasValue;
+        physical.AlwaysTranscodeVideo = force ?? true;
+        virtualDevice.OverrideAlwaysTranscodeVideo = force.HasValue;
+        virtualDevice.AlwaysTranscodeVideo = force ?? true;
+
+        // Act
+        var errors = editor.TryBuild(model, out var configuration);
+        var roundTrip = editor.Edit(configuration);
+        var physicalEffective = configuration.PhysicalDevices[0].TranscodeOverrides.Apply(configuration.PhysicalDefaults);
+        var virtualEffective = configuration.VirtualDevices[0].TranscodeOverrides.Apply(configuration.VirtualDefaults);
+
+        // Assert
+        Assert.Empty(errors);
+        Assert.True(configuration.PhysicalDefaults.AlwaysTranscodeVideo);
+        Assert.True(configuration.VirtualDefaults.AlwaysTranscodeVideo);
+        Assert.Equal(force, configuration.PhysicalDevices[0].TranscodeOverrides.AlwaysTranscodeVideo);
+        Assert.Equal(force, configuration.VirtualDevices[0].TranscodeOverrides.AlwaysTranscodeVideo);
+        Assert.Equal(force ?? true, physicalEffective.AlwaysTranscodeVideo);
+        Assert.Equal(force ?? true, virtualEffective.AlwaysTranscodeVideo);
+        Assert.Equal(force.HasValue, roundTrip.PhysicalDevices[0].OverrideAlwaysTranscodeVideo);
+        Assert.Equal(force.HasValue, roundTrip.VirtualDevices[0].OverrideAlwaysTranscodeVideo);
+        Assert.Equal(force ?? true, roundTrip.PhysicalDevices[0].AlwaysTranscodeVideo);
+        Assert.Equal(force ?? true, roundTrip.VirtualDevices[0].AlwaysTranscodeVideo);
+    }
+
     /// <summary>Verifies malformed editable host text cannot throw during preview or become a valid topology.</summary>
     [Theory]
     [InlineData("bad host")]
@@ -628,6 +667,7 @@ public sealed class TopologySettingsEditorTests
         var model = editor.Edit(TopologySettingsEditor.CreateDefault());
         var device = editor.AddPhysicalDevice(model, new TestPhysicalTunerDriver());
         device.Address = "unsaved-device.local";
+        device.TranscodeProfile = "internet540";
 
         // Act
         var probeConfiguration = editor.BuildPhysicalAdapter(device);
@@ -639,6 +679,33 @@ public sealed class TopologySettingsEditorTests
         Assert.Equal(savedConfiguration.Kind, probeConfiguration.Kind);
         Assert.Equal(savedConfiguration.Configuration.GetRawText(), probeConfiguration.Configuration.GetRawText());
         Assert.Equal("unsaved-device.local", probeConfiguration.Configuration.GetProperty("Address").GetString());
+        Assert.Equal("internet540", probeConfiguration.Configuration.GetProperty("TranscodeProfile").GetString());
+        Assert.Equal("internet540", Assert.Single(editor.Edit(persisted).PhysicalDevices).TranscodeProfile);
+    }
+
+    /// <summary>Verifies global hardware defaults and explicit per-device software settings survive Web editing and persisted JSON.</summary>
+    [Fact]
+    public void TryBuild_HardwareSettings_RoundTripsInheritanceAndExplicitSoftware()
+    {
+        // Arrange
+        var editor = new TopologySettingsEditor();
+        var model = editor.Edit(TopologySettingsEditor.CreateDefault());
+        model.VirtualDefaults.HardwareEncoding = new() { Encoder = HardwareVideoEncoder.Nvenc, Device = "1", AllowSoftwareFallback = true, AdvancedArguments = "preset=p6" };
+        var device = Assert.Single(model.VirtualDevices);
+        device.OverrideHardwareEncoding = true;
+        device.HardwareEncoding = new();
+
+        // Act
+        var errors = editor.TryBuild(model, out var saved);
+        var restored = editor.Edit(JsonSerializer.Deserialize<StreamingConfiguration>(JsonSerializer.Serialize(saved))!);
+
+        // Assert
+        Assert.Empty(errors);
+        Assert.Equal(model.VirtualDefaults.HardwareEncoding, restored.VirtualDefaults.HardwareEncoding);
+        var restoredDevice = Assert.Single(restored.VirtualDevices);
+        Assert.True(restoredDevice.OverrideHardwareEncoding);
+        Assert.Equal(HardwareVideoEncoder.Software, restoredDevice.HardwareEncoding.Encoder);
+        Assert.Equal(HardwareVideoEncoder.Software, Assert.Single(saved.VirtualDevices).TranscodeOverrides.Apply(saved.VirtualDefaults).HardwareEncoding.Encoder);
     }
 
     /// <summary>

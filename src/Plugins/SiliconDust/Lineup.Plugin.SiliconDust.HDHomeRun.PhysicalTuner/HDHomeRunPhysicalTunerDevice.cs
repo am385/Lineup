@@ -27,6 +27,7 @@ public sealed class HDHomeRunPhysicalTunerDevice :
     private readonly HttpClient _httpClient;
     private readonly ILogger<HDHomeRunPhysicalTunerDevice> _logger;
     private readonly string _address;
+    private readonly string _transcodeProfile;
     private readonly HDHomeRunService _deviceService;
     private readonly SemaphoreSlim _capacity;
     private readonly SemaphoreSlim _lineupRefresh = new(1, 1);
@@ -42,6 +43,7 @@ public sealed class HDHomeRunPhysicalTunerDevice :
     /// <param name="deviceClient">The device client value.</param>
     /// <param name="httpClient">The HTTP client value.</param>
     /// <param name="address">The address value.</param>
+    /// <param name="transcodeProfile">The validated EXTEND video profile or device default.</param>
     /// <param name="deviceService">The device service value.</param>
     /// <param name="logger">The logger value.</param>
     internal HDHomeRunPhysicalTunerDevice(
@@ -51,6 +53,7 @@ public sealed class HDHomeRunPhysicalTunerDevice :
         HDHomeRunDeviceClient deviceClient,
         HttpClient httpClient,
         string address,
+        string transcodeProfile,
         HDHomeRunService deviceService,
         ILogger<HDHomeRunPhysicalTunerDevice> logger
     )
@@ -59,6 +62,7 @@ public sealed class HDHomeRunPhysicalTunerDevice :
         _deviceClient = deviceClient;
         _httpClient = httpClient;
         _address = address;
+        _transcodeProfile = transcodeProfile;
         _deviceService = deviceService;
         _logger = logger;
         _capacity = new SemaphoreSlim(deviceInfo.TunerCount, deviceInfo.TunerCount);
@@ -74,6 +78,15 @@ public sealed class HDHomeRunPhysicalTunerDevice :
     /// <summary>Gets the metadata returned by the device discovery endpoint.</summary>
     public HDHomeRunDeviceInfo DeviceInfo => Volatile.Read(ref _deviceInfo);
 
+    /// <summary>Gets whether the discovered model supports EXTEND video transcoding; audio remains unchanged.</summary>
+    public bool SupportsHardwareTranscoding => SupportsTranscoding(DeviceInfo);
+
+    /// <summary>Checks the documented EXTEND model family without trusting the friendly name.</summary>
+    internal static bool SupportsTranscoding(HDHomeRunDeviceInfo info) =>
+        string.Equals(info.ModelNumber, "HDTC-2US", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(info.ModelNumber, "HDTC-2US-M", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(info.ModelNumber, "HDTC-2US-L", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Gets the snapshot.</summary>
     public PhysicalDeviceSnapshot Snapshot { get; }
 
@@ -83,7 +96,30 @@ public sealed class HDHomeRunPhysicalTunerDevice :
     public Uri CreateDiagnosticUri(string providerKey)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(providerKey);
-        return new Uri(_httpClient.BaseAddress!, $"auto/v{Uri.EscapeDataString(providerKey)}");
+        var channels = Volatile.Read(ref _channels);
+        return CreateStreamUri(channels.TryGetValue(providerKey, out var channel)
+            ? channel.URL
+            : new Uri(_httpClient.BaseAddress!, $"auto/v{Uri.EscapeDataString(providerKey)}").AbsoluteUri);
+    }
+
+    private Uri CreateStreamUri(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            throw new InvalidOperationException("The HDHomeRun channel has an invalid stream URL.");
+        }
+        if (_transcodeProfile == "default")
+        {
+            return uri;
+        }
+        if (!SupportsHardwareTranscoding)
+        {
+            throw new InvalidOperationException("This discovered HDHomeRun model does not support EXTEND video profiles. Select Device default.");
+        }
+
+        var parameters = uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries)
+            .Where(parameter => !string.Equals(Uri.UnescapeDataString(parameter.Split('=', 2)[0].Replace("+", " ")), "transcode", StringComparison.OrdinalIgnoreCase));
+        return new UriBuilder(uri) { Query = string.Join("&", parameters.Append($"transcode={Uri.EscapeDataString(_transcodeProfile)}")) }.Uri;
     }
 
     /// <summary>Refreshes status asynchronously.</summary>
@@ -137,7 +173,9 @@ public sealed class HDHomeRunPhysicalTunerDevice :
                 ["firmwareVersion"] = deviceInfo.FirmwareVersion,
                 ["deviceId"] = deviceInfo.DeviceID,
                 ["baseUrl"] = deviceInfo.BaseURL,
-                ["lineupUrl"] = deviceInfo.LineupURL
+                ["lineupUrl"] = deviceInfo.LineupURL,
+                ["supportsHardwareTranscoding"] = SupportsTranscoding(deviceInfo).ToString(),
+                ["transcodeProfile"] = _transcodeProfile
             },
             Receivers = receivers
         };
@@ -246,11 +284,7 @@ public sealed class HDHomeRunPhysicalTunerDevice :
         Stream? stream = null;
         try
         {
-            if (!Uri.TryCreate(channel.URL, UriKind.Absolute, out var streamUri)
-                || (streamUri.Scheme != Uri.UriSchemeHttp && streamUri.Scheme != Uri.UriSchemeHttps))
-            {
-                throw new InvalidOperationException($"Channel '{channel.GuideNumber}' has an invalid stream URL.");
-            }
+            var streamUri = CreateStreamUri(channel.URL);
 
             using var message = new HttpRequestMessage(HttpMethod.Get, streamUri);
             response = await _httpClient.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
@@ -264,13 +298,7 @@ public sealed class HDHomeRunPhysicalTunerDevice :
         }
         catch (Exception exception)
         {
-            if (stream is not null)
-            {
-                await stream.DisposeAsync();
-            }
-
-            response?.Dispose();
-            _capacity.Release();
+            await HDHomeRunPhysicalStreamLease.CloseResponseAsync(stream, response, _capacity);
             if (exception is HttpRequestException httpException)
             {
                 throw new PhysicalStreamAcquisitionException(
@@ -339,6 +367,14 @@ public sealed class HDHomeRunPhysicalTunerDevice :
     private static HDHomeRunStreamFailure ClassifyFailure(HttpStatusCode statusCode, string? diagnostic)
     {
         var code = TryGetDiagnosticCode(diagnostic);
+        if (code == 802 || ContainsAny(diagnostic, "unknown transcode profile"))
+        {
+            return new HDHomeRunStreamFailure(
+                PhysicalStreamFailureCategory.InvalidInput,
+                "source_transcode_profile_unsupported",
+                "The HDHomeRun rejected the EXTEND video profile (802). Select Device default or a supported profile and check the device firmware.",
+                Retryable: false);
+        }
         if (code == 811 || ContainsAny(diagnostic, "content protection", "protected content", "copy protected"))
         {
             return new HDHomeRunStreamFailure(

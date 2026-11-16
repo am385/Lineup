@@ -21,6 +21,9 @@ internal sealed class FfmpegGraphTransform(FfmpegStreamTransform transform) : IS
         public string? ContentType => output.ContentType;
 
         /// <inheritdoc />
+        public VideoEncodingSnapshot? VideoEncoding => output.VideoEncoding;
+
+        /// <inheritdoc />
         public ValueTask DisposeAsync() => output.DisposeAsync();
     }
 }

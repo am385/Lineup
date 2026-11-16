@@ -41,6 +41,14 @@ public static class MediaProcessDiagnostics
             GetTail(diagnostics ?? processFailure?.Diagnostics ?? cause.Message), GetTail(processFailure?.Diagnostics ?? cause.Message));
     }
 
+    /// <summary>Reports a published producer's unexpected exit with bounded diagnostics and its independent source-termination reason.</summary>
+    public static void LogUnexpectedExit(ILogger logger, string sessionId, int exitCode, string diagnostics, string? sourceTerminationCode)
+    {
+        logger.LogWarning(
+            "Media processor exited unexpectedly after playback started, session {MediaSessionId}, exit {ProcessExitCode}, source termination {SourceTerminationCode}. Diagnostics: {DiagnosticTail}",
+            sessionId, exitCode, sourceTerminationCode, GetTail(diagnostics));
+    }
+
     /// <summary>Drains without owning the reader, retaining at most fifty non-empty lines from the last 16,384 characters with normalized LF separators.</summary>
     public static async Task<string> ReadTailAsync(TextReader reader, CancellationToken cancellationToken = default)
     {

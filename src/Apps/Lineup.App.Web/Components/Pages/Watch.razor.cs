@@ -23,6 +23,9 @@ public partial class Watch : IAsyncDisposable
     private IActiveStreamRegistry ActiveStreamRegistry { get; set; } = default!;
 
     [Inject]
+    private IStreamingFlowSnapshotService StreamingFlow { get; set; } = default!;
+
+    [Inject]
     private ILineupSettingsService SettingsService { get; set; } = default!;
 
     [Inject]
@@ -55,6 +58,8 @@ public partial class Watch : IAsyncDisposable
     private GuideChannelSegment? _selectedChannel;
     private GuideCacheProgram? _currentProgram;
     private ActiveStreamSnapshot? _activeStream;
+    private VideoEncodingSnapshot? _sourceVideoEncoding;
+    private VideoEncodingSnapshot? _outputVideoEncoding;
     private CmafPlayerAudio? _playerAudio;
     private CmafPlayerVideo? _playerVideo;
     private CmafStartResponse? _session;
@@ -768,6 +773,8 @@ public partial class Watch : IAsyncDisposable
         _isPlaying = false;
         _needsPlayerInit = false;
         _activeStream = null;
+        _sourceVideoEncoding = null;
+        _outputVideoEncoding = null;
         _playerAudio = null;
         _playerVideo = null;
         _sessionUsesBurnIn = false;
@@ -928,6 +935,9 @@ public partial class Watch : IAsyncDisposable
             .Where(MatchesActiveStream)
             .OrderByDescending(stream => stream.StartedAtUtc)
             .FirstOrDefault();
+        var path = _activeStream is null ? null : StreamingFlow.GetSnapshot().ActivePaths.SingleOrDefault(path => path.SessionId == _activeStream.SessionId);
+        _sourceVideoEncoding = path?.Stages.Single(stage => stage.Kind == StreamingFlowStageKind.SourceProcessing).VideoEncoding;
+        _outputVideoEncoding = path?.Stages.Single(stage => stage.Kind == StreamingFlowStageKind.OutputProcessing).VideoEncoding;
         var selectedAudio = _activeStream?.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Audio && track.IsSelected);
         _audioTrack ??= selectedAudio?.SourceIndex;
         if (_subtitleTrack.HasValue && !_subtitlePresentation.HasValue)

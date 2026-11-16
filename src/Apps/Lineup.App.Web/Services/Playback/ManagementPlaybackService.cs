@@ -556,8 +556,15 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
             if (result.Presentation is null)
             {
                 await sharedOutput.Stopped;
+                return result;
             }
-            return result.Presentation is { } presentation ? result with { Presentation = presentation with { SessionId = sessionId } } : result;
+            _activeStreamRegistry.TryUpdate(sessionId, current => current with
+            {
+                RequestedVideoEncoder = sharedOutput.ActiveVideoEncoder is null ? null : virtualProfile.HardwareEncoding.Encoder,
+                ActiveVideoEncoder = sharedOutput.ActiveVideoEncoder,
+                Flow = current.Flow is { SyntheticSource: null } flow ? flow with { ProducerNodeId = sharedOutput.Tasks.SourceProducerNodeId } : current.Flow
+            });
+            return result with { Presentation = result.Presentation with { SessionId = sessionId } };
         }
         catch (OperationCanceledException) when (startupToken.IsCancellationRequested && ownsProducer)
         {
@@ -595,6 +602,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                 }
                 else
                 {
+                    CmafStreamPlanner.ReportVideoProcessing(CmafStreamPlanner.CreateVideoProcessing(virtualProfile, source, selection, request), _logger);
                     process = _mediaProcessFactory.Start(new MediaProcessRequest
                     {
                         FileName = "ffmpeg",
@@ -647,7 +655,8 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                         source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video),
                         request,
                         selection.SubtitlePresentation == SubtitlePresentation.BurnIn,
-                        virtualProfile.Deinterlace)
+                        virtualProfile.Deinterlace,
+                        virtualProfile.AlwaysTranscodeVideo)
                         .Any(plan => plan.CopySource)
                             ? CmafStreamPlanner.CreateHevcCodecString(source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video))
                             : null,
@@ -675,7 +684,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                         await errorMonitorTask.WaitAsync(producerToken);
                         if (!usingSlate && CmafStreamPlanner.ShouldRetryWithFallback(
                             request,
-                            source.Tracks.Where(track => track.Type == MediaTrackType.Audio),
+                            session.AudioRenditions.Where(rendition => rendition.Plan.CopySource).Select(rendition => rendition.Source),
                             errors))
                         {
                             _logger.LogInformation(
@@ -684,10 +693,11 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                                 sessionId,
                                 fallbackAudio);
                             var retryRequest = request with { PreferredAudio = CmafPreferredAudio.Fallback };
+                            ffmpegArguments = CmafStreamPlanner.CreateArguments(virtualProfile, source, selection, retryRequest, manifestPath, subtitlePaths);
                             var retryProcess = _mediaProcessFactory.Start(new MediaProcessRequest
                             {
                                 FileName = "ffmpeg",
-                                Arguments = CmafStreamPlanner.CreateArguments(virtualProfile, source, selection, retryRequest, manifestPath, subtitlePaths),
+                                Arguments = ffmpegArguments,
                                 WorkingDirectory = directory,
                                 RedirectStandardInput = true,
                                 RedirectStandardOutput = true,
@@ -834,7 +844,8 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                                 source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video),
                                 request,
                                 selection.SubtitlePresentation == SubtitlePresentation.BurnIn,
-                                virtualProfile.Deinterlace).Any(plan => plan.CopySource),
+                                virtualProfile.Deinterlace,
+                                virtualProfile.AlwaysTranscodeVideo).Any(plan => plan.CopySource),
                             SourceVideoCodec = session.SourceVideoCodec,
                             Subtitles = selectableSubtitles.Select(subtitle => new ManagementPlaybackSubtitle(
                                 subtitle.Index,
@@ -842,7 +853,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                                 subtitle.Language,
                                 subtitle.IsEmbeddedClosedCaptions)).ToArray()
                         };
-                        pendingOutput.Complete(session);
+                        pendingOutput.Complete(session, usingSlate ? null : HardwareVideoEncodingPlanner.GetVideoEncoder(ffmpegArguments!));
                         return new ManagementPlaybackStartResult { Presentation = response };
                     }
                     await Task.Delay(100, producerToken);
@@ -1023,16 +1034,22 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
             {
                 MediaProcessAdmission.WaitForReleaseAsync(session.Process).GetAwaiter().GetResult();
             }
-            session.Process?.Dispose();
         }
         catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
         {
-            _logger.LogDebug(ex, "Unable to dispose FFmpeg process for CMAF session {SessionId}", session.SessionId);
+            _logger.LogDebug(ex, "Unable to stop FFmpeg process for CMAF session {SessionId}", session.SessionId);
         }
         finally
         {
-            StopCaptionProcess(session);
-            session.Tasks.DrainAsync().GetAwaiter().GetResult();
+            try
+            {
+                session.Tasks.DrainAsync().GetAwaiter().GetResult();
+            }
+            finally
+            {
+                session.Process.Dispose();
+                StopCaptionProcess(session);
+            }
             try
             {
                 session.CapacityLease?.Dispose();
@@ -1053,7 +1070,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         }
     }
 
-    private void CleanupIncompleteCmafOutput(Process? process, Process? captionProcess, Task<string>? captionErrorTask, string? directory)
+    private void CleanupIncompleteCmafOutput(Process? process, Process? captionProcess, Task<string>? captionErrorTask, string? directory, CmafMediaTasks? tasks = null)
     {
         if (process is { HasExited: false })
         {
@@ -1071,8 +1088,15 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         {
             MediaProcessAdmission.WaitForReleaseAsync(process).GetAwaiter().GetResult();
         }
-        process?.Dispose();
-        StopCaptionProcess(captionProcess, captionErrorTask, "starting");
+        try
+        {
+            tasks?.DrainAsync().GetAwaiter().GetResult();
+        }
+        finally
+        {
+            process?.Dispose();
+            StopCaptionProcess(captionProcess, captionErrorTask, "starting");
+        }
         if (directory is not null)
         {
             TryDeleteTransientDirectory(directory);
@@ -1109,31 +1133,42 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         }
     }
 
-    private void TryCleanupCompletedCmafSession(Process process, CmafSession session)
+    private void TryCleanupCompletedCmafSession(Process process, CmafSession session, ConcurrentQueue<string> errors)
     {
         if (!session.IsActive)
         {
             return;
         }
-        bool hasExited;
+        int exitCode;
         try
         {
-            hasExited = process.HasExited;
+            if (!process.HasExited)
+            {
+                return;
+            }
+            exitCode = process.ExitCode;
         }
         catch (InvalidOperationException)
         {
             return;
         }
 
-        if (hasExited && Volatile.Read(ref session.IsStarting) == 0)
+        if (session.IsActive && Volatile.Read(ref session.IsStarting) == 0)
         {
-            if (session.OutputId is StreamSessionId outputId)
+            try
             {
-                _cmafOutputs.ReleaseOutputAsync(outputId, session.Tasks.SourceTerminationCode).AsTask().GetAwaiter().GetResult();
+                MediaProcessDiagnostics.LogUnexpectedExit(_logger, session.SessionId, exitCode, string.Join("\n", errors), session.Tasks.SourceTerminationCode);
             }
-            else
+            finally
             {
-                CleanupCmafSession(session, stopProcess: false);
+                if (session.OutputId is StreamSessionId outputId)
+                {
+                    _cmafOutputs.ReleaseOutputAsync(outputId, session.Tasks.SourceTerminationCode).AsTask().GetAwaiter().GetResult();
+                }
+                else
+                {
+                    CleanupCmafSession(session, stopProcess: false);
+                }
             }
         }
     }
@@ -1220,6 +1255,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
     {
         tasks.SourceTerminationCode = null;
         await using var input = await SubscribeEffectiveSourceAsync(candidate, source, settings, cancellationToken);
+        tasks.SourceProducerNodeId = (input as IStreamProducerCorrelation)?.ProducerNodeId;
         await MediaStreamPump.PumpAsync(input, process, _logger, candidate.DiagnosticUri.AbsoluteUri, cancellationToken, code => tasks.SourceTerminationCode = code);
     }
 
@@ -1359,19 +1395,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
 
     private Task StartCmafErrorMonitor(Process process, CmafSession session, ConcurrentQueue<string> errors, bool parseSourceMetadata, long outputVideoBitRate)
     {
-        process.Exited += (_, _) => _preflightTasks.Track(Task.Run(() =>
-        {
-            try
-            {
-                TryCleanupCompletedCmafSession(process, session);
-            }
-            catch (Exception exception)
-            {
-                _logger.LogError(exception, "Unable to release exited management playback producer {SessionId}", session.SessionId);
-            }
-        }), _logger, "exited producer cleanup");
-        process.EnableRaisingEvents = true;
-        return Task.Run(async () =>
+        var monitorTask = Task.Run(async () =>
         {
             var sourceTracks = new Dictionary<int, MediaTrackMetadata>();
             var readingInputMetadata = parseSourceMetadata;
@@ -1407,6 +1431,26 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                 // The session shutdown path can dispose redirected streams while the monitor is awaiting a line.
             }
         });
+        process.Exited += (_, _) => _preflightTasks.Track(Task.Run(async () =>
+        {
+            try
+            {
+                try
+                {
+                    await monitorTask;
+                }
+                finally
+                {
+                    TryCleanupCompletedCmafSession(process, session, errors);
+                }
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(exception, "Unable to observe or release exited management playback producer {SessionId}", session.SessionId);
+            }
+        }), _logger, "exited producer cleanup");
+        process.EnableRaisingEvents = true;
+        return monitorTask;
     }
 
     private void DeleteCmafFiles(string directory)
@@ -1498,6 +1542,9 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
     {
         /// <summary>Records only source read termination, never intentional cancellation or a closed processor pipe.</summary>
         public volatile string? SourceTerminationCode;
+
+        /// <summary>Identifies the exact effective source used by this producer for stage-specific diagnostics.</summary>
+        public volatile string? SourceProducerNodeId;
 
         private readonly Lock _gate = new();
         private readonly List<Task> _observations = [];
@@ -1605,6 +1652,9 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         /// <summary>Gets the completed media session once readiness succeeds.</summary>
         public CmafSession? Session { get; private set; }
 
+        /// <summary>Gets the primary video encoder from the ready producer's launched arguments, including for later shared viewers.</summary>
+        public string? ActiveVideoEncoder { get; private set; }
+
         /// <summary>Gets tasks owned by this producer before and after readiness.</summary>
         public CmafMediaTasks Tasks { get; } = new();
 
@@ -1687,12 +1737,13 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         }
 
         /// <summary>Transfers pending resources into a ready media session.</summary>
-        public void Complete(CmafSession session)
+        public void Complete(CmafSession session, string? activeVideoEncoder = null)
         {
             lock (_gate)
             {
                 LifetimeToken.ThrowIfCancellationRequested();
                 Session = session;
+                ActiveVideoEncoder = activeVideoEncoder;
                 _process = null;
                 _captionProcess = null;
                 _captionErrorTask = null;
@@ -1756,8 +1807,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                 }
                 else
                 {
-                    owner.CleanupIncompleteCmafOutput(process, captionProcess, captionErrorTask, null);
-                    Tasks.DrainAsync().GetAwaiter().GetResult();
+                    owner.CleanupIncompleteCmafOutput(process, captionProcess, captionErrorTask, null, Tasks);
                     if (directory is not null)
                     {
                         owner.TryDeleteTransientDirectory(directory);

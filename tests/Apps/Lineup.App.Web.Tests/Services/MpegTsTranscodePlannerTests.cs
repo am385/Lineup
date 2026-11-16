@@ -7,6 +7,40 @@ namespace Lineup.App.Web.Tests.Services;
 /// </summary>
 public class MpegTsTranscodePlannerTests
 {
+    /// <summary>Verifies forced encoding constrains copy-eligible video with either software or GPU encoding.</summary>
+    [Theory]
+    [InlineData(false, HardwareVideoEncoder.Software, null)]
+    [InlineData(true, HardwareVideoEncoder.Software, "libx264")]
+    [InlineData(true, HardwareVideoEncoder.Qsv, "h264_qsv")]
+    public void ForcedVideo_ControlsEncodingAndBitrate(bool force, HardwareVideoEncoder encoder, string? expectedEncoder)
+    {
+        // Arrange
+        var profile = new VirtualTranscodeProfile
+        {
+            AlwaysTranscodeVideo = force,
+            HardwareEncoding = new() { Encoder = encoder },
+            MaximumVideoBitRateMbps = 3
+        };
+
+        // Act
+        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(
+            _inputUri, "h264", [new AudioStreamInfo(1, "aac", 2)], profile);
+
+        // Assert
+        if (expectedEncoder is null)
+        {
+            Assert.DoesNotContain("-c:v:0", arguments);
+        }
+        else
+        {
+            AssertOption(arguments, "-c:v", expectedEncoder);
+            AssertOption(arguments, "-maxrate", "3M");
+            AssertOption(arguments, "-bufsize", "6M");
+        }
+        Assert.DoesNotContain("-c:a:0", arguments);
+        Assert.DoesNotContain("-filter:v:0", arguments);
+    }
+
     private static readonly Uri _inputUri = new("http://hdhomerun.local:5004/auto/v7.1");
 
     /// <summary>Verifies effective topology settings, rather than legacy app values, control MPEG-TS output.</summary>

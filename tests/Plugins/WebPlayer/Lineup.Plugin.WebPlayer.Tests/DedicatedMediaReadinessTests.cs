@@ -9,6 +9,38 @@ namespace Lineup.Plugin.WebPlayer.Tests;
 /// <summary>Verifies presentation readiness observes terminal upstream failures rather than waiting for an unrelated timeout.</summary>
 public sealed class DedicatedMediaReadinessTests
 {
+    /// <summary>Verifies an input read completing after process cleanup never reopens a disposed process or reports source loss.</summary>
+    [Fact]
+    public async Task PumpAsync_ProcessDisposedDuringPendingRead_UsesCapturedPipeAndExitTask()
+    {
+        // Arrange
+        using var process = StartWaitingProcess();
+        var diagnostics = MediaProcessDiagnostics.ReadTailAsync(process.StandardError, TestContext.Current.CancellationToken);
+        using var input = new DeferredReadStream();
+        string? termination = null;
+        var pumping = MediaStreamPump.PumpAsync(input, process, NullLogger.Instance, "late-read", TestContext.Current.CancellationToken, code => termination = code);
+        try
+        {
+            // Act
+            process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync(TestContext.Current.CancellationToken);
+            await diagnostics;
+            await input.Canceled.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            process.Dispose();
+            input.Complete.TrySetResult();
+            await pumping.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.Null(termination);
+            Assert.True(pumping.IsCompletedSuccessfully);
+        }
+        finally
+        {
+            input.Complete.TrySetResult();
+            await pumping;
+        }
+    }
+
     /// <summary>Producer cleanup cancellation cannot replace a known readiness failure with a generic startup error.</summary>
     [Theory]
     [InlineData(false, 502, "media_process_failed")]
@@ -264,6 +296,24 @@ public sealed class DedicatedMediaReadinessTests
         /// <inheritdoc />
         public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
             ValueTask.FromException<int>(new IOException("Synthetic read failure."));
+    }
+
+    private sealed class DeferredReadStream : MemoryStream
+    {
+        /// <summary>Gets the signal that process exit canceled the pump's pending read.</summary>
+        public TaskCompletionSource Canceled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Gets the controlled completion of a read that was already in flight.</summary>
+        public TaskCompletionSource Complete { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <inheritdoc />
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            using var registration = cancellationToken.Register(() => Canceled.TrySetResult());
+            await Complete.Task;
+            buffer.Span[0] = 0x47;
+            return 1;
+        }
     }
 
     private static Process StartWaitingProcess(params string[] arguments)

@@ -76,7 +76,7 @@ public sealed class HDHomeRunPhysicalTunerDriverTests
         Assert.Equal(TestContext.Current.CancellationToken, lookup.Token);
         Assert.Same(Assert.IsType<HDHomeRunPhysicalTunerDevice>(device).DeviceInfo, lookup.Info);
         Assert.Equal(new Uri(new Uri(expectedBaseAddress), "discover.json"), Assert.Single(requests));
-        Assert.Equal(address, driver.GetSettings(configuration).Values.Single().Value?.GetString());
+        Assert.Equal(address, driver.GetSettings(configuration).Values.Single(value => value.Key == "address").Value?.GetString());
         Assert.Equal($"HDHomeRun device {deviceId} is unavailable through the native control protocol.", exception.Message);
     }
 
@@ -138,6 +138,236 @@ public sealed class HDHomeRunPhysicalTunerDriverTests
         Assert.Empty(initialSnapshotErrors);
         Assert.True(result.Succeeded);
         Assert.Equal("http://device.local:8080/", updated?.Address);
+    }
+
+    /// <summary>Verifies each documented profile round trips and survives independent address edits.</summary>
+    [Theory]
+    [InlineData("default")]
+    [InlineData("heavy")]
+    [InlineData("mobile")]
+    [InlineData("internet540")]
+    [InlineData("internet480")]
+    [InlineData("internet360")]
+    [InlineData("internet240")]
+    public void Settings_Profile_RoundTripsAndPreservesAddress(string profile)
+    {
+        // Arrange
+        var driver = CreateDriver(_ => throw new InvalidOperationException("No HTTP expected."));
+        var configuration = Configuration("device");
+        var edit = new AdapterSettingEdit { Key = "transcodeProfile", Action = AdapterSettingEditAction.Set, Value = JsonSerializer.SerializeToElement(profile) };
+
+        // Act
+        var result = driver.ApplySettings(configuration, [edit]);
+        var addressResult = driver.ApplySettings(result.Configuration!,
+            [new AdapterSettingEdit { Key = "address", Action = AdapterSettingEditAction.Set, Value = JsonSerializer.SerializeToElement("other-device") }]);
+        var snapshot = driver.GetSettings(addressResult.Configuration!);
+
+        // Assert
+        Assert.True(result.Succeeded);
+        Assert.True(addressResult.Succeeded);
+        Assert.Empty(AdapterSettingsValidator.ValidateSnapshot(driver.SettingsDescriptor, snapshot));
+        Assert.Equal(profile, snapshot.Values.Single(value => value.Key == "transcodeProfile").Value?.GetString());
+        Assert.Equal("other-device", snapshot.Values.Single(value => value.Key == "address").Value?.GetString());
+        var field = driver.SettingsDescriptor.Fields.Single(value => value.Key == "transcodeProfile");
+        Assert.Equal(AdapterSettingKind.Choice, field.Kind);
+        Assert.Contains(field.Choices, choice => choice.Value == profile);
+    }
+
+    /// <summary>Verifies arbitrary HTTP parameters and undocumented profiles cannot enter the configuration.</summary>
+    [Theory]
+    [InlineData("native")]
+    [InlineData("")]
+    [InlineData("mobile&duration=1")]
+    [InlineData("MOBILE")]
+    [InlineData(null)]
+    public void Settings_InvalidProfile_RejectsEditsAndPersistedConfiguration(string? profile)
+    {
+        // Arrange
+        var driver = CreateDriver(_ => throw new InvalidOperationException("No HTTP expected."));
+        var configuration = Configuration("device");
+        var invalid = Configuration(HDHomeRunPhysicalTunerDriver.DriverKind, new HDHomeRunPhysicalTunerConfiguration { Address = "device", TranscodeProfile = profile! });
+
+        // Act
+        var result = driver.ApplySettings(configuration,
+            [new AdapterSettingEdit { Key = "transcodeProfile", Action = AdapterSettingEditAction.Set, Value = JsonSerializer.SerializeToElement(profile) }]);
+        var errors = driver.Validate(invalid);
+
+        // Assert
+        Assert.False(result.Succeeded);
+        Assert.Contains("transcodeProfile", result.Errors.Keys);
+        Assert.Contains(errors, error => error.Contains("TranscodeProfile", StringComparison.Ordinal));
+    }
+
+    /// <summary>Verifies omitted profile configuration retains device default behavior.</summary>
+    [Fact]
+    public void Settings_LegacyConfiguration_PreservesDeviceDefaultAndRejectsClear()
+    {
+        // Arrange
+        var driver = CreateDriver(_ => throw new InvalidOperationException("No HTTP expected."));
+        var legacy = new AdapterConfiguration(driver.Kind, JsonSerializer.SerializeToElement(new { Address = "device" }));
+
+        // Act
+        var preserved = driver.ApplySettings(legacy, [new AdapterSettingEdit { Key = "transcodeProfile", Action = AdapterSettingEditAction.Preserve }]);
+        var cleared = driver.ApplySettings(legacy, [new AdapterSettingEdit { Key = "transcodeProfile", Action = AdapterSettingEditAction.Clear }]);
+
+        // Assert
+        Assert.Empty(driver.Validate(legacy));
+        Assert.True(preserved.Succeeded);
+        Assert.Equal("default", driver.GetSettings(preserved.Configuration!).Values.Single(value => value.Key == "transcodeProfile").Value?.GetString());
+        Assert.False(cleared.Succeeded);
+    }
+
+    /// <summary>Verifies support follows the documented model allowlist, not the friendly name.</summary>
+    [Theory]
+    [InlineData("HDTC-2US", true)]
+    [InlineData("HDTC-2US-M", true)]
+    [InlineData("HDTC-2US-L", true)]
+    [InlineData("hdtc-2us-m", true)]
+    [InlineData("HDFX-4K", false)]
+    [InlineData("HDHR3-CC", false)]
+    [InlineData("HDTC-2US-UNKNOWN", false)]
+    [InlineData("", false)]
+    public async Task Discovery_ModelControlsCapabilityAndExplicitProfileAdmission(string model, bool supported)
+    {
+        // Arrange
+        var discovery = DiscoverJson(1).Replace("\"HDFX\"", JsonSerializer.Serialize(model), StringComparison.Ordinal)
+            .Replace("HDHomeRun FLEX", "HDHomeRun EXTEND", StringComparison.Ordinal);
+        var driver = CreateDriver(_ => JsonResponse(discovery));
+        var configured = Configuration(driver.Kind, new HDHomeRunPhysicalTunerConfiguration { Address = "device", TranscodeProfile = "mobile" });
+
+        // Act
+        var device = Assert.IsType<HDHomeRunPhysicalTunerDevice>(
+            await driver.CreateAsync(PhysicalDeviceId.New(), "Device", Configuration("device"), TestContext.Current.CancellationToken));
+        var information = await device.RefreshDeviceInformationAsync(TestContext.Current.CancellationToken);
+        var probe = await driver.ProbeAsync(Configuration("device"), TestContext.Current.CancellationToken);
+        var exception = await Record.ExceptionAsync(async () =>
+            await driver.CreateAsync(PhysicalDeviceId.New(), "Device", configured, TestContext.Current.CancellationToken));
+
+        // Assert
+        Assert.Equal(supported, device.SupportsHardwareTranscoding);
+        Assert.Equal(supported.ToString(), information.Details["supportsHardwareTranscoding"]);
+        Assert.Contains(probe.Details, detail => detail.Label == "EXTEND video transcoding" &&
+            detail.Value == (supported ? "Supported (audio unchanged)" : "Not supported"));
+        Assert.False(driver.Capabilities.SupportsHardwareTranscoding);
+        if (supported)
+        {
+            Assert.Null(exception);
+        }
+        else
+        {
+            Assert.Contains("Select Device default", Assert.IsType<InvalidOperationException>(exception).Message, StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>Verifies default requests remain unchanged and explicit profiles safely replace only the transcode query parameter.</summary>
+    [Theory]
+    [InlineData("default", "?duration=120&token=a%2Bb&transcode=old&%74ranscode=duplicate&x=1&x=2")]
+    [InlineData("heavy", "?duration=120&token=a%2Bb&x=1&x=2&transcode=heavy")]
+    [InlineData("mobile", "?duration=120&token=a%2Bb&x=1&x=2&transcode=mobile")]
+    [InlineData("internet540", "?duration=120&token=a%2Bb&x=1&x=2&transcode=internet540")]
+    [InlineData("internet480", "?duration=120&token=a%2Bb&x=1&x=2&transcode=internet480")]
+    [InlineData("internet360", "?duration=120&token=a%2Bb&x=1&x=2&transcode=internet360")]
+    [InlineData("internet240", "?duration=120&token=a%2Bb&x=1&x=2&transcode=internet240")]
+    public async Task OpenStreamAsync_ProfileMergesQueryAndMatchesDiagnostic(string profile, string query)
+    {
+        // Arrange
+        Uri? acquiredUri = null;
+        var driver = CreateDriver(request => request.RequestUri!.AbsolutePath switch
+        {
+            "/discover.json" => JsonResponse(DiscoverJson(1).Replace("\"HDFX\"", "\"HDTC-2US-M\"", StringComparison.Ordinal)),
+            "/lineup.json" => JsonResponse(
+                """[{"GuideNumber":"5.1","GuideName":"NEWS","VideoCodec":"MPEG2","AudioCodec":"AC3","URL":"http://device:5004/auto/v5.1?duration=120&token=a%2Bb&transcode=old&%74ranscode=duplicate&x=1&x=2"}]"""),
+            _ => CaptureStream(request.RequestUri)
+        });
+        HttpResponseMessage CaptureStream(Uri uri)
+        {
+            acquiredUri = uri;
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent([1]) };
+        }
+        var configuration = Configuration(driver.Kind, new HDHomeRunPhysicalTunerConfiguration { Address = "device", TranscodeProfile = profile });
+        var id = PhysicalDeviceId.New();
+        var device = Assert.IsType<HDHomeRunPhysicalTunerDevice>(await driver.CreateAsync(id, "Device", configuration, TestContext.Current.CancellationToken));
+
+        // Act
+        var channels = await device.RefreshLineupAsync(TestContext.Current.CancellationToken);
+        var diagnostic = device.CreateDiagnosticUri("5.1");
+        await using var lease = await device.OpenStreamAsync(new PhysicalStreamRequest { ChannelId = new SourceChannelId(id, "5.1") }, TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(new Uri("http://device:5004/auto/v5.1" + query), acquiredUri);
+        Assert.Equal(acquiredUri, diagnostic);
+        Assert.Equal("MPEG2", Assert.Single(channels).Metadata["videoCodec"]);
+        Assert.Equal("AC3", Assert.Single(channels).Metadata["audioCodec"]);
+    }
+
+    /// <summary>Verifies explicit profiles work without an existing query, including the diagnostic fallback before lineup refresh.</summary>
+    [Fact]
+    public async Task OpenStreamAsync_ProfileAddsQueryToUnmodifiedLineupUrl()
+    {
+        // Arrange
+        Uri? acquiredUri = null;
+        var driver = CreateDriver(request =>
+        {
+            if (request.RequestUri!.AbsolutePath == "/discover.json")
+            {
+                return JsonResponse(DiscoverJson(1).Replace("\"HDFX\"", "\"HDTC-2US\"", StringComparison.Ordinal));
+            }
+            if (request.RequestUri.AbsolutePath == "/lineup.json")
+            {
+                return JsonResponse("""[{"GuideNumber":"5.1","GuideName":"NEWS","URL":"http://device/auto/v5.1"}]""");
+            }
+            acquiredUri = request.RequestUri;
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent([1]) };
+        });
+        var id = PhysicalDeviceId.New();
+        var configuration = Configuration(driver.Kind, new HDHomeRunPhysicalTunerConfiguration { Address = "device", TranscodeProfile = "mobile" });
+        var device = Assert.IsType<HDHomeRunPhysicalTunerDevice>(await driver.CreateAsync(id, "Device", configuration, TestContext.Current.CancellationToken));
+
+        // Act
+        var diagnostic = device.CreateDiagnosticUri("5.1");
+        await using var lease = await device.OpenStreamAsync(new PhysicalStreamRequest { ChannelId = new SourceChannelId(id, "5.1") }, TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(new Uri("http://device/auto/v5.1?transcode=mobile"), acquiredUri);
+        Assert.Equal(acquiredUri, diagnostic);
+    }
+
+    /// <summary>Verifies refreshed discovery can withdraw profile support without sending an unsupported stream request.</summary>
+    [Fact]
+    public async Task RefreshDeviceInformationAsync_ModelChanged_WithdrawsTranscodingSupport()
+    {
+        // Arrange
+        var discoveries = 0;
+        var streamRequests = 0;
+        var driver = CreateDriver(request =>
+        {
+            if (request.RequestUri!.AbsolutePath == "/discover.json")
+            {
+                return JsonResponse(++discoveries == 1
+                    ? DiscoverJson(1).Replace("\"HDFX\"", "\"HDTC-2US\"", StringComparison.Ordinal)
+                    : DiscoverJson(1));
+            }
+            if (request.RequestUri.AbsolutePath == "/lineup.json")
+            {
+                return JsonResponse("""[{"GuideNumber":"5.1","GuideName":"NEWS","URL":"http://device/auto/v5.1"}]""");
+            }
+            streamRequests++;
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent([1]) };
+        });
+        var id = PhysicalDeviceId.New();
+        var configuration = Configuration(driver.Kind, new HDHomeRunPhysicalTunerConfiguration { Address = "device", TranscodeProfile = "mobile" });
+        var device = Assert.IsType<HDHomeRunPhysicalTunerDevice>(await driver.CreateAsync(id, "Device", configuration, TestContext.Current.CancellationToken));
+
+        // Act
+        var information = await device.RefreshDeviceInformationAsync(TestContext.Current.CancellationToken);
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await device.OpenStreamAsync(new PhysicalStreamRequest { ChannelId = new SourceChannelId(id, "5.1") }, TestContext.Current.CancellationToken));
+
+        // Assert
+        Assert.False(device.SupportsHardwareTranscoding);
+        Assert.Equal("False", information.Details["supportsHardwareTranscoding"]);
+        Assert.Contains("Select Device default", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(0, streamRequests);
     }
 
     /// <summary>
@@ -390,6 +620,132 @@ public sealed class HDHomeRunPhysicalTunerDriverTests
         Assert.Equal(1, replacementLease.Stream.ReadByte());
     }
 
+    /// <summary>Verifies response closure precedes replacement admission even when stream disposal fails.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DisposeAsync_ClosesResponseBeforeReleasingCapacity(bool throwOnDispose)
+    {
+        // Arrange
+        var responseClosed = false;
+        var requests = 0;
+        var stream = new DisposalStream(throwOnDispose);
+        var driver = CreateDriver(request =>
+        {
+            if (request.RequestUri!.AbsolutePath == "/discover.json")
+            {
+                return JsonResponse(DiscoverJson(1));
+            }
+            if (request.RequestUri.AbsolutePath == "/lineup.json")
+            {
+                return JsonResponse("""[{"GuideNumber":"5.1","GuideName":"NEWS","URL":"http://device/auto/v5.1"}]""");
+            }
+            if (++requests == 1)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ControlledContent(_ => Task.FromResult<Stream>(stream), () => responseClosed = true)
+                };
+            }
+            Assert.True(responseClosed);
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent([2]) };
+        });
+        var id = PhysicalDeviceId.New();
+        var device = await driver.CreateAsync(id, "Device", Configuration("device"), TestContext.Current.CancellationToken);
+        var request = new PhysicalStreamRequest { ChannelId = new SourceChannelId(id, "5.1") };
+        var lease = await device.OpenStreamAsync(request, TestContext.Current.CancellationToken);
+        var waiting = device.OpenStreamAsync(request, TestContext.Current.CancellationToken).AsTask();
+
+        // Act
+        Assert.False(waiting.IsCompleted);
+        var exception = await Record.ExceptionAsync(async () => await lease.DisposeAsync());
+        await using var replacement = await waiting.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        await lease.DisposeAsync();
+
+        // Assert
+        Assert.True(responseClosed);
+        Assert.True(stream.Disposed);
+        Assert.Equal(2, requests);
+        Assert.Equal(throwOnDispose, exception is IOException);
+    }
+
+    /// <summary>Verifies failed or canceled response-stream startup closes its response before readmitting a request.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OpenStreamAsync_StreamStartupFailureClosesResponseAndReleasesCapacity(bool cancel)
+    {
+        // Arrange
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var responseClosed = false;
+        var requests = 0;
+        var driver = CreateDriver(request =>
+        {
+            if (request.RequestUri!.AbsolutePath == "/discover.json")
+            {
+                return JsonResponse(DiscoverJson(1));
+            }
+            if (request.RequestUri.AbsolutePath == "/lineup.json")
+            {
+                return JsonResponse("""[{"GuideNumber":"5.1","GuideName":"NEWS","URL":"http://device/auto/v5.1"}]""");
+            }
+            if (++requests == 1)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ControlledContent(async token =>
+                    {
+                        started.TrySetResult();
+                        await release.Task.WaitAsync(token);
+                        throw new IOException("Controlled stream startup failure.");
+                    }, () => responseClosed = true)
+                };
+            }
+            Assert.True(responseClosed);
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent([2]) };
+        });
+        var id = PhysicalDeviceId.New();
+        var device = await driver.CreateAsync(id, "Device", Configuration("device"), TestContext.Current.CancellationToken);
+        var request = new PhysicalStreamRequest { ChannelId = new SourceChannelId(id, "5.1") };
+        var opening = Record.ExceptionAsync(async () => await device.OpenStreamAsync(request, cancellation.Token)).AsTask();
+
+        // Act
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            if (cancel)
+            {
+                cancellation.Cancel();
+            }
+            else
+            {
+                release.TrySetResult();
+            }
+            var exception = await opening.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+            await using var replacement = await device.OpenStreamAsync(request, TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.True(responseClosed);
+            Assert.Equal(2, requests);
+            if (cancel)
+            {
+                Assert.IsAssignableFrom<OperationCanceledException>(exception);
+            }
+            else
+            {
+                Assert.IsType<IOException>(exception);
+            }
+        }
+        finally
+        {
+            cancellation.Cancel();
+            release.TrySetResult();
+            await opening.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
+    }
+
     /// <summary>
     /// Verifies a failed stream request returns its tuner slot.
     /// </summary>
@@ -437,6 +793,8 @@ public sealed class HDHomeRunPhysicalTunerDriverTests
     [InlineData("807 No Video Data", false, PhysicalStreamFailureCategory.NoData, "source_no_video_data", true)]
     [InlineData("806 No Signal", true, PhysicalStreamFailureCategory.NoSignal, "source_no_signal", true)]
     [InlineData("805 All Tuners In Use", false, PhysicalStreamFailureCategory.Capacity, "source_capacity_exceeded", true)]
+    [InlineData("802 Unknown Transcode Profile", false, PhysicalStreamFailureCategory.InvalidInput, "source_transcode_profile_unsupported", false)]
+    [InlineData("802", true, PhysicalStreamFailureCategory.InvalidInput, "source_transcode_profile_unsupported", false)]
     public async Task OpenStreamAsync_TunerDiagnostic_ThrowsStructuredFailure(string diagnostic, bool useResponseBody, PhysicalStreamFailureCategory expectedCategory, string expectedCode, bool expectedRetryable)
     {
         // Arrange
@@ -612,5 +970,45 @@ public sealed class HDHomeRunPhysicalTunerDriverTests
         /// <inheritdoc />
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
             => responseFactory(request, cancellationToken);
+    }
+
+    private sealed class ControlledContent(Func<CancellationToken, Task<Stream>> createStream, Action onDispose) : HttpContent
+    {
+        /// <inheritdoc />
+        protected override Task<Stream> CreateContentReadStreamAsync(CancellationToken cancellationToken) => createStream(cancellationToken);
+
+        /// <inheritdoc />
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) => throw new NotSupportedException();
+
+        /// <inheritdoc />
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
+
+        /// <inheritdoc />
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+            if (disposing)
+            {
+                onDispose();
+            }
+        }
+    }
+
+    private sealed class DisposalStream(bool throwOnDispose) : MemoryStream
+    {
+        /// <summary>Gets whether the response stream was closed.</summary>
+        public bool Disposed { get; private set; }
+
+        /// <inheritdoc />
+        public override ValueTask DisposeAsync()
+        {
+            Disposed = true;
+            base.Dispose();
+            return throwOnDispose ? ValueTask.FromException(new IOException("Controlled stream disposal failure.")) : ValueTask.CompletedTask;
+        }
     }
 }

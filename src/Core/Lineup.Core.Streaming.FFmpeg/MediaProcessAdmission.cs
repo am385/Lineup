@@ -34,13 +34,14 @@ public static class MediaProcessAdmission
             var process = start();
             if (reservation is not null)
             {
+                var mediaProcessId = OwnedMediaProcess.GetTargetProcessId(process);
                 try
                 {
-                    var observer = Process.GetProcessById(process.Id);
+                    var observer = Process.GetProcessById(mediaProcessId);
                     _releases.Add(process, new(ReleaseAfterExitAsync(observer, reservation)));
                     reservation = null;
                 }
-                catch (ArgumentException) when (process.HasExited)
+                catch (ArgumentException) when (mediaProcessId != process.Id || process.HasExited)
                 {
                     // The process finished before an independent lifetime handle could be opened.
                 }

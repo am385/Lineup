@@ -1,0 +1,8 @@
+# Optional Linux Intel/AMD render-node access. Never applied by the default Compose files.
+# Example: docker compose -f docker-compose.yml -f docker-compose.gpu-dri.yml up -d
+services:
+  lineup:
+    devices:
+      - "${LINEUP_RENDER_NODE:-/dev/dri/renderD128}:${LINEUP_RENDER_NODE:-/dev/dri/renderD128}"
+    group_add:
+      - "${LINEUP_RENDER_GID:?Set LINEUP_RENDER_GID to the numeric group owning the selected render node}"

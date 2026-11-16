@@ -49,6 +49,9 @@ public interface IStreamSourceLease : IAsyncDisposable
 
     /// <summary>Gets the source content type when known.</summary>
     string? ContentType { get; }
+
+    /// <summary>Gets producer-reported video encoding, or null when the source does not report an encoder.</summary>
+    VideoEncodingSnapshot? VideoEncoding => null;
 }
 
 /// <summary>
@@ -110,6 +113,9 @@ public sealed record StreamNodeDiagnostics(string Kind, string Key, int Receiver
 
     /// <summary>Gets the transform stage name for a transform node.</summary>
     public string? Stage { get; init; }
+
+    /// <summary>Gets the encoder outcome reported by this running node.</summary>
+    public VideoEncodingSnapshot? VideoEncoding { get; init; }
 }
 
 /// <summary>
@@ -876,6 +882,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         private CancellationTokenSource? _warmCancellation;
         private long _totalSubscriptions;
         private bool _completed;
+        private VideoEncodingSnapshot? _videoEncoding;
         private readonly string? _traceParent = System.Diagnostics.Activity.Current?.Id;
 
         /// <summary>Gets a terminal reason only for unexpected completion.</summary>
@@ -975,7 +982,8 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                     ParentNodeId = (_key as TransformNodeKey)?.Parent.NodeId,
                     PhysicalDeviceId = (_key as AcquisitionNodeKey)?.DeviceId,
                     SourceChannelId = (_key as AcquisitionNodeKey)?.AcquisitionKey.ChannelId,
-                    Stage = (_key as TransformNodeKey)?.Transform.Stage
+                    Stage = (_key as TransformNodeKey)?.Transform.Stage,
+                    VideoEncoding = _videoEncoding
                 };
             }
         }
@@ -1025,6 +1033,10 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
             {
                 await using var reservation = await _mediaWork.AcquireAsync(MediaWorkKind.Producer, RetireIdleAsync, _lifetime.Token);
                 await using var source = await _sourceFactory(_lifetime.Token);
+                lock (_gate)
+                {
+                    _videoEncoding = source.VideoEncoding;
+                }
                 _started.TrySetResult();
                 while (!_lifetime.IsCancellationRequested)
                 {
@@ -1228,6 +1240,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         {
             Stream = source.Stream;
             ContentType = source.ContentType;
+            VideoEncoding = source.VideoEncoding;
             _sourceOwner = source;
             _parentOwner = parentOwner;
         }
@@ -1237,6 +1250,9 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
 
         /// <summary>Gets the content type.</summary>
         public string? ContentType { get; }
+
+        /// <inheritdoc />
+        public VideoEncodingSnapshot? VideoEncoding { get; }
 
         /// <inheritdoc />
         public async ValueTask DisposeAsync()
