@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Security.Cryptography;
@@ -6,6 +7,7 @@ using Lineup.Core.Common.Configuration;
 using Lineup.Core.Common.Streaming;
 using Lineup.Core.Settings;
 using Lineup.Core.VirtualOutputs.Protocol;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Xunit;
@@ -66,6 +68,29 @@ public sealed class VirtualOutputWorkerLauncherTests
         Assert.NotEqual(firstReport.TemporaryPath, secondReport.TemporaryPath);
         Assert.True(File.Exists(Path.Combine(firstReport.ArtifactDirectory, "fragment.m4s")));
         Assert.True(File.Exists(Path.Combine(secondReport.ArtifactDirectory, "fragment.m4s")));
+    }
+
+    /// <summary>Verifies recovery does not overwrite a previous activation's report while it is still being inspected.</summary>
+    [Fact]
+    public async Task StartAsync_PreviousReportOpen_ReplacementPublishesIndependentReport()
+    {
+        Assert.SkipWhen(!OperatingSystem.IsWindows(), "Requires Windows file sharing semantics.");
+
+        // Arrange
+        await using var package = await WorkerProbePackage.CreateAsync();
+        var first = await package.StartAsync();
+        var previous = await package.ReadReportAsync();
+        await first.DisposeAsync();
+        using var locked = File.Open(Path.Combine(package.PackageRoot, $"worker-environment-{previous.WorkerProcessId}.json"), FileMode.Open, FileAccess.Read, FileShare.Read);
+
+        // Act
+        await package.StartAsync();
+        var replacement = await package.ReadReportAsync();
+
+        // Assert
+        Assert.NotEqual(previous.WorkerProcessId, replacement.WorkerProcessId);
+        Assert.Null(replacement.WriteError);
+        Assert.True(File.Exists(Path.Combine(replacement.ArtifactDirectory, "fragment.m4s")));
     }
 
     /// <summary>Verifies disposal removes the running worker's complete temporary tree and remains idempotent.</summary>
@@ -325,6 +350,7 @@ public sealed class VirtualOutputWorkerLauncherTests
     private sealed class WorkerProbePackage(DirectoryInfo directory, VirtualOutputWorkerPackage package) : IAsyncDisposable
     {
         private IVirtualOutputWorkerProcess? _worker;
+        private readonly ProbeLogger _logger = new();
 
         /// <summary>Gets the test-owned package directory.</summary>
         internal string PackageRoot => directory.FullName;
@@ -399,7 +425,7 @@ public sealed class VirtualOutputWorkerLauncherTests
         /// <summary>Launches the package through the production launcher and retains ownership for cleanup.</summary>
         internal async Task<IVirtualOutputWorkerProcess> StartAsync(VirtualOutputWorkerBootstrap? bootstrap = null)
         {
-            var launcher = new VirtualOutputWorkerLauncher(NullLogger<VirtualOutputWorkerLauncher>.Instance);
+            var launcher = new VirtualOutputWorkerLauncher(_logger);
             _worker = await launcher.StartAsync(package, bootstrap ?? Bootstrap, TestContext.Current.CancellationToken);
             return _worker;
         }
@@ -409,22 +435,29 @@ public sealed class VirtualOutputWorkerLauncherTests
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
             timeout.CancelAfter(TimeSpan.FromSeconds(15));
-            var path = Path.Combine(directory.FullName, "worker-environment.json");
+            while (_worker is null)
+            {
+                await Task.Delay(20, timeout.Token);
+            }
+            var worker = _worker;
+            var path = Path.Combine(directory.FullName, $"worker-environment-{worker.ProcessId}.json");
             while (true)
             {
-                if (File.Exists(path) && _worker is not null)
+                if (File.Exists(path))
                 {
                     await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                     var report = await JsonSerializer.DeserializeAsync<WorkerEnvironmentReport>(stream, cancellationToken: timeout.Token)
                         ?? throw new InvalidDataException("The worker probe returned an empty report.");
-                    if (report.WorkerProcessId == _worker.ProcessId)
+                    if (report.WorkerProcessId == worker.ProcessId)
                     {
                         return report;
                     }
                 }
-                if (_worker?.Completion.IsCompleted == true)
+                if (worker.Completion.IsCompleted)
                 {
-                    throw new InvalidOperationException($"The worker probe exited with code {await _worker.Completion} before reporting its environment.");
+                    var exitCode = await worker.Completion;
+                    await worker.DisposeAsync();
+                    throw new InvalidOperationException($"The worker probe exited with code {exitCode} before reporting its environment.{Environment.NewLine}{_logger.Messages}");
                 }
                 await Task.Delay(20, timeout.Token);
             }
@@ -437,8 +470,7 @@ public sealed class VirtualOutputWorkerLauncherTests
             {
                 await _worker.DisposeAsync();
             }
-            var path = Path.Combine(directory.FullName, "worker-environment.json");
-            if (File.Exists(path))
+            foreach (var path in Directory.EnumerateFiles(directory.FullName, "worker-environment-*.json"))
             {
                 var report = JsonSerializer.Deserialize<WorkerEnvironmentReport>(await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken))
                     ?? throw new InvalidDataException("The worker probe returned an empty report.");
@@ -463,5 +495,23 @@ public sealed class VirtualOutputWorkerLauncherTests
                 }
             }
         }
+    }
+
+    private sealed class ProbeLogger : ILogger<VirtualOutputWorkerLauncher>
+    {
+        private readonly ConcurrentQueue<string> _messages = new();
+
+        /// <summary>Gets captured output after the worker's output pumps have finished.</summary>
+        internal string Messages => string.Join(Environment.NewLine, _messages);
+
+        /// <inheritdoc />
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        /// <inheritdoc />
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        /// <inheritdoc />
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            _messages.Enqueue(formatter(state, exception));
     }
 }

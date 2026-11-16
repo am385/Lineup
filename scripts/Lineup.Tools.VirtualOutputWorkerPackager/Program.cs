@@ -185,6 +185,8 @@ internal static class Program
         {
             arguments.Add("--runtime");
             arguments.Add(options.RuntimeIdentifier);
+            // Preserve the target when SDK project-reference negotiation removes RuntimeIdentifier.
+            arguments.Add($"-p:PublishRuntimeIdentifier={options.RuntimeIdentifier}");
         }
         if (!string.IsNullOrWhiteSpace(options.SourceRevisionId))
         {

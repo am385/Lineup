@@ -83,9 +83,9 @@ if (args.Length == 0)
         WorkerProcessId = Environment.ProcessId,
         DescendantProcessId = descendant?.Id
     };
-    var reportPath = Path.Combine(Environment.CurrentDirectory, "worker-environment.json");
+    var reportPath = Path.Combine(Environment.CurrentDirectory, $"worker-environment-{Environment.ProcessId}.json");
     await File.WriteAllTextAsync(reportPath + ".tmp", JsonSerializer.Serialize(report));
-    File.Move(reportPath + ".tmp", reportPath, overwrite: true);
+    File.Move(reportPath + ".tmp", reportPath);
     if (mode != "exit")
     {
         await Task.Delay(Timeout.InfiniteTimeSpan);

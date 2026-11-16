@@ -253,11 +253,13 @@ public sealed class PackagingTests
         }
     }
 
-    /// <summary>Verifies executable references compile once per intermediate directory and retain the requested deployment mode.</summary>
+    /// <summary>Verifies executable references compile once per intermediate directory and retain the deployment mode and target architecture.</summary>
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Main_ExecutableReferenceGraph_CompilesOncePerIntermediateDirectory(bool selfContained)
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Main_ExecutableReferenceGraph_CompilesOncePerIntermediateDirectory(bool selfContained, bool crossArchitecture)
     {
         // Arrange
         var root = Directory.CreateTempSubdirectory("lineup-packager-graph-");
@@ -304,9 +306,18 @@ public sealed class PackagingTests
                 "--repository-root", root.FullName, "--output", output, "--configuration", "Release",
                 "--version", "3.0.0", "--source-revision", "packaging-graph-test"
             };
+            var runtime = RuntimeInformation.RuntimeIdentifier;
+            if (crossArchitecture)
+            {
+                runtime = runtime[..(runtime.LastIndexOf('-') + 1)] + (RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "x64" : "arm64");
+            }
+            if (selfContained || crossArchitecture)
+            {
+                arguments.AddRange(["--runtime", runtime]);
+            }
             if (selfContained)
             {
-                arguments.AddRange(["--runtime", RuntimeInformation.RuntimeIdentifier, "--self-contained"]);
+                arguments.Add("--self-contained");
             }
 
             // Act
@@ -329,9 +340,18 @@ public sealed class PackagingTests
                 using var configuration = JsonDocument.Parse(await File.ReadAllTextAsync(
                     Path.Combine(output, "fixture", $"{assembly}.runtimeconfig.json"), TestContext.Current.CancellationToken));
                 Assert.Equal(selfContained, configuration.RootElement.GetProperty("runtimeOptions").TryGetProperty("includedFrameworks", out _));
+                if (selfContained || crossArchitecture)
+                {
+                    using var dependencies = JsonDocument.Parse(await File.ReadAllTextAsync(
+                        Path.Combine(output, "fixture", $"{assembly}.deps.json"), TestContext.Current.CancellationToken));
+                    Assert.EndsWith("/" + runtime, dependencies.RootElement.GetProperty("runtimeTarget").GetProperty("name").GetString(), StringComparison.Ordinal);
+                }
             }
-            var execution = await RunDotnetAsync(root.FullName, [Path.Combine(output, "fixture", "Fixture.dll")]);
-            Assert.Contains("fixture", execution, StringComparison.Ordinal);
+            if (!crossArchitecture)
+            {
+                var execution = await RunDotnetAsync(root.FullName, [Path.Combine(output, "fixture", "Fixture.dll")]);
+                Assert.Contains("fixture", execution, StringComparison.Ordinal);
+            }
         }
         finally
         {

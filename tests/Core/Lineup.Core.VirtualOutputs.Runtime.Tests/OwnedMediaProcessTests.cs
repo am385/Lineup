@@ -210,7 +210,8 @@ public sealed class OwnedMediaProcessTests
         string? temporaryDirectory = null;
         try
         {
-            using var report = JsonDocument.Parse(await ReadReportAsync(Path.Combine(directory, "worker-environment.json"), owner));
+            var workerId = int.Parse(await ReadReportAsync(Path.Combine(directory, "worker.pid"), owner), System.Globalization.CultureInfo.InvariantCulture);
+            using var report = JsonDocument.Parse(await ReadReportAsync(Path.Combine(directory, $"worker-environment-{workerId}.json"), owner));
             worker = Process.GetProcessById(report.RootElement.GetProperty("WorkerProcessId").GetInt32());
             descendant = Process.GetProcessById(report.RootElement.GetProperty("DescendantProcessId").GetInt32());
             temporaryDirectory = report.RootElement.GetProperty("TemporaryPath").GetString();

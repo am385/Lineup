@@ -422,13 +422,17 @@ public sealed class HardwareVideoEncodingTests
     }
 
     /// <summary>Verifies unavailable encoder detection fails by default and selects software only with explicit permission.</summary>
+    /// <param name="fallback">Whether software fallback is explicitly allowed.</param>
+    /// <param name="exitBeforeReturn">Whether the probe has already exited when the factory returns it.</param>
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task VerifyAsync_UnavailableEncoder_RequiresExplicitFallback(bool fallback)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task VerifyAsync_UnavailableEncoder_RequiresExplicitFallback(bool fallback, bool exitBeforeReturn)
     {
         // Arrange
-        var factory = new MissingEncoderFactory();
+        var factory = new MissingEncoderFactory(exitBeforeReturn);
         var settings = new HardwareEncodingSettings { Encoder = HardwareVideoEncoder.Nvenc, AllowSoftwareFallback = fallback };
 
         // Act
@@ -446,11 +450,7 @@ public sealed class HardwareVideoEncodingTests
             // Assert
             Assert.Contains("encoder", error.Message, StringComparison.OrdinalIgnoreCase);
         }
-        Assert.All(factory.Processes, process => Assert.True(process.HasExited));
-        foreach (var process in factory.Processes)
-        {
-            process.Dispose();
-        }
+        Assert.All(factory.ProcessExits, exit => Assert.True(exit.IsCompletedSuccessfully));
     }
 
     /// <summary>Verifies cancellation cannot initialize a GPU or become permission for software fallback.</summary>
@@ -467,7 +467,7 @@ public sealed class HardwareVideoEncodingTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => HardwareEncodingRuntime.VerifyAsync(settings, factory, NullLogger.Instance, cancellation.Token));
 
         // Assert
-        Assert.Empty(factory.Processes);
+        Assert.Empty(factory.ProcessExits);
     }
 
     /// <summary>Verifies an audio-only physical transform reports copied video without probing or falsely reporting GPU fallback.</summary>
@@ -492,13 +492,9 @@ public sealed class HardwareVideoEncodingTests
         {
             // Assert
             Assert.Equal(new VideoEncodingSnapshot("copy", HardwareVideoEncoder.Nvenc, false), lease.VideoEncoding);
-            Assert.Single(factory.Processes);
+            _ = Assert.Single(factory.ProcessExits);
         }
-        foreach (var process in factory.Processes)
-        {
-            Assert.True(process.HasExited);
-            process.Dispose();
-        }
+        Assert.All(factory.ProcessExits, exit => Assert.True(exit.IsCompletedSuccessfully));
     }
 
     /// <summary>Verifies hardware readiness retains the first transport bytes instead of dropping the prefix before publication.</summary>
@@ -521,15 +517,11 @@ public sealed class HardwareVideoEncodingTests
 
             // Assert
             Assert.Equal("transport-prefix", output);
-            Assert.Equal(3, factory.Processes.Count);
+            Assert.Equal(3, factory.ProcessExits.Count);
             Assert.Equal(new VideoEncodingSnapshot(HardwareVideoEncodingPlanner.GetEncoderName(encoder), encoder, false), lease.VideoEncoding);
             Assert.True(input.CanRead);
         }
-        Assert.All(factory.Processes, process => Assert.True(process.HasExited));
-        foreach (var process in factory.Processes)
-        {
-            process.Dispose();
-        }
+        Assert.All(factory.ProcessExits, exit => Assert.True(exit.IsCompletedSuccessfully));
     }
 
     /// <summary>Verifies a real startup error cannot trigger an unapproved retry or overlap the preceding process.</summary>
@@ -557,7 +549,7 @@ public sealed class HardwareVideoEncodingTests
             // Assert
             Assert.Equal("transport-prefix", output);
             Assert.True(factory.HardwareExitedBeforeSoftware);
-            Assert.Equal(4, factory.Processes.Count);
+            Assert.Equal(4, factory.ProcessExits.Count);
             Assert.Equal(new VideoEncodingSnapshot("libx264", encoder, true), lease.VideoEncoding);
         }
         else
@@ -566,20 +558,28 @@ public sealed class HardwareVideoEncodingTests
 
             // Assert
             Assert.True(HardwareEncodingRuntime.IsInitializationFailure(error.Diagnostics));
-            Assert.Equal(3, factory.Processes.Count);
+            Assert.Equal(3, factory.ProcessExits.Count);
         }
-        Assert.All(factory.Processes, process => Assert.True(process.HasExited));
+        Assert.All(factory.ProcessExits, exit => Assert.True(exit.IsCompletedSuccessfully));
         Assert.True(input.CanRead);
-        foreach (var process in factory.Processes)
+    }
+
+    private static Task ObserveExit(Process process)
+    {
+        var exited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        process.Exited += (_, _) => exited.TrySetResult();
+        process.EnableRaisingEvents = true;
+        if (process.HasExited)
         {
-            process.Dispose();
+            exited.TrySetResult();
         }
+        return exited.Task;
     }
 
     private sealed class ScriptedEncoderFactory(HardwareVideoEncoder encoder, bool failPlayback = false) : IMediaProcessFactory
     {
-        /// <summary>Gets independent handles used to observe both probes and the actual transform.</summary>
-        public List<Process> Processes { get; } = [];
+        /// <summary>Gets exit signals retained independently of the probes' and transform's process wrappers.</summary>
+        public List<Task> ProcessExits { get; } = [];
 
         /// <summary>Gets whether the failed actual encoder was already terminated when software was launched.</summary>
         public bool HardwareExitedBeforeSoftware { get; private set; }
@@ -607,21 +607,21 @@ public sealed class HardwareVideoEncodingTests
             }
             else
             {
-                HardwareExitedBeforeSoftware = failPlayback && Processes[^1].HasExited;
+                HardwareExitedBeforeSoftware = failPlayback && ProcessExits[^1].IsCompletedSuccessfully;
                 start.ArgumentList.Add("probe-json");
                 start.ArgumentList.Add(request.Arguments.Contains("-encoders") ? $"V {HardwareVideoEncodingPlanner.GetEncoderName(encoder)}" :
                     request.Arguments.Contains("testsrc2=size=128x128:rate=25") ? string.Empty : "transport-prefix");
             }
             var process = OwnedMediaProcess.Start(start);
-            Processes.Add(Process.GetProcessById(process.Id));
+            ProcessExits.Add(ObserveExit(process));
             return process;
         }
     }
 
-    private sealed class MissingEncoderFactory : IMediaProcessFactory
+    private sealed class MissingEncoderFactory(bool exitBeforeReturn = false) : IMediaProcessFactory
     {
-        /// <summary>Gets independent handles used to verify process cleanup after runtime verification.</summary>
-        public List<Process> Processes { get; } = [];
+        /// <summary>Gets exit signals retained after runtime verification disposes each original process wrapper.</summary>
+        public List<Task> ProcessExits { get; } = [];
 
         /// <inheritdoc />
         public Process Start(MediaProcessRequest request)
@@ -635,7 +635,14 @@ public sealed class HardwareVideoEncodingTests
             };
             start.ArgumentList.Add("--list-runtimes");
             var process = Process.Start(start) ?? throw new InvalidOperationException("The owned test process could not start.");
-            Processes.Add(Process.GetProcessById(process.Id));
+            if (exitBeforeReturn && !process.WaitForExit(10_000))
+            {
+                process.Kill(entireProcessTree: true);
+                process.WaitForExit();
+                process.Dispose();
+                throw new TimeoutException("The encoder-listing test process did not exit.");
+            }
+            ProcessExits.Add(ObserveExit(process));
             return process;
         }
     }

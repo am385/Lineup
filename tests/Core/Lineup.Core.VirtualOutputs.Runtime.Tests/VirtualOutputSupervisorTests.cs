@@ -25,9 +25,11 @@ public sealed class VirtualOutputSupervisorTests
         fixture.Configuration = fixture.Configuration with { VirtualDevices = [device] };
         await fixture.ReconcileAsync();
         var process = fixture.GetProcess(device.Id)!;
-        process.DisposeAsync().Returns(_ => ValueTask.FromException(new IOException("Synthetic owned process cleanup failure.")));
+        process.Configure().DisposeAsync().Returns(_ => ValueTask.FromException(new IOException("Synthetic owned process cleanup failure.")));
         try
         {
+            Assert.False(process.Completion.IsCompleted, "Configuring cleanup failure must not exit the worker during Arrange.");
+
             // Act
             fixture.ExitProcess(process);
             await WaitUntilAsync(() => fixture.Status.GetSnapshots().Single().State == VirtualOutputRuntimeState.Failed,
@@ -40,7 +42,7 @@ public sealed class VirtualOutputSupervisorTests
         }
         finally
         {
-            process.DisposeAsync().Returns(ValueTask.CompletedTask);
+            process.Configure().DisposeAsync().Returns(ValueTask.CompletedTask);
         }
     }
 
@@ -1023,10 +1025,11 @@ public sealed class VirtualOutputSupervisorTests
         fixture.Configuration = fixture.Configuration with { VirtualDevices = [device] };
         await fixture.ReconcileAsync();
         var process = Assert.Single(fixture.Processes);
-        process.StopAsync(Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>()).Returns(Task.FromException(new IOException("Synthetic stop failure.")));
+        process.Configure().StopAsync(Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>()).Returns(Task.FromException(new IOException("Synthetic stop failure.")));
         fixture.Configuration = fixture.Configuration with { VirtualDevices = [] };
 
         // Act
+        Assert.False(process.Completion.IsCompleted, "Configuring stop failure must not exit the worker during Arrange.");
         await Assert.ThrowsAsync<IOException>(() => fixture.ReconcileAsync());
 
         // Assert

@@ -81,6 +81,9 @@ if (args is ["worker", var packageRoot])
     };
     var launcher = new VirtualOutputWorkerLauncher(NullLogger<VirtualOutputWorkerLauncher>.Instance);
     await using var worker = await launcher.StartAsync(package, bootstrap);
+    var workerIdPath = Path.Combine(packageRoot, "worker.pid");
+    await File.WriteAllTextAsync(workerIdPath + ".tmp", worker.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    File.Move(workerIdPath + ".tmp", workerIdPath);
     await Task.Delay(Timeout.InfiniteTimeSpan);
     return 0;
 }

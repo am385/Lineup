@@ -16,7 +16,12 @@ using Xunit;
 
 namespace Lineup.Core.VirtualOutputs.Runtime.Tests;
 
+/// <summary>Isolates real Web Player deadlines from unrelated process-start and IPC stress in other test collections.</summary>
+[CollectionDefinition("Web Player worker processes", DisableParallelization = true)]
+public sealed class WebPlayerWorkerProcessCollection;
+
 /// <summary>Verifies the real dedicated Web Player executable across its HTTP, IPC, FFmpeg, and cleanup boundaries.</summary>
+[Collection("Web Player worker processes")]
 public sealed class WebPlayerWorkerProcessTests
 {
     /// <summary>Worker workspace admission fails explicitly before launching media and leaves no reservation or viewer behind.</summary>
