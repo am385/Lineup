@@ -567,9 +567,23 @@ Allow additional bandwidth for audio and transport overhead, including bursts wh
 This first implementation accelerates **encoding**, not decoding or filtering. Deinterlacing, scaling and subtitle burn-in
 remain CPU filters; VA-API explicitly uploads their output. Audio conversion, source/copy policy, captions and CMAF
 keyframe cadence remain independent. Software presets/CRF are not GPU quality controls: use the backend's balanced,
-speed or quality tuning and its advanced options. MPEG-TS sources requiring embedded-caption preservation fail explicitly
-with currently unverified hardware encoders; select Software or NVENC for those sources. CMAF keeps its parallel caption
-extraction. HDR tone mapping, additional codecs and zero-copy/hardware decode are not implemented.
+speed or quality tuning and its advanced options. QSV and VA-API MPEG-TS encodes repack embedded captions after deinterlacing
+and before hardware upload/encoding, keeping rate-correct A53 packets within Intel's SEI limits without disabling captions.
+Caption-preserving QSV MPEG-TS encoding also uses `async_depth=1`: multiple in-flight caption payloads can crash the bundled
+Intel runtime even after normalization. A conflicting advanced `async_depth` is rejected; QSV paths without embedded-caption
+insertion retain their configured/default submission depth.
+This requires a known output rate of 24, 24000/1001, 30, 30000/1001, 60, or 60000/1001 frames per second;
+other or unknown rates and currently unverified caption encoders fail explicitly. Select Software or NVENC for those sources. CMAF keeps its parallel caption
+extraction. QSV and VA-API Web Player transcodes explicitly disable redundant embedded A53 caption insertion, avoiding
+broadcast-caption SEI payload handling in those encoders while retaining the separate WebVTT captions. VA-API's other
+default SEI messages remain enabled. Copy-only video and other encoders retain their existing caption policy.
+
+Jellyfin caches HDHomeRun live-TV probe metadata by channel, independently of Lineup's current output profile. Changing a
+channel from forced H.264 encoding back to MPEG-2 pass-through can therefore leave Jellyfin copying MPEG-2 into a browser
+session negotiated as H.264, producing audio without decoded video. Browser reloads do not clear that server-side cache.
+Keep a stable output codec for a Jellyfin virtual device, or invalidate the affected Jellyfin live-TV probe cache when changing
+its codec policy. Lineup does not change Jellyfin settings or automatically clear its cache.
+HDR tone mapping, additional codecs and zero-copy/hardware decode are not implemented.
 
 QSV Web Player transcodes use closed, frame-rate-based GOP scheduling instead of timestamp-forced keyframes:
 the GOP and minimum keyframe interval are the ceiling of two seconds times the effective output frame rate.
@@ -1435,6 +1449,8 @@ Graph shutdown normally drains transforms before stopping physical acquisitions.
 every acquisition to stop; graph-owned cleanup continues and retains capacity until the owned source is disposed.
 
 Shared FFmpeg transforms, MPEG-TS slates, and management/dedicated caption processes continuously drain diagnostics while retaining only the last 16,384 characters and at most fifty non-empty lines. Long warning lines cannot accumulate lifetime stderr in the trusted host; nonzero exits retain their exit code and recent diagnostic tail.
+Unexpected exits after Web Player publication are reported at Warning with the exit code, drained diagnostic tail, and
+any independently observed source-termination reason. Intentional stops are not reported as unexpected encoder exits.
 
 Network discovery is disabled by default to avoid UDP port conflicts. To enable it, turn on **Enable UDP and SSDP network discovery**. A management-hosted
 virtual HDHomeRun requires an absolute HTTP or HTTPS **Advertised base URL** reachable by media servers. A dedicated listener advertises its effective

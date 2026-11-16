@@ -11,6 +11,53 @@ namespace Lineup.Plugin.WebPlayer.Tests;
 /// <summary>Verifies optional GPU encoding preserves copy-first media policy and owns initialization failures.</summary>
 public sealed class HardwareVideoEncodingTests
 {
+    /// <summary>Verifies GPU CMAF encoding avoids redundant A53 insertion without removing selectable caption or text sidecars.</summary>
+    [Theory]
+    [InlineData(HardwareVideoEncoder.Qsv, "-a53cc:v:0", "0")]
+    [InlineData(HardwareVideoEncoder.Vaapi, "-sei:v:0", "-a53_cc")]
+    [InlineData(HardwareVideoEncoder.Software, null, null)]
+    [InlineData(HardwareVideoEncoder.Nvenc, null, null)]
+    public void Cmaf_EncodedCaptions_KeepWebVttWithoutRedundantIntelSei(HardwareVideoEncoder encoder, string? option, string? value)
+    {
+        // Arrange
+        var source = new MediaProbeResult(
+        [
+            new MediaTrackMetadata(0, MediaTrackType.Video, "h264", null, 1280, 720, null, null),
+            new MediaTrackMetadata(2, MediaTrackType.Subtitle, "eia_608", null, null, null, null, null)
+            {
+                IsEmbeddedClosedCaptions = true,
+                SubtitlePresentation = SubtitlePresentation.WebVtt
+            },
+            new MediaTrackMetadata(3, MediaTrackType.Subtitle, "subrip", null, null, null, null, null) { SubtitlePresentation = SubtitlePresentation.WebVtt }
+        ], null);
+        var profile = new VirtualTranscodeProfile { AlwaysTranscodeVideo = true, HardwareEncoding = new() { Encoder = encoder } };
+        var request = new CmafStreamRequest { PreferredVideo = CmafPreferredVideo.Source };
+        var selection = CmafStreamPlanner.SelectTracks(source, request);
+
+        // Act
+        var arguments = CmafStreamPlanner.CreateArguments(profile, source, selection, request, "manifest.mpd", new Dictionary<int, string> { [3] = "captions-3.vtt" }).ToList();
+        var subtitles = CmafStreamPlanner.GetSelectableSubtitles(source);
+
+        // Assert
+        Assert.Equal(HardwareVideoEncodingPlanner.GetEncoderName(encoder), arguments[arguments.IndexOf("-c:v:0") + 1]);
+        if (option is not null)
+        {
+            Assert.Equal(value, arguments[arguments.IndexOf(option) + 1]);
+            Assert.Equal(1, arguments.Count(argument => argument == option));
+            Assert.True(arguments.IndexOf(option) < arguments.IndexOf("manifest.mpd"));
+        }
+        else
+        {
+            Assert.DoesNotContain("-a53cc:v:0", arguments);
+            Assert.DoesNotContain("-sei:v:0", arguments);
+        }
+        Assert.Equal([2, 3], subtitles.Select(track => track.Index));
+        Assert.True(subtitles[0].IsEmbeddedClosedCaptions);
+        Assert.Equal("captions-3.vtt", arguments[^1]);
+        Assert.Equal("webvtt", arguments[arguments.IndexOf("-c:s") + 1]);
+        Assert.Contains("0:3", arguments);
+    }
+
     /// <summary>Verifies an explicit source-video request cannot bypass configured forced encoding or its bitrate constraint.</summary>
     [Theory]
     [InlineData(HardwareVideoEncoder.Software, "libx264")]
@@ -123,15 +170,18 @@ public sealed class HardwareVideoEncodingTests
 
     /// <summary>Verifies the automatic QSV exception never turns a copy plan into a video transcode.</summary>
     [Theory]
-    [InlineData(VideoScanType.Interlaced)]
-    [InlineData(VideoScanType.Progressive)]
-    [InlineData(VideoScanType.Unknown)]
-    public void Cmaf_QsvSourceCopy_DoesNotEnableDeinterlacing(VideoScanType scan)
+    [InlineData(VideoScanType.Interlaced, HardwareVideoEncoder.Qsv)]
+    [InlineData(VideoScanType.Progressive, HardwareVideoEncoder.Qsv)]
+    [InlineData(VideoScanType.Unknown, HardwareVideoEncoder.Qsv)]
+    [InlineData(VideoScanType.Interlaced, HardwareVideoEncoder.Vaapi)]
+    [InlineData(VideoScanType.Progressive, HardwareVideoEncoder.Vaapi)]
+    [InlineData(VideoScanType.Unknown, HardwareVideoEncoder.Vaapi)]
+    public void Cmaf_HardwareSourceCopy_DoesNotEnableEncoding(VideoScanType scan, HardwareVideoEncoder encoder)
     {
         // Arrange
         var source = new MediaProbeResult([new MediaTrackMetadata(0, MediaTrackType.Video, "h264", null, 1920, 1080, null, null)
             { ScanType = scan, FrameRate = new(30000, 1001) }], null);
-        var profile = new VirtualTranscodeProfile { HardwareEncoding = new() { Encoder = HardwareVideoEncoder.Qsv } };
+        var profile = new VirtualTranscodeProfile { HardwareEncoding = new() { Encoder = encoder } };
         var request = new CmafStreamRequest { PreferredVideo = CmafPreferredVideo.Source };
         var selection = CmafStreamPlanner.SelectTracks(source, request);
 
@@ -142,7 +192,9 @@ public sealed class HardwareVideoEncodingTests
         // Assert
         Assert.Null(processing);
         Assert.Contains("copy", arguments);
-        Assert.DoesNotContain("h264_qsv", arguments);
+        Assert.DoesNotContain(HardwareVideoEncodingPlanner.GetEncoderName(encoder), arguments);
+        Assert.DoesNotContain("-a53cc:v:0", arguments);
+        Assert.DoesNotContain("-sei:v:0", arguments);
         Assert.DoesNotContain(arguments, value => value.Contains("bwdif", StringComparison.Ordinal));
     }
 
@@ -407,15 +459,166 @@ public sealed class HardwareVideoEncodingTests
         Assert.Equal("manifest.mpd", arguments[^1]);
     }
 
-    /// <summary>Verifies unsupported caption preservation is rejected instead of silently losing captions.</summary>
-    [Fact]
-    public void Apply_UnverifiedClosedCaptionBackend_RejectsEncoding()
+    /// <summary>Verifies Intel caption repacking follows deinterlacing and precedes upload in both MPEG-TS stages.</summary>
+    [Theory]
+    [InlineData(HardwareVideoEncoder.Qsv, VideoScanType.Progressive, SourceDeinterlacePolicy.Preserve, 60000, 1001)]
+    [InlineData(HardwareVideoEncoder.Vaapi, VideoScanType.Progressive, SourceDeinterlacePolicy.Preserve, 60000, 1001)]
+    [InlineData(HardwareVideoEncoder.Qsv, VideoScanType.Interlaced, SourceDeinterlacePolicy.SourceFieldRate, 30000, 1001)]
+    [InlineData(HardwareVideoEncoder.Vaapi, VideoScanType.Interlaced, SourceDeinterlacePolicy.SourceFieldRate, 30000, 1001)]
+    [InlineData(HardwareVideoEncoder.Qsv, VideoScanType.Interlaced, SourceDeinterlacePolicy.SourceFrameRate, 30000, 1001)]
+    [InlineData(HardwareVideoEncoder.Vaapi, VideoScanType.Interlaced, SourceDeinterlacePolicy.SourceFrameRate, 30000, 1001)]
+    public void MpegTs_IntelCaptions_RepackBeforeEncoding(HardwareVideoEncoder encoder, VideoScanType scan, SourceDeinterlacePolicy deinterlace, int numerator, int denominator)
+    {
+        // Arrange
+        var video = new MediaTrackMetadata(0, MediaTrackType.Video, "mpeg2video", null, 1280, 720, null, null)
+        {
+            ScanType = scan,
+            FrameRate = new(numerator, denominator),
+            HasClosedCaptions = true
+        };
+        var caption = new MediaTrackMetadata(2, MediaTrackType.Subtitle, "eia_608", null, null, null, null, null) { IsEmbeddedClosedCaptions = true };
+        var source = new MediaProbeResult([video, caption], null);
+        var hardware = new HardwareEncodingSettings { Encoder = encoder };
+        var physical = new PhysicalTranscodeProfile { AlwaysTranscodeVideo = true, HardwareEncoding = hardware, Deinterlace = deinterlace };
+        var output = new VirtualTranscodeProfile { AlwaysTranscodeVideo = true, HardwareEncoding = hardware, Deinterlace = deinterlace };
+        var expectedFilter = scan == VideoScanType.Interlaced ? $"{SourceDeinterlacePlanner.CreateFilter(deinterlace)},ccrepack" : "ccrepack";
+        expectedFilter += encoder == HardwareVideoEncoder.Vaapi ? ",format=nv12,hwupload" : "";
+
+        // Act
+        var physicalArguments = SourceDeinterlacePlanner.CreateArguments(source, physical).ToList();
+        var virtualArguments = MpegTsTranscodePlanner.CreateFfmpegArguments(
+            new Uri("http://device/source"), video.Codec, [], output, [caption], scan == VideoScanType.Interlaced, video.FrameRate).ToList();
+
+        // Assert
+        foreach (var arguments in new[] { physicalArguments, virtualArguments })
+        {
+            Assert.Contains(HardwareVideoEncodingPlanner.GetEncoderName(encoder), arguments);
+            Assert.Equal(expectedFilter, arguments[arguments.IndexOf("-filter:v:0") + 1]);
+            Assert.Equal(1, arguments.Count(argument => argument == "-filter:v:0"));
+            Assert.DoesNotContain("-filter:v", arguments);
+            Assert.DoesNotContain("0:2", arguments);
+            var captionOption = encoder == HardwareVideoEncoder.Qsv ? "-a53cc:v:0" : "-sei:v:0";
+            Assert.Equal(encoder == HardwareVideoEncoder.Qsv ? "1" : "+a53_cc", arguments[arguments.IndexOf(captionOption) + 1]);
+            Assert.True(arguments.IndexOf(captionOption) > arguments.IndexOf("-i"));
+            Assert.True(arguments.IndexOf(captionOption) < arguments.IndexOf("pipe:1"));
+            if (encoder == HardwareVideoEncoder.Qsv)
+            {
+                Assert.Equal("1", arguments[arguments.IndexOf("-async_depth:v:0") + 1]);
+            }
+            else
+            {
+                Assert.DoesNotContain("-async_depth:v:0", arguments);
+            }
+        }
+    }
+
+    /// <summary>Verifies caption preservation prevents unsafe concurrent QSV payload submission without changing other QSV streams.</summary>
+    [Theory]
+    [InlineData(true, "1")]
+    [InlineData(true, "4")]
+    [InlineData(true, "0")]
+    [InlineData(false, "4")]
+    public void Apply_QsvCaptionSubmission_RequiresSingleFrameDepth(bool captions, string depth)
+    {
+        // Arrange
+        string[] software = ["-i", "pipe:0", "-c:v:0", "libx264", "-f", "mpegts", "pipe:1"];
+        var hardware = new HardwareEncodingSettings { Encoder = HardwareVideoEncoder.Qsv, AdvancedArguments = $"async_depth={depth}" };
+        var rejected = captions && depth != "1";
+        List<string>? arguments = null;
+
+        // Act
+        var error = Record.Exception(() => arguments = HardwareVideoEncodingPlanner.Apply(
+            software, hardware, requiresClosedCaptions: captions, closedCaptionFrameRate: new(60000, 1001)).ToList());
+
+        // Assert
+        if (rejected)
+        {
+            var failure = Assert.IsType<NotSupportedException>(error);
+            Assert.Contains("async_depth=1", failure.Message);
+        }
+        else
+        {
+            Assert.Null(error);
+            Assert.NotNull(arguments);
+            Assert.Equal(1, arguments.Count(argument => argument == "-async_depth:v:0"));
+            Assert.Equal(depth, arguments[arguments.IndexOf("-async_depth:v:0") + 1]);
+            Assert.Equal(captions, arguments.Contains("-a53cc:v:0"));
+        }
+    }
+
+    /// <summary>Verifies field doubling cannot silently pass an unsupported caption rate through ccrepack.</summary>
+    [Theory]
+    [InlineData(HardwareVideoEncoder.Qsv)]
+    [InlineData(HardwareVideoEncoder.Vaapi)]
+    public void MpegTs_UnsupportedCaptionFieldRate_RejectsEncoding(HardwareVideoEncoder encoder)
+    {
+        // Arrange
+        var caption = new MediaTrackMetadata(2, MediaTrackType.Subtitle, "eia_608", null, null, null, null, null) { IsEmbeddedClosedCaptions = true };
+        var profile = new VirtualTranscodeProfile
+        {
+            AlwaysTranscodeVideo = true,
+            Deinterlace = SourceDeinterlacePolicy.SourceFieldRate,
+            HardwareEncoding = new() { Encoder = encoder }
+        };
+
+        // Act
+        var error = Assert.Throws<NotSupportedException>(() => MpegTsTranscodePlanner.CreateFfmpegArguments(
+            new Uri("http://device/source"), "mpeg2video", [], profile, [caption], sourceVideoIsInterlaced: true, sourceVideoFrameRate: new(60000, 1001)));
+
+        // Assert
+        Assert.Contains("supported output frame rate", error.Message);
+    }
+
+    /// <summary>Verifies copy-only streams do not require a caption normalization rate or initialize a GPU.</summary>
+    [Theory]
+    [InlineData(HardwareVideoEncoder.Qsv)]
+    [InlineData(HardwareVideoEncoder.Vaapi)]
+    public void Apply_CopyWithCaptions_PreservesArguments(HardwareVideoEncoder encoder)
+    {
+        // Arrange
+        string[] software = ["-i", "pipe:0", "-c", "copy", "-f", "mpegts", "pipe:1"];
+
+        // Act
+        var arguments = HardwareVideoEncodingPlanner.Apply(software, new() { Encoder = encoder }, requiresClosedCaptions: true);
+
+        // Assert
+        Assert.Same(software, arguments);
+    }
+
+    /// <summary>Verifies unsupported or unknown caption rates are rejected instead of reaching unsafe Intel SEI handling.</summary>
+    [Theory]
+    [InlineData(HardwareVideoEncoder.Qsv, null, null)]
+    [InlineData(HardwareVideoEncoder.Vaapi, null, null)]
+    [InlineData(HardwareVideoEncoder.Qsv, 25, 1)]
+    [InlineData(HardwareVideoEncoder.Qsv, 15, 1)]
+    [InlineData(HardwareVideoEncoder.Vaapi, 50, 1)]
+    [InlineData(HardwareVideoEncoder.Qsv, 30, 0)]
+    [InlineData(HardwareVideoEncoder.Vaapi, -30, 1)]
+    public void Apply_UnsupportedClosedCaptionRate_RejectsEncoding(HardwareVideoEncoder encoder, int? numerator, int? denominator)
+    {
+        // Arrange
+        string[] software = ["-i", "pipe:0", "-c:v:0", "libx264", "-f", "mpegts", "pipe:1"];
+        var rate = numerator.HasValue ? new MediaFrameRate(numerator.Value, denominator!.Value) : null;
+
+        // Act
+        var error = Assert.Throws<NotSupportedException>(() => HardwareVideoEncodingPlanner.Apply(
+            software, new() { Encoder = encoder }, requiresClosedCaptions: true, closedCaptionFrameRate: rate));
+
+        // Assert
+        Assert.Contains("supported output frame rate", error.Message);
+    }
+
+    /// <summary>Verifies unverified caption backends remain rejected instead of silently losing captions.</summary>
+    [Theory]
+    [InlineData(HardwareVideoEncoder.Amf)]
+    [InlineData(HardwareVideoEncoder.VideoToolbox)]
+    public void Apply_UnverifiedClosedCaptionBackend_RejectsEncoding(HardwareVideoEncoder encoder)
     {
         // Arrange
         string[] software = ["-i", "pipe:0", "-c:v:0", "libx264", "-f", "mpegts", "pipe:1"];
 
         // Act
-        var error = Assert.Throws<NotSupportedException>(() => HardwareVideoEncodingPlanner.Apply(software, new() { Encoder = HardwareVideoEncoder.Vaapi }, requiresClosedCaptions: true));
+        var error = Assert.Throws<NotSupportedException>(() => HardwareVideoEncodingPlanner.Apply(software, new() { Encoder = encoder }, requiresClosedCaptions: true));
 
         // Assert
         Assert.Contains("Closed-caption", error.Message);

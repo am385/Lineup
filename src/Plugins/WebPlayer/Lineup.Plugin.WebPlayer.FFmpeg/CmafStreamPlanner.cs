@@ -617,7 +617,19 @@ public static class CmafStreamPlanner
             arguments.AddRange(["-map", $"0:{subtitle.Index}", "-c:s", "webvtt", "-f", "webvtt", "-y", webVttPath]);
         }
 
-        return HardwareVideoEncodingPlanner.Apply(arguments, profile.HardwareEncoding, preserveMinimumKeyframeInterval: profile.HardwareEncoding.Encoder == HardwareVideoEncoder.Qsv);
+        var outputArguments = HardwareVideoEncodingPlanner.Apply(
+            arguments, profile.HardwareEncoding, preserveMinimumKeyframeInterval: profile.HardwareEncoding.Encoder == HardwareVideoEncoder.Qsv).ToList();
+        var encoder = HardwareVideoEncodingPlanner.GetVideoEncoder(outputArguments);
+        // Watch serves captions through WebVTT; do not copy broadcast A53 payloads into these encoders' SEI buffers.
+        if (encoder == "h264_qsv")
+        {
+            outputArguments.InsertRange(outputArguments.IndexOf(encoder) + 1, ["-a53cc:v:0", "0"]);
+        }
+        else if (encoder == "h264_vaapi")
+        {
+            outputArguments.InsertRange(outputArguments.IndexOf(encoder) + 1, ["-sei:v:0", "-a53_cc"]);
+        }
+        return outputArguments;
     }
 
     /// <summary>Resolves effective filtering and cadence without making hardware selection alone force video encoding.</summary>

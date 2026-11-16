@@ -330,11 +330,12 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
             audioStreams,
             virtualProfile,
             subtitles,
-            sourceVideo?.ScanType == VideoScanType.Interlaced).ToList();
+            sourceVideo?.ScanType == VideoScanType.Interlaced,
+            sourceVideo?.FrameRate).ToList();
         virtualArguments[virtualArguments.IndexOf("http://lineup.invalid/source")] = "pipe:0";
         var softwareArguments = MpegTsTranscodePlanner.CreateFfmpegArguments(
             new Uri("http://lineup.invalid/source"), sourceVideo?.Codec, audioStreams, virtualProfile with { HardwareEncoding = new() },
-            subtitles, sourceVideo?.ScanType == VideoScanType.Interlaced).ToList();
+            subtitles, sourceVideo?.ScanType == VideoScanType.Interlaced, sourceVideo?.FrameRate).ToList();
         softwareArguments[softwareArguments.IndexOf("http://lineup.invalid/source")] = "pipe:0";
         stages.Add(CreateStage("virtual-mpegts", virtualArguments, sourceName, virtualProfile.HardwareEncoding, softwareArguments));
 

@@ -198,7 +198,9 @@ public static class SourceDeinterlacePlanner
             "-muxdelay", "0",
             "pipe:1"
         ]);
-        return HardwareVideoEncodingPlanner.Apply(arguments, profile.HardwareEncoding, source.Tracks.Any(track => track.IsEmbeddedClosedCaptions));
+        var captionFrameRate = deinterlace && profile.Deinterlace == SourceDeinterlacePolicy.SourceFieldRate ? video?.FrameRate?.Double() : video?.FrameRate;
+        return HardwareVideoEncodingPlanner.Apply(arguments, profile.HardwareEncoding,
+            source.Tracks.Any(track => track.IsEmbeddedClosedCaptions) || video?.HasClosedCaptions == true, closedCaptionFrameRate: captionFrameRate);
     }
 
     /// <summary>

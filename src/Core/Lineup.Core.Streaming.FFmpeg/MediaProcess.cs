@@ -121,15 +121,16 @@ public static class MediaStreamPump
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(process);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var input = process.StandardInput.BaseStream;
         try
         {
-            var copyTask = CopyToProcessAsync(source, process, logger, sourceName, lifetime.Token, sourceTerminated);
             var exitTask = process.WaitForExitAsync(lifetime.Token);
+            var copyTask = CopyToProcessAsync(source, input, exitTask, logger, sourceName, lifetime.Token, sourceTerminated);
             await Task.WhenAny(copyTask, exitTask);
             await lifetime.CancelAsync();
             try
             {
-                await copyTask;
+                await Task.WhenAll(copyTask, exitTask);
             }
             catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
             {
@@ -139,7 +140,7 @@ public static class MediaStreamPump
         {
             try
             {
-                process.StandardInput.BaseStream.Close();
+                input.Close();
             }
             catch (ObjectDisposedException)
             {
@@ -147,7 +148,7 @@ public static class MediaStreamPump
         }
     }
 
-    private static async Task CopyToProcessAsync(Stream source, Process process, ILogger logger, string sourceName, CancellationToken cancellationToken, Action<string>? sourceTerminated)
+    private static async Task CopyToProcessAsync(Stream source, Stream input, Task exitTask, ILogger logger, string sourceName, CancellationToken cancellationToken, Action<string>? sourceTerminated)
     {
         var buffer = new byte[64 * 1024];
         while (true)
@@ -172,12 +173,12 @@ public static class MediaStreamPump
             }
             try
             {
-                await process.StandardInput.BaseStream.WriteAsync(buffer.AsMemory(0, count), cancellationToken);
+                await input.WriteAsync(buffer.AsMemory(0, count), cancellationToken);
             }
-            catch (IOException exception)
+            catch (Exception exception) when (exception is IOException || exception is ObjectDisposedException && cancellationToken.IsCancellationRequested)
             {
                 logger.LogDebug(exception, "Media input pipe closed for {SourceName}", sourceName);
-                await process.WaitForExitAsync(cancellationToken);
+                await exitTask;
                 return;
             }
         }

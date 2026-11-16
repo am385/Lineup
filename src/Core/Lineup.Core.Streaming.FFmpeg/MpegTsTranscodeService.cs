@@ -47,6 +47,7 @@ public static class MpegTsTranscodePlanner
     /// <param name="profile">The immutable effective video and audio transcode profile.</param>
     /// <param name="subtitleStreams">Detected standalone subtitle streams.</param>
     /// <param name="sourceVideoIsInterlaced">Whether the effective source video is confirmed interlaced.</param>
+    /// <param name="sourceVideoFrameRate">The effective source frame rate before any virtual deinterlacing.</param>
     /// <returns>The FFmpeg argument list.</returns>
     public static IReadOnlyList<string> CreateFfmpegArguments(
         Uri inputUri,
@@ -54,7 +55,8 @@ public static class MpegTsTranscodePlanner
         IReadOnlyList<AudioStreamInfo> audioStreams,
         VirtualTranscodeProfile profile,
         IReadOnlyList<MediaTrackMetadata>? subtitleStreams = null,
-        bool sourceVideoIsInterlaced = false
+        bool sourceVideoIsInterlaced = false,
+        MediaFrameRate? sourceVideoFrameRate = null
     )
         => CreateFfmpegArgumentsCore(
             inputUri,
@@ -63,6 +65,7 @@ public static class MpegTsTranscodePlanner
             profile,
             subtitleStreams,
             sourceVideoIsInterlaced,
+            sourceVideoFrameRate,
             codec => ResolveAudioCodec(codec, profile));
 
     private static IReadOnlyList<string> CreateFfmpegArgumentsCore(
@@ -72,6 +75,7 @@ public static class MpegTsTranscodePlanner
         VirtualTranscodeProfile profile,
         IReadOnlyList<MediaTrackMetadata>? subtitleStreams,
         bool sourceVideoIsInterlaced,
+        MediaFrameRate? sourceVideoFrameRate,
         Func<string, string> resolveAudioCodec
     )
     {
@@ -160,7 +164,9 @@ public static class MpegTsTranscodePlanner
 
         arguments.AddRange(["-max_muxing_queue_size", "1024", "-mpegts_flags", "+resend_headers", "-muxdelay", "0", "-f", "mpegts", "pipe:1"]);
 
-        return HardwareVideoEncodingPlanner.Apply(arguments, profile.HardwareEncoding, subtitleStreams?.Any(track => track.IsEmbeddedClosedCaptions) == true);
+        var captionFrameRate = deinterlace && profile.Deinterlace == SourceDeinterlacePolicy.SourceFieldRate ? sourceVideoFrameRate?.Double() : sourceVideoFrameRate;
+        return HardwareVideoEncodingPlanner.Apply(arguments, profile.HardwareEncoding,
+            subtitleStreams?.Any(track => track.IsEmbeddedClosedCaptions) == true, closedCaptionFrameRate: captionFrameRate);
     }
 
     private static string ResolveAudioCodec(string codec, VirtualTranscodeProfile profile)

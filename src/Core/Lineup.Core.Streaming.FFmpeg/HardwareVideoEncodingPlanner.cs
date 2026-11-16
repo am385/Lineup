@@ -1,3 +1,4 @@
+using Lineup.Core.Common.Streaming;
 using Lineup.Core.Extensibility.Streaming;
 
 namespace Lineup.Core.Streaming.FFmpeg;
@@ -32,7 +33,13 @@ public static class HardwareVideoEncodingPlanner
     };
 
     /// <summary>Replaces software encoder options only when the existing plan already encodes video.</summary>
-    public static IReadOnlyList<string> Apply(IReadOnlyList<string> softwareArguments, HardwareEncodingSettings settings, bool requiresClosedCaptions = false, bool preserveMinimumKeyframeInterval = false)
+    public static IReadOnlyList<string> Apply(
+        IReadOnlyList<string> softwareArguments,
+        HardwareEncodingSettings settings,
+        bool requiresClosedCaptions = false,
+        bool preserveMinimumKeyframeInterval = false,
+        MediaFrameRate? closedCaptionFrameRate = null
+    )
     {
         var errors = HardwareEncodingValidation.Validate(settings);
         if (errors.Count > 0)
@@ -43,14 +50,20 @@ public static class HardwareVideoEncodingPlanner
         {
             return softwareArguments;
         }
-        if (requiresClosedCaptions && settings.Encoder != HardwareVideoEncoder.Nvenc)
+        var repackCaptions = requiresClosedCaptions && settings.Encoder is HardwareVideoEncoder.Qsv or HardwareVideoEncoder.Vaapi;
+        if (repackCaptions && !CanRepackCaptions(closedCaptionFrameRate))
+        {
+            throw new NotSupportedException($"Closed-caption normalization for {settings.Encoder} requires a supported output frame rate. Select Software or NVENC for this source.");
+        }
+        if (requiresClosedCaptions && !repackCaptions && settings.Encoder != HardwareVideoEncoder.Nvenc)
         {
             throw new NotSupportedException($"Closed-caption preservation has not been verified for {settings.Encoder}. Select Software or NVENC for this source.");
         }
 
         var arguments = softwareArguments.ToList();
         var codecIndex = arguments.IndexOf("libx264");
-        var streamSuffix = arguments[codecIndex - 1].StartsWith("-c:v", StringComparison.Ordinal) ? arguments[codecIndex - 1][2..] : ":v:0";
+        var streamSuffix = arguments[codecIndex - 1] == "-c:v" ? ":v:0" :
+            arguments[codecIndex - 1].StartsWith("-c:v:", StringComparison.Ordinal) ? arguments[codecIndex - 1][2..] : ":v:0";
         arguments[codecIndex] = GetEncoderName(settings.Encoder);
         for (var index = arguments.Count - 2; index >= 0; index--)
         {
@@ -65,6 +78,20 @@ public static class HardwareVideoEncodingPlanner
         }
         var insertion = arguments.IndexOf(GetEncoderName(settings.Encoder)) + 1;
         var options = CreateEncoderOptions(settings, streamSuffix);
+        if (repackCaptions && settings.Encoder == HardwareVideoEncoder.Qsv)
+        {
+            var depthOption = $"-async_depth{streamSuffix}";
+            var depth = options.IndexOf(depthOption);
+            if (depth >= 0 && options[depth + 1] != "1")
+            {
+                throw new NotSupportedException("Caption-preserving QSV encoding requires async_depth=1. Remove the conflicting advanced option or select Software or NVENC.");
+            }
+            if (depth < 0)
+            {
+                // Multiple in-flight caption payloads crash the bundled Intel runtime even after repacking.
+                options.AddRange([depthOption, "1"]);
+            }
+        }
         arguments.InsertRange(insertion, options);
         var maximumRate = arguments.FindIndex(argument => argument.Split(':')[0] == "-maxrate");
         if (maximumRate >= 0)
@@ -83,9 +110,21 @@ public static class HardwareVideoEncodingPlanner
         }
         var input = arguments.IndexOf("-i");
         arguments.InsertRange(input, CreateDeviceArguments(settings));
-        if (settings.Encoder == HardwareVideoEncoder.Vaapi)
+        if (repackCaptions)
         {
-            AddUploadFilter(arguments, streamSuffix);
+            // Rebuild rate-correct caption packets before Intel's bounded SEI payload handling.
+            arguments.InsertRange(arguments.IndexOf(GetEncoderName(settings.Encoder)) + 1, settings.Encoder == HardwareVideoEncoder.Qsv
+                ? [$"-a53cc{streamSuffix}", "1"]
+                : [$"-sei{streamSuffix}", "+a53_cc"]);
+        }
+        var filter = settings.Encoder == HardwareVideoEncoder.Vaapi ? "format=nv12,hwupload" : "";
+        if (repackCaptions)
+        {
+            filter = filter.Length == 0 ? "ccrepack" : $"ccrepack,{filter}";
+        }
+        if (filter.Length > 0)
+        {
+            AppendVideoFilter(arguments, streamSuffix, filter);
         }
         return arguments;
     }
@@ -157,9 +196,20 @@ public static class HardwareVideoEncodingPlanner
         return arguments;
     }
 
-    private static void AddUploadFilter(List<string> arguments, string suffix)
+    private static bool CanRepackCaptions(MediaFrameRate? rate)
     {
-        const string upload = "format=nv12,hwupload";
+        if (rate is not { IsUsable: true })
+        {
+            return false;
+        }
+        var numerator = (long)rate.Numerator;
+        var denominator = (long)rate.Denominator;
+        return numerator == 24 * denominator || numerator == 30 * denominator || numerator == 60 * denominator ||
+            numerator * 1001 == 24000 * denominator || numerator * 1001 == 30000 * denominator || numerator * 1001 == 60000 * denominator;
+    }
+
+    private static void AppendVideoFilter(List<string> arguments, string suffix, string filter)
+    {
         var complex = arguments.IndexOf("-filter_complex");
         if (complex >= 0)
         {
@@ -167,16 +217,16 @@ public static class HardwareVideoEncodingPlanner
             {
                 throw new NotSupportedException("The hardware encoder requires a contained video filter output.");
             }
-            arguments[complex + 1] = $"{arguments[complex + 1][..^3]}[lineup_cpu];[lineup_cpu]{upload}[v]";
+            arguments[complex + 1] = $"{arguments[complex + 1][..^3]}[lineup_cpu];[lineup_cpu]{filter}[v]";
             return;
         }
-        var filter = arguments.IndexOf($"-filter{suffix}");
-        if (filter >= 0)
+        var existingFilter = arguments.IndexOf($"-filter{suffix}");
+        if (existingFilter >= 0)
         {
-            arguments[filter + 1] += $",{upload}";
+            arguments[existingFilter + 1] += $",{filter}";
             return;
         }
-        var codec = arguments.IndexOf("h264_vaapi");
-        arguments.InsertRange(codec + 1, [$"-filter{suffix}", upload]);
+        var codec = arguments.FindIndex(argument => argument is "h264_vaapi" or "h264_qsv");
+        arguments.InsertRange(codec + 1, [$"-filter{suffix}", filter]);
     }
 }

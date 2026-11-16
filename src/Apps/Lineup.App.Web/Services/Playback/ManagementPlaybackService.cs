@@ -1034,16 +1034,22 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
             {
                 MediaProcessAdmission.WaitForReleaseAsync(session.Process).GetAwaiter().GetResult();
             }
-            session.Process?.Dispose();
         }
         catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
         {
-            _logger.LogDebug(ex, "Unable to dispose FFmpeg process for CMAF session {SessionId}", session.SessionId);
+            _logger.LogDebug(ex, "Unable to stop FFmpeg process for CMAF session {SessionId}", session.SessionId);
         }
         finally
         {
-            StopCaptionProcess(session);
-            session.Tasks.DrainAsync().GetAwaiter().GetResult();
+            try
+            {
+                session.Tasks.DrainAsync().GetAwaiter().GetResult();
+            }
+            finally
+            {
+                session.Process.Dispose();
+                StopCaptionProcess(session);
+            }
             try
             {
                 session.CapacityLease?.Dispose();
@@ -1064,7 +1070,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         }
     }
 
-    private void CleanupIncompleteCmafOutput(Process? process, Process? captionProcess, Task<string>? captionErrorTask, string? directory)
+    private void CleanupIncompleteCmafOutput(Process? process, Process? captionProcess, Task<string>? captionErrorTask, string? directory, CmafMediaTasks? tasks = null)
     {
         if (process is { HasExited: false })
         {
@@ -1082,8 +1088,15 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         {
             MediaProcessAdmission.WaitForReleaseAsync(process).GetAwaiter().GetResult();
         }
-        process?.Dispose();
-        StopCaptionProcess(captionProcess, captionErrorTask, "starting");
+        try
+        {
+            tasks?.DrainAsync().GetAwaiter().GetResult();
+        }
+        finally
+        {
+            process?.Dispose();
+            StopCaptionProcess(captionProcess, captionErrorTask, "starting");
+        }
         if (directory is not null)
         {
             TryDeleteTransientDirectory(directory);
@@ -1120,31 +1133,42 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         }
     }
 
-    private void TryCleanupCompletedCmafSession(Process process, CmafSession session)
+    private void TryCleanupCompletedCmafSession(Process process, CmafSession session, ConcurrentQueue<string> errors)
     {
         if (!session.IsActive)
         {
             return;
         }
-        bool hasExited;
+        int exitCode;
         try
         {
-            hasExited = process.HasExited;
+            if (!process.HasExited)
+            {
+                return;
+            }
+            exitCode = process.ExitCode;
         }
         catch (InvalidOperationException)
         {
             return;
         }
 
-        if (hasExited && Volatile.Read(ref session.IsStarting) == 0)
+        if (session.IsActive && Volatile.Read(ref session.IsStarting) == 0)
         {
-            if (session.OutputId is StreamSessionId outputId)
+            try
             {
-                _cmafOutputs.ReleaseOutputAsync(outputId, session.Tasks.SourceTerminationCode).AsTask().GetAwaiter().GetResult();
+                MediaProcessDiagnostics.LogUnexpectedExit(_logger, session.SessionId, exitCode, string.Join("\n", errors), session.Tasks.SourceTerminationCode);
             }
-            else
+            finally
             {
-                CleanupCmafSession(session, stopProcess: false);
+                if (session.OutputId is StreamSessionId outputId)
+                {
+                    _cmafOutputs.ReleaseOutputAsync(outputId, session.Tasks.SourceTerminationCode).AsTask().GetAwaiter().GetResult();
+                }
+                else
+                {
+                    CleanupCmafSession(session, stopProcess: false);
+                }
             }
         }
     }
@@ -1371,19 +1395,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
 
     private Task StartCmafErrorMonitor(Process process, CmafSession session, ConcurrentQueue<string> errors, bool parseSourceMetadata, long outputVideoBitRate)
     {
-        process.Exited += (_, _) => _preflightTasks.Track(Task.Run(() =>
-        {
-            try
-            {
-                TryCleanupCompletedCmafSession(process, session);
-            }
-            catch (Exception exception)
-            {
-                _logger.LogError(exception, "Unable to release exited management playback producer {SessionId}", session.SessionId);
-            }
-        }), _logger, "exited producer cleanup");
-        process.EnableRaisingEvents = true;
-        return Task.Run(async () =>
+        var monitorTask = Task.Run(async () =>
         {
             var sourceTracks = new Dictionary<int, MediaTrackMetadata>();
             var readingInputMetadata = parseSourceMetadata;
@@ -1419,6 +1431,26 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                 // The session shutdown path can dispose redirected streams while the monitor is awaiting a line.
             }
         });
+        process.Exited += (_, _) => _preflightTasks.Track(Task.Run(async () =>
+        {
+            try
+            {
+                try
+                {
+                    await monitorTask;
+                }
+                finally
+                {
+                    TryCleanupCompletedCmafSession(process, session, errors);
+                }
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(exception, "Unable to observe or release exited management playback producer {SessionId}", session.SessionId);
+            }
+        }), _logger, "exited producer cleanup");
+        process.EnableRaisingEvents = true;
+        return monitorTask;
     }
 
     private void DeleteCmafFiles(string directory)
@@ -1775,8 +1807,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                 }
                 else
                 {
-                    owner.CleanupIncompleteCmafOutput(process, captionProcess, captionErrorTask, null);
-                    Tasks.DrainAsync().GetAwaiter().GetResult();
+                    owner.CleanupIncompleteCmafOutput(process, captionProcess, captionErrorTask, null, Tasks);
                     if (directory is not null)
                     {
                         owner.TryDeleteTransientDirectory(directory);
