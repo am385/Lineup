@@ -569,8 +569,10 @@ remain CPU filters; VA-API explicitly uploads their output. Audio conversion, so
 keyframe cadence remain independent. Software presets/CRF are not GPU quality controls: use the backend's balanced,
 speed or quality tuning and its advanced options. QSV and VA-API MPEG-TS encodes repack embedded captions after deinterlacing
 and before hardware upload/encoding, keeping rate-correct A53 packets within Intel's SEI limits without disabling captions.
-Caption-preserving QSV MPEG-TS encoding also uses `async_depth=1`: multiple in-flight caption payloads can crash the bundled
-Intel runtime even after normalization. A conflicting advanced `async_depth` is rejected; QSV paths without embedded-caption
+Docker and Windows packages bundle Jellyfin FFmpeg **8.1.3-2**, including its oversized QSV A53 caption SEI guard.
+Caption normalization remains necessary to preserve captions instead of relying on that guard to drop oversized packets.
+Caption-preserving QSV MPEG-TS encoding also retains `async_depth=1`: multiple in-flight caption payloads crashed the previously
+bundled Intel runtime even after normalization. A conflicting advanced `async_depth` is rejected; QSV paths without embedded-caption
 insertion retain their configured/default submission depth.
 This requires a known output rate of 24, 24000/1001, 30, 30000/1001, 60, or 60000/1001 frames per second;
 other or unknown rates and currently unverified caption encoders fail explicitly. Select Software or NVENC for those sources. CMAF keeps its parallel caption

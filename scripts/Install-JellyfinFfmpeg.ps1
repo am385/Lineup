@@ -13,7 +13,7 @@ if ([string]::IsNullOrWhiteSpace($InstallDirectory)) {
     $InstallDirectory = Join-Path $PSScriptRoot '..\.ffmpeg'
 }
 
-$version = '8.1.2-4'
+$version = '8.1.3-2'
 if ([string]::IsNullOrWhiteSpace($Architecture)) {
     $Architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
 }
@@ -21,11 +21,11 @@ if ([string]::IsNullOrWhiteSpace($Architecture)) {
 switch ($Architecture) {
     'X64' {
         $assetName = "jellyfin-ffmpeg_${version}_portable_win64-clang-gpl.zip"
-        $expectedHash = 'a6821d72985ee6d5a8af16925b468d1c4ec1f652b582a0a2a5039282c26ffca5'
+        $expectedHash = 'b65dd5011a80b5abec08bd559489cf188217238c8e38b5bf553504c974f5694d'
     }
     'Arm64' {
         $assetName = "jellyfin-ffmpeg_${version}_portable_winarm64-clang-gpl.zip"
-        $expectedHash = 'f77e3d0b2dcb4bb7eec51e7240cceaee9071f715ab7d7efb4b6e263b04f75f0d'
+        $expectedHash = 'e1e0373cb989440590ce2d124f40988e3165ed338971ae14a97476cd61284785'
     }
     default {
         throw "Jellyfin FFmpeg does not publish a supported portable Windows archive for $Architecture."
