@@ -39,11 +39,17 @@ public sealed class VirtualOutputWorkerLauncher : IVirtualOutputWorkerLauncher
     ];
 
     private readonly ILogger<VirtualOutputWorkerLauncher> _logger;
+    private readonly bool _enableWorkerDiagnostics;
 
     /// <summary>Initializes a worker process launcher.</summary>
-    public VirtualOutputWorkerLauncher(ILogger<VirtualOutputWorkerLauncher> logger)
+    public VirtualOutputWorkerLauncher(ILogger<VirtualOutputWorkerLauncher> logger, VirtualOutputRuntimeOptions? options = null)
     {
         _logger = logger;
+        _enableWorkerDiagnostics = options?.EnableWorkerDiagnostics == true;
+        if (_enableWorkerDiagnostics)
+        {
+            _logger.LogWarning("Managed worker .NET diagnostics are enabled for local profiling. Disable EnableWorkerDiagnostics and restart the host after capture.");
+        }
     }
 
     /// <summary>Starts the virtual output worker launcher asynchronously.</summary>
@@ -87,7 +93,7 @@ public sealed class VirtualOutputWorkerLauncher : IVirtualOutputWorkerLauncher
         {
             startInfo.Environment[item.Key] = item.Value;
         }
-        startInfo.Environment["DOTNET_EnableDiagnostics"] = "0";
+        startInfo.Environment["DOTNET_EnableDiagnostics"] = _enableWorkerDiagnostics ? "1" : "0";
         startInfo.Environment["LINEUP_PROCESS_PIPE_ROOT"] = Path.GetTempPath();
         var jobName = OperatingSystem.IsWindows() ? $"Lineup.Worker.{Guid.NewGuid():N}" : null;
         if (jobName is not null)

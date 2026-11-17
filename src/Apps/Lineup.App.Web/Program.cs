@@ -369,7 +369,8 @@ static VirtualOutputRuntimeOptions CreateVirtualOutputRuntimeOptions(
         WorkerPackageRoot = string.IsNullOrWhiteSpace(configuredWorkerPath)
             ? Path.Combine(AppContext.BaseDirectory, "virtual-output-workers")
             : Path.GetFullPath(configuredWorkerPath),
-        IpcEndpoint = endpoint
+        IpcEndpoint = endpoint,
+        EnableWorkerDiagnostics = configuration.GetValue<bool>(AppConstants.VirtualOutputWorkerDiagnosticsConfigKey)
     };
 }
 
