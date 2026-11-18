@@ -10,6 +10,7 @@ if (!string.Equals(bootstrap.VirtualDevice.Adapter.Kind, WebPlayerVirtualTunerDr
 }
 var hosting = bootstrap.VirtualDevice.Hosting
     ?? throw new InvalidDataException("Web Player worker requires dedicated hosting configuration.");
+var playerConfiguration = WebPlayerConfiguration.Read(bootstrap.VirtualDevice.Adapter);
 var listenerPolicy = new VirtualOutputListenerPolicy(bootstrap);
 var workerSession = new VirtualOutputWorkerSession(bootstrap);
 await workerSession.RegisterAsync();
@@ -31,7 +32,7 @@ builder.Services.AddCors(options =>
 builder.WebHost.ConfigureKestrel(admission.Configure);
 builder.WebHost.ConfigureKestrel(listenerPolicy.Configure);
 await using var app = builder.Build();
-await using var playback = new DedicatedPlaybackRuntime(workerSession, app.Logger);
+await using var playback = new DedicatedPlaybackRuntime(workerSession, app.Logger, extractEmbeddedCaptions: playerConfiguration.ExtractEmbeddedCaptions);
 listenerPolicy.UseForwardedHeaders(app);
 app.UseCors();
 app.UseRateLimiter();

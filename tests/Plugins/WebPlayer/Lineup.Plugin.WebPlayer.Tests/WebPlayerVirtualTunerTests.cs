@@ -10,9 +10,9 @@ namespace Lineup.Plugin.WebPlayer.Tests;
 /// <summary>Verifies built-in Web Player configuration, planning, sharing, and cleanup.</summary>
 public sealed class WebPlayerVirtualTunerTests
 {
-    /// <summary>Verifies the built-in Web Player exposes a valid empty settings schema.</summary>
+    /// <summary>Verifies the built-in Web Player exposes its caption policy and rejects unknown edits.</summary>
     [Fact]
-    public void Settings_EmptyDescriptor_AcceptsOnlyPreserveEdits()
+    public void Settings_CaptionDescriptor_RejectsUnknownEdits()
     {
         // Arrange
         var driver = new WebPlayerVirtualTunerDriver();
@@ -37,6 +37,77 @@ public sealed class WebPlayerVirtualTunerTests
         Assert.Empty(AdapterSettingsValidator.ValidateSnapshot(driver.SettingsDescriptor, snapshot));
         Assert.True(preserved.Succeeded);
         Assert.False(rejected.Succeeded);
+    }
+
+    /// <summary>Verifies legacy and explicit policies survive adapter edits and persisted topology round trips.</summary>
+    [Theory]
+    [InlineData("{}", false)]
+    [InlineData("{\"ExtractEmbeddedCaptions\":true}", true)]
+    [InlineData("{\"ExtractEmbeddedCaptions\":false}", false)]
+    public void Settings_CaptionPolicy_RoundTrips(string json, bool enabled)
+    {
+        // Arrange
+        var driver = new WebPlayerVirtualTunerDriver();
+        var adapter = new AdapterConfiguration(driver.Kind, JsonSerializer.Deserialize<JsonElement>(json));
+        var edited = driver.ApplySettings(adapter,
+            [new AdapterSettingEdit { Key = "extractEmbeddedCaptions", Action = AdapterSettingEditAction.Set, Value = JsonSerializer.SerializeToElement(!enabled) }]);
+
+        // Act
+        var player = WebPlayerVirtualTunerDriver.CreateBuiltIn() with { Adapter = edited.Configuration! };
+        var wire = JsonSerializer.Deserialize<StreamingConfiguration>(JsonSerializer.Serialize(new StreamingConfiguration { VirtualDevices = [player] }))!;
+        var snapshot = driver.GetSettings(Assert.Single(wire.VirtualDevices).Adapter);
+
+        // Assert
+        Assert.Empty(driver.Validate(adapter));
+        Assert.Equal(enabled, WebPlayerConfiguration.Read(adapter).ExtractEmbeddedCaptions);
+        Assert.True(edited.Succeeded);
+        Assert.Equal(!enabled, Assert.Single(snapshot.Values).Value!.Value.GetBoolean());
+        Assert.Empty(AdapterSettingsValidator.ValidateSnapshot(driver.SettingsDescriptor, snapshot));
+        Assert.False(WebPlayerConfiguration.Read(driver.CreateDefaultConfiguration(player.Id)).ExtractEmbeddedCaptions);
+    }
+
+    /// <summary>Verifies malformed, mistyped and unknown persisted settings are not silently defaulted.</summary>
+    [Theory]
+    [InlineData("null")]
+    [InlineData("[]")]
+    [InlineData("{\"ExtractEmbeddedCaptions\":null}")]
+    [InlineData("{\"ExtractEmbeddedCaptions\":\"false\"}")]
+    [InlineData("{\"unknown\":true}")]
+    public void Validate_InvalidCaptionConfiguration_RejectsInput(string json)
+    {
+        // Arrange
+        var driver = new WebPlayerVirtualTunerDriver();
+        var adapter = new AdapterConfiguration(driver.Kind, JsonSerializer.Deserialize<JsonElement>(json));
+
+        // Act
+        var errors = driver.Validate(adapter);
+        var applied = driver.ApplySettings(adapter, []);
+
+        // Assert
+        Assert.NotEmpty(errors);
+        Assert.False(applied.Succeeded);
+    }
+
+    /// <summary>Verifies the caption switch accepts only explicit boolean set operations.</summary>
+    [Theory]
+    [InlineData(AdapterSettingEditAction.Clear, "false")]
+    [InlineData(AdapterSettingEditAction.Generate, "true")]
+    [InlineData(AdapterSettingEditAction.Set, "\"false\"")]
+    [InlineData(AdapterSettingEditAction.Set, "null")]
+    public void ApplySettings_InvalidCaptionEdit_ReturnsFieldError(AdapterSettingEditAction action, string json)
+    {
+        // Arrange
+        var driver = new WebPlayerVirtualTunerDriver();
+        var adapter = driver.CreateDefaultConfiguration(VirtualDeviceId.New());
+        var edit = new AdapterSettingEdit { Key = "extractEmbeddedCaptions", Action = action, Value = JsonSerializer.Deserialize<JsonElement>(json) };
+
+        // Act
+        var result = driver.ApplySettings(adapter, [edit]);
+
+        // Assert
+        Assert.False(result.Succeeded);
+        Assert.Contains("extractEmbeddedCaptions", result.Errors.Keys);
+        Assert.False(WebPlayerConfiguration.Read(adapter).ExtractEmbeddedCaptions);
     }
 
     /// <summary>Verifies initialization does not rewrite an existing Web Player definition.</summary>
@@ -327,7 +398,7 @@ public sealed class WebPlayerVirtualTunerTests
         Assert.Equal(0, coordinator.ActiveOutputCount);
     }
 
-    /// <summary>Verifies built-in validation rejects missing, duplicate, and non-empty adapter configuration.</summary>
+    /// <summary>Verifies built-in validation rejects missing, duplicate, and unknown adapter configuration.</summary>
     [Fact]
     public void ValidateBuiltIn_InvalidCardinalityAndConfiguration_ReturnsErrors()
     {
@@ -349,7 +420,7 @@ public sealed class WebPlayerVirtualTunerTests
         // Assert
         Assert.Contains(missingErrors, error => error.Contains("Exactly one", StringComparison.Ordinal));
         Assert.Contains(duplicateErrors, error => error.Contains("Exactly one", StringComparison.Ordinal));
-        Assert.Contains(duplicateErrors, error => error.Contains("does not accept", StringComparison.Ordinal));
+        Assert.Contains(duplicateErrors, error => error.Contains("unsupported", StringComparison.Ordinal));
     }
 
     private static (StreamingConfiguration Configuration, VirtualDeviceDefinition Player) Configuration(PhysicalDeviceId physicalId, VirtualTranscodeProfile defaults, VirtualTranscodeOverrides overrides)

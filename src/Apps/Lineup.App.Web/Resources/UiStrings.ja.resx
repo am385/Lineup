@@ -864,6 +864,8 @@
   <data name="Settings_VirtualHevcHelp" xml:space="preserve"><value>HEVC を処理できない利用者向けの既定の出力変換です。</value></data>
   <data name="Settings_VirtualTranscoderDefaultsDescription" xml:space="preserve"><value>各仮想デバイスは、そのタブでオーバーライドを有効にしない限り、これらの出力ステージ設定を継承します。</value></data>
   <data name="Settings_VirtualTunerDiscoveryHeading" xml:space="preserve"><value>仮想チューナーの検出</value></data>
+  <data name="Settings_WebPlayerExtractEmbeddedCaptions" xml:space="preserve"><value>埋め込み字幕を抽出</value></data>
+  <data name="Settings_WebPlayerExtractEmbeddedCaptionsHelp" xml:space="preserve"><value>既定では全視聴者に対して無効です。埋め込み字幕を抽出するには有効にしてください。独立した字幕には影響しません。保存後に再生を開始し直してください。専用リスナーは再構成されます。</value></data>
   <data name="Settings_WebSettingsStorage" xml:space="preserve"><value>これらの Web ホスト設定は</value></data>
   <data name="Settings_WebSettingsStorageSuffix" xml:space="preserve"><value>に保存され、再起動後も保持されます。</value></data>
   <data name="Settings_WelcomeAnd" xml:space="preserve"><value>と</value></data>

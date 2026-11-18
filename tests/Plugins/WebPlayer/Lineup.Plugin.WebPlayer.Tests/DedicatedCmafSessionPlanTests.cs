@@ -268,7 +268,7 @@ public sealed class DedicatedCmafSessionPlanTests
         };
 
         // Act
-        var plan = DedicatedCmafSessionPlan.Create(response, request, directory);
+        var plan = DedicatedCmafSessionPlan.Create(response, request, directory, extractEmbeddedCaptions: true);
         var started = plan.CreateResponse("session", new Uri("http://127.0.0.1:18082/"));
         var snapshot = plan.CreateActiveStreamSnapshot("broker-session", "48.3", DateTime.UtcNow);
 
@@ -289,6 +289,57 @@ public sealed class DedicatedCmafSessionPlanTests
         Assert.Equal(["mpeg2video", "ac3"], snapshot.PhysicalInput!.Tracks.Select(track => track.Codec));
         Assert.Equal(["h264", "ac3", "webvtt", "eia_608"], snapshot.PhysicalOutput!.Tracks.Select(track => track.Codec));
         Assert.Equal(["h264", "aac", "webvtt", "webvtt"], snapshot.VirtualOutput!.Tracks.Select(track => track.Codec));
+    }
+
+    /// <summary>Verifies disabled extraction retains standalone subtitles, physical caption metadata and fallback policy.</summary>
+    [Fact]
+    public void Create_DisabledCaptions_PreservesStandaloneTracksAndIsolatesPolicy()
+    {
+        // Arrange
+        var source = new MediaProbeResult(
+        [
+            new MediaTrackMetadata(0, MediaTrackType.Video, "h264", null, 640, 360, null, null) { HasClosedCaptions = true },
+            new MediaTrackMetadata(1, MediaTrackType.Audio, "aac", null, null, null, 2, 48_000),
+            new MediaTrackMetadata(2, MediaTrackType.Subtitle, "webvtt", null, null, null, null, null) { SubtitlePresentation = SubtitlePresentation.WebVtt },
+            new MediaTrackMetadata(3, MediaTrackType.Subtitle, "eia_608", null, null, null, null, null)
+            {
+                IsEmbeddedClosedCaptions = true,
+                SubtitlePresentation = SubtitlePresentation.WebVtt
+            }
+        ], null);
+        var response = new VirtualOutputOpenStreamResponse { Accepted = true, Source = source, RawSource = source, Profile = new() };
+        var directory = Path.Combine(Path.GetTempPath(), "lineup-caption-policy");
+        var request = new CmafStreamRequest();
+
+        // Act
+        var enabled = DedicatedCmafSessionPlan.Create(response, request, directory, true);
+        var disabled = DedicatedCmafSessionPlan.Create(response, request, directory);
+        var snapshot = disabled.CreateActiveStreamSnapshot("broker", "2.1", DateTime.UtcNow);
+        var started = disabled.CreateResponse("viewer", new Uri("http://localhost:8600/"));
+        var fallback = disabled.CreateFallback(directory).CreateSoftwareFallback(directory);
+        var undiscovered = response with { Source = new MediaProbeResult(source.Tracks.Where(track => !track.IsEmbeddedClosedCaptions).ToArray(), null) };
+
+        // Assert
+        Assert.NotNull(enabled.EmbeddedCaptions);
+        Assert.Null(disabled.EmbeddedCaptions);
+        Assert.Equal(2, Assert.Single(started.Subtitles).SourceIndex);
+        Assert.False(Assert.Single(started.Subtitles).IsEmbeddedClosedCaptions);
+        Assert.Equal([2], disabled.SubtitlePaths.Keys);
+        Assert.DoesNotContain(snapshot.Tracks, track => track.IsEmbeddedClosedCaptions);
+        Assert.Contains(snapshot.PhysicalInput!.Tracks, track => track.Codec == "eia_608");
+        Assert.True(disabled.Source.Tracks[0].HasClosedCaptions);
+        Assert.False(fallback.ExtractEmbeddedCaptions);
+        Assert.Null(fallback.EmbeddedCaptions);
+        Assert.NotEqual(enabled.SharingKey, disabled.SharingKey);
+        Assert.NotEqual(DedicatedCmafSessionPlan.Create(undiscovered, request, directory, true).SharingKey,
+            DedicatedCmafSessionPlan.Create(undiscovered, request, directory, false).SharingKey);
+        Assert.Throws<ArgumentException>(() => DedicatedCmafSessionPlan.Create(response, request with { SubtitleTrack = 3 }, directory, false));
+        Assert.Throws<ArgumentException>(() => DedicatedCmafSessionPlan.Create(response, request with
+        {
+            SubtitleTrack = 3,
+            SubtitlePresentation = SubtitlePresentation.WebVtt,
+            EmbeddedCaptions = true
+        }, directory, false));
     }
 
     /// <summary>Verifies a dedicated worker rejects a broker response that cannot describe its media stream.</summary>

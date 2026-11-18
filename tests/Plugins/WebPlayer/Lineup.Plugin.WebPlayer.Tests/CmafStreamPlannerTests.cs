@@ -980,7 +980,7 @@ public class CmafStreamPlannerTests
         };
 
         // Act
-        var selection = CmafStreamPlanner.SelectTracks(source, request);
+        var selection = CmafStreamPlanner.SelectTracks(source, request, extractEmbeddedCaptions: true);
 
         // Assert
         Assert.True(selection.Subtitle?.IsEmbeddedClosedCaptions);

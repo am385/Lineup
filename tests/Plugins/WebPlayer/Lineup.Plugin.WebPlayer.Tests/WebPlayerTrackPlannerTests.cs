@@ -8,6 +8,33 @@ namespace Lineup.Plugin.WebPlayer.Tests;
 /// </summary>
 public class WebPlayerTrackPlannerTests
 {
+    /// <summary>Verifies disabling extraction omits only embedded tracks and preserves physical caption metadata and standalone choices.</summary>
+    [Fact]
+    public void ApplyCaptionExtractionPolicy_Disabled_PreservesOtherTracksAndRejectsStaleCaptions()
+    {
+        // Arrange
+        var source = _source with
+        {
+            Tracks = _source.Tracks.Select(track => track.Type == MediaTrackType.Video ? track with { HasClosedCaptions = true } : track)
+                .Append(Track(9, MediaTrackType.Subtitle, "eia_608") with { IsEmbeddedClosedCaptions = true, SubtitlePresentation = SubtitlePresentation.WebVtt }).ToArray()
+        };
+
+        // Act
+        var filtered = WebPlayerTrackPlanner.ApplyCaptionExtractionPolicy(source, false);
+        var text = WebPlayerTrackPlanner.SelectTracks(source, null, 6, extractEmbeddedCaptions: false);
+        var bitmap = WebPlayerTrackPlanner.SelectTracks(source, null, 8, extractEmbeddedCaptions: false);
+        var stale = Assert.Throws<ArgumentException>(() => WebPlayerTrackPlanner.SelectTracks(source, null, 9, extractEmbeddedCaptions: false));
+        var retry = Assert.Throws<ArgumentException>(() => WebPlayerTrackPlanner.SelectTracks(new([], null), null, 9, SubtitlePresentation.WebVtt, true, false));
+
+        // Assert
+        Assert.Equal(_source.Tracks.Select(track => track.Index), filtered.Tracks.Select(track => track.Index));
+        Assert.True(filtered.Tracks[0].HasClosedCaptions);
+        Assert.Contains(source.Tracks, track => track.IsEmbeddedClosedCaptions);
+        Assert.Equal(SubtitlePresentation.WebVtt, text.SubtitlePresentation);
+        Assert.Equal(SubtitlePresentation.BurnIn, bitmap.SubtitlePresentation);
+        Assert.Contains("not found", stale.Message, StringComparison.Ordinal);
+        Assert.Contains("disabled", retry.Message, StringComparison.Ordinal);
+    }
     private static readonly MediaProbeResult _source = new(
     [
         Track(0, MediaTrackType.Video, "h264"),
@@ -82,7 +109,7 @@ public class WebPlayerTrackPlannerTests
         var source = new MediaProbeResult([], null);
 
         // Act
-        var selection = WebPlayerTrackPlanner.SelectTracks(source, null, 9, SubtitlePresentation.WebVtt, retryEmbeddedClosedCaptions: true);
+        var selection = WebPlayerTrackPlanner.SelectTracks(source, null, 9, SubtitlePresentation.WebVtt, retryEmbeddedClosedCaptions: true, extractEmbeddedCaptions: true);
 
         // Assert
         Assert.Equal(9, selection.Subtitle?.Index);

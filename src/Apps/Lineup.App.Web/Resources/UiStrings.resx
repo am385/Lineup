@@ -864,6 +864,8 @@
   <data name="Settings_VirtualHevcHelp" xml:space="preserve"><value>Default output conversion for consumers that cannot process HEVC.</value></data>
   <data name="Settings_VirtualTranscoderDefaultsDescription" xml:space="preserve"><value>Each virtual device inherits these output-stage settings unless its tab enables an override.</value></data>
   <data name="Settings_VirtualTunerDiscoveryHeading" xml:space="preserve"><value>Virtual Tuner Discovery</value></data>
+  <data name="Settings_WebPlayerExtractEmbeddedCaptions" xml:space="preserve"><value>Extract embedded captions</value></data>
+  <data name="Settings_WebPlayerExtractEmbeddedCaptionsHelp" xml:space="preserve"><value>Disabled by default for all viewers. Enable to extract embedded captions; standalone subtitles are unaffected. Save and restart playback; dedicated listeners reconfigure.</value></data>
   <data name="Settings_WebSettingsStorage" xml:space="preserve"><value>These Web-host settings are saved to</value></data>
   <data name="Settings_WebSettingsStorageSuffix" xml:space="preserve"><value>and persist across restarts.</value></data>
   <data name="Settings_WelcomeAnd" xml:space="preserve"><value>and</value></data>

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 
 namespace Lineup.Core.Streaming.FFmpeg;
 
@@ -47,6 +48,24 @@ public static class MediaProcessDiagnostics
         logger.LogWarning(
             "Media processor exited unexpectedly after playback started, session {MediaSessionId}, exit {ProcessExitCode}, source termination {SourceTerminationCode}. Diagnostics: {DiagnosticTail}",
             sessionId, exitCode, sourceTerminationCode, GetTail(diagnostics));
+    }
+
+    /// <summary>Reports an unrequested caption-extractor exit with drained diagnostics, without stopping otherwise healthy playback.</summary>
+    public static async Task ObserveCaptionExitAsync(Process process, Task<string> diagnostics, ILogger logger, string sessionId, Func<string?> sourceTerminationCode, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken);
+            var exitCode = process.ExitCode;
+            var tail = await diagnostics.WaitAsync(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            logger.LogWarning(
+                "Embedded-caption extractor exited unexpectedly, session {MediaSessionId}, exit {ProcessExitCode}, source termination {SourceTerminationCode}. Diagnostics: {DiagnosticTail}",
+                sessionId, exitCode, sourceTerminationCode(), GetTail(tail));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
     }
 
     /// <summary>Drains without owning the reader, retaining at most fifty non-empty lines from the last 16,384 characters with normalized LF separators.</summary>

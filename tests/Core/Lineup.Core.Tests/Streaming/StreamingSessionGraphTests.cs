@@ -10,6 +10,96 @@ namespace Lineup.Core.Tests.Streaming;
 /// </summary>
 public sealed class StreamingSessionGraphTests
 {
+    /// <summary>Verifies short reads allocate near their payload size and full reads do not require a second payload copy.</summary>
+    [Theory]
+    [InlineData(1316, 256)]
+    [InlineData(65536, 32)]
+    public async Task AcquireAsync_ReadAllocations_StayWithinPayloadBudget(int chunkSize, int chunkCount)
+    {
+        // Arrange
+        using var watchdog = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        watchdog.CancelAfter(TimeSpan.FromSeconds(10));
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance);
+        var source = new AllocationTrackingStream(chunkSize, chunkCount);
+        await using var lease = await graph.AcquireAsync(
+            CreateDescriptor(PhysicalDeviceId.New(), "7.1", 1), _ => ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(source)), watchdog.Token);
+
+        try
+        {
+            // Act
+            source.ReleaseFirstRead();
+            var allocatedBytes = await source.AllocatedBytes.Task.WaitAsync(watchdog.Token);
+            var destination = new byte[65536];
+            for (var index = 0; index < chunkCount; index++)
+            {
+                var count = await lease.Stream.ReadAsync(destination, watchdog.Token);
+                Assert.Equal(chunkSize, count);
+                Assert.True(destination.AsSpan(0, count).IndexOfAnyExcept((byte)index) < 0);
+            }
+            var eof = await lease.Stream.ReadAsync(destination, watchdog.Token);
+
+            // Assert
+            Assert.Equal(0, eof);
+            var allocationLimit = (long)chunkSize * chunkCount + chunkCount * 2048L + 2 * 65536;
+            Assert.InRange(allocatedBytes, 1, allocationLimit);
+        }
+        finally
+        {
+            source.ReleaseFirstRead();
+            await graph.StopAsync(TestContext.Current.CancellationToken);
+        }
+    }
+
+    /// <summary>Verifies later short/full reads and EOF cannot overwrite bytes retained by delayed or partially advanced subscribers.</summary>
+    [Fact]
+    public async Task AcquireAsync_MixedReadSizes_PreservesDelayedSubscribersThroughEof()
+    {
+        // Arrange
+        using var watchdog = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        watchdog.CancelAfter(TimeSpan.FromSeconds(10));
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance);
+        var source = new ControlledSourceStream();
+        var reads = new ReadTrackingStream(source);
+        var descriptor = CreateDescriptor(PhysicalDeviceId.New(), "7.1", 1);
+        byte[][] chunks = [new byte[1316], new byte[65536], new byte[7], new byte[65536], new byte[3]];
+        for (var index = 0; index < chunks.Length; index++)
+        {
+            chunks[index].AsSpan().Fill((byte)(index + 1));
+        }
+        var expected = chunks.SelectMany(chunk => chunk).ToArray();
+        await using var first = await graph.AcquireAsync(descriptor, _ => ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(reads)), watchdog.Token);
+        await using var delayed = await graph.AcquireAsync(descriptor, _ => throw new InvalidOperationException("The source must remain shared."), watchdog.Token);
+
+        try
+        {
+            // Act
+            source.Write(chunks[0]);
+            await reads.WaitForReadCountAsync(2, watchdog.Token);
+            var firstPayload = new byte[expected.Length];
+            await first.Stream.ReadExactlyAsync(firstPayload.AsMemory(0, 13), watchdog.Token);
+            foreach (var chunk in chunks.Skip(1))
+            {
+                source.Write(chunk);
+            }
+            await reads.WaitForReadCountAsync(chunks.Length + 1, watchdog.Token);
+            source.Complete();
+            await source.WaitForDisposalAsync(watchdog.Token);
+            await first.Stream.ReadExactlyAsync(firstPayload.AsMemory(13), watchdog.Token);
+            var delayedPayload = new byte[expected.Length];
+            await delayed.Stream.ReadExactlyAsync(delayedPayload, watchdog.Token);
+
+            // Assert
+            Assert.Equal(expected, firstPayload);
+            Assert.Equal(expected, delayedPayload);
+            Assert.Equal(0, await first.Stream.ReadAsync(new byte[1], watchdog.Token));
+            Assert.Equal(0, await delayed.Stream.ReadAsync(new byte[1], watchdog.Token));
+        }
+        finally
+        {
+            await graph.StopAsync(TestContext.Current.CancellationToken);
+        }
+    }
+
     /// <summary>Verifies runtime encoder outcomes survive graph ownership wrappers and remain distinct for each shared pipeline stage.</summary>
     [Theory]
     [InlineData(false)]
@@ -1902,6 +1992,41 @@ public sealed class StreamingSessionGraphTests
         }
     }
 
+    private sealed class AllocationTrackingStream(int chunkSize, int chunkCount) : MemoryStream
+    {
+        private readonly TaskCompletionSource<int> _firstRead = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private long _allocatedBefore;
+        private int _threadId;
+        private int _reads;
+
+        /// <summary>Gets producer-thread allocations between the second read and EOF, excluding consumer/test allocations.</summary>
+        public TaskCompletionSource<long> AllocatedBytes { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Releases the initial read after graph admission so all remaining reads complete synchronously on one producer thread.</summary>
+        public void ReleaseFirstRead() => _firstRead.TrySetResult(chunkSize);
+
+        /// <inheritdoc />
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (_reads == 1)
+            {
+                _threadId = Environment.CurrentManagedThreadId;
+                _allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+            }
+            if (_reads == chunkCount)
+            {
+                if (_threadId != Environment.CurrentManagedThreadId)
+                {
+                    throw new InvalidOperationException("Allocation measurement requires uninterrupted synchronous producer reads.");
+                }
+                AllocatedBytes.TrySetResult(GC.GetAllocatedBytesForCurrentThread() - _allocatedBefore);
+                return ValueTask.FromResult(0);
+            }
+            buffer.Span[..chunkSize].Fill((byte)_reads++);
+            return _reads == 1 ? new(_firstRead.Task.WaitAsync(cancellationToken)) : ValueTask.FromResult(chunkSize);
+        }
+    }
+
     private sealed class ControlledSourceStream : Stream
     {
         private readonly Channel<byte[]> _chunks = Channel.CreateUnbounded<byte[]>();
@@ -1925,6 +2050,9 @@ public sealed class StreamingSessionGraphTests
         /// <param name="payload">The payload value.</param>
         public void Write(byte[] payload) => _chunks.Writer.TryWrite(payload);
 
+        /// <summary>Completes the source after all queued chunks have been read.</summary>
+        public void Complete() => _chunks.Writer.TryComplete();
+
         /// <summary>Waits for for read asynchronously.</summary>
         /// <param name="cancellationToken">Token used to cancel the operation.</param>
         /// <returns>A task that completes when the operation has finished.</returns>
@@ -1941,7 +2069,14 @@ public sealed class StreamingSessionGraphTests
             _readStarted.TrySetResult();
             while (_current is null || _offset == _current.Length)
             {
-                _current = await _chunks.Reader.ReadAsync(cancellationToken);
+                if (!await _chunks.Reader.WaitToReadAsync(cancellationToken))
+                {
+                    return 0;
+                }
+                if (!_chunks.Reader.TryRead(out _current))
+                {
+                    continue;
+                }
                 _offset = 0;
             }
             var count = Math.Min(buffer.Length, _current.Length - _offset);

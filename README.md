@@ -485,7 +485,7 @@ modifies the browser's saved Watch Test profile. Shaka's in-player menu switches
 without restarting the shared session; the bitmap-subtitle selector remains available independently of the override panel.
 Every standalone text subtitle and detected embedded-caption track is prepared as a transient WebVTT sidecar so Lineup's Shaka
 captions menu can offer all of them without restarting the shared session. The page-level
-subtitle selector lists only bitmap burn-in choices. Standalone text conversion runs in the main media process; embedded-caption extraction
+subtitle selector lists only bitmap burn-in choices. Standalone text conversion runs in the main media process; enabled embedded-caption extraction
 adds a separate decode/demux process per shared CMAF producer, even when captions are hidden. Measure that process separately rather than
 assuming that GPU encoding offloads it. Bitmap subtitles remain explicit burn-in choices because each simultaneous bitmap rendition
 would require another video encode.
@@ -541,6 +541,75 @@ in MPEG-TS but cannot be synthesized as a Watch text track.
 ### Transcoding and shared stream graph
 
 Virtual Tuner Video can optionally transcode HEVC to H.264 for clients that cannot process HEVC Live TV, at the cost of CPU and generation loss. Virtual Tuner Audio can preserve non-AC-4 codecs or transcode those tracks to AC-3/E-AC-3. AC-4 can be preserved for compatible receivers or transcoded separately. Audio above 5.1 channels is capped at 5.1 when transcoded. Transcoding is configured through inherited physical and virtual device profiles; topology routes reject unsupported per-request HDHomeRun hardware profile parameters.
+
+#### Avoiding an unnecessary Web Player video encode
+
+Physical and virtual video policies are independent, even for one viewer. If physical processing already produces
+compatible progressive H.264, the Web Player can normally copy that video into CMAF rather than encode it again.
+This keeps physical normalization and its shared output intact; it does not bypass either processing stage.
+Factory defaults do not force video encoding. Check the effective inherited settings before changing a saved configuration.
+
+| Setting | Configuration to review |
+|---|---|
+| Physical device video profile | Keep the normalization, deinterlacing and caption-preserving encoder required by the source and other consumers. |
+| Virtual Devices > Web Player > Always transcode video | Set an explicit device override to **Off** when this output should use normal copy selection. Merely clearing the override can inherit **On** from virtual defaults. |
+| Watch quality | Use **App Default** for an eligible video-copy path; an explicit scaled-quality choice requests encoding. |
+| Watch video policy | Use **Auto** with a completed browser profile that supports the effective source, or **Source** after verifying browser playback. **H.264 Fallback** requests encoding. |
+| Web Player video encoder | Keep the desired encoder for cases that still require conversion. Selecting a GPU does not force an encode, and an eligible copy path does not use it. |
+
+Make the change in an isolated test configuration first, after recording the original values and stopping its viewers.
+Leave unrelated physical, audio, caption, bitrate and encoder settings unchanged so the comparison isolates the output's
+forced-video policy. A video-copy path does not apply the output encoder's bitrate limit; the physical/source bitrate
+still determines the copied video's bandwidth.
+
+Check the effective FFmpeg commands and decoded playback, not just the saved settings or the number of FFmpeg processes.
+An eligible output uses `-c:v:0 copy`, while a required physical normalizer may still use an encoder such as `libx264`.
+MPEG-TS-to-CMAF packaging, audio conversion and the separate embedded-caption-to-WebVTT extractor do not by themselves
+mean that video is encoded twice. These operations can still consume CPU when the video is copied or GPU-encoded.
+
+Repeat matched forced-encode/copy comparisons and check additional channels and both management and dedicated hosting
+before adopting the setting. Preserve resolution, frame cadence, captions, audio, sustained decoded playback and cleanup;
+use the [manual streaming harness](tests/Integration/Lineup.Integration.Streaming.Sweep/README.md) for playback validation.
+Output encoding remains expected for explicit forced encoding, H.264 fallback, scaled quality, bitmap subtitle burn-in,
+required deinterlacing of the effective input, or source video that cannot be copied/signaled for CMAF and the browser.
+If source playback fails, retain the existing compatibility fallback rather than forcing copy for every channel.
+
+#### Optional embedded-caption extraction
+
+**Settings > Virtual Devices > Web Player > Extract embedded captions** controls extraction for the whole built-in Web Player,
+in both management and dedicated hosting. It is **Off** by default, including older configurations whose adapter object is `{}`.
+Enable it explicitly when embedded-caption accessibility is needed; existing explicit saved choices are preserved.
+The persisted Web Player adapter property is `"ExtractEmbeddedCaptions": true` to enable it; adapter-settings clients use the
+boolean field `extractEmbeddedCaptions`.
+
+When disabled, new presentations do not start an embedded-caption extractor or feed its input, and do not advertise embedded captions
+in Watch or subtitle sidecars. Merely hiding captions in the browser does **not** disable extraction. Disabling extraction removes
+embedded-caption accessibility for every Web Player viewer; standalone text subtitles and bitmap burn-in choices remain available.
+Physical caption preservation, transcoder capability guards and other virtual outputs are unchanged.
+
+An unexpected embedded-caption extractor exit is reported at Warning level with its session, exit code, source-termination reason
+when known, and bounded FFmpeg diagnostics. Intentional playback shutdown does not report an extractor failure; this diagnostic does not automatically restart extraction.
+
+Save settings and stop/restart playback to use the new policy. Existing management presentations retain their captured policy;
+new presentations cannot reuse an incompatible warm producer. Dedicated listeners follow their existing settings-reconfiguration
+lifecycle and may stop active playback. This is not a per-viewer switch or a hot-kill of an active caption process.
+
+#### Tuning retained physical normalization
+
+For software H.264 normalization, **VeryFast** is the lowest-CPU preset currently exposed by Lineup.
+**Faster**, **Fast** and **Medium** spend additional encoding work on compression; their names do not
+mean they are faster than VeryFast. A lower maximum bitrate is a bandwidth/quality constraint, not
+a CPU-usage target. Keep CRF, resolution, source content and deinterlacing cadence visible when comparing settings.
+
+**Source Field Rate** retains field-rate motion when deinterlacing confirmed interlaced video.
+Changing to **Source Frame Rate** reduces the resulting frame cadence for that source; treat it as a
+visible motion-quality trade-off, not an equivalent-output CPU optimization.
+
+Compare supported settings in an isolated configuration with the eligible output copying video, so
+a second encode is not charged to the physical normalizer. Repeat observations, verify the actual
+encoder/filter commands, decoded playback, captions and shared-viewer cleanup, and retain the original
+settings if a safer CPU improvement is not established. Do not disable caption-preservation guards to
+make a hardware backend eligible.
 
 #### Optional GPU video encoding
 

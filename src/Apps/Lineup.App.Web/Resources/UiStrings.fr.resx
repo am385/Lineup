@@ -864,6 +864,8 @@
   <data name="Settings_VirtualHevcHelp" xml:space="preserve"><value>Conversion de sortie par défaut pour les consommateurs qui ne peuvent pas traiter le HEVC.</value></data>
   <data name="Settings_VirtualTranscoderDefaultsDescription" xml:space="preserve"><value>Chaque appareil virtuel hérite de ces paramètres de l’étape de sortie, sauf si son onglet active un remplacement.</value></data>
   <data name="Settings_VirtualTunerDiscoveryHeading" xml:space="preserve"><value>Découverte des tuners virtuels</value></data>
+  <data name="Settings_WebPlayerExtractEmbeddedCaptions" xml:space="preserve"><value>Extraire les sous-titres intégrés</value></data>
+  <data name="Settings_WebPlayerExtractEmbeddedCaptionsHelp" xml:space="preserve"><value>Désactivé par défaut pour tous. Activez pour extraire les sous-titres intégrés ; les sous-titres séparés ne sont pas affectés. Enregistrez puis relancez la lecture ; les écouteurs dédiés sont reconfigurés.</value></data>
   <data name="Settings_WebSettingsStorage" xml:space="preserve"><value>Ces paramètres de l’hôte Web sont enregistrés dans</value></data>
   <data name="Settings_WebSettingsStorageSuffix" xml:space="preserve"><value>et persistent après les redémarrages.</value></data>
   <data name="Settings_WelcomeAnd" xml:space="preserve"><value>et une</value></data>

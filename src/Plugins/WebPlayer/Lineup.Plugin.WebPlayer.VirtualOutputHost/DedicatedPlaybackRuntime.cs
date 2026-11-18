@@ -15,15 +15,17 @@ internal sealed partial class DedicatedPlaybackRuntime : IAsyncDisposable
     private readonly ILogger _logger;
     private readonly ICmafOutputCoordinator _outputs;
     private readonly IMediaWorkAdmission _mediaWork;
+    private readonly bool _extractEmbeddedCaptions;
     private readonly ConcurrentDictionary<StreamSessionId, Viewer> _viewers = new();
     private readonly ConcurrentDictionary<StreamSessionId, Viewer> _releasing = new();
     private readonly ConcurrentDictionary<Guid, Task> _background = new();
 
     /// <summary>Initializes worker-local producer coordination and viewer expiration.</summary>
-    internal DedicatedPlaybackRuntime(VirtualOutputWorkerSession worker, ILogger logger, ICmafOutputCoordinator? outputs = null)
+    internal DedicatedPlaybackRuntime(VirtualOutputWorkerSession worker, ILogger logger, ICmafOutputCoordinator? outputs = null, bool extractEmbeddedCaptions = false)
     {
         _worker = worker;
         _logger = logger;
+        _extractEmbeddedCaptions = extractEmbeddedCaptions;
         _mediaWork = new BrokerMediaWorkAdmission(worker.Broker, worker.Context ?? throw new InvalidOperationException("The worker must be registered before playback."),
             () => Track(StopForAdmissionLossAsync()), logger);
         _outputs = outputs ?? new CmafOutputCoordinator(TimeProvider.System, CmafStreamPlanner.MinimumInactivityTimeout, _mediaWork);
@@ -59,7 +61,7 @@ internal sealed partial class DedicatedPlaybackRuntime : IAsyncDisposable
                 Client = client
             }, cancellationToken);
             stage = DedicatedWorkerStartupStage.Planning;
-            var plan = DedicatedCmafSessionPlan.Create(source.Response, request, directory);
+            var plan = DedicatedCmafSessionPlan.Create(source.Response, request, directory, _extractEmbeddedCaptions);
             var exactSource = string.IsNullOrWhiteSpace(source.Response.ProducerNodeId) ? source.RequestId.ToString() : source.Response.ProducerNodeId;
             var key = new StreamTransformKey("web-player-cmaf", $"{exactSource}|{channel}|{plan.SharingKey}");
             var producerSource = source;

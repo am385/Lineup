@@ -36,7 +36,10 @@ internal sealed record DedicatedCmafSessionPlan
     internal required IReadOnlyList<string> Arguments { get; init; }
 
     /// <summary>Gets the canonical media plan identity without output paths or viewer identifiers.</summary>
-    internal string SharingKey => CmafStreamPlanner.CreatePlanKey(Profile, Source, Selection, Request);
+    internal string SharingKey => CmafStreamPlanner.CreatePlanKey(Profile, Source, Selection, Request, ExtractEmbeddedCaptions);
+
+    /// <summary>Gets the trusted shared caption-extraction policy for this presentation.</summary>
+    internal bool ExtractEmbeddedCaptions { get; init; }
 
     /// <summary>Gets the embedded-caption track requiring a parallel extractor.</summary>
     internal MediaTrackMetadata? EmbeddedCaptions { get; init; }
@@ -88,7 +91,7 @@ internal sealed record DedicatedCmafSessionPlan
     }
 
     /// <summary>Creates a plan from the trusted broker response and browser request.</summary>
-    internal static DedicatedCmafSessionPlan Create(VirtualOutputOpenStreamResponse response, CmafStreamRequest request, string directory)
+    internal static DedicatedCmafSessionPlan Create(VirtualOutputOpenStreamResponse response, CmafStreamRequest request, string directory, bool extractEmbeddedCaptions = false)
     {
         ArgumentNullException.ThrowIfNull(response);
         ArgumentNullException.ThrowIfNull(request);
@@ -108,8 +111,9 @@ internal sealed record DedicatedCmafSessionPlan
         }
         var profile = response.Profile
             ?? throw new InvalidDataException("The capability broker did not provide the effective virtual-device profile.");
+        source = WebPlayerTrackPlanner.ApplyCaptionExtractionPolicy(source, extractEmbeddedCaptions);
         request = CmafStreamPlanner.ApplyOverrides(request);
-        var selection = CmafStreamPlanner.SelectTracks(source, request);
+        var selection = CmafStreamPlanner.SelectTracks(source, request, extractEmbeddedCaptions);
         request = CmafStreamPlanner.ApplyTopologyProfile(request, profile, source);
         var audioRenditions = CmafStreamPlanner.CreatePresentationAudioRenditions(source, selection.Audio, request, profile);
         var subtitles = CmafStreamPlanner.GetSelectableSubtitles(source);
@@ -131,6 +135,7 @@ internal sealed record DedicatedCmafSessionPlan
             Source = source,
             RawSource = rawSource,
             Profile = profile,
+            ExtractEmbeddedCaptions = extractEmbeddedCaptions,
             RequestedVideoEncoder = profile.HardwareEncoding.Encoder,
             Selection = selection,
             AudioRenditions = audioRenditions,

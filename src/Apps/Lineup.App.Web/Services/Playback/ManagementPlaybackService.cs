@@ -417,9 +417,13 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         WebPlayerTrackSelection selection;
         IReadOnlyList<CmafAudioRendition> audioRenditions;
         ProviderWebPlayer.WebPlayerPlaybackPlan? providerPlan = null;
+        var player = topologyRoute?.VirtualDevice ?? sourceSettings.Streaming.VirtualDevices.Single(device =>
+            string.Equals(device.Adapter.Kind, WebPlayerVirtualTunerDriver.AdapterKind, StringComparison.OrdinalIgnoreCase));
+        var extractEmbeddedCaptions = WebPlayerConfiguration.Read(player.Adapter).ExtractEmbeddedCaptions;
+        source = WebPlayerTrackPlanner.ApplyCaptionExtractionPolicy(source, extractEmbeddedCaptions);
         try
         {
-            selection = CmafStreamPlanner.SelectTracks(source, request);
+            selection = CmafStreamPlanner.SelectTracks(source, request, extractEmbeddedCaptions);
             request = CmafStreamPlanner.ApplyTopologyProfile(request, virtualProfile, source);
             fallbackAudio = CmafStreamPlanner.ResolveFallbackAudio(request);
             if (topologyRoute is not null && !protectedContent)
@@ -481,7 +485,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         }
 
         var sourceIdentity = selectedCandidate is null ? null : JsonSerializer.Serialize(new { Source = selectedCandidate.Acquisition.SourceIdentity, Normalization = selectedCandidate.PhysicalProfile });
-        var planKey = CmafStreamPlanner.CreatePlanKey(virtualProfile, source, selection, request);
+        var planKey = CmafStreamPlanner.CreatePlanKey(virtualProfile, source, selection, request, extractEmbeddedCaptions);
         var transformKey = providerPlan is null
             ? new StreamTransformKey("web-player-cmaf", $"{(protectedContent ? "protected" : "disabled")}:{channel}|{planKey}")
             : new StreamTransformKey(
@@ -583,6 +587,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
             Task? inputPumpTask = null;
             Process? captionProcess = null;
             Task<string>? captionErrorTask = null;
+            Task? captionExitTask = null;
             CancellationTokenSource? inputCancellation = null;
             CancellationTokenSource? captionCancellation = null;
             try
@@ -640,7 +645,11 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                     captionErrorTask = MediaProcessDiagnostics.ReadTailAsync(captionProcess.StandardError, captionCancellation.Token);
                     pendingOutput.Attach(process, directory, captionProcess, captionErrorTask);
                     pendingOutput.Tasks.Track(captionErrorTask, _logger, "caption diagnostics");
-                    pendingOutput.Tasks.Track(PumpSourceAsync(selectedCandidate!, captionProcess, captionCancellation.Token), _logger, "caption input");
+                    captionExitTask = MediaProcessDiagnostics.ObserveCaptionExitAsync(
+                        captionProcess, captionErrorTask, _logger, sessionId, () => pendingOutput.Tasks.CaptionSourceTerminationCode, captionCancellation.Token);
+                    pendingOutput.Tasks.Track(captionExitTask, _logger, "caption exit");
+                    pendingOutput.Tasks.Track(PumpSourceAsync(
+                        selectedCandidate!, captionProcess, captionCancellation.Token, code => pendingOutput.Tasks.CaptionSourceTerminationCode = code), _logger, "caption input");
                 }
 
                 var session = new CmafSession
@@ -770,6 +779,10 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                             await ObserveInputPumpAsync(inputPumpTask!);
                             inputCancellation = null;
                             captionCancellation?.Cancel();
+                            if (captionExitTask is not null)
+                            {
+                                await captionExitTask;
+                            }
                             StopCaptionProcess(tunerSession);
                             var slateProcess = _protectedContentSlateService.StartCmaf(channel, manifestPath);
                             pendingOutput.Attach(slateProcess, directory);
@@ -1259,10 +1272,10 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         await MediaStreamPump.PumpAsync(input, process, _logger, candidate.DiagnosticUri.AbsoluteUri, cancellationToken, code => tasks.SourceTerminationCode = code);
     }
 
-    private async Task PumpSourceAsync(ResolvedStreamingCandidate candidate, Process process, CancellationToken cancellationToken)
+    private async Task PumpSourceAsync(ResolvedStreamingCandidate candidate, Process process, CancellationToken cancellationToken, Action<string> sourceTerminated)
     {
         await using var input = await _tunerStreamMultiplexer.SubscribeAsync(candidate.Acquisition, candidate.OpenAsync, cancellationToken);
-        await MediaStreamPump.PumpAsync(input, process, _logger, candidate.DiagnosticUri.AbsoluteUri, cancellationToken);
+        await MediaStreamPump.PumpAsync(input, process, _logger, candidate.DiagnosticUri.AbsoluteUri, cancellationToken, sourceTerminated);
     }
 
     private static ProviderWebPlayer.WebPlayerMediaTrack ToWebPlayerTrack(MediaTrackMetadata track) =>
@@ -1542,6 +1555,9 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
     {
         /// <summary>Records only source read termination, never intentional cancellation or a closed processor pipe.</summary>
         public volatile string? SourceTerminationCode;
+
+        /// <summary>Records caption-source read termination separately from the main media input.</summary>
+        public volatile string? CaptionSourceTerminationCode;
 
         /// <summary>Identifies the exact effective source used by this producer for stage-specific diagnostics.</summary>
         public volatile string? SourceProducerNodeId;

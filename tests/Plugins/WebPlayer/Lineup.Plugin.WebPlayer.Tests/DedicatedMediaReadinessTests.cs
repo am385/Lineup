@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Lineup.Core.Streaming.FFmpeg;
 using Lineup.Plugin.WebPlayer.VirtualOutputHost;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -9,6 +10,93 @@ namespace Lineup.Plugin.WebPlayer.Tests;
 /// <summary>Verifies presentation readiness observes terminal upstream failures rather than waiting for an unrelated timeout.</summary>
 public sealed class DedicatedMediaReadinessTests
 {
+    /// <summary>Caption-exit diagnostics wait for drained stderr and retain a bounded failure independently of main playback.</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(234)]
+    public async Task ObserveCaptionExitAsync_UnexpectedExit_ReportsBoundedDiagnostics(int exitCode)
+    {
+        // Arrange
+        using var process = StartWaitingProcess("diagnostics", "65536", exitCode.ToString(System.Globalization.CultureInfo.InvariantCulture), "hold");
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var logger = new CapturingLogger();
+        var diagnostics = MediaProcessDiagnostics.ReadTailAsync(process.StandardError, lifetime.Token);
+        var observing = MediaProcessDiagnostics.ObserveCaptionExitAsync(process, diagnostics, logger, "caption-session", () => "source_eof", lifetime.Token);
+        try
+        {
+            // Act
+            process.StandardInput.Close();
+            await observing.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+            // Assert
+            var call = Assert.Single(logger.Events);
+            Assert.Equal(LogLevel.Warning, call.Level);
+            var values = call.Values;
+            Assert.Equal("caption-session", values["MediaSessionId"]);
+            Assert.Equal(exitCode, values["ProcessExitCode"]);
+            Assert.Equal("source_eof", values["SourceTerminationCode"]);
+            var tail = Assert.IsType<string>(values["DiagnosticTail"]);
+            Assert.InRange(tail.Length, 1, 16_384);
+            Assert.InRange(tail.Split('\n').Length, 1, 50);
+            Assert.EndsWith("final-error", tail, StringComparison.Ordinal);
+        }
+        finally
+        {
+            await lifetime.CancelAsync();
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+            await process.WaitForExitAsync(TestContext.Current.CancellationToken);
+            await observing;
+            await diagnostics;
+        }
+    }
+
+    /// <summary>Intentional shutdown joins the monitor even if the child has exited but its diagnostic drain is still pending.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ObserveCaptionExitAsync_IntentionalStop_DoesNotReportFailure(bool exitBeforeCancellation)
+    {
+        // Arrange
+        using var process = StartWaitingProcess();
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var logger = new CapturingLogger();
+        var retained = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var diagnostics = MediaProcessDiagnostics.ReadTailAsync(process.StandardError, TestContext.Current.CancellationToken);
+        var observing = MediaProcessDiagnostics.ObserveCaptionExitAsync(process, retained.Task, logger, "stopping", () => null, lifetime.Token);
+        try
+        {
+            if (exitBeforeCancellation)
+            {
+                process.StandardInput.Close();
+                await process.WaitForExitAsync(TestContext.Current.CancellationToken);
+            }
+            Assert.False(observing.IsCompleted);
+
+            // Act
+            await lifetime.CancelAsync();
+            await observing.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.Empty(logger.Events);
+            Assert.False(retained.Task.IsCompleted);
+        }
+        finally
+        {
+            await lifetime.CancelAsync();
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+            await process.WaitForExitAsync(TestContext.Current.CancellationToken);
+            retained.TrySetResult("final-error");
+            await observing;
+            await diagnostics;
+        }
+    }
+
     /// <summary>Verifies an input read completing after process cleanup never reopens a disposed process or reports source loss.</summary>
     [Fact]
     public async Task PumpAsync_ProcessDisposedDuringPendingRead_UsesCapturedPipeAndExitTask()
@@ -296,6 +384,22 @@ public sealed class DedicatedMediaReadinessTests
         /// <inheritdoc />
         public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
             ValueTask.FromException<int>(new IOException("Synthetic read failure."));
+    }
+
+    private sealed class CapturingLogger : ILogger
+    {
+        /// <summary>Gets the structured exit events retained until the observation completes.</summary>
+        public List<(LogLevel Level, IReadOnlyDictionary<string, object?> Values)> Events { get; } = [];
+
+        /// <inheritdoc />
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        /// <inheritdoc />
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        /// <inheritdoc />
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Events.Add((logLevel, Assert.IsAssignableFrom<IEnumerable<KeyValuePair<string, object?>>>(state).ToDictionary(pair => pair.Key, pair => pair.Value)));
     }
 
     private sealed class DeferredReadStream : MemoryStream

@@ -864,6 +864,8 @@
   <data name="Settings_VirtualHevcHelp" xml:space="preserve"><value>供无法处理 HEVC 的使用方使用的默认输出转换方式。</value></data>
   <data name="Settings_VirtualTranscoderDefaultsDescription" xml:space="preserve"><value>除非在相应选项卡中启用覆盖，否则每个虚拟设备都会继承这些输出阶段设置。</value></data>
   <data name="Settings_VirtualTunerDiscoveryHeading" xml:space="preserve"><value>虚拟调谐器发现</value></data>
+  <data name="Settings_WebPlayerExtractEmbeddedCaptions" xml:space="preserve"><value>提取内嵌字幕</value></data>
+  <data name="Settings_WebPlayerExtractEmbeddedCaptionsHelp" xml:space="preserve"><value>默认对所有观看者禁用。启用后可提取内嵌字幕，不影响独立字幕。保存后重新开始播放；专用监听器将重新配置。</value></data>
   <data name="Settings_WebSettingsStorage" xml:space="preserve"><value>这些 Web 主机设置保存到</value></data>
   <data name="Settings_WebSettingsStorageSuffix" xml:space="preserve"><value>并在重启后保留。</value></data>
   <data name="Settings_WelcomeAnd" xml:space="preserve"><value>和</value></data>

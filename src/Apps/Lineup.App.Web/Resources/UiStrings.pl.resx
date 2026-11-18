@@ -865,6 +865,8 @@
   <data name="Settings_VirtualHevcHelp" xml:space="preserve"><value>Domyślna konwersja wyjściowa dla odbiorców, którzy nie mogą przetwarzać HEVC.</value></data>
   <data name="Settings_VirtualTranscoderDefaultsDescription" xml:space="preserve"><value>Każde urządzenie wirtualne dziedziczy te ustawienia etapu wyjściowego, chyba że na jego karcie włączono zastąpienie.</value></data>
   <data name="Settings_VirtualTunerDiscoveryHeading" xml:space="preserve"><value>Odnajdywanie tunera wirtualnego</value></data>
+  <data name="Settings_WebPlayerExtractEmbeddedCaptions" xml:space="preserve"><value>Wyodrębniaj osadzone napisy</value></data>
+  <data name="Settings_WebPlayerExtractEmbeddedCaptionsHelp" xml:space="preserve"><value>Domyślnie wyłączone dla wszystkich widzów. Włącz, aby wyodrębniać osadzone napisy; osobne napisy pozostają bez zmian. Zapisz i uruchom odtwarzanie ponownie; dedykowane procesy nasłuchujące zostaną skonfigurowane ponownie.</value></data>
   <data name="Settings_WebSettingsStorage" xml:space="preserve"><value>Te ustawienia hosta internetowego są zapisywane w</value></data>
   <data name="Settings_WebSettingsStorageSuffix" xml:space="preserve"><value>oraz zachowywane po ponownym uruchomieniu.</value></data>
   <data name="Settings_WelcomeAnd" xml:space="preserve"><value>i</value></data>

@@ -864,6 +864,8 @@
   <data name="Settings_VirtualHevcHelp" xml:space="preserve"><value>Conversione di uscita Default per i consumatori che non possono elaborare HEVC.</value></data>
   <data name="Settings_VirtualTranscoderDefaultsDescription" xml:space="preserve"><value>Ogni dispositivo virtuale eredita queste impostazioni di output-stage a meno che la sua scheda non consenta un override.</value></data>
   <data name="Settings_VirtualTunerDiscoveryHeading" xml:space="preserve"><value>Virtual Tuner Discovery</value></data>
+  <data name="Settings_WebPlayerExtractEmbeddedCaptions" xml:space="preserve"><value>Estrai sottotitoli incorporati</value></data>
+  <data name="Settings_WebPlayerExtractEmbeddedCaptionsHelp" xml:space="preserve"><value>Disattivato per impostazione predefinita per tutti. Attivare per estrarre i sottotitoli incorporati; quelli separati non sono interessati. Salvare e riavviare la riproduzione; i listener dedicati vengono riconfigurati.</value></data>
   <data name="Settings_WebSettingsStorage" xml:space="preserve"><value>Queste impostazioni Web-host sono salvate per</value></data>
   <data name="Settings_WebSettingsStorageSuffix" xml:space="preserve"><value>e persistono attraverso riavviamenti.</value></data>
   <data name="Settings_WelcomeAnd" xml:space="preserve"><value>e</value></data>

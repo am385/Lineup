@@ -864,6 +864,8 @@
   <data name="Settings_VirtualHevcHelp" xml:space="preserve"><value>Conversão de saída padrão para consumidores que não podem processar HEVC.</value></data>
   <data name="Settings_VirtualTranscoderDefaultsDescription" xml:space="preserve"><value>Cada dispositivo virtual herda estas configurações de etapa de saída a menos que sua aba permita uma substituição.</value></data>
   <data name="Settings_VirtualTunerDiscoveryHeading" xml:space="preserve"><value>Descoberta de sintonizador virtual</value></data>
+  <data name="Settings_WebPlayerExtractEmbeddedCaptions" xml:space="preserve"><value>Extrair legendas incorporadas</value></data>
+  <data name="Settings_WebPlayerExtractEmbeddedCaptionsHelp" xml:space="preserve"><value>Desativado por padrão para todos. Ative para extrair legendas incorporadas; as legendas separadas não são afetadas. Salve e reinicie a reprodução; os ouvintes dedicados serão reconfigurados.</value></data>
   <data name="Settings_WebSettingsStorage" xml:space="preserve"><value>Estas configurações de host web se salvam em</value></data>
   <data name="Settings_WebSettingsStorageSuffix" xml:space="preserve"><value>e se conservan entre reinicios.</value></data>
   <data name="Settings_WelcomeAnd" xml:space="preserve"><value>e</value></data>

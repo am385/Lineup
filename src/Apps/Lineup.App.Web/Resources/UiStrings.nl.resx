@@ -864,6 +864,8 @@
   <data name="Settings_VirtualHevcHelp" xml:space="preserve"><value>Standaarduitvoerconversie voor gebruikers die HEVC niet kunnen verwerken.</value></data>
   <data name="Settings_VirtualTranscoderDefaultsDescription" xml:space="preserve"><value>Elk virtueel apparaat neemt deze instellingen voor de uitvoerfase over, tenzij op het tabblad een overschrijving wordt ingeschakeld.</value></data>
   <data name="Settings_VirtualTunerDiscoveryHeading" xml:space="preserve"><value>Detectie van virtuele tuners</value></data>
+  <data name="Settings_WebPlayerExtractEmbeddedCaptions" xml:space="preserve"><value>Ingesloten ondertitels extraheren</value></data>
+  <data name="Settings_WebPlayerExtractEmbeddedCaptionsHelp" xml:space="preserve"><value>Standaard uitgeschakeld voor alle kijkers. Schakel in om ingesloten ondertitels te extraheren; losse ondertitels blijven ongewijzigd. Sla op en herstart de weergave; toegewezen listeners worden opnieuw ingesteld.</value></data>
   <data name="Settings_WebSettingsStorage" xml:space="preserve"><value>Deze instellingen van de webhost worden opgeslagen in</value></data>
   <data name="Settings_WebSettingsStorageSuffix" xml:space="preserve"><value>en blijven behouden na herstarts.</value></data>
   <data name="Settings_WelcomeAnd" xml:space="preserve"><value>en</value></data>

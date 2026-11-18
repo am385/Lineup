@@ -864,6 +864,8 @@
   <data name="Settings_VirtualHevcHelp" xml:space="preserve"><value>Standardmäßige Ausgabekonvertierung für Verbraucher, die HEVC nicht verarbeiten können.</value></data>
   <data name="Settings_VirtualTranscoderDefaultsDescription" xml:space="preserve"><value>Jedes virtuelle Gerät übernimmt diese Einstellungen der Ausgabestufe, sofern auf seiner Registerkarte keine Überschreibung aktiviert ist.</value></data>
   <data name="Settings_VirtualTunerDiscoveryHeading" xml:space="preserve"><value>Erkennung virtueller Tuner</value></data>
+  <data name="Settings_WebPlayerExtractEmbeddedCaptions" xml:space="preserve"><value>Eingebettete Untertitel extrahieren</value></data>
+  <data name="Settings_WebPlayerExtractEmbeddedCaptionsHelp" xml:space="preserve"><value>Standardmäßig für alle Zuschauer deaktiviert. Zum Extrahieren eingebetteter Untertitel aktivieren; separate Untertitel bleiben unverändert. Speichern und Wiedergabe neu starten; dedizierte Listener werden neu konfiguriert.</value></data>
   <data name="Settings_WebSettingsStorage" xml:space="preserve"><value>Diese Webhost-Einstellungen werden gespeichert unter</value></data>
   <data name="Settings_WebSettingsStorageSuffix" xml:space="preserve"><value>und bleiben über Neustarts hinweg erhalten.</value></data>
   <data name="Settings_WelcomeAnd" xml:space="preserve"><value>und eine</value></data>

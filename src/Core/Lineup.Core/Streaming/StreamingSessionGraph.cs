@@ -1038,9 +1038,9 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                     _videoEncoding = source.VideoEncoding;
                 }
                 _started.TrySetResult();
+                var buffer = new byte[BufferSize];
                 while (!_lifetime.IsCancellationRequested)
                 {
-                    var buffer = new byte[BufferSize];
                     var count = await source.Stream.ReadAsync(buffer, _lifetime.Token);
                     if (count == 0)
                     {
@@ -1051,11 +1051,16 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                         }
                         break;
                     }
-                    if (count != buffer.Length)
+                    if (count == buffer.Length)
                     {
-                        Array.Resize(ref buffer, count);
+                        // Transfer full buffers without copying; never reuse an array retained by subscribers.
+                        Broadcast(buffer);
+                        buffer = new byte[BufferSize];
                     }
-                    Broadcast(buffer);
+                    else
+                    {
+                        Broadcast(buffer.AsSpan(0, count).ToArray());
+                    }
                 }
             }
             catch (Exception ex) when (_lifetime.IsCancellationRequested && ex is OperationCanceledException or IOException or ObjectDisposedException)
