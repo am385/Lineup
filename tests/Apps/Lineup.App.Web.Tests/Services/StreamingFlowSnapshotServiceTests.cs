@@ -19,18 +19,28 @@ public sealed class StreamingFlowSnapshotServiceTests
         var sourceEncoding = new VideoEncodingSnapshot(sourceFallback ? "libx264" : "h264_amf", HardwareVideoEncoder.Amf, sourceFallback);
         var copyEncoding = new VideoEncodingSnapshot("copy", HardwareVideoEncoder.Nvenc, false);
         var gpuOutputEncoding = new VideoEncodingSnapshot("h264_qsv", HardwareVideoEncoder.Qsv, false);
+        var sourceResource = Guid.NewGuid().ToString("N");
+        var outputResource = Guid.NewGuid().ToString("N");
+        var workerResource = Guid.NewGuid().ToString("N");
+        var captionResource = Guid.NewGuid().ToString("N");
         var first = ActiveStream("first", "localhost", physicalId, virtualId, new(physicalId, "7.1"));
         var second = ActiveStream("second", "localhost", physicalId, virtualId, new(physicalId, "9.1"));
         first = first with { Flow = first.Flow! with { ProducerNodeId = "output-a" } };
-        second = second with { Flow = second.Flow! with { ProducerNodeId = "output-b" } };
+        second = second with { Flow = second.Flow! with { ProducerNodeId = "output-b" }, ResourceIds = [workerResource, captionResource] };
         var settings = Substitute.For<ILineupSettingsService>();
         settings.Settings.Returns(new LineupSettings { Streaming = Configuration(physicalId, virtualId) });
         var graph = Substitute.For<IStreamingSessionGraph>();
         graph.GetDiagnostics().Returns(new StreamingSessionGraphDiagnostics(
         [
             new("acquisition", "a", 1, true) { NodeId = "a", PhysicalDeviceId = physicalId, SourceChannelId = new(physicalId, "7.1") },
-            new("transform", "physical-a", 1, true) { NodeId = "physical-a", ParentNodeId = "a", Stage = "source-normalization", VideoEncoding = sourceEncoding },
-            new("transform", "output-a", 1, true) { NodeId = "output-a", ParentNodeId = "physical-a", Stage = "virtual-mpegts", VideoEncoding = copyEncoding },
+            new("transform", "physical-a", 1, true)
+            {
+                NodeId = "physical-a", ParentNodeId = "a", Stage = "source-normalization", VideoEncoding = sourceEncoding, ResourceIds = [sourceResource]
+            },
+            new("transform", "output-a", 1, true)
+            {
+                NodeId = "output-a", ParentNodeId = "physical-a", Stage = "virtual-mpegts", VideoEncoding = copyEncoding, ResourceIds = [outputResource]
+            },
             new("acquisition", "b", 1, true) { NodeId = "b", PhysicalDeviceId = physicalId, SourceChannelId = new(physicalId, "9.1") },
             new("transform", "output-b", 1, true) { NodeId = "output-b", ParentNodeId = "b", Stage = "virtual-mpegts", VideoEncoding = gpuOutputEncoding }
         ], []));
@@ -48,9 +58,13 @@ public sealed class StreamingFlowSnapshotServiceTests
         var secondPath = snapshot.ActivePaths.Single(path => path.SessionId == "second");
         Assert.Equal(sourceEncoding, firstPath.Stages.Single(stage => stage.Kind == StreamingFlowStageKind.SourceProcessing).VideoEncoding);
         Assert.Equal(copyEncoding, firstPath.Stages.Single(stage => stage.Kind == StreamingFlowStageKind.OutputProcessing).VideoEncoding);
+        Assert.Equal([sourceResource], firstPath.Stages.Single(stage => stage.Kind == StreamingFlowStageKind.SourceProcessing).ResourceIds);
+        Assert.Equal([outputResource], firstPath.Stages.Single(stage => stage.Kind == StreamingFlowStageKind.OutputProcessing).ResourceIds);
+        Assert.Equal([workerResource, captionResource], secondPath.Stages.Single(stage => stage.Kind == StreamingFlowStageKind.OutputProcessing).ResourceIds);
         var sourceCopy = secondPath.Stages.Single(stage => stage.Kind == StreamingFlowStageKind.SourceProcessing);
         Assert.Equal("copy", sourceCopy.VideoEncoding!.Encoder);
         Assert.Equal("Pass-through", sourceCopy.Label);
+        Assert.Empty(sourceCopy.ResourceIds);
         Assert.Equal(gpuOutputEncoding, secondPath.Stages.Single(stage => stage.Kind == StreamingFlowStageKind.OutputProcessing).VideoEncoding);
         var physicalNode = snapshot.Nodes.Single(node => node.Lane == StreamingFlowLane.PhysicalProcessing);
         Assert.Contains(sourceEncoding, physicalNode.VideoEncodings);

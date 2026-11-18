@@ -14,6 +14,7 @@ public static class OwnedMediaProcess
     private static readonly object _jobsLock = new();
     private static readonly Dictionary<NamedPipeServerStream, SafeFileHandle?> _owners = [];
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Process, Identity> _identities = new();
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Process, ResourceIdentity> _resources = new();
     private static string _pipeDirectory = Environment.GetEnvironmentVariable("LINEUP_PROCESS_PIPE_ROOT") is { Length: > 0 } root ? root : Path.GetTempPath();
 
     /// <summary>Starts an owned media process without shell interpretation. The returned process owns the standard streams and mirrors the media exit code.</summary>
@@ -24,6 +25,35 @@ public static class OwnedMediaProcess
 
     /// <summary>Gets the target worker identifier while retaining the returned supervisor as the standard-stream and cleanup owner.</summary>
     public static int GetTargetProcessId(Process process) => _identities.TryGetValue(process, out var identity) ? identity.ProcessId : process.Id;
+
+    /// <summary>Gets the original target creation identity without reopening its PID after exit.</summary>
+    internal static long? GetTargetStartTimeUtcTicks(Process process)
+    {
+        if (_identities.TryGetValue(process, out var identity))
+        {
+            return identity.StartTimeUtcTicks;
+        }
+        try
+        {
+            return process.StartTime.ToUniversalTime().Ticks;
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or Win32Exception or NotSupportedException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Gets resource identities for the actual media process, independently of its lifetime supervisor.</summary>
+    public static IReadOnlyList<string> GetResourceIds(Process process) => _resources.TryGetValue(process, out var resource) ? [resource.Target] : [];
+
+    /// <summary>Labels an owned media process without exposing command arguments or transferring cleanup ownership.</summary>
+    public static void SetResourceRole(Process process, string role)
+    {
+        foreach (var id in GetResourceIds(process))
+        {
+            ProcessResourceRegistry.Local.SetRole(id, role);
+        }
+    }
 
     /// <summary>Gets the worker session's process group, which remains inherited by its media launches.</summary>
     public static int GetProcessGroupId(Process process) => _identities.TryGetValue(process, out var identity) ? identity.ProcessGroupId : process.Id;
@@ -90,6 +120,7 @@ public static class OwnedMediaProcess
         try
         {
             process = StartLauncher(helper);
+            var supervisorStartTime = GetTargetStartTimeUtcTicks(process);
             // The helper cannot execute the target before the job/resource attachment and command handshake.
             if (OperatingSystem.IsWindows() && beforeRelease is null && !HasKillOnCloseJob())
             {
@@ -108,7 +139,8 @@ public static class OwnedMediaProcess
             {
                 throw new Win32Exception(result?.Error ?? 5, "The owned media executable could not be started.");
             }
-            _identities.Add(process, new Identity(result?.ProcessId ?? process.Id, result?.ProcessGroupId ?? process.Id));
+            var targetStartTime = result?.StartTimeUtcTicks ?? (result is null ? supervisorStartTime : null);
+            _identities.Add(process, new Identity(result?.ProcessId ?? process.Id, result?.ProcessGroupId ?? process.Id, targetStartTime));
             lock (_jobsLock)
             {
                 _owners.Add(pipe, job);
@@ -116,10 +148,39 @@ public static class OwnedMediaProcess
             }
             process.EnableRaisingEvents = true;
             process.Exited += (_, _) => Release(pipe);
+            var registry = ProcessResourceRegistry.Local;
+            var targetResource = registry.Register(result?.ProcessId ?? process.Id, "media", targetStartTime);
+            var supervisorResource = process.Id == (result?.ProcessId ?? process.Id) ? null : registry.Register(process.Id, "helper", supervisorStartTime);
+            _resources.Add(process, new(targetResource));
+            process.Exited += (_, _) =>
+            {
+                registry.Unregister(targetResource);
+                if (supervisorResource is not null)
+                {
+                    registry.Unregister(supervisorResource);
+                }
+            };
+            if (!process.HasExited)
+            {
+                if (targetStartTime is not null)
+                {
+                    registry.Attach(targetResource);
+                }
+                if (supervisorResource is not null && supervisorStartTime is not null)
+                {
+                    registry.Attach(supervisorResource);
+                }
+            }
             if (process.HasExited)
             {
                 Release(pipe);
+                registry.Unregister(targetResource);
+                if (supervisorResource is not null)
+                {
+                    registry.Unregister(supervisorResource);
+                }
             }
+
             return process;
         }
         catch (Exception failure)
@@ -142,6 +203,8 @@ public static class OwnedMediaProcess
             throw;
         }
     }
+
+    private sealed record ResourceIdentity(string Target);
 
     private static Process StartLauncher(ProcessStartInfo startInfo)
     {
@@ -271,7 +334,7 @@ public static class OwnedMediaProcess
     internal sealed record LaunchCommand(string FileName, string[] Arguments, Dictionary<string, string?> Environment, bool Leaf, bool CreateSession);
 
     /// <summary>Reports target launch failure without putting executable diagnostics on the private channel.</summary>
-    internal sealed record LaunchResult(int Error, int ProcessId = 0, int ProcessGroupId = 0);
+    internal sealed record LaunchResult(int Error, int ProcessId = 0, int ProcessGroupId = 0, long? StartTimeUtcTicks = null);
 
-    private sealed record Identity(int ProcessId, int ProcessGroupId);
+    private sealed record Identity(int ProcessId, int ProcessGroupId, long? StartTimeUtcTicks);
 }

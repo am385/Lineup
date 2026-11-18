@@ -61,6 +61,9 @@ public sealed record StreamingFlowDetail(string Label, string Value);
 /// <summary>One selectable node in the configured and live streaming topology.</summary>
 public sealed record StreamingFlowNode(string Id, StreamingFlowLane Lane, string Label, string Subtitle, StreamingFlowState State, IReadOnlyList<StreamingFlowDetail> Details)
 {
+    /// <summary>Gets distinct measured process identities for this topology node.</summary>
+    public IReadOnlyList<string> ResourceIds { get; init; } = [];
+
     /// <summary>Gets distinct encoder outcomes reported by active outputs, not inferred from device settings.</summary>
     public IReadOnlyList<VideoEncodingSnapshot> VideoEncodings { get; init; } = [];
 
@@ -74,6 +77,9 @@ public sealed record StreamingFlowNode(string Id, StreamingFlowLane Lane, string
 /// <summary>Describes one selectable stage in an active streaming path.</summary>
 public sealed record StreamingFlowPathStage(StreamingFlowStageKind Kind, string Label, string Subtitle, IReadOnlyList<StreamingFlowDetail> Details)
 {
+    /// <summary>Gets measured process identities; multiple paths may refer to the same shared resource.</summary>
+    public IReadOnlyList<string> ResourceIds { get; init; } = [];
+
     /// <summary>Gets the actual encoder reported for this processing stage, when available.</summary>
     public VideoEncodingSnapshot? VideoEncoding { get; init; }
 
@@ -194,6 +200,7 @@ public sealed class StreamingFlowSnapshotService : IStreamingFlowSnapshotService
             {
                 VideoEncodings = relatedStreams.Select(stream => GetSourceVideoEncoding(stream, nodesById))
                     .Concat(physicalTransforms.Select(node => node.VideoEncoding)).OfType<VideoEncodingSnapshot>().Distinct().ToArray(),
+                ResourceIds = physicalTransforms.SelectMany(node => node.ResourceIds).Distinct(StringComparer.Ordinal).ToArray(),
                 ActiveChannels = channels,
                 ActiveSessionCount = relatedStreams.Length
             });
@@ -280,6 +287,8 @@ public sealed class StreamingFlowSnapshotService : IStreamingFlowSnapshotService
                 ])
             {
                 VideoEncodings = relatedStreams.Select(stream => GetOutputVideoEncoding(stream, nodesById)).OfType<VideoEncodingSnapshot>().Distinct().ToArray(),
+                ResourceIds = relatedStreams.SelectMany(stream => stream.ResourceIds.Count > 0
+                    ? stream.ResourceIds : FindProcessingNode(stream, "virtual-mpegts", nodesById)?.ResourceIds ?? []).Distinct(StringComparer.Ordinal).ToArray(),
                 ActiveChannels = channels,
                 ActiveSessionCount = relatedStreams.Length
             });
@@ -383,6 +392,7 @@ public sealed class StreamingFlowSnapshotService : IStreamingFlowSnapshotService
                 ])
             {
                 VideoEncoding = GetSourceVideoEncoding(stream, nodesById),
+                ResourceIds = FindProcessingNode(stream, "source-normalization", nodesById)?.ResourceIds ?? [],
                 InputMedia = stream.PhysicalInput,
                 OutputMedia = stream.PhysicalOutput
             },
@@ -422,6 +432,7 @@ public sealed class StreamingFlowSnapshotService : IStreamingFlowSnapshotService
                 ])
             {
                 VideoEncoding = GetOutputVideoEncoding(stream, nodesById),
+                ResourceIds = stream.ResourceIds.Count > 0 ? stream.ResourceIds : FindProcessingNode(stream, "virtual-mpegts", nodesById)?.ResourceIds ?? [],
                 InputMedia = stream.PhysicalOutput,
                 OutputMedia = stream.VirtualOutput
             },

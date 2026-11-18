@@ -168,6 +168,7 @@
   <data name="Common_FailedToResume" xml:space="preserve"><value>Não foi possível retomar a sesión.</value></data>
   <data name="Common_LastUpdated" xml:space="preserve"><value>Última atualização</value></data>
   <data name="Common_Loading" xml:space="preserve"><value>Carregando...</value></data>
+  <data name="Common_MinutesAbbreviation" xml:space="preserve"><value>{0}m</value></data>
   <data name="Common_Never" xml:space="preserve"><value>nunca</value></data>
   <data name="Common_NotAvailable" xml:space="preserve"><value>N/A</value></data>
   <data name="Common_NotFoundHeading" xml:space="preserve"><value>Não encontrado</value></data>
@@ -405,6 +406,38 @@
   <data name="ProgramMetadata_Subtitles" xml:space="preserve"><value>Legendas</value></data>
   <data name="ProgramMetadata_Title" xml:space="preserve"><value>Título</value></data>
   <data name="ProgramMetadata_Video" xml:space="preserve"><value>Video</value></data>
+  <data name="Resources_CoreCount" xml:space="preserve"><value>{0:0.##} núcleos lógicos</value></data>
+  <data name="Resources_Cpu" xml:space="preserve"><value>CPU</value></data>
+  <data name="Resources_CpuHelp" xml:space="preserve"><value>100% = um núcleo lógico de CPU; os valores podem ultrapassar 100%.</value></data>
+  <data name="Resources_External" xml:space="preserve"><value>Não medido aqui: este componente é executado fora do Lineup.</value></data>
+  <data name="Resources_Heading" xml:space="preserve"><value>Recursos</value></data>
+  <data name="Resources_Management" xml:space="preserve"><value>Host de gerenciamento</value></data>
+  <data name="Resources_Media" xml:space="preserve"><value>Processos de mídia e auxiliares de ciclo de vida</value></data>
+  <data name="Resources_Memory" xml:space="preserve"><value>RAM</value></data>
+  <data name="Resources_MemoryHelp" xml:space="preserve"><value>Soma da memória residente dos processos; páginas compartilhadas podem ser contadas mais de uma vez.</value></data>
+  <data name="Resources_NoProcess" xml:space="preserve"><value>Nenhum processo separado foi informado para esta etapa. Isso não é uma medição de zero.</value></data>
+  <data name="Resources_Observed" xml:space="preserve"><value>Última observação</value></data>
+  <data name="Resources_Partial" xml:space="preserve"><value>Inicialização ou cobertura parcial: um ou mais processos não têm medição atual. Lacunas não representam consumo zero.</value></data>
+  <data name="Resources_Paused" xml:space="preserve"><value>A coleta de recursos está pausada. O histórico mantido não representa o consumo atual.</value></data>
+  <data name="Resources_ProcessScope" xml:space="preserve"><value>CPU e memória são medidas para todo o processo, não separadamente para decodificação, filtros, codificação, áudio ou multiplexação.</value></data>
+  <data name="Resources_Role" xml:space="preserve"><value>Função do processo</value></data>
+  <data name="Resources_Role_captions" xml:space="preserve"><value>Extração de legendas</value></data>
+  <data name="Resources_Role_helper" xml:space="preserve"><value>Auxiliar de ciclo de vida</value></data>
+  <data name="Resources_Role_management" xml:space="preserve"><value>Host de gerenciamento</value></data>
+  <data name="Resources_Role_media" xml:space="preserve"><value>Processamento de mídia</value></data>
+  <data name="Resources_Role_output" xml:space="preserve"><value>Processamento de saída</value></data>
+  <data name="Resources_Role_source" xml:space="preserve"><value>Processamento de origem</value></data>
+  <data name="Resources_Role_worker" xml:space="preserve"><value>Worker dedicado</value></data>
+  <data name="Resources_Scope" xml:space="preserve"><value>Somente processos do Lineup. Os painéis compartilham um histórico móvel em memória, apagado ao reiniciar.</value></data>
+  <data name="Resources_SharedCost" xml:space="preserve"><value>Custo total do processo: um produtor reutilizável pode atender vários espectadores. O trabalho compartilhado é contado uma vez no resumo e não é dividido entre espectadores.</value></data>
+  <data name="Resources_SharedHost" xml:space="preserve"><value>Incluído em um processo host compartilhado. Contadores leves não podem medir CPU e memória exclusivas desta etapa.</value></data>
+  <data name="Resources_State_process_unavailable" xml:space="preserve"><value>Processo indisponível</value></data>
+  <data name="Resources_State_stale" xml:space="preserve"><value>Observação desatualizada</value></data>
+  <data name="Resources_State_warming_up" xml:space="preserve"><value>Estabelecendo referência de CPU</value></data>
+  <data name="Resources_TimeAxis" xml:space="preserve"><value>Tempo atrás</value></data>
+  <data name="Resources_Toggle" xml:space="preserve"><value>Mostrar / ocultar gráficos</value></data>
+  <data name="Resources_Total" xml:space="preserve"><value>Total do Lineup</value></data>
+  <data name="Resources_Workers" xml:space="preserve"><value>Workers dedicados</value></data>
   <data name="Settings_AboutActiveStreams" xml:space="preserve"><value>Controla a frecuencia com a que o Panel atualiza seu exibição em cache dos consumidores, o uso do sintonizador, as adquisiciones compartidas, as transcodificaciones e o fluxo de streaming.</value></data>
   <data name="Settings_AboutActiveStreamsTitle" xml:space="preserve"><value>Streams ativas</value></data>
   <data name="Settings_AboutAppearance" xml:space="preserve"><value>Controla como se apresenta a interface Web sem alterar o comportamento da guia o a streaming compartilhada.</value></data>
@@ -442,6 +475,7 @@
   <data name="Settings_AboutRegional" xml:space="preserve"><value>Controla como se exibem as datas e horas em Lineup. Não altera as carimbos de data/hora do programa armazenadas pelos provedores de guias.</value></data>
   <data name="Settings_AboutReset" xml:space="preserve"><value>Organiza as configurações web e compartilhada padrão para seu revisión sem alterar imediatamente as configurações persistente.</value></data>
   <data name="Settings_AboutResetTitle" xml:space="preserve"><value>Redefinir configurações</value></data>
+  <data name="Settings_AboutResources" xml:space="preserve"><value>Controla o monitoramento leve de CPU e RAM e o tempo de retenção do histórico na memória. Por padrão, a coleta ocorre apenas com um painel visível. Ative a coleta contínua para manter amostras em segundo plano; o histórico nunca é salvo em disco e é apagado ao reiniciar.</value></data>
   <data name="Settings_AboutRestart" xml:space="preserve"><value>Reinicia corretamente o host sem alterar as configurações nem remover dados.</value></data>
   <data name="Settings_AboutRestartTitle" xml:space="preserve"><value>Reiniciar Lineup</value></data>
   <data name="Settings_AboutStatusApiEnd" xml:space="preserve"><value>para preservar uma estructura de resposta estável sem activar operações de dispositivos nem da guia.</value></data>
@@ -781,6 +815,11 @@
   <data name="Settings_ResetStoragePrefix" xml:space="preserve"><value>As operações de restablecimiento podem afectar</value></data>
   <data name="Settings_ResetStorageSuffix" xml:space="preserve"><value>e outros dados de aplicativos propriedade de Lineup.</value></data>
   <data name="Settings_ResolvedPathLabel" xml:space="preserve"><value>Caminho resuelta:</value></data>
+  <data name="Settings_ResourceHistoryHelp" xml:space="preserve"><value>Mantenha de 1 a 60 minutos na memória. Aumentar o valor não restaura observações anteriores.</value></data>
+  <data name="Settings_ResourceHistoryLabel" xml:space="preserve"><value>Histórico de recursos (minutos)</value></data>
+  <data name="Settings_ResourceHistoryValidation" xml:space="preserve"><value>O histórico de recursos deve estar entre 1 e 60 minutos.</value></data>
+  <data name="Settings_ResourceVisibilityHelp" xml:space="preserve"><value>Ative para coletar e armazenar dados mesmo sem um painel visível. Desativado por padrão: a coleta ocorre apenas com um painel visível. O histórico fica na memória e é apagado ao reiniciar.</value></data>
+  <data name="Settings_ResourceVisibilityLabel" xml:space="preserve"><value>Coletar dados de recursos continuamente</value></data>
   <data name="Settings_RestartButton" xml:space="preserve"><value>Reiniciar Lineup</value></data>
   <data name="Settings_RestartDelayedHeading" xml:space="preserve"><value>Lineup está demorando mais do que o esperado</value></data>
   <data name="Settings_RestartDelayedHelp" xml:space="preserve"><value>Verifique se o Lineup está em execução e então tente se conectar novamente.</value></data>

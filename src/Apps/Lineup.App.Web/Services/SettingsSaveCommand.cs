@@ -26,6 +26,10 @@ public sealed record SettingsSaveDraft
     public int TunerRefreshIntervalSeconds { get; init; }
     /// <summary>Gets the dashboard refresh interval before normalization.</summary>
     public int ActiveStreamRefreshIntervalSeconds { get; init; }
+    /// <summary>Gets whether resource collection requires a visible Dashboard.</summary>
+    public bool MonitorResourcesOnlyWhenVisible { get; init; } = true;
+    /// <summary>Gets resource history retention before validation.</summary>
+    public int ResourceHistoryMinutes { get; init; } = 5;
     /// <summary>Gets whether automatic XMLTV publication is enabled.</summary>
     public bool AutoGenerateXmltv { get; init; }
     /// <summary>Gets the fallback XMLTV path.</summary>
@@ -170,6 +174,8 @@ internal sealed class SettingsSaveCommand(
                 ConfigurationRevision.RequireMatch(draft.WebRevision, GetWebRevision(settings));
                 settings.EnableNetworkDiscovery = draft.EnableNetworkDiscovery;
                 settings.ActiveStreamRefreshIntervalSeconds = draft.ActiveStreamRefreshIntervalSeconds;
+                settings.MonitorResourcesOnlyWhenVisible = draft.MonitorResourcesOnlyWhenVisible;
+                settings.ResourceHistoryMinutes = draft.ResourceHistoryMinutes;
                 if (settings.Theme == previousTheme)
                 {
                     settings.Theme = draft.Theme;
@@ -265,6 +271,10 @@ internal sealed class SettingsSaveCommand(
         if (draft.ActiveStreamRefreshIntervalSeconds is < 0 or > 300)
         {
             return [text["Settings_StreamRefreshValidation"]];
+        }
+        if (draft.ResourceHistoryMinutes is < 1 or > 60)
+        {
+            return [text["Settings_ResourceHistoryValidation"]];
         }
         if (draft.EpgHistoryRetentionHours is < 0 or > 720)
         {

@@ -168,6 +168,7 @@
   <data name="Common_FailedToResume" xml:space="preserve"><value>Die Sitzung konnte nicht fortgesetzt werden.</value></data>
   <data name="Common_LastUpdated" xml:space="preserve"><value>Zuletzt aktualisiert</value></data>
   <data name="Common_Loading" xml:space="preserve"><value>Wird geladen...</value></data>
+  <data name="Common_MinutesAbbreviation" xml:space="preserve"><value>{0} Min.</value></data>
   <data name="Common_Never" xml:space="preserve"><value>Nie</value></data>
   <data name="Common_NotAvailable" xml:space="preserve"><value>N/A</value></data>
   <data name="Common_NotFoundHeading" xml:space="preserve"><value>Nicht gefunden</value></data>
@@ -405,6 +406,38 @@
   <data name="ProgramMetadata_Subtitles" xml:space="preserve"><value>Untertitel</value></data>
   <data name="ProgramMetadata_Title" xml:space="preserve"><value>Titel</value></data>
   <data name="ProgramMetadata_Video" xml:space="preserve"><value>Video</value></data>
+  <data name="Resources_CoreCount" xml:space="preserve"><value>{0:0.##} logische Kerne</value></data>
+  <data name="Resources_Cpu" xml:space="preserve"><value>CPU</value></data>
+  <data name="Resources_CpuHelp" xml:space="preserve"><value>100% = ein logischer CPU-Kern; Werte können 100% überschreiten.</value></data>
+  <data name="Resources_External" xml:space="preserve"><value>Hier nicht gemessen: Diese Komponente läuft außerhalb von Lineup.</value></data>
+  <data name="Resources_Heading" xml:space="preserve"><value>Ressourcen</value></data>
+  <data name="Resources_Management" xml:space="preserve"><value>Verwaltungshost</value></data>
+  <data name="Resources_Media" xml:space="preserve"><value>Medien- und Lebensdauerhilfsprozesse</value></data>
+  <data name="Resources_Memory" xml:space="preserve"><value>RAM</value></data>
+  <data name="Resources_MemoryHelp" xml:space="preserve"><value>Summe des residenten Prozessspeichers; gemeinsam genutzte Seiten können mehrfach gezählt werden.</value></data>
+  <data name="Resources_NoProcess" xml:space="preserve"><value>Für diese Stufe wurde kein separater Prozess gemeldet. Dies ist kein gemessener Nullwert.</value></data>
+  <data name="Resources_Observed" xml:space="preserve"><value>Zuletzt beobachtet</value></data>
+  <data name="Resources_Partial" xml:space="preserve"><value>Aufwärmphase oder unvollständige Abdeckung: Für mindestens einen Prozess fehlt eine aktuelle Messung. Lücken bedeuten nicht null Verbrauch.</value></data>
+  <data name="Resources_Paused" xml:space="preserve"><value>Die Ressourcenerfassung ist pausiert. Der gespeicherte Verlauf zeigt nicht den aktuellen Verbrauch.</value></data>
+  <data name="Resources_ProcessScope" xml:space="preserve"><value>CPU und Speicher werden für den gesamten Prozess gemessen, nicht getrennt für Decodierung, Filter, Encodierung, Audio oder Multiplexing.</value></data>
+  <data name="Resources_Role" xml:space="preserve"><value>Prozessrolle</value></data>
+  <data name="Resources_Role_captions" xml:space="preserve"><value>Untertitelextraktion</value></data>
+  <data name="Resources_Role_helper" xml:space="preserve"><value>Lebensdauerhilfsprozess</value></data>
+  <data name="Resources_Role_management" xml:space="preserve"><value>Verwaltungshost</value></data>
+  <data name="Resources_Role_media" xml:space="preserve"><value>Medienverarbeitung</value></data>
+  <data name="Resources_Role_output" xml:space="preserve"><value>Ausgabeverarbeitung</value></data>
+  <data name="Resources_Role_source" xml:space="preserve"><value>Quellverarbeitung</value></data>
+  <data name="Resources_Role_worker" xml:space="preserve"><value>Dedizierter Worker</value></data>
+  <data name="Resources_Scope" xml:space="preserve"><value>Nur Lineup-Prozesse. Der rollierende Verlauf im Arbeitsspeicher wird von Dashboards gemeinsam genutzt und beim Neustart gelöscht.</value></data>
+  <data name="Resources_SharedCost" xml:space="preserve"><value>Gesamter Prozessverbrauch: Ein wiederverwendbarer Erzeuger kann mehrere Zuschauer bedienen. Gemeinsame Arbeit wird in der Übersicht einmal gezählt und nicht auf Zuschauer aufgeteilt.</value></data>
+  <data name="Resources_SharedHost" xml:space="preserve"><value>In einem gemeinsam genutzten Hostprozess enthalten. Exklusive CPU- und Speicherwerte dieser Stufe lassen sich mit einfachen Prozesszählern nicht messen.</value></data>
+  <data name="Resources_State_process_unavailable" xml:space="preserve"><value>Prozess nicht verfügbar</value></data>
+  <data name="Resources_State_stale" xml:space="preserve"><value>Veraltete Beobachtung</value></data>
+  <data name="Resources_State_warming_up" xml:space="preserve"><value>CPU-Basiswert wird ermittelt</value></data>
+  <data name="Resources_TimeAxis" xml:space="preserve"><value>Zeit zuvor</value></data>
+  <data name="Resources_Toggle" xml:space="preserve"><value>Diagramme anzeigen / ausblenden</value></data>
+  <data name="Resources_Total" xml:space="preserve"><value>Lineup gesamt</value></data>
+  <data name="Resources_Workers" xml:space="preserve"><value>Dedizierte Worker</value></data>
   <data name="Settings_AboutActiveStreams" xml:space="preserve"><value>Steuert, wie häufig die Übersicht ihre zwischengespeicherte Ansicht von Verbrauchern, Tunernutzung, gemeinsam genutzten Erfassungen, Transcodierungen und Streamingfluss aktualisiert.</value></data>
   <data name="Settings_AboutActiveStreamsTitle" xml:space="preserve"><value>Aktive Streams</value></data>
   <data name="Settings_AboutAppearance" xml:space="preserve"><value>Steuert die Darstellung der Weboberfläche, ohne das gemeinsame Streaming- oder Programmführerverhalten zu ändern.</value></data>
@@ -442,6 +475,7 @@
   <data name="Settings_AboutRegional" xml:space="preserve"><value>Steuert, wie Datum und Uhrzeit in Lineup angezeigt werden. Von Programmführeranbietern gespeicherte Sendungszeitstempel werden nicht geändert.</value></data>
   <data name="Settings_AboutReset" xml:space="preserve"><value>Bereitet gemeinsame und Web-Standardeinstellungen zur Prüfung vor, ohne die gespeicherte Konfiguration sofort zu ändern.</value></data>
   <data name="Settings_AboutResetTitle" xml:space="preserve"><value>Einstellungen zurücksetzen</value></data>
+  <data name="Settings_AboutResources" xml:space="preserve"><value>Steuert die ressourcenschonende CPU- und RAM-Überwachung und die Aufbewahrung des Verlaufs im Arbeitsspeicher. Standardmäßig wird nur bei sichtbarem Dashboard erfasst. Kontinuierliche Erfassung sammelt auch im Hintergrund; der Verlauf wird nie auf Datenträger geschrieben und beim Neustart gelöscht.</value></data>
   <data name="Settings_AboutRestart" xml:space="preserve"><value>Startet den Host ordnungsgemäß neu, ohne die Konfiguration zu ändern oder Daten zu löschen.</value></data>
   <data name="Settings_AboutRestartTitle" xml:space="preserve"><value>Lineup neu starten</value></data>
   <data name="Settings_AboutStatusApiEnd" xml:space="preserve"><value>, sodass eine stabile Antwortstruktur erhalten bleibt, ohne Geräte- oder Programmführervorgänge auszulösen.</value></data>
@@ -781,6 +815,11 @@
   <data name="Settings_ResetStoragePrefix" xml:space="preserve"><value>Zurücksetzungsvorgänge können folgende Daten betreffen:</value></data>
   <data name="Settings_ResetStorageSuffix" xml:space="preserve"><value>und weitere Lineup-eigene Anwendungsdaten.</value></data>
   <data name="Settings_ResolvedPathLabel" xml:space="preserve"><value>Aufgelöster Pfad:</value></data>
+  <data name="Settings_ResourceHistoryHelp" xml:space="preserve"><value>1-60 Minuten im Arbeitsspeicher behalten. Eine Erhöhung stellt frühere Beobachtungen nicht wieder her.</value></data>
+  <data name="Settings_ResourceHistoryLabel" xml:space="preserve"><value>Ressourcenverlauf (Minuten)</value></data>
+  <data name="Settings_ResourceHistoryValidation" xml:space="preserve"><value>Der Ressourcenverlauf muss zwischen 1 und 60 Minuten liegen.</value></data>
+  <data name="Settings_ResourceVisibilityHelp" xml:space="preserve"><value>Aktivieren, um Ressourcendaten auch ohne sichtbares Dashboard zu erfassen und zwischenzuspeichern. Standardmäßig deaktiviert: Erfassung nur bei sichtbarem Dashboard. Der Verlauf bleibt im Arbeitsspeicher und wird beim Neustart gelöscht.</value></data>
+  <data name="Settings_ResourceVisibilityLabel" xml:space="preserve"><value>Ressourcen kontinuierlich erfassen</value></data>
   <data name="Settings_RestartButton" xml:space="preserve"><value>Lineup neu starten</value></data>
   <data name="Settings_RestartDelayedHeading" xml:space="preserve"><value>Lineup benötigt länger als erwartet</value></data>
   <data name="Settings_RestartDelayedHelp" xml:space="preserve"><value>Stellen Sie sicher, dass Lineup ausgeführt wird, und versuchen Sie dann erneut, eine Verbindung herzustellen.</value></data>

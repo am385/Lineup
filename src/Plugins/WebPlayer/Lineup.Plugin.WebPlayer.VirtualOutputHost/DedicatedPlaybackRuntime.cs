@@ -229,6 +229,9 @@ internal sealed partial class DedicatedPlaybackRuntime : IAsyncDisposable
             StreamSessionId = streamId,
             WorkerMediaSessionId = viewer.Id.ToString(),
             WorkerProducerId = viewer.Producer.Id,
+            ResourceIds = viewer.Producer.Session is { } resourceSession
+                ? OwnedMediaProcess.GetResourceIds(resourceSession.Process).Concat(resourceSession.CaptionProcess is { } captions ? OwnedMediaProcess.GetResourceIds(captions) : []).ToArray()
+                : [],
             ReleaseViewer = release,
             Format = snapshot.Format,
             Tracks = snapshot.Tracks,

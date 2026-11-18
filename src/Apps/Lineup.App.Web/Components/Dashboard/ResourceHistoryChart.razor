@@ -1,0 +1,190 @@
+@using System.Globalization
+@using System.Runtime.CompilerServices
+
+<section class="card mb-3 resource-history" aria-label="@Text[Memory ? "Resources_Memory" : "Resources_Cpu"]">
+    <header class="card-header">
+        <h6 class="mb-0">@Text[Memory ? "Resources_Memory" : "Resources_Cpu"]</h6>
+    </header>
+    <div class="card-body">
+        <p class="small text-body-secondary">@Text[Memory ? "Resources_MemoryHelp" : "Resources_CpuHelp"]</p>
+        <div class="d-flex pt-2">
+            <div class="position-relative flex-shrink-0 text-body-secondary small me-2" style="width:5.5rem;height:150px">
+                @for (var index = 0; index <= 4; index++)
+                {
+                    var fraction = index / 4d;
+                    <span class="position-absolute end-0 text-nowrap" data-resource-y-tick
+                          style="@FormattableString.Invariant($"top:{149 - fraction * 145:0.##}px;transform:translateY(-50%)")">
+                        @((_maximum * fraction).ToString("0.##")) @(Memory ? "MiB" : "%")
+                    </span>
+                }
+            </div>
+            <div class="flex-grow-1" style="min-width:0">
+                <svg viewBox="0 0 900 150" preserveAspectRatio="none" style="display:block;width:100%;height:150px;overflow:hidden" role="img"
+                     aria-label="@Text[Memory ? "Resources_Memory" : "Resources_Cpu"]">
+                    <g stroke="currentColor" opacity=".2" aria-hidden="true">
+                        @for (var index = 0; index <= 4; index++)
+                        {
+                            var y = (149 - index / 4d * 145).ToString("0.##", CultureInfo.InvariantCulture);
+                            var x = (index * 225).ToString(CultureInfo.InvariantCulture);
+                            <line x1="0" y1="@y" x2="900" y2="@y" data-resource-gridline />
+                            <line x1="@x" y1="4" x2="@x" y2="149" stroke-dasharray="3 4" />
+                        }
+                    </g>
+                    <g data-resource-series transform="@FormattableString.Invariant($"translate(900 0) scale({900d / (HistoryMinutes * 60):0.########} 1)")">
+                        @foreach (var line in _lines)
+                        {
+                            @foreach (var segment in line.Segments)
+                            {
+                                <polyline points="@segment" fill="none" stroke="@line.Color" stroke-width="2" vector-effect="non-scaling-stroke" />
+                            }
+                        }
+                    </g>
+                </svg>
+                <div class="d-flex justify-content-between small text-body-secondary font-monospace mt-2">
+                    @for (var index = 0; index <= 4; index++)
+                    {
+                        <span class="@(index is 0 or 4 ? null : "d-none d-sm-inline")" data-resource-x-tick>
+                            @FormatTimeTick(index)
+                        </span>
+                    }
+                </div>
+                <div class="small text-body-secondary text-center">@Text["Resources_TimeAxis"]</div>
+            </div>
+        </div>
+        <dl class="row row-cols-1 row-cols-md-2 row-cols-xl-4 g-3 small mt-0 mb-0">
+            @foreach (var line in _lines)
+            {
+                <div class="col">
+                    <dt><span style="@($"color:{line.Color}")" aria-hidden="true">&#9679;</span> @Text[line.Label]</dt>
+                    <dd>
+                        @(line.Current?.ToString("0.##") ?? Text["Common_NotAvailable"].Value) @(Memory ? "MiB" : "%")
+                        @if (!Memory && line.Current is { } cpu)
+                        {
+                            <span>(@Text["Resources_CoreCount", cpu / 100])</span>
+                        }
+                    </dd>
+                </div>
+            }
+        </dl>
+    </div>
+</section>
+
+@code {
+    private static readonly ConditionalWeakTable<IReadOnlyList<ResourceHistoryPoint>, Lazy<ChartPlot>> _cpuPlots = new();
+    private static readonly ConditionalWeakTable<IReadOnlyList<ResourceHistoryPoint>, Lazy<ChartPlot>> _memoryPlots = new();
+    private IReadOnlyList<ChartLine> _lines = [];
+    private double _maximum = 100;
+
+    /// <summary>Gets or sets the bounded aggregate observations.</summary>
+    [Parameter]
+    public IReadOnlyList<ResourceHistoryPoint> History { get; set; } = [];
+
+    /// <summary>Gets or sets whether to plot resident memory rather than CPU.</summary>
+    [Parameter]
+    public bool Memory { get; set; }
+
+    /// <summary>Gets or sets the fixed visible history window in minutes.</summary>
+    [Parameter]
+    public int HistoryMinutes { get; set; } = 5;
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        var plot = Memory
+            ? _memoryPlots.GetValue(History, static history => new(() => BuildPlot(history, true))).Value
+            : _cpuPlots.GetValue(History, static history => new(() => BuildPlot(history, false))).Value;
+        _maximum = plot.Maximum;
+        _lines = plot.Lines;
+    }
+
+    private string FormatTimeTick(int index)
+    {
+        var seconds = HistoryMinutes * 60 * (4 - index) / 4;
+        return seconds < 60
+            ? Text["Common_SecondsAbbreviation", seconds]
+            : seconds % 60 == 0
+                ? Text["Common_MinutesAbbreviation", seconds / 60]
+                : Text["Dashboard_CountdownMinutes", seconds / 60, seconds % 60];
+    }
+
+    private static ChartPlot BuildPlot(IReadOnlyList<ResourceHistoryPoint> history, bool memory)
+    {
+        var lines = new List<ChartLine>();
+        Func<ResourceHistoryPoint, ResourceUsage>[] selectors = [point => point.Total, point => point.Management, point => point.Workers, point => point.Media];
+        string[] labels = ["Resources_Total", "Resources_Management", "Resources_Workers", "Resources_Media"];
+        string[] colors = ["#0d6efd", "#198754", "#fd7e14", "#a66bdb"];
+        var maximum = memory ? 1d : 100d;
+        foreach (var point in history)
+        {
+            foreach (var select in selectors)
+            {
+                maximum = Math.Max(maximum, Value(select(point), memory) ?? 0);
+            }
+        }
+        var end = history.LastOrDefault()?.AtUtc ?? DateTimeOffset.UtcNow;
+        var first = history.FirstOrDefault()?.AtUtc ?? end;
+        var span = Math.Max(1, (end - first).TotalSeconds);
+        for (var index = 0; index < selectors.Length; index++)
+        {
+            var segments = new List<string>();
+            var points = new List<string>();
+            DateTimeOffset? previous = null;
+            (DateTimeOffset At, double Value)? low = null;
+            (DateTimeOffset At, double Value)? high = null;
+            // Preserve both extrema in each six-pixel bucket instead of smoothing peaks.
+            var bucket = -1;
+            foreach (var point in history)
+            {
+                var value = Value(selectors[index](point), memory);
+                if (value is null || previous is { } time && point.AtUtc - time > TimeSpan.FromSeconds(5))
+                {
+                    FlushBucket();
+                    if (points.Count > 0)
+                    {
+                        segments.Add(string.Join(" ", points));
+                        points.Clear();
+                    }
+                }
+                if (value is { } observed)
+                {
+                    var nextBucket = (int)((point.AtUtc - first).TotalSeconds / span * 150);
+                    if (bucket != nextBucket)
+                    {
+                        FlushBucket();
+                        bucket = nextBucket;
+                    }
+                    if (low is null || observed < low.Value.Value) low = (point.AtUtc, observed);
+                    if (high is null || observed >= high.Value.Value) high = (point.AtUtc, observed);
+                }
+                previous = point.AtUtc;
+            }
+            FlushBucket();
+            if (points.Count > 0)
+            {
+                segments.Add(string.Join(" ", points));
+            }
+            lines.Add(new(labels[index], colors[index], segments, history.LastOrDefault() is { } latest ? Value(selectors[index](latest), memory) : null));
+
+            void FlushBucket()
+            {
+                if (low is { } minimum && high is { } peak)
+                {
+                    AddPoint(minimum.At <= peak.At ? minimum : peak);
+                    if (minimum.At != peak.At) AddPoint(minimum.At <= peak.At ? peak : minimum);
+                }
+                low = null;
+                high = null;
+            }
+
+            // Cache age coordinates so all dashboards can rescale shared geometry without rebuilding it.
+            void AddPoint((DateTimeOffset At, double Value) point) =>
+                points.Add(string.Create(CultureInfo.InvariantCulture, $"{(point.At - end).TotalSeconds:0.##},{149 - point.Value / maximum * 145:0.##}"));
+        }
+        return new(maximum, lines);
+    }
+
+    private static double? Value(ResourceUsage usage, bool memory) => memory ? usage.ResidentBytes / (1024d * 1024d) : usage.CpuPercent;
+
+    private sealed record ChartPlot(double Maximum, IReadOnlyList<ChartLine> Lines);
+    private sealed record ChartLine(string Label, string Color, IReadOnlyList<string> Segments, double? Current);
+}

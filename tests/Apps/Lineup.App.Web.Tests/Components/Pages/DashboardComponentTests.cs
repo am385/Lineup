@@ -19,6 +19,75 @@ public class DashboardComponentTests
 {
     private const string StorageKey = "lineup-dashboard-sections-v1";
 
+    /// <summary>Verifies refresh actions live inside their collapsible card bodies, not the primary headers.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task RefreshButtons_ExpandedOrCollapsed_StayInsideCardBodies(bool expanded)
+    {
+        // Arrange
+        await using var context = CreateContext();
+        context.JSInterop.Setup<string?>("localStorage.getItem", StorageKey).SetResult(JsonSerializer.Serialize(new
+        {
+            ChannelsExpanded = expanded,
+            DeviceExpanded = expanded,
+            ActiveStreamsExpanded = expanded
+        }));
+
+        // Act
+        var component = context.Render<Dashboard>();
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            foreach (var id in new[] { "channelsSection", "deviceSection", "activeStreamsSection" })
+            {
+                var body = component.Find($"#{id}");
+                var refresh = Assert.Single(body.QuerySelectorAll(":scope > .d-flex > button.btn-outline-primary"));
+                Assert.Null(refresh.Closest(".card-header"));
+                Assert.Equal(!expanded, body.HasAttribute("hidden"));
+                var header = body.ParentElement!.QuerySelector(":scope > .card-header")!;
+                Assert.Empty(header.QuerySelectorAll("button.btn-outline-primary"));
+                Assert.Single(header.QuerySelectorAll("button"));
+            }
+        }, timeout: LineupWebBunitContext.WaitTimeout);
+    }
+
+    /// <summary>Verifies primary card headers retain their icons and summaries in both expansion states.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Headers_ExpandedOrCollapsed_KeepIconsAndSummariesVisible(bool expanded)
+    {
+        // Arrange
+        await using var context = CreateContext();
+        context.JSInterop.Setup<string?>("localStorage.getItem", StorageKey).SetResult(JsonSerializer.Serialize(new
+        {
+            ChannelsExpanded = expanded,
+            GuideExpanded = expanded,
+            DeviceExpanded = expanded,
+            ActiveStreamsExpanded = expanded
+        }));
+
+        // Act
+        var component = context.Render<Dashboard>();
+
+        // Assert
+        component.WaitForAssertion(() =>
+        {
+            foreach (var id in new[] { "toggleChannelsSection", "toggleGuideSection", "toggleDeviceSection", "toggleActiveStreamsSection" })
+            {
+                var button = component.Find($"#{id}");
+                Assert.Equal(expanded ? "true" : "false", button.GetAttribute("aria-expanded"));
+                var header = button.Closest(".card-header")!;
+                Assert.NotNull(header.QuerySelector("h5 .bi"));
+                var summary = header.QuerySelector("small")!;
+                Assert.False(string.IsNullOrWhiteSpace(summary.TextContent));
+                Assert.Null(summary.Closest("[hidden]"));
+            }
+        }, timeout: LineupWebBunitContext.WaitTimeout);
+    }
+
     /// <summary>Verifies populated localized guide statistics render duration summaries and channel gaps even when the guide panel starts collapsed.</summary>
     [Theory]
     [InlineData("pl", false)]

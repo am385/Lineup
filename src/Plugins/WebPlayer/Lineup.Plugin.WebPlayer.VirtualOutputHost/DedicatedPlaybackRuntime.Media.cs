@@ -38,11 +38,13 @@ internal sealed partial class DedicatedPlaybackRuntime
     {
         await using var guard = new MediaSessionStartupGuard(directory, source);
         var process = StartMediaProcess(directory, plan.Arguments, admission);
+        OwnedMediaProcess.SetResourceRole(process, "output");
         guard.RegisterProcess(process);
         Process? captionProcess = null;
         if (plan.EmbeddedCaptions is not null)
         {
             captionProcess = StartMediaProcess(directory, WebPlayerTrackPlanner.CreateEmbeddedCaptionArguments(plan.SubtitlePaths[plan.EmbeddedCaptions.Index]), admission);
+            OwnedMediaProcess.SetResourceRole(captionProcess, "captions");
             guard.RegisterProcess(captionProcess);
         }
         var session = new MediaSession(id, directory, process, captionProcess, source, plan, new CancellationTokenSource(), logger);

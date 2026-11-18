@@ -288,6 +288,9 @@ public sealed class VirtualOutputIpcServer : BackgroundService
             case VirtualOutputIpcOperation.RenewLease:
                 await RenewLeaseAsync(stream, request.ReadPayload<VirtualOutputLeaseRenewalRequest>(), cancellationToken);
                 break;
+            case VirtualOutputIpcOperation.ReportResources:
+                await ReportResourcesAsync(stream, request.ReadPayload<VirtualOutputResourceReport>(), cancellationToken);
+                break;
             case VirtualOutputIpcOperation.GetManifest:
                 await GetManifestAsync(stream, request.ReadPayload<VirtualOutputManifestRequest>(), cancellationToken);
                 break;
@@ -599,6 +602,7 @@ public sealed class VirtualOutputIpcServer : BackgroundService
     private async Task RenewLeaseAsync(Stream stream, VirtualOutputLeaseRenewalRequest request, CancellationToken cancellationToken)
     {
         var response = _authority.Renew(request);
+        response = response with { MonitorResources = response.Accepted && WorkerResourceReports.IsRequested };
         if (response.Accepted)
         {
             var authorization = _authority.Authorize(request.Session, VirtualOutputCapability.ReportHealth);
@@ -622,8 +626,29 @@ public sealed class VirtualOutputIpcServer : BackgroundService
                     LastFailure = request.Ready ? null : current?.LastFailure
                 });
             }
+
         }
         await WriteAsync(stream, response, cancellationToken);
+    }
+
+    private async Task ReportResourcesAsync(Stream stream, VirtualOutputResourceReport report, CancellationToken cancellationToken)
+    {
+        var deviceId = AuthorizeBrokerCall(report.Session, VirtualOutputCapability.ReportHealth);
+        if (report.Processes is null || report.Processes.Count > 256 || report.Processes.Any(item => item is null) ||
+            report.Processes.Count(item => item.Role == "worker") != 1 ||
+            report.Processes.Select(item => item.Id).Distinct(StringComparer.Ordinal).Count() != report.Processes.Count ||
+            report.Processes.Any(item => !Guid.TryParseExact(item.Id, "N", out _) || item.ProcessId <= 0 ||
+                item.Role is not ("worker" or "media" or "source" or "output" or "captions" or "helper") ||
+                item.CpuPercent is { } cpu && (!double.IsFinite(cpu) || cpu < 0 || cpu > int.MaxValue) || item.ResidentBytes is < 0 ||
+                item.UnavailableReason is not (null or "warming_up" or "process_unavailable")))
+        {
+            throw new VirtualOutputBrokerException(VirtualOutputFailureCode.InvalidRequest, "The resource report contains invalid or excessive observations.");
+        }
+        if (WorkerResourceReports.IsRequested)
+        {
+            WorkerResourceReports.Update($"{deviceId}:{report.Session.Generation}", report.Processes, report.IncompleteInterval);
+        }
+        await WriteAsync(stream, new VirtualOutputResourceResponse(WorkerResourceReports.IsRequested), cancellationToken);
     }
 
     private async Task WriteStreamAsync(Stream stream, VirtualOutputOpenStreamRequest request, CancellationToken cancellationToken)
@@ -732,6 +757,7 @@ public sealed class VirtualOutputIpcServer : BackgroundService
         var updated = _activeStreams.TryUpdate(report.StreamSessionId.ToString(), current => current with
         {
             Format = report.Format,
+            ResourceIds = report.ResourceIds,
             Tracks = report.Tracks,
             PhysicalInput = report.PhysicalInput ?? current.PhysicalInput,
             PhysicalOutput = report.PhysicalOutput ?? current.PhysicalOutput,

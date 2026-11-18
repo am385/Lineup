@@ -52,7 +52,8 @@ jobs:
         run: |
           node --test `
             (Resolve-Path 'tests\Apps\Lineup.App.Web.Tests\Browser\subtitle-polling.test.cjs').Path `
-            (Resolve-Path 'tests\Apps\Lineup.App.Web.Tests\Browser\shutdown.test.cjs').Path
+            (Resolve-Path 'tests\Apps\Lineup.App.Web.Tests\Browser\shutdown.test.cjs').Path `
+            (Resolve-Path 'tests\Apps\Lineup.App.Web.Tests\Browser\dashboard-resources.test.cjs').Path
 
       - name: Verify formatting
         run: dotnet format Lineup.slnx --verify-no-changes --no-restore

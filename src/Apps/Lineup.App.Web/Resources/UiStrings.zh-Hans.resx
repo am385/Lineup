@@ -168,6 +168,7 @@
   <data name="Common_FailedToResume" xml:space="preserve"><value>恢复会话失败。</value></data>
   <data name="Common_LastUpdated" xml:space="preserve"><value>上次更新</value></data>
   <data name="Common_Loading" xml:space="preserve"><value>正在加载...</value></data>
+  <data name="Common_MinutesAbbreviation" xml:space="preserve"><value>{0}分</value></data>
   <data name="Common_Never" xml:space="preserve"><value>从不</value></data>
   <data name="Common_NotAvailable" xml:space="preserve"><value>不适用</value></data>
   <data name="Common_NotFoundHeading" xml:space="preserve"><value>未找到</value></data>
@@ -405,6 +406,38 @@
   <data name="ProgramMetadata_Subtitles" xml:space="preserve"><value>字幕</value></data>
   <data name="ProgramMetadata_Title" xml:space="preserve"><value>标题</value></data>
   <data name="ProgramMetadata_Video" xml:space="preserve"><value>视频</value></data>
+  <data name="Resources_CoreCount" xml:space="preserve"><value>{0:0.##} 个逻辑核心</value></data>
+  <data name="Resources_Cpu" xml:space="preserve"><value>CPU</value></data>
+  <data name="Resources_CpuHelp" xml:space="preserve"><value>100% 表示占用一个逻辑 CPU 核心；数值可以超过 100%。</value></data>
+  <data name="Resources_External" xml:space="preserve"><value>此处未测量：该组件在 Lineup 之外运行。</value></data>
+  <data name="Resources_Heading" xml:space="preserve"><value>资源</value></data>
+  <data name="Resources_Management" xml:space="preserve"><value>管理主机</value></data>
+  <data name="Resources_Media" xml:space="preserve"><value>媒体及生命周期辅助进程</value></data>
+  <data name="Resources_Memory" xml:space="preserve"><value>RAM</value></data>
+  <data name="Resources_MemoryHelp" xml:space="preserve"><value>各进程驻留内存之和；共享页可能被重复计算。</value></data>
+  <data name="Resources_NoProcess" xml:space="preserve"><value>此阶段尚未报告独立进程。这不表示测得的使用量为零。</value></data>
+  <data name="Resources_Observed" xml:space="preserve"><value>最近观测</value></data>
+  <data name="Resources_Partial" xml:space="preserve"><value>正在初始化或数据不完整：一个或多个进程没有当前测量值。数据空缺不代表使用量为零。</value></data>
+  <data name="Resources_Paused" xml:space="preserve"><value>资源采集已暂停。保留的历史记录不代表当前使用量。</value></data>
+  <data name="Resources_ProcessScope" xml:space="preserve"><value>CPU 和内存按整个进程测量，不会分别测量解码、滤镜、编码、音频或封装。</value></data>
+  <data name="Resources_Role" xml:space="preserve"><value>进程角色</value></data>
+  <data name="Resources_Role_captions" xml:space="preserve"><value>字幕提取</value></data>
+  <data name="Resources_Role_helper" xml:space="preserve"><value>生命周期辅助进程</value></data>
+  <data name="Resources_Role_management" xml:space="preserve"><value>管理主机</value></data>
+  <data name="Resources_Role_media" xml:space="preserve"><value>媒体处理</value></data>
+  <data name="Resources_Role_output" xml:space="preserve"><value>输出处理</value></data>
+  <data name="Resources_Role_source" xml:space="preserve"><value>源处理</value></data>
+  <data name="Resources_Role_worker" xml:space="preserve"><value>专用工作进程</value></data>
+  <data name="Resources_Scope" xml:space="preserve"><value>仅包含 Lineup 进程。仪表板共享内存中的滚动历史记录，重启后清空。</value></data>
+  <data name="Resources_SharedCost" xml:space="preserve"><value>整个进程的开销：可复用的生产者可服务多个观看者。共享工作在概览中仅计算一次，不按观看者分摊。</value></data>
+  <data name="Resources_SharedHost" xml:space="preserve"><value>包含在共享主机进程中。轻量级进程计数器无法测量此阶段独占的 CPU 和内存。</value></data>
+  <data name="Resources_State_process_unavailable" xml:space="preserve"><value>进程不可用</value></data>
+  <data name="Resources_State_stale" xml:space="preserve"><value>观测已过期</value></data>
+  <data name="Resources_State_warming_up" xml:space="preserve"><value>正在建立 CPU 基准</value></data>
+  <data name="Resources_TimeAxis" xml:space="preserve"><value>距最新采样</value></data>
+  <data name="Resources_Toggle" xml:space="preserve"><value>显示 / 隐藏图表</value></data>
+  <data name="Resources_Total" xml:space="preserve"><value>Lineup 总计</value></data>
+  <data name="Resources_Workers" xml:space="preserve"><value>专用工作进程</value></data>
   <data name="Settings_AboutActiveStreams" xml:space="preserve"><value>控制仪表板刷新使用方、调谐器使用情况、共享采集、转码和流式传输流程缓存视图的频率。</value></data>
   <data name="Settings_AboutActiveStreamsTitle" xml:space="preserve"><value>活动流</value></data>
   <data name="Settings_AboutAppearance" xml:space="preserve"><value>控制 Web 界面的显示方式，而不更改共享流式传输或节目指南行为。</value></data>
@@ -442,6 +475,7 @@
   <data name="Settings_AboutRegional" xml:space="preserve"><value>控制整个 Lineup 中日期和时间的显示方式。不会更改节目指南提供商存储的节目时间戳。</value></data>
   <data name="Settings_AboutReset" xml:space="preserve"><value>暂存默认的共享设置和 Web 设置以供检查，而不会立即更改持久化配置。</value></data>
   <data name="Settings_AboutResetTitle" xml:space="preserve"><value>重置设置</value></data>
+  <data name="Settings_AboutResources" xml:space="preserve"><value>控制轻量级 CPU 和 RAM 监视以及历史记录在内存中的保留时间。默认仅在仪表板可见时采集。启用持续采集可在后台保留样本；历史记录从不保存到磁盘，并在重启时清除。</value></data>
   <data name="Settings_AboutRestart" xml:space="preserve"><value>正常重启主机，而不更改配置或删除数据。</value></data>
   <data name="Settings_AboutRestartTitle" xml:space="preserve"><value>重启 Lineup</value></data>
   <data name="Settings_AboutStatusApiEnd" xml:space="preserve"><value>从而在不触发设备或节目指南操作的情况下保持稳定的响应结构。</value></data>
@@ -781,6 +815,11 @@
   <data name="Settings_ResetStoragePrefix" xml:space="preserve"><value>重置操作可能会影响</value></data>
   <data name="Settings_ResetStorageSuffix" xml:space="preserve"><value>以及 Lineup 拥有的其他应用数据。</value></data>
   <data name="Settings_ResolvedPathLabel" xml:space="preserve"><value>解析后的路径：</value></data>
+  <data name="Settings_ResourceHistoryHelp" xml:space="preserve"><value>在内存中保留 1 至 60 分钟。增加该值不会恢复更早的观测记录。</value></data>
+  <data name="Settings_ResourceHistoryLabel" xml:space="preserve"><value>资源历史记录（分钟）</value></data>
+  <data name="Settings_ResourceHistoryValidation" xml:space="preserve"><value>资源历史记录必须介于 1 至 60 分钟之间。</value></data>
+  <data name="Settings_ResourceVisibilityHelp" xml:space="preserve"><value>启用后，即使仪表板不可见也会采集并缓存数据。默认关闭，仅在仪表板可见时采集。历史记录保留在内存中，并在重启时清除。</value></data>
+  <data name="Settings_ResourceVisibilityLabel" xml:space="preserve"><value>持续采集资源使用数据</value></data>
   <data name="Settings_RestartButton" xml:space="preserve"><value>重启 Lineup</value></data>
   <data name="Settings_RestartDelayedHeading" xml:space="preserve"><value>Lineup 所需时间超出预期</value></data>
   <data name="Settings_RestartDelayedHelp" xml:space="preserve"><value>请确保 Lineup 正在运行，然后重试连接。</value></data>

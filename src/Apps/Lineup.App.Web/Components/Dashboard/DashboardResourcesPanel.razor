@@ -1,0 +1,118 @@
+@implements IAsyncDisposable
+@inject IServiceProvider Services
+@inject IJSRuntime JS
+@inject ILogger<DashboardResourcesPanel> Logger
+
+@if (_monitor is not null)
+{
+    <section class="card mb-4" id="dashboardResources">
+        <header class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div>
+                <h5 class="mb-0"><span class="bi bi-speedometer2 me-1" aria-hidden="true"></span>@Text["Resources_Heading"]</h5>
+                <small class="text-muted">@Text["Resources_Cpu"]: @CpuSummary · @Text["Resources_Memory"]: @MemorySummary</small>
+            </div>
+            <button id="toggleResourcesSection" type="button" class="btn btn-sm btn-outline-secondary ms-auto" aria-expanded="@_expanded.ToString().ToLowerInvariant()"
+                    aria-controls="resourceCharts" @onclick="() => _expanded = !_expanded">
+                <span class="@(_expanded ? "bi bi-chevron-up" : "bi bi-chevron-down")" aria-hidden="true"></span>
+                <span class="visually-hidden">@Text["Resources_Toggle"]</span>
+            </button>
+        </header>
+        @if (_expanded)
+        {
+            <div class="card-body" id="resourceCharts">
+                <p class="small text-body-secondary">@Text["Resources_Scope"]</p>
+                @if (!_snapshot.Collecting)
+                {
+                    <p role="status">@Text["Resources_Paused"]</p>
+                }
+                else if (_snapshot.History.LastOrDefault() is { Complete: false })
+                {
+                    <p role="status" class="text-warning">@Text["Resources_Partial"]</p>
+                }
+                <ResourceHistoryChart History="_snapshot.History" HistoryMinutes="HistoryMinutes" />
+                <ResourceHistoryChart History="_snapshot.History" HistoryMinutes="HistoryMinutes" Memory="true" />
+            </div>
+        }
+    </section>
+}
+
+@code {
+    private readonly Guid _dashboardId = Guid.NewGuid();
+    private DashboardResourceMonitor? _monitor;
+    private DotNetObjectReference<DashboardResourcesPanel>? _reference;
+    private DashboardResourceSnapshot _snapshot = new(false, [], []);
+    private bool _expanded = true;
+    private bool _disposed;
+
+    private ResourceUsage? CurrentUsage => _snapshot.Collecting ? _snapshot.History.LastOrDefault()?.Total : null;
+    private string CpuSummary => CurrentUsage?.CpuPercent is { } cpu ? $"{cpu:0.##}%" : Text["Common_NotAvailable"].Value;
+    private string MemorySummary => CurrentUsage?.ResidentBytes is { } bytes ? $"{bytes / (1024d * 1024d):0.##} MiB" : Text["Common_NotAvailable"].Value;
+
+    /// <summary>Gets or sets the callback publishing cached resource observations to the active-stream details.</summary>
+    [Parameter]
+    public EventCallback<DashboardResourceSnapshot> SnapshotChanged { get; set; }
+
+    /// <summary>Gets or sets the fixed visible history window in minutes.</summary>
+    [Parameter]
+    public int HistoryMinutes { get; set; } = 5;
+
+    /// <inheritdoc />
+    protected override void OnInitialized() => _monitor = Services.GetService<DashboardResourceMonitor>();
+
+    /// <inheritdoc />
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && _monitor is not null)
+        {
+            _reference = DotNetObjectReference.Create(this);
+            try
+            {
+                await JS.InvokeVoidAsync("lineupResources.start", _dashboardId.ToString(), _reference);
+            }
+            catch (JSDisconnectedException exception)
+            {
+                _monitor.SetVisible(_dashboardId, false);
+                Logger.LogDebug(exception, "Dashboard resource visibility could not start after browser disconnect");
+            }
+        }
+    }
+
+    /// <summary>Renews foreground interest and reads only the shared sampler's cache.</summary>
+    [JSInvokable]
+    public async Task ObserveVisibility(bool visible)
+    {
+        if (_disposed || _monitor is null)
+        {
+            return;
+        }
+        _monitor.SetVisible(_dashboardId, visible);
+        if (visible)
+        {
+            _snapshot = _monitor.GetSnapshot();
+            await SnapshotChanged.InvokeAsync(_snapshot);
+            StateHasChanged();
+        }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask DisposeAsync()
+    {
+        _disposed = true;
+        _monitor?.SetVisible(_dashboardId, false);
+        if (_reference is not null)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("lineupResources.stop", _dashboardId.ToString());
+            }
+            catch (JSDisconnectedException exception)
+            {
+                Logger.LogDebug(exception, "Dashboard resource visibility ended with its browser connection");
+            }
+            finally
+            {
+                _reference.Dispose();
+            }
+        }
+    }
+}

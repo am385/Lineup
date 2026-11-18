@@ -122,6 +122,7 @@ public sealed class VirtualOutputWorkerLauncher : IVirtualOutputWorkerLauncher
                 }
             }, !OperatingSystem.IsWindows());
             processStarted = true;
+            OwnedMediaProcess.SetResourceRole(process, "remote");
             var bootstrapJson = JsonSerializer.Serialize(bootstrap, new JsonSerializerOptions(JsonSerializerDefaults.Web));
             await process.StandardInput.WriteLineAsync(bootstrapJson.AsMemory(), cancellationToken);
             await process.StandardInput.FlushAsync(cancellationToken);

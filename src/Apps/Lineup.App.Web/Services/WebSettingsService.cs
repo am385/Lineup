@@ -31,6 +31,7 @@ public sealed class WebSettings
     public const int CurrentSchemaVersion = 1;
 
     private int _activeStreamRefreshIntervalSeconds = 5;
+    private int _resourceHistoryMinutes = 5;
     private int _fileLogRetentionDays = 7;
     private int _fileLogSizeLimitMb = 50;
     private string _fileLogLevel = "Information";
@@ -60,6 +61,16 @@ public sealed class WebSettings
 
     /// <summary>Gets whether automatic Dashboard refresh is enabled.</summary>
     public bool IsActiveStreamRefreshEnabled => ActiveStreamRefreshIntervalSeconds > 0;
+
+    /// <summary>Gets or sets whether resource collection requires a visible Dashboard.</summary>
+    public bool MonitorResourcesOnlyWhenVisible { get; set; } = true;
+
+    /// <summary>Gets or sets bounded in-memory resource history retention.</summary>
+    public int ResourceHistoryMinutes
+    {
+        get => _resourceHistoryMinutes;
+        set => _resourceHistoryMinutes = Math.Clamp(value, 1, 60);
+    }
 
     /// <summary>Gets or sets whether active-stream client addresses are redacted.</summary>
     public bool RedactApiClientAddresses { get; set; } = true;
@@ -327,6 +338,8 @@ internal static class WebSettingsServiceFallback
     private sealed class FallbackWebSettingsService : IWebSettingsService
     {
         private readonly ILineupSettingsService _lineupSettings;
+        private bool _monitorResourcesOnlyWhenVisible = true;
+        private int _resourceHistoryMinutes = 5;
 
         /// <summary>Initializes the fallback web settings service.</summary>
         /// <param name="lineupSettings">The lineup settings value.</param>
@@ -337,7 +350,16 @@ internal static class WebSettingsServiceFallback
         }
 
         /// <summary>Gets the settings.</summary>
-        public WebSettings Settings => FromLineup(_lineupSettings.Settings);
+        public WebSettings Settings
+        {
+            get
+            {
+                var settings = FromLineup(_lineupSettings.Settings);
+                settings.MonitorResourcesOnlyWhenVisible = _monitorResourcesOnlyWhenVisible;
+                settings.ResourceHistoryMinutes = _resourceHistoryMinutes;
+                return settings;
+            }
+        }
 
         /// <summary>Occurs when settings changed.</summary>
         public event Action? OnSettingsChanged;
@@ -350,6 +372,8 @@ internal static class WebSettingsServiceFallback
             var settings = Settings;
             updateAction(settings);
             Apply(_lineupSettings.Settings, settings);
+            _monitorResourcesOnlyWhenVisible = settings.MonitorResourcesOnlyWhenVisible;
+            _resourceHistoryMinutes = settings.ResourceHistoryMinutes;
             OnSettingsChanged?.Invoke();
             return Task.CompletedTask;
         }

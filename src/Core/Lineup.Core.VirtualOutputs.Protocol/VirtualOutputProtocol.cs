@@ -280,6 +280,9 @@ public sealed record VirtualOutputLeaseRenewalRequest
 /// <summary>Returns one renewed or revoked worker lease.</summary>
 public sealed record VirtualOutputLeaseRenewalResponse
 {
+    /// <summary>Gets whether optional process-resource reporting is currently requested.</summary>
+    public bool MonitorResources { get; init; }
+
     /// <summary>Gets whether the lease remains active.</summary>
     public bool Accepted { get; init; }
 
@@ -508,6 +511,9 @@ public enum VirtualOutputStreamStartupStage
 /// <summary>Reports the normalized final media presentation for one brokered stream.</summary>
 public sealed record VirtualOutputStreamStatusReport
 {
+    /// <summary>Gets process identities of the shared output producer, without host paths or command arguments.</summary>
+    public IReadOnlyList<string> ResourceIds { get; init; } = [];
+
     /// <summary>Gets whether the viewer has ended while its separately owned producer source remains open.</summary>
     public bool ReleaseViewer { get; init; }
 

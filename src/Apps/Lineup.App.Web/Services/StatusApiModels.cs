@@ -39,7 +39,14 @@ internal sealed record WebSettingsStatusResponse(
     int FileLogRetentionDays,
     int FileLogSizeLimitMb,
     ApiPrivacyStatusResponse ApiPrivacy
-);
+)
+{
+    /// <summary>Gets whether resource sampling requires a visible dashboard.</summary>
+    public bool MonitorResourcesOnlyWhenVisible { get; init; }
+
+    /// <summary>Gets bounded in-memory resource history retention.</summary>
+    public int ResourceHistoryMinutes { get; init; }
+}
 
 /// <summary>Represents one configured logging category override.</summary>
 internal sealed record LogCategoryStatusResponse(string Category, string Level);
@@ -234,7 +241,11 @@ internal sealed record StreamingFlowNodeStatusResponse(
     IReadOnlyList<string> ActiveChannels,
     int ActiveSessionCount,
     IReadOnlyList<VideoEncodingSnapshot> VideoEncodings
-);
+)
+{
+    /// <summary>Gets deduplicated process-resource identities for this topology node.</summary>
+    public IReadOnlyList<string> ResourceIds { get; init; } = [];
+}
 
 /// <summary>Represents one active consumer's end-to-end streaming path.</summary>
 internal sealed record StreamingFlowPathStatusResponse(
@@ -259,4 +270,8 @@ internal sealed record StreamingFlowStageStatusResponse(
     ActiveStreamMediaStatusResponse? InputMedia,
     ActiveStreamMediaStatusResponse? OutputMedia,
     VideoEncodingSnapshot? VideoEncoding
-);
+)
+{
+    /// <summary>Gets process-resource identities without duplicating costs for shared viewers.</summary>
+    public IReadOnlyList<string> ResourceIds { get; init; } = [];
+}

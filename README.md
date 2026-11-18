@@ -954,11 +954,38 @@ Startup-only host budgets are documented separately above.
 | Maximum Concurrent Streams | Limits logical consumers, not shared producers; multiple consumers sharing one pipeline each count toward the limit |
 | Keep Warm Period | Keeps an unused shared output reusable for 0-300 seconds; the default of 0 releases it immediately, while nonzero values retain tuner capacity and transforms until expiry |
 | Active Stream Refresh | Dashboard refresh interval for hosted stream details; defaults to 5 seconds and 0 disables auto-refresh |
+| Collect Resources Continuously | Disabled by default; collect only while a Dashboard is visible. Enable to keep collecting and caching in-memory history without a visible Dashboard |
+| Resource History In Minutes | In-memory Dashboard resource retention, 1-60 minutes; defaults to 5 and resets when Lineup restarts |
 | Virtual HDHomeRun Devices | Friendly name, optional tuner cap, physical subscriptions, and a reachable advertised URL when served through the management host |
 | Output Hosting | Per-output choice between the management UI host and an isolated dedicated listener; dedicated mode derives its client-facing URL from transport, bind address, and port, with advanced overrides for proxies, NAT, Docker, TLS, network, and worker controls |
 | Network Discovery | Opt-in SiliconDust UDP (65001) and SSDP (1900) advertisement of enabled virtual HDHomeRun devices |
 | File Logging | Opt-in rolling files with configurable minimum level, retention period, and per-file size limit; changes apply immediately when saved |
 | Status API Privacy | Independently redact active-stream client addresses, device addresses, and URLs from `/api/v1/status` |
+
+The Dashboard's **Resources** panel shows Lineup's management host, dedicated workers, and owned media/lifetime-helper processes.
+CPU uses **100% per logical core** (so 175% is 1.75 occupied cores), not a percentage of server or container capacity.
+Memory is summed resident memory in MiB; shared pages can appear in more than one process, so this is not unique physical RAM.
+Resource collection is independent of Active Streams auto-refresh, including when that refresh is disabled.
+
+Visible Dashboard tabs share one sampler and bounded aggregate history. In visibility-only mode, hiding or leaving every Dashboard
+stops collection after any outstanding visibility interest expires; disconnect interest expires within eight seconds.
+Continuous mode retains collection without visible tabs, but does not refresh hidden browser charts.
+History stays in memory, contains at most 1,800 aggregate samples, and clears on restart. Retention changes take effect without restarting streams.
+Long charts share cached geometry and retain each display bucket's minimum and maximum, rather than smoothing away peaks or joining gaps.
+The CPU and RAM cards include intermediate value labels, horizontal grid lines and a relative-time axis.
+Time labels use compact seconds and minutes (for example, `15s`, `1m` and `1m 30s`), measured back from the latest sample at `0s`.
+The linear time axis always spans the configured history duration, even while history is filling; unobserved history stays empty on the left.
+Their legends use equal-width responsive columns so changing values do not shift the labels horizontally.
+Primary Dashboard cards keep their icon, title and summary visible when collapsed. The Resources summary shows current CPU and RAM totals, or unavailable values when collection is paused or incomplete.
+Channels, Physical Devices and Active Streams refresh buttons sit inside their card bodies and hide with the content when collapsed.
+
+Select an Active Streams processing stage or topology node to inspect its current CPU, memory, process identity, role, and observation time.
+Resource tables use fixed column widths in both Streaming Flow and Active Paths, with horizontal scrolling on narrow screens.
+Shared source/output producers show their full process cost, not a fictional per-viewer allocation. Caption extraction appears separately when enabled.
+Work inside a management/worker host is labeled shared-host work; decoding, filtering, encoding, audio and muxing inside one FFmpeg are not individually attributed.
+Tuner hardware and viewer browsers are not measured. Warm-up, inaccessible/exited processes, missing or stale worker reports,
+and intervals containing short-lived processes produce explicit unavailable/partial values or chart gaps, never fabricated zero CPU.
+Dedicated workers begin reporting after their existing lease exchange receives monitoring demand; monitoring failure does not alter playback readiness or lease health.
 
 The built-in XMLTV output accepts relative filenames and absolute filesystem paths; the Web editor presents its containing directory. Lineup's web settings are unauthenticated and are intended for a trusted local network; do not expose the application to untrusted clients when arbitrary output paths are enabled.
 

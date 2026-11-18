@@ -157,7 +157,9 @@
                               @bind-DisabledChannelMode="_disabledChannelMode" />
 
         <DashboardSettingsTab CssClass="@GetTabPaneClass(SettingsTab.Dashboard)"
-                              @bind-ActiveStreamRefreshIntervalSeconds="_activeStreamRefreshIntervalSeconds" />
+                              @bind-ActiveStreamRefreshIntervalSeconds="_activeStreamRefreshIntervalSeconds"
+                              @bind-MonitorResourcesOnlyWhenVisible="_monitorResourcesOnlyWhenVisible"
+                              @bind-ResourceHistoryMinutes="_resourceHistoryMinutes" />
 
         @if (!_isInitialSetup)
         {
@@ -356,6 +358,9 @@
                     {
                         <AboutSettingsSection Title="@Text["Settings_AboutActiveStreamsTitle"]">
                             @Text["Settings_AboutActiveStreams"]
+                        </AboutSettingsSection>
+                        <AboutSettingsSection Title="@Text["Resources_Heading"]">
+                            @Text["Settings_AboutResources"]
                         </AboutSettingsSection>
                     }
                     else if (_activeTab == SettingsTab.Api)

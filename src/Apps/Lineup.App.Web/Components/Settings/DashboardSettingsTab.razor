@@ -1,6 +1,10 @@
 <div id="dashboardSettingsTab" class="@CssClass" role="tabpanel" aria-labelledby="tab-dashboard">
     <DashboardSettingsPanel ActiveStreamRefreshIntervalSeconds="ActiveStreamRefreshIntervalSeconds"
-                            ActiveStreamRefreshIntervalSecondsChanged="ActiveStreamRefreshIntervalSecondsChanged" />
+                            ActiveStreamRefreshIntervalSecondsChanged="ActiveStreamRefreshIntervalSecondsChanged"
+                            MonitorResourcesOnlyWhenVisible="MonitorResourcesOnlyWhenVisible"
+                            MonitorResourcesOnlyWhenVisibleChanged="MonitorResourcesOnlyWhenVisibleChanged"
+                            ResourceHistoryMinutes="ResourceHistoryMinutes"
+                            ResourceHistoryMinutesChanged="ResourceHistoryMinutesChanged" />
 </div>
 
 @code {
@@ -15,4 +19,20 @@
     /// <summary>Gets or sets the refresh interval change callback.</summary>
     [Parameter]
     public EventCallback<int> ActiveStreamRefreshIntervalSecondsChanged { get; set; }
+
+    /// <summary>Gets or sets whether resource monitoring requires a visible Dashboard.</summary>
+    [Parameter]
+    public bool MonitorResourcesOnlyWhenVisible { get; set; } = true;
+
+    /// <summary>Gets or sets the visibility preference callback.</summary>
+    [Parameter]
+    public EventCallback<bool> MonitorResourcesOnlyWhenVisibleChanged { get; set; }
+
+    /// <summary>Gets or sets resource history retention.</summary>
+    [Parameter]
+    public int ResourceHistoryMinutes { get; set; } = 5;
+
+    /// <summary>Gets or sets the retention callback.</summary>
+    [Parameter]
+    public EventCallback<int> ResourceHistoryMinutesChanged { get; set; }
 }

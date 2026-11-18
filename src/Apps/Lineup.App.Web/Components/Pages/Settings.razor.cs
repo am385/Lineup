@@ -62,6 +62,8 @@ public partial class Settings : IDisposable
     private int _deviceRefreshIntervalMinutes;
     private int _tunerRefreshIntervalSeconds;
     private int _activeStreamRefreshIntervalSeconds;
+    private bool _monitorResourcesOnlyWhenVisible = true;
+    private int _resourceHistoryMinutes = 5;
     private bool _autoGenerateXmltv;
     private string _xmltvOutputPath = "";
     private string _theme = "auto";
@@ -355,6 +357,8 @@ public partial class Settings : IDisposable
         _deviceRefreshIntervalMinutes = core.DeviceRefreshIntervalMinutes;
         _tunerRefreshIntervalSeconds = core.TunerRefreshIntervalSeconds;
         _activeStreamRefreshIntervalSeconds = web.ActiveStreamRefreshIntervalSeconds;
+        _monitorResourcesOnlyWhenVisible = web.MonitorResourcesOnlyWhenVisible;
+        _resourceHistoryMinutes = web.ResourceHistoryMinutes;
         _autoGenerateXmltv = core.AutoGenerateXmltv;
         _xmltvOutputPath = core.XmltvOutputPath;
         _theme = web.Theme;
@@ -520,6 +524,8 @@ public partial class Settings : IDisposable
                 DeviceRefreshIntervalMinutes = _deviceRefreshIntervalMinutes,
                 TunerRefreshIntervalSeconds = _tunerRefreshIntervalSeconds,
                 ActiveStreamRefreshIntervalSeconds = _activeStreamRefreshIntervalSeconds,
+                MonitorResourcesOnlyWhenVisible = _monitorResourcesOnlyWhenVisible,
+                ResourceHistoryMinutes = _resourceHistoryMinutes,
                 AutoGenerateXmltv = _autoGenerateXmltv,
                 XmltvOutputPath = _xmltvOutputPath,
                 Theme = _theme,
@@ -695,6 +701,8 @@ public partial class Settings : IDisposable
         _deviceRefreshIntervalMinutes = defaults.DeviceRefreshIntervalMinutes;
         _tunerRefreshIntervalSeconds = defaults.TunerRefreshIntervalSeconds;
         _activeStreamRefreshIntervalSeconds = webDefaults.ActiveStreamRefreshIntervalSeconds;
+        _monitorResourcesOnlyWhenVisible = webDefaults.MonitorResourcesOnlyWhenVisible;
+        _resourceHistoryMinutes = webDefaults.ResourceHistoryMinutes;
         _autoGenerateXmltv = defaults.AutoGenerateXmltv;
         _xmltvOutputPath = SettingsService.ConfiguredXmltvOutputPath;
         _theme = webDefaults.Theme;

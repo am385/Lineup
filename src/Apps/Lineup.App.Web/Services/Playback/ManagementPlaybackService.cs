@@ -566,6 +566,9 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
             {
                 RequestedVideoEncoder = sharedOutput.ActiveVideoEncoder is null ? null : virtualProfile.HardwareEncoding.Encoder,
                 ActiveVideoEncoder = sharedOutput.ActiveVideoEncoder,
+                ResourceIds = sharedOutput.Session is { } resourceSession
+                    ? OwnedMediaProcess.GetResourceIds(resourceSession.Process).Concat(resourceSession.CaptionProcess is { } captions ? OwnedMediaProcess.GetResourceIds(captions) : []).ToArray()
+                    : [],
                 Flow = current.Flow is { SyntheticSource: null } flow ? flow with { ProducerNodeId = sharedOutput.Tasks.SourceProducerNodeId } : current.Flow
             });
             return result with { Presentation = result.Presentation with { SessionId = sessionId } };
@@ -624,6 +627,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                     throw new InvalidOperationException("Failed to start FFmpeg process.");
                 }
                 pendingOutput.Attach(process, directory);
+                OwnedMediaProcess.SetResourceRole(process, "output");
                 if (!usingSlate)
                 {
                     inputCancellation = pendingOutput.Tasks.CreateCancellation(pendingOutput.LifetimeToken);
@@ -640,6 +644,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                         RedirectStandardInput = true,
                         RedirectStandardError = true
                     });
+                    OwnedMediaProcess.SetResourceRole(captionProcess, "captions");
                     pendingOutput.Attach(process, directory, captionProcess);
                     captionCancellation = pendingOutput.Tasks.CreateCancellation(pendingOutput.LifetimeToken);
                     captionErrorTask = MediaProcessDiagnostics.ReadTailAsync(captionProcess.StandardError, captionCancellation.Token);
@@ -714,6 +719,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                             });
 
                             var sourceSession = session;
+                            OwnedMediaProcess.SetResourceRole(retryProcess, "output");
                             process = retryProcess;
                             pendingOutput.Attach(process, directory, captionProcess, captionErrorTask);
                             request = retryRequest;

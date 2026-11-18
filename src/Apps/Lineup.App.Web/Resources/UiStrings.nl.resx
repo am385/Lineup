@@ -168,6 +168,7 @@
   <data name="Common_FailedToResume" xml:space="preserve"><value>De sessie kon niet worden hervat.</value></data>
   <data name="Common_LastUpdated" xml:space="preserve"><value>Laatst bijgewerkt</value></data>
   <data name="Common_Loading" xml:space="preserve"><value>Laden...</value></data>
+  <data name="Common_MinutesAbbreviation" xml:space="preserve"><value>{0}m</value></data>
   <data name="Common_Never" xml:space="preserve"><value>Nooit</value></data>
   <data name="Common_NotAvailable" xml:space="preserve"><value>N/A</value></data>
   <data name="Common_NotFoundHeading" xml:space="preserve"><value>Niet gevonden</value></data>
@@ -405,6 +406,38 @@
   <data name="ProgramMetadata_Subtitles" xml:space="preserve"><value>Ondertiteling</value></data>
   <data name="ProgramMetadata_Title" xml:space="preserve"><value>Titel</value></data>
   <data name="ProgramMetadata_Video" xml:space="preserve"><value>Video</value></data>
+  <data name="Resources_CoreCount" xml:space="preserve"><value>{0:0.##} logische kernen</value></data>
+  <data name="Resources_Cpu" xml:space="preserve"><value>CPU</value></data>
+  <data name="Resources_CpuHelp" xml:space="preserve"><value>100% = één logische CPU-kern; waarden kunnen hoger zijn dan 100%.</value></data>
+  <data name="Resources_External" xml:space="preserve"><value>Hier niet gemeten: dit onderdeel draait buiten Lineup.</value></data>
+  <data name="Resources_Heading" xml:space="preserve"><value>Brongebruik</value></data>
+  <data name="Resources_Management" xml:space="preserve"><value>Beheerhost</value></data>
+  <data name="Resources_Media" xml:space="preserve"><value>Media- en levensduurhulpprocessen</value></data>
+  <data name="Resources_Memory" xml:space="preserve"><value>RAM</value></data>
+  <data name="Resources_MemoryHelp" xml:space="preserve"><value>Som van resident procesgeheugen; gedeelde pagina&apos;s kunnen meermaals worden geteld.</value></data>
+  <data name="Resources_NoProcess" xml:space="preserve"><value>Voor deze fase is geen afzonderlijk proces gemeld. Dit is geen gemeten nulwaarde.</value></data>
+  <data name="Resources_Observed" xml:space="preserve"><value>Laatst waargenomen</value></data>
+  <data name="Resources_Partial" xml:space="preserve"><value>Opwarmen of gedeeltelijke dekking: een of meer processen hebben geen actuele meting. Gaten betekenen geen nulverbruik.</value></data>
+  <data name="Resources_Paused" xml:space="preserve"><value>Het verzamelen van brongebruik is gepauzeerd. De bewaarde geschiedenis toont niet het actuele gebruik.</value></data>
+  <data name="Resources_ProcessScope" xml:space="preserve"><value>CPU en geheugen worden voor het hele proces gemeten, niet afzonderlijk voor decoderen, filters, coderen, audio of multiplexen.</value></data>
+  <data name="Resources_Role" xml:space="preserve"><value>Procesrol</value></data>
+  <data name="Resources_Role_captions" xml:space="preserve"><value>Ondertiteling extraheren</value></data>
+  <data name="Resources_Role_helper" xml:space="preserve"><value>Levensduurhulpproces</value></data>
+  <data name="Resources_Role_management" xml:space="preserve"><value>Beheerhost</value></data>
+  <data name="Resources_Role_media" xml:space="preserve"><value>Mediaverwerking</value></data>
+  <data name="Resources_Role_output" xml:space="preserve"><value>Uitvoerverwerking</value></data>
+  <data name="Resources_Role_source" xml:space="preserve"><value>Bronverwerking</value></data>
+  <data name="Resources_Role_worker" xml:space="preserve"><value>Toegewezen worker</value></data>
+  <data name="Resources_Scope" xml:space="preserve"><value>Alleen Lineup-processen. Dashboards delen een voortschrijdende geschiedenis in het geheugen, die bij herstart wordt gewist.</value></data>
+  <data name="Resources_SharedCost" xml:space="preserve"><value>Kosten van het hele proces: een herbruikbare producent kan meerdere kijkers bedienen. Gedeeld werk wordt eenmaal geteld in het overzicht, niet verdeeld over kijkers.</value></data>
+  <data name="Resources_SharedHost" xml:space="preserve"><value>Opgenomen in een gedeeld hostproces. Exclusieve CPU en geheugen voor deze fase zijn niet met lichte procestellers te meten.</value></data>
+  <data name="Resources_State_process_unavailable" xml:space="preserve"><value>Proces niet beschikbaar</value></data>
+  <data name="Resources_State_stale" xml:space="preserve"><value>Verouderde waarneming</value></data>
+  <data name="Resources_State_warming_up" xml:space="preserve"><value>CPU-basiswaarde vaststellen</value></data>
+  <data name="Resources_TimeAxis" xml:space="preserve"><value>Tijd geleden</value></data>
+  <data name="Resources_Toggle" xml:space="preserve"><value>Grafieken tonen / verbergen</value></data>
+  <data name="Resources_Total" xml:space="preserve"><value>Lineup-totaal</value></data>
+  <data name="Resources_Workers" xml:space="preserve"><value>Toegewezen workers</value></data>
   <data name="Settings_AboutActiveStreams" xml:space="preserve"><value>Bepaalt hoe vaak het Dashboard de cacheweergave van gebruikers, tunergebruik, gedeelde acquisities, transcoderingen en streamingstroom vernieuwt.</value></data>
   <data name="Settings_AboutActiveStreamsTitle" xml:space="preserve"><value>Actieve streams</value></data>
   <data name="Settings_AboutAppearance" xml:space="preserve"><value>Bepaalt hoe de webinterface wordt weergegeven zonder het gedrag van gedeelde streaming of de gids te wijzigen.</value></data>
@@ -442,6 +475,7 @@
   <data name="Settings_AboutRegional" xml:space="preserve"><value>Bepaalt hoe datums en tijden in Lineup worden weergegeven. Dit wijzigt geen programmatijdstempels die door gidsproviders zijn opgeslagen.</value></data>
   <data name="Settings_AboutReset" xml:space="preserve"><value>Zet standaard gedeelde en webinstellingen klaar voor controle zonder de opgeslagen configuratie direct te wijzigen.</value></data>
   <data name="Settings_AboutResetTitle" xml:space="preserve"><value>Instellingen herstellen</value></data>
+  <data name="Settings_AboutResources" xml:space="preserve"><value>Regelt lichte CPU- en RAM-bewaking en hoelang de geschiedenis in het geheugen blijft. Standaard worden alleen gegevens verzameld als een dashboard zichtbaar is. Schakel continu verzamelen in voor achtergrondmetingen; de geschiedenis wordt nooit naar schijf geschreven en verdwijnt bij een herstart.</value></data>
   <data name="Settings_AboutRestart" xml:space="preserve"><value>Start de host gecontroleerd opnieuw zonder de configuratie te wijzigen of gegevens te verwijderen.</value></data>
   <data name="Settings_AboutRestartTitle" xml:space="preserve"><value>Lineup opnieuw starten</value></data>
   <data name="Settings_AboutStatusApiEnd" xml:space="preserve"><value>zodat een stabiele antwoordstructuur behouden blijft zonder apparaat- of gidsbewerkingen te activeren.</value></data>
@@ -781,6 +815,11 @@
   <data name="Settings_ResetStoragePrefix" xml:space="preserve"><value>Herstelbewerkingen kunnen gevolgen hebben voor</value></data>
   <data name="Settings_ResetStorageSuffix" xml:space="preserve"><value>en andere toepassingsgegevens van Lineup.</value></data>
   <data name="Settings_ResolvedPathLabel" xml:space="preserve"><value>Bepaald pad:</value></data>
+  <data name="Settings_ResourceHistoryHelp" xml:space="preserve"><value>Bewaar 1-60 minuten in het geheugen. Verhogen herstelt geen eerdere waarnemingen.</value></data>
+  <data name="Settings_ResourceHistoryLabel" xml:space="preserve"><value>Geschiedenis van brongebruik (minuten)</value></data>
+  <data name="Settings_ResourceHistoryValidation" xml:space="preserve"><value>De geschiedenis van brongebruik moet tussen 1 en 60 minuten liggen.</value></data>
+  <data name="Settings_ResourceVisibilityHelp" xml:space="preserve"><value>Schakel in om ook zonder zichtbaar dashboard resourcegegevens te verzamelen en te cachen. Standaard uitgeschakeld: verzamelen gebeurt alleen bij een zichtbaar dashboard. De geschiedenis blijft in het geheugen en verdwijnt bij een herstart.</value></data>
+  <data name="Settings_ResourceVisibilityLabel" xml:space="preserve"><value>Resourcegegevens continu verzamelen</value></data>
   <data name="Settings_RestartButton" xml:space="preserve"><value>Lineup opnieuw starten</value></data>
   <data name="Settings_RestartDelayedHeading" xml:space="preserve"><value>Lineup doet er langer over dan verwacht</value></data>
   <data name="Settings_RestartDelayedHelp" xml:space="preserve"><value>Controleer of Lineup actief is en probeer opnieuw verbinding te maken.</value></data>
