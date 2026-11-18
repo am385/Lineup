@@ -19,11 +19,11 @@ public class DashboardComponentTests
 {
     private const string StorageKey = "lineup-dashboard-sections-v1";
 
-    /// <summary>Verifies refresh actions live inside their collapsible card bodies, not the primary headers.</summary>
+    /// <summary>Verifies refresh actions follow all content at the bottom of their collapsible card bodies, not the primary headers.</summary>
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task RefreshButtons_ExpandedOrCollapsed_StayInsideCardBodies(bool expanded)
+    public async Task RefreshButtons_ExpandedOrCollapsed_StayAtBottomOfCardBodies(bool expanded)
     {
         // Arrange
         await using var context = CreateContext();
@@ -44,6 +44,7 @@ public class DashboardComponentTests
             {
                 var body = component.Find($"#{id}");
                 var refresh = Assert.Single(body.QuerySelectorAll(":scope > .d-flex > button.btn-outline-primary"));
+                Assert.Same(body.LastElementChild, refresh.ParentElement);
                 Assert.Null(refresh.Closest(".card-header"));
                 Assert.Equal(!expanded, body.HasAttribute("hidden"));
                 var header = body.ParentElement!.QuerySelector(":scope > .card-header")!;

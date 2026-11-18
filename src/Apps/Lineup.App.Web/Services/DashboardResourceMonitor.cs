@@ -1,4 +1,3 @@
-using Lineup.Core.Common.Streaming;
 using Lineup.Core.VirtualOutputs.Runtime;
 
 namespace Lineup.App.Web.Services;
@@ -7,10 +6,14 @@ namespace Lineup.App.Web.Services;
 public sealed record ResourceUsage(double? CpuPercent, long? ResidentBytes);
 
 /// <summary>One bounded aggregate history point, independent of viewer and session cardinality.</summary>
-public sealed record ResourceHistoryPoint(DateTimeOffset AtUtc, ResourceUsage Total, ResourceUsage Management, ResourceUsage Workers, ResourceUsage Media, bool Complete);
+public sealed record ResourceHistoryPoint(DateTimeOffset AtUtc, ResourceUsage Total, ResourceUsage Management, ResourceUsage Workers, ResourceUsage Media, bool Complete)
+{
+    /// <summary>Gets whole-device GPU readings, which are never included in the process totals.</summary>
+    public IReadOnlyList<GpuResourceSample> Gpus { get; init; } = [];
+}
 
 /// <summary>A cached dashboard observation with explicit collection and coverage state.</summary>
-public sealed record DashboardResourceSnapshot(bool Collecting, IReadOnlyList<ProcessResourceSample> Processes, IReadOnlyList<ResourceHistoryPoint> History);
+public sealed record DashboardResourceSnapshot(bool Collecting, IReadOnlyList<ProcessResourceSample> Processes, IReadOnlyList<ResourceHistoryPoint> History, GpuResourceSnapshot? Gpu = null);
 
 /// <summary>Shares lightweight collection and rolling history between all dashboards in this deployment.</summary>
 public sealed class DashboardResourceMonitor : BackgroundService
@@ -20,6 +23,8 @@ public sealed class DashboardResourceMonitor : BackgroundService
     private readonly ILogger<DashboardResourceMonitor> _logger;
     private readonly ProcessResourceRegistry _registry;
     private readonly TimeProvider _clock;
+    private readonly IGpuResourceSource? _gpu;
+    private readonly object _collectionGate = new();
     private readonly object _gate = new();
     private readonly Dictionary<Guid, DateTimeOffset> _visible = [];
     private readonly Queue<ResourceHistoryPoint> _history = new();
@@ -30,6 +35,7 @@ public sealed class DashboardResourceMonitor : BackgroundService
     private bool _collecting;
     private bool _numericOverflow;
     private bool _overflowReported;
+    private GpuResourceSnapshot _gpuSnapshot = new([], "warming_up");
 
     /// <summary>Initializes a shared owner with replaceable process counters and time source.</summary>
     public DashboardResourceMonitor(
@@ -37,7 +43,8 @@ public sealed class DashboardResourceMonitor : BackgroundService
         IVirtualOutputRuntimeStatus workers,
         ILogger<DashboardResourceMonitor> logger,
         ProcessResourceRegistry? registry = null,
-        TimeProvider? clock = null
+        TimeProvider? clock = null,
+        IGpuResourceSource? gpu = null
     )
     {
         _settings = settings;
@@ -45,6 +52,7 @@ public sealed class DashboardResourceMonitor : BackgroundService
         _logger = logger;
         _registry = registry ?? ProcessResourceRegistry.Local;
         _clock = clock ?? TimeProvider.System;
+        _gpu = gpu;
     }
 
     /// <summary>Renews or releases one foreground dashboard's bounded interest, without touching media lifetime.</summary>
@@ -75,13 +83,33 @@ public sealed class DashboardResourceMonitor : BackgroundService
                 _cachedHistory = _history.ToArray();
                 _historyChanged = false;
             }
-            return new(_collecting, _collecting ? _processes : [], _cachedHistory);
+            return new(_collecting, _collecting ? _processes : [], _cachedHistory, _gpuSnapshot);
         }
     }
 
     /// <summary>Performs one serialized collection tick; exposed for deterministic counter/lifecycle verification.</summary>
     public void Collect()
     {
+        lock (_collectionGate)
+        {
+            var point = CollectProcesses(out var resetGpu);
+            if (resetGpu) _gpu?.ResetBaseline();
+            if (point is null) return;
+            // Driver calls must not hold the cached-snapshot lock or block dashboard rendering.
+            var gpu = _gpu?.Read() ?? new GpuResourceSnapshot([], "unsupported");
+            lock (_gate)
+            {
+                _gpuSnapshot = gpu;
+                _history.Enqueue(point with { Gpus = gpu.Devices });
+                _historyChanged = true;
+                TrimHistory();
+            }
+        }
+    }
+
+    private ResourceHistoryPoint? CollectProcesses(out bool resetGpu)
+    {
+        resetGpu = false;
         lock (_gate)
         {
             var now = _clock.GetUtcNow();
@@ -96,13 +124,15 @@ public sealed class DashboardResourceMonitor : BackgroundService
                 if (_collecting)
                 {
                     _registry.ResetBaselines();
+                    resetGpu = true;
                     _history.Enqueue(new(now, new(null, null), new(null, null), new(null, null), new(null, null), false));
                     _historyChanged = true;
                 }
                 _collecting = false;
                 _processes = [];
+                _gpuSnapshot = new([], "paused");
                 TrimHistory();
-                return;
+                return null;
             }
             _collecting = true;
             var processes = _registry.Sample().Where(item => item.Role != "remote").ToList();
@@ -144,17 +174,16 @@ public sealed class DashboardResourceMonitor : BackgroundService
             {
                 media = media with { CpuPercent = null };
             }
-            _history.Enqueue(new(now, total, Sum(_processes.Where(item => item.Role == "management")),
+            var point = new ResourceHistoryPoint(now, total, Sum(_processes.Where(item => item.Role == "management")),
                 workersMissing ? new(null, null) : Sum(_processes.Where(item => item.Role == "worker")),
                 media,
-                !workersMissing && !incompleteInterval && !_numericOverflow && _processes.All(item => item.UnavailableReason is null)));
-            _historyChanged = true;
+                !workersMissing && !incompleteInterval && !_numericOverflow && _processes.All(item => item.UnavailableReason is null));
             if (_numericOverflow && !_overflowReported)
             {
                 _logger.LogWarning("Resource monitoring received counters whose aggregate exceeds the supported numeric range; affected totals are unavailable.");
             }
             _overflowReported = _numericOverflow;
-            TrimHistory();
+            return point;
         }
     }
 
@@ -189,6 +218,7 @@ public sealed class DashboardResourceMonitor : BackgroundService
             _registry.ObservationFailed -= LogFailure;
             _registry.Unregister(host);
             WorkerResourceReports.SetRequested(false);
+            _gpu?.ResetBaseline();
         }
     }
 

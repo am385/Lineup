@@ -410,6 +410,19 @@
   <data name="Resources_Cpu" xml:space="preserve"><value>CPU</value></data>
   <data name="Resources_CpuHelp" xml:space="preserve"><value>100% = one logical CPU core; values can exceed 100%.</value></data>
   <data name="Resources_External" xml:space="preserve"><value>Not measured here: this component runs outside Lineup.</value></data>
+  <data name="Resources_Gpu" xml:space="preserve"><value>GPU</value></data>
+  <data name="Resources_GpuActivity" xml:space="preserve"><value>GPU activity</value></data>
+  <data name="Resources_GpuDecode" xml:space="preserve"><value>Video decode</value></data>
+  <data name="Resources_GpuDevice" xml:space="preserve"><value>GPU · {0}</value></data>
+  <data name="Resources_GpuEncode" xml:space="preserve"><value>Video encode</value></data>
+  <data name="Resources_GpuHelp" xml:space="preserve"><value>GPU activity is the driver&apos;s overall or busiest-engine reading. Encode, decode and video/media are independent; do not add them. Shared codec engines appear under video/media. Unsupported metrics are N/A.</value></data>
+  <data name="Resources_GpuScope" xml:space="preserve"><value>GPU readings cover whole devices visible to this host/container, including other applications. They are not Lineup-only or per-stream costs and exclude GPUs on remote worker hosts.</value></data>
+  <data name="Resources_GpuState_paused" xml:space="preserve"><value>GPU collection is paused; retained history is not current usage.</value></data>
+  <data name="Resources_GpuState_permission_denied" xml:space="preserve"><value>GPU counters are unavailable because host/container monitoring permissions deny access. Streaming permissions are separate.</value></data>
+  <data name="Resources_GpuState_read_failed" xml:space="preserve"><value>One or more GPU counters could not be read. See the server log for details.</value></data>
+  <data name="Resources_GpuState_unsupported" xml:space="preserve"><value>No supported GPU activity counter is exposed by this host/container or driver.</value></data>
+  <data name="Resources_GpuState_warming_up" xml:space="preserve"><value>Establishing GPU counter baselines.</value></data>
+  <data name="Resources_GpuVideo" xml:space="preserve"><value>Video / media</value></data>
   <data name="Resources_Heading" xml:space="preserve"><value>Resources</value></data>
   <data name="Resources_Management" xml:space="preserve"><value>Management host</value></data>
   <data name="Resources_Media" xml:space="preserve"><value>Media and lifetime helpers</value></data>
@@ -428,7 +441,7 @@
   <data name="Resources_Role_output" xml:space="preserve"><value>Output processing</value></data>
   <data name="Resources_Role_source" xml:space="preserve"><value>Source processing</value></data>
   <data name="Resources_Role_worker" xml:space="preserve"><value>Dedicated worker</value></data>
-  <data name="Resources_Scope" xml:space="preserve"><value>Lineup processes only. Rolling in-memory history is shared by dashboards and clears on restart.</value></data>
+  <data name="Resources_Scope" xml:space="preserve"><value>CPU and RAM cover Lineup processes only. Rolling in-memory history is shared by dashboards and clears on restart.</value></data>
   <data name="Resources_SharedCost" xml:space="preserve"><value>Full process cost: a reusable producer can serve multiple viewers. Shared work is counted once in the overview, not divided between viewers.</value></data>
   <data name="Resources_SharedHost" xml:space="preserve"><value>Included in a shared host process. Exclusive CPU and memory for this stage cannot be measured with lightweight process counters.</value></data>
   <data name="Resources_State_process_unavailable" xml:space="preserve"><value>Process unavailable</value></data>
@@ -475,7 +488,7 @@
   <data name="Settings_AboutRegional" xml:space="preserve"><value>Controls how dates and times are displayed throughout Lineup. It does not change program timestamps stored by guide providers.</value></data>
   <data name="Settings_AboutReset" xml:space="preserve"><value>Stages default shared and Web settings for review without immediately changing persisted configuration.</value></data>
   <data name="Settings_AboutResetTitle" xml:space="preserve"><value>Reset Settings</value></data>
-  <data name="Settings_AboutResources" xml:space="preserve"><value>Controls lightweight CPU and RAM monitoring and how long history is cached in memory. By default, collection runs only while a Dashboard is visible. Enable continuous collection to retain background samples; history is never saved to disk and clears on restart.</value></data>
+  <data name="Settings_AboutResources" xml:space="preserve"><value>Controls lightweight CPU, RAM and supported whole-device GPU monitoring and how long history is cached in memory. GPU readings can include other applications; unavailable engines show N/A. By default, collection runs only while a Dashboard is visible. Enable continuous collection to retain background samples; history is never saved to disk and clears on restart.</value></data>
   <data name="Settings_AboutRestart" xml:space="preserve"><value>Gracefully restarts the host without changing configuration or deleting data.</value></data>
   <data name="Settings_AboutRestartTitle" xml:space="preserve"><value>Restart Lineup</value></data>
   <data name="Settings_AboutStatusApiEnd" xml:space="preserve"><value>preserving a stable response shape without triggering device or guide operations.</value></data>

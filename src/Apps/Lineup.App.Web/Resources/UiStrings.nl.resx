@@ -410,6 +410,19 @@
   <data name="Resources_Cpu" xml:space="preserve"><value>CPU</value></data>
   <data name="Resources_CpuHelp" xml:space="preserve"><value>100% = één logische CPU-kern; waarden kunnen hoger zijn dan 100%.</value></data>
   <data name="Resources_External" xml:space="preserve"><value>Hier niet gemeten: dit onderdeel draait buiten Lineup.</value></data>
+  <data name="Resources_Gpu" xml:space="preserve"><value>GPU</value></data>
+  <data name="Resources_GpuActivity" xml:space="preserve"><value>GPU-activiteit</value></data>
+  <data name="Resources_GpuDecode" xml:space="preserve"><value>Videodecodering</value></data>
+  <data name="Resources_GpuDevice" xml:space="preserve"><value>GPU · {0}</value></data>
+  <data name="Resources_GpuEncode" xml:space="preserve"><value>Videocodering</value></data>
+  <data name="Resources_GpuHelp" xml:space="preserve"><value>GPU-activiteit is de totale driverwaarde of de drukste engine. Codering, decodering en video/media zijn onafhankelijk; tel ze niet op. Gedeelde codec-engines staan onder video/media. Niet-ondersteunde waarden zijn N/A.</value></data>
+  <data name="Resources_GpuScope" xml:space="preserve"><value>GPU-metingen gelden voor hele apparaten die deze host/container ziet, inclusief andere toepassingen. Ze zijn niet exclusief voor Lineup of per stream en omvatten geen GPU&apos;s van externe werkhosts.</value></data>
+  <data name="Resources_GpuState_paused" xml:space="preserve"><value>GPU-verzameling is gepauzeerd; bewaarde geschiedenis is geen huidig gebruik.</value></data>
+  <data name="Resources_GpuState_permission_denied" xml:space="preserve"><value>Bewakingsrechten van de host/container weigeren toegang tot GPU-tellers. Streamingrechten staan hier los van.</value></data>
+  <data name="Resources_GpuState_read_failed" xml:space="preserve"><value>Sommige GPU-tellers konden niet worden gelezen. Zie het serverlogboek.</value></data>
+  <data name="Resources_GpuState_unsupported" xml:space="preserve"><value>Deze host/container of driver biedt geen ondersteunde GPU-activiteitsteller.</value></data>
+  <data name="Resources_GpuState_warming_up" xml:space="preserve"><value>GPU-tellerbasissen worden vastgesteld.</value></data>
+  <data name="Resources_GpuVideo" xml:space="preserve"><value>Video / media</value></data>
   <data name="Resources_Heading" xml:space="preserve"><value>Brongebruik</value></data>
   <data name="Resources_Management" xml:space="preserve"><value>Beheerhost</value></data>
   <data name="Resources_Media" xml:space="preserve"><value>Media- en levensduurhulpprocessen</value></data>
@@ -428,7 +441,7 @@
   <data name="Resources_Role_output" xml:space="preserve"><value>Uitvoerverwerking</value></data>
   <data name="Resources_Role_source" xml:space="preserve"><value>Bronverwerking</value></data>
   <data name="Resources_Role_worker" xml:space="preserve"><value>Toegewezen worker</value></data>
-  <data name="Resources_Scope" xml:space="preserve"><value>Alleen Lineup-processen. Dashboards delen een voortschrijdende geschiedenis in het geheugen, die bij herstart wordt gewist.</value></data>
+  <data name="Resources_Scope" xml:space="preserve"><value>CPU en RAM gelden alleen voor Lineup-processen. Dashboards delen een voortschrijdende geschiedenis in het geheugen, die bij herstart wordt gewist.</value></data>
   <data name="Resources_SharedCost" xml:space="preserve"><value>Kosten van het hele proces: een herbruikbare producent kan meerdere kijkers bedienen. Gedeeld werk wordt eenmaal geteld in het overzicht, niet verdeeld over kijkers.</value></data>
   <data name="Resources_SharedHost" xml:space="preserve"><value>Opgenomen in een gedeeld hostproces. Exclusieve CPU en geheugen voor deze fase zijn niet met lichte procestellers te meten.</value></data>
   <data name="Resources_State_process_unavailable" xml:space="preserve"><value>Proces niet beschikbaar</value></data>
@@ -475,7 +488,7 @@
   <data name="Settings_AboutRegional" xml:space="preserve"><value>Bepaalt hoe datums en tijden in Lineup worden weergegeven. Dit wijzigt geen programmatijdstempels die door gidsproviders zijn opgeslagen.</value></data>
   <data name="Settings_AboutReset" xml:space="preserve"><value>Zet standaard gedeelde en webinstellingen klaar voor controle zonder de opgeslagen configuratie direct te wijzigen.</value></data>
   <data name="Settings_AboutResetTitle" xml:space="preserve"><value>Instellingen herstellen</value></data>
-  <data name="Settings_AboutResources" xml:space="preserve"><value>Regelt lichte CPU- en RAM-bewaking en hoelang de geschiedenis in het geheugen blijft. Standaard worden alleen gegevens verzameld als een dashboard zichtbaar is. Schakel continu verzamelen in voor achtergrondmetingen; de geschiedenis wordt nooit naar schijf geschreven en verdwijnt bij een herstart.</value></data>
+  <data name="Settings_AboutResources" xml:space="preserve"><value>Regelt lichte CPU-, RAM- en ondersteunde apparaatbrede GPU-bewaking en de geschiedenis in het geheugen. GPU-metingen kunnen andere toepassingen bevatten; niet-beschikbare engines tonen N/A. Standaard worden alleen gegevens verzameld als een dashboard zichtbaar is. Schakel continu verzamelen in voor achtergrondmetingen; de geschiedenis wordt nooit naar schijf geschreven en verdwijnt bij een herstart.</value></data>
   <data name="Settings_AboutRestart" xml:space="preserve"><value>Start de host gecontroleerd opnieuw zonder de configuratie te wijzigen of gegevens te verwijderen.</value></data>
   <data name="Settings_AboutRestartTitle" xml:space="preserve"><value>Lineup opnieuw starten</value></data>
   <data name="Settings_AboutStatusApiEnd" xml:space="preserve"><value>zodat een stabiele antwoordstructuur behouden blijft zonder apparaat- of gidsbewerkingen te activeren.</value></data>

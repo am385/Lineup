@@ -14,11 +14,6 @@
         </button>
     </div>
     <div id="activeStreamsSection" class="card-body" hidden="@(!Expanded)">
-        <div class="d-flex justify-content-end mb-3">
-            <button id="refreshActiveStreams" class="btn btn-sm btn-outline-primary" @onclick="() => RefreshRequested.InvokeAsync()">
-                <span class="bi bi-arrow-clockwise me-1"></span>@Text["Common_Refresh"]
-            </button>
-        </div>
         <div class="card mb-4">
             <div class="card-header">
                 <h6 class="mb-0"><span class="bi bi-diagram-3 me-1"></span>@Text["Dashboard_StreamingFlowHeading"]</h6>
@@ -37,6 +32,11 @@
                                     StoppingSessionIds="StoppingSessionIds"
                                     StopRequested="StopRequested" />
             </div>
+        </div>
+        <div class="d-flex justify-content-end mt-3">
+            <button id="refreshActiveStreams" class="btn btn-sm btn-outline-primary" @onclick="() => RefreshRequested.InvokeAsync()">
+                <span class="bi bi-arrow-clockwise me-1"></span>@Text["Common_Refresh"]
+            </button>
         </div>
     </div>
 </div>

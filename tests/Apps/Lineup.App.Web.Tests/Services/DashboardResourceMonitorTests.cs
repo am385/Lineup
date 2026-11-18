@@ -3,8 +3,6 @@ using Bunit;
 using Lineup.App.Web.Components.Dashboard;
 using Lineup.App.Web.Components.Streaming;
 using Lineup.App.Web.Services;
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Streaming;
 using Lineup.Core.VirtualOutputs.Runtime;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -15,6 +13,7 @@ using Xunit;
 namespace Lineup.App.Web.Tests.Services;
 
 /// <summary>Verifies resource measurements, bounded demand and truthful dashboard presentation.</summary>
+[Collection(nameof(DashboardResourceMonitorTests))]
 public sealed class DashboardResourceMonitorTests
 {
     /// <summary>Verifies the platform adapter reads the original process without unavailable or fabricated resident counters.</summary>
@@ -394,6 +393,9 @@ public sealed class DashboardResourceMonitorTests
         monitor.Collect();
         context.Services.AddLogging();
         context.Services.AddSingleton(monitor);
+        context.Services.AddScoped<IBrowserDataStore, BrowserDataStore>();
+        context.JSInterop.Setup<string?>("localStorage.getItem", "lineup-dashboard-resource-sections-v1").SetResult(null);
+        context.JSInterop.SetupVoid("localStorage.setItem", _ => true).SetVoidResult();
         context.JSInterop.SetupVoid("lineupResources.start", _ => true).SetVoidResult();
         context.JSInterop.SetupVoid("lineupResources.stop", _ => true).SetVoidResult();
         var component = context.Render<DashboardResourcesPanel>(parameters => parameters.Add(value => value.HistoryMinutes, 2));
@@ -410,7 +412,7 @@ public sealed class DashboardResourceMonitorTests
         Assert.Empty(component.FindAll("#resourceCharts"));
         var header = collapsed.Closest(".card-header")!;
         Assert.NotNull(header.QuerySelector("h5 .bi-speedometer2"));
-        Assert.Equal("CPU: 75% · RAM: 256 MiB", header.QuerySelector("small")!.TextContent);
+        Assert.Equal("CPU: 75% · RAM: 256 MiB · GPU: N/A", header.QuerySelector("small")!.TextContent);
         Assert.Null(header.QuerySelector("small")!.Closest("[hidden]"));
 
         // Act
@@ -421,7 +423,7 @@ public sealed class DashboardResourceMonitorTests
         Assert.Equal("true", expanded.GetAttribute("aria-expanded"));
         Assert.NotNull(expanded.QuerySelector(".bi-chevron-up[aria-hidden='true']"));
         Assert.Single(component.FindAll("#resourceCharts"));
-        Assert.Equal("CPU: 75% · RAM: 256 MiB", expanded.Closest(".card-header")!.QuerySelector("small")!.TextContent);
+        Assert.Equal("CPU: 75% · RAM: 256 MiB · GPU: N/A", expanded.Closest(".card-header")!.QuerySelector("small")!.TextContent);
         Assert.All(component.FindAll(".resource-history"), chart => Assert.Equal(
             new[] { "2m", "1m 30s", "1m", "30s", "0s" },
             chart.QuerySelectorAll("[data-resource-x-tick]").Select(tick => tick.TextContent.Trim())));
@@ -436,7 +438,76 @@ public sealed class DashboardResourceMonitorTests
                 chart.QuerySelectorAll("[data-resource-x-tick]").Select(tick => tick.TextContent.Trim()));
             Assert.Equal("translate(900 0) scale(15 1)", chart.QuerySelector("[data-resource-series]")!.GetAttribute("transform"));
         });
+
+        // Act
+        await component.Find("#resourceCharts > section[aria-label='GPU'] button").ClickAsync(new());
+
+        // Assert
+        var placeholder = component.Find("#resourceCharts > section[aria-label='GPU']");
+        var placeholderToggle = component.Find("#resourceCharts > section[aria-label='GPU'] button");
+        Assert.Equal("false", placeholderToggle.GetAttribute("aria-expanded"));
+        Assert.NotNull(placeholderToggle.QuerySelector(".bi-chevron-down"));
+        Assert.True(placeholder.QuerySelector(".card-body")!.HasAttribute("hidden"));
+        Assert.Equal(placeholder.QuerySelector(".card-body")!.Id, placeholderToggle.GetAttribute("aria-controls"));
+        Assert.Equal("GPU", placeholder.QuerySelector("h6")!.TextContent);
+
+        // Act
+        await placeholderToggle.ClickAsync(new());
+
+        // Assert
+        Assert.Equal("true", component.Find("#resourceCharts > section[aria-label='GPU'] button").GetAttribute("aria-expanded"));
+        Assert.False(component.Find("#resourceCharts > section[aria-label='GPU'] > .card-body").HasAttribute("hidden"));
         registry.Unregister(host);
+    }
+
+    /// <summary>Verifies resource subcards retain their title, accessible controls and independent collapse state while observations update.</summary>
+    [Theory]
+    [InlineData(false, null, "CPU", "50 %")]
+    [InlineData(true, null, "RAM", "2 MiB")]
+    [InlineData(false, "gpu", "GPU · Test GPU", "50 %")]
+    public async Task Chart_Toggle_KeepsContentCollapsedAcrossObservationUpdates(bool memory, string? gpuId, string title, string expected)
+    {
+        // Arrange
+        await using var context = new LineupWebBunitContext();
+        var now = DateTimeOffset.UtcNow;
+        var usage = new ResourceUsage(25, 1024 * 1024);
+        var first = new ResourceHistoryPoint(now, usage, usage, usage, usage, true)
+        {
+            Gpus = [new("gpu", "Test GPU", 25, null, null, null)]
+        };
+        var updated = first with
+        {
+            AtUtc = now.AddSeconds(2),
+            Total = new(50, 2 * 1024 * 1024),
+            Gpus = [new("gpu", "Test GPU", 50, null, null, null)]
+        };
+        var component = context.Render<ResourceHistoryChart>(parameters => parameters
+            .Add(value => value.History, [first]).Add(value => value.Memory, memory)
+            .Add(value => value.GpuId, gpuId).Add(value => value.GpuName, "Test GPU"));
+        var bodyId = component.Find(".card-body").Id;
+
+        // Act
+        await component.Find(".card-header button").ClickAsync(new());
+        component.Render(parameters => parameters.Add(value => value.History, [first, updated]));
+
+        // Assert
+        var collapsed = component.Find(".card-header button");
+        Assert.Equal("false", collapsed.GetAttribute("aria-expanded"));
+        Assert.Equal(bodyId, collapsed.GetAttribute("aria-controls"));
+        Assert.NotNull(collapsed.QuerySelector(".bi-chevron-down[aria-hidden='true']"));
+        Assert.Contains(title, collapsed.QuerySelector(".visually-hidden")!.TextContent);
+        Assert.Equal(title, component.Find("h6").TextContent);
+        Assert.Null(component.Find(".card-header").Closest("[hidden]"));
+        Assert.True(component.Find(".card-body").HasAttribute("hidden"));
+
+        // Act
+        await collapsed.ClickAsync(new());
+
+        // Assert
+        Assert.Equal("true", component.Find(".card-header button").GetAttribute("aria-expanded"));
+        Assert.NotNull(component.Find(".card-header .bi-chevron-up"));
+        Assert.False(component.Find(".card-body").HasAttribute("hidden"));
+        Assert.StartsWith(expected, component.Find("dd").TextContent.Trim());
     }
 
     /// <summary>Verifies graph axes admit multi-core percentages and gaps are not joined across missing observations.</summary>

@@ -972,12 +972,45 @@ stops collection after any outstanding visibility interest expires; disconnect i
 Continuous mode retains collection without visible tabs, but does not refresh hidden browser charts.
 History stays in memory, contains at most 1,800 aggregate samples, and clears on restart. Retention changes take effect without restarting streams.
 Long charts share cached geometry and retain each display bucket's minimum and maximum, rather than smoothing away peaks or joining gaps.
-The CPU and RAM cards include intermediate value labels, horizontal grid lines and a relative-time axis.
+The CPU, RAM and per-GPU cards include intermediate value labels, horizontal grid lines and a relative-time axis.
 Time labels use compact seconds and minutes (for example, `15s`, `1m` and `1m 30s`), measured back from the latest sample at `0s`.
 The linear time axis always spans the configured history duration, even while history is filling; unobserved history stays empty on the left.
 Their legends use equal-width responsive columns so changing values do not shift the labels horizontally.
-Primary Dashboard cards keep their icon, title and summary visible when collapsed. The Resources summary shows current CPU and RAM totals, or unavailable values when collection is paused or incomplete.
-Channels, Physical Devices and Active Streams refresh buttons sit inside their card bodies and hide with the content when collapsed.
+Primary Dashboard cards keep their icon, title and summary visible when collapsed. The Resources summary shows current CPU and RAM totals plus each GPU's whole-device activity;
+unavailable or paused readings show N/A, never retained percentages. GPU percentages remain separate rather than being added across devices.
+The CPU, RAM and GPU subcards each have an independent chevron control to hide their content while leaving their title visible.
+These subcard preferences are saved in the current browser and restored after navigation or a page reload, independently of other dashboard sections.
+GPU preferences follow each device's internal identity, not its name or position. Missing preferences default to expanded; browser-storage failures are logged and do not disable the controls.
+Channels, Physical Devices and Active Streams refresh buttons sit at the bottom right of their card bodies and hide with the content when collapsed.
+
+GPU cards show **whole-device** activity visible to the management host/container, including other applications and containers;
+they are not Lineup-only, per-stream or per-stage attribution, and do not include GPUs on remote worker hosts.
+The shared two-second sampler reads native counters, never launches `nvidia-smi`, `intel_gpu_top`, PowerShell or other polling helpers,
+and does no driver work during dashboard rendering. Hiding every Dashboard also releases native monitoring resources unless continuous collection is enabled.
+GPU readings share the same bounded history/window as CPU and RAM, with a fixed 0-100% scale.
+Each card distinguishes GPU activity, video encode, video decode and video/media. These measurements overlap and must not be added.
+GPU activity is driver-specific: Windows and Intel show the busiest physical engine; NVIDIA and AMD use their driver's activity counter,
+which need not include dedicated video work. Shared codec engines appear under video/media instead of claiming separate encode/decode measurements.
+
+| Management host | GPU telemetry |
+|---|---|
+| Windows | Vendor-neutral GPU Engine performance counters, grouped by adapter and physical engine; process instances are summed only within the same engine |
+| Linux NVIDIA | Installed `libnvidia-ml.so.1` (NVML); activity plus encode/decode when supported; containers need the NVIDIA driver utility capability |
+| Linux AMD | DRM `device/gpu_busy_percent` when exposed; video-engine metrics remain unavailable |
+| Linux Intel i915 | Driver-published engine busy PMU events via read-only performance-counter descriptors; shared video engines appear under video/media |
+| Other drivers/platforms, including Linux Xe without supported counters | Explicit N/A, not fabricated zero |
+
+On Windows, card titles use DXGI adapter names matched to GPU-counter LUIDs, not adapter enumeration order.
+The LUID remains the internal sample/history identity. Name discovery is cached; a failed lookup logs a warning and retains the counter-identity label without losing utilization readings.
+Software adapters such as Microsoft Basic Render Driver retain their actual names; they are not additional physical GPUs.
+Linux NVIDIA already supplies model names through NVML. Linux AMD and Intel currently use vendor/card or PMU labels rather than resolved model names.
+Unraid Docker uses the Linux readers and sees only devices, libraries and counters exposed to that container; native Linux uses the same readers with host access.
+Native macOS has no GPU telemetry provider. Docker Desktop on macOS runs in a Linux VM and does not expose the Mac GPU to these readers.
+
+Streaming access alone does not guarantee monitoring access. Intel PMU access is often blocked by host/container performance-counter policy;
+Lineup does not request elevation, privileged mode, change kernel settings or widen device permissions. Unsupported metrics, inaccessible counters,
+warm-up and read failures show N/A or gaps with an explanation; actionable read failures are logged without repeating the same warning every tick.
+GPU devices are discovered on first collection; changing exposed driver libraries/devices can require restarting the management host.
 
 Select an Active Streams processing stage or topology node to inspect its current CPU, memory, process identity, role, and observation time.
 Resource tables use fixed column widths in both Streaming Flow and Active Paths, with horizontal scrolling on narrow screens.

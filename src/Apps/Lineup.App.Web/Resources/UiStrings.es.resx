@@ -410,6 +410,19 @@
   <data name="Resources_Cpu" xml:space="preserve"><value>CPU</value></data>
   <data name="Resources_CpuHelp" xml:space="preserve"><value>100% = un núcleo lógico de CPU; los valores pueden superar el 100%.</value></data>
   <data name="Resources_External" xml:space="preserve"><value>No se mide aquí: este componente se ejecuta fuera de Lineup.</value></data>
+  <data name="Resources_Gpu" xml:space="preserve"><value>GPU</value></data>
+  <data name="Resources_GpuActivity" xml:space="preserve"><value>Actividad de GPU</value></data>
+  <data name="Resources_GpuDecode" xml:space="preserve"><value>Decodificación de vídeo</value></data>
+  <data name="Resources_GpuDevice" xml:space="preserve"><value>GPU · {0}</value></data>
+  <data name="Resources_GpuEncode" xml:space="preserve"><value>Codificación de vídeo</value></data>
+  <data name="Resources_GpuHelp" xml:space="preserve"><value>La actividad de GPU es la lectura global del controlador o del motor más ocupado. Codificación, decodificación y vídeo/medios son independientes; no deben sumarse. Los motores de códec compartidos aparecen en vídeo/medios. Las métricas no compatibles muestran N/A.</value></data>
+  <data name="Resources_GpuScope" xml:space="preserve"><value>Las lecturas de GPU abarcan dispositivos completos visibles para este host/contenedor, incluidas otras aplicaciones. No son costes exclusivos de Lineup ni por flujo, y no incluyen GPU de hosts de trabajo remotos.</value></data>
+  <data name="Resources_GpuState_paused" xml:space="preserve"><value>Recopilación de GPU en pausa; el historial no representa el uso actual.</value></data>
+  <data name="Resources_GpuState_permission_denied" xml:space="preserve"><value>Los permisos de supervisión del host/contenedor impiden acceder a los contadores de GPU. Los permisos de streaming son independientes.</value></data>
+  <data name="Resources_GpuState_read_failed" xml:space="preserve"><value>No se pudieron leer algunos contadores de GPU. Consulte el registro del servidor.</value></data>
+  <data name="Resources_GpuState_unsupported" xml:space="preserve"><value>El host/contenedor o controlador no expone contadores de actividad de GPU compatibles.</value></data>
+  <data name="Resources_GpuState_warming_up" xml:space="preserve"><value>Estableciendo referencias de los contadores de GPU.</value></data>
+  <data name="Resources_GpuVideo" xml:space="preserve"><value>Vídeo / medios</value></data>
   <data name="Resources_Heading" xml:space="preserve"><value>Recursos</value></data>
   <data name="Resources_Management" xml:space="preserve"><value>Host de administración</value></data>
   <data name="Resources_Media" xml:space="preserve"><value>Procesos multimedia y auxiliares de ciclo de vida</value></data>
@@ -428,7 +441,7 @@
   <data name="Resources_Role_output" xml:space="preserve"><value>Procesamiento de salida</value></data>
   <data name="Resources_Role_source" xml:space="preserve"><value>Procesamiento de origen</value></data>
   <data name="Resources_Role_worker" xml:space="preserve"><value>Worker dedicado</value></data>
-  <data name="Resources_Scope" xml:space="preserve"><value>Solo procesos de Lineup. Los paneles comparten un historial móvil en memoria que se borra al reiniciar.</value></data>
+  <data name="Resources_Scope" xml:space="preserve"><value>CPU y RAM abarcan solo procesos de Lineup. Los paneles comparten un historial móvil en memoria que se borra al reiniciar.</value></data>
   <data name="Resources_SharedCost" xml:space="preserve"><value>Coste total del proceso: un productor reutilizable puede servir a varios espectadores. El trabajo compartido se cuenta una vez en el resumen y no se divide entre espectadores.</value></data>
   <data name="Resources_SharedHost" xml:space="preserve"><value>Incluido en un proceso host compartido. Los contadores ligeros no permiten medir la CPU y la memoria exclusivas de esta etapa.</value></data>
   <data name="Resources_State_process_unavailable" xml:space="preserve"><value>Proceso no disponible</value></data>
@@ -475,7 +488,7 @@
   <data name="Settings_AboutRegional" xml:space="preserve"><value>Controla cómo se muestran las fechas y horas en Lineup. No cambia las marcas de tiempo del programa almacenadas por los proveedores de guías.</value></data>
   <data name="Settings_AboutReset" xml:space="preserve"><value>Organiza la configuración web y compartida predeterminada para su revisión sin cambiar inmediatamente la configuración persistente.</value></data>
   <data name="Settings_AboutResetTitle" xml:space="preserve"><value>Restablecer configuración</value></data>
-  <data name="Settings_AboutResources" xml:space="preserve"><value>Controla la supervisión ligera de CPU y RAM y cuánto tiempo se conserva el historial en memoria. De forma predeterminada, solo se recopilan datos mientras un panel está visible. Active la recopilación continua para obtener muestras en segundo plano; el historial nunca se guarda en disco y se borra al reiniciar.</value></data>
+  <data name="Settings_AboutResources" xml:space="preserve"><value>Controla la supervisión ligera de CPU, RAM y GPU compatibles de dispositivo completo, y su historial en memoria. Las GPU pueden incluir otras aplicaciones; los motores no disponibles muestran N/A. De forma predeterminada, solo se recopilan datos mientras un panel está visible. Active la recopilación continua para obtener muestras en segundo plano; el historial nunca se guarda en disco y se borra al reiniciar.</value></data>
   <data name="Settings_AboutRestart" xml:space="preserve"><value>Reinicia correctamente el host sin cambiar la configuración ni eliminar datos.</value></data>
   <data name="Settings_AboutRestartTitle" xml:space="preserve"><value>Reiniciar Lineup</value></data>
   <data name="Settings_AboutStatusApiEnd" xml:space="preserve"><value>para conservar una estructura de respuesta estable sin activar operaciones de dispositivos ni de la guía.</value></data>

@@ -515,7 +515,8 @@ public class SettingsTests
         Assert.Contains("Dashboard refreshes its cached view", component.Find("#aboutSettingsBody").TextContent);
         var resourceHelp = Assert.Single(component.FindAll("#aboutSettingsBody .about-settings-section"),
             section => section.QuerySelector("h6")!.TextContent == "Resources");
-        Assert.Contains("CPU and RAM", resourceHelp.TextContent, StringComparison.Ordinal);
+        Assert.Contains("CPU, RAM", resourceHelp.TextContent, StringComparison.Ordinal);
+        Assert.Contains("whole-device GPU", resourceHelp.TextContent, StringComparison.Ordinal);
         Assert.Contains("in memory", resourceHelp.TextContent, StringComparison.Ordinal);
         Assert.EndsWith("/settings#dashboard", navigation.Uri, StringComparison.Ordinal);
         Assert.NotNull(component.Find("button.btn-primary"));

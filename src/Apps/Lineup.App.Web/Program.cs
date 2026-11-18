@@ -137,6 +137,7 @@ builder.Services.AddHttpClient("StreamProxy")
 
 builder.Services.AddLineupMpegTsStreaming();
 builder.Services.AddSingleton<IStreamingFlowSnapshotService, StreamingFlowSnapshotService>();
+builder.Services.AddSingleton<IGpuResourceSource, NativeGpuResourceSource>();
 builder.Services.AddSingleton<DashboardResourceMonitor>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<DashboardResourceMonitor>());
 builder.Services.AddSingleton(statusRuntime);

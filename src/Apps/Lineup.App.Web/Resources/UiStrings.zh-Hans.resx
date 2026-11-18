@@ -410,6 +410,19 @@
   <data name="Resources_Cpu" xml:space="preserve"><value>CPU</value></data>
   <data name="Resources_CpuHelp" xml:space="preserve"><value>100% 表示占用一个逻辑 CPU 核心；数值可以超过 100%。</value></data>
   <data name="Resources_External" xml:space="preserve"><value>此处未测量：该组件在 Lineup 之外运行。</value></data>
+  <data name="Resources_Gpu" xml:space="preserve"><value>GPU</value></data>
+  <data name="Resources_GpuActivity" xml:space="preserve"><value>GPU 活动</value></data>
+  <data name="Resources_GpuDecode" xml:space="preserve"><value>视频解码</value></data>
+  <data name="Resources_GpuDevice" xml:space="preserve"><value>GPU · {0}</value></data>
+  <data name="Resources_GpuEncode" xml:space="preserve"><value>视频编码</value></data>
+  <data name="Resources_GpuHelp" xml:space="preserve"><value>GPU 活动采用驱动报告的整体值或最繁忙引擎的值。编码、解码和视频/媒体彼此独立，不能相加。共享编解码引擎显示在视频/媒体中。不支持的指标显示 N/A。</value></data>
+  <data name="Resources_GpuScope" xml:space="preserve"><value>GPU 读数覆盖此主机/容器可见的整个设备，包括其他应用程序。它们不是 Lineup 专属或单个流的开销，也不包含远程工作主机的 GPU。</value></data>
+  <data name="Resources_GpuState_paused" xml:space="preserve"><value>GPU 采集已暂停；保留的历史记录不代表当前使用率。</value></data>
+  <data name="Resources_GpuState_permission_denied" xml:space="preserve"><value>主机/容器的监视权限拒绝访问 GPU 计数器。流媒体权限与此不同。</value></data>
+  <data name="Resources_GpuState_read_failed" xml:space="preserve"><value>无法读取部分 GPU 计数器。详情请查看服务器日志。</value></data>
+  <data name="Resources_GpuState_unsupported" xml:space="preserve"><value>此主机/容器或驱动未提供受支持的 GPU 活动计数器。</value></data>
+  <data name="Resources_GpuState_warming_up" xml:space="preserve"><value>正在建立 GPU 计数器基准。</value></data>
+  <data name="Resources_GpuVideo" xml:space="preserve"><value>视频 / 媒体</value></data>
   <data name="Resources_Heading" xml:space="preserve"><value>资源</value></data>
   <data name="Resources_Management" xml:space="preserve"><value>管理主机</value></data>
   <data name="Resources_Media" xml:space="preserve"><value>媒体及生命周期辅助进程</value></data>
@@ -428,7 +441,7 @@
   <data name="Resources_Role_output" xml:space="preserve"><value>输出处理</value></data>
   <data name="Resources_Role_source" xml:space="preserve"><value>源处理</value></data>
   <data name="Resources_Role_worker" xml:space="preserve"><value>专用工作进程</value></data>
-  <data name="Resources_Scope" xml:space="preserve"><value>仅包含 Lineup 进程。仪表板共享内存中的滚动历史记录，重启后清空。</value></data>
+  <data name="Resources_Scope" xml:space="preserve"><value>CPU 和 RAM 仅包含 Lineup 进程。仪表板共享内存中的滚动历史记录，重启后清空。</value></data>
   <data name="Resources_SharedCost" xml:space="preserve"><value>整个进程的开销：可复用的生产者可服务多个观看者。共享工作在概览中仅计算一次，不按观看者分摊。</value></data>
   <data name="Resources_SharedHost" xml:space="preserve"><value>包含在共享主机进程中。轻量级进程计数器无法测量此阶段独占的 CPU 和内存。</value></data>
   <data name="Resources_State_process_unavailable" xml:space="preserve"><value>进程不可用</value></data>
@@ -475,7 +488,7 @@
   <data name="Settings_AboutRegional" xml:space="preserve"><value>控制整个 Lineup 中日期和时间的显示方式。不会更改节目指南提供商存储的节目时间戳。</value></data>
   <data name="Settings_AboutReset" xml:space="preserve"><value>暂存默认的共享设置和 Web 设置以供检查，而不会立即更改持久化配置。</value></data>
   <data name="Settings_AboutResetTitle" xml:space="preserve"><value>重置设置</value></data>
-  <data name="Settings_AboutResources" xml:space="preserve"><value>控制轻量级 CPU 和 RAM 监视以及历史记录在内存中的保留时间。默认仅在仪表板可见时采集。启用持续采集可在后台保留样本；历史记录从不保存到磁盘，并在重启时清除。</value></data>
+  <data name="Settings_AboutResources" xml:space="preserve"><value>控制轻量级 CPU、RAM 和受支持的整卡 GPU 监视，以及内存中的历史记录。GPU 读数可能包含其他应用程序；不可用的引擎显示 N/A。默认仅在仪表板可见时采集。启用持续采集可在后台保留样本；历史记录从不保存到磁盘，并在重启时清除。</value></data>
   <data name="Settings_AboutRestart" xml:space="preserve"><value>正常重启主机，而不更改配置或删除数据。</value></data>
   <data name="Settings_AboutRestartTitle" xml:space="preserve"><value>重启 Lineup</value></data>
   <data name="Settings_AboutStatusApiEnd" xml:space="preserve"><value>从而在不触发设备或节目指南操作的情况下保持稳定的响应结构。</value></data>

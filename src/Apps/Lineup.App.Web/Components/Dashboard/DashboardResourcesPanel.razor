@@ -1,15 +1,17 @@
 @implements IAsyncDisposable
+@using System.Text.Json
 @inject IServiceProvider Services
 @inject IJSRuntime JS
+@inject IBrowserDataStore BrowserData
 @inject ILogger<DashboardResourcesPanel> Logger
 
 @if (_monitor is not null)
 {
     <section class="card mb-4" id="dashboardResources">
         <header class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-            <div>
+            <div style="min-width:0;overflow-wrap:anywhere">
                 <h5 class="mb-0"><span class="bi bi-speedometer2 me-1" aria-hidden="true"></span>@Text["Resources_Heading"]</h5>
-                <small class="text-muted">@Text["Resources_Cpu"]: @CpuSummary · @Text["Resources_Memory"]: @MemorySummary</small>
+                <small class="text-muted">@Text["Resources_Cpu"]: @CpuSummary · @Text["Resources_Memory"]: @MemorySummary · @Text["Resources_Gpu"]: @GpuSummary</small>
             </div>
             <button id="toggleResourcesSection" type="button" class="btn btn-sm btn-outline-secondary ms-auto" aria-expanded="@_expanded.ToString().ToLowerInvariant()"
                     aria-controls="resourceCharts" @onclick="() => _expanded = !_expanded">
@@ -29,24 +31,69 @@
                 {
                     <p role="status" class="text-warning">@Text["Resources_Partial"]</p>
                 }
-                <ResourceHistoryChart History="_snapshot.History" HistoryMinutes="HistoryMinutes" />
-                <ResourceHistoryChart History="_snapshot.History" HistoryMinutes="HistoryMinutes" Memory="true" />
+                <ResourceHistoryChart History="_snapshot.History" HistoryMinutes="HistoryMinutes"
+                                      Expanded="@IsCardExpanded("cpu")" ExpandedChanged="@(expanded => SetCardExpanded("cpu", expanded))" />
+                <ResourceHistoryChart History="_snapshot.History" HistoryMinutes="HistoryMinutes" Memory="true"
+                                      Expanded="@IsCardExpanded("ram")" ExpandedChanged="@(expanded => SetCardExpanded("ram", expanded))" />
+                <p class="small text-body-secondary">@Text["Resources_GpuScope"]</p>
+                @if (GpuDevices.Count > 0 && _snapshot.Gpu?.UnavailableReason is { } gpuReason)
+                {
+                    <p role="status">@Text[$"Resources_GpuState_{gpuReason}"]</p>
+                }
+                @if (GpuDevices.Count == 0)
+                {
+                    <section class="card mb-3" aria-label="@Text["Resources_Gpu"]">
+                        <header class="card-header d-flex justify-content-between align-items-center gap-2">
+                            <h6 class="mb-0">@Text["Resources_Gpu"]</h6>
+                            <button type="button" class="btn btn-sm btn-outline-secondary ms-auto flex-shrink-0" aria-expanded="@IsCardExpanded("gpu-unavailable").ToString().ToLowerInvariant()"
+                                    aria-controls="@_gpuPlaceholderBodyId" @onclick="@(() => SetCardExpanded("gpu-unavailable", !IsCardExpanded("gpu-unavailable")))">
+                                <span class="@(IsCardExpanded("gpu-unavailable") ? "bi bi-chevron-up" : "bi bi-chevron-down")" aria-hidden="true"></span>
+                                <span class="visually-hidden">@Text["Resources_Toggle"]: @Text["Resources_Gpu"]</span>
+                            </button>
+                        </header>
+                        <div class="card-body" id="@_gpuPlaceholderBodyId" hidden="@(!IsCardExpanded("gpu-unavailable"))">
+                            <p role="status" class="mb-0">@Text["Common_NotAvailable"] · @Text[$"Resources_GpuState_{_snapshot.Gpu?.UnavailableReason ?? "warming_up"}"]</p>
+                        </div>
+                    </section>
+                }
+                @foreach (var device in GpuDevices)
+                {
+                    <ResourceHistoryChart @key="device.Id" History="_snapshot.History" HistoryMinutes="HistoryMinutes"
+                                          GpuId="@device.Id" GpuName="@device.Name"
+                                          Expanded="@IsCardExpanded($"gpu:{device.Id}")" ExpandedChanged="@(expanded => SetCardExpanded($"gpu:{device.Id}", expanded))"
+                                          UnavailableReason="@(!_snapshot.Collecting ? "paused" : device.UnavailableReason ??
+                                              (_snapshot.Gpu?.Devices.Count > 0 ? null : _snapshot.Gpu?.UnavailableReason))" />
+                }
             </div>
         }
     </section>
 }
 
 @code {
+    private const string SectionStateStorageKey = "lineup-dashboard-resource-sections-v1";
     private readonly Guid _dashboardId = Guid.NewGuid();
+    private readonly string _gpuPlaceholderBodyId = $"resourceGpuUnavailable-{Guid.NewGuid():N}";
     private DashboardResourceMonitor? _monitor;
     private DotNetObjectReference<DashboardResourcesPanel>? _reference;
     private DashboardResourceSnapshot _snapshot = new(false, [], []);
+    private readonly Dictionary<string, bool> _cardExpansion = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _changedExpansion = new(StringComparer.Ordinal);
+    private Task _restoreExpansion = Task.CompletedTask;
+    private Task _saveExpansion = Task.CompletedTask;
     private bool _expanded = true;
     private bool _disposed;
 
     private ResourceUsage? CurrentUsage => _snapshot.Collecting ? _snapshot.History.LastOrDefault()?.Total : null;
     private string CpuSummary => CurrentUsage?.CpuPercent is { } cpu ? $"{cpu:0.##}%" : Text["Common_NotAvailable"].Value;
     private string MemorySummary => CurrentUsage?.ResidentBytes is { } bytes ? $"{bytes / (1024d * 1024d):0.##} MiB" : Text["Common_NotAvailable"].Value;
+    private string GpuSummary => GpuDevices.Count == 0 ? Text["Common_NotAvailable"].Value
+        : string.Join(" · ", GpuDevices.Select(device => $"{device.Name}: {GpuActivity(device.Id)}"));
+    private IReadOnlyList<GpuResourceSample> GpuDevices => _snapshot.Gpu?.Devices is { Count: > 0 } devices
+        ? devices : _snapshot.History.LastOrDefault(point => point.Gpus.Count > 0)?.Gpus ?? [];
+
+    private string GpuActivity(string id) => _snapshot.Collecting &&
+        _snapshot.Gpu?.Devices.FirstOrDefault(device => device.Id == id) is { Utilization: { } activity, UnavailableReason: null }
+            ? $"{activity:0.##}%" : Text["Common_NotAvailable"].Value;
 
     /// <summary>Gets or sets the callback publishing cached resource observations to the active-stream details.</summary>
     [Parameter]
@@ -64,6 +111,9 @@
     {
         if (firstRender && _monitor is not null)
         {
+            _restoreExpansion = RestoreCardExpansion();
+            await _restoreExpansion;
+            if (_disposed) return;
             _reference = DotNetObjectReference.Create(this);
             try
             {
@@ -74,6 +124,77 @@
                 _monitor.SetVisible(_dashboardId, false);
                 Logger.LogDebug(exception, "Dashboard resource visibility could not start after browser disconnect");
             }
+        }
+    }
+
+    private bool IsCardExpanded(string key) => !_cardExpansion.TryGetValue(key, out var expanded) || expanded;
+
+    private Task SetCardExpanded(string key, bool expanded)
+    {
+        _cardExpansion[key] = expanded;
+        _changedExpansion.Add(key);
+        _saveExpansion = SaveCardExpansion(_saveExpansion);
+        return _saveExpansion;
+    }
+
+    private async Task RestoreCardExpansion()
+    {
+        try
+        {
+            var state = await BrowserData.ReadAsync<Dictionary<string, bool>>(SectionStateStorageKey);
+            if (_disposed || state is null) return;
+            foreach (var (key, expanded) in state)
+            {
+                if (!_changedExpansion.Contains(key)) _cardExpansion[key] = expanded;
+            }
+            StateHasChanged();
+        }
+        catch (JsonException exception)
+        {
+            Logger.LogWarning(exception, "Ignoring invalid saved dashboard resource section state");
+        }
+        catch (JSDisconnectedException exception)
+        {
+            Logger.LogDebug(exception, "The browser disconnected while restoring dashboard resource section state");
+        }
+        catch (JSException exception)
+        {
+            Logger.LogWarning(exception, "Unable to restore dashboard resource section state from browser storage");
+        }
+        catch (InvalidOperationException exception)
+        {
+            Logger.LogDebug(exception, "Browser storage is not available while rendering dashboard resources");
+        }
+        catch (OperationCanceledException exception)
+        {
+            Logger.LogWarning(exception, "Restoring dashboard resource section state timed out");
+        }
+    }
+
+    private async Task SaveCardExpansion(Task previous)
+    {
+        await _restoreExpansion;
+        await previous;
+        if (_disposed) return;
+        try
+        {
+            await BrowserData.WriteAsync(SectionStateStorageKey, _cardExpansion);
+        }
+        catch (JSDisconnectedException exception)
+        {
+            Logger.LogDebug(exception, "The browser disconnected while saving dashboard resource section state");
+        }
+        catch (JSException exception)
+        {
+            Logger.LogWarning(exception, "Unable to save dashboard resource section state to browser storage");
+        }
+        catch (InvalidOperationException exception)
+        {
+            Logger.LogDebug(exception, "Browser storage is not available while saving dashboard resource section state");
+        }
+        catch (OperationCanceledException exception)
+        {
+            Logger.LogWarning(exception, "Saving dashboard resource section state timed out");
         }
     }
 
@@ -99,6 +220,8 @@
     {
         _disposed = true;
         _monitor?.SetVisible(_dashboardId, false);
+        await _restoreExpansion;
+        await _saveExpansion;
         if (_reference is not null)
         {
             try

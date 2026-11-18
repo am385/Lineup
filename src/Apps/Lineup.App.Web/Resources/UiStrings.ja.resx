@@ -410,6 +410,19 @@
   <data name="Resources_Cpu" xml:space="preserve"><value>CPU</value></data>
   <data name="Resources_CpuHelp" xml:space="preserve"><value>100% は論理 CPU コア 1 個分です。値は 100% を超えることがあります。</value></data>
   <data name="Resources_External" xml:space="preserve"><value>ここでは測定しません。このコンポーネントは Lineup の外部で動作します。</value></data>
+  <data name="Resources_Gpu" xml:space="preserve"><value>GPU</value></data>
+  <data name="Resources_GpuActivity" xml:space="preserve"><value>GPU 使用率</value></data>
+  <data name="Resources_GpuDecode" xml:space="preserve"><value>動画デコード</value></data>
+  <data name="Resources_GpuDevice" xml:space="preserve"><value>GPU · {0}</value></data>
+  <data name="Resources_GpuEncode" xml:space="preserve"><value>動画エンコード</value></data>
+  <data name="Resources_GpuHelp" xml:space="preserve"><value>GPU 使用率はドライバーの全体値または最も使用されているエンジンの値です。エンコード、デコード、動画/メディアは独立しており、合算できません。共有コーデックエンジンは動画/メディアに表示されます。非対応の指標は N/A です。</value></data>
+  <data name="Resources_GpuScope" xml:space="preserve"><value>GPU の測定値は、このホスト/コンテナーから見えるデバイス全体が対象で、他のアプリも含みます。Lineup 専用やストリーム単位の値ではなく、リモートワーカーホストの GPU は含みません。</value></data>
+  <data name="Resources_GpuState_paused" xml:space="preserve"><value>GPU 収集は一時停止中です。保持された履歴は現在の使用率ではありません。</value></data>
+  <data name="Resources_GpuState_permission_denied" xml:space="preserve"><value>ホスト/コンテナーの監視権限により GPU カウンターへのアクセスが拒否されました。ストリーミングの権限とは別です。</value></data>
+  <data name="Resources_GpuState_read_failed" xml:space="preserve"><value>一部の GPU カウンターを読み取れませんでした。サーバーログを確認してください。</value></data>
+  <data name="Resources_GpuState_unsupported" xml:space="preserve"><value>このホスト/コンテナーまたはドライバーには対応する GPU 使用率カウンターがありません。</value></data>
+  <data name="Resources_GpuState_warming_up" xml:space="preserve"><value>GPU カウンターの基準値を取得しています。</value></data>
+  <data name="Resources_GpuVideo" xml:space="preserve"><value>動画 / メディア</value></data>
   <data name="Resources_Heading" xml:space="preserve"><value>リソース</value></data>
   <data name="Resources_Management" xml:space="preserve"><value>管理ホスト</value></data>
   <data name="Resources_Media" xml:space="preserve"><value>メディアおよびライフタイム補助プロセス</value></data>
@@ -428,7 +441,7 @@
   <data name="Resources_Role_output" xml:space="preserve"><value>出力処理</value></data>
   <data name="Resources_Role_source" xml:space="preserve"><value>ソース処理</value></data>
   <data name="Resources_Role_worker" xml:space="preserve"><value>専用ワーカー</value></data>
-  <data name="Resources_Scope" xml:space="preserve"><value>Lineup のプロセスのみです。メモリ内のローリング履歴はダッシュボード間で共有され、再起動で消去されます。</value></data>
+  <data name="Resources_Scope" xml:space="preserve"><value>CPU と RAM は Lineup のプロセスのみが対象です。メモリ内のローリング履歴はダッシュボード間で共有され、再起動で消去されます。</value></data>
   <data name="Resources_SharedCost" xml:space="preserve"><value>プロセス全体の負荷です。再利用可能な生成元は複数の視聴者に配信できます。共有処理は概要で一度だけ数えられ、視聴者ごとに分割されません。</value></data>
   <data name="Resources_SharedHost" xml:space="preserve"><value>共有ホストプロセスに含まれます。軽量なプロセスカウンターでは、このステージ専用の CPU とメモリを測定できません。</value></data>
   <data name="Resources_State_process_unavailable" xml:space="preserve"><value>プロセスを利用できません</value></data>
@@ -475,7 +488,7 @@
   <data name="Settings_AboutRegional" xml:space="preserve"><value>Lineup 全体での日付と時刻の表示方法を制御します。番組ガイドプロバイダーが保存した番組のタイムスタンプは変更されません。</value></data>
   <data name="Settings_AboutReset" xml:space="preserve"><value>永続化された設定を直ちに変更せずに、共有設定と Web 設定の既定値を確認用として準備します。</value></data>
   <data name="Settings_AboutResetTitle" xml:space="preserve"><value>設定のリセット</value></data>
-  <data name="Settings_AboutResources" xml:space="preserve"><value>軽量なCPU・RAM監視と、履歴をメモリに保持する期間を設定します。既定ではダッシュボードの表示中のみ収集します。継続収集を有効にするとバックグラウンドでも記録します。履歴はディスクには保存されず、再起動時に消去されます。</value></data>
+  <data name="Settings_AboutResources" xml:space="preserve"><value>軽量な CPU・RAM 監視、対応 GPU のデバイス全体の監視、およびメモリ内履歴を設定します。GPU は他のアプリを含むことがあり、利用できないエンジンは N/A です。既定ではダッシュボードの表示中のみ収集します。継続収集を有効にするとバックグラウンドでも記録します。履歴はディスクには保存されず、再起動時に消去されます。</value></data>
   <data name="Settings_AboutRestart" xml:space="preserve"><value>設定の変更やデータの削除を行わず、ホストを正常に再起動します。</value></data>
   <data name="Settings_AboutRestartTitle" xml:space="preserve"><value>Lineup の再起動</value></data>
   <data name="Settings_AboutStatusApiEnd" xml:space="preserve"><value>として残るため、デバイスや番組ガイドの操作を開始せず、安定したレスポンス形式が維持されます。</value></data>

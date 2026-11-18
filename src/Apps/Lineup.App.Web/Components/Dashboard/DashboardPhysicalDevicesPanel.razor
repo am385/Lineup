@@ -11,15 +11,6 @@
         </button>
     </div>
     <div id="deviceSection" class="card-body" hidden="@(!Expanded)">
-        <div class="d-flex justify-content-end mb-3">
-            <button class="btn btn-sm btn-outline-primary" @onclick="() => RefreshRequested.InvokeAsync()" disabled="@IsRefreshing">
-                @if (IsRefreshing)
-                {
-                    <span class="spinner-border spinner-border-sm me-1"></span>
-                }
-                <span class="bi bi-arrow-clockwise me-1"></span>@Text["Common_Refresh"]
-            </button>
-        </div>
         @if (Devices.Count == 0)
         {
             <p class="text-muted mb-0">@Text["Dashboard_NoActivePhysicalDevices"]</p>
@@ -81,6 +72,15 @@
                 </div>
             </div>
         }
+        <div class="d-flex justify-content-end mt-3">
+            <button class="btn btn-sm btn-outline-primary" @onclick="() => RefreshRequested.InvokeAsync()" disabled="@IsRefreshing">
+                @if (IsRefreshing)
+                {
+                    <span class="spinner-border spinner-border-sm me-1"></span>
+                }
+                <span class="bi bi-arrow-clockwise me-1"></span>@Text["Common_Refresh"]
+            </button>
+        </div>
     </div>
 </div>
 
