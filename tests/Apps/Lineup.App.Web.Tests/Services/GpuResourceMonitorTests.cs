@@ -449,12 +449,14 @@ public sealed class GpuResourceMonitorTests
         Assert.Contains("N/A", card.TextContent);
         Assert.Null(card.QuerySelector("dd span"));
         Assert.Contains("GPU: Review GPU: 75%", component.Find("#dashboardResources > .card-header small").TextContent);
+        Assert.Equal("GPU activity: 75%", card.QuerySelector(".card-header small")!.TextContent);
 
         // Act
         await card.QuerySelector(".card-header button")!.ClickAsync(new());
 
         // Assert
         Assert.True(card.QuerySelector(".card-body")!.HasAttribute("hidden"));
+        Assert.Null(card.QuerySelector(".card-header small")!.Closest("[hidden]"));
         Assert.All(component.FindAll(".resource-history:not([data-gpu-device]) > .card-body"), body => Assert.False(body.HasAttribute("hidden")));
         gpu.Received(1).Read();
 
@@ -470,6 +472,8 @@ public sealed class GpuResourceMonitorTests
         Assert.True(unavailable.QuerySelector(".card-body")!.HasAttribute("hidden"));
         Assert.Equal("false", unavailable.QuerySelector(".card-header button")!.GetAttribute("aria-expanded"));
         Assert.Contains("GPU: Review GPU: N/A", component.Find("#dashboardResources > .card-header small").TextContent);
+        Assert.Equal("GPU activity: N/A", unavailable.QuerySelector(".card-header small")!.TextContent);
+        Assert.Null(unavailable.QuerySelector(".card-header small")!.Closest("[hidden]"));
         Assert.True(monitor.GetSnapshot().History.Last().Complete);
     }
 
@@ -502,6 +506,9 @@ public sealed class GpuResourceMonitorTests
         Assert.True(component.Find("[data-gpu-device='one'] > .card-body").HasAttribute("hidden"));
         Assert.False(component.Find("[data-gpu-device='two'] > .card-body").HasAttribute("hidden"));
         Assert.Contains("GPU: GPU One: 25% · GPU Two: 75% · GPU Three: N/A", component.Find("#dashboardResources > .card-header small").TextContent);
+        Assert.Equal(new[] { "GPU activity: 25%", "GPU activity: 75%", "GPU activity: N/A" },
+            component.FindAll("[data-gpu-device] .card-header small").Select(summary => summary.TextContent));
+        Assert.Null(component.Find("[data-gpu-device='one'] .card-header small").Closest("[hidden]"));
 
         // Act
         await component.Find("#toggleResourcesSection").ClickAsync(new());
@@ -516,6 +523,14 @@ public sealed class GpuResourceMonitorTests
         Assert.Null(component.Find("#dashboardResources > .card-header small").Closest("[hidden]"));
 
         // Act
+        await component.Find("#toggleResourcesSection").ClickAsync(new());
+
+        // Assert
+        Assert.Equal(new[] { "GPU activity: 0%", "GPU activity: N/A", "GPU activity: 12.5%" },
+            component.FindAll("[data-gpu-device] .card-header small").Select(summary => summary.TextContent));
+        Assert.True(component.Find("[data-gpu-device='one'] > .card-body").HasAttribute("hidden"));
+
+        // Act
         settings.Settings.MonitorResourcesOnlyWhenVisible = true;
         await component.InvokeAsync(() => component.Instance.ObserveVisibility(false));
         monitor.Collect();
@@ -523,6 +538,11 @@ public sealed class GpuResourceMonitorTests
 
         // Assert
         Assert.Contains("GPU: GPU One: N/A · GPU Two: N/A · GPU Three: N/A", component.Find("#dashboardResources > .card-header small").TextContent);
+        Assert.All(component.FindAll("[data-gpu-device] .card-header small"), summary =>
+        {
+            Assert.Equal("GPU activity: N/A", summary.TextContent);
+            Assert.Null(summary.Closest("[hidden]"));
+        });
         gpu.Received(2).Read();
     }
 

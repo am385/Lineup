@@ -424,6 +424,8 @@ public sealed class DashboardResourceMonitorTests
         Assert.NotNull(expanded.QuerySelector(".bi-chevron-up[aria-hidden='true']"));
         Assert.Single(component.FindAll("#resourceCharts"));
         Assert.Equal("CPU: 75% · RAM: 256 MiB · GPU: N/A", expanded.Closest(".card-header")!.QuerySelector("small")!.TextContent);
+        Assert.Equal("Lineup total: 75%", component.Find("#resourceCharts > section[aria-label='CPU'] .card-header small").TextContent);
+        Assert.Equal("Lineup total: 256 MiB", component.Find("#resourceCharts > section[aria-label='RAM'] .card-header small").TextContent);
         Assert.All(component.FindAll(".resource-history"), chart => Assert.Equal(
             new[] { "2m", "1m 30s", "1m", "30s", "0s" },
             chart.QuerySelectorAll("[data-resource-x-tick]").Select(tick => tick.TextContent.Trim())));
@@ -450,6 +452,8 @@ public sealed class DashboardResourceMonitorTests
         Assert.True(placeholder.QuerySelector(".card-body")!.HasAttribute("hidden"));
         Assert.Equal(placeholder.QuerySelector(".card-body")!.Id, placeholderToggle.GetAttribute("aria-controls"));
         Assert.Equal("GPU", placeholder.QuerySelector("h6")!.TextContent);
+        Assert.Equal("N/A", placeholder.QuerySelector(".card-header small")!.TextContent);
+        Assert.Null(placeholder.QuerySelector(".card-header small")!.Closest("[hidden]"));
 
         // Act
         await placeholderToggle.ClickAsync(new());
@@ -457,6 +461,35 @@ public sealed class DashboardResourceMonitorTests
         // Assert
         Assert.Equal("true", component.Find("#resourceCharts > section[aria-label='GPU'] button").GetAttribute("aria-expanded"));
         Assert.False(component.Find("#resourceCharts > section[aria-label='GPU'] > .card-body").HasAttribute("hidden"));
+
+        // Act
+        foreach (var resource in new[] { "CPU", "RAM" })
+        {
+            await component.Find($"#resourceCharts > section[aria-label='{resource}'] .card-header button").ClickAsync(new());
+        }
+        counter.Cpu = TimeSpan.FromSeconds(2.5);
+        counter.ResidentBytes = 512 * 1024 * 1024;
+        clock.Advance(TimeSpan.FromSeconds(2));
+        monitor.Collect();
+        await component.InvokeAsync(() => component.Instance.ObserveVisibility(true));
+
+        // Assert
+        var cpuSummary = component.Find("#resourceCharts > section[aria-label='CPU'] .card-header small");
+        var memorySummary = component.Find("#resourceCharts > section[aria-label='RAM'] .card-header small");
+        Assert.Equal("Lineup total: 50%", cpuSummary.TextContent);
+        Assert.Equal("Lineup total: 512 MiB", memorySummary.TextContent);
+        Assert.Null(cpuSummary.Closest("[hidden]"));
+        Assert.Null(memorySummary.Closest("[hidden]"));
+        Assert.All(component.FindAll(".resource-history > .card-body"), body => Assert.True(body.HasAttribute("hidden")));
+
+        // Act
+        settings.Settings.MonitorResourcesOnlyWhenVisible = true;
+        await component.InvokeAsync(() => component.Instance.ObserveVisibility(false));
+        monitor.Collect();
+        await component.InvokeAsync(() => component.Instance.ObserveVisibility(true));
+
+        // Assert
+        Assert.All(component.FindAll(".resource-history .card-header small"), summary => Assert.Equal("Lineup total: N/A", summary.TextContent));
         registry.Unregister(host);
     }
 

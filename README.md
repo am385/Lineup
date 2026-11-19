@@ -978,7 +978,8 @@ The linear time axis always spans the configured history duration, even while hi
 Their legends use equal-width responsive columns so changing values do not shift the labels horizontally.
 Primary Dashboard cards keep their icon, title and summary visible when collapsed. The Resources summary shows current CPU and RAM totals plus each GPU's whole-device activity;
 unavailable or paused readings show N/A, never retained percentages. GPU percentages remain separate rather than being added across devices.
-The CPU, RAM and GPU subcards each have an independent chevron control to hide their content while leaving their title visible.
+The CPU, RAM and GPU subcards each have an independent chevron control to hide their content while leaving their title and current summary visible.
+CPU and RAM subheaders show Lineup totals; each GPU subheader shows that device's whole-device activity. Paused or unavailable readings show N/A.
 These subcard preferences are saved in the current browser and restored after navigation or a page reload, independently of other dashboard sections.
 GPU preferences follow each device's internal identity, not its name or position. Missing preferences default to expanded; browser-storage failures are logged and do not disable the controls.
 Channels, Physical Devices and Active Streams refresh buttons sit at the bottom right of their card bodies and hide with the content when collapsed.

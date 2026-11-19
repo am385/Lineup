@@ -32,8 +32,10 @@
                     <p role="status" class="text-warning">@Text["Resources_Partial"]</p>
                 }
                 <ResourceHistoryChart History="_snapshot.History" HistoryMinutes="HistoryMinutes"
+                                      Summary="@($"{Text["Resources_Total"]}: {CpuSummary}")"
                                       Expanded="@IsCardExpanded("cpu")" ExpandedChanged="@(expanded => SetCardExpanded("cpu", expanded))" />
                 <ResourceHistoryChart History="_snapshot.History" HistoryMinutes="HistoryMinutes" Memory="true"
+                                      Summary="@($"{Text["Resources_Total"]}: {MemorySummary}")"
                                       Expanded="@IsCardExpanded("ram")" ExpandedChanged="@(expanded => SetCardExpanded("ram", expanded))" />
                 <p class="small text-body-secondary">@Text["Resources_GpuScope"]</p>
                 @if (GpuDevices.Count > 0 && _snapshot.Gpu?.UnavailableReason is { } gpuReason)
@@ -44,7 +46,10 @@
                 {
                     <section class="card mb-3" aria-label="@Text["Resources_Gpu"]">
                         <header class="card-header d-flex justify-content-between align-items-center gap-2">
-                            <h6 class="mb-0">@Text["Resources_Gpu"]</h6>
+                            <div style="min-width:0;overflow-wrap:anywhere">
+                                <h6 class="mb-0">@Text["Resources_Gpu"]</h6>
+                                <small class="text-muted">@Text["Common_NotAvailable"]</small>
+                            </div>
                             <button type="button" class="btn btn-sm btn-outline-secondary ms-auto flex-shrink-0" aria-expanded="@IsCardExpanded("gpu-unavailable").ToString().ToLowerInvariant()"
                                     aria-controls="@_gpuPlaceholderBodyId" @onclick="@(() => SetCardExpanded("gpu-unavailable", !IsCardExpanded("gpu-unavailable")))">
                                 <span class="@(IsCardExpanded("gpu-unavailable") ? "bi bi-chevron-up" : "bi bi-chevron-down")" aria-hidden="true"></span>
@@ -60,6 +65,7 @@
                 {
                     <ResourceHistoryChart @key="device.Id" History="_snapshot.History" HistoryMinutes="HistoryMinutes"
                                           GpuId="@device.Id" GpuName="@device.Name"
+                                          Summary="@($"{Text["Resources_GpuActivity"]}: {GpuActivity(device.Id)}")"
                                           Expanded="@IsCardExpanded($"gpu:{device.Id}")" ExpandedChanged="@(expanded => SetCardExpanded($"gpu:{device.Id}", expanded))"
                                           UnavailableReason="@(!_snapshot.Collecting ? "paused" : device.UnavailableReason ??
                                               (_snapshot.Gpu?.Devices.Count > 0 ? null : _snapshot.Gpu?.UnavailableReason))" />

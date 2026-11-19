@@ -4,7 +4,13 @@
 
 <section class="card mb-3 resource-history" aria-label="@Title" data-gpu-device="@GpuId">
     <header class="card-header d-flex justify-content-between align-items-center gap-2">
-        <h6 class="mb-0" style="overflow-wrap:anywhere">@Title</h6>
+        <div style="min-width:0;overflow-wrap:anywhere">
+            <h6 class="mb-0">@Title</h6>
+            @if (Summary is not null)
+            {
+                <small class="text-muted">@Summary</small>
+            }
+        </div>
         <button type="button" class="btn btn-sm btn-outline-secondary ms-auto flex-shrink-0" aria-expanded="@Expanded.ToString().ToLowerInvariant()"
                 aria-controls="@_bodyId" @onclick="ToggleExpanded">
             <span class="@(Expanded ? "bi bi-chevron-up" : "bi bi-chevron-down")" aria-hidden="true"></span>
@@ -92,6 +98,10 @@
     /// <summary>Gets or sets the bounded aggregate observations.</summary>
     [Parameter]
     public IReadOnlyList<ResourceHistoryPoint> History { get; set; } = [];
+
+    /// <summary>Gets or sets the current resource summary shown even when the graph is collapsed.</summary>
+    [Parameter]
+    public string? Summary { get; set; }
 
     /// <summary>Gets or sets whether to plot resident memory rather than CPU.</summary>
     [Parameter]
