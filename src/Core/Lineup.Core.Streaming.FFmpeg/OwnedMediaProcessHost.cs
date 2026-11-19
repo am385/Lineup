@@ -89,7 +89,7 @@ internal static class OwnedMediaProcessHost
                 var processGroup = OperatingSystem.IsMacOS() && command.CreateSession
                     ? command.Leaf ? Environment.ProcessId : OwnedMediaProcess.GetProcessGroupId(target)
                     : targetId;
-                await writer.WriteLineAsync(JsonSerializer.Serialize(new OwnedMediaProcess.LaunchResult(0, targetId, processGroup)));
+                await writer.WriteLineAsync(JsonSerializer.Serialize(new OwnedMediaProcess.LaunchResult(0, targetId, processGroup, OwnedMediaProcess.GetTargetStartTimeUtcTicks(target))));
                 var ownerGone = ObserveOwnerAsync(reader);
                 var exited = target.WaitForExitAsync();
                 if (await Task.WhenAny(ownerGone, exited) == ownerGone)

@@ -137,6 +137,10 @@ builder.Services.AddHttpClient("StreamProxy")
 
 builder.Services.AddLineupMpegTsStreaming();
 builder.Services.AddSingleton<IStreamingFlowSnapshotService, StreamingFlowSnapshotService>();
+builder.Services.AddSingleton<IGpuResourceSource, NativeGpuResourceSource>();
+builder.Services.AddSingleton<IHardwareEncoderDeviceDiscovery, HardwareEncoderDeviceDiscovery>();
+builder.Services.AddSingleton<DashboardResourceMonitor>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<DashboardResourceMonitor>());
 builder.Services.AddSingleton(statusRuntime);
 builder.Services.AddSingleton(provider => new OperationalHealthService(
     startupState,
@@ -369,7 +373,8 @@ static VirtualOutputRuntimeOptions CreateVirtualOutputRuntimeOptions(
         WorkerPackageRoot = string.IsNullOrWhiteSpace(configuredWorkerPath)
             ? Path.Combine(AppContext.BaseDirectory, "virtual-output-workers")
             : Path.GetFullPath(configuredWorkerPath),
-        IpcEndpoint = endpoint
+        IpcEndpoint = endpoint,
+        EnableWorkerDiagnostics = configuration.GetValue<bool>(AppConstants.VirtualOutputWorkerDiagnosticsConfigKey)
     };
 }
 

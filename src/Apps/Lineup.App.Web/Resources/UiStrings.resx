@@ -168,6 +168,7 @@
   <data name="Common_FailedToResume" xml:space="preserve"><value>Failed to resume the session.</value></data>
   <data name="Common_LastUpdated" xml:space="preserve"><value>Last Updated</value></data>
   <data name="Common_Loading" xml:space="preserve"><value>Loading...</value></data>
+  <data name="Common_MinutesAbbreviation" xml:space="preserve"><value>{0}m</value></data>
   <data name="Common_Never" xml:space="preserve"><value>Never</value></data>
   <data name="Common_NotAvailable" xml:space="preserve"><value>N/A</value></data>
   <data name="Common_NotFoundHeading" xml:space="preserve"><value>Not Found</value></data>
@@ -405,6 +406,54 @@
   <data name="ProgramMetadata_Subtitles" xml:space="preserve"><value>Subtitles</value></data>
   <data name="ProgramMetadata_Title" xml:space="preserve"><value>Title</value></data>
   <data name="ProgramMetadata_Video" xml:space="preserve"><value>Video</value></data>
+  <data name="Resources_CoreCount" xml:space="preserve"><value>{0:0.##} logical cores</value></data>
+  <data name="Resources_Cpu" xml:space="preserve"><value>CPU</value></data>
+  <data name="Resources_CpuHelp" xml:space="preserve"><value>100% = one logical CPU core; values can exceed 100%.</value></data>
+  <data name="Resources_External" xml:space="preserve"><value>Not measured here: this component runs outside Lineup.</value></data>
+  <data name="Resources_Gpu" xml:space="preserve"><value>GPU</value></data>
+  <data name="Resources_GpuActivity" xml:space="preserve"><value>GPU activity</value></data>
+  <data name="Resources_GpuDecode" xml:space="preserve"><value>Video decode</value></data>
+  <data name="Resources_GpuDevice" xml:space="preserve"><value>GPU · {0}</value></data>
+  <data name="Resources_GpuEncode" xml:space="preserve"><value>Video encode</value></data>
+  <data name="Resources_GpuEngines" xml:space="preserve"><value>Individual engines</value></data>
+  <data name="Resources_GpuHelp" xml:space="preserve"><value>Metrics vary by GPU, driver and platform. GPU activity is the driver&apos;s overall or busiest-engine reading. Video / media may combine encoding and decoding. Categories with no observed readings are hidden; this does not mean the hardware lacks support. 0% is a valid measurement; N/A means a displayed metric is currently unavailable. Measurements overlap; do not add them.</value></data>
+  <data name="Resources_GpuScope" xml:space="preserve"><value>GPU readings cover whole devices visible to this host/container, including other applications. They are not Lineup-only or per-stream costs and exclude GPUs on remote worker hosts.</value></data>
+  <data name="Resources_GpuSharedHelp" xml:space="preserve"><value>Intel video engines (vcs) share encoding and decoding. The shared reading is the busiest codec engine, not their sum. Video enhancement (vecs) is separate. Engine names below come from the driver.</value></data>
+  <data name="Resources_GpuState_paused" xml:space="preserve"><value>GPU collection is paused; retained history is not current usage.</value></data>
+  <data name="Resources_GpuState_permission_denied" xml:space="preserve"><value>GPU counters are unavailable because host/container monitoring permissions deny access. Streaming permissions are separate.</value></data>
+  <data name="Resources_GpuState_read_failed" xml:space="preserve"><value>One or more GPU counters could not be read. See the server log for details.</value></data>
+  <data name="Resources_GpuState_unsupported" xml:space="preserve"><value>No supported GPU activity counter is exposed by this host/container or driver.</value></data>
+  <data name="Resources_GpuState_warming_up" xml:space="preserve"><value>Establishing GPU counter baselines.</value></data>
+  <data name="Resources_GpuVideo" xml:space="preserve"><value>Video / media</value></data>
+  <data name="Resources_GpuVideoShared" xml:space="preserve"><value>Video encode/decode — shared</value></data>
+  <data name="Resources_Heading" xml:space="preserve"><value>Resources</value></data>
+  <data name="Resources_Management" xml:space="preserve"><value>Management host</value></data>
+  <data name="Resources_Media" xml:space="preserve"><value>Media and lifetime helpers</value></data>
+  <data name="Resources_Memory" xml:space="preserve"><value>RAM</value></data>
+  <data name="Resources_MemoryHelp" xml:space="preserve"><value>Sum of process resident memory; shared pages may be counted more than once.</value></data>
+  <data name="Resources_NoProcess" xml:space="preserve"><value>No separate process has been reported for this stage. This is not a measured zero.</value></data>
+  <data name="Resources_Observed" xml:space="preserve"><value>Last observed</value></data>
+  <data name="Resources_Partial" xml:space="preserve"><value>Warming up or partial coverage: one or more processes have no current measurement. Gaps are not zero usage.</value></data>
+  <data name="Resources_Paused" xml:space="preserve"><value>Resource collection is paused. Retained history does not represent current usage.</value></data>
+  <data name="Resources_ProcessScope" xml:space="preserve"><value>CPU and memory are measured for the whole process, not separately for decoding, filters, encoding, audio or muxing.</value></data>
+  <data name="Resources_Role" xml:space="preserve"><value>Process role</value></data>
+  <data name="Resources_Role_captions" xml:space="preserve"><value>Caption extraction</value></data>
+  <data name="Resources_Role_helper" xml:space="preserve"><value>Lifetime helper</value></data>
+  <data name="Resources_Role_management" xml:space="preserve"><value>Management host</value></data>
+  <data name="Resources_Role_media" xml:space="preserve"><value>Media processing</value></data>
+  <data name="Resources_Role_output" xml:space="preserve"><value>Output processing</value></data>
+  <data name="Resources_Role_source" xml:space="preserve"><value>Source processing</value></data>
+  <data name="Resources_Role_worker" xml:space="preserve"><value>Dedicated worker</value></data>
+  <data name="Resources_Scope" xml:space="preserve"><value>CPU and RAM cover Lineup processes only. Rolling in-memory history is shared by dashboards and clears on restart.</value></data>
+  <data name="Resources_SharedCost" xml:space="preserve"><value>Full process cost: a reusable producer can serve multiple viewers. Shared work is counted once in the overview, not divided between viewers.</value></data>
+  <data name="Resources_SharedHost" xml:space="preserve"><value>Included in a shared host process. Exclusive CPU and memory for this stage cannot be measured with lightweight process counters.</value></data>
+  <data name="Resources_State_process_unavailable" xml:space="preserve"><value>Process unavailable</value></data>
+  <data name="Resources_State_stale" xml:space="preserve"><value>Stale observation</value></data>
+  <data name="Resources_State_warming_up" xml:space="preserve"><value>Establishing CPU baseline</value></data>
+  <data name="Resources_TimeAxis" xml:space="preserve"><value>Time ago</value></data>
+  <data name="Resources_Toggle" xml:space="preserve"><value>Show / hide graphs</value></data>
+  <data name="Resources_Total" xml:space="preserve"><value>Lineup total</value></data>
+  <data name="Resources_Workers" xml:space="preserve"><value>Dedicated workers</value></data>
   <data name="Settings_AboutActiveStreams" xml:space="preserve"><value>Controls how frequently the Dashboard refreshes its cached view of consumers, tuner use, shared acquisitions, transcodes, and streaming flow.</value></data>
   <data name="Settings_AboutActiveStreamsTitle" xml:space="preserve"><value>Active Streams</value></data>
   <data name="Settings_AboutAppearance" xml:space="preserve"><value>Controls how the Web interface is presented without changing shared streaming or guide behavior.</value></data>
@@ -442,6 +491,7 @@
   <data name="Settings_AboutRegional" xml:space="preserve"><value>Controls how dates and times are displayed throughout Lineup. It does not change program timestamps stored by guide providers.</value></data>
   <data name="Settings_AboutReset" xml:space="preserve"><value>Stages default shared and Web settings for review without immediately changing persisted configuration.</value></data>
   <data name="Settings_AboutResetTitle" xml:space="preserve"><value>Reset Settings</value></data>
+  <data name="Settings_AboutResources" xml:space="preserve"><value>Controls lightweight CPU, RAM and supported whole-device GPU monitoring and how long history is cached in memory. GPU readings can include other applications; unavailable engines show N/A. By default, collection runs only while a Dashboard is visible. Enable continuous collection to retain background samples; history is never saved to disk and clears on restart.</value></data>
   <data name="Settings_AboutRestart" xml:space="preserve"><value>Gracefully restarts the host without changing configuration or deleting data.</value></data>
   <data name="Settings_AboutRestartTitle" xml:space="preserve"><value>Restart Lineup</value></data>
   <data name="Settings_AboutStatusApiEnd" xml:space="preserve"><value>preserving a stable response shape without triggering device or guide operations.</value></data>
@@ -781,6 +831,11 @@
   <data name="Settings_ResetStoragePrefix" xml:space="preserve"><value>Reset operations can affect</value></data>
   <data name="Settings_ResetStorageSuffix" xml:space="preserve"><value>and other Lineup-owned application data.</value></data>
   <data name="Settings_ResolvedPathLabel" xml:space="preserve"><value>Resolved path:</value></data>
+  <data name="Settings_ResourceHistoryHelp" xml:space="preserve"><value>Retain 1-60 minutes in memory. Increasing this does not restore earlier observations.</value></data>
+  <data name="Settings_ResourceHistoryLabel" xml:space="preserve"><value>Resource history (minutes)</value></data>
+  <data name="Settings_ResourceHistoryValidation" xml:space="preserve"><value>Resource history must be between 1 and 60 minutes.</value></data>
+  <data name="Settings_ResourceVisibilityHelp" xml:space="preserve"><value>Enable to collect and cache resource data even when no Dashboard is visible. Disabled by default: collect only while a Dashboard is visible. History stays in memory and clears on restart.</value></data>
+  <data name="Settings_ResourceVisibilityLabel" xml:space="preserve"><value>Collect resources continuously</value></data>
   <data name="Settings_RestartButton" xml:space="preserve"><value>Restart Lineup</value></data>
   <data name="Settings_RestartDelayedHeading" xml:space="preserve"><value>Lineup is taking longer than expected</value></data>
   <data name="Settings_RestartDelayedHelp" xml:space="preserve"><value>Make sure Lineup is running, then try connecting again.</value></data>
@@ -864,6 +919,8 @@
   <data name="Settings_VirtualHevcHelp" xml:space="preserve"><value>Default output conversion for consumers that cannot process HEVC.</value></data>
   <data name="Settings_VirtualTranscoderDefaultsDescription" xml:space="preserve"><value>Each virtual device inherits these output-stage settings unless its tab enables an override.</value></data>
   <data name="Settings_VirtualTunerDiscoveryHeading" xml:space="preserve"><value>Virtual Tuner Discovery</value></data>
+  <data name="Settings_WebPlayerExtractEmbeddedCaptions" xml:space="preserve"><value>Extract embedded captions</value></data>
+  <data name="Settings_WebPlayerExtractEmbeddedCaptionsHelp" xml:space="preserve"><value>Disabled by default for all viewers. Enable to extract embedded captions; standalone subtitles are unaffected. Save and restart playback; dedicated listeners reconfigure.</value></data>
   <data name="Settings_WebSettingsStorage" xml:space="preserve"><value>These Web-host settings are saved to</value></data>
   <data name="Settings_WebSettingsStorageSuffix" xml:space="preserve"><value>and persist across restarts.</value></data>
   <data name="Settings_WelcomeAnd" xml:space="preserve"><value>and</value></data>
@@ -987,7 +1044,13 @@
   <data name="Transcoding_HardwareArguments" xml:space="preserve"><value>Advanced GPU encoder options</value></data>
   <data name="Transcoding_HardwareArgumentsHelp" xml:space="preserve"><value>One option=value per line (without a leading dash), up to 16 options. Supported options depend on the backend, for example preset=p4 for NVENC. Inputs, outputs, maps and shell commands are not accepted.</value></data>
   <data name="Transcoding_HardwareDevice" xml:space="preserve"><value>GPU device (optional)</value></data>
+  <data name="Transcoding_HardwareDeviceCustom" xml:space="preserve"><value>Custom device</value></data>
+  <data name="Transcoding_HardwareDeviceDefault" xml:space="preserve"><value>Default (automatic)</value></data>
+  <data name="Transcoding_HardwareDeviceDetectedHelp" xml:space="preserve"><value>Devices are discovered on this Lineup host/container, not in your browser. Candidates are filtered by encoder; support is checked when encoding starts. Restart Lineup to refresh the list.</value></data>
+  <data name="Transcoding_HardwareDeviceDiscoveryFailed" xml:space="preserve"><value>GPU discovery failed. Existing settings are preserved; use Default or Custom device. See the server log for details.</value></data>
   <data name="Transcoding_HardwareDeviceHelp" xml:space="preserve"><value>Linux QSV/VA-API: /dev/dri/renderD128. NVENC, Windows QSV/AMF: numeric GPU index. Leave empty for the default device; VideoToolbox uses the system device.</value></data>
+  <data name="Transcoding_HardwareDeviceLoading" xml:space="preserve"><value>Discovering GPU devices…</value></data>
+  <data name="Transcoding_HardwareDeviceNone" xml:space="preserve"><value>No matching GPU devices were discovered. Use Default or enter a Custom device if discovery cannot identify your device.</value></data>
   <data name="Transcoding_HardwareEncoder" xml:space="preserve"><value>Video encoder</value></data>
   <data name="Transcoding_HardwareFallback" xml:space="preserve"><value>Allow software fallback before playback starts</value></data>
   <data name="Transcoding_HardwareFallbackHelp" xml:space="preserve"><value>Disabled by default. A failed GPU startup check can select software after cleanup; published streams are never silently restarted.</value></data>

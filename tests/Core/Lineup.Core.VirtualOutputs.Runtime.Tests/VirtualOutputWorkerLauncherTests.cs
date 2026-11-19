@@ -18,14 +18,16 @@ namespace Lineup.Core.VirtualOutputs.Runtime.Tests;
 public sealed class VirtualOutputWorkerLauncherTests
 {
     /// <summary>Verifies a sanitized child resolves its own temporary directory and can write media artifacts there.</summary>
-    [Fact]
-    public async Task StartAsync_SanitizedWorker_CreatesTemporaryArtifacts()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StartAsync_SanitizedWorker_CreatesTemporaryArtifacts(bool enableWorkerDiagnostics)
     {
         // Arrange
         await using var package = await WorkerProbePackage.CreateAsync();
 
         // Act
-        await package.StartAsync();
+        await package.StartAsync(enableWorkerDiagnostics: enableWorkerDiagnostics);
         var report = await package.ReadReportAsync();
 
         // Assert
@@ -45,7 +47,7 @@ public sealed class VirtualOutputWorkerLauncherTests
             "ONEVPL_SEARCH_PATH", "ONEVPL_PRIORITY_PATH"
         };
         Assert.All(report.Variables.Keys, key => Assert.Contains(key, allowedVariables, StringComparer.OrdinalIgnoreCase));
-        Assert.Equal("0", report.Variables["DOTNET_EnableDiagnostics"]);
+        Assert.Equal(enableWorkerDiagnostics ? "1" : "0", report.Variables["DOTNET_EnableDiagnostics"]);
         Assert.Equal(Path.GetTempPath(), report.Variables["LINEUP_PROCESS_PIPE_ROOT"]);
         Assert.DoesNotContain(report.Arguments, argument => argument.Contains(package.Bootstrap.BootstrapToken, StringComparison.Ordinal));
     }
@@ -423,9 +425,14 @@ public sealed class VirtualOutputWorkerLauncherTests
         }
 
         /// <summary>Launches the package through the production launcher and retains ownership for cleanup.</summary>
-        internal async Task<IVirtualOutputWorkerProcess> StartAsync(VirtualOutputWorkerBootstrap? bootstrap = null)
+        internal async Task<IVirtualOutputWorkerProcess> StartAsync(VirtualOutputWorkerBootstrap? bootstrap = null, bool enableWorkerDiagnostics = false)
         {
-            var launcher = new VirtualOutputWorkerLauncher(_logger);
+            var launcher = new VirtualOutputWorkerLauncher(_logger, new VirtualOutputRuntimeOptions
+            {
+                WorkerPackageRoot = PackageRoot,
+                IpcEndpoint = Bootstrap.Endpoint,
+                EnableWorkerDiagnostics = enableWorkerDiagnostics
+            });
             _worker = await launcher.StartAsync(package, bootstrap ?? Bootstrap, TestContext.Current.CancellationToken);
             return _worker;
         }

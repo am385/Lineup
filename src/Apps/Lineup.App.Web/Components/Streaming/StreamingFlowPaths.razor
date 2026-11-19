@@ -97,6 +97,7 @@
                                 <StreamMediaDetails Media="selectedStage.OutputMedia" />
                             </div>
                         </div>
+                        <StreamResourceDetails Stage="selectedStage" Snapshot="Resources" />
                     </section>
                 }
             </div>
@@ -110,6 +111,10 @@
     /// <summary>Gets the active streaming paths to render.</summary>
     [Parameter, EditorRequired]
     public StreamingFlowSnapshot Snapshot { get; set; } = new([], [], 0, 0, 0);
+
+    /// <summary>Gets or sets the shared cached process-resource observation.</summary>
+    [Parameter]
+    public DashboardResourceSnapshot Resources { get; set; } = new(false, [], []);
 
     /// <summary>Gets stream sessions that are currently processing a stop request.</summary>
     [Parameter]

@@ -2,27 +2,14 @@
     <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
         <div>
             <h5 class="mb-0"><span class="bi bi-list-check me-1"></span>@Text["Dashboard_ChannelsHeading"]</h5>
-            @if (!Expanded)
-            {
-                <small class="text-muted">@Summary</small>
-            }
+            <small class="text-muted">@Summary</small>
         </div>
-        <div class="d-flex align-items-center ms-auto">
-            <button id="refreshChannels" type="button" class="btn btn-sm btn-outline-primary"
-                    @onclick="() => RefreshRequested.InvokeAsync()" disabled="@IsBusy">
-                @if (IsRefreshing)
-                {
-                    <span class="spinner-border spinner-border-sm me-1"></span>
-                }
-                <span class="bi bi-arrow-clockwise me-1"></span>@Text["Dashboard_RefreshChannels"]
-            </button>
-            <button id="toggleChannelsSection" type="button" class="btn btn-sm btn-outline-secondary ms-2"
-                    aria-expanded="@(Expanded ? "true" : "false")" aria-controls="channelsSection"
-                    @onclick="() => ToggleRequested.InvokeAsync()">
-                <span class="@(Expanded ? "bi bi-chevron-up" : "bi bi-chevron-down")"></span>
-                <span class="visually-hidden">@Text[Expanded ? "Dashboard_CollapseChannelsSection" : "Dashboard_ExpandChannelsSection"]</span>
-            </button>
-        </div>
+        <button id="toggleChannelsSection" type="button" class="btn btn-sm btn-outline-secondary ms-auto"
+                aria-expanded="@(Expanded ? "true" : "false")" aria-controls="channelsSection"
+                @onclick="() => ToggleRequested.InvokeAsync()">
+            <span class="@(Expanded ? "bi bi-chevron-up" : "bi bi-chevron-down")"></span>
+            <span class="visually-hidden">@Text[Expanded ? "Dashboard_CollapseChannelsSection" : "Dashboard_ExpandChannelsSection"]</span>
+        </button>
     </div>
     <div id="channelsSection" class="card-body" hidden="@(!Expanded)">
         <div class="row text-center">
@@ -39,6 +26,16 @@
                 <div class="h5 mt-2 mb-0">@LastUpdated</div>
             </div>
         </div>
+        <div class="d-flex justify-content-end mt-3">
+            <button id="refreshChannels" type="button" class="btn btn-sm btn-outline-primary"
+                    @onclick="() => RefreshRequested.InvokeAsync()" disabled="@IsBusy">
+                @if (IsRefreshing)
+                {
+                    <span class="spinner-border spinner-border-sm me-1"></span>
+                }
+                <span class="bi bi-arrow-clockwise me-1"></span>@Text["Dashboard_RefreshChannels"]
+            </button>
+        </div>
     </div>
 </div>
 
@@ -47,7 +44,7 @@
     [Parameter]
     public bool Expanded { get; set; }
 
-    /// <summary>Gets or sets the collapsed summary.</summary>
+    /// <summary>Gets or sets the summary shown in the header regardless of expansion state.</summary>
     [Parameter, EditorRequired]
     public string Summary { get; set; } = string.Empty;
 

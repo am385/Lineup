@@ -16,11 +16,30 @@ public sealed record WebPlayerTrackSelection(MediaTrackMetadata? Audio, MediaTra
 /// </summary>
 public static class WebPlayerTrackPlanner
 {
+    /// <summary>Removes disabled embedded-caption choices without changing source-video caption preservation or standalone subtitles.</summary>
+    public static MediaProbeResult ApplyCaptionExtractionPolicy(MediaProbeResult source, bool extractEmbeddedCaptions) =>
+        extractEmbeddedCaptions || !source.Tracks.Any(track => track.Type == MediaTrackType.Subtitle && track.IsEmbeddedClosedCaptions) ? source : source with
+        {
+            Tracks = source.Tracks.Where(track => track.Type != MediaTrackType.Subtitle || !track.IsEmbeddedClosedCaptions).ToArray()
+        };
+
     /// <summary>
     /// Validates source indexes and creates a selection with default audio and subtitles off.
     /// </summary>
-    public static WebPlayerTrackSelection SelectTracks(MediaProbeResult source, int? audioIndex, int? subtitleIndex, SubtitlePresentation? retrySubtitlePresentation = null, bool retryEmbeddedClosedCaptions = false)
+    public static WebPlayerTrackSelection SelectTracks(
+        MediaProbeResult source,
+        int? audioIndex,
+        int? subtitleIndex,
+        SubtitlePresentation? retrySubtitlePresentation = null,
+        bool retryEmbeddedClosedCaptions = false,
+        bool extractEmbeddedCaptions = false
+    )
     {
+        if (!extractEmbeddedCaptions && retryEmbeddedClosedCaptions)
+        {
+            throw new ArgumentException("Embedded-caption extraction is disabled for this Web Player.", nameof(subtitleIndex));
+        }
+        source = ApplyCaptionExtractionPolicy(source, extractEmbeddedCaptions);
         var audioTracks = source.Tracks.Where(track => track.Type == MediaTrackType.Audio).ToArray();
         MediaTrackMetadata? audio;
         if (audioIndex.HasValue)

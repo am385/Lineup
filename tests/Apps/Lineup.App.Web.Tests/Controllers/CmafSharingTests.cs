@@ -338,9 +338,14 @@ public sealed class CmafSharingTests
         // Act
         fixture.PhysicalRuntime = Substitute.For<IPhysicalTunerDevice>();
         var second = fixture.BeginServiceStart("new-generation");
-        await WaitUntilAsync(() => fixture.EncoderCount == 2);
+        await Task.WhenAny(fixture.SecondEncoderStarted, second.Start).WaitAsync(BunitContext.WaitTimeout, TestContext.Current.CancellationToken);
+        if (!fixture.SecondEncoderStarted.IsCompletedSuccessfully)
+        {
+            var early = await second.Start;
+            Assert.Fail($"The replacement runtime did not start its own encoder: {early.Failure}");
+        }
         fixture.PublishReadiness();
-        var result = await second.Start.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        var result = await second.Start.WaitAsync(BunitContext.WaitTimeout, TestContext.Current.CancellationToken);
         await first.Start;
 
         // Assert
@@ -691,9 +696,14 @@ public sealed class CmafSharingTests
                 }
             ], null)
         };
+        var player = Assert.Single(fixture.Settings.Streaming.VirtualDevices);
         fixture.Settings.Streaming = fixture.Settings.Streaming with
         {
-            VirtualDefaults = new() { AlwaysTranscodeVideo = true, HardwareEncoding = new() { Encoder = encoder } }
+            VirtualDefaults = new() { AlwaysTranscodeVideo = true, HardwareEncoding = new() { Encoder = encoder } },
+            VirtualDevices = [player with { Adapter = new AdapterConfiguration(player.Adapter.Kind, System.Text.Json.JsonSerializer.SerializeToElement(new WebPlayerConfiguration
+            {
+                ExtractEmbeddedCaptions = true
+            })) }]
         };
         var started = fixture.BeginServiceStart("captions");
         var result = await started.Start;
@@ -711,6 +721,214 @@ public sealed class CmafSharingTests
         Assert.False(fixture.IsEncoderRunning);
         Assert.Equal(0, fixture.ActiveInputs);
         Assert.False(fixture.HasEncoderDirectory);
+    }
+
+    /// <summary>Caption failure reports its own drained diagnostics without releasing healthy media or duplicating the shared extractor.</summary>
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(234, false)]
+    [InlineData(0, true)]
+    [InlineData(234, true)]
+    public async Task Service_CaptionSourceEnds_ReportsFailureWithoutStoppingSharedPlayback(int exitCode, bool inputFails)
+    {
+        // Arrange
+        await using var fixture = new Fixture
+        {
+            EncoderExitCode = exitCode,
+            CaptionSourceCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously),
+            ProbeOverride = new MediaProbeResult(
+            [
+                new MediaTrackMetadata(0, MediaTrackType.Video, "h264", null, 1280, 720, null, null),
+                new MediaTrackMetadata(1, MediaTrackType.Audio, "aac", null, null, null, 2, 48_000),
+                new MediaTrackMetadata(2, MediaTrackType.Subtitle, "eia_608", null, null, null, null, null)
+                {
+                    SubtitlePresentation = SubtitlePresentation.WebVtt,
+                    IsEmbeddedClosedCaptions = true
+                }
+            ], null)
+        };
+        var player = Assert.Single(fixture.Settings.Streaming.VirtualDevices);
+        fixture.Settings.Streaming = fixture.Settings.Streaming with
+        {
+            VirtualDevices = [player with { Adapter = new AdapterConfiguration(player.Adapter.Kind, System.Text.Json.JsonSerializer.SerializeToElement(new WebPlayerConfiguration
+            {
+                ExtractEmbeddedCaptions = true
+            })) }]
+        };
+        var started = fixture.BeginServiceStart("first");
+        var first = Assert.IsType<ManagementPlaybackPresentation>((await started.Start).Presentation);
+        var joined = fixture.BeginServiceStart("second");
+        var second = Assert.IsType<ManagementPlaybackPresentation>((await joined.Start).Presentation);
+        var producer = Assert.IsType<ManagementPlaybackService.PendingCmafOutput>(fixture.Outputs.GetViewers().First().State);
+
+        // Act
+        fixture.CaptionSourceCompletion.SetResult(inputFails ? new IOException("Controlled caption source failure.") : null);
+        await WaitUntilAsync(() => fixture.Logger.ReceivedCalls().Any(call =>
+            call.GetMethodInfo().Name == "Log" &&
+            Assert.IsAssignableFrom<IEnumerable<KeyValuePair<string, object?>>>(call.GetArguments()[2]).Any(pair => pair.Key == "ProcessExitCode")));
+
+        // Assert
+        var values = Assert.Single(fixture.Logger.ReceivedCalls()
+            .Where(call => call.GetMethodInfo().Name == "Log" && Equals(call.GetArguments()[0], LogLevel.Warning))
+            .Select(call => Assert.IsAssignableFrom<IEnumerable<KeyValuePair<string, object?>>>(call.GetArguments()[2]).ToDictionary(pair => pair.Key, pair => pair.Value)),
+            state => state.ContainsKey("ProcessExitCode"));
+        Assert.Equal(first.SessionId, values["MediaSessionId"]);
+        Assert.Equal(exitCode, values["ProcessExitCode"]);
+        Assert.Equal(inputFails ? "source_failure" : "source_eof", values["SourceTerminationCode"]);
+        var diagnostics = Assert.IsType<string>(values["DiagnosticTail"]);
+        Assert.InRange(diagnostics.Length, 1, 16_384);
+        Assert.InRange(diagnostics.Split('\n').Length, 1, 50);
+        Assert.EndsWith("final-error", diagnostics, StringComparison.Ordinal);
+        Assert.True(started.Service.GetPlaybackStatus(first.SessionId).IsActive);
+        Assert.True(joined.Service.GetPlaybackStatus(second.SessionId).IsActive);
+        Assert.Equal(2, fixture.EncoderCount);
+        Assert.Equal(2, fixture.Outputs.GetViewers().Count);
+        Assert.True(started.Service.Stop(first.SessionId));
+        Assert.True(joined.Service.Stop(second.SessionId));
+        await producer.Stopped.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Equal(0, fixture.ActiveInputs);
+        Assert.False(fixture.IsEncoderRunning);
+        Assert.False(fixture.HasEncoderDirectory);
+    }
+
+    /// <summary>Verifies the trusted shared policy controls extractor processes, input pumps and caption inventories for both viewers.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    [InlineData(null)]
+    public async Task Service_CaptionPolicy_ControlsSharedExtractorAndInput(bool? configuredPolicy)
+    {
+        // Arrange
+        await using var fixture = new Fixture
+        {
+            ProbeOverride = new MediaProbeResult(
+            [
+                new MediaTrackMetadata(0, MediaTrackType.Video, "h264", null, 1280, 720, null, null) { HasClosedCaptions = true },
+                new MediaTrackMetadata(1, MediaTrackType.Audio, "aac", null, null, null, 2, 48_000),
+                new MediaTrackMetadata(2, MediaTrackType.Subtitle, "webvtt", null, null, null, null, null) { SubtitlePresentation = SubtitlePresentation.WebVtt },
+                new MediaTrackMetadata(3, MediaTrackType.Subtitle, "eia_608", null, null, null, null, null)
+                {
+                    SubtitlePresentation = SubtitlePresentation.WebVtt,
+                    IsEmbeddedClosedCaptions = true
+                }
+            ], null)
+        };
+        var enabled = configuredPolicy ?? false;
+        if (configuredPolicy.HasValue)
+        {
+            var player = Assert.Single(fixture.Settings.Streaming.VirtualDevices);
+            fixture.Settings.Streaming = fixture.Settings.Streaming with
+            {
+                VirtualDevices = [player with { Adapter = new AdapterConfiguration(player.Adapter.Kind, System.Text.Json.JsonSerializer.SerializeToElement(new WebPlayerConfiguration
+                {
+                    ExtractEmbeddedCaptions = enabled
+                })) }]
+            };
+        }
+
+        // Act
+        var first = fixture.BeginServiceStart("first");
+        var presentation = Assert.IsType<ManagementPlaybackPresentation>((await first.Start).Presentation);
+        var second = fixture.BeginServiceStart("second");
+        var joined = Assert.IsType<ManagementPlaybackPresentation>((await second.Start).Presentation);
+        await WaitUntilAsync(() => fixture.ActiveInputs == (enabled ? 2 : 1));
+
+        // Assert
+        Assert.Equal(enabled ? 2 : 1, fixture.EncoderCount);
+        Assert.Equal(enabled ? 1 : 0, fixture.EncoderRequests.Count(request => request.Arguments.Contains("movie='pipe\\:0'[out+subcc]")));
+        Assert.Single(fixture.Outputs.GetDiagnostics());
+        Assert.Equal(2, fixture.Outputs.GetViewers().Count);
+        Assert.Equal(enabled ? 2 : 1, presentation.Subtitles.Count);
+        Assert.Equal(presentation.Subtitles.Select(track => track.SourceIndex), joined.Subtitles.Select(track => track.SourceIndex));
+        Assert.Contains(presentation.Subtitles, track => track.SourceIndex == 2 && !track.IsEmbeddedClosedCaptions);
+        Assert.All(fixture.ActiveStreams.GetActiveStreams(), stream =>
+        {
+            Assert.Equal(enabled, stream.Tracks.Any(track => track.IsEmbeddedClosedCaptions));
+            Assert.Contains(stream.PhysicalInput!.Tracks, track => track.Codec == "eia_608");
+        });
+        Assert.True(first.Service.Stop(presentation.SessionId));
+        Assert.Single(fixture.Outputs.GetViewers());
+        Assert.True(second.Service.Stop(joined.SessionId));
+        await WaitUntilAsync(() => fixture.ActiveInputs == 0 && !fixture.IsEncoderRunning);
+        Assert.DoesNotContain(fixture.Logger.ReceivedCalls(), call =>
+            call.GetMethodInfo().Name == "Log" &&
+            Assert.IsAssignableFrom<IEnumerable<KeyValuePair<string, object?>>>(call.GetArguments()[2]).Any(pair => pair.Key == "ProcessExitCode"));
+    }
+
+    /// <summary>Verifies changing caption policy cannot reuse a warm producer, even before captions have been detected.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Service_CaptionPolicyChange_DoesNotReuseWarmProducer(bool initialPolicy)
+    {
+        // Arrange
+        await using var fixture = new Fixture();
+        var player = Assert.Single(fixture.Settings.Streaming.VirtualDevices);
+        fixture.Settings.Streaming = fixture.Settings.Streaming with { KeepWarmPeriodSeconds = 30 };
+        void SetPolicy(bool enabled) => fixture.Settings.Streaming = fixture.Settings.Streaming with
+        {
+            VirtualDevices = [player with { Adapter = new AdapterConfiguration(player.Adapter.Kind, System.Text.Json.JsonSerializer.SerializeToElement(new WebPlayerConfiguration
+            {
+                ExtractEmbeddedCaptions = enabled
+            })) }]
+        };
+        SetPolicy(initialPolicy);
+        var first = fixture.BeginServiceStart("first");
+        var presentation = Assert.IsType<ManagementPlaybackPresentation>((await first.Start).Presentation);
+        Assert.True(first.Service.Stop(presentation.SessionId));
+        Assert.Single(fixture.Outputs.GetDiagnostics());
+
+        // Act
+        SetPolicy(!initialPolicy);
+        var next = fixture.BeginServiceStart("second");
+        var nextPresentation = Assert.IsType<ManagementPlaybackPresentation>((await next.Start).Presentation);
+
+        // Assert
+        Assert.NotEqual(presentation.SessionId, nextPresentation.SessionId);
+        Assert.Equal(2, fixture.EncoderCount);
+        Assert.Equal(2, fixture.Outputs.ActiveOutputCount);
+        Assert.Single(fixture.Outputs.GetViewers());
+    }
+
+    /// <summary>Verifies disabled caption requests fail explicitly before an extractor or source pump starts.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Service_DisabledCaptionRequest_ReturnsValidationFailure(bool retry)
+    {
+        // Arrange
+        await using var fixture = new Fixture();
+        var player = Assert.Single(fixture.Settings.Streaming.VirtualDevices);
+        fixture.Settings.Streaming = fixture.Settings.Streaming with
+        {
+            VirtualDevices = [player with { Adapter = new AdapterConfiguration(player.Adapter.Kind, System.Text.Json.JsonSerializer.SerializeToElement(new WebPlayerConfiguration
+            {
+                ExtractEmbeddedCaptions = false
+            })) }]
+        };
+        fixture.ProbeOverride = new MediaProbeResult(
+        [
+            new MediaTrackMetadata(0, MediaTrackType.Video, "h264", null, 1280, 720, null, null),
+            new MediaTrackMetadata(1, MediaTrackType.Audio, "aac", null, null, null, 2, 48_000),
+            new MediaTrackMetadata(2, MediaTrackType.Subtitle, "eia_608", null, null, null, null, null)
+            {
+                IsEmbeddedClosedCaptions = true,
+                SubtitlePresentation = SubtitlePresentation.WebVtt
+            }
+        ], null);
+
+        // Act
+        var started = fixture.BeginServiceStart("stale", new CmafStreamRequest { SubtitleTrack = 2, EmbeddedCaptions = retry, SubtitlePresentation = SubtitlePresentation.WebVtt });
+        var result = await started.Start;
+
+        // Assert
+        Assert.Null(result.Presentation);
+        Assert.NotNull(result.Failure);
+        Assert.Equal(ManagementPlaybackFailureKind.InvalidRequest, result.Failure.Kind);
+        Assert.Contains(retry ? "extraction is disabled" : "Source stream index 2 was not found", result.Failure.Error, StringComparison.Ordinal);
+        Assert.Equal(0, fixture.EncoderCount);
+        Assert.Equal(0, fixture.ActiveInputs);
+        Assert.Empty(fixture.Outputs.GetViewers());
     }
 
     /// <summary>Verifies known protected channels start a local slate without acquiring or probing physical input.</summary>
@@ -1303,6 +1521,7 @@ public sealed class CmafSharingTests
         private readonly ConcurrentQueue<MediaProcessRequest> _encoderRequests = new();
         private readonly ConcurrentBag<Task> _outputCleanups = [];
         private readonly TaskCompletionSource _encoderStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _secondEncoderStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource<Exception?> _sourceCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly List<CancellationTokenSource> _cancellations = [];
         private readonly List<Task<IActionResult>> _starts = [];
@@ -1360,7 +1579,8 @@ public sealed class CmafSharingTests
                     throw InputFailure;
                 }
                 Interlocked.Increment(ref _activeInputs);
-                return new BlockingInput(() => Interlocked.Decrement(ref _activeInputs), _sourceCompletion.Task);
+                return new BlockingInput(() => Interlocked.Decrement(ref _activeInputs),
+                    subscription == 2 && CaptionSourceCompletion is not null ? CaptionSourceCompletion.Task : _sourceCompletion.Task);
             });
             var effective = (IEffectiveTunerStreamMultiplexer)_multiplexer;
             effective.GetEffectiveSource(Arg.Any<MediaProbeResult>(), Arg.Any<PhysicalTranscodeProfile>())
@@ -1440,6 +1660,9 @@ public sealed class CmafSharingTests
         /// <summary>Gets or sets the embedded-caption input failure independently of the media input.</summary>
         internal Exception? CaptionInputFailure { get; set; }
 
+        /// <summary>Gets or sets independently controlled caption-source completion for exit-diagnostic checks.</summary>
+        internal TaskCompletionSource<Exception?>? CaptionSourceCompletion { get; set; }
+
         /// <summary>Gets or sets the complete application startup deadline.</summary>
         internal TimeSpan? StartupTimeout { get; set; }
 
@@ -1457,6 +1680,9 @@ public sealed class CmafSharingTests
 
         /// <summary>Gets notification that the real encoder process has started.</summary>
         internal Task EncoderStarted => _encoderStarted.Task;
+
+        /// <summary>Gets notification that the replacement or independently planned producer has started its encoder.</summary>
+        internal Task SecondEncoderStarted => _secondEncoderStarted.Task;
 
         /// <summary>Gets the number of actual encoder processes started.</summary>
         internal int EncoderCount => _encoders.Count;
@@ -1625,6 +1851,7 @@ public sealed class CmafSharingTests
                 PublishReadiness(directory);
             }
             _encoderStarted.TrySetResult();
+            if (_encoders.Count == 2) _secondEncoderStarted.TrySetResult();
             return process;
         }
 

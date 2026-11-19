@@ -18,6 +18,70 @@ namespace Lineup.Core.VirtualOutputs.Runtime.Tests;
 /// <summary>Verifies real local IPC framing, registration, authorization context, and typed broker dispatch.</summary>
 public sealed class VirtualOutputIpcServerTests
 {
+    /// <summary>Verifies resource reports require active authenticated ownership and valid bounded inventories without changing worker health.</summary>
+    [Fact]
+    public async Task Client_ResourceReports_ValidateInventoryAndRejectRevokedOwner()
+    {
+        // Arrange
+        using var authority = new VirtualOutputSessionAuthority();
+        var device = VirtualDeviceId.New();
+        var ticket = authority.CreateActivation(device, "resource-worker", new HashSet<VirtualOutputCapability> { VirtualOutputCapability.ReportHealth },
+            TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+        var registered = authority.Register(new VirtualOutputWorkerRegistrationRequest
+        {
+            WorkerId = ticket.WorkerId,
+            VirtualDeviceId = device,
+            Generation = ticket.Generation,
+            BootstrapToken = ticket.BootstrapToken,
+            MinimumProtocolVersion = VirtualOutputProtocol.MinimumVersion,
+            MaximumProtocolVersion = VirtualOutputProtocol.MaximumVersion
+        });
+        var session = new VirtualOutputSessionContext { SessionId = registered.SessionId!.Value, Generation = ticket.Generation };
+        var endpoint = CreateEndpoint();
+        using var server = new VirtualOutputIpcServer(endpoint, authority, Substitute.For<IVirtualOutputBroker>(), new VirtualOutputRuntimeStatus(),
+            CreateSettings(device, maximumOutstandingBrokerCalls: 1), new ActiveStreamRegistry(), NullLogger<VirtualOutputIpcServer>.Instance, Substitute.For<IPluginConnectionBudget>());
+        await server.StartAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            var client = new VirtualOutputBrokerClient(endpoint);
+            var sample = new ProcessResourceSample(Guid.NewGuid().ToString("N"), "worker", 123, 175, 1024, DateTimeOffset.UtcNow, null);
+            WorkerResourceReports.SetRequested(true);
+
+            // Act
+            var response = await client.ReportResourcesAsync(new(session, [sample]), TestContext.Current.CancellationToken);
+            var cached = Assert.Single(WorkerResourceReports.Read(new HashSet<string> { $"{device}:{ticket.Generation}" }));
+            IReadOnlyList<ProcessResourceSample>[] invalid =
+            [
+                [],
+                [sample, sample],
+                [sample with { CpuPercent = -1 }],
+                [sample with { CpuPercent = double.MaxValue }],
+                [sample with { ResidentBytes = -1 }],
+                [sample with { Role = "management" }],
+                [sample with { Id = "not-an-owned-identity" }],
+                Enumerable.Range(0, 257).Select(index => sample with { Id = Guid.NewGuid().ToString("N") }).ToArray()
+            ];
+            foreach (var inventory in invalid)
+            {
+                var failure = await Assert.ThrowsAsync<VirtualOutputClientException>(() =>
+                    client.ReportResourcesAsync(new(session, inventory), TestContext.Current.CancellationToken));
+                Assert.Equal(VirtualOutputFailureCode.InvalidRequest, failure.FailureCode);
+            }
+            authority.Revoke(device, "Resource-report ownership test.");
+            var revoked = await Assert.ThrowsAsync<VirtualOutputClientException>(() =>
+                client.ReportResourcesAsync(new(session, [sample]), TestContext.Current.CancellationToken));
+
+            // Assert
+            Assert.True(response.Requested);
+            Assert.Equal(sample, Assert.Single(cached.Processes));
+            Assert.Equal(VirtualOutputFailureCode.Unauthorized, revoked.FailureCode);
+        }
+        finally
+        {
+            WorkerResourceReports.SetRequested(false);
+            await server.StopAsync(TestContext.Current.CancellationToken);
+        }
+    }
     /// <summary>Verifies a rejected retirement can be retried after its reply is visible but before the first reply finishes flushing.</summary>
     [Fact]
     public async Task Client_MediaAdmission_RejectionAcknowledgedBeforeFlush_AcceptsNextRetirement()

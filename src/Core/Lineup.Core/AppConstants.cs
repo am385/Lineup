@@ -76,6 +76,11 @@ public static class AppConstants
     public const string VirtualOutputWorkerPathConfigKey = "Lineup:VirtualOutputs:WorkerPath";
 
     /// <summary>
+    /// Local launch configuration enabling managed-worker diagnostics for an operator-controlled profiling session.
+    /// </summary>
+    public const string VirtualOutputWorkerDiagnosticsConfigKey = "Lineup:VirtualOutputs:EnableWorkerDiagnostics";
+
+    /// <summary>
     /// Environment variable name for the TUI database path.
     /// </summary>
     public const string DatabasePathEnvVar = "Lineup__DatabasePath";

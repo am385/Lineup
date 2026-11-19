@@ -2,10 +2,7 @@
     <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
         <div>
             <h5 class="mb-0"><span class="bi bi-calendar3 me-1"></span>@Text["Dashboard_GuideXmltvHeading"]</h5>
-            @if (!Expanded)
-            {
-                <small class="text-muted">@Summary</small>
-            }
+            <small class="text-muted">@Summary</small>
         </div>
         <button id="toggleGuideSection" type="button" class="btn btn-sm btn-outline-secondary ms-auto"
                 aria-expanded="@(Expanded ? "true" : "false")" aria-controls="guideSection"
@@ -151,7 +148,7 @@
     [Parameter]
     public bool Expanded { get; set; }
 
-    /// <summary>Gets or sets the collapsed summary.</summary>
+    /// <summary>Gets or sets the summary shown in the header regardless of expansion state.</summary>
     [Parameter, EditorRequired]
     public string Summary { get; set; } = string.Empty;
 

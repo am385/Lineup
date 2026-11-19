@@ -47,6 +47,7 @@
   </Folder>
   <Folder Name="/scripts/">
     <Project Path="scripts/Lineup.Tools.BrowserAssets/Lineup.Tools.BrowserAssets.csproj" />
+    <Project Path="scripts/Lineup.Tools.PerformanceCollector/Lineup.Tools.PerformanceCollector.csproj" />
     <Project Path="scripts/Lineup.Tools.VirtualOutputWorkerPackager/Lineup.Tools.VirtualOutputWorkerPackager.csproj" />
   </Folder>
   <Folder Name="/tests/" />
@@ -89,6 +90,7 @@
   </Folder>
   <Folder Name="/tests/Tools/">
     <Project Path="tests/Tools/Lineup.Tools.BrowserAssets.Tests/Lineup.Tools.BrowserAssets.Tests.csproj" />
+    <Project Path="tests/Tools/Lineup.Tools.PerformanceCollector.Tests/Lineup.Tools.PerformanceCollector.Tests.csproj" />
     <Project Path="tests/Tools/Lineup.Tools.VirtualOutputWorkerPackager.Tests/Lineup.Tools.VirtualOutputWorkerPackager.Tests.csproj" />
   </Folder>
   <Folder Name="/_Solution Items/">

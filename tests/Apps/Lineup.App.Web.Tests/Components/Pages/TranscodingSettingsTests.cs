@@ -164,6 +164,133 @@ public class TranscodingSettingsTests
         Assert.Empty(changed.AdvancedArguments);
     }
 
+    /// <summary>Verifies named candidates write their exact backend IDs while Default and Custom retain existing editing behavior.</summary>
+    [Theory]
+    [InlineData("3")]
+    [InlineData("/dev/dri/renderD130")]
+    public async Task HardwareDevicePicker_SelectingDevices_PreservesNativeIdsAndManualEntry(string device)
+    {
+        // Arrange
+        await using var context = new BunitContext();
+        var discovery = Substitute.For<IHardwareEncoderDeviceDiscovery>();
+        discovery.GetDevicesAsync(HardwareVideoEncoder.Qsv).Returns(new HardwareEncoderDeviceSnapshot([new(device, "Detected GPU")]));
+        context.Services.AddSingleton(discovery);
+        var settings = new PhysicalTranscodeSettingsModel { HardwareEncoding = new() { Encoder = HardwareVideoEncoder.Qsv, Device = "7" } };
+        var component = context.Render<GlobalTranscoderSettings>(parameters => parameters
+            .Add(editor => editor.Settings, settings)
+            .Add(editor => editor.IdPrefix, "picker")
+            .Add(editor => editor.CssPrefix, "picker")
+            .Add(editor => editor.StageName, "Physical"));
+
+        // Act
+        var savedDevice = component.Find("#pickerCustomDevice").GetAttribute("value");
+        await component.Find("#pickerDevice").ChangeAsync(device);
+
+        // Assert
+        Assert.Equal("7", savedDevice);
+        Assert.Equal(device, settings.HardwareEncoding.Device);
+        Assert.Empty(component.FindAll("#pickerCustomDevice"));
+        Assert.Contains("Detected GPU", component.Find("#pickerDevice").TextContent, StringComparison.Ordinal);
+
+        // Act
+        await component.Find("#pickerDevice").ChangeAsync("custom");
+        await component.Find("#pickerCustomDevice").ChangeAsync("9");
+
+        // Assert
+        Assert.Equal("9", settings.HardwareEncoding.Device);
+
+        // Act
+        await component.Find("#pickerDevice").ChangeAsync(string.Empty);
+
+        // Assert
+        Assert.Empty(settings.HardwareEncoding.Device);
+        Assert.Empty(component.FindAll("#pickerCustomDevice"));
+    }
+
+    /// <summary>Verifies empty discovery and explicit failures never erase a saved device or prevent custom editing.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task HardwareDevicePicker_UnavailableCandidates_PreservesSavedConfiguration(bool discoveryFailed)
+    {
+        // Arrange
+        await using var context = new BunitContext();
+        var discovery = Substitute.For<IHardwareEncoderDeviceDiscovery>();
+        discovery.GetDevicesAsync(HardwareVideoEncoder.Amf).Returns(new HardwareEncoderDeviceSnapshot([], discoveryFailed));
+        context.Services.AddSingleton(discovery);
+        HardwareEncodingSettings? changed = null;
+        var component = context.Render<HardwareEncoderSettings>(parameters => parameters
+            .Add(editor => editor.IdPrefix, "picker")
+            .Add(editor => editor.Value, new() { Encoder = HardwareVideoEncoder.Amf, Device = "8" })
+            .Add(editor => editor.ValueChanged, value => changed = value));
+
+        // Act
+        var savedDevice = component.Find("#pickerCustomDevice").GetAttribute("value");
+        var status = component.Find("[role='status']").TextContent;
+        await component.Find("#pickerCustomDevice").ChangeAsync("9");
+
+        // Assert
+        Assert.Equal("8", savedDevice);
+        Assert.Contains(discoveryFailed ? "GPU discovery failed" : "No matching GPU", status, StringComparison.Ordinal);
+        Assert.Equal("9", Assert.IsType<HardwareEncodingSettings>(changed).Device);
+        Assert.Equal(2, component.FindAll("#pickerDevice option").Count);
+    }
+
+    /// <summary>Verifies a late response from an earlier backend cannot overwrite the currently selected backend's candidates.</summary>
+    [Fact]
+    public async Task HardwareDevicePicker_BackendChanges_IgnoresPreviousDiscovery()
+    {
+        // Arrange
+        await using var context = new BunitContext();
+        var first = new TaskCompletionSource<HardwareEncoderDeviceSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var second = new TaskCompletionSource<HardwareEncoderDeviceSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var discovery = Substitute.For<IHardwareEncoderDeviceDiscovery>();
+        discovery.GetDevicesAsync(HardwareVideoEncoder.Nvenc).Returns(first.Task);
+        discovery.GetDevicesAsync(HardwareVideoEncoder.Amf).Returns(second.Task);
+        context.Services.AddSingleton(discovery);
+        var component = context.Render<HardwareEncoderSettings>(parameters => parameters
+            .Add(editor => editor.IdPrefix, "picker")
+            .Add(editor => editor.Value, new() { Encoder = HardwareVideoEncoder.Nvenc }));
+        try
+        {
+            // Act
+            component.Render(parameters => parameters.Add(editor => editor.Value, new() { Encoder = HardwareVideoEncoder.Amf }));
+            second.SetResult(new([new("4", "Current AMD")]));
+            await component.WaitForAssertionAsync(() => Assert.Contains("Current AMD", component.Markup, StringComparison.Ordinal), BunitContext.WaitTimeout);
+            var renders = component.RenderCount;
+            first.SetResult(new([new("0", "Previous NVIDIA")]));
+            await component.WaitForAssertionAsync(() => Assert.True(component.RenderCount > renders), BunitContext.WaitTimeout);
+
+            // Assert
+            Assert.Contains("Current AMD", component.Markup, StringComparison.Ordinal);
+            Assert.DoesNotContain("Previous NVIDIA", component.Markup, StringComparison.Ordinal);
+            Assert.False(component.Find("#pickerDevice").HasAttribute("disabled"));
+        }
+        finally
+        {
+            first.TrySetResult(new([]));
+            second.TrySetResult(new([]));
+        }
+    }
+
+    /// <summary>Verifies VideoToolbox uses the system device rather than offering meaningless GPU indices.</summary>
+    [Fact]
+    public async Task HardwareDevicePicker_VideoToolbox_OffersOnlySystemDefault()
+    {
+        // Arrange
+        await using var context = new BunitContext();
+
+        // Act
+        var component = context.Render<HardwareEncoderSettings>(parameters => parameters
+            .Add(editor => editor.IdPrefix, "picker")
+            .Add(editor => editor.Value, new() { Encoder = HardwareVideoEncoder.VideoToolbox }));
+
+        // Assert
+        Assert.Single(component.FindAll("#pickerDevice option"));
+        Assert.Empty(component.FindAll("#pickerCustomDevice"));
+        Assert.Empty(component.FindAll("[role='status']"));
+    }
+
     /// <summary>
     /// Verifies the disabled-channel behavior defaults to an error and persists edits.
     /// </summary>

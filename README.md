@@ -485,8 +485,9 @@ modifies the browser's saved Watch Test profile. Shaka's in-player menu switches
 without restarting the shared session; the bitmap-subtitle selector remains available independently of the override panel.
 Every standalone text subtitle and detected embedded-caption track is prepared as a transient WebVTT sidecar so Lineup's Shaka
 captions menu can offer all of them without restarting the shared session. The page-level
-subtitle selector lists only bitmap burn-in choices. Text conversion is inexpensive; embedded-caption extraction adds one moderate
-fixed decode/demux workload per session. Bitmap subtitles remain explicit burn-in choices because each simultaneous bitmap rendition
+subtitle selector lists only bitmap burn-in choices. Standalone text conversion runs in the main media process; enabled embedded-caption extraction
+adds a separate decode/demux process per shared CMAF producer, even when captions are hidden. Measure that process separately rather than
+assuming that GPU encoding offloads it. Bitmap subtitles remain explicit burn-in choices because each simultaneous bitmap rendition
 would require another video encode.
 Dedicated Watch metadata and remote stop notifications are associated with the returned worker media-session ID, not the broker stream ID.
 Management-hosted playback retains client-ID association. Old or unrelated worker sessions cannot displace current track information or
@@ -541,6 +542,75 @@ in MPEG-TS but cannot be synthesized as a Watch text track.
 
 Virtual Tuner Video can optionally transcode HEVC to H.264 for clients that cannot process HEVC Live TV, at the cost of CPU and generation loss. Virtual Tuner Audio can preserve non-AC-4 codecs or transcode those tracks to AC-3/E-AC-3. AC-4 can be preserved for compatible receivers or transcoded separately. Audio above 5.1 channels is capped at 5.1 when transcoded. Transcoding is configured through inherited physical and virtual device profiles; topology routes reject unsupported per-request HDHomeRun hardware profile parameters.
 
+#### Avoiding an unnecessary Web Player video encode
+
+Physical and virtual video policies are independent, even for one viewer. If physical processing already produces
+compatible progressive H.264, the Web Player can normally copy that video into CMAF rather than encode it again.
+This keeps physical normalization and its shared output intact; it does not bypass either processing stage.
+Factory defaults do not force video encoding. Check the effective inherited settings before changing a saved configuration.
+
+| Setting | Configuration to review |
+|---|---|
+| Physical device video profile | Keep the normalization, deinterlacing and caption-preserving encoder required by the source and other consumers. |
+| Virtual Devices > Web Player > Always transcode video | Set an explicit device override to **Off** when this output should use normal copy selection. Merely clearing the override can inherit **On** from virtual defaults. |
+| Watch quality | Use **App Default** for an eligible video-copy path; an explicit scaled-quality choice requests encoding. |
+| Watch video policy | Use **Auto** with a completed browser profile that supports the effective source, or **Source** after verifying browser playback. **H.264 Fallback** requests encoding. |
+| Web Player video encoder | Keep the desired encoder for cases that still require conversion. Selecting a GPU does not force an encode, and an eligible copy path does not use it. |
+
+Make the change in an isolated test configuration first, after recording the original values and stopping its viewers.
+Leave unrelated physical, audio, caption, bitrate and encoder settings unchanged so the comparison isolates the output's
+forced-video policy. A video-copy path does not apply the output encoder's bitrate limit; the physical/source bitrate
+still determines the copied video's bandwidth.
+
+Check the effective FFmpeg commands and decoded playback, not just the saved settings or the number of FFmpeg processes.
+An eligible output uses `-c:v:0 copy`, while a required physical normalizer may still use an encoder such as `libx264`.
+MPEG-TS-to-CMAF packaging, audio conversion and the separate embedded-caption-to-WebVTT extractor do not by themselves
+mean that video is encoded twice. These operations can still consume CPU when the video is copied or GPU-encoded.
+
+Repeat matched forced-encode/copy comparisons and check additional channels and both management and dedicated hosting
+before adopting the setting. Preserve resolution, frame cadence, captions, audio, sustained decoded playback and cleanup;
+use the [manual streaming harness](tests/Integration/Lineup.Integration.Streaming.Sweep/README.md) for playback validation.
+Output encoding remains expected for explicit forced encoding, H.264 fallback, scaled quality, bitmap subtitle burn-in,
+required deinterlacing of the effective input, or source video that cannot be copied/signaled for CMAF and the browser.
+If source playback fails, retain the existing compatibility fallback rather than forcing copy for every channel.
+
+#### Optional embedded-caption extraction
+
+**Settings > Virtual Devices > Web Player > Extract embedded captions** controls extraction for the whole built-in Web Player,
+in both management and dedicated hosting. It is **Off** by default, including older configurations whose adapter object is `{}`.
+Enable it explicitly when embedded-caption accessibility is needed; existing explicit saved choices are preserved.
+The persisted Web Player adapter property is `"ExtractEmbeddedCaptions": true` to enable it; adapter-settings clients use the
+boolean field `extractEmbeddedCaptions`.
+
+When disabled, new presentations do not start an embedded-caption extractor or feed its input, and do not advertise embedded captions
+in Watch or subtitle sidecars. Merely hiding captions in the browser does **not** disable extraction. Disabling extraction removes
+embedded-caption accessibility for every Web Player viewer; standalone text subtitles and bitmap burn-in choices remain available.
+Physical caption preservation, transcoder capability guards and other virtual outputs are unchanged.
+
+An unexpected embedded-caption extractor exit is reported at Warning level with its session, exit code, source-termination reason
+when known, and bounded FFmpeg diagnostics. Intentional playback shutdown does not report an extractor failure; this diagnostic does not automatically restart extraction.
+
+Save settings and stop/restart playback to use the new policy. Existing management presentations retain their captured policy;
+new presentations cannot reuse an incompatible warm producer. Dedicated listeners follow their existing settings-reconfiguration
+lifecycle and may stop active playback. This is not a per-viewer switch or a hot-kill of an active caption process.
+
+#### Tuning retained physical normalization
+
+For software H.264 normalization, **VeryFast** is the lowest-CPU preset currently exposed by Lineup.
+**Faster**, **Fast** and **Medium** spend additional encoding work on compression; their names do not
+mean they are faster than VeryFast. A lower maximum bitrate is a bandwidth/quality constraint, not
+a CPU-usage target. Keep CRF, resolution, source content and deinterlacing cadence visible when comparing settings.
+
+**Source Field Rate** retains field-rate motion when deinterlacing confirmed interlaced video.
+Changing to **Source Frame Rate** reduces the resulting frame cadence for that source; treat it as a
+visible motion-quality trade-off, not an equivalent-output CPU optimization.
+
+Compare supported settings in an isolated configuration with the eligible output copying video, so
+a second encode is not charged to the physical normalizer. Repeat observations, verify the actual
+encoder/filter commands, decoded playback, captions and shared-viewer cleanup, and retain the original
+settings if a safer CPU improvement is not established. Do not disable caption-preservation guards to
+make a hardware backend eligible.
+
 #### Optional GPU video encoding
 
 Physical and virtual **Transcoding Defaults**, and their per-device overrides, include a **Video encoder** setting.
@@ -563,6 +633,15 @@ Allow additional bandwidth for audio and transport overhead, including bursts wh
 | VA-API | Linux | `h264_vaapi` | Render node; defaults to `/dev/dri/renderD128` |
 | AMD AMF | Windows | `h264_amf` | Numeric adapter index |
 | Apple VideoToolbox | macOS | `h264_videotoolbox` | System-selected device |
+
+The GPU device picker offers **Default (automatic)**, detected device candidates and **Custom device** for manual entry.
+Discovery runs on the Lineup management host/container, not the browser, and is independent of Dashboard monitoring.
+Windows QSV and AMF candidates use their original DXGI adapter indices, filtered by vendor and excluding software adapters.
+NVENC uses CUDA device ordinals, not DXGI or NVIDIA monitoring-library indices. Linux QSV lists Intel render nodes;
+VA-API lists exposed render nodes with vendor labels. VideoToolbox uses the system device.
+Discovery does not prove encoder capability or device permissions: the existing FFmpeg startup check still validates the selected configuration.
+Saved device values remain intact even when discovery fails or cannot find the device, and manual entry remains available.
+Device lists are discovered lazily, cached per backend, and refreshed by restarting Lineup; discovery never starts an encoding workload.
 
 This first implementation accelerates **encoding**, not decoding or filtering. Deinterlacing, scaling and subtitle burn-in
 remain CPU filters; VA-API explicitly uploads their output. Audio conversion, source/copy policy, captions and CMAF
@@ -884,11 +963,81 @@ Startup-only host budgets are documented separately above.
 | Maximum Concurrent Streams | Limits logical consumers, not shared producers; multiple consumers sharing one pipeline each count toward the limit |
 | Keep Warm Period | Keeps an unused shared output reusable for 0-300 seconds; the default of 0 releases it immediately, while nonzero values retain tuner capacity and transforms until expiry |
 | Active Stream Refresh | Dashboard refresh interval for hosted stream details; defaults to 5 seconds and 0 disables auto-refresh |
+| Collect Resources Continuously | Disabled by default; collect only while a Dashboard is visible. Enable to keep collecting and caching in-memory history without a visible Dashboard |
+| Resource History In Minutes | In-memory Dashboard resource retention, 1-60 minutes; defaults to 5 and resets when Lineup restarts |
 | Virtual HDHomeRun Devices | Friendly name, optional tuner cap, physical subscriptions, and a reachable advertised URL when served through the management host |
 | Output Hosting | Per-output choice between the management UI host and an isolated dedicated listener; dedicated mode derives its client-facing URL from transport, bind address, and port, with advanced overrides for proxies, NAT, Docker, TLS, network, and worker controls |
 | Network Discovery | Opt-in SiliconDust UDP (65001) and SSDP (1900) advertisement of enabled virtual HDHomeRun devices |
 | File Logging | Opt-in rolling files with configurable minimum level, retention period, and per-file size limit; changes apply immediately when saved |
 | Status API Privacy | Independently redact active-stream client addresses, device addresses, and URLs from `/api/v1/status` |
+
+The Dashboard's **Resources** panel shows Lineup's management host, dedicated workers, and owned media/lifetime-helper processes.
+CPU uses **100% per logical core** (so 175% is 1.75 occupied cores), not a percentage of server or container capacity.
+Memory is summed resident memory in MiB; shared pages can appear in more than one process, so this is not unique physical RAM.
+Resource collection is independent of Active Streams auto-refresh, including when that refresh is disabled.
+
+Visible Dashboard tabs share one sampler and bounded aggregate history. In visibility-only mode, hiding or leaving every Dashboard
+stops collection after any outstanding visibility interest expires; disconnect interest expires within eight seconds.
+Continuous mode retains collection without visible tabs, but does not refresh hidden browser charts.
+History stays in memory, contains at most 1,800 aggregate samples, and clears on restart. Retention changes take effect without restarting streams.
+Long charts share cached geometry and retain each display bucket's minimum and maximum, rather than smoothing away peaks or joining gaps.
+The CPU, RAM and per-GPU cards include intermediate value labels, horizontal grid lines and a relative-time axis.
+Time labels use compact seconds and minutes (for example, `15s`, `1m` and `1m 30s`), measured back from the latest sample at `0s`.
+The linear time axis always spans the configured history duration, even while history is filling; unobserved history stays empty on the left.
+Their legends use equal-width responsive columns so changing values do not shift the labels horizontally.
+Primary Dashboard cards keep their icon, title and summary visible when collapsed. The Resources summary shows current CPU and RAM totals plus each GPU's whole-device activity;
+unavailable or paused readings show N/A, never retained percentages. GPU percentages remain separate rather than being added across devices.
+The CPU, RAM and GPU subcards each have an independent chevron control to hide their content while leaving their title and current summary visible.
+CPU and RAM subheaders show Lineup totals; each GPU subheader shows that device's whole-device activity. Paused or unavailable readings show N/A.
+These subcard preferences are saved in the current browser and restored after navigation or a page reload, independently of other dashboard sections.
+Ordinary navigation finishes already-queued preference writes, including choices made while saved state is still loading.
+GPU preferences follow each device's internal identity, not its name or position. Missing preferences default to expanded; browser-storage failures are logged and do not disable the controls.
+Channels, Physical Devices and Active Streams refresh buttons sit at the bottom right of their card bodies and hide with the content when collapsed.
+
+GPU cards show **whole-device** activity visible to the management host/container, including other applications and containers;
+they are not Lineup-only, per-stream or per-stage attribution, and do not include GPUs on remote worker hosts.
+The shared two-second sampler reads native counters, never launches `nvidia-smi`, `intel_gpu_top`, PowerShell or other polling helpers,
+and does no driver work during dashboard rendering. Hiding every Dashboard also releases native monitoring resources unless continuous collection is enabled.
+GPU readings share the same bounded history/window as CPU and RAM, with a fixed 0-100% scale.
+Each card distinguishes GPU activity and the video metrics supplied by its provider. These measurements overlap and must not be added.
+GPU activity is driver-specific: Windows and Intel show the busiest physical engine; NVIDIA and AMD use their driver's activity counter,
+which need not include dedicated video work. Intel i915 cards show **Video encode/decode — shared** instead of separate encode/decode readings.
+This is the busiest shared codec (`vcs`) engine, not a sum; video enhancement (`vecs`) is excluded from that codec value.
+Expanded Intel cards list individual driver-named engine percentages, including enhancement and render engines, without inferring which codec work is encoding or decoding.
+Other providers retain separate encode/decode readings only when those measurements have been observed; unsupported series are omitted.
+Available metrics vary by GPU, driver and platform, even between adapters from the same vendor. Windows drivers may expose a generic codec engine under **Video / media**
+instead of separate encode/decode counters. A missing category does not imply missing hardware support; a valid 0% reading remains visible.
+Unavailable current readings show N/A without a percentage suffix, and retained history never supplies stale current engine percentages.
+
+| Management host | GPU telemetry |
+|---|---|
+| Windows | Vendor-neutral GPU Engine performance counters, grouped by adapter and physical engine; process instances are summed only within the same engine |
+| Linux NVIDIA | Installed `libnvidia-ml.so.1` (NVML); activity plus encode/decode when supported; containers need the NVIDIA driver utility capability |
+| Linux AMD | DRM `device/gpu_busy_percent` when exposed; video-engine metrics remain unavailable |
+| Linux Intel i915 | Driver-published engine busy PMU events via read-only performance-counter descriptors; shared encode/decode plus individual engines in expanded details |
+| Other drivers/platforms, including Linux Xe without supported counters | Explicit N/A, not fabricated zero |
+
+On Windows, card titles use DXGI adapter names matched to GPU-counter LUIDs, not adapter enumeration order.
+The LUID remains the internal sample/history identity. Name discovery is cached; a failed lookup logs a warning and retains the counter-identity label without losing utilization readings.
+Software adapters such as Microsoft Basic Render Driver retain their actual names; they are not additional physical GPUs.
+Linux NVIDIA already supplies model names through NVML. Linux AMD and Intel currently use vendor/card or PMU labels rather than resolved model names.
+An inaccessible NVIDIA adapter does not hide readable NVIDIA adapters. Previously identified failed adapters retain their names with unavailable metrics;
+failures before an adapter can be identified still report a partial monitoring error without inventing a device identity.
+Unraid Docker uses the Linux readers and sees only devices, libraries and counters exposed to that container; native Linux uses the same readers with host access.
+Native macOS has no GPU telemetry provider. Docker Desktop on macOS runs in a Linux VM and does not expose the Mac GPU to these readers.
+
+Streaming access alone does not guarantee monitoring access. Intel PMU access is often blocked by host/container performance-counter policy;
+Lineup does not request elevation, privileged mode, change kernel settings or widen device permissions. Unsupported metrics, inaccessible counters,
+warm-up and read failures show N/A or gaps with an explanation; actionable read failures are logged without repeating the same warning every tick.
+GPU devices are discovered on first collection; changing exposed driver libraries/devices can require restarting the management host.
+
+Select an Active Streams processing stage or topology node to inspect its current CPU, memory, process identity, role, and observation time.
+Resource tables use fixed column widths in both Streaming Flow and Active Paths, with horizontal scrolling on narrow screens.
+Shared source/output producers show their full process cost, not a fictional per-viewer allocation. Caption extraction appears separately when enabled.
+Work inside a management/worker host is labeled shared-host work; decoding, filtering, encoding, audio and muxing inside one FFmpeg are not individually attributed.
+Tuner hardware and viewer browsers are not measured. Warm-up, inaccessible/exited processes, missing or stale worker reports,
+and intervals containing short-lived processes produce explicit unavailable/partial values or chart gaps, never fabricated zero CPU.
+Dedicated workers begin reporting after their existing lease exchange receives monitoring demand; monitoring failure does not alter playback readiness or lease health.
 
 The built-in XMLTV output accepts relative filenames and absolute filesystem paths; the Web editor presents its containing directory. Lineup's web settings are unauthenticated and are intended for a trusted local network; do not expose the application to untrusted clients when arbitrary output paths are enabled.
 
@@ -1014,6 +1163,176 @@ For management-hosted Lineup Link outputs, **Require HTTPS** selects which manag
 Configured worker CPU and memory limits use Windows Job Objects or Linux cgroup v2. Linux deployments requesting limits must grant Lineup permission to create child cgroups; activation fails explicitly rather than silently running without the requested boundary.
 
 Managed mode starts verified packaged workers automatically. External mode creates a one-time enrollment descriptor for a local service manager; retrieve it once from the management host with `POST /api/virtual-outputs/{virtualDeviceId}/enrollment` over a loopback connection and deliver the JSON through the worker's standard input. The descriptor contains a short-lived secret and must not be logged, stored in source control, or sent over the public output network.
+
+### Windows performance profiling
+
+Use **Windows Performance Recorder (WPR)** and **Windows Performance Analyzer (WPA)** for a complete cross-process CPU profile.
+Attaching a managed profiler only to the Web host misses FFmpeg and dedicated listener work. WPR records system-wide sampled CPU stacks,
+process/thread lifetimes and scheduler events, including children that start and exit between process polls. WPA is available in the
+[Windows Performance Toolkit](https://learn.microsoft.com/en-us/windows-hardware/test/wpt/windows-performance-recorder).
+Hardware encoding does not imply hardware decoding or filtering: Lineup currently offloads encoding, while decoding, deinterlacing,
+scaling, audio conversion and embedded-caption extraction can still consume CPU.
+
+Run an optimized Release deployment outside the debugger. Identify the management host and any independently launched external listeners
+or other local Lineup hosts; use their **actual PIDs**, not an executable-name match that might include unrelated deployments.
+The host's children include discovery/listener workers, FFprobe, media/caption FFmpeg processes and owned-process lifetime helpers.
+`OwnedMediaProcess` returns a helper `Process`; its `GetTargetProcessId` identifies the actual media/worker executable.
+Use PID **and creation time** when identifying a process. Include each shared producer only once, regardless of viewer count.
+
+The manually invoked capture helper neither starts nor stops applications, changes settings, accesses tuners, nor installs tools:
+
+```powershell
+# Run from an elevated PowerShell session. Substitute the selected process IDs.
+.\scripts\Profile-Lineup.ps1 -RootProcessId 1234,5678 -Scenario gpu-captions -DurationSeconds 120 -IncludeGpu -IncludeDotNet
+```
+
+Default captures use the built-in CPU profile. Add `-IncludeIo` for disk/file/network investigation; collect expensive detail only where needed.
+`-SampleIntervalSeconds` controls the supplementary process census, not ETW sampling. `-DurationSeconds` bounds the requested observation
+(1-3600 seconds); CIM queries and WPR startup/merge add overhead outside that interval. The helper requires at least 2 GiB free space
+on the local output volume and requests early stop below 512 MiB; these checks cannot guarantee space for a high-volume trace.
+Use a sufficiently large local drive and a bounded scenario, not an unattended long-running recording.
+Optional `-OutputDirectory` must name a **new** directory; repository-local output must be under `out`.
+
+Each run defaults to `out\performance\<run-id>` and contains:
+
+- `system.etl`, for authoritative cross-process CPU and lifetime analysis.
+- `capture.json`, with roots/creation times, selected providers, GPU drivers, observation bounds, capture state and limitations.
+- `markers.jsonl`, with UTC observation markers, and `process-census.csv`, with supplementary process identities and cumulative lifetime CPU/I/O.
+- WPR command output and `wpr-temporary`, retained for recovery if saving the trace fails.
+
+The helper uses a unique WPR instance and stops only that instance. It records existing default-session status and fails explicitly if
+its selected profiles cannot start; it never cancels another capture. Ctrl+C attempts to save a partial trace. If stop/save fails, the
+manifest identifies the owned instance and records `cleanup-failed`; preserve the temporary files and resolve **that instance** explicitly.
+Do not treat `captured` as a performance verdict: lost ETW events, missing symbols and unobserved scenarios still need review.
+Do not sum census rows: CPU values are cumulative since process creation; blank counters are unavailable, not zero.
+Polling can miss short-lived processes or orphan ancestry.
+Use ETW process lifetimes for those cases. An independently restarted external listener may need another explicit root/capture.
+Raw ETL files include **system-wide private metadata** such as process paths, command lines and network activity. Keep them local; review
+and redact before any sharing. Do not add credentials, environments, enrollment descriptors or unrestricted status dumps to the artifact bundle.
+
+#### Temporary elevated collector
+
+For repeated captures without repeated UAC prompts, build Release, then start this **from an unelevated PowerShell** and approve
+the single Windows UAC prompt for `Lineup.Tools.PerformanceCollector.exe`. The approving administrator must be the same Windows account;
+alternate administrator credentials are not supported. Starting the collector does not start a recording or change Lineup:
+
+```powershell
+$collector = .\scripts\Start-PerformanceCollector.ps1
+$session = $collector.SessionId
+$tool = '.\out\bin\Lineup.Tools.PerformanceCollector\release\Lineup.Tools.PerformanceCollector.exe'
+& $tool status --session $session
+
+# These subsequent requests stay unelevated; substitute actual target PIDs.
+.\scripts\Profile-Lineup.ps1 -CollectorSession $session -RootProcessId 1234,5678 -Scenario gpu-captions -DurationSeconds 120 -IncludeGpu -IncludeDotNet
+& $tool stop --session $session
+```
+
+The launcher also saves its non-secret session descriptor under `out\performance-collector\<session>.json`, so an unelevated automation
+can recover the session ID without another prompt. A saved descriptor is not proof of liveness: always use the authenticated status command.
+If local script execution is blocked, use your operator-approved process-only execution policy; do not change machine policy for profiling.
+
+The temporary process accepts only local same-account, same-Windows-session **status, capture and stop** requests. It uses an explicit pipe ACL,
+a medium-integrity data pipe and peer identity checks; `PipeOptions.CurrentUserOnly` is unsuitable across elevation levels. Requests cannot supply scripts, commands,
+executables, WPR profile names, privileged output paths, or deletion targets. Only the operating system's WPR is launched, with fixed provider
+choices and a unique instance per recording. Lineup, its children, and the workload driver remain unelevated.
+No service, scheduled task, credentials, UAC/policy change, network listener or persistent automation is installed.
+
+Each observation is limited to 1-300 seconds, at most 16 explicit process roots and 20 captures per collector. It exits after ten idle minutes,
+ninety minutes total, a stop request, or unconfirmed WPR cleanup. Captures are serialized: another status/stop cannot interrupt an in-progress
+capture/export. WPR start allows one minute; trace save, source checksumming and normal export acknowledgment each allow ten minutes.
+Closing a client before its request frame is complete does not terminate the collector session.
+Expiry/Ctrl+C requests an owned-instance save before exiting; closing/killing the console or restarting Windows cannot guarantee cleanup.
+Stop the collector before rebuilding its tool binaries, which remain locked against modification while it runs.
+
+Elevated recording writes only to a new administrator-owned `Lineup.Performance.<session>` directory beneath Windows's Program Files directory.
+The same account can read this private spool but its unelevated token cannot write it. The ordinary client copies allowlisted artifacts into
+a **new** local output directory (default `out\performance`) and verifies lengths and SHA-256 checksums before acknowledging source cleanup.
+Insufficient space, disconnects, failed exports or unconfirmed WPR cleanup are failures, not successful profiles. Unacknowledged/failed-cleanup
+source files remain in the reported protected spool for recovery; do not delete them until exported and reviewed. Fully exported sessions remove
+their empty spool on shutdown. The recorder requires 8 GiB free and requests early stop below 2 GiB; merging may still require more space.
+
+Collector mode writes `system.etl`, `capture.json` and WPR logs; it does not produce the direct helper's supplementary census/marker journal or
+GPU inventory. Use ETW lifetimes and manifest UTC bounds for attribution, including short-lived child processes and explicit external roots.
+`-SampleIntervalSeconds` is rejected in collector mode instead of pretending a census was collected. The normal .NET gate tests the protocol
+and local IPC with explicitly fake artifacts; it never elevates, records ETW, runs Lineup or uses tuners. A first approved elevated capture is
+still required to verify cross-elevation access and WPR/provider availability on a particular machine.
+
+#### Managed-worker diagnostic opt-in
+
+Managed workers normally launch with `DOTNET_EnableDiagnostics=0` and a sanitized environment. For an approved profiling deployment,
+set the following **before starting the Web/TUI host**, then start the host through your normal operator-controlled procedure:
+
+```powershell
+$env:Lineup__VirtualOutputs__EnableWorkerDiagnostics = 'true'
+```
+
+This local launch configuration enables .NET diagnostic attachment in newly launched managed workers, including shared discovery;
+it is not a persisted application preference and does not change settings/IPC versions. The trusted host logs a warning while enabled.
+Invalid Boolean configuration fails configuration binding rather than silently enabling profiling. Worker environment isolation, bootstrap
+delivery, process containment and resource limits remain unchanged; arbitrary diagnostic ports, profiler paths and startup hooks are not inherited.
+An already running diagnostics-disabled worker needs an approved relaunch. For externally supervised workers, the operator must separately
+enable `DOTNET_EnableDiagnostics=1` in that worker's launch environment. Do not expose a diagnostic port to the network.
+Remove the host override and restart through the normal procedure when finished:
+
+```powershell
+Remove-Item Env:\Lineup__VirtualOutputs__EnableWorkerDiagnostics
+```
+
+WPR `-IncludeDotNet` adds runtime events for analysis in WPA. Complement it with installed `dotnet-trace`/`dotnet-counters` tools for
+deeper managed analysis, attaching **separately to each selected host or worker PID**. These tools do not automatically profile all descendants
+and do not replace native FFmpeg stacks. Check installed versions' `--help`/profiles/available counters; for example:
+
+```powershell
+dotnet-trace collect --process-id 1234 --profile cpu-sampling --duration 00:00:02:00 --output out\performance\<run-id>\host.nettrace
+dotnet-counters collect --process-id 1234 --counters System.Runtime --duration 00:02:00 --format csv --output out\performance\<run-id>\host-counters.csv
+```
+
+Inspect allocation rate, GC time/pauses, heap size, ThreadPool activity, exceptions and contention as available.
+Use existing `Lineup` meters/activities and low-frequency passive graph/worker/session observations for correlation; avoid enabling verbose
+per-packet logging. Record attachment failures or missing counters as unavailable, not zero. Keep a separate low-overhead baseline to quantify
+the profiling/census overhead.
+
+#### Repeatable audit and analysis
+
+Record source codec/resolution/interlace/frame rate, effective physical and virtual plans, actual encoder/fallback state, audio/subtitle
+renditions, app/worker/FFmpeg build identities, GPU/driver, power mode, resource limits, viewer count and unique producer count for each scenario.
+Do compatibility setup and other warmup outside the observation interval. Repeat matched scenarios at least three times and report variation.
+Use identical operator-approved unprotected input for controlled media comparisons where possible; label live-source variability separately.
+
+Start with idle/no UI, dashboard open and keep-warm costs; then MPEG-TS copy, CMAF copy, matched software/GPU encoding, interlacing/cadence,
+scaling and audio conversion. Measure management versus dedicated hosting, identical viewers sharing one producer, distinct channels/settings,
+mixed Web Player/HDHomeRun/Lineup Link consumers, startup/tune/stop and return to the original resource baseline.
+Captions displayed versus hidden currently does **not** disable extraction. Attribute the caption FFmpeg process directly; a causal on/off A/B
+must use owned lab/offline replay with otherwise equivalent input and media plans, including added pipe-copy cost. Do not kill live caption
+children or compare unrelated channels as if they were controlled inputs. Standalone text and bitmap burn-in are separate workloads.
+Complete the audit with discovery/supervision/device refresh, guide import/merge/database/publication/maintenance, guide browsing and logging,
+both alone and alongside representative streaming. Trigger disruptive work only on an approved/disposable instance.
+
+The existing streaming sweep can supply workload/playback evidence using its `existing` mode; its `--profile` option is a **browser profile**,
+not a CPU profile. Follow its [runbook](tests/Integration/Lineup.Integration.Streaming.Sweep/README.md), prepare compatibility only when approved,
+preserve unrelated viewers, and never run competing sweeps. Live hardware sweeps and WPR recordings remain explicitly invoked, never run by
+solution builds/tests or CI; only deterministic collector regressions participate in the ordinary gate.
+
+In WPA, open `system.etl`, review trace/lost-event statistics, set symbol paths to matching Release assemblies/PDBs and available native symbols,
+then select the exact UTC observation interval from the journal. Use **System Activity / Processes** to resolve initial roots, helpers,
+descendants, restarts and explicit external roots by lifetime. Filter **CPU Usage (Sampled)** to those exact process instances, group by
+process/thread/stack and inspect weight, inclusive/exclusive work and hottest functions/modules. Use **CPU Usage (Precise)** for scheduling/waits,
+not as a substitute for sampled function attribution. Retain machine-wide context for unrelated interference, driver CPU and saturation.
+Inspect GPU engine activity (encode/decode/copy separately), I/O and .NET tables where captured/supported. Missing FFmpeg/driver symbols can
+limit conclusions to modules; retain unresolved frames rather than labeling them as a specific decoder/filter.
+
+Export the selected CPU-by-process/stack and supporting GPU/I/O tables to CSV with their grouping/filter configuration. Produce separate
+startup, steady-state and cleanup results. For a window of `T` seconds, CPU-seconds are the sampled CPU weight converted from milliseconds,
+average core-equivalents are `CPU-seconds / T`, and machine-normalized CPU is `100 * CPU-seconds / (T * logical processors)`.
+Keep peak-window definitions consistent and do not conflate single-core percentages with Task Manager's whole-machine percentages.
+Rank measured costs and proposed optimizations with confidence, expected removable work and playback/compatibility risk; distinguish measurements
+from hypotheses. Re-run matched captures and playback/AV/caption/sharing/cleanup checks before claiming savings.
+
+The capture helper's deterministic identity/ancestry regressions need no elevation, tuner, WPR recording or external test packages:
+
+```powershell
+.\tests\Tools\PerformanceProfile.Tests.ps1
+```
 
 ### Versioned status API
 

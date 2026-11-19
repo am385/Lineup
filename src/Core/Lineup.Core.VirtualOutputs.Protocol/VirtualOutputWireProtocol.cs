@@ -38,8 +38,21 @@ public enum VirtualOutputIpcOperation
     AdmitConnection = 9,
 
     /// <summary>Retain one deployment-wide media reservation until this ownership channel closes.</summary>
-    ReserveMediaWork = 10
+    ReserveMediaWork = 10,
+
+    /// <summary>Reports optional bounded process-resource observations for the authenticated worker.</summary>
+    ReportResources = 11
 }
+
+/// <summary>Reports a worker-local process inventory without requesting arbitrary management-side PID access.</summary>
+public sealed record VirtualOutputResourceReport(VirtualOutputSessionContext Session, IReadOnlyList<Lineup.Core.Common.Streaming.ProcessResourceSample> Processes)
+{
+    /// <summary>Gets whether CPU coverage excludes an owned process that ended during this interval.</summary>
+    public bool IncompleteInterval { get; init; }
+}
+
+/// <summary>Indicates whether optional resource collection should continue.</summary>
+public sealed record VirtualOutputResourceResponse(bool Requested);
 
 /// <summary>Requests one producer or processing reservation for the authenticated worker.</summary>
 public sealed record VirtualOutputMediaWorkRequest(VirtualOutputSessionContext Session, bool IsProcessing, bool Reclaimable);

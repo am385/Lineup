@@ -103,6 +103,8 @@
                     <dt class="col-sm-4">@Text["Streaming_ActiveSessions"]</dt>
                     <dd class="col-sm-8">@selected.ActiveSessionCount</dd>
                 </dl>
+                <StreamResourceDetails Stage="@(new StreamingFlowPathStage(GetStageKind(selected.Lane), selected.Label, selected.Subtitle, []) { ResourceIds = selected.ResourceIds })"
+                                       Snapshot="Resources" />
             </div>
         }
     }
@@ -123,6 +125,20 @@
     /// <summary>Gets the configured and runtime streaming flow to render.</summary>
     [Parameter, EditorRequired]
     public StreamingFlowSnapshot Snapshot { get; set; } = new([], [], 0, 0, 0);
+
+    /// <summary>Gets or sets the shared cached resource observation.</summary>
+    [Parameter]
+    public DashboardResourceSnapshot Resources { get; set; } = new(false, [], []);
+
+    private static StreamingFlowStageKind GetStageKind(StreamingFlowLane lane) => lane switch
+    {
+        StreamingFlowLane.PhysicalSource => StreamingFlowStageKind.PhysicalSource,
+        StreamingFlowLane.PhysicalProcessing => StreamingFlowStageKind.SourceProcessing,
+        StreamingFlowLane.VirtualProcessing => StreamingFlowStageKind.OutputProcessing,
+        StreamingFlowLane.Multiplexer => StreamingFlowStageKind.Multiplexer,
+        StreamingFlowLane.Consumer => StreamingFlowStageKind.Consumer,
+        _ => StreamingFlowStageKind.VirtualOutput
+    };
 
     private StreamingFlowNode? SelectedNode => Snapshot.Nodes.SingleOrDefault(node => node.Id == _selectedNodeId);
 

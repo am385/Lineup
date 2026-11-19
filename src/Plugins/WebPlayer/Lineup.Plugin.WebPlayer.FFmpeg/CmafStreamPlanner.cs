@@ -309,9 +309,9 @@ public static class CmafStreamPlanner
     }
 
     /// <summary>Validates selected CMAF tracks with the same selection and caption-extraction policy as Watch.</summary>
-    public static WebPlayerTrackSelection SelectTracks(MediaProbeResult source, CmafStreamRequest request)
+    public static WebPlayerTrackSelection SelectTracks(MediaProbeResult source, CmafStreamRequest request, bool extractEmbeddedCaptions = false)
     {
-        return WebPlayerTrackPlanner.SelectTracks(source, request.AudioTrack, request.SubtitleTrack, request.SubtitlePresentation, request.EmbeddedCaptions);
+        return WebPlayerTrackPlanner.SelectTracks(source, request.AudioTrack, request.SubtitleTrack, request.SubtitlePresentation, request.EmbeddedCaptions, extractEmbeddedCaptions);
     }
 
     /// <summary>Resolves the configured fallback profile.</summary>
@@ -669,7 +669,7 @@ public static class CmafStreamPlanner
     }
 
     /// <summary>Creates a stable identity from shared media metadata and the effective initial and permitted startup-retry plans.</summary>
-    public static string CreatePlanKey(VirtualTranscodeProfile profile, MediaProbeResult source, WebPlayerTrackSelection selection, CmafStreamRequest request)
+    public static string CreatePlanKey(VirtualTranscodeProfile profile, MediaProbeResult source, WebPlayerTrackSelection selection, CmafStreamRequest request, bool extractEmbeddedCaptions = false)
     {
         var subtitlePaths = GetSelectableSubtitles(source).ToDictionary(
             subtitle => subtitle.Index,
@@ -700,6 +700,7 @@ public static class CmafStreamPlanner
         }
         var canonical = JsonSerializer.Serialize(new
         {
+            ExtractEmbeddedCaptions = extractEmbeddedCaptions,
             Plans = plans,
             SourceVideoCodec = HardwareVideoEncodingPlanner.GetVideoEncoder(arguments) == "copy"
                 ? CreateHevcCodecString(source.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video))

@@ -14,6 +14,28 @@
     </div>
 </div>
 
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0">@Text["Resources_Heading"]</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-6">
+                <label for="resourceHistoryMinutes" class="form-label">@Text["Settings_ResourceHistoryLabel"]</label>
+                <input type="number" class="form-control" id="resourceHistoryMinutes" min="1" max="60" value="@ResourceHistoryMinutes"
+                       @onchange="args => ResourceHistoryMinutesChanged.InvokeAsync(int.TryParse(args.Value?.ToString(), out var value) ? value : ResourceHistoryMinutes)" />
+                <div class="form-text">@Text["Settings_ResourceHistoryHelp"]</div>
+            </div>
+        </div>
+        <div class="form-check form-switch mt-3">
+            <input type="checkbox" role="switch" class="form-check-input" id="collectResourcesContinuously" checked="@(!MonitorResourcesOnlyWhenVisible)"
+                   @onchange="args => MonitorResourcesOnlyWhenVisibleChanged.InvokeAsync(args.Value is not true)" />
+            <label for="collectResourcesContinuously" class="form-check-label">@Text["Settings_ResourceVisibilityLabel"]</label>
+            <div class="form-text">@Text["Settings_ResourceVisibilityHelp"]</div>
+        </div>
+    </div>
+</div>
+
 @code {
     /// <summary>Gets or sets the active-stream refresh interval.</summary>
     [Parameter]
@@ -22,6 +44,22 @@
     /// <summary>Gets or sets the callback raised when the refresh interval changes.</summary>
     [Parameter]
     public EventCallback<int> ActiveStreamRefreshIntervalSecondsChanged { get; set; }
+
+    /// <summary>Gets or sets whether resource monitoring requires a visible Dashboard.</summary>
+    [Parameter]
+    public bool MonitorResourcesOnlyWhenVisible { get; set; } = true;
+
+    /// <summary>Gets or sets the visibility preference callback.</summary>
+    [Parameter]
+    public EventCallback<bool> MonitorResourcesOnlyWhenVisibleChanged { get; set; }
+
+    /// <summary>Gets or sets resource history retention.</summary>
+    [Parameter]
+    public int ResourceHistoryMinutes { get; set; } = 5;
+
+    /// <summary>Gets or sets the retention callback.</summary>
+    [Parameter]
+    public EventCallback<int> ResourceHistoryMinutesChanged { get; set; }
 
     private Task ChangeRefreshIntervalAsync(ChangeEventArgs args) =>
         ActiveStreamRefreshIntervalSecondsChanged.InvokeAsync(

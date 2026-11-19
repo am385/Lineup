@@ -14,6 +14,9 @@ public interface IMediaStreamLease : IAsyncDisposable
 
     /// <summary>Gets the encoder outcome of the launched transform, or null when the producer does not report one.</summary>
     VideoEncodingSnapshot? VideoEncoding => null;
+
+    /// <summary>Gets the owned process resource identities, without transferring process lifetime ownership.</summary>
+    IReadOnlyList<string> ResourceIds => [];
 }
 
 /// <summary>
@@ -128,6 +131,9 @@ public sealed class FfmpegStreamTransform
 
         /// <inheritdoc />
         public VideoEncodingSnapshot VideoEncoding { get; }
+
+        /// <inheritdoc />
+        public IReadOnlyList<string> ResourceIds => _process is { } process ? OwnedMediaProcess.GetResourceIds(process) : [];
 
         /// <summary>Gets the stream.</summary>
         public Stream Stream => _process is null ? Stream.Null : _output;

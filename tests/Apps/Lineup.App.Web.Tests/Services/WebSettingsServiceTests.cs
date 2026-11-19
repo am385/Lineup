@@ -9,6 +9,32 @@ namespace Lineup.App.Web.Tests.Services;
 /// <summary>Verifies Web settings are published only after an atomic persistence operation succeeds.</summary>
 public sealed class WebSettingsServiceTests
 {
+    /// <summary>Verifies legacy defaults and explicit resource preferences survive unrelated persisted updates.</summary>
+    [Fact]
+    public async Task ResourceSettings_LegacyDefaults_ExplicitChoicesSurviveSave()
+    {
+        // Arrange
+        using var fixture = new Fixture();
+        File.WriteAllText(fixture.Path, """{"SchemaVersion":1,"Theme":"dark"}""");
+        var service = new WebSettingsService(fixture.Store, NullLogger<WebSettingsService>.Instance);
+        var defaults = (service.Settings.MonitorResourcesOnlyWhenVisible, service.Settings.ResourceHistoryMinutes);
+
+        // Act
+        await service.UpdateAsync(settings =>
+        {
+            settings.MonitorResourcesOnlyWhenVisible = false;
+            settings.ResourceHistoryMinutes = 60;
+        });
+        await service.UpdateAsync(settings => settings.Theme = "light");
+        var reloaded = new WebSettingsService(fixture.Store, NullLogger<WebSettingsService>.Instance);
+
+        // Assert
+        Assert.Equal((true, 5), defaults);
+        Assert.False(reloaded.Settings.MonitorResourcesOnlyWhenVisible);
+        Assert.Equal(60, reloaded.Settings.ResourceHistoryMinutes);
+        Assert.Equal("light", reloaded.Settings.Theme);
+    }
+
     /// <summary>Verifies invalid primary or backup-only Web documents require recovery without replacing persisted state.</summary>
     [Theory]
     [InlineData("{}", false)]
@@ -203,6 +229,8 @@ public sealed class WebSettingsServiceTests
         {
             settings.Theme = "dark";
             settings.RedactApiClientAddresses = false;
+            settings.MonitorResourcesOnlyWhenVisible = false;
+            settings.ResourceHistoryMinutes = 60;
             settings.LogCategoryOverrides[0].Level = "Debug";
         }));
         var afterFailure = fixture.Service.Settings;
@@ -221,6 +249,8 @@ public sealed class WebSettingsServiceTests
         Assert.True(reloaded.Settings.EnableFileLogging);
         Assert.Equal("light", reloaded.Settings.Theme);
         Assert.True(reloaded.Settings.RedactApiClientAddresses);
+        Assert.True(reloaded.Settings.MonitorResourcesOnlyWhenVisible);
+        Assert.Equal(5, reloaded.Settings.ResourceHistoryMinutes);
         Assert.Equal("Warning", Assert.Single(reloaded.Settings.LogCategoryOverrides).Level);
         Assert.Equal(persisted, File.ReadAllText($"{fixture.Path}.bak"));
     }

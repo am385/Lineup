@@ -17,6 +17,9 @@ public sealed record VirtualOutputRuntimeOptions
     /// <summary>Gets the local capability-broker endpoint.</summary>
     public required VirtualOutputIpcEndpoint IpcEndpoint { get; init; }
 
+    /// <summary>Gets whether newly launched managed workers permit local .NET diagnostic attachment. Disabled by default.</summary>
+    public bool EnableWorkerDiagnostics { get; init; }
+
     /// <summary>Gets the lifetime of one-time worker bootstrap credentials.</summary>
     public TimeSpan BootstrapLifetime { get; init; } = TimeSpan.FromMinutes(1);
 

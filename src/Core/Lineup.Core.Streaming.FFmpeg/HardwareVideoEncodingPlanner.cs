@@ -1,6 +1,3 @@
-using Lineup.Core.Common.Streaming;
-using Lineup.Core.Extensibility.Streaming;
-
 namespace Lineup.Core.Streaming.FFmpeg;
 
 /// <summary>Applies backend-specific H.264 encoding to an existing software-decoded media plan.</summary>

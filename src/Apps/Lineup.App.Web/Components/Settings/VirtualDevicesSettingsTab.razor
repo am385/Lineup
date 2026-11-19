@@ -114,6 +114,16 @@
                                 {
                                     <div class="card-body virtual-device-details">
                                         <div class="row g-3">
+                                            @if (device.IsWebPlayer)
+                                            {
+                                                <div class="col-12">
+                                                    <div class="form-check form-switch">
+                                                        <input id="@($"webPlayerExtractEmbeddedCaptions-{index}")" class="form-check-input" type="checkbox" @bind="device.ExtractEmbeddedCaptions" />
+                                                        <label class="form-check-label" for="@($"webPlayerExtractEmbeddedCaptions-{index}")">@Text["Settings_WebPlayerExtractEmbeddedCaptions"]</label>
+                                                    </div>
+                                                    <div class="form-text">@Text["Settings_WebPlayerExtractEmbeddedCaptionsHelp"]</div>
+                                                </div>
+                                            }
                                             @if (!device.IsWebPlayer)
                                             {
                                                 <div class="col-md-6">

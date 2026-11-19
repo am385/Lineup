@@ -67,6 +67,10 @@ public sealed partial class VirtualOutputBrokerClient
             cancellationToken);
     }
 
+    /// <summary>Reports optional process counters without renewing worker or stream lifetime.</summary>
+    public Task<VirtualOutputResourceResponse> ReportResourcesAsync(VirtualOutputResourceReport report, CancellationToken cancellationToken = default) =>
+        SendAsync<VirtualOutputResourceReport, VirtualOutputResourceResponse>(VirtualOutputIpcOperation.ReportResources, report, cancellationToken);
+
     /// <summary>Reports the normalized final presentation for one brokered stream.</summary>
     public Task<VirtualOutputStreamStatusResponse> ReportStreamStatusAsync(VirtualOutputStreamStatusReport report, CancellationToken cancellationToken = default) =>
         SendAsync<VirtualOutputStreamStatusReport, VirtualOutputStreamStatusResponse>(

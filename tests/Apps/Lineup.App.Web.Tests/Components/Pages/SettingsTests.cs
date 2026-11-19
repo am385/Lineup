@@ -14,6 +14,69 @@ namespace Lineup.App.Web.Tests.Components.Pages;
 /// </summary>
 public class SettingsTests
 {
+    /// <summary>Verifies resource monitoring controls are grouped separately from active-stream refresh settings.</summary>
+    [Fact]
+    public async Task DashboardSettings_Resources_UsesSeparateCard()
+    {
+        // Arrange
+        await using var context = new BunitContext();
+
+        // Act
+        var component = context.Render<DashboardSettingsPanel>();
+
+        // Assert
+        Assert.Equal(2, component.FindAll(".card.mb-4").Count);
+        var streams = component.Find("#activeStreamRefreshInterval").Closest(".card")!;
+        var resources = component.Find("#resourceHistoryMinutes").Closest(".card")!;
+        Assert.Equal("Active Streams", streams.QuerySelector(".card-header h5")!.TextContent);
+        Assert.Equal("Resources", resources.QuerySelector(".card-header h5")!.TextContent);
+        var continuousCollection = component.Find("#collectResourcesContinuously");
+        Assert.Same(resources, continuousCollection.Closest(".card"));
+        Assert.Equal("switch", continuousCollection.GetAttribute("role"));
+        Assert.NotNull(continuousCollection.Closest(".form-switch"));
+        Assert.Null(streams.QuerySelector("#resourceHistoryMinutes"));
+        Assert.Null(streams.QuerySelector("#collectResourcesContinuously"));
+        Assert.Null(resources.QuerySelector("#activeStreamRefreshInterval"));
+    }
+
+    /// <summary>Verifies the opt-in continuous checkbox preserves saved visibility preferences and persists either toggle direction.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Save_ContinuousResourceCollection_InvertsVisibilityPreference(bool onlyWhenVisible)
+    {
+        // Arrange
+        await using var context = new BunitContext();
+        var settingsService = Substitute.For<ILineupSettingsService>();
+        settingsService.Settings.Returns(new LineupSettings { IsSetupComplete = true });
+        settingsService.UpdateAsync(Arg.Any<Action<LineupSettings>>()).Returns(Task.CompletedTask);
+        var webSettings = new WebSettings { MonitorResourcesOnlyWhenVisible = onlyWhenVisible };
+        var webSettingsService = Substitute.For<IWebSettingsService>();
+        webSettingsService.Settings.Returns(webSettings);
+        webSettingsService.UpdateAsync(Arg.Any<Action<WebSettings>>()).Returns(call =>
+        {
+            call.Arg<Action<WebSettings>>()(webSettings);
+            return Task.CompletedTask;
+        });
+        var timeZoneService = Substitute.For<ITimeZoneService>();
+        timeZoneService.TimeZone.Returns(TimeZoneInfo.Utc);
+        context.Services.AddSingleton(settingsService);
+        context.Services.AddSingleton(webSettingsService);
+        context.Services.AddSingleton(timeZoneService);
+        var component = context.Render<Settings>();
+        await component.Find("#tab-dashboard").ClickAsync(new());
+        var initialChecked = component.Find("#collectResourcesContinuously").HasAttribute("checked");
+
+        // Act
+        await component.Find("#collectResourcesContinuously").ChangeAsync(onlyWhenVisible);
+        await component.Find("button.btn-primary").ClickAsync(new());
+
+        // Assert
+        Assert.Equal(!onlyWhenVisible, initialChecked);
+        Assert.Equal(!onlyWhenVisible, webSettings.MonitorResourcesOnlyWhenVisible);
+        await webSettingsService.Received(1).UpdateAsync(Arg.Any<Action<WebSettings>>());
+    }
+
     /// <summary>Verifies settings actions retain bottom spacing on long tabs during setup and normal use.</summary>
     [Theory]
     [InlineData(false)]
@@ -450,6 +513,11 @@ public class SettingsTests
         Assert.DoesNotContain("d-none", component.Find("#dashboardSettingsTab").ClassList);
         Assert.Contains("d-none", component.Find("#streamingSettingsTab").ClassList);
         Assert.Contains("Dashboard refreshes its cached view", component.Find("#aboutSettingsBody").TextContent);
+        var resourceHelp = Assert.Single(component.FindAll("#aboutSettingsBody .about-settings-section"),
+            section => section.QuerySelector("h6")!.TextContent == "Resources");
+        Assert.Contains("CPU, RAM", resourceHelp.TextContent, StringComparison.Ordinal);
+        Assert.Contains("whole-device GPU", resourceHelp.TextContent, StringComparison.Ordinal);
+        Assert.Contains("in memory", resourceHelp.TextContent, StringComparison.Ordinal);
         Assert.EndsWith("/settings#dashboard", navigation.Uri, StringComparison.Ordinal);
         Assert.NotNull(component.Find("button.btn-primary"));
     }

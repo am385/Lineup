@@ -117,6 +117,9 @@ public sealed record CmafVideoProcessingSnapshot(SourceDeinterlacePolicy Deinter
 /// <summary>Represents an active stream hosted by Lineup.</summary>
 public sealed record ActiveStreamSnapshot(string SessionId, string Channel, HostedStreamFormat Format, DateTime StartedAtUtc, long? SourceBitRate, IReadOnlyList<ActiveStreamTrack> Tracks)
 {
+    /// <summary>Gets resource identities of this viewer's reusable output producer, shared by all attached viewers.</summary>
+    public IReadOnlyList<string> ResourceIds { get; init; } = [];
+
     /// <summary>Gets the requested video encoder when reported by the running media producer.</summary>
     public HardwareVideoEncoder? RequestedVideoEncoder { get; init; }
 

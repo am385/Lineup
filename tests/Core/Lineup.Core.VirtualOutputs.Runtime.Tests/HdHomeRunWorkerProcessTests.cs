@@ -23,6 +23,32 @@ namespace Lineup.Core.VirtualOutputs.Runtime.Tests;
 /// <summary>Verifies real HDHomeRun capacity and connection admission shared with a dedicated Lineup Link worker.</summary>
 public sealed class HdHomeRunWorkerProcessTests
 {
+    /// <summary>Verifies blocked redirected output drains do not occupy broker thread-pool workers.</summary>
+    [Fact]
+    public async Task OutputCapture_BlockedRead_DoesNotOccupyThreadPool()
+    {
+        // Arrange
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var reader = new BlockingOutputReader(entered, release);
+        var output = DrainOutputAsync(reader);
+        try
+        {
+            // Act
+            var usesThreadPool = await entered.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.False(usesThreadPool);
+            Assert.False(output.IsCompleted);
+        }
+        finally
+        {
+            release.Set();
+            await output.WaitAsync(TimeSpan.FromSeconds(30), CancellationToken.None);
+        }
+        Assert.Equal("worker output", await output);
+    }
+
     /// <summary>A real dedicated Lineup Link endpoint reports guide capacity explicitly and remains usable for a corrected snapshot.</summary>
     [Fact]
     public async Task LineupLink_GuideEnvelope_ReturnsStructuredFailureAndRecovers()
@@ -159,6 +185,27 @@ public sealed class HdHomeRunWorkerProcessTests
         Assert.False(harness.HasExited);
     }
 
+    // Windows Process pipes use blocking handles on .NET 10; keep their lifetime reads off the broker's thread pool.
+    private static Task<string> DrainOutputAsync(TextReader reader) =>
+        Task.Factory.StartNew(reader.ReadToEnd, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+
+    private sealed class BlockingOutputReader(TaskCompletionSource<bool> entered, ManualResetEventSlim release) : TextReader
+    {
+        private bool _finished;
+
+        /// <inheritdoc />
+        public override int Read(char[] buffer, int index, int count)
+        {
+            if (_finished) return 0;
+            entered.TrySetResult(Thread.CurrentThread.IsThreadPoolThread);
+            release.Wait();
+            const string text = "worker output";
+            text.CopyTo(0, buffer, index, text.Length);
+            _finished = true;
+            return text.Length;
+        }
+    }
+
     private static async Task WaitForConnectionsAsync(IPluginConnectionBudget budget, int expected)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
@@ -172,6 +219,7 @@ public sealed class HdHomeRunWorkerProcessTests
     private sealed class Harness : IAsyncDisposable
     {
         private readonly VirtualOutputSessionAuthority _authority = new();
+        private readonly VirtualOutputRuntimeStatus _status = new();
         private readonly VirtualOutputIpcServer _server;
         private readonly VirtualOutputWorkerBootstrap _bootstrap;
         private readonly PhysicalDeviceId[] _physicalIds = [PhysicalDeviceId.New(), PhysicalDeviceId.New()];
@@ -180,6 +228,7 @@ public sealed class HdHomeRunWorkerProcessTests
         private Task<string>? _output;
         private Task<string>? _error;
         private readonly string? _lineupLinkToken;
+        private string _lastReadiness = "No readiness request completed.";
 
         private Harness(int? cap, bool selected, bool lineupLink, IPluginConnectionBudget? budget)
         {
@@ -239,7 +288,7 @@ public sealed class HdHomeRunWorkerProcessTests
             var broker = new VirtualOutputBroker(
                 _authority, settings, new StreamingAdapterRegistry([], [driver], []), catalog, Substitute.For<IStreamingRouteResolver>(),
                 Guides, Substitute.For<IVirtualMpegTsOutputService>(), activeStreams);
-            _server = new VirtualOutputIpcServer(endpoint, _authority, broker, new VirtualOutputRuntimeStatus(), settings, activeStreams,
+            _server = new VirtualOutputIpcServer(endpoint, _authority, broker, _status, settings, activeStreams,
                 NullLogger<VirtualOutputIpcServer>.Instance, budget ?? new PluginConnectionBudget(settings));
             var capabilities = new HashSet<VirtualOutputCapability> { VirtualOutputCapability.ReadManifest, VirtualOutputCapability.ReportHealth, VirtualOutputCapability.AdmitConnection };
             if (lineupLink)
@@ -315,8 +364,8 @@ public sealed class HdHomeRunWorkerProcessTests
                     start.ArgumentList.Add(path);
                 }
                 harness._worker = Process.Start(start) ?? throw new InvalidOperationException($"Unable to start {executable}.");
-                harness._output = harness._worker.StandardOutput.ReadToEndAsync();
-                harness._error = harness._worker.StandardError.ReadToEndAsync();
+                harness._output = DrainOutputAsync(harness._worker.StandardOutput);
+                harness._error = DrainOutputAsync(harness._worker.StandardError);
                 await harness._worker.StandardInput.WriteLineAsync(JsonSerializer.Serialize(harness._bootstrap, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
                 harness._worker.StandardInput.Close();
                 await harness.WaitForReadyAsync();
@@ -326,10 +375,25 @@ public sealed class HdHomeRunWorkerProcessTests
                 }
                 return harness;
             }
-            catch
+            catch (Exception exception)
             {
+                var process = harness._worker;
+                var processState = process is null ? "not started" : process.HasExited ? $"exited with code {process.ExitCode}" : $"running with PID {process.Id}";
+                var snapshots = harness._status.GetSnapshots();
+                var brokerState = snapshots.Count == 0 ? "not registered" : string.Join(", ", snapshots.Select(snapshot => snapshot.State));
+                ThreadPool.GetAvailableThreads(out var availableWorkers, out var availableIo);
+                var diagnostics = $"Process: {processState}. Readiness: {harness._lastReadiness}. " +
+                    $"Broker state: {brokerState}. " +
+                    $"Thread pool: {ThreadPool.ThreadCount} threads, {ThreadPool.PendingWorkItemCount} queued, {availableWorkers} workers and {availableIo} IO threads available.";
                 await harness.DisposeAsync();
-                throw;
+                if (exception is OperationCanceledException)
+                {
+                    throw;
+                }
+                var output = harness._output is null ? string.Empty : await harness._output;
+                var error = harness._error is null ? string.Empty : await harness._error;
+                throw new InvalidOperationException($"Virtual output worker startup failed. {diagnostics}{Environment.NewLine}STDOUT:{Environment.NewLine}{output}" +
+                    $"{Environment.NewLine}STDERR:{Environment.NewLine}{error}", exception);
             }
         }
 
@@ -367,6 +431,7 @@ public sealed class HdHomeRunWorkerProcessTests
                 {
                     var path = _lineupLinkToken is null ? "/lineup_status.json" : $"{LineupLinkProtocol.DevicePath(DeviceId.Value)}/manifest";
                     using var response = await Client.GetAsync(path, TestContext.Current.CancellationToken);
+                    _lastReadiness = $"HTTP {(int)response.StatusCode} after {elapsed.Elapsed}.";
                     if (_lineupLinkToken is not null && response.StatusCode == HttpStatusCode.Unauthorized)
                     {
                         return;
@@ -374,8 +439,9 @@ public sealed class HdHomeRunWorkerProcessTests
                     response.EnsureSuccessStatusCode();
                     return;
                 }
-                catch (HttpRequestException)
+                catch (HttpRequestException exception)
                 {
+                    _lastReadiness = $"{exception.GetType().Name} after {elapsed.Elapsed}: {exception.Message}";
                     await Task.Delay(50, TestContext.Current.CancellationToken);
                 }
             }
@@ -395,6 +461,8 @@ public sealed class HdHomeRunWorkerProcessTests
                         _worker.Kill(entireProcessTree: true);
                     }
                     await _worker.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+                    if (_output is not null) await _output;
+                    if (_error is not null) await _error;
                     _worker.Dispose();
                 }
             }

@@ -168,6 +168,7 @@
   <data name="Common_FailedToResume" xml:space="preserve"><value>Impossible de reprendre la session.</value></data>
   <data name="Common_LastUpdated" xml:space="preserve"><value>Dernière mise à jour</value></data>
   <data name="Common_Loading" xml:space="preserve"><value>Chargement...</value></data>
+  <data name="Common_MinutesAbbreviation" xml:space="preserve"><value>{0} min</value></data>
   <data name="Common_Never" xml:space="preserve"><value>Jamais</value></data>
   <data name="Common_NotAvailable" xml:space="preserve"><value>N/D</value></data>
   <data name="Common_NotFoundHeading" xml:space="preserve"><value>Introuvable</value></data>
@@ -405,6 +406,54 @@
   <data name="ProgramMetadata_Subtitles" xml:space="preserve"><value>Sous-titres</value></data>
   <data name="ProgramMetadata_Title" xml:space="preserve"><value>Titre</value></data>
   <data name="ProgramMetadata_Video" xml:space="preserve"><value>Vidéo</value></data>
+  <data name="Resources_CoreCount" xml:space="preserve"><value>{0:0.##} cœurs logiques</value></data>
+  <data name="Resources_Cpu" xml:space="preserve"><value>CPU</value></data>
+  <data name="Resources_CpuHelp" xml:space="preserve"><value>100% = un cœur logique de CPU ; les valeurs peuvent dépasser 100%.</value></data>
+  <data name="Resources_External" xml:space="preserve"><value>Non mesuré ici : ce composant s&apos;exécute en dehors de Lineup.</value></data>
+  <data name="Resources_Gpu" xml:space="preserve"><value>GPU</value></data>
+  <data name="Resources_GpuActivity" xml:space="preserve"><value>Activité GPU</value></data>
+  <data name="Resources_GpuDecode" xml:space="preserve"><value>Décodage vidéo</value></data>
+  <data name="Resources_GpuDevice" xml:space="preserve"><value>GPU · {0}</value></data>
+  <data name="Resources_GpuEncode" xml:space="preserve"><value>Encodage vidéo</value></data>
+  <data name="Resources_GpuEngines" xml:space="preserve"><value>Moteurs individuels</value></data>
+  <data name="Resources_GpuHelp" xml:space="preserve"><value>Les mesures varient selon le GPU, le pilote et la plateforme. L&apos;activité GPU indique la valeur globale du pilote ou du moteur le plus occupé. Vidéo / médias peut combiner encodage et décodage. Les catégories sans mesure observée sont masquées ; cela ne signifie pas que le matériel ne les prend pas en charge. 0% est une mesure valide ; N/A indique qu&apos;une mesure affichée est actuellement indisponible. Les mesures se chevauchent ; ne pas les additionner.</value></data>
+  <data name="Resources_GpuScope" xml:space="preserve"><value>Les mesures GPU couvrent les appareils entiers visibles par cet hôte/conteneur, y compris les autres applications. Elles ne sont ni propres à Lineup ni par flux, et excluent les GPU des hôtes de travail distants.</value></data>
+  <data name="Resources_GpuSharedHelp" xml:space="preserve"><value>Les moteurs vidéo Intel (vcs) partagent l&apos;encodage et le décodage. La valeur partagée est celle du moteur de codec le plus occupé, pas leur somme. L&apos;amélioration vidéo (vecs) est distincte. Les noms des moteurs proviennent du pilote.</value></data>
+  <data name="Resources_GpuState_paused" xml:space="preserve"><value>Collecte GPU en pause ; l&apos;historique conservé ne représente pas l&apos;utilisation actuelle.</value></data>
+  <data name="Resources_GpuState_permission_denied" xml:space="preserve"><value>Les autorisations de surveillance de l&apos;hôte/conteneur interdisent l&apos;accès aux compteurs GPU. Les autorisations de diffusion sont distinctes.</value></data>
+  <data name="Resources_GpuState_read_failed" xml:space="preserve"><value>Certains compteurs GPU sont illisibles. Consultez le journal du serveur.</value></data>
+  <data name="Resources_GpuState_unsupported" xml:space="preserve"><value>Aucun compteur d&apos;activité GPU compatible n&apos;est exposé par cet hôte/conteneur ou pilote.</value></data>
+  <data name="Resources_GpuState_warming_up" xml:space="preserve"><value>Établissement des références des compteurs GPU.</value></data>
+  <data name="Resources_GpuVideo" xml:space="preserve"><value>Vidéo / médias</value></data>
+  <data name="Resources_GpuVideoShared" xml:space="preserve"><value>Encodage/décodage vidéo — partagé</value></data>
+  <data name="Resources_Heading" xml:space="preserve"><value>Ressources</value></data>
+  <data name="Resources_Management" xml:space="preserve"><value>Hôte de gestion</value></data>
+  <data name="Resources_Media" xml:space="preserve"><value>Processus multimédias et auxiliaires de durée de vie</value></data>
+  <data name="Resources_Memory" xml:space="preserve"><value>RAM</value></data>
+  <data name="Resources_MemoryHelp" xml:space="preserve"><value>Somme de la mémoire résidente des processus ; les pages partagées peuvent être comptées plusieurs fois.</value></data>
+  <data name="Resources_NoProcess" xml:space="preserve"><value>Aucun processus distinct n&apos;a été signalé pour cette étape. Il ne s&apos;agit pas d&apos;une mesure nulle.</value></data>
+  <data name="Resources_Observed" xml:space="preserve"><value>Dernière observation</value></data>
+  <data name="Resources_Partial" xml:space="preserve"><value>Initialisation ou couverture partielle : au moins un processus n&apos;a pas de mesure actuelle. Les lacunes ne signifient pas une consommation nulle.</value></data>
+  <data name="Resources_Paused" xml:space="preserve"><value>La collecte des ressources est suspendue. L&apos;historique conservé ne représente pas la consommation actuelle.</value></data>
+  <data name="Resources_ProcessScope" xml:space="preserve"><value>Le CPU et la mémoire sont mesurés pour l&apos;ensemble du processus, pas séparément pour le décodage, les filtres, l&apos;encodage, l&apos;audio ou le multiplexage.</value></data>
+  <data name="Resources_Role" xml:space="preserve"><value>Rôle du processus</value></data>
+  <data name="Resources_Role_captions" xml:space="preserve"><value>Extraction des sous-titres</value></data>
+  <data name="Resources_Role_helper" xml:space="preserve"><value>Auxiliaire de durée de vie</value></data>
+  <data name="Resources_Role_management" xml:space="preserve"><value>Hôte de gestion</value></data>
+  <data name="Resources_Role_media" xml:space="preserve"><value>Traitement multimédia</value></data>
+  <data name="Resources_Role_output" xml:space="preserve"><value>Traitement de sortie</value></data>
+  <data name="Resources_Role_source" xml:space="preserve"><value>Traitement source</value></data>
+  <data name="Resources_Role_worker" xml:space="preserve"><value>Worker dédié</value></data>
+  <data name="Resources_Scope" xml:space="preserve"><value>CPU et RAM couvrent uniquement les processus Lineup. Les tableaux de bord partagent un historique glissant en mémoire, effacé au redémarrage.</value></data>
+  <data name="Resources_SharedCost" xml:space="preserve"><value>Coût total du processus : un producteur réutilisable peut servir plusieurs spectateurs. Le travail partagé est compté une seule fois dans la vue d&apos;ensemble, sans répartition entre spectateurs.</value></data>
+  <data name="Resources_SharedHost" xml:space="preserve"><value>Inclus dans un processus hôte partagé. Les compteurs légers ne permettent pas de mesurer le CPU et la mémoire exclusifs à cette étape.</value></data>
+  <data name="Resources_State_process_unavailable" xml:space="preserve"><value>Processus indisponible</value></data>
+  <data name="Resources_State_stale" xml:space="preserve"><value>Observation périmée</value></data>
+  <data name="Resources_State_warming_up" xml:space="preserve"><value>Établissement de la référence CPU</value></data>
+  <data name="Resources_TimeAxis" xml:space="preserve"><value>Temps écoulé</value></data>
+  <data name="Resources_Toggle" xml:space="preserve"><value>Afficher / masquer les graphiques</value></data>
+  <data name="Resources_Total" xml:space="preserve"><value>Total Lineup</value></data>
+  <data name="Resources_Workers" xml:space="preserve"><value>Workers dédiés</value></data>
   <data name="Settings_AboutActiveStreams" xml:space="preserve"><value>Contrôle la fréquence à laquelle le tableau de bord actualise sa vue en cache des consommateurs, de l’utilisation des tuners, des acquisitions partagées, des transcodages et du flux de diffusion.</value></data>
   <data name="Settings_AboutActiveStreamsTitle" xml:space="preserve"><value>Flux actifs</value></data>
   <data name="Settings_AboutAppearance" xml:space="preserve"><value>Contrôle la présentation de l’interface Web sans modifier le comportement partagé de la diffusion ou du guide.</value></data>
@@ -442,6 +491,7 @@
   <data name="Settings_AboutRegional" xml:space="preserve"><value>Contrôle l’affichage des dates et des heures dans Lineup. Ne modifie pas les horodatages des programmes enregistrés par les fournisseurs de guide.</value></data>
   <data name="Settings_AboutReset" xml:space="preserve"><value>Prépare les paramètres partagés et Web par défaut afin de les examiner sans modifier immédiatement la configuration persistante.</value></data>
   <data name="Settings_AboutResetTitle" xml:space="preserve"><value>Réinitialiser les paramètres</value></data>
+  <data name="Settings_AboutResources" xml:space="preserve"><value>Contrôle la surveillance légère du CPU, de la RAM et des GPU compatibles à l&apos;échelle de l&apos;appareil, et leur historique en mémoire. Les GPU peuvent inclure d&apos;autres applications ; les moteurs indisponibles affichent N/A. Par défaut, la collecte nécessite un tableau de bord visible. Activez la collecte continue pour conserver les mesures en arrière-plan ; l&apos;historique n&apos;est jamais enregistré sur disque et disparaît au redémarrage.</value></data>
   <data name="Settings_AboutRestart" xml:space="preserve"><value>Redémarre proprement l’hôte sans modifier la configuration ni supprimer de données.</value></data>
   <data name="Settings_AboutRestartTitle" xml:space="preserve"><value>Redémarrer Lineup</value></data>
   <data name="Settings_AboutStatusApiEnd" xml:space="preserve"><value>, ce qui préserve une structure de réponse stable sans déclencher d’opérations sur les appareils ou le guide.</value></data>
@@ -781,6 +831,11 @@
   <data name="Settings_ResetStoragePrefix" xml:space="preserve"><value>Les opérations de réinitialisation peuvent affecter</value></data>
   <data name="Settings_ResetStorageSuffix" xml:space="preserve"><value>et les autres données d’application appartenant à Lineup.</value></data>
   <data name="Settings_ResolvedPathLabel" xml:space="preserve"><value>Chemin résolu :</value></data>
+  <data name="Settings_ResourceHistoryHelp" xml:space="preserve"><value>Conserver de 1 à 60 minutes en mémoire. Augmenter cette durée ne restaure pas les observations antérieures.</value></data>
+  <data name="Settings_ResourceHistoryLabel" xml:space="preserve"><value>Historique des ressources (minutes)</value></data>
+  <data name="Settings_ResourceHistoryValidation" xml:space="preserve"><value>L&apos;historique des ressources doit être compris entre 1 et 60 minutes.</value></data>
+  <data name="Settings_ResourceVisibilityHelp" xml:space="preserve"><value>Activez pour collecter et mettre en cache les données même sans tableau de bord visible. Désactivé par défaut : la collecte nécessite un tableau de bord visible. L&apos;historique reste en mémoire et disparaît au redémarrage.</value></data>
+  <data name="Settings_ResourceVisibilityLabel" xml:space="preserve"><value>Collecter les données de ressources en continu</value></data>
   <data name="Settings_RestartButton" xml:space="preserve"><value>Redémarrer Lineup</value></data>
   <data name="Settings_RestartDelayedHeading" xml:space="preserve"><value>Lineup prend plus de temps que prévu</value></data>
   <data name="Settings_RestartDelayedHelp" xml:space="preserve"><value>Vérifiez que Lineup est en cours d’exécution, puis essayez de vous reconnecter.</value></data>
@@ -864,6 +919,8 @@
   <data name="Settings_VirtualHevcHelp" xml:space="preserve"><value>Conversion de sortie par défaut pour les consommateurs qui ne peuvent pas traiter le HEVC.</value></data>
   <data name="Settings_VirtualTranscoderDefaultsDescription" xml:space="preserve"><value>Chaque appareil virtuel hérite de ces paramètres de l’étape de sortie, sauf si son onglet active un remplacement.</value></data>
   <data name="Settings_VirtualTunerDiscoveryHeading" xml:space="preserve"><value>Découverte des tuners virtuels</value></data>
+  <data name="Settings_WebPlayerExtractEmbeddedCaptions" xml:space="preserve"><value>Extraire les sous-titres intégrés</value></data>
+  <data name="Settings_WebPlayerExtractEmbeddedCaptionsHelp" xml:space="preserve"><value>Désactivé par défaut pour tous. Activez pour extraire les sous-titres intégrés ; les sous-titres séparés ne sont pas affectés. Enregistrez puis relancez la lecture ; les écouteurs dédiés sont reconfigurés.</value></data>
   <data name="Settings_WebSettingsStorage" xml:space="preserve"><value>Ces paramètres de l’hôte Web sont enregistrés dans</value></data>
   <data name="Settings_WebSettingsStorageSuffix" xml:space="preserve"><value>et persistent après les redémarrages.</value></data>
   <data name="Settings_WelcomeAnd" xml:space="preserve"><value>et une</value></data>
@@ -987,7 +1044,13 @@
   <data name="Transcoding_HardwareArguments" xml:space="preserve"><value>Options GPU avancées</value></data>
   <data name="Transcoding_HardwareArgumentsHelp" xml:space="preserve"><value>Une option=valeur par ligne, sans tiret initial ; maximum 16. Selon le moteur, par exemple preset=p4 pour NVENC. Entrées, sorties, mappages et commandes shell interdits.</value></data>
   <data name="Transcoding_HardwareDevice" xml:space="preserve"><value>Périphérique GPU (facultatif)</value></data>
+  <data name="Transcoding_HardwareDeviceCustom" xml:space="preserve"><value>Périphérique personnalisé</value></data>
+  <data name="Transcoding_HardwareDeviceDefault" xml:space="preserve"><value>Par défaut (automatique)</value></data>
+  <data name="Transcoding_HardwareDeviceDetectedHelp" xml:space="preserve"><value>Les périphériques sont détectés sur cet hôte/conteneur Lineup, pas dans le navigateur. Les candidats sont filtrés par encodeur ; la compatibilité est vérifiée au démarrage de l&apos;encodage. Redémarrez Lineup pour actualiser la liste.</value></data>
+  <data name="Transcoding_HardwareDeviceDiscoveryFailed" xml:space="preserve"><value>Échec de la détection GPU. Les réglages existants sont conservés ; utilisez le périphérique par défaut ou un périphérique personnalisé. Consultez le journal du serveur.</value></data>
   <data name="Transcoding_HardwareDeviceHelp" xml:space="preserve"><value>Linux QSV/VA-API : /dev/dri/renderD128. NVENC et Windows QSV/AMF : indice GPU. Vide pour le périphérique par défaut ; VideoToolbox utilise celui du système.</value></data>
+  <data name="Transcoding_HardwareDeviceLoading" xml:space="preserve"><value>Détection des périphériques GPU…</value></data>
+  <data name="Transcoding_HardwareDeviceNone" xml:space="preserve"><value>Aucun périphérique GPU correspondant détecté. Utilisez celui par défaut ou saisissez un périphérique personnalisé si la détection ne peut pas l&apos;identifier.</value></data>
   <data name="Transcoding_HardwareEncoder" xml:space="preserve"><value>Encodeur vidéo</value></data>
   <data name="Transcoding_HardwareFallback" xml:space="preserve"><value>Autoriser le repli logiciel avant la lecture</value></data>
   <data name="Transcoding_HardwareFallbackHelp" xml:space="preserve"><value>Désactivé par défaut. Un échec du test GPU peut sélectionner le logiciel après nettoyage. Les flux publiés ne sont jamais redémarrés silencieusement.</value></data>

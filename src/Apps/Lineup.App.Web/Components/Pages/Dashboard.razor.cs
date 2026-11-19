@@ -79,6 +79,7 @@ public partial class Dashboard : IAsyncDisposable
     private volatile bool _disposed;
     private IReadOnlyList<ActiveStreamSnapshot> _activeStreams = [];
     private StreamingFlowSnapshot _streamingFlow = new([], [], 0, 0, 0);
+    private DashboardResourceSnapshot _resources = new(false, [], []);
     private DateTime? _activeStreamsLastRefreshUtc;
     private HashSet<string> _stoppingStreams = [];
     private bool _channelsExpanded = true;

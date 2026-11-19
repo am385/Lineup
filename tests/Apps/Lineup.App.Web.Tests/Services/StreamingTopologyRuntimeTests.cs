@@ -138,10 +138,19 @@ public sealed class StreamingTopologyRuntimeTests
         var guides = Substitute.For<ITopologyGuideService>();
         guides.PublishConfigurationAsync(Arg.Any<StreamingConfiguration>(), Arg.Any<CancellationToken>()).Returns([]);
         using var runtime = new StreamingTopologyRuntime(settings, lineups, guides, NullLogger<StreamingTopologyRuntime>.Instance);
+        var startupNotification = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        runtime.ApplicationChanged += () =>
+        {
+            if (runtime.Application.Phase == TopologyApplicationPhase.Applied)
+            {
+                startupNotification.TrySetResult();
+            }
+        };
         await runtime.StartAsync(TestContext.Current.CancellationToken);
         var applied = await runtime.WaitForApplicationAsync(ConfigurationRevision.Create(saved.Streaming), TestContext.Current.CancellationToken);
+        await startupNotification.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
         var notifications = 0;
-        runtime.ApplicationChanged += () => notifications++;
+        runtime.ApplicationChanged += () => Interlocked.Increment(ref notifications);
 
         // Act
         saved.NextAutoFetchTime = DateTime.UtcNow.AddDays(1);
@@ -152,7 +161,7 @@ public sealed class StreamingTopologyRuntimeTests
         await runtime.StopAsync(TestContext.Current.CancellationToken);
 
         // Assert
-        Assert.Equal(0, notifications);
+        Assert.Equal(0, Volatile.Read(ref notifications));
         Assert.Same(applied, runtime.Application);
         await lineups.Received(1).RefreshAsync(Arg.Any<StreamingConfiguration>(), Arg.Any<CancellationToken>());
         await guides.Received(1).PublishConfigurationAsync(Arg.Any<StreamingConfiguration>(), Arg.Any<CancellationToken>());

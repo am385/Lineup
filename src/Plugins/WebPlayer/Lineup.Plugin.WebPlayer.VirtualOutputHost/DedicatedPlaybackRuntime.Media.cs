@@ -38,11 +38,13 @@ internal sealed partial class DedicatedPlaybackRuntime
     {
         await using var guard = new MediaSessionStartupGuard(directory, source);
         var process = StartMediaProcess(directory, plan.Arguments, admission);
+        OwnedMediaProcess.SetResourceRole(process, "output");
         guard.RegisterProcess(process);
         Process? captionProcess = null;
         if (plan.EmbeddedCaptions is not null)
         {
             captionProcess = StartMediaProcess(directory, WebPlayerTrackPlanner.CreateEmbeddedCaptionArguments(plan.SubtitlePaths[plan.EmbeddedCaptions.Index]), admission);
+            OwnedMediaProcess.SetResourceRole(captionProcess, "captions");
             guard.RegisterProcess(captionProcess);
         }
         var session = new MediaSession(id, directory, process, captionProcess, source, plan, new CancellationTokenSource(), logger);
@@ -184,7 +186,11 @@ internal sealed partial class DedicatedPlaybackRuntime
             Logger = logger;
             ExitTask = WaitForExitCodeAsync(process);
             ErrorTask = ReadDiagnosticTailAsync(process.StandardError);
-            CaptionErrorTask = captionProcess is null ? null : ReadDiagnosticTailAsync(captionProcess.StandardError);
+            if (captionProcess is not null)
+            {
+                CaptionErrorTask = ReadDiagnosticTailAsync(captionProcess.StandardError);
+                CaptionExitTask = MediaProcessDiagnostics.ObserveCaptionExitAsync(captionProcess, CaptionErrorTask, logger, id, () => SourceTerminationCode, lifetime.Token);
+            }
         }
 
         /// <summary>Gets the stable producer identity.</summary>
@@ -222,6 +228,9 @@ internal sealed partial class DedicatedPlaybackRuntime
 
         /// <summary>Gets the bounded, continuously drained caption diagnostics.</summary>
         public Task<string>? CaptionErrorTask { get; }
+
+        /// <summary>Gets the owned observation of unexpected caption-process exits.</summary>
+        public Task? CaptionExitTask { get; }
 
         /// <summary>Gets the final processor exit code retained after process disposal.</summary>
         public int? ExitCode { get; private set; }
@@ -300,6 +309,10 @@ internal sealed partial class DedicatedPlaybackRuntime
                 if (CaptionErrorTask is not null)
                 {
                     await CaptionErrorTask;
+                }
+                if (CaptionExitTask is not null)
+                {
+                    await CaptionExitTask;
                 }
             }
             finally

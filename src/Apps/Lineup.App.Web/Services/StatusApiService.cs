@@ -519,7 +519,11 @@ internal sealed class StatusApiService
                 webSettings.FileLogLevel,
                 webSettings.FileLogRetentionDays,
                 webSettings.FileLogSizeLimitMb,
-                new ApiPrivacyStatusResponse(webSettings.RedactApiClientAddresses, webSettings.RedactApiDeviceAddresses, webSettings.RedactApiUrls)),
+                new ApiPrivacyStatusResponse(webSettings.RedactApiClientAddresses, webSettings.RedactApiDeviceAddresses, webSettings.RedactApiUrls))
+            {
+                MonitorResourcesOnlyWhenVisible = webSettings.MonitorResourcesOnlyWhenVisible,
+                ResourceHistoryMinutes = webSettings.ResourceHistoryMinutes
+            },
             new StreamingConfigurationStatusResponse(
                 configuration.SchemaVersion,
                 configuration.KeepWarmPeriodSeconds,
@@ -827,7 +831,8 @@ internal sealed class StatusApiService
                 FilterFlowDetails(node.Details, settings, node.Lane == StreamingFlowLane.Consumer),
                 node.ActiveChannels,
                 node.ActiveSessionCount,
-                node.VideoEncodings)).ToArray(),
+                node.VideoEncodings)
+            { ResourceIds = node.ResourceIds }).ToArray(),
             snapshot.ActivePaths.Select(path => new StreamingFlowPathStatusResponse(
                 path.Id,
                 path.SessionId,
@@ -845,7 +850,8 @@ internal sealed class StatusApiService
                     FilterFlowDetails(stage.Details, settings, stage.Kind == StreamingFlowStageKind.Consumer),
                     ToMediaStatus(stage.InputMedia),
                     ToMediaStatus(stage.OutputMedia),
-                    stage.VideoEncoding)).ToArray())).ToArray());
+                    stage.VideoEncoding)
+                { ResourceIds = stage.ResourceIds }).ToArray())).ToArray());
     }
 
     private static IReadOnlyDictionary<string, string> FilterFlowDetails(IReadOnlyList<StreamingFlowDetail> details, WebSettings settings, bool isConsumer) =>

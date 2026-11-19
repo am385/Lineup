@@ -21,6 +21,38 @@ namespace Lineup.App.Web.Tests.Components.Pages;
 /// </summary>
 public sealed class TopologySettingsTests
 {
+    /// <summary>Verifies the shared caption switch defaults off and persists explicit choices independently of hosting mode.</summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Save_WebPlayerCaptionPolicy_PersistsAndReloads(bool dedicated, bool enabled)
+    {
+        // Arrange
+        await using var context = CreateContext(out _, out var settings);
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        var component = context.Render<Settings>();
+        await component.Find("#tab-virtual-devices").ClickAsync(new());
+        await component.Find(".virtual-device-tab").ClickAsync(new());
+        var player = Assert.Single(component.Instance.Topology.VirtualDevices);
+        Assert.False(component.Find("#webPlayerExtractEmbeddedCaptions-0").HasAttribute("checked"));
+        player.UseDedicatedListener = dedicated;
+
+        // Act
+        await component.Find("#webPlayerExtractEmbeddedCaptions-0").ChangeAsync(enabled);
+        await component.Find("button.btn-primary").ClickAsync(new());
+        var reloaded = context.Render<Settings>();
+        await reloaded.Find("#tab-virtual-devices").ClickAsync(new());
+        await reloaded.Find(".virtual-device-tab").ClickAsync(new());
+
+        // Assert
+        Assert.Equal(enabled, Assert.Single(reloaded.Instance.Topology.VirtualDevices).ExtractEmbeddedCaptions);
+        Assert.Equal(enabled, reloaded.Find("#webPlayerExtractEmbeddedCaptions-0").HasAttribute("checked"));
+        var saved = Assert.Single(settings.Streaming.VirtualDevices);
+        Assert.Equal(enabled, Lineup.Plugin.WebPlayer.WebPlayerConfiguration.Read(saved.Adapter).ExtractEmbeddedCaptions);
+        Assert.Equal(dedicated, saved.Hosting is not null);
+    }
     /// <summary>Verifies shared saves cannot overwrite a pending theme owned by the independent Web settings store.</summary>
     [Theory]
     [InlineData("light", "themeLight")]

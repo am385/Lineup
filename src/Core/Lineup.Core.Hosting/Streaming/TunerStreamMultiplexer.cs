@@ -354,7 +354,8 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
         var settingsKey = JsonSerializer.Serialize(new { Arguments = arguments, Hardware = effectiveHardware });
         return new StreamTransformStage(
             new StreamTransformKey(stage, settingsKey),
-            new FfmpegGraphTransform(new FfmpegStreamTransform(arguments, _processFactory, _logger, sourceName, hardware, softwareArguments)));
+            new FfmpegGraphTransform(new FfmpegStreamTransform(arguments, _processFactory, _logger, sourceName, hardware, softwareArguments),
+                stage == "source-normalization" ? "source" : "output"));
     }
 
     private sealed class SessionOwnedStream(IStreamSessionLease lease) : Stream, IStreamProducerCorrelation

@@ -102,6 +102,10 @@ public static class VirtualOutputProtocolValidation
     {
         ArgumentNullException.ThrowIfNull(report);
         var errors = new List<string>();
+        if (report.ResourceIds is null || report.ResourceIds.Count > 8 || report.ResourceIds.Any(id => !Guid.TryParseExact(id, "N", out _)))
+        {
+            errors.Add("Resource identities must contain at most eight opaque process registrations.");
+        }
         if (report.Session.SessionId.Value == Guid.Empty)
         {
             errors.Add("A worker session is required.");

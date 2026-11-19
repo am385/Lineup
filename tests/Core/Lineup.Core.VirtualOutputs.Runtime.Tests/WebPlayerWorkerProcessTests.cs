@@ -24,6 +24,81 @@ public sealed class WebPlayerWorkerProcessCollection;
 [Collection("Web Player worker processes")]
 public sealed class WebPlayerWorkerProcessTests
 {
+    /// <summary>Verifies trusted bootstrap policy controls one shared extractor and advertised tracks without changing viewer source ownership.</summary>
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    [InlineData(null, true)]
+    [InlineData(null, false)]
+    public async Task Worker_CaptionPolicy_ControlsSharedExtractor(bool? configuredPolicy, bool captionsDetected)
+    {
+        // Arrange
+        await using var harness = await WebPlayerWorkerHarness.StartAsync(
+            (request, _) => Task.FromResult(CreateBrokeredStream(request, new PacedPatternStream(), "caption-policy-generation", captionsDetected: captionsDetected)),
+            TestContext.Current.CancellationToken, extractEmbeddedCaptions: configuredPolicy);
+        using var firstRequest = harness.CreateRequest(HttpMethod.Post, "/media/start/2.1", "{}");
+        using var secondRequest = harness.CreateRequest(HttpMethod.Post, "/media/start/2.1", "{}");
+
+        // Act
+        using var firstResponse = await harness.Client.SendAsync(firstRequest, TestContext.Current.CancellationToken);
+        using var secondResponse = await harness.Client.SendAsync(secondRequest, TestContext.Current.CancellationToken);
+        var first = (await firstResponse.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: TestContext.Current.CancellationToken))!;
+        var second = (await secondResponse.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: TestContext.Current.CancellationToken))!;
+        var usage = harness.MediaAdmission.GetDiagnostics();
+        var active = harness.ReportedStreams.ToArray();
+        var expectedCaptions = (configuredPolicy ?? false) && captionsDetected;
+
+        // Assert
+        Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, secondResponse.StatusCode);
+        Assert.Single(harness.MediaStarts);
+        Assert.Equal(1, usage.Producers);
+        Assert.Equal(expectedCaptions ? 2 : 1, usage.Processing);
+        Assert.Equal(expectedCaptions ? 1 : 0, first["subtitles"]!.AsArray().Count);
+        Assert.Equal(expectedCaptions ? 1 : 0, second["subtitles"]!.AsArray().Count);
+        Assert.Equal(2, active.Length);
+        Assert.Single(active.Select(stream => stream.Flow!.ReusableOutputId).Distinct());
+        Assert.All(active, stream => Assert.Equal(expectedCaptions, stream.Tracks.Any(track => track.IsEmbeddedClosedCaptions)));
+
+        // Act
+        using var firstStop = await harness.Client.PostAsync(new Uri(first["stopUrl"]!.GetValue<string>()), null, TestContext.Current.CancellationToken);
+        Assert.Single(harness.ReportedStreams);
+        using var secondStop = await harness.Client.PostAsync(new Uri(second["stopUrl"]!.GetValue<string>()), null, TestContext.Current.CancellationToken);
+        await harness.AssertMediaReleasedAsync();
+        await WaitUntilAsync(() => harness.MediaAdmission.GetDiagnostics() is { Producers: 0, Processing: 0 }, TimeSpan.FromSeconds(10));
+
+        // Assert
+        Assert.Equal(HttpStatusCode.NoContent, firstStop.StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, secondStop.StatusCode);
+        Assert.Empty(harness.ReportedStreams);
+    }
+
+    /// <summary>Verifies stale embedded-caption selections fail through normal HTTP validation when trusted extraction is disabled.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Worker_DisabledCaptionRequest_ReturnsValidationFailure(bool retry)
+    {
+        // Arrange
+        await using var harness = await WebPlayerWorkerHarness.StartAsync(
+            (request, _) => Task.FromResult(CreateBrokeredStream(request, new PacedPatternStream())),
+            TestContext.Current.CancellationToken, extractEmbeddedCaptions: false);
+        using var request = harness.CreateRequest(HttpMethod.Post, "/media/start/2.1",
+            JsonSerializer.Serialize(new { subtitleTrack = 2, subtitlePresentation = SubtitlePresentation.WebVtt, embeddedCaptions = retry }));
+
+        // Act
+        using var response = await harness.Client.SendAsync(request, TestContext.Current.CancellationToken);
+        await harness.AssertMediaReleasedAsync();
+        await WaitUntilAsync(() => harness.MediaAdmission.GetDiagnostics() is { Producers: 0, Processing: 0 }, TimeSpan.FromSeconds(10));
+
+        // Assert
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(harness.MediaStarts);
+        Assert.Empty(harness.ReportedStreams);
+    }
+
     /// <summary>Worker workspace admission fails explicitly before launching media and leaves no reservation or viewer behind.</summary>
     [Fact]
     public async Task Worker_StorageWatermark_RejectsBeforeMediaAllocation()
@@ -61,7 +136,7 @@ public sealed class WebPlayerWorkerProcessTests
             var source = new PacedPatternStream(controlled: true);
             sources.Enqueue(source);
             return Task.FromResult(CreateBrokeredStream(request, source, "measured-generation"));
-        }, TestContext.Current.CancellationToken, resources: new() { MaximumProducers = 1, MaximumProcessingOperations = 2 });
+        }, TestContext.Current.CancellationToken, resources: new() { MaximumProducers = 1, MaximumProcessingOperations = 2 }, extractEmbeddedCaptions: true);
         var responses = new List<JsonObject>();
         for (var index = 0; index < viewers; index++)
         {
@@ -399,7 +474,7 @@ public sealed class WebPlayerWorkerProcessTests
         // Arrange
         await using var harness = await WebPlayerWorkerHarness.StartAsync(
             (request, _) => Task.FromResult(CreateBrokeredStream(request, new PacedPatternStream())),
-            TestContext.Current.CancellationToken);
+            TestContext.Current.CancellationToken, extractEmbeddedCaptions: true);
         using var request = harness.CreateRequest(
             HttpMethod.Post,
             "/media/start/2.1",
@@ -730,12 +805,23 @@ public sealed class WebPlayerWorkerProcessTests
         Assert.Equal(2, producers.Length);
     }
 
-    private static VirtualOutputBrokeredStream CreateBrokeredStream(VirtualOutputOpenStreamRequest request, Stream stream, string? producerNodeId = null, int keepWarmSeconds = 0, VirtualTranscodeProfile? profile = null)
+    private static VirtualOutputBrokeredStream CreateBrokeredStream(
+        VirtualOutputOpenStreamRequest request,
+        Stream stream,
+        string? producerNodeId = null,
+        int keepWarmSeconds = 0,
+        VirtualTranscodeProfile? profile = null,
+        bool captionsDetected = true
+    )
     {
         var activeStreams = WebPlayerWorkerHarness.CurrentActiveStreams
             ?? throw new InvalidOperationException("The test broker is not attached to an active worker harness.");
         var streamSessionId = StreamSessionId.New();
         var source = CreateSourceMetadata();
+        if (!captionsDetected)
+        {
+            source = source with { Tracks = source.Tracks.Where(track => !track.IsEmbeddedClosedCaptions).ToArray() };
+        }
         profile ??= new VirtualTranscodeProfile();
         var flow = new ActiveStreamFlowContext { ProducerNodeId = producerNodeId };
         var brokered = new VirtualOutputBrokeredStream(
@@ -897,6 +983,7 @@ public sealed class WebPlayerWorkerProcessTests
         /// <param name="startupMode">The startup mode value.</param>
         /// <param name="workerPath">The worker path value.</param>
         /// <param name="resources">The resources value.</param>
+        /// <param name="extractEmbeddedCaptions">The trusted extraction policy, or null for a legacy empty configuration.</param>
         /// <returns>The operation's result.</returns>
         internal static async Task<WebPlayerWorkerHarness> StartAsync(
             Func<VirtualOutputOpenStreamRequest, CancellationToken, Task<VirtualOutputBrokeredStream>> openStream,
@@ -905,7 +992,8 @@ public sealed class WebPlayerWorkerProcessTests
             bool mediaProcessorFails = false,
             string? startupMode = null,
             string? workerPath = null,
-            StreamingResourceOptions? resources = null
+            StreamingResourceOptions? resources = null,
+            bool? extractEmbeddedCaptions = null
         )
         {
             var endpoint = CreateEndpoint();
@@ -916,6 +1004,10 @@ public sealed class WebPlayerWorkerProcessTests
             var broker = new TestBroker(openStream);
             var port = AllocatePort();
             var device = CreateDevice(deviceId, port);
+            if (extractEmbeddedCaptions is bool enabled)
+            {
+                device = device with { Adapter = new AdapterConfiguration("web-player", JsonSerializer.SerializeToElement(new { ExtractEmbeddedCaptions = enabled })) };
+            }
             var policy = new VirtualOutputWorkerPolicyDefinition
             {
                 Key = "integration",

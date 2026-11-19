@@ -6,7 +6,12 @@ using Xunit;
 
 namespace Lineup.App.Web.Tests.Services;
 
+/// <summary>Isolates noisy FFmpeg child-process tests from unrelated process-start contention.</summary>
+[CollectionDefinition("FFmpeg process diagnostics", DisableParallelization = true)]
+public sealed class FfmpegProcessDiagnosticsCollection;
+
 /// <summary>Verifies shared FFmpeg transforms and slates drain noisy children without retaining lifetime diagnostics.</summary>
+[Collection("FFmpeg process diagnostics")]
 public sealed class FfmpegStreamDiagnosticsTests
 {
     /// <summary>Verifies a real failing child retains its exit status separately from its bounded stderr tail.</summary>

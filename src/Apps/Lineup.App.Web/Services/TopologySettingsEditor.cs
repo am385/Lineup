@@ -170,6 +170,8 @@ public sealed class TopologySettingsEditor
                     EnableNetworkAdvertisement = ReadBool(device.Adapter.Configuration, "EnableNetworkAdvertisement", defaultValue: true),
                     AdvertisedBaseUrl = ReadString(device.Adapter.Configuration, "AdvertisedBaseUrl"),
                     LinkInstanceId = ReadGuid(device.Adapter.Configuration, "InstanceId") ?? Guid.NewGuid(),
+                    ExtractEmbeddedCaptions = string.Equals(device.Adapter.Kind, WebPlayerVirtualTunerDriver.AdapterKind, StringComparison.OrdinalIgnoreCase) &&
+                        WebPlayerConfiguration.Read(device.Adapter).ExtractEmbeddedCaptions,
                     LinkPublicBaseUrl = ReadString(device.Adapter.Configuration, "PublicBaseUrl"),
                     LinkRequireEncryption = ReadBool(device.Adapter.Configuration, "RequireEncryption", defaultValue: true),
                     LinkAccessGrants = ReadLineupLinkAccessGrants(device.Adapter.Configuration),
@@ -709,6 +711,11 @@ public sealed class TopologySettingsEditor
 
     private static AdapterConfiguration BuildVirtualAdapter(VirtualDeviceSettingsModel device)
     {
+        if (device.IsWebPlayer)
+        {
+            return new AdapterConfiguration(WebPlayerVirtualTunerDriver.AdapterKind,
+                JsonSerializer.SerializeToElement(new WebPlayerConfiguration { ExtractEmbeddedCaptions = device.ExtractEmbeddedCaptions }));
+        }
         if (device.IsLineupLink)
         {
             return new AdapterConfiguration(LineupLinkKind, JsonSerializer.SerializeToElement(new LineupLinkVirtualConfiguration
@@ -1490,6 +1497,9 @@ public sealed class VirtualDeviceSettingsModel : ITranscodeOverrideSettingsModel
 
     /// <summary>Gets whether this is the built-in Web Player.</summary>
     public bool IsWebPlayer => string.Equals(Kind, WebPlayerVirtualTunerDriver.AdapterKind, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Gets or sets whether the Web Player extracts detected embedded captions for all viewers.</summary>
+    public bool ExtractEmbeddedCaptions { get; set; }
 
     /// <summary>Gets whether this is a virtual HDHomeRun.</summary>
     public bool IsHdHomeRun => string.Equals(Kind, "hdhomerun", StringComparison.OrdinalIgnoreCase);

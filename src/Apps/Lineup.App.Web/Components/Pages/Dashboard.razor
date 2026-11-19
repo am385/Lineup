@@ -48,7 +48,10 @@ else
                                    StopReceiverRequested="receiver => StopReceiver(receiver.DeviceId, receiver.ReceiverIndex)"
                                    RestartDeviceRequested="RestartDevice" />
 
+    <DashboardResourcesPanel HistoryMinutes="WebSettingsService.Settings.ResourceHistoryMinutes" SnapshotChanged="snapshot => _resources = snapshot" />
+
     <DashboardActiveStreamsPanel Expanded="_activeStreamsExpanded"
+                                 Resources="_resources"
                                  Summary="@FormatActiveStreamsSummary()"
                                  Snapshot="_streamingFlow"
                                  StoppingSessionIds="_stoppingStreams"

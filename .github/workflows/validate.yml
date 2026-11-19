@@ -46,13 +46,20 @@ jobs:
         run: dotnet build Lineup.slnx -c Release --no-restore
 
       - name: Run tests
-        run: dotnet test Lineup.slnx -c Release --no-build --no-restore
+        run: |
+          $testArguments = @()
+          if ($IsWindows) {
+            # Collection isolation cannot prevent SDK publishes and worker launches in other test assemblies.
+            $testArguments = @('--max-parallel-test-modules', '1')
+          }
+          dotnet test Lineup.slnx -c Release --no-build --no-restore @testArguments
 
       - name: Run browser regressions
         run: |
           node --test `
             (Resolve-Path 'tests\Apps\Lineup.App.Web.Tests\Browser\subtitle-polling.test.cjs').Path `
-            (Resolve-Path 'tests\Apps\Lineup.App.Web.Tests\Browser\shutdown.test.cjs').Path
+            (Resolve-Path 'tests\Apps\Lineup.App.Web.Tests\Browser\shutdown.test.cjs').Path `
+            (Resolve-Path 'tests\Apps\Lineup.App.Web.Tests\Browser\dashboard-resources.test.cjs').Path
 
       - name: Verify formatting
         run: dotnet format Lineup.slnx --verify-no-changes --no-restore

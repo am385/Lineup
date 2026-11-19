@@ -1,0 +1,279 @@
+@using System.Globalization
+@using System.Runtime.CompilerServices
+@using System.Collections.Concurrent
+
+<section class="card mb-3 resource-history" aria-label="@Title" data-gpu-device="@GpuId">
+    <header class="card-header d-flex justify-content-between align-items-center gap-2">
+        <div style="min-width:0;overflow-wrap:anywhere">
+            <h6 class="mb-0">@Title</h6>
+            @if (Summary is not null)
+            {
+                <small class="text-muted">@Summary</small>
+            }
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-secondary ms-auto flex-shrink-0" aria-expanded="@Expanded.ToString().ToLowerInvariant()"
+                aria-controls="@_bodyId" @onclick="ToggleExpanded">
+            <span class="@(Expanded ? "bi bi-chevron-up" : "bi bi-chevron-down")" aria-hidden="true"></span>
+            <span class="visually-hidden">@Text["Resources_Toggle"]: @Title</span>
+        </button>
+    </header>
+    <div class="card-body" id="@_bodyId" hidden="@(!Expanded)">
+        <p class="small text-body-secondary">@Text[IsGpu ? "Resources_GpuHelp" : Memory ? "Resources_MemoryHelp" : "Resources_CpuHelp"]</p>
+        @if (_gpuMetadata?.SharedVideo == true)
+        {
+            <p class="small text-body-secondary">@Text["Resources_GpuSharedHelp"]</p>
+        }
+        @if (IsGpu && UnavailableReason is { } reason)
+        {
+            <p role="status">@Text[$"Resources_GpuState_{reason}"]</p>
+        }
+        <div class="d-flex pt-2">
+            <div class="position-relative flex-shrink-0 text-body-secondary small me-2" style="width:5.5rem;height:150px">
+                @for (var index = 0; index <= 4; index++)
+                {
+                    var fraction = index / 4d;
+                    <span class="position-absolute end-0 text-nowrap" data-resource-y-tick
+                          style="@FormattableString.Invariant($"top:{149 - fraction * 145:0.##}px;transform:translateY(-50%)")">
+                        @((_maximum * fraction).ToString("0.##")) @(Memory ? "MiB" : "%")
+                    </span>
+                }
+            </div>
+            <div class="flex-grow-1" style="min-width:0">
+                <svg viewBox="0 0 900 150" preserveAspectRatio="none" style="display:block;width:100%;height:150px;overflow:hidden" role="img"
+                     aria-label="@Title">
+                    <g stroke="currentColor" opacity=".2" aria-hidden="true">
+                        @for (var index = 0; index <= 4; index++)
+                        {
+                            var y = (149 - index / 4d * 145).ToString("0.##", CultureInfo.InvariantCulture);
+                            var x = (index * 225).ToString(CultureInfo.InvariantCulture);
+                            <line x1="0" y1="@y" x2="900" y2="@y" data-resource-gridline />
+                            <line x1="@x" y1="4" x2="@x" y2="149" stroke-dasharray="3 4" />
+                        }
+                    </g>
+                    <g data-resource-series transform="@FormattableString.Invariant($"translate(900 0) scale({900d / (HistoryMinutes * 60):0.########} 1)")">
+                        @foreach (var line in _lines)
+                        {
+                            @foreach (var segment in line.Segments)
+                            {
+                                <polyline points="@segment" fill="none" stroke="@line.Color" stroke-width="2" vector-effect="non-scaling-stroke" />
+                            }
+                        }
+                    </g>
+                </svg>
+                <div class="d-flex justify-content-between small text-body-secondary font-monospace mt-2">
+                    @for (var index = 0; index <= 4; index++)
+                    {
+                        <span class="@(index is 0 or 4 ? null : "d-none d-sm-inline")" data-resource-x-tick>
+                            @FormatTimeTick(index)
+                        </span>
+                    }
+                </div>
+                <div class="small text-body-secondary text-center">@Text["Resources_TimeAxis"]</div>
+            </div>
+        </div>
+        <dl class="row row-cols-1 row-cols-md-2 row-cols-xl-4 g-3 small mt-0 mb-0">
+            @foreach (var line in _lines)
+            {
+                <div class="col">
+                    <dt><span style="@($"color:{line.Color}")" aria-hidden="true">&#9679;</span> @Text[line.Label]</dt>
+                    <dd>
+                        @FormatValue(line.Current)
+                        @if (!Memory && !IsGpu && line.Current is { } cpu)
+                        {
+                            <span>(@Text["Resources_CoreCount", cpu / 100])</span>
+                        }
+                    </dd>
+                </div>
+            }
+        </dl>
+        @if (_gpuMetadata is { Engines.Count: > 0 } gpu)
+        {
+            <h6 class="mt-3">@Text["Resources_GpuEngines"]</h6>
+            <dl class="row row-cols-1 row-cols-md-2 row-cols-xl-4 g-3 small mt-0 mb-0" data-gpu-engines>
+                @foreach (var engine in gpu.Engines)
+                {
+                    <div class="col">
+                        <dt>@engine.Name</dt>
+                        <dd>@FormatValue(_currentGpu?.Engines.FirstOrDefault(value => value.Name == engine.Name)?.Utilization)</dd>
+                    </div>
+                }
+            </dl>
+        }
+    </div>
+</section>
+
+@code {
+    private static readonly ConditionalWeakTable<IReadOnlyList<ResourceHistoryPoint>, Lazy<ChartPlot>> _cpuPlots = new();
+    private static readonly ConditionalWeakTable<IReadOnlyList<ResourceHistoryPoint>, Lazy<ChartPlot>> _memoryPlots = new();
+    private static readonly ConditionalWeakTable<IReadOnlyList<ResourceHistoryPoint>, ConcurrentDictionary<string, Lazy<ChartPlot>>> _gpuPlots = new();
+    private readonly string _bodyId = $"resourceHistory-{Guid.NewGuid():N}";
+    private IReadOnlyList<ChartLine> _lines = [];
+    private GpuResourceSample? _currentGpu;
+    private GpuResourceSample? _gpuMetadata;
+    private double _maximum = 100;
+    private bool IsGpu => GpuId is not null;
+    private string Title => IsGpu ? Text["Resources_GpuDevice", GpuName ?? GpuId!] : Text[Memory ? "Resources_Memory" : "Resources_Cpu"];
+
+    /// <summary>Gets or sets the bounded aggregate observations.</summary>
+    [Parameter]
+    public IReadOnlyList<ResourceHistoryPoint> History { get; set; } = [];
+
+    /// <summary>Gets or sets the current resource summary shown even when the graph is collapsed.</summary>
+    [Parameter]
+    public string? Summary { get; set; }
+
+    /// <summary>Gets or sets whether to plot resident memory rather than CPU.</summary>
+    [Parameter]
+    public bool Memory { get; set; }
+
+    /// <summary>Gets or sets the stable whole-device GPU identity, or null for a process chart.</summary>
+    [Parameter]
+    public string? GpuId { get; set; }
+
+    /// <summary>Gets or sets the GPU display name.</summary>
+    [Parameter]
+    public string? GpuName { get; set; }
+
+    /// <summary>Gets or sets the current collection state independently of retained history.</summary>
+    [Parameter]
+    public string? UnavailableReason { get; set; }
+
+    /// <summary>Gets or sets the fixed visible history window in minutes.</summary>
+    [Parameter]
+    public int HistoryMinutes { get; set; } = 5;
+
+    /// <summary>Gets or sets whether this resource chart's content is expanded.</summary>
+    [Parameter]
+    public bool Expanded { get; set; } = true;
+
+    /// <summary>Gets or sets the callback retaining changes to this chart's expansion state.</summary>
+    [Parameter]
+    public EventCallback<bool> ExpandedChanged { get; set; }
+
+    private async Task ToggleExpanded()
+    {
+        Expanded = !Expanded;
+        await ExpandedChanged.InvokeAsync(Expanded);
+    }
+
+    private string FormatValue(double? value) => value is { } observed ? $"{observed:0.##} {(Memory ? "MiB" : "%")}" : Text["Common_NotAvailable"].Value;
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        var history = History;
+        _currentGpu = IsGpu ? history.LastOrDefault()?.Gpus.FirstOrDefault(device => device.Id == GpuId) : null;
+        _gpuMetadata = IsGpu ? history.LastOrDefault(point => point.Gpus.Any(device => device.Id == GpuId))?.Gpus.First(device => device.Id == GpuId) : null;
+        var plot = GpuId is { } gpuId
+            ? _gpuPlots.GetValue(history, static _ => new()).GetOrAdd(gpuId, id => new(() => BuildPlot(history, false, id))).Value
+            : Memory
+            ? _memoryPlots.GetValue(History, static history => new(() => BuildPlot(history, true))).Value
+            : _cpuPlots.GetValue(History, static history => new(() => BuildPlot(history, false))).Value;
+        _maximum = plot.Maximum;
+        _lines = plot.Lines;
+    }
+
+    private string FormatTimeTick(int index)
+    {
+        var seconds = HistoryMinutes * 60 * (4 - index) / 4;
+        return seconds < 60
+            ? Text["Common_SecondsAbbreviation", seconds]
+            : seconds % 60 == 0
+                ? Text["Common_MinutesAbbreviation", seconds / 60]
+                : Text["Dashboard_CountdownMinutes", seconds / 60, seconds % 60];
+    }
+
+    private static ChartPlot BuildPlot(IReadOnlyList<ResourceHistoryPoint> history, bool memory, string? gpuId = null)
+    {
+        var lines = new List<ChartLine>();
+        Func<ResourceHistoryPoint, double?>[] selectors = gpuId is null
+            ? [point => Value(point.Total, memory), point => Value(point.Management, memory), point => Value(point.Workers, memory), point => Value(point.Media, memory)]
+            : [point => Gpu(point)?.Utilization, point => Gpu(point)?.Encode, point => Gpu(point)?.Decode, point => Gpu(point)?.Video];
+        string[] labels = gpuId is null
+            ? ["Resources_Total", "Resources_Management", "Resources_Workers", "Resources_Media"]
+            : ["Resources_GpuActivity", "Resources_GpuEncode", "Resources_GpuDecode", "Resources_GpuVideo"];
+        string[] colors = ["#0d6efd", "#198754", "#fd7e14", "#a66bdb"];
+        var sharedVideo = gpuId is not null && history.LastOrDefault(point => Gpu(point) is not null) is { } latestGpu && Gpu(latestGpu) is { SharedVideo: true };
+        if (sharedVideo) labels[3] = "Resources_GpuVideoShared";
+        var maximum = memory ? 1d : 100d;
+        foreach (var point in history)
+        {
+            foreach (var select in selectors)
+            {
+                maximum = Math.Max(maximum, select(point) ?? 0);
+            }
+        }
+        var end = history.LastOrDefault()?.AtUtc ?? DateTimeOffset.UtcNow;
+        var first = history.FirstOrDefault()?.AtUtc ?? end;
+        var span = Math.Max(1, (end - first).TotalSeconds);
+        for (var index = 0; index < selectors.Length; index++)
+        {
+            if (gpuId is not null && index > 0 &&
+                (sharedVideo && index is 1 or 2 || !history.Any(point => selectors[index](point) is not null) && !(sharedVideo && index == 3)))
+            {
+                continue;
+            }
+            var segments = new List<string>();
+            var points = new List<string>();
+            DateTimeOffset? previous = null;
+            (DateTimeOffset At, double Value)? low = null;
+            (DateTimeOffset At, double Value)? high = null;
+            // Preserve both extrema in each six-pixel bucket instead of smoothing peaks.
+            var bucket = -1;
+            foreach (var point in history)
+            {
+                var value = selectors[index](point);
+                if (value is null || previous is { } time && point.AtUtc - time > TimeSpan.FromSeconds(5))
+                {
+                    FlushBucket();
+                    if (points.Count > 0)
+                    {
+                        segments.Add(string.Join(" ", points));
+                        points.Clear();
+                    }
+                }
+                if (value is { } observed)
+                {
+                    var nextBucket = (int)((point.AtUtc - first).TotalSeconds / span * 150);
+                    if (bucket != nextBucket)
+                    {
+                        FlushBucket();
+                        bucket = nextBucket;
+                    }
+                    if (low is null || observed < low.Value.Value) low = (point.AtUtc, observed);
+                    if (high is null || observed >= high.Value.Value) high = (point.AtUtc, observed);
+                }
+                previous = point.AtUtc;
+            }
+            FlushBucket();
+            if (points.Count > 0)
+            {
+                segments.Add(string.Join(" ", points));
+            }
+            lines.Add(new(labels[index], colors[index], segments, history.LastOrDefault() is { } latest ? selectors[index](latest) : null));
+
+            void FlushBucket()
+            {
+                if (low is { } minimum && high is { } peak)
+                {
+                    AddPoint(minimum.At <= peak.At ? minimum : peak);
+                    if (minimum.At != peak.At) AddPoint(minimum.At <= peak.At ? peak : minimum);
+                }
+                low = null;
+                high = null;
+            }
+
+            // Cache age coordinates so all dashboards can rescale shared geometry without rebuilding it.
+            void AddPoint((DateTimeOffset At, double Value) point) =>
+                points.Add(string.Create(CultureInfo.InvariantCulture, $"{(point.At - end).TotalSeconds:0.##},{149 - point.Value / maximum * 145:0.##}"));
+        }
+        return new(maximum, lines);
+
+        GpuResourceSample? Gpu(ResourceHistoryPoint point) => point.Gpus.FirstOrDefault(device => device.Id == gpuId);
+    }
+
+    private static double? Value(ResourceUsage usage, bool memory) => memory ? usage.ResidentBytes / (1024d * 1024d) : usage.CpuPercent;
+
+    private sealed record ChartPlot(double Maximum, IReadOnlyList<ChartLine> Lines);
+    private sealed record ChartLine(string Label, string Color, IReadOnlyList<string> Segments, double? Current);
+}

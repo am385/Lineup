@@ -45,21 +45,41 @@ public sealed class WebPlayerVirtualTunerDriver : IVirtualTunerDriver, IAdapterS
     /// <summary>Gets the settings descriptor.</summary>
     public AdapterSettingsDescriptor SettingsDescriptor { get; } = new()
     {
-        AdapterKind = WebPlayerVirtualTunerDriver.AdapterKind
+        AdapterKind = WebPlayerVirtualTunerDriver.AdapterKind,
+        Fields =
+        [
+            new AdapterSettingDescriptor
+            {
+                Key = "extractEmbeddedCaptions",
+                Label = "Extract embedded captions",
+                Description = "Extract detected embedded captions for all Web Player viewers. Changes apply to new presentations; dedicated listeners reconfigure normally.",
+                Kind = AdapterSettingKind.Boolean,
+                CanClear = false
+            }
+        ]
     };
 
     /// <summary>Creates default configuration.</summary>
     /// <param name="deviceId">Identity of the target device.</param>
     /// <returns>The operation's result.</returns>
     public AdapterConfiguration CreateDefaultConfiguration(VirtualDeviceId deviceId) =>
-        new(AdapterKind, JsonSerializer.SerializeToElement(new { }));
+        new(AdapterKind, JsonSerializer.SerializeToElement(new WebPlayerConfiguration()));
 
     /// <summary>Gets settings.</summary>
     /// <param name="configuration">Configuration to apply.</param>
     /// <returns>The operation's result.</returns>
     public AdapterSettingsSnapshot GetSettings(AdapterConfiguration configuration) => new()
     {
-        AdapterKind = AdapterKind
+        AdapterKind = AdapterKind,
+        Values =
+        [
+            new AdapterSettingSnapshot
+            {
+                Key = "extractEmbeddedCaptions",
+                Value = JsonSerializer.SerializeToElement(WebPlayerConfiguration.Read(configuration).ExtractEmbeddedCaptions),
+                HasValue = true
+            }
+        ]
     };
 
     /// <summary>Applies settings.</summary>
@@ -68,17 +88,39 @@ public sealed class WebPlayerVirtualTunerDriver : IVirtualTunerDriver, IAdapterS
     /// <returns>The operation's result.</returns>
     public AdapterSettingsApplyResult ApplySettings(AdapterConfiguration configuration, IReadOnlyList<AdapterSettingEdit> edits)
     {
-        if (edits.Any(edit => edit.Action != AdapterSettingEditAction.Preserve))
+        var validation = Validate(configuration);
+        if (validation.Count > 0)
         {
             return new AdapterSettingsApplyResult
             {
-                Errors = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
-                {
-                    [""] = ["Web Player does not accept adapter-specific settings."]
-                }
+                Errors = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal) { [""] = validation }
             };
         }
-        return new AdapterSettingsApplyResult { Configuration = configuration };
+        var current = WebPlayerConfiguration.Read(configuration);
+        var errors = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+        foreach (var edit in edits)
+        {
+            if (edit.Action == AdapterSettingEditAction.Preserve)
+            {
+                continue;
+            }
+            if (edit.Key != "extractEmbeddedCaptions")
+            {
+                errors[edit.Key] = ["Unknown setting."];
+            }
+            else if (edit.Action != AdapterSettingEditAction.Set || edit.Value is not JsonElement value ||
+                value.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            {
+                errors[edit.Key] = ["Extract embedded captions must be true or false."];
+            }
+            else
+            {
+                current = current with { ExtractEmbeddedCaptions = value.GetBoolean() };
+            }
+        }
+        return errors.Count > 0
+            ? new AdapterSettingsApplyResult { Errors = errors }
+            : new AdapterSettingsApplyResult { Configuration = new AdapterConfiguration(Kind, JsonSerializer.SerializeToElement(current)) };
     }
 
     /// <summary>Executes normalize.</summary>
@@ -104,9 +146,15 @@ public sealed class WebPlayerVirtualTunerDriver : IVirtualTunerDriver, IAdapterS
         {
             return ["Web Player configuration must be a JSON object."];
         }
-        return configuration.Configuration.EnumerateObject().Any()
-            ? ["Web Player configuration does not accept adapter-specific properties."]
-            : [];
+        try
+        {
+            _ = WebPlayerConfiguration.Read(configuration);
+            return [];
+        }
+        catch (JsonException exception)
+        {
+            return [$"Invalid Web Player configuration: {exception.Message}"];
+        }
     }
 
     /// <summary>Creates the persisted built-in Web Player definition.</summary>

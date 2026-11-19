@@ -168,6 +168,7 @@
   <data name="Common_FailedToResume" xml:space="preserve"><value>セッションを再開できませんでした。</value></data>
   <data name="Common_LastUpdated" xml:space="preserve"><value>最終更新</value></data>
   <data name="Common_Loading" xml:space="preserve"><value>読み込み中...</value></data>
+  <data name="Common_MinutesAbbreviation" xml:space="preserve"><value>{0}分</value></data>
   <data name="Common_Never" xml:space="preserve"><value>なし</value></data>
   <data name="Common_NotAvailable" xml:space="preserve"><value>N/A</value></data>
   <data name="Common_NotFoundHeading" xml:space="preserve"><value>見つかりません</value></data>
@@ -405,6 +406,54 @@
   <data name="ProgramMetadata_Subtitles" xml:space="preserve"><value>字幕</value></data>
   <data name="ProgramMetadata_Title" xml:space="preserve"><value>タイトル</value></data>
   <data name="ProgramMetadata_Video" xml:space="preserve"><value>映像</value></data>
+  <data name="Resources_CoreCount" xml:space="preserve"><value>{0:0.##} 論理コア</value></data>
+  <data name="Resources_Cpu" xml:space="preserve"><value>CPU</value></data>
+  <data name="Resources_CpuHelp" xml:space="preserve"><value>100% は論理 CPU コア 1 個分です。値は 100% を超えることがあります。</value></data>
+  <data name="Resources_External" xml:space="preserve"><value>ここでは測定しません。このコンポーネントは Lineup の外部で動作します。</value></data>
+  <data name="Resources_Gpu" xml:space="preserve"><value>GPU</value></data>
+  <data name="Resources_GpuActivity" xml:space="preserve"><value>GPU 使用率</value></data>
+  <data name="Resources_GpuDecode" xml:space="preserve"><value>動画デコード</value></data>
+  <data name="Resources_GpuDevice" xml:space="preserve"><value>GPU · {0}</value></data>
+  <data name="Resources_GpuEncode" xml:space="preserve"><value>動画エンコード</value></data>
+  <data name="Resources_GpuEngines" xml:space="preserve"><value>個別のエンジン</value></data>
+  <data name="Resources_GpuHelp" xml:space="preserve"><value>測定項目は GPU、ドライバー、プラットフォームによって異なります。GPU 使用率はドライバーの全体値または最も使用されているエンジンの値です。動画 / メディアにはエンコードとデコードの両方が含まれる場合があります。測定値が一度も取得されていない項目は非表示になりますが、ハードウェアが非対応という意味ではありません。0% は有効な測定値です。N/A は表示中の項目が現在取得できないことを示します。測定値は重複するため合算できません。</value></data>
+  <data name="Resources_GpuScope" xml:space="preserve"><value>GPU の測定値は、このホスト/コンテナーから見えるデバイス全体が対象で、他のアプリも含みます。Lineup 専用やストリーム単位の値ではなく、リモートワーカーホストの GPU は含みません。</value></data>
+  <data name="Resources_GpuSharedHelp" xml:space="preserve"><value>Intel の動画エンジン (vcs) はエンコードとデコードで共有されます。共有値は最も使用されているコーデックエンジンの値で、合計ではありません。動画補正 (vecs) は別です。以下のエンジン名はドライバーが提供します。</value></data>
+  <data name="Resources_GpuState_paused" xml:space="preserve"><value>GPU 収集は一時停止中です。保持された履歴は現在の使用率ではありません。</value></data>
+  <data name="Resources_GpuState_permission_denied" xml:space="preserve"><value>ホスト/コンテナーの監視権限により GPU カウンターへのアクセスが拒否されました。ストリーミングの権限とは別です。</value></data>
+  <data name="Resources_GpuState_read_failed" xml:space="preserve"><value>一部の GPU カウンターを読み取れませんでした。サーバーログを確認してください。</value></data>
+  <data name="Resources_GpuState_unsupported" xml:space="preserve"><value>このホスト/コンテナーまたはドライバーには対応する GPU 使用率カウンターがありません。</value></data>
+  <data name="Resources_GpuState_warming_up" xml:space="preserve"><value>GPU カウンターの基準値を取得しています。</value></data>
+  <data name="Resources_GpuVideo" xml:space="preserve"><value>動画 / メディア</value></data>
+  <data name="Resources_GpuVideoShared" xml:space="preserve"><value>動画エンコード/デコード — 共有</value></data>
+  <data name="Resources_Heading" xml:space="preserve"><value>リソース</value></data>
+  <data name="Resources_Management" xml:space="preserve"><value>管理ホスト</value></data>
+  <data name="Resources_Media" xml:space="preserve"><value>メディアおよびライフタイム補助プロセス</value></data>
+  <data name="Resources_Memory" xml:space="preserve"><value>RAM</value></data>
+  <data name="Resources_MemoryHelp" xml:space="preserve"><value>プロセスの常駐メモリの合計です。共有ページが重複して数えられる場合があります。</value></data>
+  <data name="Resources_NoProcess" xml:space="preserve"><value>このステージの独立したプロセスは報告されていません。使用量ゼロと測定されたわけではありません。</value></data>
+  <data name="Resources_Observed" xml:space="preserve"><value>最終観測</value></data>
+  <data name="Resources_Partial" xml:space="preserve"><value>準備中または測定範囲が不完全です。現在の測定値がないプロセスがあります。欠測は使用量ゼロを意味しません。</value></data>
+  <data name="Resources_Paused" xml:space="preserve"><value>リソース収集は一時停止中です。保持された履歴は現在の使用量を表しません。</value></data>
+  <data name="Resources_ProcessScope" xml:space="preserve"><value>CPU とメモリはプロセス全体で測定します。デコード、フィルター、エンコード、音声、多重化を個別に測定するものではありません。</value></data>
+  <data name="Resources_Role" xml:space="preserve"><value>プロセスの役割</value></data>
+  <data name="Resources_Role_captions" xml:space="preserve"><value>字幕抽出</value></data>
+  <data name="Resources_Role_helper" xml:space="preserve"><value>ライフタイム補助</value></data>
+  <data name="Resources_Role_management" xml:space="preserve"><value>管理ホスト</value></data>
+  <data name="Resources_Role_media" xml:space="preserve"><value>メディア処理</value></data>
+  <data name="Resources_Role_output" xml:space="preserve"><value>出力処理</value></data>
+  <data name="Resources_Role_source" xml:space="preserve"><value>ソース処理</value></data>
+  <data name="Resources_Role_worker" xml:space="preserve"><value>専用ワーカー</value></data>
+  <data name="Resources_Scope" xml:space="preserve"><value>CPU と RAM は Lineup のプロセスのみが対象です。メモリ内のローリング履歴はダッシュボード間で共有され、再起動で消去されます。</value></data>
+  <data name="Resources_SharedCost" xml:space="preserve"><value>プロセス全体の負荷です。再利用可能な生成元は複数の視聴者に配信できます。共有処理は概要で一度だけ数えられ、視聴者ごとに分割されません。</value></data>
+  <data name="Resources_SharedHost" xml:space="preserve"><value>共有ホストプロセスに含まれます。軽量なプロセスカウンターでは、このステージ専用の CPU とメモリを測定できません。</value></data>
+  <data name="Resources_State_process_unavailable" xml:space="preserve"><value>プロセスを利用できません</value></data>
+  <data name="Resources_State_stale" xml:space="preserve"><value>古い観測値</value></data>
+  <data name="Resources_State_warming_up" xml:space="preserve"><value>CPU 基準値を取得中</value></data>
+  <data name="Resources_TimeAxis" xml:space="preserve"><value>最新サンプルとの差</value></data>
+  <data name="Resources_Toggle" xml:space="preserve"><value>グラフを表示 / 非表示</value></data>
+  <data name="Resources_Total" xml:space="preserve"><value>Lineup 合計</value></data>
+  <data name="Resources_Workers" xml:space="preserve"><value>専用ワーカー</value></data>
   <data name="Settings_AboutActiveStreams" xml:space="preserve"><value>ダッシュボードで、コンシューマー、チューナー使用状況、共有取得、トランスコード、ストリーミングフローのキャッシュ表示を更新する頻度を制御します。</value></data>
   <data name="Settings_AboutActiveStreamsTitle" xml:space="preserve"><value>アクティブなストリーム</value></data>
   <data name="Settings_AboutAppearance" xml:space="preserve"><value>共有ストリーミングや番組ガイドの動作を変えずに、Web インターフェイスの表示方法を制御します。</value></data>
@@ -442,6 +491,7 @@
   <data name="Settings_AboutRegional" xml:space="preserve"><value>Lineup 全体での日付と時刻の表示方法を制御します。番組ガイドプロバイダーが保存した番組のタイムスタンプは変更されません。</value></data>
   <data name="Settings_AboutReset" xml:space="preserve"><value>永続化された設定を直ちに変更せずに、共有設定と Web 設定の既定値を確認用として準備します。</value></data>
   <data name="Settings_AboutResetTitle" xml:space="preserve"><value>設定のリセット</value></data>
+  <data name="Settings_AboutResources" xml:space="preserve"><value>軽量な CPU・RAM 監視、対応 GPU のデバイス全体の監視、およびメモリ内履歴を設定します。GPU は他のアプリを含むことがあり、利用できないエンジンは N/A です。既定ではダッシュボードの表示中のみ収集します。継続収集を有効にするとバックグラウンドでも記録します。履歴はディスクには保存されず、再起動時に消去されます。</value></data>
   <data name="Settings_AboutRestart" xml:space="preserve"><value>設定の変更やデータの削除を行わず、ホストを正常に再起動します。</value></data>
   <data name="Settings_AboutRestartTitle" xml:space="preserve"><value>Lineup の再起動</value></data>
   <data name="Settings_AboutStatusApiEnd" xml:space="preserve"><value>として残るため、デバイスや番組ガイドの操作を開始せず、安定したレスポンス形式が維持されます。</value></data>
@@ -781,6 +831,11 @@
   <data name="Settings_ResetStoragePrefix" xml:space="preserve"><value>リセット操作は</value></data>
   <data name="Settings_ResetStorageSuffix" xml:space="preserve"><value>および Lineup が所有するその他のアプリケーションデータに影響する場合があります。</value></data>
   <data name="Settings_ResolvedPathLabel" xml:space="preserve"><value>解決済みパス:</value></data>
+  <data name="Settings_ResourceHistoryHelp" xml:space="preserve"><value>1～60 分をメモリに保持します。値を増やしても以前の観測は復元されません。</value></data>
+  <data name="Settings_ResourceHistoryLabel" xml:space="preserve"><value>リソース履歴（分）</value></data>
+  <data name="Settings_ResourceHistoryValidation" xml:space="preserve"><value>リソース履歴は 1～60 分で指定してください。</value></data>
+  <data name="Settings_ResourceVisibilityHelp" xml:space="preserve"><value>有効にすると、ダッシュボードが表示されていなくてもデータを収集してキャッシュします。既定では無効で、ダッシュボードの表示中のみ収集します。履歴はメモリに保持され、再起動時に消去されます。</value></data>
+  <data name="Settings_ResourceVisibilityLabel" xml:space="preserve"><value>リソース使用状況を継続的に収集する</value></data>
   <data name="Settings_RestartButton" xml:space="preserve"><value>Lineup を再起動</value></data>
   <data name="Settings_RestartDelayedHeading" xml:space="preserve"><value>Lineup の起動に通常より時間がかかっています</value></data>
   <data name="Settings_RestartDelayedHelp" xml:space="preserve"><value>Lineup が実行中であることを確認してから、もう一度接続してください。</value></data>
@@ -864,6 +919,8 @@
   <data name="Settings_VirtualHevcHelp" xml:space="preserve"><value>HEVC を処理できない利用者向けの既定の出力変換です。</value></data>
   <data name="Settings_VirtualTranscoderDefaultsDescription" xml:space="preserve"><value>各仮想デバイスは、そのタブでオーバーライドを有効にしない限り、これらの出力ステージ設定を継承します。</value></data>
   <data name="Settings_VirtualTunerDiscoveryHeading" xml:space="preserve"><value>仮想チューナーの検出</value></data>
+  <data name="Settings_WebPlayerExtractEmbeddedCaptions" xml:space="preserve"><value>埋め込み字幕を抽出</value></data>
+  <data name="Settings_WebPlayerExtractEmbeddedCaptionsHelp" xml:space="preserve"><value>既定では全視聴者に対して無効です。埋め込み字幕を抽出するには有効にしてください。独立した字幕には影響しません。保存後に再生を開始し直してください。専用リスナーは再構成されます。</value></data>
   <data name="Settings_WebSettingsStorage" xml:space="preserve"><value>これらの Web ホスト設定は</value></data>
   <data name="Settings_WebSettingsStorageSuffix" xml:space="preserve"><value>に保存され、再起動後も保持されます。</value></data>
   <data name="Settings_WelcomeAnd" xml:space="preserve"><value>と</value></data>
@@ -987,7 +1044,13 @@
   <data name="Transcoding_HardwareArguments" xml:space="preserve"><value>GPUエンコーダー詳細オプション</value></data>
   <data name="Transcoding_HardwareArgumentsHelp" xml:space="preserve"><value>1行にoption=valueを指定します（先頭のハイフン不要、最大16件）。NVENCのpreset=p4など、方式ごとに異なります。入出力、マッピング、シェルコマンドは指定できません。</value></data>
   <data name="Transcoding_HardwareDevice" xml:space="preserve"><value>GPUデバイス（任意）</value></data>
+  <data name="Transcoding_HardwareDeviceCustom" xml:space="preserve"><value>カスタムデバイス</value></data>
+  <data name="Transcoding_HardwareDeviceDefault" xml:space="preserve"><value>既定（自動）</value></data>
+  <data name="Transcoding_HardwareDeviceDetectedHelp" xml:space="preserve"><value>デバイスはブラウザーではなく、この Lineup ホスト/コンテナーで検出されます。候補はエンコーダー別に絞り込まれ、対応状況はエンコード開始時に確認されます。一覧を更新するには Lineup を再起動してください。</value></data>
+  <data name="Transcoding_HardwareDeviceDiscoveryFailed" xml:space="preserve"><value>GPU の検出に失敗しました。既存の設定は保持されます。既定またはカスタムデバイスを使用してください。詳細はサーバーログを参照してください。</value></data>
   <data name="Transcoding_HardwareDeviceHelp" xml:space="preserve"><value>Linux QSV/VA-API: /dev/dri/renderD128。NVENC、Windows QSV/AMF: GPU番号。空欄は既定のデバイス。VideoToolboxはシステムのデバイスを使用します。</value></data>
+  <data name="Transcoding_HardwareDeviceLoading" xml:space="preserve"><value>GPU デバイスを検出中…</value></data>
+  <data name="Transcoding_HardwareDeviceNone" xml:space="preserve"><value>該当する GPU デバイスが検出されませんでした。既定を使用するか、検出できない場合はカスタムデバイスを入力してください。</value></data>
   <data name="Transcoding_HardwareEncoder" xml:space="preserve"><value>映像エンコーダー</value></data>
   <data name="Transcoding_HardwareFallback" xml:space="preserve"><value>再生開始前のソフトウェアへの切り替えを許可</value></data>
   <data name="Transcoding_HardwareFallbackHelp" xml:space="preserve"><value>既定では無効です。GPU起動テストに失敗した場合、リソース解放後にソフトウェアを選択できます。公開済みストリームを無通知で再起動しません。</value></data>

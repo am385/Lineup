@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using System.Text.Json;
 using Lineup.Core.VirtualOutputs.Protocol;
+using Lineup.Core.Common.Streaming;
 
 namespace Lineup.Core.VirtualOutputs.Hosting;
 
@@ -44,6 +45,8 @@ public sealed class VirtualOutputWorkerSession
     private readonly VirtualOutputWorkerBootstrap _bootstrap;
     private readonly VirtualOutputBrokerClient _client;
     private readonly TimeProvider _timeProvider;
+    private readonly SemaphoreSlim _resourceWake = new(0, 1);
+    private volatile bool _monitorResources;
 
     /// <summary>Initializes one worker session from a supervisor bootstrap descriptor.</summary>
     public VirtualOutputWorkerSession(VirtualOutputWorkerBootstrap bootstrap, TimeProvider? timeProvider = null)
@@ -108,6 +111,70 @@ public sealed class VirtualOutputWorkerSession
     /// <summary>Renews the worker lease within its current expiration deadline, invoking fail-closed shutdown on expiration or revocation.</summary>
     public async Task RunLeaseLoopAsync(Func<(bool Ready, int ActiveConnections)> readHealth, Action requestShutdown, CancellationToken cancellationToken = default)
     {
+        using var resourceLifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var resources = RunResourceLoopAsync(resourceLifetime.Token);
+        try
+        {
+            await RunRenewalLoopAsync(readHealth, requestShutdown, cancellationToken);
+        }
+        finally
+        {
+            await resourceLifetime.CancelAsync();
+            await resources;
+        }
+    }
+
+    private async Task RunResourceLoopAsync(CancellationToken cancellationToken)
+    {
+        var registry = ProcessResourceRegistry.Local;
+        var identity = registry.Register(Environment.ProcessId, "worker");
+        var warningReported = false;
+        void ReportFailure(string message) => Console.Error.WriteLine($"Resource monitoring: {message}");
+        registry.ObservationFailed += ReportFailure;
+        registry.Attach(identity);
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                if (!_monitorResources)
+                {
+                    registry.ResetBaselines();
+                    await _resourceWake.WaitAsync(cancellationToken);
+                    continue;
+                }
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2), _timeProvider);
+                using var request = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
+                try
+                {
+                    var processes = registry.Sample();
+                    var response = await _client.ReportResourcesAsync(new(Context!, processes) { IncompleteInterval = registry.LastSampleIncomplete }, request.Token);
+                    _monitorResources = response.Requested;
+                    warningReported = false;
+                }
+                catch (Exception exception) when (exception is IOException or SocketException or VirtualOutputClientException ||
+                    exception is OperationCanceledException && !cancellationToken.IsCancellationRequested)
+                {
+                    if (!warningReported)
+                    {
+                        warningReported = true;
+                        ReportFailure($"Worker counters could not be reported: {exception.Message}");
+                    }
+                }
+                await Task.Delay(TimeSpan.FromSeconds(2), _timeProvider, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            registry.ObservationFailed -= ReportFailure;
+            registry.Unregister(identity);
+        }
+    }
+
+    private async Task RunRenewalLoopAsync(Func<(bool Ready, int ActiveConnections)> readHealth, Action requestShutdown, CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(readHealth);
         ArgumentNullException.ThrowIfNull(requestShutdown);
         var context = Context ?? throw new InvalidOperationException("The worker must register before starting lease renewal.");
@@ -151,6 +218,18 @@ public sealed class VirtualOutputWorkerSession
                     return;
                 }
                 LeaseExpiresUtc = renewedExpiration;
+                if (!_monitorResources && renewal.MonitorResources)
+                {
+                    _monitorResources = true;
+                    if (_resourceWake.CurrentCount == 0)
+                    {
+                        _resourceWake.Release();
+                    }
+                }
+                else if (!renewal.MonitorResources)
+                {
+                    _monitorResources = false;
+                }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {

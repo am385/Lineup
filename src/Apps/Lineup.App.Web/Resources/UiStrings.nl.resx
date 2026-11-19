@@ -168,6 +168,7 @@
   <data name="Common_FailedToResume" xml:space="preserve"><value>De sessie kon niet worden hervat.</value></data>
   <data name="Common_LastUpdated" xml:space="preserve"><value>Laatst bijgewerkt</value></data>
   <data name="Common_Loading" xml:space="preserve"><value>Laden...</value></data>
+  <data name="Common_MinutesAbbreviation" xml:space="preserve"><value>{0}m</value></data>
   <data name="Common_Never" xml:space="preserve"><value>Nooit</value></data>
   <data name="Common_NotAvailable" xml:space="preserve"><value>N/A</value></data>
   <data name="Common_NotFoundHeading" xml:space="preserve"><value>Niet gevonden</value></data>
@@ -405,6 +406,54 @@
   <data name="ProgramMetadata_Subtitles" xml:space="preserve"><value>Ondertiteling</value></data>
   <data name="ProgramMetadata_Title" xml:space="preserve"><value>Titel</value></data>
   <data name="ProgramMetadata_Video" xml:space="preserve"><value>Video</value></data>
+  <data name="Resources_CoreCount" xml:space="preserve"><value>{0:0.##} logische kernen</value></data>
+  <data name="Resources_Cpu" xml:space="preserve"><value>CPU</value></data>
+  <data name="Resources_CpuHelp" xml:space="preserve"><value>100% = één logische CPU-kern; waarden kunnen hoger zijn dan 100%.</value></data>
+  <data name="Resources_External" xml:space="preserve"><value>Hier niet gemeten: dit onderdeel draait buiten Lineup.</value></data>
+  <data name="Resources_Gpu" xml:space="preserve"><value>GPU</value></data>
+  <data name="Resources_GpuActivity" xml:space="preserve"><value>GPU-activiteit</value></data>
+  <data name="Resources_GpuDecode" xml:space="preserve"><value>Videodecodering</value></data>
+  <data name="Resources_GpuDevice" xml:space="preserve"><value>GPU · {0}</value></data>
+  <data name="Resources_GpuEncode" xml:space="preserve"><value>Videocodering</value></data>
+  <data name="Resources_GpuEngines" xml:space="preserve"><value>Afzonderlijke engines</value></data>
+  <data name="Resources_GpuHelp" xml:space="preserve"><value>Meetwaarden verschillen per GPU, driver en platform. GPU-activiteit is de totale driverwaarde of de drukste engine. Video / media kan codering en decodering combineren. Categorieën zonder waargenomen metingen worden verborgen; dit betekent niet dat de hardware ze niet ondersteunt. 0% is een geldige meting; N/A betekent dat een getoonde meetwaarde momenteel niet beschikbaar is. Metingen overlappen; tel ze niet op.</value></data>
+  <data name="Resources_GpuScope" xml:space="preserve"><value>GPU-metingen gelden voor hele apparaten die deze host/container ziet, inclusief andere toepassingen. Ze zijn niet exclusief voor Lineup of per stream en omvatten geen GPU&apos;s van externe werkhosts.</value></data>
+  <data name="Resources_GpuSharedHelp" xml:space="preserve"><value>Intel-video-engines (vcs) delen codering en decodering. De gedeelde waarde is die van de drukste codec-engine, niet hun som. Videoverbetering (vecs) is apart. De enginenamen komen van de driver.</value></data>
+  <data name="Resources_GpuState_paused" xml:space="preserve"><value>GPU-verzameling is gepauzeerd; bewaarde geschiedenis is geen huidig gebruik.</value></data>
+  <data name="Resources_GpuState_permission_denied" xml:space="preserve"><value>Bewakingsrechten van de host/container weigeren toegang tot GPU-tellers. Streamingrechten staan hier los van.</value></data>
+  <data name="Resources_GpuState_read_failed" xml:space="preserve"><value>Sommige GPU-tellers konden niet worden gelezen. Zie het serverlogboek.</value></data>
+  <data name="Resources_GpuState_unsupported" xml:space="preserve"><value>Deze host/container of driver biedt geen ondersteunde GPU-activiteitsteller.</value></data>
+  <data name="Resources_GpuState_warming_up" xml:space="preserve"><value>GPU-tellerbasissen worden vastgesteld.</value></data>
+  <data name="Resources_GpuVideo" xml:space="preserve"><value>Video / media</value></data>
+  <data name="Resources_GpuVideoShared" xml:space="preserve"><value>Videocodering/-decodering — gedeeld</value></data>
+  <data name="Resources_Heading" xml:space="preserve"><value>Brongebruik</value></data>
+  <data name="Resources_Management" xml:space="preserve"><value>Beheerhost</value></data>
+  <data name="Resources_Media" xml:space="preserve"><value>Media- en levensduurhulpprocessen</value></data>
+  <data name="Resources_Memory" xml:space="preserve"><value>RAM</value></data>
+  <data name="Resources_MemoryHelp" xml:space="preserve"><value>Som van resident procesgeheugen; gedeelde pagina&apos;s kunnen meermaals worden geteld.</value></data>
+  <data name="Resources_NoProcess" xml:space="preserve"><value>Voor deze fase is geen afzonderlijk proces gemeld. Dit is geen gemeten nulwaarde.</value></data>
+  <data name="Resources_Observed" xml:space="preserve"><value>Laatst waargenomen</value></data>
+  <data name="Resources_Partial" xml:space="preserve"><value>Opwarmen of gedeeltelijke dekking: een of meer processen hebben geen actuele meting. Gaten betekenen geen nulverbruik.</value></data>
+  <data name="Resources_Paused" xml:space="preserve"><value>Het verzamelen van brongebruik is gepauzeerd. De bewaarde geschiedenis toont niet het actuele gebruik.</value></data>
+  <data name="Resources_ProcessScope" xml:space="preserve"><value>CPU en geheugen worden voor het hele proces gemeten, niet afzonderlijk voor decoderen, filters, coderen, audio of multiplexen.</value></data>
+  <data name="Resources_Role" xml:space="preserve"><value>Procesrol</value></data>
+  <data name="Resources_Role_captions" xml:space="preserve"><value>Ondertiteling extraheren</value></data>
+  <data name="Resources_Role_helper" xml:space="preserve"><value>Levensduurhulpproces</value></data>
+  <data name="Resources_Role_management" xml:space="preserve"><value>Beheerhost</value></data>
+  <data name="Resources_Role_media" xml:space="preserve"><value>Mediaverwerking</value></data>
+  <data name="Resources_Role_output" xml:space="preserve"><value>Uitvoerverwerking</value></data>
+  <data name="Resources_Role_source" xml:space="preserve"><value>Bronverwerking</value></data>
+  <data name="Resources_Role_worker" xml:space="preserve"><value>Toegewezen worker</value></data>
+  <data name="Resources_Scope" xml:space="preserve"><value>CPU en RAM gelden alleen voor Lineup-processen. Dashboards delen een voortschrijdende geschiedenis in het geheugen, die bij herstart wordt gewist.</value></data>
+  <data name="Resources_SharedCost" xml:space="preserve"><value>Kosten van het hele proces: een herbruikbare producent kan meerdere kijkers bedienen. Gedeeld werk wordt eenmaal geteld in het overzicht, niet verdeeld over kijkers.</value></data>
+  <data name="Resources_SharedHost" xml:space="preserve"><value>Opgenomen in een gedeeld hostproces. Exclusieve CPU en geheugen voor deze fase zijn niet met lichte procestellers te meten.</value></data>
+  <data name="Resources_State_process_unavailable" xml:space="preserve"><value>Proces niet beschikbaar</value></data>
+  <data name="Resources_State_stale" xml:space="preserve"><value>Verouderde waarneming</value></data>
+  <data name="Resources_State_warming_up" xml:space="preserve"><value>CPU-basiswaarde vaststellen</value></data>
+  <data name="Resources_TimeAxis" xml:space="preserve"><value>Tijd geleden</value></data>
+  <data name="Resources_Toggle" xml:space="preserve"><value>Grafieken tonen / verbergen</value></data>
+  <data name="Resources_Total" xml:space="preserve"><value>Lineup-totaal</value></data>
+  <data name="Resources_Workers" xml:space="preserve"><value>Toegewezen workers</value></data>
   <data name="Settings_AboutActiveStreams" xml:space="preserve"><value>Bepaalt hoe vaak het Dashboard de cacheweergave van gebruikers, tunergebruik, gedeelde acquisities, transcoderingen en streamingstroom vernieuwt.</value></data>
   <data name="Settings_AboutActiveStreamsTitle" xml:space="preserve"><value>Actieve streams</value></data>
   <data name="Settings_AboutAppearance" xml:space="preserve"><value>Bepaalt hoe de webinterface wordt weergegeven zonder het gedrag van gedeelde streaming of de gids te wijzigen.</value></data>
@@ -442,6 +491,7 @@
   <data name="Settings_AboutRegional" xml:space="preserve"><value>Bepaalt hoe datums en tijden in Lineup worden weergegeven. Dit wijzigt geen programmatijdstempels die door gidsproviders zijn opgeslagen.</value></data>
   <data name="Settings_AboutReset" xml:space="preserve"><value>Zet standaard gedeelde en webinstellingen klaar voor controle zonder de opgeslagen configuratie direct te wijzigen.</value></data>
   <data name="Settings_AboutResetTitle" xml:space="preserve"><value>Instellingen herstellen</value></data>
+  <data name="Settings_AboutResources" xml:space="preserve"><value>Regelt lichte CPU-, RAM- en ondersteunde apparaatbrede GPU-bewaking en de geschiedenis in het geheugen. GPU-metingen kunnen andere toepassingen bevatten; niet-beschikbare engines tonen N/A. Standaard worden alleen gegevens verzameld als een dashboard zichtbaar is. Schakel continu verzamelen in voor achtergrondmetingen; de geschiedenis wordt nooit naar schijf geschreven en verdwijnt bij een herstart.</value></data>
   <data name="Settings_AboutRestart" xml:space="preserve"><value>Start de host gecontroleerd opnieuw zonder de configuratie te wijzigen of gegevens te verwijderen.</value></data>
   <data name="Settings_AboutRestartTitle" xml:space="preserve"><value>Lineup opnieuw starten</value></data>
   <data name="Settings_AboutStatusApiEnd" xml:space="preserve"><value>zodat een stabiele antwoordstructuur behouden blijft zonder apparaat- of gidsbewerkingen te activeren.</value></data>
@@ -781,6 +831,11 @@
   <data name="Settings_ResetStoragePrefix" xml:space="preserve"><value>Herstelbewerkingen kunnen gevolgen hebben voor</value></data>
   <data name="Settings_ResetStorageSuffix" xml:space="preserve"><value>en andere toepassingsgegevens van Lineup.</value></data>
   <data name="Settings_ResolvedPathLabel" xml:space="preserve"><value>Bepaald pad:</value></data>
+  <data name="Settings_ResourceHistoryHelp" xml:space="preserve"><value>Bewaar 1-60 minuten in het geheugen. Verhogen herstelt geen eerdere waarnemingen.</value></data>
+  <data name="Settings_ResourceHistoryLabel" xml:space="preserve"><value>Geschiedenis van brongebruik (minuten)</value></data>
+  <data name="Settings_ResourceHistoryValidation" xml:space="preserve"><value>De geschiedenis van brongebruik moet tussen 1 en 60 minuten liggen.</value></data>
+  <data name="Settings_ResourceVisibilityHelp" xml:space="preserve"><value>Schakel in om ook zonder zichtbaar dashboard resourcegegevens te verzamelen en te cachen. Standaard uitgeschakeld: verzamelen gebeurt alleen bij een zichtbaar dashboard. De geschiedenis blijft in het geheugen en verdwijnt bij een herstart.</value></data>
+  <data name="Settings_ResourceVisibilityLabel" xml:space="preserve"><value>Resourcegegevens continu verzamelen</value></data>
   <data name="Settings_RestartButton" xml:space="preserve"><value>Lineup opnieuw starten</value></data>
   <data name="Settings_RestartDelayedHeading" xml:space="preserve"><value>Lineup doet er langer over dan verwacht</value></data>
   <data name="Settings_RestartDelayedHelp" xml:space="preserve"><value>Controleer of Lineup actief is en probeer opnieuw verbinding te maken.</value></data>
@@ -864,6 +919,8 @@
   <data name="Settings_VirtualHevcHelp" xml:space="preserve"><value>Standaarduitvoerconversie voor gebruikers die HEVC niet kunnen verwerken.</value></data>
   <data name="Settings_VirtualTranscoderDefaultsDescription" xml:space="preserve"><value>Elk virtueel apparaat neemt deze instellingen voor de uitvoerfase over, tenzij op het tabblad een overschrijving wordt ingeschakeld.</value></data>
   <data name="Settings_VirtualTunerDiscoveryHeading" xml:space="preserve"><value>Detectie van virtuele tuners</value></data>
+  <data name="Settings_WebPlayerExtractEmbeddedCaptions" xml:space="preserve"><value>Ingesloten ondertitels extraheren</value></data>
+  <data name="Settings_WebPlayerExtractEmbeddedCaptionsHelp" xml:space="preserve"><value>Standaard uitgeschakeld voor alle kijkers. Schakel in om ingesloten ondertitels te extraheren; losse ondertitels blijven ongewijzigd. Sla op en herstart de weergave; toegewezen listeners worden opnieuw ingesteld.</value></data>
   <data name="Settings_WebSettingsStorage" xml:space="preserve"><value>Deze instellingen van de webhost worden opgeslagen in</value></data>
   <data name="Settings_WebSettingsStorageSuffix" xml:space="preserve"><value>en blijven behouden na herstarts.</value></data>
   <data name="Settings_WelcomeAnd" xml:space="preserve"><value>en</value></data>
@@ -987,7 +1044,13 @@
   <data name="Transcoding_HardwareArguments" xml:space="preserve"><value>Geavanceerde GPU-opties</value></data>
   <data name="Transcoding_HardwareArgumentsHelp" xml:space="preserve"><value>Eén optie=waarde per regel, zonder beginnend streepje; maximaal 16. Afhankelijk van de backend, bijvoorbeeld preset=p4 voor NVENC. Invoer, uitvoer, maps en shellopdrachten zijn niet toegestaan.</value></data>
   <data name="Transcoding_HardwareDevice" xml:space="preserve"><value>GPU-apparaat (optioneel)</value></data>
+  <data name="Transcoding_HardwareDeviceCustom" xml:space="preserve"><value>Aangepast apparaat</value></data>
+  <data name="Transcoding_HardwareDeviceDefault" xml:space="preserve"><value>Standaard (automatisch)</value></data>
+  <data name="Transcoding_HardwareDeviceDetectedHelp" xml:space="preserve"><value>Apparaten worden op deze Lineup-host/container ontdekt, niet in uw browser. Kandidaten worden per encoder gefilterd; ondersteuning wordt bij het starten van codering gecontroleerd. Herstart Lineup om de lijst te vernieuwen.</value></data>
+  <data name="Transcoding_HardwareDeviceDiscoveryFailed" xml:space="preserve"><value>GPU-detectie mislukt. Bestaande instellingen blijven behouden; gebruik Standaard of Aangepast apparaat. Zie het serverlogboek voor details.</value></data>
   <data name="Transcoding_HardwareDeviceHelp" xml:space="preserve"><value>Linux QSV/VA-API: /dev/dri/renderD128. NVENC en Windows QSV/AMF: GPU-index. Leeg voor het standaardapparaat; VideoToolbox gebruikt het systeemapparaat.</value></data>
+  <data name="Transcoding_HardwareDeviceLoading" xml:space="preserve"><value>GPU-apparaten ontdekken…</value></data>
+  <data name="Transcoding_HardwareDeviceNone" xml:space="preserve"><value>Geen overeenkomende GPU-apparaten ontdekt. Gebruik Standaard of voer een aangepast apparaat in als detectie het niet kan identificeren.</value></data>
   <data name="Transcoding_HardwareEncoder" xml:space="preserve"><value>Video-encoder</value></data>
   <data name="Transcoding_HardwareFallback" xml:space="preserve"><value>Softwareterugval vóór afspelen toestaan</value></data>
   <data name="Transcoding_HardwareFallbackHelp" xml:space="preserve"><value>Standaard uitgeschakeld. Na een mislukte GPU-startcontrole kan na opruiming software worden gebruikt. Gepubliceerde streams worden nooit stilzwijgend herstart.</value></data>
