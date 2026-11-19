@@ -46,7 +46,17 @@ jobs:
         run: dotnet build Lineup.slnx -c Release --no-restore
 
       - name: Run tests
-        run: dotnet test Lineup.slnx -c Release --no-build --no-restore
+        run: |
+          $testFilter = @()
+          if ($IsWindows) {
+            # xUnit collection isolation does not prevent other test assemblies from running concurrently.
+            $diagnostics = 'Lineup.App.Web.Tests.Services.FfmpegStreamDiagnosticsTests.'
+            $webTests = (Resolve-Path 'tests\Apps\Lineup.App.Web.Tests\Lineup.App.Web.Tests.csproj').Path
+            dotnet test $webTests -c Release --no-build --no-restore --filter "FullyQualifiedName~$diagnostics" --minimum-expected-tests 1
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $testFilter = @('--filter', "FullyQualifiedName!~$diagnostics")
+          }
+          dotnet test Lineup.slnx -c Release --no-build --no-restore @testFilter
 
       - name: Run browser regressions
         run: |

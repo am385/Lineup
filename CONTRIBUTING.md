@@ -56,6 +56,8 @@ Ordinary CI and development/release publishing share `.github/workflows/validate
 the browser regressions, formatting verification, and installed-worker smoke tests. The smoke tests use the hash-verified worker packages installed
 by the Web host build, exercising Web Player startup/captions/stop and shared HDHomeRun/Lineup Link admission and crash recovery without physical hardware.
 Publishing waits for both platforms to pass.
+On Windows, CI runs the noisy FFmpeg diagnostics class on its own to avoid contention with other test assemblies.
+The remaining tests still run in parallel, and the Linux test invocation is unchanged.
 
 The streaming-sweep harness is checked in as an opt-in hardware certification test:
 
