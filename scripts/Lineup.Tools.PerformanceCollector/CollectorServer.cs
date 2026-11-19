@@ -121,8 +121,9 @@ internal sealed class CollectorServer
                         {
                             Console.Error.WriteLine($"Collector connection closed without a clean peer shutdown: {exception.Message}");
                         }
-                        pipe.Disconnect();
                     }
+                    // A broken accepted connection still needs resetting before the next accept.
+                    pipe.Disconnect();
                 }
             }
         }

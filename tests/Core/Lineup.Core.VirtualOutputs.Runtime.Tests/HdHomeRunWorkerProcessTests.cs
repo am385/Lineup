@@ -172,6 +172,7 @@ public sealed class HdHomeRunWorkerProcessTests
     private sealed class Harness : IAsyncDisposable
     {
         private readonly VirtualOutputSessionAuthority _authority = new();
+        private readonly VirtualOutputRuntimeStatus _status = new();
         private readonly VirtualOutputIpcServer _server;
         private readonly VirtualOutputWorkerBootstrap _bootstrap;
         private readonly PhysicalDeviceId[] _physicalIds = [PhysicalDeviceId.New(), PhysicalDeviceId.New()];
@@ -180,6 +181,7 @@ public sealed class HdHomeRunWorkerProcessTests
         private Task<string>? _output;
         private Task<string>? _error;
         private readonly string? _lineupLinkToken;
+        private string _lastReadiness = "No readiness request completed.";
 
         private Harness(int? cap, bool selected, bool lineupLink, IPluginConnectionBudget? budget)
         {
@@ -239,7 +241,7 @@ public sealed class HdHomeRunWorkerProcessTests
             var broker = new VirtualOutputBroker(
                 _authority, settings, new StreamingAdapterRegistry([], [driver], []), catalog, Substitute.For<IStreamingRouteResolver>(),
                 Guides, Substitute.For<IVirtualMpegTsOutputService>(), activeStreams);
-            _server = new VirtualOutputIpcServer(endpoint, _authority, broker, new VirtualOutputRuntimeStatus(), settings, activeStreams,
+            _server = new VirtualOutputIpcServer(endpoint, _authority, broker, _status, settings, activeStreams,
                 NullLogger<VirtualOutputIpcServer>.Instance, budget ?? new PluginConnectionBudget(settings));
             var capabilities = new HashSet<VirtualOutputCapability> { VirtualOutputCapability.ReadManifest, VirtualOutputCapability.ReportHealth, VirtualOutputCapability.AdmitConnection };
             if (lineupLink)
@@ -326,10 +328,25 @@ public sealed class HdHomeRunWorkerProcessTests
                 }
                 return harness;
             }
-            catch
+            catch (Exception exception)
             {
+                var process = harness._worker;
+                var processState = process is null ? "not started" : process.HasExited ? $"exited with code {process.ExitCode}" : $"running with PID {process.Id}";
+                var snapshots = harness._status.GetSnapshots();
+                var brokerState = snapshots.Count == 0 ? "not registered" : string.Join(", ", snapshots.Select(snapshot => snapshot.State));
+                ThreadPool.GetAvailableThreads(out var availableWorkers, out var availableIo);
+                var diagnostics = $"Process: {processState}. Readiness: {harness._lastReadiness}. " +
+                    $"Broker state: {brokerState}. " +
+                    $"Thread pool: {ThreadPool.ThreadCount} threads, {ThreadPool.PendingWorkItemCount} queued, {availableWorkers} workers and {availableIo} IO threads available.";
                 await harness.DisposeAsync();
-                throw;
+                if (exception is OperationCanceledException)
+                {
+                    throw;
+                }
+                var output = harness._output is null ? string.Empty : await harness._output;
+                var error = harness._error is null ? string.Empty : await harness._error;
+                throw new InvalidOperationException($"Virtual output worker startup failed. {diagnostics}{Environment.NewLine}STDOUT:{Environment.NewLine}{output}" +
+                    $"{Environment.NewLine}STDERR:{Environment.NewLine}{error}", exception);
             }
         }
 
@@ -367,6 +384,7 @@ public sealed class HdHomeRunWorkerProcessTests
                 {
                     var path = _lineupLinkToken is null ? "/lineup_status.json" : $"{LineupLinkProtocol.DevicePath(DeviceId.Value)}/manifest";
                     using var response = await Client.GetAsync(path, TestContext.Current.CancellationToken);
+                    _lastReadiness = $"HTTP {(int)response.StatusCode} after {elapsed.Elapsed}.";
                     if (_lineupLinkToken is not null && response.StatusCode == HttpStatusCode.Unauthorized)
                     {
                         return;
@@ -374,8 +392,9 @@ public sealed class HdHomeRunWorkerProcessTests
                     response.EnsureSuccessStatusCode();
                     return;
                 }
-                catch (HttpRequestException)
+                catch (HttpRequestException exception)
                 {
+                    _lastReadiness = $"{exception.GetType().Name} after {elapsed.Elapsed}: {exception.Message}";
                     await Task.Delay(50, TestContext.Current.CancellationToken);
                 }
             }
@@ -395,6 +414,8 @@ public sealed class HdHomeRunWorkerProcessTests
                         _worker.Kill(entireProcessTree: true);
                     }
                     await _worker.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+                    if (_output is not null) await _output;
+                    if (_error is not null) await _error;
                     _worker.Dispose();
                 }
             }

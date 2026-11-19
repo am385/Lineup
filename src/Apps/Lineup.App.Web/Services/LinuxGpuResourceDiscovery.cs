@@ -6,7 +6,7 @@ internal static class LinuxGpuResourceDiscovery
     /// <summary>Discovers NVIDIA, AMD sysfs and Intel i915 PMU providers exposed by the host/container.</summary>
     internal static IReadOnlyList<IGpuResourceSource> Discover(ILogger logger)
     {
-        var sources = new List<IGpuResourceSource> { new NvidiaGpuResourceSource() };
+        var sources = new List<IGpuResourceSource> { new NvidiaGpuResourceSource(logger) };
         const string drm = "/sys/class/drm";
         if (Directory.Exists(drm))
         {

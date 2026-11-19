@@ -981,6 +981,7 @@ unavailable or paused readings show N/A, never retained percentages. GPU percent
 The CPU, RAM and GPU subcards each have an independent chevron control to hide their content while leaving their title and current summary visible.
 CPU and RAM subheaders show Lineup totals; each GPU subheader shows that device's whole-device activity. Paused or unavailable readings show N/A.
 These subcard preferences are saved in the current browser and restored after navigation or a page reload, independently of other dashboard sections.
+Ordinary navigation finishes already-queued preference writes, including choices made while saved state is still loading.
 GPU preferences follow each device's internal identity, not its name or position. Missing preferences default to expanded; browser-storage failures are logged and do not disable the controls.
 Channels, Physical Devices and Active Streams refresh buttons sit at the bottom right of their card bodies and hide with the content when collapsed.
 
@@ -1005,6 +1006,8 @@ On Windows, card titles use DXGI adapter names matched to GPU-counter LUIDs, not
 The LUID remains the internal sample/history identity. Name discovery is cached; a failed lookup logs a warning and retains the counter-identity label without losing utilization readings.
 Software adapters such as Microsoft Basic Render Driver retain their actual names; they are not additional physical GPUs.
 Linux NVIDIA already supplies model names through NVML. Linux AMD and Intel currently use vendor/card or PMU labels rather than resolved model names.
+An inaccessible NVIDIA adapter does not hide readable NVIDIA adapters. Previously identified failed adapters retain their names with unavailable metrics;
+failures before an adapter can be identified still report a partial monitoring error without inventing a device identity.
 Unraid Docker uses the Linux readers and sees only devices, libraries and counters exposed to that container; native Linux uses the same readers with host access.
 Native macOS has no GPU telemetry provider. Docker Desktop on macOS runs in a Linux VM and does not expose the Mac GPU to these readers.
 
@@ -1222,6 +1225,7 @@ No service, scheduled task, credentials, UAC/policy change, network listener or 
 Each observation is limited to 1-300 seconds, at most 16 explicit process roots and 20 captures per collector. It exits after ten idle minutes,
 ninety minutes total, a stop request, or unconfirmed WPR cleanup. Captures are serialized: another status/stop cannot interrupt an in-progress
 capture/export. WPR start allows one minute; trace save, source checksumming and normal export acknowledgment each allow ten minutes.
+Closing a client before its request frame is complete does not terminate the collector session.
 Expiry/Ctrl+C requests an owned-instance save before exiting; closing/killing the console or restarting Windows cannot guarantee cleanup.
 Stop the collector before rebuilding its tool binaries, which remain locked against modification while it runs.
 

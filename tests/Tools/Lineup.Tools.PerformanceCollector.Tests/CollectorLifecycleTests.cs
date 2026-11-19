@@ -303,22 +303,75 @@ public sealed class CollectorLifecycleTests
         }
     }
 
-    /// <summary>Rejects server PID reuse or endpoint substitution even when the pipe is reachable.</summary>
+    /// <summary>Keeps accepting legitimate clients after a peer disconnects before or during a bounded request.</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(2)]
+    [InlineData(5)]
+    public async Task Server_DisconnectedRequest_AllowsNextClient(int bytesToWrite)
+    {
+        // Arrange
+        Assert.SkipWhen(!OperatingSystem.IsWindows(), "Requires local Windows named pipes.");
+        var clock = new ControlledTimeProvider();
+        await using var fixture = new Fixture(clock: clock);
+        byte[] frame = [2, 0, 0, 0, (byte)'{']; // Declares two JSON bytes but supplies only the opening brace.
+        CollectorReply reply;
+
+        // Act
+        await using (var disconnected = await fixture.ConnectAsync())
+        {
+            await clock.WaitForTimerAsync(TimeSpan.FromSeconds(10), fixture.Watchdog.Token);
+            if (bytesToWrite > 0)
+            {
+                await disconnected.WriteAsync(frame.AsMemory(0, bytesToWrite), fixture.Watchdog.Token);
+                await disconnected.FlushAsync(fixture.Watchdog.Token);
+            }
+        }
+        await using (var next = await fixture.ConnectAsync())
+        {
+            await CollectorWire.WriteAsync(next, new CollectorRequest(), fixture.Watchdog.Token);
+            reply = await CollectorWire.ReadAsync<CollectorReply>(next, fixture.Watchdog.Token);
+        }
+        await fixture.StopAsync();
+
+        // Assert
+        Assert.True(reply.Success);
+        Assert.Equal("ready", reply.State);
+        Assert.Equal(0, fixture.Recorder.Captures);
+        Assert.False(Directory.Exists(fixture.Spool));
+    }
+
+    /// <summary>Rejects server PID reuse or endpoint substitution and remains usable after that client disconnects.</summary>
     [Fact]
     public async Task Client_RejectsWrongPublishedServerLifetime()
     {
         // Arrange
         Assert.SkipWhen(!OperatingSystem.IsWindows(), "Requires local Windows named pipes.");
-        await using var fixture = new Fixture();
-        await using var pipe = await fixture.ConnectAsync();
+        var clock = new ControlledTimeProvider();
+        await using var fixture = new Fixture(clock: clock);
         using var self = Process.GetCurrentProcess();
         var wrong = new CollectorSession(fixture.SessionId, self.Id, self.StartTime.ToUniversalTime().Ticks - 1);
+        Exception? exception;
+        CollectorReply reply;
+        await using (var pipe = await fixture.ConnectAsync())
+        {
+            await clock.WaitForTimerAsync(TimeSpan.FromSeconds(10), fixture.Watchdog.Token);
 
-        // Act
-        var exception = Record.Exception(() => CollectorPlatform.ValidateServer(pipe, wrong));
+            // Act
+            exception = Record.Exception(() => CollectorPlatform.ValidateServer(pipe, wrong));
+        }
+        await using (var next = await fixture.ConnectAsync())
+        {
+            await CollectorWire.WriteAsync(next, new CollectorRequest(), fixture.Watchdog.Token);
+            reply = await CollectorWire.ReadAsync<CollectorReply>(next, fixture.Watchdog.Token);
+        }
+        await fixture.StopAsync();
 
         // Assert
         Assert.IsType<UnauthorizedAccessException>(exception);
+        Assert.True(reply.Success);
+        Assert.Equal("ready", reply.State);
+        Assert.Equal(0, fixture.Recorder.Captures);
     }
 
     private static CollectorRequest CaptureRequest()

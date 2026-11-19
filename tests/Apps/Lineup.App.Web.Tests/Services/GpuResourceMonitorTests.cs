@@ -192,6 +192,78 @@ public sealed class GpuResourceMonitorTests
         Assert.Equal(expected, actual);
     }
 
+    /// <summary>Verifies one denied or broken NVIDIA adapter never hides readable adapters, and known identities recover without stale measurements.</summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void NvidiaDevices_AdapterFailure_PreservesAccessibleMetricsAndKnownIdentities(bool observedBeforeFailure, bool denied)
+    {
+        // Arrange
+        var fail = !observedBeforeFailure;
+        var logger = Substitute.For<ILogger>();
+        using var nvidia = new NvidiaGpuResourceSource(logger);
+        GpuResourceSample ReadDevice(uint index)
+        {
+            if (index == 1 && fail)
+            {
+                if (denied) throw new UnauthorizedAccessException("Adapter monitoring denied.");
+                throw new GpuCounterException("Adapter query failed.");
+            }
+            return new($"nvidia:gpu-{index}", $"GPU {index}", index == 0 ? 0 : 40, 20, 30, null);
+        }
+        var provider = Substitute.For<IGpuResourceSource>();
+        provider.Read().Returns(_ => nvidia.ReadDevices(3, ReadDevice));
+        var unsupported = Substitute.For<IGpuResourceSource>();
+        unsupported.Read().Returns(new GpuResourceSnapshot([], "unsupported"));
+        using var source = new NativeGpuResourceSource(NullLogger<NativeGpuResourceSource>.Instance, () => [provider, unsupported]);
+        if (observedBeforeFailure) source.Read();
+
+        // Act
+        fail = true;
+        var first = source.Read();
+        var repeated = source.Read();
+
+        // Assert
+        var reason = denied ? "permission_denied" : "read_failed";
+        foreach (var snapshot in new[] { first, repeated })
+        {
+            Assert.Equal(reason, snapshot.UnavailableReason);
+            Assert.Equal(observedBeforeFailure ? 3 : 2, snapshot.Devices.Count);
+            var idle = Assert.Single(snapshot.Devices, device => device.Id == "nvidia:gpu-0");
+            Assert.Equal(0, idle.Utilization);
+            Assert.Equal(20, idle.Encode);
+            Assert.Equal(30, idle.Decode);
+            Assert.Null(idle.UnavailableReason);
+            Assert.Equal(40, Assert.Single(snapshot.Devices, device => device.Id == "nvidia:gpu-2").Utilization);
+            if (observedBeforeFailure)
+            {
+                var unavailable = Assert.Single(snapshot.Devices, device => device.Id == "nvidia:gpu-1");
+                Assert.Equal("GPU 1", unavailable.Name);
+                Assert.Null(unavailable.Utilization);
+                Assert.Null(unavailable.Encode);
+                Assert.Null(unavailable.Decode);
+                Assert.Null(unavailable.Video);
+                Assert.Equal(reason, unavailable.UnavailableReason);
+            }
+        }
+        Assert.Single(logger.ReceivedCalls(), call => call.GetMethodInfo().Name == "Log" && call.GetArguments()[0] is LogLevel.Warning);
+
+        // Act
+        fail = false;
+        var recovered = source.Read();
+        fail = true;
+        source.Read();
+
+        // Assert
+        Assert.Null(recovered.UnavailableReason);
+        Assert.Equal(3, recovered.Devices.Count);
+        Assert.All(recovered.Devices, device => Assert.Null(device.UnavailableReason));
+        Assert.Equal(40, Assert.Single(recovered.Devices, device => device.Id == "nvidia:gpu-1").Utilization);
+        Assert.Equal(2, logger.ReceivedCalls().Count(call => call.GetMethodInfo().Name == "Log" && call.GetArguments()[0] is LogLevel.Warning));
+    }
+
     /// <summary>Verifies inaccessible providers are explicit, warning-suppressed and isolated from working devices.</summary>
     [Fact]
     public void NativeSources_PermissionFailure_KeepsOtherDevicesAndWarnsOnce()
@@ -712,13 +784,87 @@ public sealed class GpuResourceMonitorTests
         }
     }
 
-    private static void ConfigureResourcePanel(LineupWebBunitContext context, DashboardResourceMonitor monitor, string? saved = null)
+    /// <summary>Verifies navigation drains queued writes and a pending restore without losing any final browser-local choices.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ResourcesPanel_NavigationDuringPendingStorage_PersistsFinalPreferences(bool restoring)
+    {
+        // Arrange
+        await using var context = new LineupWebBunitContext();
+        var settings = Substitute.For<IWebSettingsService>();
+        settings.Settings.Returns(new WebSettings());
+        using var monitor = new DashboardResourceMonitor(settings, Substitute.For<IVirtualOutputRuntimeStatus>(), NullLogger<DashboardResourceMonitor>.Instance, new());
+        ConfigureResourcePanel(context, monitor, configureStorage: false);
+        const string saved = "{\"cpu\":true,\"ram\":true,\"gpu-unavailable\":false}";
+        var restore = context.JSInterop.Setup<string?>("localStorage.getItem", ResourceStateStorageKey);
+        if (!restoring) restore.SetResult(saved);
+        var write = context.JSInterop.SetupVoid("localStorage.setItem", _ => true);
+        var component = context.Render<DashboardResourcesPanel>();
+        Task first = Task.CompletedTask;
+        Task second = Task.CompletedTask;
+        Task disposal = Task.CompletedTask;
+        string? persisted = null;
+        try
+        {
+            // Act
+            first = component.Find("#resourceCharts > section[aria-label='CPU'] button").ClickAsync(new());
+            component.WaitForAssertion(() =>
+                Assert.True(component.Find("#resourceCharts > section[aria-label='CPU'] > .card-body").HasAttribute("hidden")),
+                timeout: LineupWebBunitContext.WaitTimeout);
+            if (!restoring)
+            {
+                Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "localStorage.setItem");
+            }
+            second = component.Find("#resourceCharts > section[aria-label='RAM'] button").ClickAsync(new());
+            component.WaitForAssertion(() =>
+                Assert.True(component.Find("#resourceCharts > section[aria-label='RAM'] > .card-body").HasAttribute("hidden")),
+                timeout: LineupWebBunitContext.WaitTimeout);
+            disposal = context.DisposeComponentsAsync();
+
+            // Assert
+            Assert.False(disposal.IsCompleted);
+
+            // Act
+            if (restoring) restore.SetResult(saved);
+            write.SetVoidResult();
+            await Task.WhenAll(first, second, disposal).WaitAsync(LineupWebBunitContext.WaitTimeout, Xunit.TestContext.Current.CancellationToken);
+            var writes = context.JSInterop.Invocations.Where(invocation => invocation.Identifier == "localStorage.setItem").ToArray();
+
+            // Assert
+            Assert.NotEmpty(writes);
+            persisted = Assert.IsType<string>(writes.Last().Arguments[1]);
+            var values = JsonSerializer.Deserialize<Dictionary<string, bool>>(persisted)!;
+            Assert.All(new[] { "cpu", "ram", "gpu-unavailable" }, key => Assert.False(values[key]));
+        }
+        finally
+        {
+            if (restoring) restore.SetResult(saved);
+            write.SetVoidResult();
+            await Task.WhenAll(first, second, disposal).WaitAsync(LineupWebBunitContext.WaitTimeout, CancellationToken.None);
+        }
+
+        // Act
+        await using var returnedContext = new LineupWebBunitContext();
+        ConfigureResourcePanel(returnedContext, monitor, persisted);
+        var returned = returnedContext.Render<DashboardResourcesPanel>();
+
+        // Assert
+        var buttons = returned.FindAll("#resourceCharts > section > .card-header button");
+        Assert.Equal(3, buttons.Count);
+        Assert.All(buttons, button => Assert.Equal("false", button.GetAttribute("aria-expanded")));
+    }
+
+    private static void ConfigureResourcePanel(LineupWebBunitContext context, DashboardResourceMonitor monitor, string? saved = null, bool configureStorage = true)
     {
         context.Services.AddLogging();
         context.Services.AddSingleton(monitor);
         context.Services.AddScoped<IBrowserDataStore, BrowserDataStore>();
-        context.JSInterop.Setup<string?>("localStorage.getItem", ResourceStateStorageKey).SetResult(saved);
-        context.JSInterop.SetupVoid("localStorage.setItem", _ => true).SetVoidResult();
+        if (configureStorage)
+        {
+            context.JSInterop.Setup<string?>("localStorage.getItem", ResourceStateStorageKey).SetResult(saved);
+            context.JSInterop.SetupVoid("localStorage.setItem", _ => true).SetVoidResult();
+        }
         context.JSInterop.SetupVoid("lineupResources.start", _ => true).SetVoidResult();
         context.JSInterop.SetupVoid("lineupResources.stop", _ => true).SetVoidResult();
     }

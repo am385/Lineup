@@ -4,8 +4,10 @@ using System.Text;
 namespace Lineup.App.Web.Services;
 
 /// <summary>Reads NVIDIA's installed management library; no CUDA context or monitoring subprocess is created.</summary>
-internal sealed class NvidiaGpuResourceSource : IGpuResourceSource
+internal sealed class NvidiaGpuResourceSource(ILogger logger) : IGpuResourceSource
 {
+    private readonly Dictionary<uint, GpuResourceSample> _knownDevices = [];
+    private readonly HashSet<uint> _failed = [];
     private nint _library;
     private bool _initialized;
     private Initialize? _initialize;
@@ -51,23 +53,55 @@ internal sealed class NvidiaGpuResourceSource : IGpuResourceSource
             _initialized = true;
         }
         Check(_getCount!(out var count));
+        return ReadDevices(count, ReadDevice);
+    }
+
+    /// <summary>Reads bounded adapter observations independently, preserving known identities on per-device failures.</summary>
+    internal GpuResourceSnapshot ReadDevices(uint count, Func<uint, GpuResourceSample> readDevice)
+    {
         if (count > 16) throw new GpuCounterException("NVIDIA reported more than 16 GPU devices.");
         var devices = new List<GpuResourceSample>();
+        string? reason = count == 0 ? "unsupported" : null;
         for (uint index = 0; index < count; index++)
         {
-            Check(_getHandle!(index, out var device));
-            var name = new StringBuilder(128);
-            var uuid = new StringBuilder(128);
-            Check(_getName!(device, name, 128));
-            Check(_getUuid!(device, uuid, 128));
-            var status = _getUsage!(device, out var usage);
-            var total = status == 3 ? (double?)null : Percent(status, usage.Gpu);
-            var encode = Video(_getEncode, device);
-            var decode = Video(_getDecode, device);
-            devices.Add(new($"nvidia:{uuid}", name.ToString(), total, encode, decode, null,
-                total is null && encode is null && decode is null ? "unsupported" : null));
+            try
+            {
+                var sample = readDevice(index);
+                _knownDevices[index] = sample;
+                devices.Add(sample);
+                _failed.Remove(index);
+            }
+            catch (Exception exception) when (exception is UnauthorizedAccessException or GpuCounterException)
+            {
+                var state = exception is UnauthorizedAccessException ? "permission_denied" : "read_failed";
+                reason = state == "permission_denied" ? state : reason ?? state;
+                if (_knownDevices.TryGetValue(index, out var known))
+                {
+                    devices.Add(known with { Utilization = null, Encode = null, Decode = null, Video = null, UnavailableReason = state });
+                }
+                if (_failed.Add(index))
+                {
+                    logger.LogWarning(exception, "NVIDIA GPU adapter {Index} could not read counters", index);
+                }
+            }
         }
-        return new(devices, count == 0 ? "unsupported" : null);
+        return new(devices, reason);
+    }
+
+    private GpuResourceSample ReadDevice(uint index)
+    {
+        Check(_getHandle!(index, out var device));
+        var name = new StringBuilder(128);
+        var uuid = new StringBuilder(128);
+        Check(_getName!(device, name, 128));
+        Check(_getUuid!(device, uuid, 128));
+        var identity = new GpuResourceSample($"nvidia:{uuid}", name.ToString(), null, null, null, null);
+        _knownDevices[index] = identity;
+        var status = _getUsage!(device, out var usage);
+        var total = status == 3 ? (double?)null : Percent(status, usage.Gpu);
+        var encode = Video(_getEncode, device);
+        var decode = Video(_getDecode, device);
+        return identity with { Utilization = total, Encode = encode, Decode = decode, UnavailableReason = total is null && encode is null && decode is null ? "unsupported" : null };
     }
 
     /// <inheritdoc />

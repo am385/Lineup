@@ -137,6 +137,7 @@
 
     private Task SetCardExpanded(string key, bool expanded)
     {
+        if (_disposed) return Task.CompletedTask;
         _cardExpansion[key] = expanded;
         _changedExpansion.Add(key);
         _saveExpansion = SaveCardExpansion(_saveExpansion);
@@ -148,12 +149,12 @@
         try
         {
             var state = await BrowserData.ReadAsync<Dictionary<string, bool>>(SectionStateStorageKey);
-            if (_disposed || state is null) return;
+            if (state is null) return;
             foreach (var (key, expanded) in state)
             {
                 if (!_changedExpansion.Contains(key)) _cardExpansion[key] = expanded;
             }
-            StateHasChanged();
+            if (!_disposed) StateHasChanged();
         }
         catch (JsonException exception)
         {
@@ -181,7 +182,6 @@
     {
         await _restoreExpansion;
         await previous;
-        if (_disposed) return;
         try
         {
             await BrowserData.WriteAsync(SectionStateStorageKey, _cardExpansion);

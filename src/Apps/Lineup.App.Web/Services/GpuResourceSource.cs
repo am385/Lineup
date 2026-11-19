@@ -66,6 +66,7 @@ public sealed class NativeGpuResourceSource : IGpuResourceSource
                 if (snapshot.Devices.Count > 0) _knownDevices[index] = snapshot.Devices;
                 else AddUnavailable(index, snapshot.UnavailableReason ?? "unsupported");
                 reason = snapshot.UnavailableReason ?? reason;
+                if (snapshot.UnavailableReason is "permission_denied" or "read_failed") failureReason ??= snapshot.UnavailableReason;
                 _failed.Remove(index);
             }
             catch (Exception exception) when (exception is GpuCounterException or IOException or UnauthorizedAccessException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
