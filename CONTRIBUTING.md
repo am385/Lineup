@@ -56,8 +56,9 @@ Ordinary CI and development/release publishing share `.github/workflows/validate
 the browser regressions, formatting verification, and installed-worker smoke tests. The smoke tests use the hash-verified worker packages installed
 by the Web host build, exercising Web Player startup/captions/stop and shared HDHomeRun/Lineup Link admission and crash recovery without physical hardware.
 Publishing waits for both platforms to pass.
-On Windows, CI runs the noisy FFmpeg diagnostics class on its own to avoid contention with other test assemblies.
-The remaining tests still run in parallel, and the Linux test invocation is unchanged.
+On Windows, CI runs one test module at a time with `--max-parallel-test-modules 1` so real SDK publishes, worker launches,
+and FFmpeg diagnostics cannot compete across test assemblies. Each module retains its existing xUnit collection parallelism
+and explicit concurrent-viewer/process coverage. No tests are filtered out, and the Linux test invocation is unchanged.
 
 The streaming-sweep harness is checked in as an opt-in hardware certification test:
 
@@ -70,6 +71,7 @@ The separate `Lineup.Integration.Streaming.Sweep.Tests` xunit project participat
 exercises only deterministic policies, persistence, ownership and reports; it never launches the live harness.
 
 Packaging regressions run in `Lineup.Tools.VirtualOutputWorkerPackager.Tests` as part of the solution gate. They use the installed SDK to publish tiny owned temporary projects and verify shared inventory, manifests, cache repair and real MSBuild publish/opt-out behavior without hardware.
+Temporary packaging SDK commands disable MSBuild node reuse, the CLI MSBuild server, and shared compilation in their child environment so nested publishers cannot retain deleted fixture working directories.
 Worker publishing sets deployment mode with `PublishSelfContained`, not a global `SelfContained=false`: the latter can create distinct executable-reference build nodes that concurrently overwrite the same intermediate assembly. The real-SDK graph regression verifies one compilation per helper intermediate directory and preserves portable/self-contained runtime configurations.
 RID-specific worker publishing also sets `PublishRuntimeIdentifier`: project-reference negotiation can remove `RuntimeIdentifier`,
 otherwise causing executable helpers to infer the build host's architecture instead of the deployment target. The graph regression
@@ -144,6 +146,7 @@ The app starts on `http://localhost:8080`.
 - Do not let short worker leases bound real-process setup. Test crash/disconnect cleanup separately from precise lease expiration; use the same controlled clock for session authorization and maintenance sweeps in expiry tests.
 - Release controlled dependencies in `finally` and observe all owned work before teardown. Keep real-time watchdogs bounded, but do not use elapsed-time performance thresholds to prove lifecycle ordering.
 - Keep real-process readiness reports activation-specific so recovery never replaces a report still being inspected. Include drained child output when reporting an early process exit.
+- On .NET 10 Windows, redirected process-output reads can block thread-pool workers for the child's lifetime. Keep long-lived test-worker output drains off the broker's thread pool and await them after stopping the child.
 - When replacing a stateful NSubstitute callback, use `Configure()` so configuring a failure does not execute the previous callback. Verify Arrange leaves controlled workers alive until the intended exit or stop.
 - Observe short-lived test processes through their original `Process` instance before handing ownership to the code under test; retain exit signals after disposal instead of reopening a PID that may already be gone. Cover probes that exit before the factory returns.
 - Real Web Player process tests run in an isolated collection to keep unrelated launch/IPC stress from consuming production admission deadlines. Keep their explicit concurrent-viewer tests and production deadlines unchanged.

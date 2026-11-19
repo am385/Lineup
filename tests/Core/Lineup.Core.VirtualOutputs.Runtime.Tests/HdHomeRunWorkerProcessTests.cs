@@ -23,6 +23,32 @@ namespace Lineup.Core.VirtualOutputs.Runtime.Tests;
 /// <summary>Verifies real HDHomeRun capacity and connection admission shared with a dedicated Lineup Link worker.</summary>
 public sealed class HdHomeRunWorkerProcessTests
 {
+    /// <summary>Verifies blocked redirected output drains do not occupy broker thread-pool workers.</summary>
+    [Fact]
+    public async Task OutputCapture_BlockedRead_DoesNotOccupyThreadPool()
+    {
+        // Arrange
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var reader = new BlockingOutputReader(entered, release);
+        var output = DrainOutputAsync(reader);
+        try
+        {
+            // Act
+            var usesThreadPool = await entered.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.False(usesThreadPool);
+            Assert.False(output.IsCompleted);
+        }
+        finally
+        {
+            release.Set();
+            await output.WaitAsync(TimeSpan.FromSeconds(30), CancellationToken.None);
+        }
+        Assert.Equal("worker output", await output);
+    }
+
     /// <summary>A real dedicated Lineup Link endpoint reports guide capacity explicitly and remains usable for a corrected snapshot.</summary>
     [Fact]
     public async Task LineupLink_GuideEnvelope_ReturnsStructuredFailureAndRecovers()
@@ -157,6 +183,27 @@ public sealed class HdHomeRunWorkerProcessTests
         Assert.Equal(4, recovered.RootElement.GetProperty("TunerCount").GetInt32());
         Assert.Equal(processId, harness.ProcessId);
         Assert.False(harness.HasExited);
+    }
+
+    // Windows Process pipes use blocking handles on .NET 10; keep their lifetime reads off the broker's thread pool.
+    private static Task<string> DrainOutputAsync(TextReader reader) =>
+        Task.Factory.StartNew(reader.ReadToEnd, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+
+    private sealed class BlockingOutputReader(TaskCompletionSource<bool> entered, ManualResetEventSlim release) : TextReader
+    {
+        private bool _finished;
+
+        /// <inheritdoc />
+        public override int Read(char[] buffer, int index, int count)
+        {
+            if (_finished) return 0;
+            entered.TrySetResult(Thread.CurrentThread.IsThreadPoolThread);
+            release.Wait();
+            const string text = "worker output";
+            text.CopyTo(0, buffer, index, text.Length);
+            _finished = true;
+            return text.Length;
+        }
     }
 
     private static async Task WaitForConnectionsAsync(IPluginConnectionBudget budget, int expected)
@@ -317,8 +364,8 @@ public sealed class HdHomeRunWorkerProcessTests
                     start.ArgumentList.Add(path);
                 }
                 harness._worker = Process.Start(start) ?? throw new InvalidOperationException($"Unable to start {executable}.");
-                harness._output = harness._worker.StandardOutput.ReadToEndAsync();
-                harness._error = harness._worker.StandardError.ReadToEndAsync();
+                harness._output = DrainOutputAsync(harness._worker.StandardOutput);
+                harness._error = DrainOutputAsync(harness._worker.StandardError);
                 await harness._worker.StandardInput.WriteLineAsync(JsonSerializer.Serialize(harness._bootstrap, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
                 harness._worker.StandardInput.Close();
                 await harness.WaitForReadyAsync();

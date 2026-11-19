@@ -338,9 +338,14 @@ public sealed class CmafSharingTests
         // Act
         fixture.PhysicalRuntime = Substitute.For<IPhysicalTunerDevice>();
         var second = fixture.BeginServiceStart("new-generation");
-        await WaitUntilAsync(() => fixture.EncoderCount == 2);
+        await Task.WhenAny(fixture.SecondEncoderStarted, second.Start).WaitAsync(BunitContext.WaitTimeout, TestContext.Current.CancellationToken);
+        if (!fixture.SecondEncoderStarted.IsCompletedSuccessfully)
+        {
+            var early = await second.Start;
+            Assert.Fail($"The replacement runtime did not start its own encoder: {early.Failure}");
+        }
         fixture.PublishReadiness();
-        var result = await second.Start.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        var result = await second.Start.WaitAsync(BunitContext.WaitTimeout, TestContext.Current.CancellationToken);
         await first.Start;
 
         // Assert
@@ -1516,6 +1521,7 @@ public sealed class CmafSharingTests
         private readonly ConcurrentQueue<MediaProcessRequest> _encoderRequests = new();
         private readonly ConcurrentBag<Task> _outputCleanups = [];
         private readonly TaskCompletionSource _encoderStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _secondEncoderStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource<Exception?> _sourceCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly List<CancellationTokenSource> _cancellations = [];
         private readonly List<Task<IActionResult>> _starts = [];
@@ -1674,6 +1680,9 @@ public sealed class CmafSharingTests
 
         /// <summary>Gets notification that the real encoder process has started.</summary>
         internal Task EncoderStarted => _encoderStarted.Task;
+
+        /// <summary>Gets notification that the replacement or independently planned producer has started its encoder.</summary>
+        internal Task SecondEncoderStarted => _secondEncoderStarted.Task;
 
         /// <summary>Gets the number of actual encoder processes started.</summary>
         internal int EncoderCount => _encoders.Count;
@@ -1842,6 +1851,7 @@ public sealed class CmafSharingTests
                 PublishReadiness(directory);
             }
             _encoderStarted.TrySetResult();
+            if (_encoders.Count == 2) _secondEncoderStarted.TrySetResult();
             return process;
         }
 
