@@ -1,7 +1,17 @@
 namespace Lineup.App.Web.Services;
 
 /// <summary>One whole-device observation; null metrics are unavailable, not idle.</summary>
-public sealed record GpuResourceSample(string Id, string Name, double? Utilization, double? Encode, double? Decode, double? Video, string? UnavailableReason = null);
+public sealed record GpuResourceSample(string Id, string Name, double? Utilization, double? Encode, double? Decode, double? Video, string? UnavailableReason = null)
+{
+    /// <summary>Gets whether video activity measures shared codec engines rather than separate encoding and decoding.</summary>
+    public bool SharedVideo { get; init; }
+
+    /// <summary>Gets independently observed physical engines, without summing their overlapping utilization.</summary>
+    public IReadOnlyList<GpuEngineSample> Engines { get; init; } = [];
+}
+
+/// <summary>One driver-named physical engine's busy percentage; null means unavailable rather than idle.</summary>
+public sealed record GpuEngineSample(string Name, double? Utilization);
 
 /// <summary>GPU devices visible to the management host and an explicit discovery or collection state.</summary>
 public sealed record GpuResourceSnapshot(IReadOnlyList<GpuResourceSample> Devices, string? UnavailableReason = null);
@@ -84,7 +94,15 @@ public sealed class NativeGpuResourceSource : IGpuResourceSource
         void AddUnavailable(int provider, string state)
         {
             if (!_knownDevices.TryGetValue(provider, out var known)) return;
-            devices.AddRange(known.Select(device => device with { Utilization = null, Encode = null, Decode = null, Video = null, UnavailableReason = state }));
+            devices.AddRange(known.Select(device => device with
+            {
+                Utilization = null,
+                Encode = null,
+                Decode = null,
+                Video = null,
+                UnavailableReason = state,
+                Engines = device.Engines.Select(engine => engine with { Utilization = null }).ToArray()
+            }));
         }
     }
 

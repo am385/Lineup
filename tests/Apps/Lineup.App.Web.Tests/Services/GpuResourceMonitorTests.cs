@@ -192,6 +192,31 @@ public sealed class GpuResourceMonitorTests
         Assert.Equal(expected, actual);
     }
 
+    /// <summary>Verifies shared codec utilization excludes enhancement, retains physical engines and never invents separate encode/decode readings.</summary>
+    [Theory]
+    [InlineData(20d, 40d, 90d, 40d, 90d)]
+    [InlineData(0d, 0d, 0d, 0d, 0d)]
+    [InlineData(null, null, null, null, null)]
+    [InlineData(null, null, 90d, null, 90d)]
+    public void IntelCounters_SharedCodecActivity_PreservesIndependentEngines(double? first, double? second, double? enhancement, double? video, double? total)
+    {
+        // Arrange
+        (string, double?)[] engines = [("vcs0-busy", first), ("vcs1-busy", second), ("vecs0-busy", enhancement)];
+
+        // Act
+        var sample = IntelGpuResourceSource.CreateSample("i915", engines);
+
+        // Assert
+        Assert.True(sample.SharedVideo);
+        Assert.Equal(video, sample.Video);
+        Assert.Equal(total, sample.Utilization);
+        Assert.Null(sample.Encode);
+        Assert.Null(sample.Decode);
+        Assert.Equal(new[] { "vcs0", "vcs1", "vecs0" }, sample.Engines.Select(engine => engine.Name));
+        Assert.Equal(new[] { first, second, enhancement }, sample.Engines.Select(engine => engine.Utilization));
+        Assert.Equal(total is null ? "warming_up" : null, sample.UnavailableReason);
+    }
+
     /// <summary>Verifies one denied or broken NVIDIA adapter never hides readable adapters, and known identities recover without stale measurements.</summary>
     [Theory]
     [InlineData(false, false)]
@@ -339,7 +364,7 @@ public sealed class GpuResourceMonitorTests
         var intermittent = Substitute.For<IGpuResourceSource>();
         intermittent.Read().Returns(_ => fail
             ? throw new GpuCounterException("Driver failed.")
-            : new GpuResourceSnapshot([new("one", "GPU One", 40, 50, 60, 70)]));
+            : new GpuResourceSnapshot([new("one", "GPU One", 40, 50, 60, 70) { SharedVideo = true, Engines = [new("vcs0", 70)] }]));
         var stable = Substitute.For<IGpuResourceSource>();
         stable.Read().Returns(new GpuResourceSnapshot([new("two", "GPU Two", 25, null, null, null)]));
         using var source = new NativeGpuResourceSource(NullLogger<NativeGpuResourceSource>.Instance, () => [intermittent, stable]);
@@ -356,6 +381,9 @@ public sealed class GpuResourceMonitorTests
         Assert.Null(unavailable.Encode);
         Assert.Null(unavailable.Decode);
         Assert.Null(unavailable.Video);
+        Assert.True(unavailable.SharedVideo);
+        Assert.Equal("vcs0", Assert.Single(unavailable.Engines).Name);
+        Assert.Null(unavailable.Engines[0].Utilization);
         Assert.Equal("read_failed", unavailable.UnavailableReason);
         var available = Assert.Single(failed.Devices, device => device.Id == "two");
         Assert.Equal(25, available.Utilization);
@@ -473,7 +501,8 @@ public sealed class GpuResourceMonitorTests
         Assert.Equal("GPU · GPU One", component.Find("h6").TextContent);
         Assert.Equal(new[] { "0 %", "25 %", "50 %", "75 %", "100 %" }, component.FindAll("[data-resource-y-tick]").Select(tick => tick.TextContent.Trim()));
         Assert.Equal(new[] { "5m", "3m 45s", "2m 30s", "1m 15s", "0s" }, component.FindAll("[data-resource-x-tick]").Select(tick => tick.TextContent.Trim()));
-        Assert.Equal(new[] { "50 %", "N/A %", "0 %", "12 %" }, component.FindAll("dd").Select(value => value.TextContent.Trim()));
+        Assert.Equal(new[] { "50 %", "0 %", "12 %" }, component.FindAll("dd").Select(value => value.TextContent.Trim()));
+        Assert.Equal(new[] { "● GPU activity", "● Video decode", "● Video / media" }, component.FindAll("dt").Select(value => value.TextContent.Trim()));
         Assert.DoesNotContain("logical cores", component.Markup);
         Assert.Equal(2, component.FindAll("polyline[stroke='#0d6efd']").Count);
         Assert.Empty(component.FindAll("polyline[stroke='#198754']"));
@@ -483,7 +512,63 @@ public sealed class GpuResourceMonitorTests
 
         // Assert
         Assert.Equal("90 %", component.Find("dd").TextContent.Trim());
+        Assert.Equal(new[] { "● GPU activity", "● Video encode" }, component.FindAll("dt").Select(value => value.TextContent.Trim()));
         Assert.Equal(new[] { "1m", "45s", "30s", "15s", "0s" }, component.FindAll("[data-resource-x-tick]").Select(tick => tick.TextContent.Trim()));
+    }
+
+    /// <summary>Verifies Intel cards expose honest shared codec labels and expanded engine details without retaining stale current values.</summary>
+    [Theory]
+    [InlineData("available")]
+    [InlineData("warming_up")]
+    [InlineData("paused")]
+    [InlineData("read_failed")]
+    public async Task GpuChart_SharedIntelEngines_ExplainsCapabilitiesAndClearsUnavailableReadings(string state)
+    {
+        // Arrange
+        await using var context = new LineupWebBunitContext();
+        var sample = IntelGpuResourceSource.CreateSample("i915", [("vcs0-busy", 20), ("vcs1-busy", 40), ("vecs0-busy", 90), ("rcs0-busy", 0)]);
+        var usage = new ResourceUsage(null, null);
+        var initial = new ResourceHistoryPoint(DateTimeOffset.UtcNow, usage, usage, usage, usage, true) { Gpus = [sample] };
+        var current = state == "warming_up"
+            ? IntelGpuResourceSource.CreateSample("i915", [("vcs0-busy", null), ("vcs1-busy", null), ("vecs0-busy", null), ("rcs0-busy", null)])
+            : state == "read_failed"
+                ? sample with
+                {
+                    Utilization = null,
+                    Video = null,
+                    UnavailableReason = state,
+                    Engines = sample.Engines.Select(engine => engine with { Utilization = null }).ToArray()
+                }
+                : sample;
+        var updated = initial with { AtUtc = initial.AtUtc.AddSeconds(2), Gpus = state == "paused" ? [] : [current] };
+        var component = context.Render<ResourceHistoryChart>(parameters => parameters
+            .Add(value => value.History, [state == "warming_up" ? updated : initial]).Add(value => value.GpuId, sample.Id));
+
+        // Act
+        await component.Find(".card-header button").ClickAsync(new());
+        component.Render(parameters => parameters
+            .Add(value => value.History, state == "warming_up" ? [updated] : [initial, updated])
+            .Add(value => value.UnavailableReason, state == "available" ? null : state));
+
+        // Assert
+        Assert.True(component.Find(".card-body").HasAttribute("hidden"));
+        Assert.Contains("Video encode/decode — shared", component.Markup);
+        Assert.Contains("Video enhancement (vecs) is separate", component.Markup);
+        Assert.DoesNotContain("● Video encode</dt>", component.Markup);
+        Assert.DoesNotContain("● Video decode</dt>", component.Markup);
+        Assert.DoesNotContain("N/A %", component.Markup);
+        Assert.Equal(new[] { "vcs0", "vcs1", "vecs0", "rcs0" }, component.FindAll("[data-gpu-engines] dt").Select(value => value.TextContent));
+        Assert.Equal(state == "available" ? new[] { "20 %", "40 %", "90 %", "0 %" } : ["N/A", "N/A", "N/A", "N/A"],
+            component.FindAll("[data-gpu-engines] dd").Select(value => value.TextContent));
+        Assert.Equal(state == "available" ? new[] { "90 %", "40 %" } : ["N/A", "N/A"],
+            component.FindAll(".card-body > dl:not([data-gpu-engines]) dd").Select(value => value.TextContent.Trim()));
+
+        // Act
+        await component.Find(".card-header button").ClickAsync(new());
+
+        // Assert
+        Assert.False(component.Find(".card-body").HasAttribute("hidden"));
+        Assert.Null(component.Find("[data-gpu-engines]").Closest("[hidden]"));
     }
 
     /// <summary>Verifies the Dashboard includes a per-device GPU card and explicitly labels readings as whole-device rather than stream costs.</summary>
@@ -518,7 +603,7 @@ public sealed class GpuResourceMonitorTests
         Assert.Contains("Review GPU", card.TextContent);
         Assert.DoesNotContain("luid_", card.QuerySelector("h6")!.TextContent);
         Assert.Contains("75 %", card.TextContent);
-        Assert.Contains("N/A", card.TextContent);
+        Assert.DoesNotContain("N/A %", card.TextContent);
         Assert.Null(card.QuerySelector("dd span"));
         Assert.Contains("GPU: Review GPU: 75%", component.Find("#dashboardResources > .card-header small").TextContent);
         Assert.Equal("GPU activity: 75%", card.QuerySelector(".card-header small")!.TextContent);
@@ -539,7 +624,7 @@ public sealed class GpuResourceMonitorTests
 
         // Assert
         var unavailable = component.Find("[data-gpu-device='windows:luid_0x0_0x1_phys_0']");
-        Assert.All(unavailable.QuerySelectorAll("dd"), value => Assert.Equal("N/A %", value.TextContent.Trim()));
+        Assert.All(unavailable.QuerySelectorAll("dd"), value => Assert.Equal("N/A", value.TextContent.Trim()));
         Assert.Contains("could not be read", unavailable.QuerySelector("[role='status']")!.TextContent);
         Assert.True(unavailable.QuerySelector(".card-body")!.HasAttribute("hidden"));
         Assert.Equal("false", unavailable.QuerySelector(".card-header button")!.GetAttribute("aria-expanded"));

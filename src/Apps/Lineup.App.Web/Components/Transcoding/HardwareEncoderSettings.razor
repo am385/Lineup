@@ -1,3 +1,5 @@
+@inject IHardwareEncoderDeviceDiscovery DeviceDiscovery
+
 <div class="hardware-encoder-settings row g-3">
     <div class="col-md-6">
         <label for="@(IdPrefix + "Encoder")" class="form-label">@Text["Transcoding_HardwareEncoder"]</label>
@@ -13,8 +15,36 @@
     {
         <div class="col-md-6">
             <label for="@(IdPrefix + "Device")" class="form-label">@Text["Transcoding_HardwareDevice"]</label>
-            <input id="@(IdPrefix + "Device")" class="form-control" maxlength="256" @bind:get="Value.Device" @bind:set="SetDeviceAsync" />
-            <div class="form-text">@Text["Transcoding_HardwareDeviceHelp"]</div>
+            <select id="@(IdPrefix + "Device")" class="form-select" disabled="@_loadingDevices" @bind:get="SelectedDevice" @bind:set="SelectDeviceAsync">
+                <option value="">@Text["Transcoding_HardwareDeviceDefault"]</option>
+                @foreach (var device in _devices.Devices)
+                {
+                    <option value="@device.Value">@device.Label</option>
+                }
+                @if (Value.Encoder != HardwareVideoEncoder.VideoToolbox)
+                {
+                    <option value="@CustomDevice">@Text["Transcoding_HardwareDeviceCustom"]</option>
+                }
+            </select>
+            @if (_customDevice || Value.Device.Length > 0 && !_devices.Devices.Any(device => device.Value == Value.Device))
+            {
+                <label for="@(IdPrefix + "CustomDevice")" class="form-label mt-2">@Text["Transcoding_HardwareDeviceCustom"]</label>
+                <input id="@(IdPrefix + "CustomDevice")" class="form-control" maxlength="256" @bind:get="Value.Device" @bind:set="SetDeviceAsync" />
+                <div class="form-text">@Text["Transcoding_HardwareDeviceHelp"]</div>
+            }
+            <div class="form-text">@Text["Transcoding_HardwareDeviceDetectedHelp"]</div>
+            @if (_loadingDevices)
+            {
+                <div class="form-text" role="status">@Text["Transcoding_HardwareDeviceLoading"]</div>
+            }
+            else if (_devices.DiscoveryFailed)
+            {
+                <div class="form-text text-warning" role="status">@Text["Transcoding_HardwareDeviceDiscoveryFailed"]</div>
+            }
+            else if (_devices.Devices.Count == 0 && Value.Encoder != HardwareVideoEncoder.VideoToolbox)
+            {
+                <div class="form-text" role="status">@Text["Transcoding_HardwareDeviceNone"]</div>
+            }
         </div>
         <div class="col-md-6">
             <label for="@(IdPrefix + "Tuning")" class="form-label">@Text["Transcoding_HardwareTuning"]</label>
@@ -53,6 +83,34 @@
     /// <summary>Gets or sets the unique form identifier prefix.</summary>
     [Parameter, EditorRequired]
     public string IdPrefix { get; set; } = string.Empty;
+
+    private const string CustomDevice = "custom";
+    private HardwareEncoderDeviceSnapshot _devices = new([]);
+    private HardwareVideoEncoder? _discoveredEncoder;
+    private bool _customDevice;
+    private bool _loadingDevices;
+    private string SelectedDevice => _customDevice || Value.Device.Length > 0 && !_devices.Devices.Any(device => device.Value == Value.Device) ? CustomDevice : Value.Device;
+
+    /// <inheritdoc />
+    protected override async Task OnParametersSetAsync()
+    {
+        var encoder = Value.Encoder;
+        if (_discoveredEncoder == encoder) return;
+        _discoveredEncoder = encoder;
+        _customDevice = false;
+        _devices = new([]);
+        _loadingDevices = true;
+        var snapshot = await DeviceDiscovery.GetDevicesAsync(encoder);
+        if (_discoveredEncoder != encoder) return;
+        _devices = snapshot;
+        _loadingDevices = false;
+    }
+
+    private Task SelectDeviceAsync(string device)
+    {
+        _customDevice = device == CustomDevice;
+        return _customDevice ? Task.CompletedTask : SetDeviceAsync(device);
+    }
 
     private string EncoderLabel(HardwareVideoEncoder encoder) => encoder switch
     {

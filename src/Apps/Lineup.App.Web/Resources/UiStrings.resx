@@ -415,14 +415,17 @@
   <data name="Resources_GpuDecode" xml:space="preserve"><value>Video decode</value></data>
   <data name="Resources_GpuDevice" xml:space="preserve"><value>GPU · {0}</value></data>
   <data name="Resources_GpuEncode" xml:space="preserve"><value>Video encode</value></data>
-  <data name="Resources_GpuHelp" xml:space="preserve"><value>GPU activity is the driver&apos;s overall or busiest-engine reading. Encode, decode and video/media are independent; do not add them. Shared codec engines appear under video/media. Unsupported metrics are N/A.</value></data>
+  <data name="Resources_GpuEngines" xml:space="preserve"><value>Individual engines</value></data>
+  <data name="Resources_GpuHelp" xml:space="preserve"><value>Metrics vary by GPU, driver and platform. GPU activity is the driver&apos;s overall or busiest-engine reading. Video / media may combine encoding and decoding. Categories with no observed readings are hidden; this does not mean the hardware lacks support. 0% is a valid measurement; N/A means a displayed metric is currently unavailable. Measurements overlap; do not add them.</value></data>
   <data name="Resources_GpuScope" xml:space="preserve"><value>GPU readings cover whole devices visible to this host/container, including other applications. They are not Lineup-only or per-stream costs and exclude GPUs on remote worker hosts.</value></data>
+  <data name="Resources_GpuSharedHelp" xml:space="preserve"><value>Intel video engines (vcs) share encoding and decoding. The shared reading is the busiest codec engine, not their sum. Video enhancement (vecs) is separate. Engine names below come from the driver.</value></data>
   <data name="Resources_GpuState_paused" xml:space="preserve"><value>GPU collection is paused; retained history is not current usage.</value></data>
   <data name="Resources_GpuState_permission_denied" xml:space="preserve"><value>GPU counters are unavailable because host/container monitoring permissions deny access. Streaming permissions are separate.</value></data>
   <data name="Resources_GpuState_read_failed" xml:space="preserve"><value>One or more GPU counters could not be read. See the server log for details.</value></data>
   <data name="Resources_GpuState_unsupported" xml:space="preserve"><value>No supported GPU activity counter is exposed by this host/container or driver.</value></data>
   <data name="Resources_GpuState_warming_up" xml:space="preserve"><value>Establishing GPU counter baselines.</value></data>
   <data name="Resources_GpuVideo" xml:space="preserve"><value>Video / media</value></data>
+  <data name="Resources_GpuVideoShared" xml:space="preserve"><value>Video encode/decode — shared</value></data>
   <data name="Resources_Heading" xml:space="preserve"><value>Resources</value></data>
   <data name="Resources_Management" xml:space="preserve"><value>Management host</value></data>
   <data name="Resources_Media" xml:space="preserve"><value>Media and lifetime helpers</value></data>
@@ -1041,7 +1044,13 @@
   <data name="Transcoding_HardwareArguments" xml:space="preserve"><value>Advanced GPU encoder options</value></data>
   <data name="Transcoding_HardwareArgumentsHelp" xml:space="preserve"><value>One option=value per line (without a leading dash), up to 16 options. Supported options depend on the backend, for example preset=p4 for NVENC. Inputs, outputs, maps and shell commands are not accepted.</value></data>
   <data name="Transcoding_HardwareDevice" xml:space="preserve"><value>GPU device (optional)</value></data>
+  <data name="Transcoding_HardwareDeviceCustom" xml:space="preserve"><value>Custom device</value></data>
+  <data name="Transcoding_HardwareDeviceDefault" xml:space="preserve"><value>Default (automatic)</value></data>
+  <data name="Transcoding_HardwareDeviceDetectedHelp" xml:space="preserve"><value>Devices are discovered on this Lineup host/container, not in your browser. Candidates are filtered by encoder; support is checked when encoding starts. Restart Lineup to refresh the list.</value></data>
+  <data name="Transcoding_HardwareDeviceDiscoveryFailed" xml:space="preserve"><value>GPU discovery failed. Existing settings are preserved; use Default or Custom device. See the server log for details.</value></data>
   <data name="Transcoding_HardwareDeviceHelp" xml:space="preserve"><value>Linux QSV/VA-API: /dev/dri/renderD128. NVENC, Windows QSV/AMF: numeric GPU index. Leave empty for the default device; VideoToolbox uses the system device.</value></data>
+  <data name="Transcoding_HardwareDeviceLoading" xml:space="preserve"><value>Discovering GPU devices…</value></data>
+  <data name="Transcoding_HardwareDeviceNone" xml:space="preserve"><value>No matching GPU devices were discovered. Use Default or enter a Custom device if discovery cannot identify your device.</value></data>
   <data name="Transcoding_HardwareEncoder" xml:space="preserve"><value>Video encoder</value></data>
   <data name="Transcoding_HardwareFallback" xml:space="preserve"><value>Allow software fallback before playback starts</value></data>
   <data name="Transcoding_HardwareFallbackHelp" xml:space="preserve"><value>Disabled by default. A failed GPU startup check can select software after cleanup; published streams are never silently restarted.</value></data>

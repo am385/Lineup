@@ -634,6 +634,15 @@ Allow additional bandwidth for audio and transport overhead, including bursts wh
 | AMD AMF | Windows | `h264_amf` | Numeric adapter index |
 | Apple VideoToolbox | macOS | `h264_videotoolbox` | System-selected device |
 
+The GPU device picker offers **Default (automatic)**, detected device candidates and **Custom device** for manual entry.
+Discovery runs on the Lineup management host/container, not the browser, and is independent of Dashboard monitoring.
+Windows QSV and AMF candidates use their original DXGI adapter indices, filtered by vendor and excluding software adapters.
+NVENC uses CUDA device ordinals, not DXGI or NVIDIA monitoring-library indices. Linux QSV lists Intel render nodes;
+VA-API lists exposed render nodes with vendor labels. VideoToolbox uses the system device.
+Discovery does not prove encoder capability or device permissions: the existing FFmpeg startup check still validates the selected configuration.
+Saved device values remain intact even when discovery fails or cannot find the device, and manual entry remains available.
+Device lists are discovered lazily, cached per backend, and refreshed by restarting Lineup; discovery never starts an encoding workload.
+
 This first implementation accelerates **encoding**, not decoding or filtering. Deinterlacing, scaling and subtitle burn-in
 remain CPU filters; VA-API explicitly uploads their output. Audio conversion, source/copy policy, captions and CMAF
 keyframe cadence remain independent. Software presets/CRF are not GPU quality controls: use the backend's balanced,
@@ -990,16 +999,22 @@ they are not Lineup-only, per-stream or per-stage attribution, and do not includ
 The shared two-second sampler reads native counters, never launches `nvidia-smi`, `intel_gpu_top`, PowerShell or other polling helpers,
 and does no driver work during dashboard rendering. Hiding every Dashboard also releases native monitoring resources unless continuous collection is enabled.
 GPU readings share the same bounded history/window as CPU and RAM, with a fixed 0-100% scale.
-Each card distinguishes GPU activity, video encode, video decode and video/media. These measurements overlap and must not be added.
+Each card distinguishes GPU activity and the video metrics supplied by its provider. These measurements overlap and must not be added.
 GPU activity is driver-specific: Windows and Intel show the busiest physical engine; NVIDIA and AMD use their driver's activity counter,
-which need not include dedicated video work. Shared codec engines appear under video/media instead of claiming separate encode/decode measurements.
+which need not include dedicated video work. Intel i915 cards show **Video encode/decode — shared** instead of separate encode/decode readings.
+This is the busiest shared codec (`vcs`) engine, not a sum; video enhancement (`vecs`) is excluded from that codec value.
+Expanded Intel cards list individual driver-named engine percentages, including enhancement and render engines, without inferring which codec work is encoding or decoding.
+Other providers retain separate encode/decode readings only when those measurements have been observed; unsupported series are omitted.
+Available metrics vary by GPU, driver and platform, even between adapters from the same vendor. Windows drivers may expose a generic codec engine under **Video / media**
+instead of separate encode/decode counters. A missing category does not imply missing hardware support; a valid 0% reading remains visible.
+Unavailable current readings show N/A without a percentage suffix, and retained history never supplies stale current engine percentages.
 
 | Management host | GPU telemetry |
 |---|---|
 | Windows | Vendor-neutral GPU Engine performance counters, grouped by adapter and physical engine; process instances are summed only within the same engine |
 | Linux NVIDIA | Installed `libnvidia-ml.so.1` (NVML); activity plus encode/decode when supported; containers need the NVIDIA driver utility capability |
 | Linux AMD | DRM `device/gpu_busy_percent` when exposed; video-engine metrics remain unavailable |
-| Linux Intel i915 | Driver-published engine busy PMU events via read-only performance-counter descriptors; shared video engines appear under video/media |
+| Linux Intel i915 | Driver-published engine busy PMU events via read-only performance-counter descriptors; shared encode/decode plus individual engines in expanded details |
 | Other drivers/platforms, including Linux Xe without supported counters | Explicit N/A, not fabricated zero |
 
 On Windows, card titles use DXGI adapter names matched to GPU-counter LUIDs, not adapter enumeration order.

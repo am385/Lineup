@@ -415,14 +415,17 @@
   <data name="Resources_GpuDecode" xml:space="preserve"><value>Décodage vidéo</value></data>
   <data name="Resources_GpuDevice" xml:space="preserve"><value>GPU · {0}</value></data>
   <data name="Resources_GpuEncode" xml:space="preserve"><value>Encodage vidéo</value></data>
-  <data name="Resources_GpuHelp" xml:space="preserve"><value>L&apos;activité GPU indique la valeur globale du pilote ou du moteur le plus occupé. Encodage, décodage et vidéo/médias sont indépendants ; ne pas les additionner. Les moteurs de codec partagés figurent sous vidéo/médias. Les mesures non prises en charge affichent N/A.</value></data>
+  <data name="Resources_GpuEngines" xml:space="preserve"><value>Moteurs individuels</value></data>
+  <data name="Resources_GpuHelp" xml:space="preserve"><value>Les mesures varient selon le GPU, le pilote et la plateforme. L&apos;activité GPU indique la valeur globale du pilote ou du moteur le plus occupé. Vidéo / médias peut combiner encodage et décodage. Les catégories sans mesure observée sont masquées ; cela ne signifie pas que le matériel ne les prend pas en charge. 0% est une mesure valide ; N/A indique qu&apos;une mesure affichée est actuellement indisponible. Les mesures se chevauchent ; ne pas les additionner.</value></data>
   <data name="Resources_GpuScope" xml:space="preserve"><value>Les mesures GPU couvrent les appareils entiers visibles par cet hôte/conteneur, y compris les autres applications. Elles ne sont ni propres à Lineup ni par flux, et excluent les GPU des hôtes de travail distants.</value></data>
+  <data name="Resources_GpuSharedHelp" xml:space="preserve"><value>Les moteurs vidéo Intel (vcs) partagent l&apos;encodage et le décodage. La valeur partagée est celle du moteur de codec le plus occupé, pas leur somme. L&apos;amélioration vidéo (vecs) est distincte. Les noms des moteurs proviennent du pilote.</value></data>
   <data name="Resources_GpuState_paused" xml:space="preserve"><value>Collecte GPU en pause ; l&apos;historique conservé ne représente pas l&apos;utilisation actuelle.</value></data>
   <data name="Resources_GpuState_permission_denied" xml:space="preserve"><value>Les autorisations de surveillance de l&apos;hôte/conteneur interdisent l&apos;accès aux compteurs GPU. Les autorisations de diffusion sont distinctes.</value></data>
   <data name="Resources_GpuState_read_failed" xml:space="preserve"><value>Certains compteurs GPU sont illisibles. Consultez le journal du serveur.</value></data>
   <data name="Resources_GpuState_unsupported" xml:space="preserve"><value>Aucun compteur d&apos;activité GPU compatible n&apos;est exposé par cet hôte/conteneur ou pilote.</value></data>
   <data name="Resources_GpuState_warming_up" xml:space="preserve"><value>Établissement des références des compteurs GPU.</value></data>
   <data name="Resources_GpuVideo" xml:space="preserve"><value>Vidéo / médias</value></data>
+  <data name="Resources_GpuVideoShared" xml:space="preserve"><value>Encodage/décodage vidéo — partagé</value></data>
   <data name="Resources_Heading" xml:space="preserve"><value>Ressources</value></data>
   <data name="Resources_Management" xml:space="preserve"><value>Hôte de gestion</value></data>
   <data name="Resources_Media" xml:space="preserve"><value>Processus multimédias et auxiliaires de durée de vie</value></data>
@@ -1041,7 +1044,13 @@
   <data name="Transcoding_HardwareArguments" xml:space="preserve"><value>Options GPU avancées</value></data>
   <data name="Transcoding_HardwareArgumentsHelp" xml:space="preserve"><value>Une option=valeur par ligne, sans tiret initial ; maximum 16. Selon le moteur, par exemple preset=p4 pour NVENC. Entrées, sorties, mappages et commandes shell interdits.</value></data>
   <data name="Transcoding_HardwareDevice" xml:space="preserve"><value>Périphérique GPU (facultatif)</value></data>
+  <data name="Transcoding_HardwareDeviceCustom" xml:space="preserve"><value>Périphérique personnalisé</value></data>
+  <data name="Transcoding_HardwareDeviceDefault" xml:space="preserve"><value>Par défaut (automatique)</value></data>
+  <data name="Transcoding_HardwareDeviceDetectedHelp" xml:space="preserve"><value>Les périphériques sont détectés sur cet hôte/conteneur Lineup, pas dans le navigateur. Les candidats sont filtrés par encodeur ; la compatibilité est vérifiée au démarrage de l&apos;encodage. Redémarrez Lineup pour actualiser la liste.</value></data>
+  <data name="Transcoding_HardwareDeviceDiscoveryFailed" xml:space="preserve"><value>Échec de la détection GPU. Les réglages existants sont conservés ; utilisez le périphérique par défaut ou un périphérique personnalisé. Consultez le journal du serveur.</value></data>
   <data name="Transcoding_HardwareDeviceHelp" xml:space="preserve"><value>Linux QSV/VA-API : /dev/dri/renderD128. NVENC et Windows QSV/AMF : indice GPU. Vide pour le périphérique par défaut ; VideoToolbox utilise celui du système.</value></data>
+  <data name="Transcoding_HardwareDeviceLoading" xml:space="preserve"><value>Détection des périphériques GPU…</value></data>
+  <data name="Transcoding_HardwareDeviceNone" xml:space="preserve"><value>Aucun périphérique GPU correspondant détecté. Utilisez celui par défaut ou saisissez un périphérique personnalisé si la détection ne peut pas l&apos;identifier.</value></data>
   <data name="Transcoding_HardwareEncoder" xml:space="preserve"><value>Encodeur vidéo</value></data>
   <data name="Transcoding_HardwareFallback" xml:space="preserve"><value>Autoriser le repli logiciel avant la lecture</value></data>
   <data name="Transcoding_HardwareFallbackHelp" xml:space="preserve"><value>Désactivé par défaut. Un échec du test GPU peut sélectionner le logiciel après nettoyage. Les flux publiés ne sont jamais redémarrés silencieusement.</value></data>

@@ -24,11 +24,20 @@ internal sealed class IntelGpuResourceSource(string path) : IGpuResourceSource
             values.Add((engine.Name, engine.Previous is { } previous ? Busy(previous.Value, previous.Running, current.Value, current.Running) : null));
             engine.Previous = current;
         }
+        return new([CreateSample(Path.GetFileName(path), values)]);
+    }
+
+    /// <summary>Retains physical engine readings and separates shared codec utilization from video enhancement.</summary>
+    internal static GpuResourceSample CreateSample(string device, IReadOnlyList<(string Name, double? Busy)> values)
+    {
         double? Maximum(Func<string, bool> include) => values.Where(item => include(item.Name)).Select(item => item.Busy).Max();
         var total = Maximum(_ => true);
-        var video = Maximum(name => name.StartsWith("vcs", StringComparison.Ordinal) || name.StartsWith("vecs", StringComparison.Ordinal));
-        return new([new($"intel:{Path.GetFileName(path)}", $"Intel GPU ({Path.GetFileName(path)})", total, null, null, video,
-            total is null ? "warming_up" : null)]);
+        var video = Maximum(name => name.StartsWith("vcs", StringComparison.Ordinal));
+        return new($"intel:{device}", $"Intel GPU ({device})", total, null, null, video, total is null ? "warming_up" : null)
+        {
+            SharedVideo = true,
+            Engines = values.Select(item => new GpuEngineSample(item.Name.EndsWith("-busy", StringComparison.Ordinal) ? item.Name[..^5] : item.Name, item.Busy)).ToArray()
+        };
     }
 
     /// <summary>Computes a device engine's busy fraction using scheduled counter time, rejecting reset or unavailable counters.</summary>

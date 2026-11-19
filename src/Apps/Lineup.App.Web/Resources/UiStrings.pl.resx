@@ -416,14 +416,17 @@
   <data name="Resources_GpuDecode" xml:space="preserve"><value>Dekodowanie wideo</value></data>
   <data name="Resources_GpuDevice" xml:space="preserve"><value>GPU · {0}</value></data>
   <data name="Resources_GpuEncode" xml:space="preserve"><value>Kodowanie wideo</value></data>
-  <data name="Resources_GpuHelp" xml:space="preserve"><value>Aktywność GPU to ogólny odczyt sterownika lub najbardziej zajętego silnika. Kodowanie, dekodowanie i wideo/media są niezależne; nie należy ich sumować. Współdzielone silniki kodeków są widoczne w wideo/media. Nieobsługiwane metryki pokazują N/A.</value></data>
+  <data name="Resources_GpuEngines" xml:space="preserve"><value>Poszczególne silniki</value></data>
+  <data name="Resources_GpuHelp" xml:space="preserve"><value>Metryki zależą od GPU, sterownika i platformy. Aktywność GPU to ogólny odczyt sterownika lub najbardziej zajętego silnika. Wideo / multimedia może łączyć kodowanie i dekodowanie. Kategorie bez zaobserwowanych odczytów są ukrywane; nie oznacza to braku obsługi sprzętowej. 0% jest prawidłowym pomiarem; N/A oznacza, że wyświetlana metryka jest obecnie niedostępna. Pomiary nakładają się; nie należy ich sumować.</value></data>
   <data name="Resources_GpuScope" xml:space="preserve"><value>Odczyty GPU obejmują całe urządzenia widoczne dla tego hosta/kontenera, także inne aplikacje. Nie są kosztami wyłącznie Lineup ani pojedynczego strumienia i nie obejmują GPU zdalnych hostów roboczych.</value></data>
+  <data name="Resources_GpuSharedHelp" xml:space="preserve"><value>Silniki wideo Intel (vcs) współdzielą kodowanie i dekodowanie. Wspólny odczyt to najbardziej zajęty silnik kodeka, nie ich suma. Ulepszanie wideo (vecs) jest osobne. Nazwy silników pochodzą ze sterownika.</value></data>
   <data name="Resources_GpuState_paused" xml:space="preserve"><value>Zbieranie GPU jest wstrzymane; historia nie oznacza bieżącego użycia.</value></data>
   <data name="Resources_GpuState_permission_denied" xml:space="preserve"><value>Uprawnienia monitorowania hosta/kontenera blokują dostęp do liczników GPU. Uprawnienia transmisji są osobne.</value></data>
   <data name="Resources_GpuState_read_failed" xml:space="preserve"><value>Nie można odczytać części liczników GPU. Szczegóły znajdują się w dzienniku serwera.</value></data>
   <data name="Resources_GpuState_unsupported" xml:space="preserve"><value>Host/kontener lub sterownik nie udostępnia obsługiwanego licznika aktywności GPU.</value></data>
   <data name="Resources_GpuState_warming_up" xml:space="preserve"><value>Ustalanie wartości bazowych liczników GPU.</value></data>
   <data name="Resources_GpuVideo" xml:space="preserve"><value>Wideo / media</value></data>
+  <data name="Resources_GpuVideoShared" xml:space="preserve"><value>Kodowanie/dekodowanie wideo — współdzielone</value></data>
   <data name="Resources_Heading" xml:space="preserve"><value>Zasoby</value></data>
   <data name="Resources_Management" xml:space="preserve"><value>Host zarządzania</value></data>
   <data name="Resources_Media" xml:space="preserve"><value>Procesy multimediów i pomocniki czasu życia</value></data>
@@ -1042,7 +1045,13 @@
   <data name="Transcoding_HardwareArguments" xml:space="preserve"><value>Zaawansowane opcje GPU</value></data>
   <data name="Transcoding_HardwareArgumentsHelp" xml:space="preserve"><value>Jedna opcja=wartość w wierszu, bez początkowego myślnika; maksymalnie 16. Zależne od silnika, np. preset=p4 dla NVENC. Wejścia, wyjścia, mapowania i polecenia powłoki są niedozwolone.</value></data>
   <data name="Transcoding_HardwareDevice" xml:space="preserve"><value>Urządzenie GPU (opcjonalne)</value></data>
+  <data name="Transcoding_HardwareDeviceCustom" xml:space="preserve"><value>Urządzenie niestandardowe</value></data>
+  <data name="Transcoding_HardwareDeviceDefault" xml:space="preserve"><value>Domyślne (automatycznie)</value></data>
+  <data name="Transcoding_HardwareDeviceDetectedHelp" xml:space="preserve"><value>Urządzenia są wykrywane na tym hoście/kontenerze Lineup, nie w przeglądarce. Kandydaci są filtrowani według kodera; obsługa jest sprawdzana przy rozpoczęciu kodowania. Uruchom Lineup ponownie, aby odświeżyć listę.</value></data>
+  <data name="Transcoding_HardwareDeviceDiscoveryFailed" xml:space="preserve"><value>Wykrywanie GPU nie powiodło się. Istniejące ustawienia zachowano; użyj urządzenia domyślnego lub niestandardowego. Szczegóły w dzienniku serwera.</value></data>
   <data name="Transcoding_HardwareDeviceHelp" xml:space="preserve"><value>Linux QSV/VA-API: /dev/dri/renderD128. NVENC i Windows QSV/AMF: indeks GPU. Puste pole wybiera urządzenie domyślne; VideoToolbox korzysta z urządzenia systemowego.</value></data>
+  <data name="Transcoding_HardwareDeviceLoading" xml:space="preserve"><value>Wykrywanie urządzeń GPU…</value></data>
+  <data name="Transcoding_HardwareDeviceNone" xml:space="preserve"><value>Nie wykryto pasujących urządzeń GPU. Użyj domyślnego lub wpisz urządzenie niestandardowe, jeśli wykrywanie nie może go zidentyfikować.</value></data>
   <data name="Transcoding_HardwareEncoder" xml:space="preserve"><value>Koder wideo</value></data>
   <data name="Transcoding_HardwareFallback" xml:space="preserve"><value>Zezwól na kodowanie programowe przed odtwarzaniem</value></data>
   <data name="Transcoding_HardwareFallbackHelp" xml:space="preserve"><value>Domyślnie wyłączone. Po nieudanym teście GPU i zwolnieniu zasobów można użyć oprogramowania. Opublikowane strumienie nie są potajemnie uruchamiane ponownie.</value></data>

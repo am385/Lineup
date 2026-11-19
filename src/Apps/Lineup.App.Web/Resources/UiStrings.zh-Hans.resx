@@ -415,14 +415,17 @@
   <data name="Resources_GpuDecode" xml:space="preserve"><value>视频解码</value></data>
   <data name="Resources_GpuDevice" xml:space="preserve"><value>GPU · {0}</value></data>
   <data name="Resources_GpuEncode" xml:space="preserve"><value>视频编码</value></data>
-  <data name="Resources_GpuHelp" xml:space="preserve"><value>GPU 活动采用驱动报告的整体值或最繁忙引擎的值。编码、解码和视频/媒体彼此独立，不能相加。共享编解码引擎显示在视频/媒体中。不支持的指标显示 N/A。</value></data>
+  <data name="Resources_GpuEngines" xml:space="preserve"><value>各个引擎</value></data>
+  <data name="Resources_GpuHelp" xml:space="preserve"><value>指标因 GPU、驱动程序和平台而异。GPU 活动采用驱动报告的整体值或最繁忙引擎的值。视频 / 媒体可能同时包含编码和解码活动。未观测到读数的类别会隐藏，但这不代表硬件不支持。0% 是有效测量值；N/A 表示已显示的指标当前不可用。各项测量存在重叠，不能相加。</value></data>
   <data name="Resources_GpuScope" xml:space="preserve"><value>GPU 读数覆盖此主机/容器可见的整个设备，包括其他应用程序。它们不是 Lineup 专属或单个流的开销，也不包含远程工作主机的 GPU。</value></data>
+  <data name="Resources_GpuSharedHelp" xml:space="preserve"><value>Intel 视频引擎 (vcs) 由编码和解码共享。共享读数取最繁忙的编解码引擎，而非各引擎之和。视频增强 (vecs) 单独显示。以下引擎名称来自驱动程序。</value></data>
   <data name="Resources_GpuState_paused" xml:space="preserve"><value>GPU 采集已暂停；保留的历史记录不代表当前使用率。</value></data>
   <data name="Resources_GpuState_permission_denied" xml:space="preserve"><value>主机/容器的监视权限拒绝访问 GPU 计数器。流媒体权限与此不同。</value></data>
   <data name="Resources_GpuState_read_failed" xml:space="preserve"><value>无法读取部分 GPU 计数器。详情请查看服务器日志。</value></data>
   <data name="Resources_GpuState_unsupported" xml:space="preserve"><value>此主机/容器或驱动未提供受支持的 GPU 活动计数器。</value></data>
   <data name="Resources_GpuState_warming_up" xml:space="preserve"><value>正在建立 GPU 计数器基准。</value></data>
   <data name="Resources_GpuVideo" xml:space="preserve"><value>视频 / 媒体</value></data>
+  <data name="Resources_GpuVideoShared" xml:space="preserve"><value>视频编码/解码 — 共享</value></data>
   <data name="Resources_Heading" xml:space="preserve"><value>资源</value></data>
   <data name="Resources_Management" xml:space="preserve"><value>管理主机</value></data>
   <data name="Resources_Media" xml:space="preserve"><value>媒体及生命周期辅助进程</value></data>
@@ -1041,7 +1044,13 @@
   <data name="Transcoding_HardwareArguments" xml:space="preserve"><value>GPU 编码器高级选项</value></data>
   <data name="Transcoding_HardwareArgumentsHelp" xml:space="preserve"><value>每行一个 option=value，不带开头连字符，最多 16 项。选项因后端而异，例如 NVENC 的 preset=p4。禁止指定输入、输出、映射或 shell 命令。</value></data>
   <data name="Transcoding_HardwareDevice" xml:space="preserve"><value>GPU 设备（可选）</value></data>
+  <data name="Transcoding_HardwareDeviceCustom" xml:space="preserve"><value>自定义设备</value></data>
+  <data name="Transcoding_HardwareDeviceDefault" xml:space="preserve"><value>默认（自动）</value></data>
+  <data name="Transcoding_HardwareDeviceDetectedHelp" xml:space="preserve"><value>设备在此 Lineup 主机/容器上发现，而非浏览器所在设备。候选设备按编码器筛选；编码开始时会检查支持情况。重启 Lineup 可刷新列表。</value></data>
+  <data name="Transcoding_HardwareDeviceDiscoveryFailed" xml:space="preserve"><value>GPU 发现失败。现有设置已保留；请选择默认设备或自定义设备。详情请查看服务器日志。</value></data>
   <data name="Transcoding_HardwareDeviceHelp" xml:space="preserve"><value>Linux QSV/VA-API：/dev/dri/renderD128。NVENC 和 Windows QSV/AMF：GPU 索引。留空使用默认设备；VideoToolbox 使用系统设备。</value></data>
+  <data name="Transcoding_HardwareDeviceLoading" xml:space="preserve"><value>正在发现 GPU 设备…</value></data>
+  <data name="Transcoding_HardwareDeviceNone" xml:space="preserve"><value>未发现匹配的 GPU 设备。请选择默认设备；如果无法识别您的设备，可输入自定义设备。</value></data>
   <data name="Transcoding_HardwareEncoder" xml:space="preserve"><value>视频编码器</value></data>
   <data name="Transcoding_HardwareFallback" xml:space="preserve"><value>允许在播放前回退到软件编码</value></data>
   <data name="Transcoding_HardwareFallbackHelp" xml:space="preserve"><value>默认关闭。GPU 启动检查失败时，可在清理资源后选择软件编码。不会静默重启已发布的流。</value></data>

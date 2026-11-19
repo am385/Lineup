@@ -3,6 +3,7 @@ using Lineup.App.Web.Services;
 using Lineup.Plugin.GuideOutputs.Xmltv.Plugin;
 using Microsoft.Extensions.DependencyInjection;
 using System.Runtime.ExceptionServices;
+using NSubstitute;
 
 namespace Lineup.App.Web.Tests;
 
@@ -23,6 +24,9 @@ internal sealed class LineupWebBunitContext : Bunit.BunitContext
         Services.AddSingleton(TimeProvider.System);
         Services.AddSingleton(new LineupStartupState(LineupStartupStatus.Ready));
         Services.AddSingleton<IStatusNotificationService, StatusNotificationService>();
+        var encoderDevices = Substitute.For<IHardwareEncoderDeviceDiscovery>();
+        encoderDevices.GetDevicesAsync(Arg.Any<HardwareVideoEncoder>()).Returns(new HardwareEncoderDeviceSnapshot([]));
+        Services.AddSingleton(encoderDevices);
         Services.AddSingleton<IPhysicalTunerDriver, Lineup.App.Web.Tests.TestPhysicalTunerDriver>();
         Services.AddSingleton<IGuideSourceDriver, Lineup.App.Web.Tests.TestGuideSourceDriver>();
         Services.AddSingleton<IVirtualTunerDriver, HdHomeRunVirtualTunerDriver>();

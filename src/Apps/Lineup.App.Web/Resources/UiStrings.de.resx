@@ -415,14 +415,17 @@
   <data name="Resources_GpuDecode" xml:space="preserve"><value>Videodekodierung</value></data>
   <data name="Resources_GpuDevice" xml:space="preserve"><value>GPU · {0}</value></data>
   <data name="Resources_GpuEncode" xml:space="preserve"><value>Videokodierung</value></data>
-  <data name="Resources_GpuHelp" xml:space="preserve"><value>Die GPU-Aktivität zeigt den Gesamtwert des Treibers oder die aktivste Engine. Kodierung, Dekodierung und Video/Medien sind unabhängig; nicht addieren. Gemeinsame Codec-Engines erscheinen unter Video/Medien. Nicht unterstützte Werte sind nicht verfügbar.</value></data>
+  <data name="Resources_GpuEngines" xml:space="preserve"><value>Einzelne Engines</value></data>
+  <data name="Resources_GpuHelp" xml:space="preserve"><value>Messwerte hängen von GPU, Treiber und Plattform ab. Die GPU-Aktivität zeigt den Gesamtwert des Treibers oder die aktivste Engine. Video / Medien kann Kodierung und Dekodierung zusammenfassen. Kategorien ohne beobachtete Messwerte werden ausgeblendet; das bedeutet nicht, dass die Hardware sie nicht unterstützt. 0% ist ein gültiger Messwert; N/A bedeutet, dass ein angezeigter Messwert derzeit nicht verfügbar ist. Messwerte überschneiden sich; nicht addieren.</value></data>
   <data name="Resources_GpuScope" xml:space="preserve"><value>GPU-Werte gelten für ganze Geräte, die diesem Host/Container zugänglich sind, einschließlich anderer Anwendungen. Sie sind weder Lineup- noch streamspezifisch und enthalten keine GPUs entfernter Worker-Hosts.</value></data>
+  <data name="Resources_GpuSharedHelp" xml:space="preserve"><value>Intel-Video-Engines (vcs) teilen sich Kodierung und Dekodierung. Der gemeinsame Wert zeigt die aktivste Codec-Engine, nicht die Summe. Videoverbesserung (vecs) ist separat. Die Engine-Namen stammen vom Treiber.</value></data>
   <data name="Resources_GpuState_paused" xml:space="preserve"><value>GPU-Erfassung pausiert; der gespeicherte Verlauf ist keine aktuelle Nutzung.</value></data>
   <data name="Resources_GpuState_permission_denied" xml:space="preserve"><value>GPU-Zähler sind wegen der Überwachungsberechtigungen des Hosts/Containers nicht zugänglich. Streaming-Berechtigungen sind davon unabhängig.</value></data>
   <data name="Resources_GpuState_read_failed" xml:space="preserve"><value>Einige GPU-Zähler konnten nicht gelesen werden. Details stehen im Serverprotokoll.</value></data>
   <data name="Resources_GpuState_unsupported" xml:space="preserve"><value>Host/Container oder Treiber stellen keinen unterstützten GPU-Aktivitätszähler bereit.</value></data>
   <data name="Resources_GpuState_warming_up" xml:space="preserve"><value>GPU-Zählerbasis wird ermittelt.</value></data>
   <data name="Resources_GpuVideo" xml:space="preserve"><value>Video / Medien</value></data>
+  <data name="Resources_GpuVideoShared" xml:space="preserve"><value>Videokodierung/-dekodierung — gemeinsam</value></data>
   <data name="Resources_Heading" xml:space="preserve"><value>Ressourcen</value></data>
   <data name="Resources_Management" xml:space="preserve"><value>Verwaltungshost</value></data>
   <data name="Resources_Media" xml:space="preserve"><value>Medien- und Lebensdauerhilfsprozesse</value></data>
@@ -1041,7 +1044,13 @@
   <data name="Transcoding_HardwareArguments" xml:space="preserve"><value>Erweiterte GPU-Encoderoptionen</value></data>
   <data name="Transcoding_HardwareArgumentsHelp" xml:space="preserve"><value>Eine Option=Wert pro Zeile, ohne führenden Bindestrich; maximal 16. Backendabhängig, z. B. preset=p4 für NVENC. Eingaben, Ausgaben, Zuordnungen und Shellbefehle sind nicht erlaubt.</value></data>
   <data name="Transcoding_HardwareDevice" xml:space="preserve"><value>GPU-Gerät (optional)</value></data>
+  <data name="Transcoding_HardwareDeviceCustom" xml:space="preserve"><value>Benutzerdefiniertes Gerät</value></data>
+  <data name="Transcoding_HardwareDeviceDefault" xml:space="preserve"><value>Standard (automatisch)</value></data>
+  <data name="Transcoding_HardwareDeviceDetectedHelp" xml:space="preserve"><value>Geräte werden auf diesem Lineup-Host/Container erkannt, nicht im Browser. Kandidaten werden nach Encoder gefiltert; die Unterstützung wird beim Kodierungsstart geprüft. Lineup neu starten, um die Liste zu aktualisieren.</value></data>
+  <data name="Transcoding_HardwareDeviceDiscoveryFailed" xml:space="preserve"><value>GPU-Erkennung fehlgeschlagen. Vorhandene Einstellungen bleiben erhalten; Standard oder benutzerdefiniertes Gerät verwenden. Details im Serverprotokoll.</value></data>
   <data name="Transcoding_HardwareDeviceHelp" xml:space="preserve"><value>Linux QSV/VA-API: /dev/dri/renderD128. NVENC und Windows QSV/AMF: GPU-Index. Leer für das Standardgerät; VideoToolbox verwendet das Systemgerät.</value></data>
+  <data name="Transcoding_HardwareDeviceLoading" xml:space="preserve"><value>GPU-Geräte werden erkannt…</value></data>
+  <data name="Transcoding_HardwareDeviceNone" xml:space="preserve"><value>Keine passenden GPU-Geräte erkannt. Standard wählen oder ein benutzerdefiniertes Gerät eingeben, wenn die Erkennung das Gerät nicht identifizieren kann.</value></data>
   <data name="Transcoding_HardwareEncoder" xml:space="preserve"><value>Videoencoder</value></data>
   <data name="Transcoding_HardwareFallback" xml:space="preserve"><value>Software-Fallback vor Wiedergabestart erlauben</value></data>
   <data name="Transcoding_HardwareFallbackHelp" xml:space="preserve"><value>Standardmäßig deaktiviert. Bei fehlgeschlagener GPU-Startprüfung kann nach der Bereinigung Software verwendet werden. Laufende Streams werden nicht still neu gestartet.</value></data>

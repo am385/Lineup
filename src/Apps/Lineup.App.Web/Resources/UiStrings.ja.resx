@@ -415,14 +415,17 @@
   <data name="Resources_GpuDecode" xml:space="preserve"><value>動画デコード</value></data>
   <data name="Resources_GpuDevice" xml:space="preserve"><value>GPU · {0}</value></data>
   <data name="Resources_GpuEncode" xml:space="preserve"><value>動画エンコード</value></data>
-  <data name="Resources_GpuHelp" xml:space="preserve"><value>GPU 使用率はドライバーの全体値または最も使用されているエンジンの値です。エンコード、デコード、動画/メディアは独立しており、合算できません。共有コーデックエンジンは動画/メディアに表示されます。非対応の指標は N/A です。</value></data>
+  <data name="Resources_GpuEngines" xml:space="preserve"><value>個別のエンジン</value></data>
+  <data name="Resources_GpuHelp" xml:space="preserve"><value>測定項目は GPU、ドライバー、プラットフォームによって異なります。GPU 使用率はドライバーの全体値または最も使用されているエンジンの値です。動画 / メディアにはエンコードとデコードの両方が含まれる場合があります。測定値が一度も取得されていない項目は非表示になりますが、ハードウェアが非対応という意味ではありません。0% は有効な測定値です。N/A は表示中の項目が現在取得できないことを示します。測定値は重複するため合算できません。</value></data>
   <data name="Resources_GpuScope" xml:space="preserve"><value>GPU の測定値は、このホスト/コンテナーから見えるデバイス全体が対象で、他のアプリも含みます。Lineup 専用やストリーム単位の値ではなく、リモートワーカーホストの GPU は含みません。</value></data>
+  <data name="Resources_GpuSharedHelp" xml:space="preserve"><value>Intel の動画エンジン (vcs) はエンコードとデコードで共有されます。共有値は最も使用されているコーデックエンジンの値で、合計ではありません。動画補正 (vecs) は別です。以下のエンジン名はドライバーが提供します。</value></data>
   <data name="Resources_GpuState_paused" xml:space="preserve"><value>GPU 収集は一時停止中です。保持された履歴は現在の使用率ではありません。</value></data>
   <data name="Resources_GpuState_permission_denied" xml:space="preserve"><value>ホスト/コンテナーの監視権限により GPU カウンターへのアクセスが拒否されました。ストリーミングの権限とは別です。</value></data>
   <data name="Resources_GpuState_read_failed" xml:space="preserve"><value>一部の GPU カウンターを読み取れませんでした。サーバーログを確認してください。</value></data>
   <data name="Resources_GpuState_unsupported" xml:space="preserve"><value>このホスト/コンテナーまたはドライバーには対応する GPU 使用率カウンターがありません。</value></data>
   <data name="Resources_GpuState_warming_up" xml:space="preserve"><value>GPU カウンターの基準値を取得しています。</value></data>
   <data name="Resources_GpuVideo" xml:space="preserve"><value>動画 / メディア</value></data>
+  <data name="Resources_GpuVideoShared" xml:space="preserve"><value>動画エンコード/デコード — 共有</value></data>
   <data name="Resources_Heading" xml:space="preserve"><value>リソース</value></data>
   <data name="Resources_Management" xml:space="preserve"><value>管理ホスト</value></data>
   <data name="Resources_Media" xml:space="preserve"><value>メディアおよびライフタイム補助プロセス</value></data>
@@ -1041,7 +1044,13 @@
   <data name="Transcoding_HardwareArguments" xml:space="preserve"><value>GPUエンコーダー詳細オプション</value></data>
   <data name="Transcoding_HardwareArgumentsHelp" xml:space="preserve"><value>1行にoption=valueを指定します（先頭のハイフン不要、最大16件）。NVENCのpreset=p4など、方式ごとに異なります。入出力、マッピング、シェルコマンドは指定できません。</value></data>
   <data name="Transcoding_HardwareDevice" xml:space="preserve"><value>GPUデバイス（任意）</value></data>
+  <data name="Transcoding_HardwareDeviceCustom" xml:space="preserve"><value>カスタムデバイス</value></data>
+  <data name="Transcoding_HardwareDeviceDefault" xml:space="preserve"><value>既定（自動）</value></data>
+  <data name="Transcoding_HardwareDeviceDetectedHelp" xml:space="preserve"><value>デバイスはブラウザーではなく、この Lineup ホスト/コンテナーで検出されます。候補はエンコーダー別に絞り込まれ、対応状況はエンコード開始時に確認されます。一覧を更新するには Lineup を再起動してください。</value></data>
+  <data name="Transcoding_HardwareDeviceDiscoveryFailed" xml:space="preserve"><value>GPU の検出に失敗しました。既存の設定は保持されます。既定またはカスタムデバイスを使用してください。詳細はサーバーログを参照してください。</value></data>
   <data name="Transcoding_HardwareDeviceHelp" xml:space="preserve"><value>Linux QSV/VA-API: /dev/dri/renderD128。NVENC、Windows QSV/AMF: GPU番号。空欄は既定のデバイス。VideoToolboxはシステムのデバイスを使用します。</value></data>
+  <data name="Transcoding_HardwareDeviceLoading" xml:space="preserve"><value>GPU デバイスを検出中…</value></data>
+  <data name="Transcoding_HardwareDeviceNone" xml:space="preserve"><value>該当する GPU デバイスが検出されませんでした。既定を使用するか、検出できない場合はカスタムデバイスを入力してください。</value></data>
   <data name="Transcoding_HardwareEncoder" xml:space="preserve"><value>映像エンコーダー</value></data>
   <data name="Transcoding_HardwareFallback" xml:space="preserve"><value>再生開始前のソフトウェアへの切り替えを許可</value></data>
   <data name="Transcoding_HardwareFallbackHelp" xml:space="preserve"><value>既定では無効です。GPU起動テストに失敗した場合、リソース解放後にソフトウェアを選択できます。公開済みストリームを無通知で再起動しません。</value></data>

@@ -19,6 +19,10 @@
     </header>
     <div class="card-body" id="@_bodyId" hidden="@(!Expanded)">
         <p class="small text-body-secondary">@Text[IsGpu ? "Resources_GpuHelp" : Memory ? "Resources_MemoryHelp" : "Resources_CpuHelp"]</p>
+        @if (_gpuMetadata?.SharedVideo == true)
+        {
+            <p class="small text-body-secondary">@Text["Resources_GpuSharedHelp"]</p>
+        }
         @if (IsGpu && UnavailableReason is { } reason)
         {
             <p role="status">@Text[$"Resources_GpuState_{reason}"]</p>
@@ -73,7 +77,7 @@
                 <div class="col">
                     <dt><span style="@($"color:{line.Color}")" aria-hidden="true">&#9679;</span> @Text[line.Label]</dt>
                     <dd>
-                        @(line.Current?.ToString("0.##") ?? Text["Common_NotAvailable"].Value) @(Memory ? "MiB" : "%")
+                        @FormatValue(line.Current)
                         @if (!Memory && !IsGpu && line.Current is { } cpu)
                         {
                             <span>(@Text["Resources_CoreCount", cpu / 100])</span>
@@ -82,6 +86,19 @@
                 </div>
             }
         </dl>
+        @if (_gpuMetadata is { Engines.Count: > 0 } gpu)
+        {
+            <h6 class="mt-3">@Text["Resources_GpuEngines"]</h6>
+            <dl class="row row-cols-1 row-cols-md-2 row-cols-xl-4 g-3 small mt-0 mb-0" data-gpu-engines>
+                @foreach (var engine in gpu.Engines)
+                {
+                    <div class="col">
+                        <dt>@engine.Name</dt>
+                        <dd>@FormatValue(_currentGpu?.Engines.FirstOrDefault(value => value.Name == engine.Name)?.Utilization)</dd>
+                    </div>
+                }
+            </dl>
+        }
     </div>
 </section>
 
@@ -91,6 +108,8 @@
     private static readonly ConditionalWeakTable<IReadOnlyList<ResourceHistoryPoint>, ConcurrentDictionary<string, Lazy<ChartPlot>>> _gpuPlots = new();
     private readonly string _bodyId = $"resourceHistory-{Guid.NewGuid():N}";
     private IReadOnlyList<ChartLine> _lines = [];
+    private GpuResourceSample? _currentGpu;
+    private GpuResourceSample? _gpuMetadata;
     private double _maximum = 100;
     private bool IsGpu => GpuId is not null;
     private string Title => IsGpu ? Text["Resources_GpuDevice", GpuName ?? GpuId!] : Text[Memory ? "Resources_Memory" : "Resources_Cpu"];
@@ -137,10 +156,14 @@
         await ExpandedChanged.InvokeAsync(Expanded);
     }
 
+    private string FormatValue(double? value) => value is { } observed ? $"{observed:0.##} {(Memory ? "MiB" : "%")}" : Text["Common_NotAvailable"].Value;
+
     /// <inheritdoc />
     protected override void OnParametersSet()
     {
         var history = History;
+        _currentGpu = IsGpu ? history.LastOrDefault()?.Gpus.FirstOrDefault(device => device.Id == GpuId) : null;
+        _gpuMetadata = IsGpu ? history.LastOrDefault(point => point.Gpus.Any(device => device.Id == GpuId))?.Gpus.First(device => device.Id == GpuId) : null;
         var plot = GpuId is { } gpuId
             ? _gpuPlots.GetValue(history, static _ => new()).GetOrAdd(gpuId, id => new(() => BuildPlot(history, false, id))).Value
             : Memory
@@ -170,6 +193,8 @@
             ? ["Resources_Total", "Resources_Management", "Resources_Workers", "Resources_Media"]
             : ["Resources_GpuActivity", "Resources_GpuEncode", "Resources_GpuDecode", "Resources_GpuVideo"];
         string[] colors = ["#0d6efd", "#198754", "#fd7e14", "#a66bdb"];
+        var sharedVideo = gpuId is not null && history.LastOrDefault(point => Gpu(point) is not null) is { } latestGpu && Gpu(latestGpu) is { SharedVideo: true };
+        if (sharedVideo) labels[3] = "Resources_GpuVideoShared";
         var maximum = memory ? 1d : 100d;
         foreach (var point in history)
         {
@@ -183,6 +208,11 @@
         var span = Math.Max(1, (end - first).TotalSeconds);
         for (var index = 0; index < selectors.Length; index++)
         {
+            if (gpuId is not null && index > 0 &&
+                (sharedVideo && index is 1 or 2 || !history.Any(point => selectors[index](point) is not null) && !(sharedVideo && index == 3)))
+            {
+                continue;
+            }
             var segments = new List<string>();
             var points = new List<string>();
             DateTimeOffset? previous = null;

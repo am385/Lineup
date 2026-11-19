@@ -138,20 +138,23 @@ internal sealed class WindowsGpuResourceSource : IGpuResourceSource
         return $"GPU {(index + 1).ToString(CultureInfo.InvariantCulture)} ({adapter})";
     }
 
-    private static IReadOnlyDictionary<ulong, string> ReadAdapterNames()
+    private static IReadOnlyDictionary<ulong, string> ReadAdapterNames() => ReadAdapters().ToDictionary(adapter => adapter.Luid, adapter => adapter.Name);
+
+    /// <summary>Reads DXGI adapters in native enumeration order, retaining the indices used by D3D11 device selection.</summary>
+    internal static IReadOnlyList<Adapter> ReadAdapters()
     {
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("DXGI adapter names require Windows.");
         var iid = new Guid("770aae78-f26f-4dba-a829-253c83d1b387");
         Marshal.ThrowExceptionForHR(CreateDXGIFactory1(ref iid, out var factory));
         try
         {
-            var names = new Dictionary<ulong, string>();
+            var adapters = new List<Adapter>();
             // IDXGIFactory1::EnumAdapters1 and IDXGIAdapter1::GetDesc1 follow their inherited COM methods.
             var enumerate = NativeMethod<EnumAdapters>(factory, 12);
             for (uint index = 0; index < 32; index++)
             {
                 var result = enumerate(factory, index, out var adapter);
-                if (result == unchecked((int)0x887a0002)) return names;
+                if (result == unchecked((int)0x887a0002)) return adapters;
                 Marshal.ThrowExceptionForHR(result);
                 try
                 {
@@ -159,7 +162,7 @@ internal sealed class WindowsGpuResourceSource : IGpuResourceSource
                     if (!string.IsNullOrWhiteSpace(description.Description))
                     {
                         var luid = ((ulong)description.AdapterLuid.High << 32) | description.AdapterLuid.Low;
-                        names[luid] = description.Description.Trim();
+                        adapters.Add(new(index, description.Description.Trim(), description.VendorId, luid, (description.Flags & 2) != 0));
                     }
                 }
                 finally
@@ -174,6 +177,9 @@ internal sealed class WindowsGpuResourceSource : IGpuResourceSource
             Marshal.Release(factory);
         }
     }
+
+    /// <summary>Describes a native DXGI adapter without converting its index into a monitoring identity.</summary>
+    internal sealed record Adapter(uint Index, string Name, uint VendorId, ulong Luid, bool Software);
 
     private static T NativeMethod<T>(nint instance, int slot) where T : Delegate =>
         Marshal.GetDelegateForFunctionPointer<T>(Marshal.ReadIntPtr(Marshal.ReadIntPtr(instance), slot * nint.Size));

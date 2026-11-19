@@ -415,14 +415,17 @@
   <data name="Resources_GpuDecode" xml:space="preserve"><value>Videodecodering</value></data>
   <data name="Resources_GpuDevice" xml:space="preserve"><value>GPU · {0}</value></data>
   <data name="Resources_GpuEncode" xml:space="preserve"><value>Videocodering</value></data>
-  <data name="Resources_GpuHelp" xml:space="preserve"><value>GPU-activiteit is de totale driverwaarde of de drukste engine. Codering, decodering en video/media zijn onafhankelijk; tel ze niet op. Gedeelde codec-engines staan onder video/media. Niet-ondersteunde waarden zijn N/A.</value></data>
+  <data name="Resources_GpuEngines" xml:space="preserve"><value>Afzonderlijke engines</value></data>
+  <data name="Resources_GpuHelp" xml:space="preserve"><value>Meetwaarden verschillen per GPU, driver en platform. GPU-activiteit is de totale driverwaarde of de drukste engine. Video / media kan codering en decodering combineren. Categorieën zonder waargenomen metingen worden verborgen; dit betekent niet dat de hardware ze niet ondersteunt. 0% is een geldige meting; N/A betekent dat een getoonde meetwaarde momenteel niet beschikbaar is. Metingen overlappen; tel ze niet op.</value></data>
   <data name="Resources_GpuScope" xml:space="preserve"><value>GPU-metingen gelden voor hele apparaten die deze host/container ziet, inclusief andere toepassingen. Ze zijn niet exclusief voor Lineup of per stream en omvatten geen GPU&apos;s van externe werkhosts.</value></data>
+  <data name="Resources_GpuSharedHelp" xml:space="preserve"><value>Intel-video-engines (vcs) delen codering en decodering. De gedeelde waarde is die van de drukste codec-engine, niet hun som. Videoverbetering (vecs) is apart. De enginenamen komen van de driver.</value></data>
   <data name="Resources_GpuState_paused" xml:space="preserve"><value>GPU-verzameling is gepauzeerd; bewaarde geschiedenis is geen huidig gebruik.</value></data>
   <data name="Resources_GpuState_permission_denied" xml:space="preserve"><value>Bewakingsrechten van de host/container weigeren toegang tot GPU-tellers. Streamingrechten staan hier los van.</value></data>
   <data name="Resources_GpuState_read_failed" xml:space="preserve"><value>Sommige GPU-tellers konden niet worden gelezen. Zie het serverlogboek.</value></data>
   <data name="Resources_GpuState_unsupported" xml:space="preserve"><value>Deze host/container of driver biedt geen ondersteunde GPU-activiteitsteller.</value></data>
   <data name="Resources_GpuState_warming_up" xml:space="preserve"><value>GPU-tellerbasissen worden vastgesteld.</value></data>
   <data name="Resources_GpuVideo" xml:space="preserve"><value>Video / media</value></data>
+  <data name="Resources_GpuVideoShared" xml:space="preserve"><value>Videocodering/-decodering — gedeeld</value></data>
   <data name="Resources_Heading" xml:space="preserve"><value>Brongebruik</value></data>
   <data name="Resources_Management" xml:space="preserve"><value>Beheerhost</value></data>
   <data name="Resources_Media" xml:space="preserve"><value>Media- en levensduurhulpprocessen</value></data>
@@ -1041,7 +1044,13 @@
   <data name="Transcoding_HardwareArguments" xml:space="preserve"><value>Geavanceerde GPU-opties</value></data>
   <data name="Transcoding_HardwareArgumentsHelp" xml:space="preserve"><value>Eén optie=waarde per regel, zonder beginnend streepje; maximaal 16. Afhankelijk van de backend, bijvoorbeeld preset=p4 voor NVENC. Invoer, uitvoer, maps en shellopdrachten zijn niet toegestaan.</value></data>
   <data name="Transcoding_HardwareDevice" xml:space="preserve"><value>GPU-apparaat (optioneel)</value></data>
+  <data name="Transcoding_HardwareDeviceCustom" xml:space="preserve"><value>Aangepast apparaat</value></data>
+  <data name="Transcoding_HardwareDeviceDefault" xml:space="preserve"><value>Standaard (automatisch)</value></data>
+  <data name="Transcoding_HardwareDeviceDetectedHelp" xml:space="preserve"><value>Apparaten worden op deze Lineup-host/container ontdekt, niet in uw browser. Kandidaten worden per encoder gefilterd; ondersteuning wordt bij het starten van codering gecontroleerd. Herstart Lineup om de lijst te vernieuwen.</value></data>
+  <data name="Transcoding_HardwareDeviceDiscoveryFailed" xml:space="preserve"><value>GPU-detectie mislukt. Bestaande instellingen blijven behouden; gebruik Standaard of Aangepast apparaat. Zie het serverlogboek voor details.</value></data>
   <data name="Transcoding_HardwareDeviceHelp" xml:space="preserve"><value>Linux QSV/VA-API: /dev/dri/renderD128. NVENC en Windows QSV/AMF: GPU-index. Leeg voor het standaardapparaat; VideoToolbox gebruikt het systeemapparaat.</value></data>
+  <data name="Transcoding_HardwareDeviceLoading" xml:space="preserve"><value>GPU-apparaten ontdekken…</value></data>
+  <data name="Transcoding_HardwareDeviceNone" xml:space="preserve"><value>Geen overeenkomende GPU-apparaten ontdekt. Gebruik Standaard of voer een aangepast apparaat in als detectie het niet kan identificeren.</value></data>
   <data name="Transcoding_HardwareEncoder" xml:space="preserve"><value>Video-encoder</value></data>
   <data name="Transcoding_HardwareFallback" xml:space="preserve"><value>Softwareterugval vóór afspelen toestaan</value></data>
   <data name="Transcoding_HardwareFallbackHelp" xml:space="preserve"><value>Standaard uitgeschakeld. Na een mislukte GPU-startcontrole kan na opruiming software worden gebruikt. Gepubliceerde streams worden nooit stilzwijgend herstart.</value></data>
