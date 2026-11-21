@@ -279,6 +279,7 @@
   <data name="Dashboard_StreamingFlowHeading" xml:space="preserve"><value>Flusso di streaming</value></data>
   <data name="Dashboard_TargetColumn" xml:space="preserve"><value>Obiettivo</value></data>
   <data name="Dashboard_TimeRangeHeading" xml:space="preserve"><value>Gamma di tempo</value></data>
+  <data name="Dashboard_ToggleDeviceDetails" xml:space="preserve"><value>Mostra / nascondi dettagli del dispositivo</value></data>
   <data name="Dashboard_UpstreamStatusCached" xml:space="preserve"><value>L'ultimo aggiornamento è fallito; la tabella mostra l'ultima osservazione riuscita.</value></data>
   <data name="Dashboard_UpstreamStatusEmpty" xml:space="preserve"><value>Nessun dispositivo a monte è sottoscritto.</value></data>
   <data name="Dashboard_UpstreamStatusHeading" xml:space="preserve"><value>Stato dei sintonizzatori a monte (sola lettura)</value></data>
@@ -801,6 +802,10 @@
   <data name="Settings_PhysicalDeviceNameHelp" xml:space="preserve"><value>Un'etichetta locale utilizzata per la proprietà dei canali, gli abbonamenti, il routing e lo stato display.</value></data>
   <data name="Settings_PhysicalDeviceSubscriptionHeading" xml:space="preserve"><value>Abbonamento di dispositivi fisici</value></data>
   <data name="Settings_PhysicalHevcHelp" xml:space="preserve"><value>Normalizzare le sorgenti HEVC una volta prima di entrare nel multiplexer.</value></data>
+  <data name="Settings_PhysicalPriorityHeading" xml:space="preserve"><value>Priorità dei dispositivi</value></data>
+  <data name="Settings_PhysicalPriorityHelp" xml:space="preserve"><value>La priorità 1 è preferita quando più dispositivi abilitati, sottoscritti e compatibili offrono lo stesso numero globale di canale. I dispositivi disabilitati mantengono la posizione ma vengono ignorati. Raggruppa i canali equivalenti in Canali per abilitare le sorgenti alternative all’avvio in questo ordine. Salva impostazioni applica l’ordine; Annulla modifiche scarta le modifiche non salvate. I flussi in corso non cambiano sorgente.</value></data>
+  <data name="Settings_PhysicalPriorityMoveDown" xml:space="preserve"><value>Sposta giù</value></data>
+  <data name="Settings_PhysicalPriorityMoveUp" xml:space="preserve"><value>Sposta su</value></data>
   <data name="Settings_PhysicalRefreshDescription" xml:space="preserve"><value>Questi intervalli di monitoraggio si applicano ad ogni dispositivo fisico.</value></data>
   <data name="Settings_PhysicalSubscriptionHelp" xml:space="preserve"><value>I controlli che i dispositivi fisici compatibili possono fornire canali e capacità sintonizzanti a questa uscita virtuale. Tutto include automaticamente i dispositivi compatibili aggiunti in seguito.</value></data>
   <data name="Settings_PhysicalSubscriptionLabel" xml:space="preserve"><value>Abbonamento fisico</value></data>

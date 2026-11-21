@@ -279,6 +279,7 @@
   <data name="Dashboard_StreamingFlowHeading" xml:space="preserve"><value>Streaming Flow</value></data>
   <data name="Dashboard_TargetColumn" xml:space="preserve"><value>Target</value></data>
   <data name="Dashboard_TimeRangeHeading" xml:space="preserve"><value>Time Range</value></data>
+  <data name="Dashboard_ToggleDeviceDetails" xml:space="preserve"><value>Show / hide device details</value></data>
   <data name="Dashboard_UpstreamStatusCached" xml:space="preserve"><value>The latest refresh failed; the table shows the last successful observation.</value></data>
   <data name="Dashboard_UpstreamStatusEmpty" xml:space="preserve"><value>No upstream devices are subscribed.</value></data>
   <data name="Dashboard_UpstreamStatusHeading" xml:space="preserve"><value>Upstream tuner status (read-only)</value></data>
@@ -801,6 +802,10 @@
   <data name="Settings_PhysicalDeviceNameHelp" xml:space="preserve"><value>A local label used for channel ownership, subscriptions, routing, and status displays.</value></data>
   <data name="Settings_PhysicalDeviceSubscriptionHeading" xml:space="preserve"><value>Physical Device Subscription</value></data>
   <data name="Settings_PhysicalHevcHelp" xml:space="preserve"><value>Normalize HEVC sources once before they enter the multiplexer.</value></data>
+  <data name="Settings_PhysicalPriorityHeading" xml:space="preserve"><value>Device priority</value></data>
+  <data name="Settings_PhysicalPriorityHelp" xml:space="preserve"><value>Priority 1 is preferred when multiple enabled, subscribed, compatible devices provide the same global channel number. Disabled devices keep their positions but are skipped. Group equivalent channels on Channels to enable startup fallback in this order. Save Settings applies the order; Undo discards unsaved changes. Existing streams are not switched.</value></data>
+  <data name="Settings_PhysicalPriorityMoveDown" xml:space="preserve"><value>Move down</value></data>
+  <data name="Settings_PhysicalPriorityMoveUp" xml:space="preserve"><value>Move up</value></data>
   <data name="Settings_PhysicalRefreshDescription" xml:space="preserve"><value>These monitoring intervals apply to every physical device.</value></data>
   <data name="Settings_PhysicalSubscriptionHelp" xml:space="preserve"><value>Controls which compatible physical devices can supply channels and tuner capacity to this virtual output. All automatically includes compatible devices added later.</value></data>
   <data name="Settings_PhysicalSubscriptionLabel" xml:space="preserve"><value>Physical subscription</value></data>

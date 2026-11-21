@@ -2,11 +2,14 @@ using System.Reflection;
 using System.Globalization;
 using System.Text.Json;
 using Bunit;
+using Lineup.App.Web.Components.Dashboard;
 using Lineup.App.Web.Components.Pages;
 using Lineup.App.Web.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.Extensions.Logging;
+using Microsoft.JSInterop;
 using NSubstitute;
 using Xunit;
 
@@ -18,6 +21,7 @@ namespace Lineup.App.Web.Tests.Components.Pages;
 public class DashboardComponentTests
 {
     private const string StorageKey = "lineup-dashboard-sections-v1";
+    private const string DeviceStorageKey = "lineup-dashboard-physical-device-sections-v1";
 
     /// <summary>Verifies refresh actions follow all content at the bottom of their collapsible card bodies, not the primary headers.</summary>
     [Theory]
@@ -668,6 +672,217 @@ public class DashboardComponentTests
         Assert.Equal(4, component.FindAll("#deviceSection > .card > .card-body > .table-responsive tbody tr").Count);
     }
 
+    /// <summary>Verifies each physical-device chevron hides the complete body independently while retaining accessible headers and all existing content.</summary>
+    [Fact]
+    public async Task PhysicalDevices_ToggleCard_PersistsIndependentStateAndKeepsHeaderVisible()
+    {
+        // Arrange
+        await using var context = CreateContext();
+        var first = LinkStatus([new UpstreamPhysicalDeviceStatus { DeviceId = Guid.NewGuid(), Name = "Upstream", Kind = "hdhomerun" }]) with
+        {
+            Error = "Device unavailable",
+            SupportsRestart = true
+        };
+        var second = LinkStatus(null);
+        var component = context.Render<DashboardPhysicalDevicesPanel>(parameters => parameters
+            .Add(panel => panel.Expanded, true)
+            .Add(panel => panel.Summary, "Devices")
+            .Add(panel => panel.Devices, [first, second]));
+        var selector = $"[data-physical-device='{first.Device.Id}']";
+        var button = component.Find($"{selector} > .card-header button");
+        Assert.All(component.FindAll("#deviceSection > .card > .card-body"), body => Assert.False(body.HasAttribute("hidden")));
+
+        // Act
+        await button.ClickAsync(new());
+
+        // Assert
+        var header = component.Find($"{selector} > .card-header");
+        Assert.Contains(first.Device.Name, header.TextContent, StringComparison.Ordinal);
+        Assert.Contains(first.Device.Kind, header.TextContent, StringComparison.Ordinal);
+        Assert.Null(header.Closest("[hidden]"));
+        button = component.Find($"{selector} > .card-header button");
+        Assert.Equal("false", button.GetAttribute("aria-expanded"));
+        Assert.NotNull(button.QuerySelector(".bi-chevron-down[aria-hidden='true']"));
+        Assert.Contains("Show / hide device details", button.TextContent, StringComparison.Ordinal);
+        var body = component.Find($"{selector} > .card-body");
+        Assert.Equal(body.Id, button.GetAttribute("aria-controls"));
+        Assert.True(body.HasAttribute("hidden"));
+        Assert.Contains(first.Error!, body.TextContent, StringComparison.Ordinal);
+        Assert.NotNull(body.QuerySelector("[data-upstream-tuner-status]"));
+        Assert.NotEmpty(body.QuerySelectorAll("button"));
+        Assert.False(component.Find($"[data-physical-device='{second.Device.Id}'] > .card-body").HasAttribute("hidden"));
+        Assert.Equal(2, component.FindAll("#deviceSection > .card > .card-header button").Count);
+        Assert.Empty(component.FindAll("[data-upstream-tuner-status] button"));
+        var write = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "localStorage.setItem");
+        Assert.Equal(DeviceStorageKey, write.Arguments[0]);
+        Assert.False(JsonSerializer.Deserialize<Dictionary<string, bool>>(Assert.IsType<string>(write.Arguments[1]))![first.Device.Id.ToString()]);
+
+        // Act
+        await button.ClickAsync(new());
+
+        // Assert
+        Assert.False(component.Find($"{selector} > .card-body").HasAttribute("hidden"));
+        Assert.Equal("true", component.Find($"{selector} > .card-header button").GetAttribute("aria-expanded"));
+        Assert.NotNull(component.Find($"{selector} > .card-header .bi-chevron-up"));
+    }
+
+    /// <summary>Verifies restored preferences follow device identity through renaming, reordering, status refreshes, and new cards.</summary>
+    [Fact]
+    public async Task PhysicalDevices_RestoredState_FollowsIdentityNotNameOrPosition()
+    {
+        // Arrange
+        var first = LinkStatus(null);
+        var second = LinkStatus(null);
+        var third = LinkStatus(null);
+        var saved = JsonSerializer.Serialize(new Dictionary<string, bool> { [first.Device.Id.ToString()] = false, [second.Device.Id.ToString()] = true });
+        await using var context = CreateContext(savedDeviceState: saved);
+        var renamed = first with { Device = first.Device with { Name = "Renamed device" } };
+
+        // Act
+        var component = context.Render<DashboardPhysicalDevicesPanel>(parameters => parameters
+            .Add(panel => panel.Expanded, false)
+            .Add(panel => panel.Summary, "Devices")
+            .Add(panel => panel.Devices, [second, renamed, third]));
+        component.Render(parameters => parameters.Add(panel => panel.Expanded, true).Add(panel => panel.Devices, [third, renamed with { Error = "Refresh failed" }, second]));
+
+        // Assert
+        Assert.True(component.Find($"[data-physical-device='{first.Device.Id}'] > .card-body").HasAttribute("hidden"));
+        Assert.Contains("Renamed device", component.Find($"[data-physical-device='{first.Device.Id}'] > .card-header").TextContent, StringComparison.Ordinal);
+        Assert.Contains("Refresh failed", component.Find($"[data-physical-device='{first.Device.Id}'] > .card-body").TextContent, StringComparison.Ordinal);
+        Assert.All(new[] { second, third }, device =>
+            Assert.False(component.Find($"[data-physical-device='{device.Device.Id}'] > .card-body").HasAttribute("hidden")));
+        Assert.DoesNotContain(context.JSInterop.Invocations, invocation => invocation.Identifier == "localStorage.setItem");
+    }
+
+    /// <summary>Verifies navigation drains queued writes, merges untouched saved choices, and restores the final choices in a new panel instance.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PhysicalDevices_NavigationDuringPendingStorage_PersistsFinalPreferences(bool restoring)
+    {
+        // Arrange
+        await using var context = CreateContext(configureDeviceStorage: false);
+        var devices = new[] { LinkStatus(null), LinkStatus(null), LinkStatus(null) };
+        var keys = devices.Select(device => device.Device.Id.ToString()).ToArray();
+        var saved = JsonSerializer.Serialize(new Dictionary<string, bool> { [keys[0]] = true, [keys[1]] = true, [keys[2]] = false });
+        var restore = context.JSInterop.Setup<string?>("localStorage.getItem", DeviceStorageKey);
+        if (!restoring) restore.SetResult(saved);
+        var write = context.JSInterop.SetupVoid("localStorage.setItem", _ => true);
+        var component = context.Render<DashboardPhysicalDevicesPanel>(parameters => parameters
+            .Add(panel => panel.Expanded, true)
+            .Add(panel => panel.Summary, "Devices")
+            .Add(panel => panel.Devices, devices));
+        Task first = Task.CompletedTask;
+        Task second = Task.CompletedTask;
+        Task disposal = Task.CompletedTask;
+        string? persisted = null;
+        try
+        {
+            // Act
+            first = component.Find($"[data-physical-device='{keys[0]}'] > .card-header button").ClickAsync(new());
+            component.WaitForAssertion(() => Assert.True(component.Find($"[data-physical-device='{keys[0]}'] > .card-body").HasAttribute("hidden")),
+                timeout: LineupWebBunitContext.WaitTimeout);
+            if (!restoring) Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "localStorage.setItem");
+            second = component.Find($"[data-physical-device='{keys[1]}'] > .card-header button").ClickAsync(new());
+            component.WaitForAssertion(() => Assert.True(component.Find($"[data-physical-device='{keys[1]}'] > .card-body").HasAttribute("hidden")),
+                timeout: LineupWebBunitContext.WaitTimeout);
+            disposal = context.DisposeComponentsAsync();
+
+            // Assert
+            Assert.False(first.IsCompleted);
+            Assert.False(second.IsCompleted);
+            Assert.False(disposal.IsCompleted);
+
+            // Act
+            if (restoring) restore.SetResult(saved);
+            write.SetVoidResult();
+            await Task.WhenAll(first, second, disposal).WaitAsync(LineupWebBunitContext.WaitTimeout, Xunit.TestContext.Current.CancellationToken);
+            var writes = context.JSInterop.Invocations.Where(invocation => invocation.Identifier == "localStorage.setItem").ToArray();
+
+            // Assert
+            Assert.Equal(2, writes.Length);
+            persisted = Assert.IsType<string>(writes.Last().Arguments[1]);
+            var values = JsonSerializer.Deserialize<Dictionary<string, bool>>(persisted)!;
+            Assert.All(keys, key => Assert.False(values[key]));
+        }
+        finally
+        {
+            if (restoring) restore.SetResult(saved);
+            write.SetVoidResult();
+            await Task.WhenAll(first, second, disposal).WaitAsync(LineupWebBunitContext.WaitTimeout, CancellationToken.None);
+        }
+
+        // Act
+        await using var restoredContext = CreateContext(savedDeviceState: persisted);
+        var restored = restoredContext.Render<DashboardPhysicalDevicesPanel>(parameters => parameters
+            .Add(panel => panel.Expanded, true)
+            .Add(panel => panel.Summary, "Devices")
+            .Add(panel => panel.Devices, devices.Reverse().ToArray()));
+
+        // Assert
+        Assert.All(restored.FindAll("#deviceSection > .card > .card-body"), body => Assert.True(body.HasAttribute("hidden")));
+    }
+
+    /// <summary>Verifies malformed saved preferences are logged and do not disable device-card toggles.</summary>
+    [Theory]
+    [InlineData("{invalid")]
+    [InlineData("""{"device":"invalid"}""")]
+    public async Task PhysicalDevices_InvalidSavedState_LogsAndKeepsControlsUsable(string saved)
+    {
+        // Arrange
+        await using var context = CreateContext(savedDeviceState: saved);
+        var logger = Substitute.For<ILogger<DashboardPhysicalDevicesPanel>>();
+        context.Services.AddSingleton(logger);
+        var device = LinkStatus(null);
+        var component = context.Render<DashboardPhysicalDevicesPanel>(parameters => parameters
+            .Add(panel => panel.Expanded, true)
+            .Add(panel => panel.Summary, "Devices")
+            .Add(panel => panel.Devices, [device]));
+        Assert.False(component.Find("#deviceSection > .card > .card-body").HasAttribute("hidden"));
+
+        // Act
+        await component.Find("#deviceSection > .card > .card-header button").ClickAsync(new());
+
+        // Assert
+        Assert.True(component.Find("#deviceSection > .card > .card-body").HasAttribute("hidden"));
+        Assert.Single(logger.ReceivedCalls(), call => call.GetMethodInfo().Name == "Log" && call.GetArguments()[0] is LogLevel.Warning);
+        var write = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "localStorage.setItem");
+        Assert.False(JsonSerializer.Deserialize<Dictionary<string, bool>>(Assert.IsType<string>(write.Arguments[1]))![device.Device.Id.ToString()]);
+    }
+
+    /// <summary>Verifies failed browser reads and writes are logged and repeated toggles remain functional.</summary>
+    [Fact]
+    public async Task PhysicalDevices_BrowserStorageUnavailable_LogsAndKeepsControlsUsable()
+    {
+        // Arrange
+        await using var context = CreateContext();
+        var store = Substitute.For<IBrowserDataStore>();
+        store.ReadAsync<Dictionary<string, bool>>(DeviceStorageKey, Arg.Any<CancellationToken>())
+            .Returns(ValueTask.FromException<Dictionary<string, bool>?>(new JSException("Storage denied.")));
+        store.WriteAsync(DeviceStorageKey, Arg.Any<Dictionary<string, bool>>(), Arg.Any<CancellationToken>())
+            .Returns(ValueTask.FromException(new JSException("Storage denied.")));
+        context.Services.AddSingleton(store);
+        var logger = Substitute.For<ILogger<DashboardPhysicalDevicesPanel>>();
+        context.Services.AddSingleton(logger);
+        var component = context.Render<DashboardPhysicalDevicesPanel>(parameters => parameters
+            .Add(panel => panel.Expanded, true)
+            .Add(panel => panel.Summary, "Devices")
+            .Add(panel => panel.Devices, [LinkStatus(null)]));
+
+        // Act
+        await component.Find("#deviceSection > .card > .card-header button").ClickAsync(new());
+
+        // Assert
+        Assert.True(component.Find("#deviceSection > .card > .card-body").HasAttribute("hidden"));
+
+        // Act
+        await component.Find("#deviceSection > .card > .card-header button").ClickAsync(new());
+
+        // Assert
+        Assert.False(component.Find("#deviceSection > .card > .card-body").HasAttribute("hidden"));
+        Assert.Equal(3, logger.ReceivedCalls().Count(call => call.GetMethodInfo().Name == "Log" && call.GetArguments()[0] is LogLevel.Warning));
+    }
+
     private static PhysicalDeviceRuntimeStatus LinkStatus(IReadOnlyList<UpstreamPhysicalDeviceStatus>? upstream)
     {
         var device = new PhysicalDeviceSnapshot { Id = PhysicalDeviceId.New(), Name = "Remote Lineup Link", Kind = "lineup-link", Capacity = new PhysicalTunerCapacity(4) };
@@ -697,10 +912,17 @@ public class DashboardComponentTests
         IActiveStreamRegistry? activeStreams = null,
         ITopologyGuideService? guides = null,
         StreamingFlowSnapshot? streamingFlow = null,
-        IPhysicalDeviceStatusService? deviceStatuses = null
+        IPhysicalDeviceStatusService? deviceStatuses = null,
+        string? savedDeviceState = null,
+        bool configureDeviceStorage = true
     )
     {
         var context = new BunitContext();
+        if (configureDeviceStorage)
+        {
+            context.JSInterop.Setup<string?>("localStorage.getItem", DeviceStorageKey).SetResult(savedDeviceState);
+            context.JSInterop.SetupVoid("localStorage.setItem", _ => true).SetVoidResult();
+        }
         var repository = Substitute.For<ILineupGuideReader>();
         var guideStart = DateTimeOffset.UtcNow;
         repository.GetStatisticsAsync(Arg.Any<CancellationToken>()).Returns(new GuideStatistics(

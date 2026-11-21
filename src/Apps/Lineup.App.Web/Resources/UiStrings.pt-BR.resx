@@ -279,6 +279,7 @@
   <data name="Dashboard_StreamingFlowHeading" xml:space="preserve"><value>Fluxo de streaming</value></data>
   <data name="Dashboard_TargetColumn" xml:space="preserve"><value>Objetivo</value></data>
   <data name="Dashboard_TimeRangeHeading" xml:space="preserve"><value>Rango de tempo</value></data>
+  <data name="Dashboard_ToggleDeviceDetails" xml:space="preserve"><value>Mostrar / ocultar detalhes do dispositivo</value></data>
   <data name="Dashboard_UpstreamStatusCached" xml:space="preserve"><value>A última atualização falhou; a tabela mostra a última observação bem-sucedida.</value></data>
   <data name="Dashboard_UpstreamStatusEmpty" xml:space="preserve"><value>Nenhum dispositivo de origem está inscrito.</value></data>
   <data name="Dashboard_UpstreamStatusHeading" xml:space="preserve"><value>Status dos sintonizadores de origem (somente leitura)</value></data>
@@ -801,6 +802,10 @@
   <data name="Settings_PhysicalDeviceNameHelp" xml:space="preserve"><value>Uma rótulo local que se usa para exibir a propriedade do canal, as assinaturas, o roteamento e o status.</value></data>
   <data name="Settings_PhysicalDeviceSubscriptionHeading" xml:space="preserve"><value>Assinatura de dispositivo físico</value></data>
   <data name="Settings_PhysicalHevcHelp" xml:space="preserve"><value>Normalice as fontes HEVC uma vez antes de que entrem no multiplexador.</value></data>
+  <data name="Settings_PhysicalPriorityHeading" xml:space="preserve"><value>Prioridade dos dispositivos</value></data>
+  <data name="Settings_PhysicalPriorityHelp" xml:space="preserve"><value>A prioridade 1 é preferida quando vários dispositivos habilitados, inscritos e compatíveis oferecem o mesmo número global de canal. Dispositivos desabilitados mantêm suas posições, mas são ignorados. Agrupe canais equivalentes em Canais para habilitar fontes alternativas ao iniciar a transmissão nesta ordem. Salvar configurações aplica a ordem; Desfazer descarta alterações não salvas. Transmissões em andamento não mudam de fonte.</value></data>
+  <data name="Settings_PhysicalPriorityMoveDown" xml:space="preserve"><value>Mover para baixo</value></data>
+  <data name="Settings_PhysicalPriorityMoveUp" xml:space="preserve"><value>Mover para cima</value></data>
   <data name="Settings_PhysicalRefreshDescription" xml:space="preserve"><value>Estes intervalos de monitoreo se aplicam a todos os dispositivos físicos.</value></data>
   <data name="Settings_PhysicalSubscriptionHelp" xml:space="preserve"><value>Controla que dispositivos físicos compatíveis podem suministrar canais e capacidade de sintonizador a esta saída virtual. Todo inclui automaticamente os dispositivos compatíveis adicionados posteriormente.</value></data>
   <data name="Settings_PhysicalSubscriptionLabel" xml:space="preserve"><value>Assinatura física</value></data>

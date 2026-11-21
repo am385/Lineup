@@ -41,6 +41,40 @@
                 @if (Host.SelectedPhysicalDeviceId is null)
                 {
                     <div id="physicalGlobalSettings" class="d-grid gap-4">
+                        <section id="physicalDevicePrioritySettings" class="card">
+                            <div class="card-header">
+                                <h5 id="physicalDevicePriorityHeading" class="mb-0">@Text["Settings_PhysicalPriorityHeading"]</h5>
+                            </div>
+                            <div class="card-body">
+                                <p id="physicalDevicePriorityHelp" class="small text-body-secondary">@Text["Settings_PhysicalPriorityHelp"]</p>
+                                <ol id="physicalDevicePriorityList" class="list-group list-unstyled" aria-labelledby="physicalDevicePriorityHeading" aria-describedby="physicalDevicePriorityHelp">
+                                    @for (var priorityIndex = 0; priorityIndex < Host.Topology.PhysicalDevices.Count; priorityIndex++)
+                                    {
+                                        var device = Host.Topology.PhysicalDevices[priorityIndex];
+                                        var deviceName = string.IsNullOrWhiteSpace(device.Name) ? Host.GetPhysicalDeviceTypeName(device) : device.Name;
+                                        <li @key="device.Id" class="list-group-item d-flex flex-wrap align-items-center gap-2 physical-device-priority" data-device-id="@device.Id">
+                                            <span class="badge text-bg-primary physical-device-priority-number">@(priorityIndex + 1)</span>
+                                            <span class="flex-grow-1 physical-device-priority-name">@deviceName</span>
+                                            @if (!device.Enabled)
+                                            {
+                                                <span class="badge text-bg-secondary">@Text["Settings_DisabledBadge"]</span>
+                                            }
+                                            <button type="button" class="btn btn-sm btn-outline-secondary physical-priority-up"
+                                                    aria-label="@($"{Text["Settings_PhysicalPriorityMoveUp"]}: {deviceName}")"
+                                                    disabled="@(priorityIndex == 0)" @onclick="() => Host.MovePhysicalDevice(device.Id, true)">
+                                                <span class="bi bi-arrow-up me-1" aria-hidden="true"></span>@Text["Settings_PhysicalPriorityMoveUp"]
+                                            </button>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary physical-priority-down"
+                                                    aria-label="@($"{Text["Settings_PhysicalPriorityMoveDown"]}: {deviceName}")"
+                                                    disabled="@(priorityIndex == Host.Topology.PhysicalDevices.Count - 1)" @onclick="() => Host.MovePhysicalDevice(device.Id, false)">
+                                                <span class="bi bi-arrow-down me-1" aria-hidden="true"></span>@Text["Settings_PhysicalPriorityMoveDown"]
+                                            </button>
+                                        </li>
+                                    }
+                                </ol>
+                            </div>
+                        </section>
+
                         <section id="physicalDeviceRefreshSettings" class="card">
                             <div class="card-header">
                                 <h5 class="mb-0">@Text["Settings_RefreshSettingsHeading"]</h5>

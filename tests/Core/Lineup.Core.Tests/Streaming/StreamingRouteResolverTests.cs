@@ -292,6 +292,46 @@ public sealed class StreamingRouteResolverTests
         Assert.Equal(1, fixture.LineupCounts[device.Id]);
     }
 
+    /// <summary>Verifies saved priority and formatted settings clones do not replace initialized runtimes before Watch resolves diagnostic source URIs.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ResolveVirtualAsync_PriorityReloadAndStatusPolling_PreservesInitializedChannels(bool reorder)
+    {
+        // Arrange
+        using var fixture = new Fixture(requireInitializedDiagnostic: true);
+        var first = fixture.AddPhysical("7.1");
+        var second = fixture.AddPhysical("7.1");
+        var adapter = new AdapterConfiguration("route-test", JsonSerializer.SerializeToElement(new { address = "original", profile = "default" }));
+        var configuration = fixture.Configure(first with { Adapter = adapter }, second with { Adapter = adapter });
+        await fixture.ResolveAsync("7.1");
+        var original = fixture.Catalog.Devices.ToDictionary(device => device.Snapshot.Id);
+        var reformatted = new AdapterConfiguration("route-test",
+            JsonSerializer.SerializeToElement(new { profile = "default", address = "original" }, new JsonSerializerOptions { WriteIndented = true }));
+        fixture.Settings.Streaming = configuration with
+        {
+            PhysicalDevices = configuration.PhysicalDevices.Select(device => device with
+            {
+                Order = reorder ? 1 - device.Order : device.Order,
+                Adapter = reformatted
+            }).ToArray()
+        };
+        await new PhysicalDeviceStatusService(fixture.Catalog).RefreshAsync(fixture.Settings.Streaming, TestContext.Current.CancellationToken);
+
+        // Act
+        var route = await fixture.ResolveAsync("7.1");
+
+        // Assert
+        Assert.NotNull(route);
+        var preferred = reorder ? second.Id : first.Id;
+        Assert.Equal(preferred, route.SourceChannelId.PhysicalDeviceId);
+        Assert.Same(original[preferred], route.PhysicalDevice);
+        Assert.Equal(new Uri($"https://source.example/{preferred.Value:D}/7.1"), route.DiagnosticUri);
+        Assert.Equal(1, fixture.RefreshCount);
+        Assert.All(fixture.ActivationCounts.Values, count => Assert.Equal(1, count));
+        Assert.All(fixture.LineupCounts.Values, count => Assert.Equal(1, count));
+    }
+
     private sealed class Fixture : IDisposable
     {
         private readonly DirectoryInfo _directory = Directory.CreateTempSubdirectory("lineup-route-recovery-");
@@ -300,7 +340,7 @@ public sealed class StreamingRouteResolverTests
         private readonly HashSet<PhysicalDeviceId> _lineupFailures = [];
 
         /// <summary>Initializes the fixture.</summary>
-        internal Fixture()
+        internal Fixture(bool requireInitializedDiagnostic = false)
         {
             var connectionString = new SqliteConnectionStringBuilder { DataSource = Path.Combine(_directory.FullName, "topology.db"), Pooling = false }.ToString();
             Store = new StreamingTopologyStore(new ContextFactory(new DbContextOptionsBuilder<EpgDbContext>().UseSqlite(connectionString).Options));
@@ -315,17 +355,28 @@ public sealed class StreamingRouteResolverTests
                 {
                     return ValueTask.FromException<IPhysicalTunerDevice>(new IOException("Synthetic activation failure."));
                 }
-                var device = Substitute.For<IPhysicalTunerDevice>();
+                var device = requireInitializedDiagnostic
+                    ? Substitute.For<IPhysicalTunerDevice, IPhysicalStreamDiagnosticCapability>()
+                    : Substitute.For<IPhysicalTunerDevice>();
+                var initialized = false;
                 device.Snapshot.Returns(new PhysicalDeviceSnapshot { Id = id, Name = call.Arg<string>(), Kind = "route-test", Capacity = new PhysicalTunerCapacity(1) });
+                if (device is IPhysicalStreamDiagnosticCapability diagnostic)
+                {
+                    diagnostic.CreateDiagnosticUri(Arg.Any<string>()).Returns(call =>
+                        initialized ? new Uri($"https://source.example/{id.Value:D}/{call.Arg<string>()}") : throw new KeyNotFoundException("The source channel is not active."));
+                }
                 device.RefreshLineupAsync(Arg.Any<CancellationToken>()).Returns(refresh =>
                 {
                     LineupCounts.AddOrUpdate(id, 1, static (_, count) => count + 1);
                     BeforeChannelRefresh?.Invoke(id, refresh.Arg<CancellationToken>());
-                    return _lineupFailures.Contains(id)
-                        ? Task.FromException<IReadOnlyList<PhysicalSourceChannel>>(new IOException("Synthetic lineup failure."))
-                        : Task.FromResult<IReadOnlyList<PhysicalSourceChannel>>(EmptyLineups.Contains(id)
-                            ? []
-                            : [new PhysicalSourceChannel { Id = new SourceChannelId(id, _channels[id]), ProviderNumber = _channels[id], ProviderName = $"Channel {_channels[id]}" }]);
+                    if (_lineupFailures.Contains(id))
+                    {
+                        return Task.FromException<IReadOnlyList<PhysicalSourceChannel>>(new IOException("Synthetic lineup failure."));
+                    }
+                    initialized = true;
+                    return Task.FromResult<IReadOnlyList<PhysicalSourceChannel>>(EmptyLineups.Contains(id)
+                        ? []
+                        : [new PhysicalSourceChannel { Id = new SourceChannelId(id, _channels[id]), ProviderNumber = _channels[id], ProviderName = $"Channel {_channels[id]}" }]);
                 });
                 return ValueTask.FromResult(device);
             });

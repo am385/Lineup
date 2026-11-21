@@ -96,6 +96,43 @@ public sealed class PhysicalDeviceCatalogTests
         Assert.Equal(1, driver.CreateCount);
     }
 
+    /// <summary>Verifies formatting and property-order changes preserve runtime devices when saved priority is reapplied.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ApplyAsync_ReformattedPriorityConfiguration_PreservesRuntimeDevices(bool reorder)
+    {
+        // Arrange
+        var driver = new FakePhysicalDriver();
+        var catalog = new PhysicalDeviceCatalog(new StreamingAdapterRegistry([driver], [], []));
+        var first = CreateDefinition(PhysicalDeviceId.New(), "First", 0, true);
+        var second = CreateDefinition(PhysicalDeviceId.New(), "Second", 1, true);
+        var adapter = new AdapterConfiguration(FakePhysicalDriver.DriverKind, JsonSerializer.SerializeToElement(new { address = "original", profile = "default" }));
+        var configuration = new StreamingConfiguration { PhysicalDevices = [first with { Adapter = adapter }, second with { Adapter = adapter }] };
+        await catalog.ApplyAsync(configuration, TestContext.Current.CancellationToken);
+        var original = catalog.Devices.Cast<FakePhysicalDevice>().ToDictionary(device => device.Snapshot.Id);
+        var reformatted = new AdapterConfiguration(FakePhysicalDriver.DriverKind,
+            JsonSerializer.SerializeToElement(new { profile = "default", address = "original" }, new JsonSerializerOptions { WriteIndented = true }));
+        var saved = configuration with
+        {
+            PhysicalDevices = configuration.PhysicalDevices.Select(device => device with
+            {
+                Order = reorder ? 1 - device.Order : device.Order,
+                Adapter = reformatted
+            }).ToArray()
+        };
+
+        // Act
+        await catalog.ApplyAsync(saved, TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.True(catalog.IsConfigurationCurrent(saved));
+        Assert.Equal(reorder ? new[] { second.Id, first.Id } : [first.Id, second.Id], catalog.Devices.Select(device => device.Snapshot.Id));
+        Assert.All(catalog.Devices, device => Assert.Same(original[device.Snapshot.Id], device));
+        Assert.All(original.Values, device => Assert.False(device.IsDisposed));
+        Assert.Equal(2, driver.CreateCount);
+    }
+
     /// <summary>Verifies concurrent identical applications activate one runtime device.</summary>
     [Fact]
     public async Task ApplyAsync_ConcurrentIdenticalConfiguration_CreatesDeviceOnce()

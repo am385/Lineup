@@ -21,6 +21,119 @@ namespace Lineup.App.Web.Tests.Components.Pages;
 /// </summary>
 public sealed class TopologySettingsTests
 {
+    /// <summary>Verifies priority buttons change actual duplicate selection and equivalent candidate order only after saving, with reload and Undo support.</summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task PhysicalPriority_MoveSaveReloadUndo_UpdatesChannelResolution(bool grouped, bool moveUp)
+    {
+        // Arrange
+        await using var context = CreateContext(out _, out var settings);
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        var editor = new TopologySettingsEditor();
+        var model = editor.Edit(settings.Streaming);
+        var first = editor.AddPhysicalDevice(model, new TestPhysicalTunerDriver());
+        var second = editor.AddPhysicalDevice(model, new TestPhysicalTunerDriver());
+        first.Name = "First tuner";
+        second.Name = "Second tuner";
+        second.Address = "second.local";
+        Assert.Empty(editor.TryBuild(model, out var configuration));
+        settings.Streaming = configuration;
+        Guid? group = grouped ? Guid.NewGuid() : null;
+        var identities = new[] { first, second }.Select(device => new PhysicalChannelIdentity
+        {
+            Source = new PhysicalSourceChannel
+            {
+                Id = new SourceChannelId(device.Id, "4.1"),
+                ProviderNumber = "4.1",
+                ProviderName = "News"
+            },
+            EquivalenceGroupId = group
+        }).ToArray();
+        var component = context.Render<Settings>();
+        await component.Find("#tab-physical-devices").ClickAsync(new());
+        Assert.Equal(first.Id, Assert.Single(ChannelTopologyResolver.Resolve(configuration.VirtualDevices[0], configuration.PhysicalDevices, identities).Channels).Sources[0].PhysicalDeviceId);
+
+        // Act
+        var moveSelector = moveUp ? $".physical-device-priority[data-device-id='{second.Id}'] .physical-priority-up" : $".physical-device-priority[data-device-id='{first.Id}'] .physical-priority-down";
+        await component.Find(moveSelector).ClickAsync(new());
+        Assert.Same(configuration, settings.Streaming);
+        Assert.Equal(["Second tuner", "First tuner"], component.FindAll(".physical-device-priority-name").Select(element => element.TextContent));
+        Assert.Equal([second.Id.ToString(), first.Id.ToString()], component.FindAll(".physical-device-tab").Select(element => element.GetAttribute("data-device-id")));
+        await component.Find("button.btn-primary").ClickAsync(new());
+        var saved = settings.Streaming;
+        var reloaded = context.Render<Settings>();
+        await reloaded.Find("#tab-physical-devices").ClickAsync(new());
+        var resolution = ChannelTopologyResolver.Resolve(saved.VirtualDevices[0], saved.PhysicalDevices, identities);
+
+        // Assert
+        Assert.Equal([second.Id, first.Id], saved.PhysicalDevices.Select(device => device.Id));
+        Assert.Equal([0, 1], saved.PhysicalDevices.Select(device => device.Order));
+        Assert.Equal(grouped ? new[] { second.Id, first.Id } : [second.Id], Assert.Single(resolution.Channels).Sources.Select(source => source.PhysicalDeviceId));
+        Assert.Equal(grouped ? 0 : 1, resolution.Conflicts.Count);
+        Assert.Equal(["Second tuner", "First tuner"], reloaded.FindAll(".physical-device-priority-name").Select(element => element.TextContent));
+        Assert.Equal(["1", "2"], reloaded.FindAll(".physical-device-priority-number").Select(element => element.TextContent));
+        Assert.True(reloaded.FindAll(".physical-priority-up")[0].HasAttribute("disabled"));
+        Assert.False(reloaded.FindAll(".physical-priority-down")[0].HasAttribute("disabled"));
+        Assert.False(reloaded.FindAll(".physical-priority-up")[1].HasAttribute("disabled"));
+        Assert.True(reloaded.FindAll(".physical-priority-down")[1].HasAttribute("disabled"));
+
+        // Act
+        await reloaded.FindAll(".physical-priority-down")[0].ClickAsync(new());
+        Assert.Equal(["First tuner", "Second tuner"], reloaded.FindAll(".physical-device-priority-name").Select(element => element.TextContent));
+        await reloaded.Find("#undoSettings").ClickAsync(new());
+        await reloaded.Find($".physical-device-tab[data-device-id='{second.Id}']").ClickAsync(new());
+
+        // Assert
+        Assert.Same(saved, settings.Streaming);
+        Assert.Equal([second.Id, first.Id], reloaded.Instance.Topology.PhysicalDevices.Select(device => device.Id));
+        Assert.Equal(second.Id, reloaded.Instance.SelectedPhysicalDeviceId);
+        Assert.Equal("second.local", reloaded.Find("#physicalAddress-0").GetAttribute("value"));
+    }
+
+    /// <summary>Verifies empty and single-device lists have no available moves and disabled devices retain visible priority positions.</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task PhysicalPriority_EmptySingleAndDisabledDevices_ShowsAvailableMoves(int count)
+    {
+        // Arrange
+        await using var context = CreateContext(out _, out var settings);
+        var editor = new TopologySettingsEditor();
+        var model = editor.Edit(settings.Streaming);
+        for (var index = 0; index < count; index++)
+        {
+            var device = editor.AddPhysicalDevice(model, new TestPhysicalTunerDriver());
+            device.Name = $"Tuner {index + 1}";
+            device.Address = $"tuner{index + 1}.local";
+            device.Enabled = index == 0;
+        }
+        Assert.Empty(editor.TryBuild(model, out var configuration));
+        settings.Streaming = configuration;
+        var component = context.Render<Settings>();
+
+        // Act
+        await component.Find("#tab-physical-devices").ClickAsync(new());
+
+        // Assert
+        var rows = component.FindAll(".physical-device-priority");
+        Assert.Equal(count, rows.Count);
+        Assert.Equal(Enumerable.Range(1, count).Select(number => number.ToString(CultureInfo.InvariantCulture)), component.FindAll(".physical-device-priority-number").Select(element => element.TextContent));
+        if (count == 1)
+        {
+            Assert.True(component.Find(".physical-priority-up").HasAttribute("disabled"));
+            Assert.True(component.Find(".physical-priority-down").HasAttribute("disabled"));
+        }
+        if (count == 2)
+        {
+            Assert.Contains("Disabled", rows[1].TextContent);
+            Assert.False(rows[1].QuerySelector(".physical-priority-up")!.HasAttribute("disabled"));
+        }
+    }
+
     /// <summary>The Link host's inventory disclosure switch defaults off and persists through save/reload for both hosting modes.</summary>
     [Theory]
     [InlineData(false, false)]
@@ -546,7 +659,8 @@ public sealed class TopologySettingsTests
         Assert.Contains("active", component.Find("#physicalSubtabGlobal").ClassList);
         Assert.Single(component.FindAll(".physical-device-tab"));
         Assert.Contains("Living room", component.Find(".physical-device-tab").TextContent);
-        Assert.Equal(2, component.FindAll("#physicalGlobalSettings > .card").Count);
+        Assert.Equal(3, component.FindAll("#physicalGlobalSettings > .card").Count);
+        Assert.Contains("Device priority", component.Find("#physicalDevicePrioritySettings").TextContent);
         Assert.Contains("Refresh Settings", component.Find("#physicalDeviceRefreshSettings").TextContent);
         Assert.Contains("Transcoder Settings", component.Find("#physicalTranscoderSettings").TextContent);
         Assert.Contains("Video", component.Find(".physical-global-video-settings").TextContent);

@@ -279,6 +279,7 @@
   <data name="Dashboard_StreamingFlowHeading" xml:space="preserve"><value>Flux de diffusion</value></data>
   <data name="Dashboard_TargetColumn" xml:space="preserve"><value>Cible</value></data>
   <data name="Dashboard_TimeRangeHeading" xml:space="preserve"><value>Plage horaire</value></data>
+  <data name="Dashboard_ToggleDeviceDetails" xml:space="preserve"><value>Afficher / masquer les détails de l'appareil</value></data>
   <data name="Dashboard_UpstreamStatusCached" xml:space="preserve"><value>La dernière actualisation a échoué ; le tableau affiche la dernière observation réussie.</value></data>
   <data name="Dashboard_UpstreamStatusEmpty" xml:space="preserve"><value>Aucun appareil en amont n'est abonné.</value></data>
   <data name="Dashboard_UpstreamStatusHeading" xml:space="preserve"><value>État des tuners en amont (lecture seule)</value></data>
@@ -801,6 +802,10 @@
   <data name="Settings_PhysicalDeviceNameHelp" xml:space="preserve"><value>Libellé local utilisé pour l’appartenance des chaînes, les abonnements, le routage et l’affichage de l’état.</value></data>
   <data name="Settings_PhysicalDeviceSubscriptionHeading" xml:space="preserve"><value>Abonnement aux appareils physiques</value></data>
   <data name="Settings_PhysicalHevcHelp" xml:space="preserve"><value>Normalise les sources HEVC une seule fois avant leur entrée dans le multiplexeur.</value></data>
+  <data name="Settings_PhysicalPriorityHeading" xml:space="preserve"><value>Priorité des appareils</value></data>
+  <data name="Settings_PhysicalPriorityHelp" xml:space="preserve"><value>La priorité 1 est préférée lorsque plusieurs appareils activés, abonnés et compatibles proposent le même numéro de chaîne global. Les appareils désactivés conservent leur position mais sont ignorés. Regroupez les chaînes équivalentes dans Chaînes pour activer les sources de secours au démarrage dans cet ordre. Enregistrer les paramètres applique l’ordre ; Annuler les modifications abandonne les changements non enregistrés. Les flux en cours ne changent pas de source.</value></data>
+  <data name="Settings_PhysicalPriorityMoveDown" xml:space="preserve"><value>Descendre</value></data>
+  <data name="Settings_PhysicalPriorityMoveUp" xml:space="preserve"><value>Monter</value></data>
   <data name="Settings_PhysicalRefreshDescription" xml:space="preserve"><value>Ces intervalles de surveillance s’appliquent à chaque appareil physique.</value></data>
   <data name="Settings_PhysicalSubscriptionHelp" xml:space="preserve"><value>Contrôle les appareils physiques compatibles qui peuvent fournir des chaînes et une capacité de tuner à cette sortie virtuelle. Tout inclut automatiquement les appareils compatibles ajoutés ultérieurement.</value></data>
   <data name="Settings_PhysicalSubscriptionLabel" xml:space="preserve"><value>Abonnement physique</value></data>
