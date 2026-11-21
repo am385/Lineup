@@ -803,6 +803,10 @@
   <data name="Settings_PhysicalDeviceNameHelp" xml:space="preserve"><value>Lokalna etykieta używana do określania własności kanałów, subskrypcji, routingu i wyświetlania stanu.</value></data>
   <data name="Settings_PhysicalDeviceSubscriptionHeading" xml:space="preserve"><value>Subskrypcja urządzeń fizycznych</value></data>
   <data name="Settings_PhysicalHevcHelp" xml:space="preserve"><value>Normalizuj źródła HEVC jednokrotnie przed ich wejściem do multipleksera.</value></data>
+  <data name="Settings_PhysicalPriorityHeading" xml:space="preserve"><value>Priorytet urządzeń</value></data>
+  <data name="Settings_PhysicalPriorityHelp" xml:space="preserve"><value>Priorytet 1 jest preferowany, gdy kilka włączonych, subskrybowanych i zgodnych urządzeń oferuje ten sam globalny numer kanału. Wyłączone urządzenia zachowują pozycję, ale są pomijane. Grupuj równoważne kanały na stronie Kanały, aby przy uruchamianiu strumienia próbować źródeł zastępczych w tej kolejności. Zapisz ustawienia stosuje kolejność; Cofnij odrzuca niezapisane zmiany. Trwające strumienie nie zmieniają źródła.</value></data>
+  <data name="Settings_PhysicalPriorityMoveDown" xml:space="preserve"><value>Przesuń w dół</value></data>
+  <data name="Settings_PhysicalPriorityMoveUp" xml:space="preserve"><value>Przesuń w górę</value></data>
   <data name="Settings_PhysicalRefreshDescription" xml:space="preserve"><value>Te interwały monitorowania dotyczą każdego urządzenia fizycznego.</value></data>
   <data name="Settings_PhysicalSubscriptionHelp" xml:space="preserve"><value>Określa, które zgodne urządzenia fizyczne mogą dostarczać kanały i pojemność tunerów do tego wyjścia wirtualnego. Opcja Wszystkie automatycznie obejmuje zgodne urządzenia dodane później.</value></data>
   <data name="Settings_PhysicalSubscriptionLabel" xml:space="preserve"><value>Subskrypcja fizyczna</value></data>

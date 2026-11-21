@@ -802,6 +802,10 @@
   <data name="Settings_PhysicalDeviceNameHelp" xml:space="preserve"><value>用于频道归属、订阅、路由和状态显示的本地标签。</value></data>
   <data name="Settings_PhysicalDeviceSubscriptionHeading" xml:space="preserve"><value>物理设备订阅</value></data>
   <data name="Settings_PhysicalHevcHelp" xml:space="preserve"><value>在 HEVC 源进入复用器之前统一规范化一次。</value></data>
+  <data name="Settings_PhysicalPriorityHeading" xml:space="preserve"><value>设备优先级</value></data>
+  <data name="Settings_PhysicalPriorityHelp" xml:space="preserve"><value>当多个已启用、已订阅且兼容的设备提供相同的全局频道号码时，优先选择优先级为1的设备。已禁用的设备保留位置，但会被跳过。在“频道”页面将相同内容的频道分组，即可在流启动时按此顺序尝试备用来源。“保存设置”应用顺序；“撤销”放弃未保存的更改。正在播放的流不会切换来源。</value></data>
+  <data name="Settings_PhysicalPriorityMoveDown" xml:space="preserve"><value>下移</value></data>
+  <data name="Settings_PhysicalPriorityMoveUp" xml:space="preserve"><value>上移</value></data>
   <data name="Settings_PhysicalRefreshDescription" xml:space="preserve"><value>这些监控间隔适用于所有物理设备。</value></data>
   <data name="Settings_PhysicalSubscriptionHelp" xml:space="preserve"><value>控制哪些兼容物理设备可以向此虚拟输出提供频道和调谐器容量。选择“全部”还会自动包括以后添加的兼容设备。</value></data>
   <data name="Settings_PhysicalSubscriptionLabel" xml:space="preserve"><value>物理设备订阅</value></data>

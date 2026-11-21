@@ -75,7 +75,7 @@ public sealed class TopologySettingsEditor
             },
             PreservedVirtualOutputSecurityPolicies = configuration.VirtualOutputSecurityPolicies.ToList(),
             PreservedVirtualOutputWorkerPolicies = configuration.VirtualOutputWorkerPolicies.ToList(),
-            PhysicalDevices = configuration.PhysicalDevices.Select(device => new PhysicalDeviceSettingsModel
+            PhysicalDevices = configuration.PhysicalDevices.OrderBy(device => device.Order).ThenBy(device => device.Id.Value).Select(device => new PhysicalDeviceSettingsModel
             {
                 OverrideAlwaysTranscodeVideo = device.TranscodeOverrides.AlwaysTranscodeVideo.HasValue,
                 AlwaysTranscodeVideo = device.TranscodeOverrides.AlwaysTranscodeVideo ?? configuration.PhysicalDefaults.AlwaysTranscodeVideo,
@@ -624,6 +624,23 @@ public sealed class TopologySettingsEditor
         InitializeGuideOutputSettings(output, driver);
         model.GuideOutputs.Add(output);
         return output;
+    }
+
+    /// <summary>Moves a physical device one position in the unsaved priority order.</summary>
+    public void MovePhysicalDevice(TopologySettingsModel model, PhysicalDeviceId id, bool moveUp)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        var index = model.PhysicalDevices.FindIndex(device => device.Id == id);
+        if (index < 0)
+        {
+            throw new ArgumentException("The physical device is not present in the settings editor.", nameof(id));
+        }
+        var target = index + (moveUp ? -1 : 1);
+        if (target < 0 || target >= model.PhysicalDevices.Count)
+        {
+            throw new InvalidOperationException("The physical device cannot move beyond the priority list boundary.");
+        }
+        (model.PhysicalDevices[index], model.PhysicalDevices[target]) = (model.PhysicalDevices[target], model.PhysicalDevices[index]);
     }
 
     /// <summary>Removes a physical device and its stale selected subscriptions.</summary>

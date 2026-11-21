@@ -802,6 +802,10 @@
   <data name="Settings_PhysicalDeviceNameHelp" xml:space="preserve"><value>Una etiqueta local que se utiliza para mostrar la propiedad del canal, las suscripciones, el enrutamiento y el estado.</value></data>
   <data name="Settings_PhysicalDeviceSubscriptionHeading" xml:space="preserve"><value>Suscripción de dispositivo físico</value></data>
   <data name="Settings_PhysicalHevcHelp" xml:space="preserve"><value>Normalice las fuentes HEVC una vez antes de que ingresen al multiplexor.</value></data>
+  <data name="Settings_PhysicalPriorityHeading" xml:space="preserve"><value>Prioridad de dispositivos</value></data>
+  <data name="Settings_PhysicalPriorityHelp" xml:space="preserve"><value>Se prefiere la prioridad 1 cuando varios dispositivos habilitados, suscritos y compatibles ofrecen el mismo número global de canal. Los dispositivos deshabilitados conservan su posición, pero se omiten. Agrupe canales equivalentes en Canales para habilitar fuentes alternativas al iniciar la transmisión en este orden. Guardar configuración aplica el orden; Deshacer descarta los cambios sin guardar. Las transmisiones en curso no cambian de fuente.</value></data>
+  <data name="Settings_PhysicalPriorityMoveDown" xml:space="preserve"><value>Bajar</value></data>
+  <data name="Settings_PhysicalPriorityMoveUp" xml:space="preserve"><value>Subir</value></data>
   <data name="Settings_PhysicalRefreshDescription" xml:space="preserve"><value>Estos intervalos de monitoreo se aplican a todos los dispositivos físicos.</value></data>
   <data name="Settings_PhysicalSubscriptionHelp" xml:space="preserve"><value>Controla qué dispositivos físicos compatibles pueden suministrar canales y capacidad de sintonizador a esta salida virtual. Todo incluye automáticamente los dispositivos compatibles agregados más adelante.</value></data>
   <data name="Settings_PhysicalSubscriptionLabel" xml:space="preserve"><value>Suscripción física</value></data>

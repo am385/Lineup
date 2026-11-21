@@ -802,6 +802,10 @@
   <data name="Settings_PhysicalDeviceNameHelp" xml:space="preserve"><value>チャンネル所有権、購読、ルーティング、状態表示に使用するローカル名です。</value></data>
   <data name="Settings_PhysicalDeviceSubscriptionHeading" xml:space="preserve"><value>物理デバイスの購読</value></data>
   <data name="Settings_PhysicalHevcHelp" xml:space="preserve"><value>HEVC ソースをマルチプレクサーに入れる前に一度だけ正規化します。</value></data>
+  <data name="Settings_PhysicalPriorityHeading" xml:space="preserve"><value>デバイスの優先順位</value></data>
+  <data name="Settings_PhysicalPriorityHelp" xml:space="preserve"><value>有効でサブスクライブ対象の互換デバイスが同じグローバルチャンネル番号を提供する場合、優先順位1が優先されます。無効なデバイスは順位を維持しますが、選択対象から除外されます。「チャンネル」で同等のチャンネルをグループ化すると、ストリーム開始時にこの順序で代替ソースを試します。「設定を保存」で順序を適用し、「元に戻す」で未保存の変更を破棄します。再生中のストリームは切り替わりません。</value></data>
+  <data name="Settings_PhysicalPriorityMoveDown" xml:space="preserve"><value>下へ移動</value></data>
+  <data name="Settings_PhysicalPriorityMoveUp" xml:space="preserve"><value>上へ移動</value></data>
   <data name="Settings_PhysicalRefreshDescription" xml:space="preserve"><value>これらの監視間隔は、すべての物理デバイスに適用されます。</value></data>
   <data name="Settings_PhysicalSubscriptionHelp" xml:space="preserve"><value>この仮想出力にチャンネルとチューナー容量を提供できる、互換性のある物理デバイスを制御します。「すべて」には、後から追加した互換デバイスも自動的に含まれます。</value></data>
   <data name="Settings_PhysicalSubscriptionLabel" xml:space="preserve"><value>物理デバイスの購読</value></data>

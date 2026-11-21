@@ -1010,6 +1010,13 @@ public partial class Settings : IDisposable
         _showPhysicalDeviceTypePicker = false;
     }
 
+    /// <summary>Moves a physical device one position in the unsaved priority order.</summary>
+    internal void MovePhysicalDevice(PhysicalDeviceId id, bool moveUp)
+    {
+        _topologyEditor.MovePhysicalDevice(_topology, id, moveUp);
+        NotifySettingsUiChanged();
+    }
+
     /// <summary>Removes physical device.</summary>
     /// <param name="id">The ID value.</param>
     internal void RemovePhysicalDevice(PhysicalDeviceId id)

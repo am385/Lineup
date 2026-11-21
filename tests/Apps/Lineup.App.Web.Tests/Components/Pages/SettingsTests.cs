@@ -585,7 +585,8 @@ public class SettingsTests
         // Assert
         Assert.Contains("active", component.Find("#tab-physical-devices").ClassList);
         Assert.DoesNotContain("d-none", component.Find("#physicalDevicesSettingsTab").ClassList);
-        Assert.Equal(2, component.FindAll("#physicalGlobalSettings > .card").Count);
+        Assert.Equal(3, component.FindAll("#physicalGlobalSettings > .card").Count);
+        Assert.NotNull(component.Find("#physicalDevicePrioritySettings"));
     }
 
     /// <summary>

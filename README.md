@@ -1689,6 +1689,14 @@ pages, but are excluded from published XMLTV and virtual JSON, XML, and M3U line
 synthetic slate when configured. Global channel number/name overrides resolve conflicts once at the physical source, so every subscribed virtual output,
 guide view, and XMLTV publication uses the same canonical identity. Equivalent source groups provide ordered physical failover.
 
+Set device-wide source priority under **Settings → Physical Devices → Global Settings → Device priority** using **Move up**
+and **Move down**, then **Save Settings**. Priority 1 is preferred among enabled, subscribed, compatible sources; disabled
+devices retain their positions but are skipped. **Undo** discards unsaved ordering changes. The device tabs follow this same order.
+For duplicate global channel numbers, the first eligible source wins and ungrouped duplicates remain conflicts. Explicitly group
+equivalent sources to enable startup fallback in this order; reordering does not switch an already-playing stream.
+Priority edits and settings reloads preserve initialized source devices when their connection settings are unchanged;
+JSON whitespace and property ordering do not reactivate devices or discard their loaded channel maps.
+
 On **Channels**, open **Same-channel sources** to preview saved number conflicts, preferred metadata, authoritative guide selection, and ordered
 source candidates for the global Guide/Watch projection and each enabled virtual output. Output previews apply adapter compatibility, subscriptions,
 and enabled states; they are not live-health checks. Matching numbers or names never automatically establish equivalent content.

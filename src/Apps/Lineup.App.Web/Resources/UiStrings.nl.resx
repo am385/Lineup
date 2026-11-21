@@ -802,6 +802,10 @@
   <data name="Settings_PhysicalDeviceNameHelp" xml:space="preserve"><value>Een lokaal label dat wordt gebruikt voor kanaaleigendom, abonnementen, routering en statusweergaven.</value></data>
   <data name="Settings_PhysicalDeviceSubscriptionHeading" xml:space="preserve"><value>Abonnement op fysieke apparaten</value></data>
   <data name="Settings_PhysicalHevcHelp" xml:space="preserve"><value>Normaliseer HEVC-bronnen eenmaal voordat ze de multiplexer ingaan.</value></data>
+  <data name="Settings_PhysicalPriorityHeading" xml:space="preserve"><value>Apparaatprioriteit</value></data>
+  <data name="Settings_PhysicalPriorityHelp" xml:space="preserve"><value>Prioriteit 1 heeft voorrang wanneer meerdere ingeschakelde, geabonneerde en compatibele apparaten hetzelfde globale kanaalnummer aanbieden. Uitgeschakelde apparaten behouden hun positie maar worden overgeslagen. Groepeer gelijkwaardige kanalen op Kanalen om bij het starten alternatieve bronnen in deze volgorde te proberen. Instellingen opslaan past de volgorde toe; Ongedaan maken verwerpt niet-opgeslagen wijzigingen. Lopende streams worden niet omgeschakeld.</value></data>
+  <data name="Settings_PhysicalPriorityMoveDown" xml:space="preserve"><value>Omlaag</value></data>
+  <data name="Settings_PhysicalPriorityMoveUp" xml:space="preserve"><value>Omhoog</value></data>
   <data name="Settings_PhysicalRefreshDescription" xml:space="preserve"><value>Deze bewakingsintervallen gelden voor elk fysiek apparaat.</value></data>
   <data name="Settings_PhysicalSubscriptionHelp" xml:space="preserve"><value>Bepaalt welke compatibele fysieke apparaten kanalen en tunercapaciteit aan deze virtuele uitvoer kunnen leveren. Alles neemt automatisch ook later toegevoegde compatibele apparaten op.</value></data>
   <data name="Settings_PhysicalSubscriptionLabel" xml:space="preserve"><value>Fysiek abonnement</value></data>

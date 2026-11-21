@@ -207,7 +207,7 @@ public sealed class PhysicalDeviceCatalog : IPhysicalDeviceCatalog
                 {
                     var definition = definitions[index];
                     token.ThrowIfCancellationRequested();
-                    var deviceKey = $"{definition.Id.Value:D}|{definition.Adapter.Kind.Length}:{definition.Adapter.Kind}|{definition.Adapter.Configuration.GetRawText()}";
+                    var deviceKey = ConfigurationRevision.Create(new { definition.Id, definition.Adapter });
                     if (previousById.TryGetValue(definition.Id, out var existing) &&
                         _state.IsCurrent(existing) &&
                         _deviceActivationKeys.TryGetValue(definition.Id, out var previousKey) &&
@@ -326,10 +326,8 @@ public sealed class PhysicalDeviceCatalog : IPhysicalDeviceCatalog
     }
 
     private static string CreateActivationKey(IEnumerable<PhysicalDeviceDefinition> definitions) =>
-        string.Join(
-            '\n',
-            definitions.Where(definition => definition.Enabled).OrderBy(definition => definition.Order).ThenBy(definition => definition.Id.Value).Select(definition =>
-                $"{definition.Id.Value:D}|{definition.Order}|{definition.Name.Length}:{definition.Name}|{definition.Adapter.Kind.Length}:{definition.Adapter.Kind}|{definition.Adapter.Configuration.GetRawText()}"));
+        ConfigurationRevision.Create(definitions.Where(definition => definition.Enabled).OrderBy(definition => definition.Order).ThenBy(definition => definition.Id.Value)
+            .Select(definition => new { definition.Id, definition.Order, definition.Name, definition.Adapter }));
 
     private static async ValueTask DisposeDevicesAsync(IEnumerable<IPhysicalTunerDevice> devices)
     {

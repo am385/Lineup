@@ -802,6 +802,10 @@
   <data name="Settings_PhysicalDeviceNameHelp" xml:space="preserve"><value>Eine lokale Bezeichnung für Senderzugehörigkeit, Abonnements, Routing und Statusanzeigen.</value></data>
   <data name="Settings_PhysicalDeviceSubscriptionHeading" xml:space="preserve"><value>Abonnement physischer Geräte</value></data>
   <data name="Settings_PhysicalHevcHelp" xml:space="preserve"><value>Normalisiert HEVC-Quellen einmalig, bevor sie den Multiplexer erreichen.</value></data>
+  <data name="Settings_PhysicalPriorityHeading" xml:space="preserve"><value>Gerätepriorität</value></data>
+  <data name="Settings_PhysicalPriorityHelp" xml:space="preserve"><value>Priorität 1 wird bevorzugt, wenn mehrere aktivierte, abonnierte und kompatible Geräte dieselbe globale Kanalnummer anbieten. Deaktivierte Geräte behalten ihre Position, werden aber übersprungen. Gruppieren Sie gleichwertige Kanäle auf der Kanalseite, um beim Streamstart Ersatzquellen in dieser Reihenfolge zu verwenden. Einstellungen speichern übernimmt die Reihenfolge; Rückgängig verwirft ungespeicherte Änderungen. Laufende Streams werden nicht umgeschaltet.</value></data>
+  <data name="Settings_PhysicalPriorityMoveDown" xml:space="preserve"><value>Nach unten</value></data>
+  <data name="Settings_PhysicalPriorityMoveUp" xml:space="preserve"><value>Nach oben</value></data>
   <data name="Settings_PhysicalRefreshDescription" xml:space="preserve"><value>Diese Überwachungsintervalle gelten für jedes physische Gerät.</value></data>
   <data name="Settings_PhysicalSubscriptionHelp" xml:space="preserve"><value>Steuert, welche kompatiblen physischen Geräte dieser virtuellen Ausgabe Sender und Tunerkapazität bereitstellen können. „Alle“ bezieht automatisch auch später hinzugefügte kompatible Geräte ein.</value></data>
   <data name="Settings_PhysicalSubscriptionLabel" xml:space="preserve"><value>Physisches Abonnement</value></data>

@@ -14,6 +14,106 @@ namespace Lineup.App.Web.Tests.Services;
 /// </summary>
 public sealed class TopologySettingsEditorTests
 {
+    /// <summary>Verifies the editor displays runtime priority rather than configuration array order, including deterministic ties.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Edit_PhysicalPriority_MatchesRuntimeOrder(bool tied)
+    {
+        // Arrange
+        var editor = new TopologySettingsEditor();
+        var model = editor.Edit(TopologySettingsEditor.CreateDefault());
+        editor.AddPhysicalDevice(model, new TestPhysicalTunerDriver());
+        editor.AddPhysicalDevice(model, new TestPhysicalTunerDriver()).Address = "second.local";
+        Assert.Empty(editor.TryBuild(model, out var original));
+        var devices = original.PhysicalDevices.OrderBy(device => device.Id.Value).ToArray();
+        var preferred = devices[0] with { Order = 0 };
+        var other = devices[1] with { Order = tied ? 0 : 10 };
+        var configuration = original with { PhysicalDevices = [other, preferred] };
+
+        // Act
+        var edited = editor.Edit(configuration);
+        var errors = editor.TryBuild(edited, out var rebuilt);
+
+        // Assert
+        Assert.Empty(errors);
+        Assert.Equal([preferred.Id, other.Id], edited.PhysicalDevices.Select(device => device.Id));
+        Assert.Equal([preferred.Id, other.Id], rebuilt.PhysicalDevices.Select(device => device.Id));
+        Assert.Equal([0, 1], rebuilt.PhysicalDevices.Select(device => device.Order));
+    }
+
+    /// <summary>Verifies moves preserve device settings and subscriptions, and additions/removals retain the remaining priority order.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MovePhysicalDevice_SaveReload_PreservesIdentityAndSettings(bool moveUp)
+    {
+        // Arrange
+        var editor = new TopologySettingsEditor();
+        var model = editor.Edit(TopologySettingsEditor.CreateDefault());
+        var first = editor.AddPhysicalDevice(model, new TestPhysicalTunerDriver());
+        var second = editor.AddPhysicalDevice(model, new TestPhysicalTunerDriver());
+        second.Address = "second.local";
+        second.OverrideAudio = true;
+        second.Audio = OutputAudioPolicy.Ac3;
+        var player = Assert.Single(model.VirtualDevices);
+        player.SubscriptionMode = PhysicalDeviceSubscriptionMode.Selected;
+        player.SelectedDeviceIds.UnionWith([first.Id, second.Id]);
+        var guide = editor.AddGuideSource(model, new TestGuideSourceDriver());
+        guide.SubscriptionMode = PhysicalDeviceSubscriptionMode.Selected;
+        guide.SelectedDeviceIds.Add(first.Id);
+        Assert.Empty(editor.TryBuild(model, out var original));
+
+        // Act
+        editor.MovePhysicalDevice(model, moveUp ? second.Id : first.Id, moveUp);
+        var errors = editor.TryBuild(model, out var saved);
+        var reloaded = editor.Edit(saved);
+        var added = editor.AddPhysicalDevice(reloaded, new TestPhysicalTunerDriver());
+        editor.RemovePhysicalDevice(reloaded, first.Id);
+
+        // Assert
+        Assert.Empty(errors);
+        Assert.Same(second, model.PhysicalDevices[0]);
+        Assert.Same(first, model.PhysicalDevices[1]);
+        Assert.Equal([first.Id, second.Id], original.PhysicalDevices.Select(device => device.Id));
+        Assert.Equal([second.Id, first.Id], saved.PhysicalDevices.Select(device => device.Id));
+        Assert.Equal("second.local", saved.PhysicalDevices[0].Adapter.Configuration.GetProperty("Address").GetString());
+        Assert.Equal(OutputAudioPolicy.Ac3, saved.PhysicalDevices[0].TranscodeOverrides.Audio);
+        Assert.Equal([0, 1], saved.PhysicalDevices.Select(device => device.Order));
+        Assert.True(Assert.Single(saved.VirtualDevices).Subscription.SelectedDeviceIds.SetEquals([first.Id, second.Id]));
+        Assert.Equal(first.Id, Assert.Single(Assert.Single(saved.GuideSources).Subscription.SelectedDeviceIds));
+        Assert.Equal([second.Id, added.Id], reloaded.PhysicalDevices.Select(device => device.Id));
+        Assert.Equal(second.Id, Assert.Single(Assert.Single(reloaded.VirtualDevices).SelectedDeviceIds));
+        Assert.Empty(Assert.Single(reloaded.GuideSources).SelectedDeviceIds);
+    }
+
+    /// <summary>Verifies invalid moves fail explicitly without modifying the editable device order.</summary>
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("first-up")]
+    [InlineData("last-down")]
+    public void MovePhysicalDevice_InvalidMove_PreservesOrder(string scenario)
+    {
+        // Arrange
+        var editor = new TopologySettingsEditor();
+        var model = editor.Edit(TopologySettingsEditor.CreateDefault());
+        var device = editor.AddPhysicalDevice(model, new TestPhysicalTunerDriver());
+
+        // Act
+        var error = Record.Exception(() => editor.MovePhysicalDevice(model, scenario == "missing" ? PhysicalDeviceId.New() : device.Id, scenario != "last-down"));
+
+        // Assert
+        if (scenario == "missing")
+        {
+            Assert.IsType<ArgumentException>(error);
+        }
+        else
+        {
+            Assert.IsType<InvalidOperationException>(error);
+        }
+        Assert.Same(device, Assert.Single(model.PhysicalDevices));
+    }
+
     /// <summary>Verifies both stages retain forced encoding defaults and sparse inherited, enabled or disabled device overrides.</summary>
     [Theory]
     [InlineData(null)]
