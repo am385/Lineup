@@ -722,6 +722,8 @@
   <data name="Settings_LineupLinkExpirationLabel" xml:space="preserve"><value>Expiration (facultative)</value></data>
   <data name="Settings_LineupLinkExpires" xml:space="preserve"><value>Expire</value></data>
   <data name="Settings_LineupLinkExportButton" xml:space="preserve"><value>Exporter</value></data>
+  <data name="Settings_LineupLinkExposeUpstreamStatusHelp" xml:space="preserve"><value>Désactivé par défaut. Partagez l'activité et le signal de tous les tuners amont abonnés avec les clients liés. Le signal de leurs propres flux actifs reste toujours disponible.</value></data>
+  <data name="Settings_LineupLinkExposeUpstreamStatusLabel" xml:space="preserve"><value>Exposer l'état des tuners amont</value></data>
   <data name="Settings_LineupLinkGrantCreated" xml:space="preserve"><value>Une autorisation d’accès Lineup Link a été créée. Enregistrez les paramètres, puis copiez ou exportez son lot maintenant ; le jeton brut n’est pas conservé.</value></data>
   <data name="Settings_LineupLinkGrantHelp" xml:space="preserve"><value>Les autorisations partagent les chaînes, le transcodage, le point d’écoute et la stratégie de sécurité de cette instance. Créez une instance Lineup Link distincte lorsque ces paramètres doivent différer.</value></data>
   <data name="Settings_LineupLinkGrantPurged" xml:space="preserve"><value>L’autorisation d’accès Lineup Link révoquée a été définitivement purgée. Enregistrez les paramètres pour conserver la suppression.</value></data>

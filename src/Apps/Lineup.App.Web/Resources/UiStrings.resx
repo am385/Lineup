@@ -722,6 +722,8 @@
   <data name="Settings_LineupLinkExpirationLabel" xml:space="preserve"><value>Expiration (optional)</value></data>
   <data name="Settings_LineupLinkExpires" xml:space="preserve"><value>Expires</value></data>
   <data name="Settings_LineupLinkExportButton" xml:space="preserve"><value>Export</value></data>
+  <data name="Settings_LineupLinkExposeUpstreamStatusHelp" xml:space="preserve"><value>Off by default. Share all subscribed upstream tuner activity and signal with linked clients. Signal for each client's own active streams is always available.</value></data>
+  <data name="Settings_LineupLinkExposeUpstreamStatusLabel" xml:space="preserve"><value>Expose upstream tuner status</value></data>
   <data name="Settings_LineupLinkGrantCreated" xml:space="preserve"><value>A Lineup Link access grant was created. Save settings, then copy or export its bundle now; the raw token is not stored.</value></data>
   <data name="Settings_LineupLinkGrantHelp" xml:space="preserve"><value>Grants share this instance&apos;s channels, transcoding, listener, and security policy. Create a separate Lineup Link instance when those settings must differ.</value></data>
   <data name="Settings_LineupLinkGrantPurged" xml:space="preserve"><value>The revoked Lineup Link access grant was permanently purged. Save settings to persist the deletion.</value></data>

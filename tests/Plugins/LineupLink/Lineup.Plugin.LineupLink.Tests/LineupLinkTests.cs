@@ -17,6 +17,26 @@ namespace Lineup.Plugin.LineupLink.Tests;
 /// <summary>Tests the Lineup Link protocol, security, adapters, and registration.</summary>
 public sealed class LineupLinkTests
 {
+    /// <summary>Generic adapter edits used by the TUI persist the default-off disclosure policy and reject non-boolean edits.</summary>
+    [Fact]
+    public void VirtualSettings_UpstreamDisclosure_RequiresExplicitBoolean()
+    {
+        // Arrange
+        var driver = new LineupLinkVirtualTunerDriver();
+        var configuration = driver.CreateDefaultConfiguration(VirtualDeviceId.New());
+        var edit = new AdapterSettingEdit { Key = "exposeUpstreamStatus", Action = AdapterSettingEditAction.Set, Value = JsonSerializer.SerializeToElement(true) };
+
+        // Act
+        var enabled = driver.ApplySettings(configuration, [edit]);
+        var invalid = driver.ApplySettings(configuration, [edit with { Value = JsonSerializer.SerializeToElement("true") }]);
+
+        // Assert
+        Assert.False(configuration.Configuration.Deserialize<LineupLinkVirtualConfiguration>()!.ExposeUpstreamStatus);
+        Assert.True(enabled.Configuration!.Configuration.Deserialize<LineupLinkVirtualConfiguration>()!.ExposeUpstreamStatus);
+        Assert.Contains("exposeUpstreamStatus", invalid.Errors.Keys);
+        Assert.Null(invalid.Configuration);
+    }
+
     /// <summary>Verifies client secrets remain redacted and preserve edits do not replace them.</summary>
     [Fact]
     public void PhysicalSettings_PreserveSecret_KeepsRedactedToken()
@@ -291,13 +311,16 @@ public sealed class LineupLinkTests
     }
 
     /// <summary>Remote hardware observations remain complete and independent of three locally owned Link stream slots.</summary>
-    [Fact]
-    public async Task PhysicalDevice_ThreeLocalStreams_PreservesFourUpstreamTunersAndSignal()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PhysicalDevice_ThreeLocalStreams_PreservesFourUpstreamTunersAndSignal(bool exposeUpstream)
     {
         // Arrange
         var virtualDeviceId = Guid.NewGuid();
         var physicalDeviceId = PhysicalDeviceId.New();
         var observedAt = new DateTimeOffset(2026, 7, 1, 12, 0, 0, TimeSpan.Zero);
+        var streamIds = Enumerable.Range(0, 3).Select(_ => Guid.NewGuid()).ToArray();
         var upstream = new UpstreamPhysicalDeviceStatus
         {
             DeviceId = Guid.NewGuid(),
@@ -322,7 +345,16 @@ public sealed class LineupLinkTests
             VirtualDeviceId = virtualDeviceId,
             Name = "Remote output",
             TunerCount = 4,
-            UpstreamDevices = [upstream]
+            UpstreamDevices = exposeUpstream ? [upstream] : null,
+            StreamSignals = streamIds.Select((id, index) => new StreamSignalStatus
+            {
+                StreamSessionId = id,
+                ObservedAtUtc = observedAt,
+                HasLock = true,
+                SignalStrength = index switch { 0 => 99, 1 => 0, _ => null },
+                SignalQuality = 87,
+                SymbolQuality = 100
+            }).Reverse().ToArray()
         };
         var lineup = new LineupLinkLineup
         {
@@ -350,6 +382,7 @@ public sealed class LineupLinkTests
                 {
                     Assert.Equal(LineupLinkProtocol.StreamPath(virtualDeviceId, $"2.{index}"), context.Request.Url?.AbsolutePath);
                     context.Response.ContentType = LineupLinkProtocol.MpegTsMediaType;
+                    context.Response.Headers[LineupLinkProtocol.StreamSessionHeader] = streamIds[index - 1].ToString("D");
                     context.Response.ContentLength64 = 3;
                     await context.Response.OutputStream.WriteAsync(new byte[] { 1, 2, 3 });
                     context.Response.Close();
@@ -379,19 +412,30 @@ public sealed class LineupLinkTests
             Assert.True(status.ReceiversAreStreamSlots);
             Assert.Equal(3, status.Receivers.Count(receiver => receiver.IsStreaming));
             Assert.False(status.Receivers[3].IsActive);
-            var remote = Assert.Single(Assert.IsAssignableFrom<IReadOnlyList<UpstreamPhysicalDeviceStatus>>(status.UpstreamDevices));
-            Assert.Equal(upstream.DeviceId, remote.DeviceId);
-            Assert.Equal(observedAt, remote.ObservedAtUtc);
-            Assert.Equal(4, remote.Receivers.Count);
-            Assert.All(remote.Receivers, receiver =>
+            Assert.Equal(99, status.Receivers[0].SignalStrength);
+            Assert.Equal(0, status.Receivers[1].SignalStrength);
+            Assert.Null(status.Receivers[2].SignalStrength);
+            Assert.All(status.Receivers.Take(3), receiver => Assert.Equal(87, receiver.SignalQuality));
+            if (exposeUpstream)
             {
-                Assert.True(receiver.IsStreaming);
-                Assert.True(receiver.HasLock);
-                Assert.Equal(98, receiver.SignalStrength);
-                Assert.Equal(87, receiver.SignalQuality);
-                Assert.Equal(100, receiver.SymbolQuality);
-            });
-            Assert.Equal("2.4", remote.Receivers[3].VirtualChannel);
+                var remote = Assert.Single(Assert.IsAssignableFrom<IReadOnlyList<UpstreamPhysicalDeviceStatus>>(status.UpstreamDevices));
+                Assert.Equal(upstream.DeviceId, remote.DeviceId);
+                Assert.Equal(observedAt, remote.ObservedAtUtc);
+                Assert.Equal(4, remote.Receivers.Count);
+                Assert.All(remote.Receivers, receiver =>
+                {
+                    Assert.True(receiver.IsStreaming);
+                    Assert.True(receiver.HasLock);
+                    Assert.Equal(98, receiver.SignalStrength);
+                    Assert.Equal(87, receiver.SignalQuality);
+                    Assert.Equal(100, receiver.SymbolQuality);
+                });
+                Assert.Equal("2.4", remote.Receivers[3].VirtualChannel);
+            }
+            else
+            {
+                Assert.Null(status.UpstreamDevices);
+            }
         }
         finally
         {
@@ -414,6 +458,10 @@ public sealed class LineupLinkTests
     [InlineData("invalid-signal")]
     [InlineData("missing-observation")]
     [InlineData("private-target")]
+    [InlineData("null-stream-signal")]
+    [InlineData("duplicate-stream-signal")]
+    [InlineData("invalid-stream-signal")]
+    [InlineData("unobserved-stream-signal")]
     public async Task Client_Manifest_InvalidUpstreamStatus_IsRejected(string invalidField)
     {
         // Arrange
@@ -440,6 +488,15 @@ public sealed class LineupLinkTests
         var upstream = Assert.IsType<System.Text.Json.Nodes.JsonObject>(devices[0]);
         var receivers = Assert.IsType<System.Text.Json.Nodes.JsonArray>(upstream["Receivers"]);
         var receiver = Assert.IsType<System.Text.Json.Nodes.JsonObject>(receivers[0]);
+        var signals = new System.Text.Json.Nodes.JsonArray(JsonSerializer.SerializeToNode(new StreamSignalStatus
+        {
+            StreamSessionId = Guid.NewGuid(),
+            ObservedAtUtc = DateTimeOffset.UtcNow,
+            HasLock = true,
+            SignalStrength = 98
+        }));
+        json["StreamSignals"] = signals;
+        var streamSignal = Assert.IsType<System.Text.Json.Nodes.JsonObject>(signals[0]);
         switch (invalidField)
         {
             case "null-device": devices[0] = null; break;
@@ -450,6 +507,10 @@ public sealed class LineupLinkTests
             case "invalid-signal": receiver["SignalStrength"] = 101; break;
             case "missing-observation": upstream["ObservedAtUtc"] = null; break;
             case "private-target": receiver["Target"] = "udp://192.0.2.1:5000"; break;
+            case "null-stream-signal": signals[0] = null; break;
+            case "duplicate-stream-signal": signals.Add(streamSignal.DeepClone()); break;
+            case "invalid-stream-signal": streamSignal["SignalQuality"] = 101; break;
+            case "unobserved-stream-signal": streamSignal["ObservedAtUtc"] = null; break;
             default: throw new ArgumentOutOfRangeException(nameof(invalidField));
         }
         var port = GetAvailablePort();
@@ -474,7 +535,7 @@ public sealed class LineupLinkTests
         await responseTask;
 
         // Assert
-        Assert.Contains("upstream", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(invalidField.EndsWith("stream-signal", StringComparison.Ordinal) ? "stream signal" : "upstream", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Verifies Lineup Link physical status tracks local receiver use for an active remote stream.</summary>

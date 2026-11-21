@@ -71,7 +71,9 @@ public sealed class LineupLinkController : ControllerBase
             Name = context.Definition.Name,
             TunerCount = capacity.TunerCount,
             GuideAvailable = true,
-            UpstreamDevices = UpstreamPhysicalDeviceStatusProjection.Create(source, _deviceStatuses.Devices)
+            UpstreamDevices = context.Configuration.ExposeUpstreamStatus ? UpstreamPhysicalDeviceStatusProjection.Create(source, _deviceStatuses.Devices) : null,
+            StreamSignals = UpstreamPhysicalDeviceStatusProjection.CreateStreamSignals(
+                context.Definition.Id, context.AuthenticatedGrant.Id.ToString("D"), _activeStreams.GetActiveStreams(), _deviceStatuses.Devices)
         };
     }
 
@@ -174,6 +176,8 @@ public sealed class LineupLinkController : ControllerBase
                 output.Profile) with
             {
                 ClientAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                AuthenticatedClientId = context.AuthenticatedGrant.Id.ToString("D"),
+                AuthenticatedClientName = context.AuthenticatedGrant.Name,
                 Flow = output.Flow
             };
             if (!startup.TryRegister(stream, HttpContext.Abort))
@@ -188,6 +192,7 @@ public sealed class LineupLinkController : ControllerBase
             try
             {
                 Response.ContentType = LineupLinkProtocol.MpegTsMediaType;
+                Response.Headers[LineupLinkProtocol.StreamSessionHeader] = sessionId;
                 Response.Headers.CacheControl = "no-cache, no-store";
                 await output.Stream.CopyToAsync(Response.Body, cancellationToken);
                 return new EmptyResult();

@@ -722,6 +722,8 @@
   <data name="Settings_LineupLinkExpirationLabel" xml:space="preserve"><value>Caducidad (opcional)</value></data>
   <data name="Settings_LineupLinkExpires" xml:space="preserve"><value>Vence</value></data>
   <data name="Settings_LineupLinkExportButton" xml:space="preserve"><value>Exportar</value></data>
+  <data name="Settings_LineupLinkExposeUpstreamStatusHelp" xml:space="preserve"><value>Desativado por padrão. Compartilha a atividade e o sinal de todos os sintonizadores de origem inscritos com os clientes vinculados. O sinal dos próprios fluxos ativos do cliente está sempre disponível.</value></data>
+  <data name="Settings_LineupLinkExposeUpstreamStatusLabel" xml:space="preserve"><value>Expor o estado dos sintonizadores de origem</value></data>
   <data name="Settings_LineupLinkGrantCreated" xml:space="preserve"><value>Se creó uma concessão de acesso Lineup Link. Guarde as configurações, então copie o exporte seu paquete agora; o token sem processar não se almacena.</value></data>
   <data name="Settings_LineupLinkGrantHelp" xml:space="preserve"><value>As concessões comparten os canais, a transcodificación, o serviço de listener e a política de segurança de esta instância. Crie outra instância de Lineup Link quando esas opções deban ser diferentes.</value></data>
   <data name="Settings_LineupLinkGrantPurged" xml:space="preserve"><value>A concessão de acesso Lineup Link revogada se eliminó permanentemente. Guarde as configurações para preservar a eliminación.</value></data>

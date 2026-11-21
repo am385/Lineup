@@ -723,6 +723,8 @@
   <data name="Settings_LineupLinkExpirationLabel" xml:space="preserve"><value>Wygaśnięcie (opcjonalnie)</value></data>
   <data name="Settings_LineupLinkExpires" xml:space="preserve"><value>Wygasa</value></data>
   <data name="Settings_LineupLinkExportButton" xml:space="preserve"><value>Eksportuj</value></data>
+  <data name="Settings_LineupLinkExposeUpstreamStatusHelp" xml:space="preserve"><value>Domyślnie wyłączone. Udostępnia połączonym klientom aktywność i sygnał wszystkich subskrybowanych tunerów źródłowych. Sygnał własnych aktywnych strumieni klienta jest zawsze dostępny.</value></data>
+  <data name="Settings_LineupLinkExposeUpstreamStatusLabel" xml:space="preserve"><value>Udostępniaj stan tunerów źródłowych</value></data>
   <data name="Settings_LineupLinkGrantCreated" xml:space="preserve"><value>Utworzono uprawnienie dostępu Lineup Link. Zapisz ustawienia, a następnie skopiuj lub wyeksportuj jego pakiet teraz; nieprzetworzony token nie jest przechowywany.</value></data>
   <data name="Settings_LineupLinkGrantHelp" xml:space="preserve"><value>Uprawnienia współdzielą kanały, transkodowanie, interfejs i zasady zabezpieczeń tej instancji. Utwórz oddzielną instancję Lineup Link, jeśli te ustawienia mają się różnić.</value></data>
   <data name="Settings_LineupLinkGrantPurged" xml:space="preserve"><value>Trwale usunięto cofnięte uprawnienie dostępu Lineup Link. Zapisz ustawienia, aby utrwalić usunięcie.</value></data>

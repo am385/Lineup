@@ -152,6 +152,9 @@ public sealed class VirtualOutputBroker : IVirtualOutputBroker
                 ? UpstreamPhysicalDeviceStatusProjection.Create(
                     VirtualDeviceSubscriptionResolver.Resolve(device, _settings.Settings.Streaming.PhysicalDevices, driver),
                     _deviceStatuses.Devices)
+                : null,
+            StreamSignals = !string.IsNullOrWhiteSpace(request.AuthenticatedClientId)
+                ? UpstreamPhysicalDeviceStatusProjection.CreateStreamSignals(device.Id, request.AuthenticatedClientId, _activeStreams.GetActiveStreams(), _deviceStatuses.Devices)
                 : null
         });
     }

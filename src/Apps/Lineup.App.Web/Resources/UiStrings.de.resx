@@ -722,6 +722,8 @@
   <data name="Settings_LineupLinkExpirationLabel" xml:space="preserve"><value>Ablauf (optional)</value></data>
   <data name="Settings_LineupLinkExpires" xml:space="preserve"><value>Läuft ab</value></data>
   <data name="Settings_LineupLinkExportButton" xml:space="preserve"><value>Exportieren</value></data>
+  <data name="Settings_LineupLinkExposeUpstreamStatusHelp" xml:space="preserve"><value>Standardmäßig aus. Teilen Sie Aktivität und Signal aller abonnierten vorgelagerten Tuner mit verbundenen Clients. Das Signal eigener aktiver Streams ist immer verfügbar.</value></data>
+  <data name="Settings_LineupLinkExposeUpstreamStatusLabel" xml:space="preserve"><value>Vorgelagerten Tunerstatus freigeben</value></data>
   <data name="Settings_LineupLinkGrantCreated" xml:space="preserve"><value>Eine Lineup Link-Zugriffsberechtigung wurde erstellt. Speichern Sie die Einstellungen und kopieren oder exportieren Sie das Paket jetzt; das unverschleierte Token wird nicht gespeichert.</value></data>
   <data name="Settings_LineupLinkGrantHelp" xml:space="preserve"><value>Berechtigungen verwenden Sender, Transcodierung, Listener und Sicherheitsrichtlinie dieser Instanz gemeinsam. Erstellen Sie eine separate Lineup Link-Instanz, wenn diese Einstellungen abweichen müssen.</value></data>
   <data name="Settings_LineupLinkGrantPurged" xml:space="preserve"><value>Die widerrufene Lineup Link-Zugriffsberechtigung wurde dauerhaft bereinigt. Speichern Sie die Einstellungen, um die Löschung zu übernehmen.</value></data>

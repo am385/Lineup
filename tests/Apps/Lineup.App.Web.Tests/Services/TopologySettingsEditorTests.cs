@@ -205,14 +205,18 @@ public sealed class TopologySettingsEditorTests
     }
 
     /// <summary>Verifies Lineup Link virtual forms persist only the token hash.</summary>
-    [Fact]
-    public void TryBuild_LineupLinkVirtualDevice_DoesNotPersistRawToken()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TryBuild_LineupLinkVirtualDevice_DoesNotPersistRawToken(bool exposeUpstreamStatus)
     {
         // Arrange
         var editor = new TopologySettingsEditor();
         var model = editor.Edit(TopologySettingsEditor.CreateDefault());
         var driver = new LineupLinkVirtualTunerDriver();
         var device = editor.AddVirtualDevice(model, driver);
+        Assert.False(device.LinkExposeUpstreamStatus);
+        device.LinkExposeUpstreamStatus = exposeUpstreamStatus;
         var mutation = LineupLinkAccessGrantManager.Create(
             new LineupLinkVirtualConfiguration { InstanceId = device.LinkInstanceId },
             "Test access",
@@ -237,6 +241,9 @@ public sealed class TopologySettingsEditorTests
         Assert.DoesNotContain(rawToken, persisted.GetRawText(), StringComparison.Ordinal);
         var savedGrant = Assert.Single(persisted.GetProperty("AccessGrants").EnumerateArray());
         Assert.Equal(LineupLinkToken.Hash(rawToken), savedGrant.GetProperty("TokenHash").GetString());
+        Assert.Equal(exposeUpstreamStatus, persisted.GetProperty("ExposeUpstreamStatus").GetBoolean());
+        var reopened = editor.Edit(configuration).VirtualDevices.Single(item => item.Id == device.Id);
+        Assert.Equal(exposeUpstreamStatus, reopened.LinkExposeUpstreamStatus);
     }
 
     /// <summary>Verifies a new Lineup Link virtual device persists with remote access disabled until a grant is created.</summary>

@@ -132,6 +132,12 @@ public sealed record PhysicalReceiverStatus
     /// <summary>Gets the virtual channel number.</summary>
     public string? VirtualChannel { get; init; }
 
+    /// <summary>Gets the exact provider channel observed by this receiver, when the adapter can identify it.</summary>
+    public SourceChannelId? SourceChannelId { get; init; }
+
+    /// <summary>Gets a safe failure explaining why a linked stream's signal is unavailable.</summary>
+    public string? SignalError { get; init; }
+
     /// <summary>Gets the stream target when supplied by the adapter.</summary>
     public string? Target { get; init; }
 
@@ -177,6 +183,31 @@ public sealed record UpstreamPhysicalDeviceStatus
 
     /// <summary>Gets observed receiver states without stream targets.</summary>
     public IReadOnlyList<PhysicalReceiverStatus> Receivers { get; init; } = [];
+}
+
+/// <summary>Describes only the source signal of an authenticated client's active stream, without upstream inventory or receiver identities.</summary>
+public sealed record StreamSignalStatus
+{
+    /// <summary>Gets the opaque hosted stream identity.</summary>
+    public required Guid StreamSessionId { get; init; }
+
+    /// <summary>Gets the successful physical-status observation time, when known.</summary>
+    public DateTimeOffset? ObservedAtUtc { get; init; }
+
+    /// <summary>Gets whether the observed source has signal lock.</summary>
+    public bool HasLock { get; init; }
+
+    /// <summary>Gets measured signal strength, preserving unknown and zero separately.</summary>
+    public int? SignalStrength { get; init; }
+
+    /// <summary>Gets measured signal-to-noise quality.</summary>
+    public int? SignalQuality { get; init; }
+
+    /// <summary>Gets measured symbol error quality.</summary>
+    public int? SymbolQuality { get; init; }
+
+    /// <summary>Gets a safe reason signal could not be determined.</summary>
+    public string? Error { get; init; }
 }
 
 /// <summary>

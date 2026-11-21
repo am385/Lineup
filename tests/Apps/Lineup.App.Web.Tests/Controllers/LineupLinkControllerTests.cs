@@ -13,6 +13,42 @@ namespace Lineup.App.Web.Tests.Controllers;
 /// <summary>Verifies management-hosted Lineup Link endpoint selection.</summary>
 public sealed class LineupLinkControllerTests
 {
+    /// <summary>Management streams publish the same opaque identity as their authenticated active-stream registration and remove it on completion.</summary>
+    [Fact]
+    public async Task GetStreamAsync_PublishesSignalSessionAndGrantIdentity()
+    {
+        // Arrange
+        var registry = Substitute.For<IActiveStreamRegistry>();
+        var startup = Substitute.For<IStreamStartupLease>();
+        ActiveStreamSnapshot? registered = null;
+        registry.TryBeginStartup(Arg.Any<int>(), Arg.Any<Action>()).Returns(startup);
+        startup.TryRegister(Arg.Any<ActiveStreamSnapshot>(), Arg.Any<Action>()).Returns(call =>
+        {
+            registered = call.Arg<ActiveStreamSnapshot>();
+            return true;
+        });
+        var streams = Substitute.For<IVirtualMpegTsOutputService>();
+        var media = new MediaProbeResult([], null);
+        var virtualId = new VirtualDeviceId(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
+        streams.OpenAsync(virtualId, "2.1", Arg.Any<CancellationToken>()).Returns(
+            new VirtualMpegTsOutput(new MemoryStream([1, 2, 3]), media, media, new VirtualTranscodeProfile(), new ActiveStreamFlowContext { VirtualDeviceId = virtualId }));
+        var grantId = Guid.Empty;
+        var controller = CreateController(null, authenticated: true, activeStreams: registry, streams: streams, onGrantCreated: id => grantId = id);
+        using var body = new MemoryStream();
+        controller.Response.Body = body;
+
+        // Act
+        var result = await controller.GetStreamAsync(virtualId.Value, "2.1", TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.IsType<EmptyResult>(result);
+        var active = Assert.IsType<ActiveStreamSnapshot>(registered);
+        Assert.Equal(active.SessionId, controller.Response.Headers[LineupLinkProtocol.StreamSessionHeader].ToString());
+        Assert.Equal(grantId.ToString("D"), active.AuthenticatedClientId);
+        Assert.Equal(new byte[] { 1, 2, 3 }, body.ToArray());
+        Assert.Single(registry.ReceivedCalls(), call => call.GetMethodInfo().Name == "Unregister" && Equals(call.GetArguments()[0], active.SessionId));
+    }
+
     /// <summary>Oversized management guides fail explicitly without returning a partial guide document.</summary>
     [Fact]
     public async Task GetGuideAsync_OverEnvelope_ReturnsActionableUnavailable()
@@ -178,6 +214,7 @@ public sealed class LineupLinkControllerTests
         var catalog = Substitute.For<IPhysicalDeviceCatalog>();
         catalog.Devices.Returns(physicalDevices);
         var controller = CreateController(null, authenticated: true, physicalDevices: definitions, physicalCatalog: catalog, deviceStatuses: statuses,
+            exposeUpstreamStatus: true,
             subscription: new PhysicalDeviceSubscription { Mode = PhysicalDeviceSubscriptionMode.Selected, SelectedDeviceIds = [definitions[0].Id, definitions[1].Id, definitions[3].Id] });
 
         // Act
@@ -205,6 +242,63 @@ public sealed class LineupLinkControllerTests
         Assert.All(statuses.ReceivedCalls(), call => Assert.Equal("get_Devices", call.GetMethodInfo().Name));
     }
 
+    /// <summary>Signal follows the actual source and authenticated grant; default-off inventory disclosure does not suppress owned signal.</summary>
+    [Theory]
+    [InlineData(false, "observed")]
+    [InlineData(true, "observed")]
+    [InlineData(false, "failed")]
+    [InlineData(false, "ambiguous")]
+    [InlineData(false, "unobserved")]
+    public void GetManifest_OwnedSignals_AreSourceScopedAndInventoryIsOptIn(bool expose, string state)
+    {
+        // Arrange
+        var device = new PhysicalDeviceSnapshot { Id = PhysicalDeviceId.New(), Name = "Source", Kind = "test", Capacity = new PhysicalTunerCapacity(4) };
+        var source = new SourceChannelId(device.Id, "4.1");
+        var receiver = new PhysicalReceiverStatus { Index = 3, SourceChannelId = source, VirtualChannel = "4.1", IsStreaming = true, HasLock = true, SignalStrength = 0 };
+        var statuses = Substitute.For<IPhysicalDeviceStatusService>();
+        statuses.Devices.Returns([new PhysicalDeviceRuntimeStatus
+        {
+            Device = device,
+            StatusObservedAtUtc = state == "unobserved" ? null : DateTimeOffset.UtcNow,
+            Error = state == "failed" ? "Refresh failed." : null,
+            Status = new PhysicalDeviceStatusSnapshot
+            {
+                Device = device,
+                Receivers = state == "ambiguous" ? [receiver, receiver with { Index = 0 }] : [receiver]
+            }
+        }]);
+        var active = new ActiveStreamRegistry();
+        var owner = Guid.Empty;
+        var controller = CreateController(null, authenticated: true, activeStreams: active, deviceStatuses: statuses,
+            exposeUpstreamStatus: expose, onGrantCreated: id => owner = id);
+        var virtualId = new VirtualDeviceId(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
+        var stream = new ActiveStreamSnapshot(Guid.NewGuid().ToString("D"), "2.1", HostedStreamFormat.MpegTs, DateTime.UtcNow, null, [])
+        {
+            AuthenticatedClientId = owner.ToString("D"),
+            Flow = new ActiveStreamFlowContext { VirtualDeviceId = virtualId, SourceChannelId = source, PhysicalDeviceId = device.Id }
+        };
+        active.Register(stream);
+        active.Register(stream with { SessionId = Guid.NewGuid().ToString("D"), AuthenticatedClientId = Guid.NewGuid().ToString("D") });
+        active.Register(stream with { SessionId = Guid.NewGuid().ToString("D"), Flow = stream.Flow with { VirtualDeviceId = VirtualDeviceId.New() } });
+
+        // Act
+        var manifest = Assert.IsType<LineupLinkManifest>(controller.GetManifest(virtualId.Value).Value);
+
+        // Assert
+        Assert.Equal(expose, manifest.UpstreamDevices is not null);
+        var signal = Assert.Single(Assert.IsAssignableFrom<IReadOnlyList<StreamSignalStatus>>(manifest.StreamSignals));
+        Assert.Equal(Guid.Parse(stream.SessionId), signal.StreamSessionId);
+        Assert.Equal(state == "observed" ? 0 : (int?)null, signal.SignalStrength);
+        Assert.Equal(state == "observed", signal.HasLock);
+        Assert.Equal(state != "observed", signal.Error is not null);
+        Assert.All(statuses.ReceivedCalls(), call => Assert.Equal("get_Devices", call.GetMethodInfo().Name));
+        if (!expose)
+        {
+            Assert.DoesNotContain("4.1", JsonSerializer.Serialize(manifest), StringComparison.Ordinal);
+            Assert.DoesNotContain("SourceChannelId", JsonSerializer.Serialize(manifest), StringComparison.Ordinal);
+        }
+    }
+
     private static LineupLinkController CreateController(
         VirtualOutputHostingDefinition? hosting,
         bool requireEncryption = false,
@@ -216,7 +310,9 @@ public sealed class LineupLinkControllerTests
         IReadOnlyList<PhysicalDeviceDefinition>? physicalDevices = null,
         PhysicalDeviceSubscription? subscription = null,
         IPhysicalDeviceCatalog? physicalCatalog = null,
-        IPhysicalDeviceStatusService? deviceStatuses = null
+        IPhysicalDeviceStatusService? deviceStatuses = null,
+        bool exposeUpstreamStatus = false,
+        Action<Guid>? onGrantCreated = null
     )
     {
         var id = new VirtualDeviceId(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
@@ -225,8 +321,10 @@ public sealed class LineupLinkControllerTests
         {
             InstanceId = Guid.NewGuid(),
             RequireEncryption = requireEncryption,
+            ExposeUpstreamStatus = exposeUpstreamStatus,
             PublicBaseUrl = requireEncryption ? "https://localhost:8443/" : "http://localhost:8080/"
         }, "test", null, DateTime.UtcNow);
+        onGrantCreated?.Invoke(grant.Grant!.Id);
         var settings = Substitute.For<ILineupSettingsService>();
         settings.Settings.Returns(new LineupSettings
         {

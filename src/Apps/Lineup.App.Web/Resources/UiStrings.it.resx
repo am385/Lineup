@@ -722,6 +722,8 @@
   <data name="Settings_LineupLinkExpirationLabel" xml:space="preserve"><value>Scadenza (opzionale)</value></data>
   <data name="Settings_LineupLinkExpires" xml:space="preserve"><value>Scadenze</value></data>
   <data name="Settings_LineupLinkExportButton" xml:space="preserve"><value>Esportazione</value></data>
+  <data name="Settings_LineupLinkExposeUpstreamStatusHelp" xml:space="preserve"><value>Disattivato per impostazione predefinita. Condivide attività e segnale di tutti i sintonizzatori a monte sottoscritti con i client collegati. Il segnale dei propri flussi attivi è sempre disponibile.</value></data>
+  <data name="Settings_LineupLinkExposeUpstreamStatusLabel" xml:space="preserve"><value>Esporre lo stato dei sintonizzatori a monte</value></data>
   <data name="Settings_LineupLinkGrantCreated" xml:space="preserve"><value>È stata creata una borsa di accesso Lineup Link. Salvare le impostazioni, quindi copiare o esportare il suo bundle ora; il token grezzo non è memorizzato.</value></data>
   <data name="Settings_LineupLinkGrantHelp" xml:space="preserve"><value>I sussidi condividono i canali di questa istanza, transcodifica, ascoltatore e politica di sicurezza. Creare una Lineup separata Collegare l'istanza quando queste impostazioni devono differire.</value></data>
   <data name="Settings_LineupLinkGrantPurged" xml:space="preserve"><value>La concessione di accesso al collegamento Lineup revocata è stata permanentemente eliminata. Salvare le impostazioni per persistere la cancellazione.</value></data>

@@ -722,6 +722,8 @@
   <data name="Settings_LineupLinkExpirationLabel" xml:space="preserve"><value>Vervaldatum (optioneel)</value></data>
   <data name="Settings_LineupLinkExpires" xml:space="preserve"><value>Verloopt</value></data>
   <data name="Settings_LineupLinkExportButton" xml:space="preserve"><value>Exporteren</value></data>
+  <data name="Settings_LineupLinkExposeUpstreamStatusHelp" xml:space="preserve"><value>Standaard uit. Deel activiteit en signaal van alle geabonneerde upstreamtuners met gekoppelde clients. Het signaal van hun eigen actieve streams blijft altijd beschikbaar.</value></data>
+  <data name="Settings_LineupLinkExposeUpstreamStatusLabel" xml:space="preserve"><value>Upstreamtunerstatus beschikbaar stellen</value></data>
   <data name="Settings_LineupLinkGrantCreated" xml:space="preserve"><value>Er is een Lineup Link-toegangsmachtiging gemaakt. Sla de instellingen op en kopieer of exporteer de bundel nu; het onbewerkte token wordt niet opgeslagen.</value></data>
   <data name="Settings_LineupLinkGrantHelp" xml:space="preserve"><value>Machtigingen delen de kanalen, transcodering, listener en het beveiligingsbeleid van dit exemplaar. Maak een afzonderlijk Lineup Link-exemplaar wanneer die instellingen moeten verschillen.</value></data>
   <data name="Settings_LineupLinkGrantPurged" xml:space="preserve"><value>De ingetrokken Lineup Link-toegangsmachtiging is permanent gewist. Sla de instellingen op om de verwijdering te bewaren.</value></data>

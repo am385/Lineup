@@ -458,6 +458,31 @@ public sealed class HDHomeRunPhysicalTunerDriverTests
         Assert.Equal(0, lineupRequests);
     }
 
+    /// <summary>Receiver observations retain the actual provider channel identity for signal association, independently of tuner index.</summary>
+    [Fact]
+    public async Task RefreshStatusAsync_ActiveReceiver_IdentifiesExactSourceChannel()
+    {
+        // Arrange
+        var driver = CreateDriver(request => request.RequestUri!.AbsolutePath switch
+        {
+            "/discover.json" => JsonResponse(DiscoverJson(tunerCount: 4)),
+            "/status.json" => JsonResponse("""
+                [{"Resource":"tuner3","VctNumber":"5.1","VctName":"Example","Frequency":177000000,"TargetIP":"192.0.2.1","SignalStrengthPercent":99}]
+                """),
+            _ => throw new InvalidOperationException($"Unexpected request {request.RequestUri}.")
+        });
+        var id = PhysicalDeviceId.New();
+        var device = await driver.CreateAsync(id, "Source", Configuration("127.0.0.1"), TestContext.Current.CancellationToken);
+
+        // Act
+        var status = await Assert.IsAssignableFrom<IPhysicalDeviceStatusCapability>(device).RefreshStatusAsync(TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(new SourceChannelId(id, "5.1"), status.Receivers[3].SourceChannelId);
+        Assert.Equal(99, status.Receivers[3].SignalStrength);
+        Assert.All(status.Receivers.Take(3), receiver => Assert.Null(receiver.SourceChannelId));
+    }
+
     /// <summary>
     /// Verifies recurring tuner-status refreshes reuse creation metadata and the initialized protocol device.
     /// </summary>

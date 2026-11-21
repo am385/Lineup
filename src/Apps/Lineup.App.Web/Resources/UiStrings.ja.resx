@@ -722,6 +722,8 @@
   <data name="Settings_LineupLinkExpirationLabel" xml:space="preserve"><value>有効期限（省略可）</value></data>
   <data name="Settings_LineupLinkExpires" xml:space="preserve"><value>有効期限</value></data>
   <data name="Settings_LineupLinkExportButton" xml:space="preserve"><value>エクスポート</value></data>
+  <data name="Settings_LineupLinkExposeUpstreamStatusHelp" xml:space="preserve"><value>既定ではオフです。登録されたすべての上流チューナーの動作と信号を接続クライアントに共有します。クライアント自身のアクティブなストリームの信号は常に利用できます。</value></data>
+  <data name="Settings_LineupLinkExposeUpstreamStatusLabel" xml:space="preserve"><value>上流チューナーの状態を公開</value></data>
   <data name="Settings_LineupLinkGrantCreated" xml:space="preserve"><value>Lineup Link アクセス許可を作成しました。設定を保存してから、今すぐバンドルをコピーまたはエクスポートしてください。未加工トークンは保存されません。</value></data>
   <data name="Settings_LineupLinkGrantHelp" xml:space="preserve"><value>アクセス許可では、このインスタンスのチャンネル、トランスコード、リスナー、セキュリティポリシーを共有します。これらの設定を分ける必要がある場合は、別の Lineup Link インスタンスを作成してください。</value></data>
   <data name="Settings_LineupLinkGrantPurged" xml:space="preserve"><value>取り消した Lineup Link アクセス許可を完全に消去しました。削除を永続化するには設定を保存してください。</value></data>

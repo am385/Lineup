@@ -1737,9 +1737,15 @@ Operational source schedules and output retries do not invalidate open Settings 
 
 A provider instance can add a **Lineup Link** virtual device and export its published lineup, optional guide, and post-output-transcode MPEG-TS streams through `/api/lineup-link/v2/virtual-devices/{virtualDeviceId}` when management-hosted or the equivalent path on its dedicated listener. A consuming instance imports the generated connection bundle into a **Lineup Link** physical device and may add a separately managed Lineup Link guide source. The virtual output uses Lineup's existing shared acquisition and MPEG-TS transformation graph, so consumers requesting the same effective source and output profile reuse the physical stream, physical normalization, and virtual transform.
 
-**Dashboard > Physical Devices** distinguishes a Link device's local stream slots from its **Upstream tuner status (read-only)**.
-An unused Link slot does not mean a remote hardware tuner is idle. Upstream observations include every reported receiver on each
-enabled, compatible physical source subscribed by the exported virtual device, including tuners occupied by other consumers.
+**Dashboard > Physical Devices** shows source signal in the main table for each active Link stream slot.
+The provider associates observations with the stream's actual source channel and an opaque stream session identity, not the local slot
+index or exported channel number. Only the authenticated access grant's active streams are included. Unknown, failed, or ambiguous
+source observations display N/A; measured zero remains 0%. Older peers without per-stream signal support remain usable.
+An unused Link slot does not mean a remote hardware tuner is idle.
+The host's **Settings > Virtual Devices > Lineup Link > Expose upstream tuner status** switch is off by default, including for existing
+configurations that omit it. Enabling it additionally publishes the **Upstream tuner status (read-only)** table, including every reported
+receiver on each enabled, compatible subscribed physical source and tuners occupied by other consumers. Disabling it removes this inventory
+from responses, not just from the client UI; signal for the grant's own active streams remains available.
 Local slot ownership and advertised stream capacity remain unchanged; hardware observations do not reduce admission capacity or disable stream sharing.
 
 Management-hosted and dedicated-worker manifests publish these optional observations from the provider's existing physical-status cache;
@@ -1749,7 +1755,7 @@ unsubscribed devices, and remote control operations are not. Missing signal meas
 Failed refreshes retain explicitly labeled last-known observations; devices without an observation do not acquire invented idle receiver rows.
 Refresh frequency follows the provider's physical-status schedule and the consuming instance's Link status refreshes.
 Update both instances, including the provider's matching dedicated worker package where applicable, to display upstream telemetry.
-Older manifests remain usable for streaming and explicitly show that upstream tuner status is unavailable; manifest bodies retain the 1 MiB control-response limit.
+Disabled or unsupported upstream inventory does not add an extra dashboard section; manifest bodies retain the 1 MiB control-response limit.
 
 A Lineup Link guide source subscribed to multiple remote outputs merges their root supplemental metadata into one envelope before import. The first subscribed output wins conflicting root attributes with the same qualified name; all preserved root elements remain in subscription order. Channel and program metadata retain their remote-output-qualified identities. Invalid root envelopes fail the refresh without replacing the previously committed guide, rather than deferring failure until XMLTV or JSON publication.
 

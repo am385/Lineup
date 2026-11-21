@@ -30,7 +30,7 @@ public sealed class HdHomeRunWorkerProcessTests
     public async Task LineupLink_Manifest_ReturnsSubscribedCachedTunerStatus(bool selected)
     {
         // Arrange
-        await using var harness = await Harness.StartAsync(null, selected, lineupLink: true);
+        await using var harness = await Harness.StartAsync(null, selected, lineupLink: true, exposeUpstreamStatus: true);
         harness.SetCapacities(4, 2);
         var observedAt = new DateTimeOffset(2026, 7, 1, 12, 0, 0, TimeSpan.Zero);
         var statuses = harness.Settings.Streaming.PhysicalDevices.Select((definition, index) =>
@@ -82,6 +82,49 @@ public sealed class HdHomeRunWorkerProcessTests
         });
         Assert.All(harness.DeviceStatuses.ReceivedCalls(), call => Assert.Equal("get_Devices", call.GetMethodInfo().Name));
         Assert.False(harness.HasExited);
+    }
+
+    /// <summary>A real worker with default-off inventory still publishes only its authenticated client's source signal through IPC.</summary>
+    [Fact]
+    public async Task LineupLink_DefaultManifest_OnlyPublishesOwnedStreamSignal()
+    {
+        // Arrange
+        await using var harness = await Harness.StartAsync(null, false, lineupLink: true);
+        harness.SetCapacities(4);
+        var definition = harness.Settings.Streaming.PhysicalDevices[0];
+        var device = new PhysicalDeviceSnapshot { Id = definition.Id, Name = definition.Name, Kind = "test", Capacity = new PhysicalTunerCapacity(4) };
+        var source = new SourceChannelId(device.Id, "4.1");
+        harness.DeviceStatuses.Devices.Returns([new PhysicalDeviceRuntimeStatus
+        {
+            Device = device,
+            StatusObservedAtUtc = DateTimeOffset.UtcNow,
+            Status = new PhysicalDeviceStatusSnapshot
+            {
+                Device = device,
+                Receivers = [new PhysicalReceiverStatus { Index = 3, SourceChannelId = source, IsStreaming = true, HasLock = true, SignalStrength = 99 }]
+            }
+        }]);
+        var configuration = harness.Settings.Streaming.VirtualDevices.Single().Adapter.Configuration.Deserialize<LineupLinkVirtualConfiguration>()!;
+        var stream = new ActiveStreamSnapshot(Guid.NewGuid().ToString("D"), "2.1", HostedStreamFormat.MpegTs, DateTime.UtcNow, null, [])
+        {
+            AuthenticatedClientId = Assert.Single(configuration.AccessGrants).Id.ToString("D"),
+            Flow = new ActiveStreamFlowContext { VirtualDeviceId = harness.DeviceId, PhysicalDeviceId = device.Id, SourceChannelId = source }
+        };
+        harness.ActiveStreams.Register(stream);
+        harness.ActiveStreams.Register(stream with { SessionId = Guid.NewGuid().ToString("D"), AuthenticatedClientId = Guid.NewGuid().ToString("D") });
+        harness.ActiveStreams.Register(stream with { SessionId = Guid.NewGuid().ToString("D"), Flow = stream.Flow with { VirtualDeviceId = VirtualDeviceId.New() } });
+
+        // Act
+        using var response = await harness.Client.GetAsync(LineupLinkProtocol.ManifestPath(harness.DeviceId.Value), TestContext.Current.CancellationToken);
+        var manifest = Assert.IsType<LineupLinkManifest>(await response.Content.ReadFromJsonAsync<LineupLinkManifest>(TestContext.Current.CancellationToken));
+
+        // Assert
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Null(manifest.UpstreamDevices);
+        var signal = Assert.Single(Assert.IsAssignableFrom<IReadOnlyList<StreamSignalStatus>>(manifest.StreamSignals));
+        Assert.Equal(Guid.Parse(stream.SessionId), signal.StreamSessionId);
+        Assert.Equal(99, signal.SignalStrength);
+        Assert.True(signal.HasLock);
     }
 
     /// <summary>Verifies blocked redirected output drains do not occupy broker thread-pool workers.</summary>
@@ -291,7 +334,7 @@ public sealed class HdHomeRunWorkerProcessTests
         private readonly string? _lineupLinkToken;
         private string _lastReadiness = "No readiness request completed.";
 
-        private Harness(int? cap, bool selected, bool lineupLink, IPluginConnectionBudget? budget)
+        private Harness(int? cap, bool selected, bool lineupLink, IPluginConnectionBudget? budget, bool exposeUpstreamStatus)
         {
             var endpoint = OperatingSystem.IsWindows()
                 ? new VirtualOutputIpcEndpoint { Transport = VirtualOutputIpcTransport.NamedPipe, Address = $"lineup-hd-test-{Guid.NewGuid():N}" }
@@ -307,7 +350,8 @@ public sealed class HdHomeRunWorkerProcessTests
             var configuration = JsonSerializer.SerializeToElement(new HdHomeRunVirtualTunerConfiguration { TunerCountCap = cap });
             if (lineupLink)
             {
-                var grant = LineupLinkAccessGrantManager.Create(new LineupLinkVirtualConfiguration { RequireEncryption = false }, "Worker test", null, DateTime.UtcNow);
+                var grant = LineupLinkAccessGrantManager.Create(
+                    new LineupLinkVirtualConfiguration { RequireEncryption = false, ExposeUpstreamStatus = exposeUpstreamStatus }, "Worker test", null, DateTime.UtcNow);
                 Assert.Empty(grant.Errors);
                 _lineupLinkToken = Assert.IsType<string>(grant.GeneratedToken);
                 configuration = JsonSerializer.SerializeToElement(grant.Configuration);
@@ -345,7 +389,7 @@ public sealed class HdHomeRunWorkerProcessTests
             var catalog = Substitute.For<IPhysicalDeviceCatalog>();
             catalog.Devices.Returns(_ => Volatile.Read(ref _physicalDevices));
             SetCapacities(2);
-            var activeStreams = new ActiveStreamRegistry();
+            var activeStreams = ActiveStreams;
             var broker = new VirtualOutputBroker(
                 _authority, settings, new StreamingAdapterRegistry([], [driver], []), catalog, DeviceStatuses, Substitute.For<IStreamingRouteResolver>(),
                 Guides, Substitute.For<IVirtualMpegTsOutputService>(), activeStreams);
@@ -382,6 +426,9 @@ public sealed class HdHomeRunWorkerProcessTests
         /// <summary>Gets the cached source observations supplied to the actual broker.</summary>
         internal IPhysicalDeviceStatusService DeviceStatuses { get; } = Substitute.For<IPhysicalDeviceStatusService>();
 
+        /// <summary>Gets the actual broker's active-stream registry.</summary>
+        internal ActiveStreamRegistry ActiveStreams { get; } = new();
+
         /// <summary>Gets the worker's loopback HTTP client.</summary>
         internal HttpClient Client { get; }
 
@@ -398,9 +445,9 @@ public sealed class HdHomeRunWorkerProcessTests
         internal void KillWorker() => _worker!.Kill(entireProcessTree: true);
 
         /// <summary>Starts the actual worker and waits for its HTTP listener.</summary>
-        internal static async Task<Harness> StartAsync(int? cap, bool selected, bool lineupLink = false, IPluginConnectionBudget? budget = null)
+        internal static async Task<Harness> StartAsync(int? cap, bool selected, bool lineupLink = false, IPluginConnectionBudget? budget = null, bool exposeUpstreamStatus = false)
         {
-            var harness = new Harness(cap, selected, lineupLink, budget);
+            var harness = new Harness(cap, selected, lineupLink, budget, exposeUpstreamStatus);
             try
             {
                 await harness._server.StartAsync(TestContext.Current.CancellationToken);

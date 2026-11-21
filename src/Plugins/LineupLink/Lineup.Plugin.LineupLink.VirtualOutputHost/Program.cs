@@ -74,10 +74,16 @@ admission.Use(app, app.Logger, countUnmarkedEndpoints: true,
 var sessionContext = session.Context!;
 var deviceRoot = LineupLinkProtocol.DevicePath(bootstrap.VirtualDevice.Id.Value);
 
-app.MapGet($"{deviceRoot}/manifest", async (CancellationToken cancellationToken) =>
+app.MapGet($"{deviceRoot}/manifest", async (HttpContext context, CancellationToken cancellationToken) =>
 {
+    var authenticatedGrant = (LineupLinkAuthenticatedGrant)context.Items[typeof(LineupLinkAuthenticatedGrant)]!;
     var manifest = await session.Broker.GetManifestAsync(
-        new VirtualOutputManifestRequest { Session = sessionContext, IncludeUpstreamStatus = true },
+        new VirtualOutputManifestRequest
+        {
+            Session = sessionContext,
+            IncludeUpstreamStatus = configuration.ExposeUpstreamStatus,
+            AuthenticatedClientId = authenticatedGrant.Id.ToString("D")
+        },
         cancellationToken);
     return Results.Ok(new LineupLinkManifest
     {
@@ -86,7 +92,8 @@ app.MapGet($"{deviceRoot}/manifest", async (CancellationToken cancellationToken)
         Name = manifest.Name,
         TunerCount = manifest.TunerCount,
         GuideAvailable = manifest.GuideAvailable,
-        UpstreamDevices = manifest.UpstreamDevices
+        UpstreamDevices = configuration.ExposeUpstreamStatus ? manifest.UpstreamDevices : null,
+        StreamSignals = manifest.StreamSignals
     });
 });
 
@@ -158,6 +165,10 @@ app.MapGet($"{deviceRoot}/streams/{{channelKey}}", async (HttpContext context, s
             }
         }, cancellationToken);
         context.Response.ContentType = output.Response.ContentType ?? LineupLinkProtocol.MpegTsMediaType;
+        if (output.Response.StreamSessionId is { } streamSessionId)
+        {
+            context.Response.Headers[LineupLinkProtocol.StreamSessionHeader] = streamSessionId.ToString();
+        }
         context.Response.Headers.CacheControl = "no-cache, no-store";
         await output.Stream.CopyToAsync(context.Response.Body, cancellationToken);
     }

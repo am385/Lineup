@@ -583,7 +583,7 @@ public class DashboardComponentTests
         Assert.Contains("not physical tuners", component.Find("#deviceSection").TextContent, StringComparison.Ordinal);
     }
 
-    /// <summary>Older peers and empty subscriptions explicitly show unavailable or empty upstream status rather than invented idle hardware.</summary>
+    /// <summary>Unexposed inventory is hidden and active stream signal remains in the main table, including zero and unknown measurements.</summary>
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -599,10 +599,22 @@ public class DashboardComponentTests
             .Add(panel => panel.Devices, [LinkStatus(supported ? [] : null)]));
 
         // Assert
-        var remote = component.Find("[data-upstream-tuner-status]");
-        Assert.Contains(supported ? "No upstream devices are subscribed." : "The remote instance does not report upstream tuner status.", remote.TextContent, StringComparison.Ordinal);
-        Assert.Empty(remote.QuerySelectorAll("table"));
-        Assert.Empty(remote.QuerySelectorAll("button"));
+        if (supported)
+        {
+            var remote = component.Find("[data-upstream-tuner-status]");
+            Assert.Contains("No upstream devices are subscribed.", remote.TextContent, StringComparison.Ordinal);
+            Assert.Empty(remote.QuerySelectorAll("table"));
+            Assert.Empty(remote.QuerySelectorAll("button"));
+        }
+        else
+        {
+            Assert.Empty(component.FindAll("[data-upstream-tuner-status]"));
+        }
+        var rows = component.FindAll("#deviceSection > .card > .card-body > .table-responsive tbody tr");
+        Assert.Equal("99%", rows[0].Children[3].TextContent);
+        Assert.Equal("0%", rows[1].Children[3].TextContent);
+        Assert.Equal("N/A", rows[2].Children[3].TextContent);
+        Assert.Equal("-", rows[3].Children[3].TextContent);
     }
 
     /// <summary>Failed upstream refreshes retain explicitly labeled observations, unknown status has no rows, and recovered status updates without affecting local slots.</summary>
@@ -673,6 +685,8 @@ public class DashboardComponentTests
                     Index = index,
                     IsActive = index < 3,
                     IsStreaming = index < 3,
+                    HasLock = index < 3,
+                    SignalStrength = index switch { 0 => 99, 1 => 0, _ => null },
                     VirtualChannel = index < 3 ? $"2.{index + 1}" : null
                 }).ToArray()
             }

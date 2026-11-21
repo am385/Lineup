@@ -722,6 +722,8 @@
   <data name="Settings_LineupLinkExpirationLabel" xml:space="preserve"><value>到期时间（可选）</value></data>
   <data name="Settings_LineupLinkExpires" xml:space="preserve"><value>到期时间</value></data>
   <data name="Settings_LineupLinkExportButton" xml:space="preserve"><value>导出</value></data>
+  <data name="Settings_LineupLinkExposeUpstreamStatusHelp" xml:space="preserve"><value>默认关闭。向关联客户端共享所有已订阅上游调谐器的活动和信号。客户端自身活动流的信号始终可用。</value></data>
+  <data name="Settings_LineupLinkExposeUpstreamStatusLabel" xml:space="preserve"><value>公开上游调谐器状态</value></data>
   <data name="Settings_LineupLinkGrantCreated" xml:space="preserve"><value>已创建 Lineup Link 访问授权。请保存设置，然后立即复制或导出其连接包；原始令牌不会存储。</value></data>
   <data name="Settings_LineupLinkGrantHelp" xml:space="preserve"><value>授权共享此实例的频道、转码、监听器和安全策略。如果这些设置需要不同，请创建单独的 Lineup Link 实例。</value></data>
   <data name="Settings_LineupLinkGrantPurged" xml:space="preserve"><value>已永久清除撤销的 Lineup Link 访问授权。请保存设置以持久化删除操作。</value></data>
