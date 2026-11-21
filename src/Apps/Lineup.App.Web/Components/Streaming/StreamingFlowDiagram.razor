@@ -342,20 +342,22 @@
     {
         if (_disposed || _graphUnavailable ||
             ReferenceEquals(_renderedSnapshot, Snapshot) && _renderedNodeId == _selectedNodeId) return;
+        var snapshot = Snapshot;
+        var selectedNodeId = _selectedNodeId;
         var model = new
         {
             Nodes = BaseNodes.Select(node => new { node.Id }).ToArray(),
-            Edges = (Snapshot.Topology?.Edges ?? Snapshot.Graph?.Edges ?? []).Select(edge =>
+            Edges = (snapshot.Topology?.Edges ?? snapshot.Graph?.Edges ?? []).Select(edge =>
                 new { edge.Id, edge.Source, edge.Target, State = edge.State.ToString().ToLowerInvariant() }).ToArray(),
-            Paths = Snapshot.Topology?.Paths ?? Snapshot.Graph?.Paths ?? [],
+            Paths = snapshot.Topology?.Paths ?? snapshot.Graph?.Paths ?? [],
             SelectedNodeId = SelectedNode?.Id
         };
         try
         {
             _initialized = true;
             await JS.InvokeVoidAsync("lineupFlowGraph.update", _container, model);
-            _renderedSnapshot = Snapshot;
-            _renderedNodeId = _selectedNodeId;
+            _renderedSnapshot = snapshot;
+            _renderedNodeId = selectedNodeId;
         }
         catch (JSDisconnectedException exception)
         {

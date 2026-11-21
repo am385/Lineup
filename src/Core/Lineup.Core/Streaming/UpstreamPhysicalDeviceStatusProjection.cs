@@ -20,7 +20,7 @@ public static class UpstreamPhysicalDeviceStatusProjection
             {
                 var signal = new StreamSignalStatus { StreamSessionId = Guid.Parse(stream.SessionId) };
                 if (stream.Flow?.SourceChannelId is not { } source || !statuses.TryGetValue(source.PhysicalDeviceId, out var cached) ||
-                    cached.StatusObservedAtUtc is null || cached.Status is null || cached.Error is not null)
+                    cached.StatusObservedAtUtc is null || cached.Status is null || cached.StatusError is not null)
                 {
                     return signal with { Error = "Source signal is not currently available." };
                 }
@@ -64,7 +64,7 @@ public static class UpstreamPhysicalDeviceStatusProjection
                 Name = device.Name,
                 Kind = device.Adapter.Kind,
                 ObservedAtUtc = observedAt,
-                Error = cached?.Error ?? (observedAt is null ? "Receiver status has not been observed yet." : null),
+                Error = cached?.StatusError ?? (observedAt is null ? "Receiver status has not been observed yet." : null),
                 ReceiversAreStreamSlots = status?.ReceiversAreStreamSlots == true,
                 Receivers = observedAt is not null && status is not null
                     ? status.Receivers.Select(receiver => receiver with { Target = null, SourceChannelId = null, SignalError = null }).ToArray()

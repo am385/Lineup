@@ -51,6 +51,7 @@ public sealed class PhysicalDeviceStatusServiceTests
         Assert.Equal(failed.Name, unavailable.Device.Name);
         Assert.Equal(failed.Adapter.Kind, unavailable.Device.Kind);
         Assert.Contains("activation failed", unavailable.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(unavailable.Error, unavailable.StatusError);
         Assert.DoesNotContain(PrivateDetail, unavailable.Error!, StringComparison.Ordinal);
         Assert.Null(unavailable.Status);
         Assert.Equal(0, unavailable.Device.Capacity.TunerCount);
@@ -266,6 +267,73 @@ public sealed class PhysicalDeviceStatusServiceTests
         Assert.Equal(7, Assert.Single(runtime.Status?.Receivers ?? []).Index);
     }
 
+    /// <summary>Information-only outcomes do not change receiver signal availability or rehabilitate failed observations.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RefreshDeviceInformationAsync_PreservesSignalAndReceiverFailure(bool statusFailed)
+    {
+        // Arrange
+        var driver = new FakePhysicalDriver();
+        var catalog = new PhysicalDeviceCatalog(new StreamingAdapterRegistry([driver], [], []));
+        var service = new PhysicalDeviceStatusService(catalog);
+        var definition = Definition("Source", null, 0);
+        var configuration = new StreamingConfiguration { PhysicalDevices = [definition] };
+        await service.RefreshAsync(configuration, TestContext.Current.CancellationToken);
+        var device = Assert.IsType<FakePhysicalDevice>(driver.Device);
+        var source = new SourceChannelId(definition.Id, "4.1");
+        device.Receiver = new PhysicalReceiverStatus { Index = 7, SourceChannelId = source, IsStreaming = true, HasLock = true, SignalStrength = 95 };
+        await service.RefreshAsync(configuration, TestContext.Current.CancellationToken);
+        var observation = Assert.Single(service.Devices).StatusObservedAtUtc;
+        var virtualId = VirtualDeviceId.New();
+        ActiveStreamSnapshot[] streams =
+        [
+            new(Guid.NewGuid().ToString("D"), "2.1", HostedStreamFormat.MpegTs, DateTime.UtcNow, null, [])
+            {
+                AuthenticatedClientId = "test-grant",
+                Flow = new ActiveStreamFlowContext { VirtualDeviceId = virtualId, SourceChannelId = source }
+            }
+        ];
+        device.RejectStatus = statusFailed;
+        device.RejectInformation = !statusFailed;
+        if (statusFailed)
+        {
+            await service.RefreshAsync(configuration, TestContext.Current.CancellationToken);
+        }
+
+        // Act
+        await service.RefreshDeviceInformationAsync(configuration, TestContext.Current.CancellationToken);
+        var signal = Assert.Single(UpstreamPhysicalDeviceStatusProjection.CreateStreamSignals(virtualId, "test-grant", streams, service.Devices));
+        var upstream = Assert.Single(UpstreamPhysicalDeviceStatusProjection.Create([definition], service.Devices));
+
+        // Assert
+        var runtime = Assert.Single(service.Devices);
+        Assert.Equal(observation, runtime.StatusObservedAtUtc);
+        Assert.Equal(statusFailed ? "Status refresh failed (UnauthorizedAccessException)." : null, runtime.StatusError);
+        Assert.Equal(statusFailed, signal.Error is not null);
+        Assert.Equal(statusFailed ? null : (int?)95, signal.SignalStrength);
+        Assert.Equal(!statusFailed, signal.HasLock);
+        Assert.Equal(runtime.StatusError, upstream.Error);
+        Assert.Equal(observation, upstream.ObservedAtUtc);
+        Assert.Equal(95, Assert.Single(upstream.Receivers).SignalStrength);
+        Assert.Equal(statusFailed ? 3 : 2, device.StatusRefreshCount);
+        Assert.Equal(1, device.InformationRefreshCount);
+        Assert.Equal(statusFailed ? null : "Device information refresh failed (InvalidDataException).", runtime.Error);
+
+        // Act
+        device.RejectStatus = false;
+        device.RejectInformation = false;
+        await service.RefreshAsync(configuration, TestContext.Current.CancellationToken);
+        var recovered = Assert.Single(UpstreamPhysicalDeviceStatusProjection.CreateStreamSignals(virtualId, "test-grant", streams, service.Devices));
+
+        // Assert
+        Assert.Null(Assert.Single(service.Devices).StatusError);
+        Assert.Null(recovered.Error);
+        Assert.Equal(95, recovered.SignalStrength);
+        Assert.True(recovered.HasLock);
+        Assert.Null(Assert.Single(UpstreamPhysicalDeviceStatusProjection.Create([definition], service.Devices)).Error);
+    }
+
     /// <summary>Verifies rejected credentials retain the configured device and its prior status as unavailable.</summary>
     [Fact]
     public async Task RefreshAsync_UnauthorizedStatus_RetainsDeviceWithFailure()
@@ -297,6 +365,7 @@ public sealed class PhysicalDeviceStatusServiceTests
         // Assert
         var runtime = Assert.Single(service.Devices);
         Assert.Equal("Status refresh failed (UnauthorizedAccessException).", runtime.Error);
+        Assert.Equal(runtime.Error, runtime.StatusError);
         Assert.Equal("initial", runtime.Status?.Details["firmware"]);
         Assert.Equal(7, Assert.Single(runtime.Status?.Receivers ?? []).Index);
     }
@@ -472,6 +541,12 @@ public sealed class PhysicalDeviceStatusServiceTests
         /// <summary>Gets or sets the reject status.</summary>
         public bool RejectStatus { get; set; }
 
+        /// <summary>Gets or sets whether only descriptive-information refresh fails.</summary>
+        public bool RejectInformation { get; set; }
+
+        /// <summary>Gets or sets the receiver returned by a successful status refresh.</summary>
+        public PhysicalReceiverStatus Receiver { get; set; } = new() { Index = 7 };
+
         /// <summary>Gets or sets whether control refreshes return malformed remote data.</summary>
         public bool RejectData { get; set; }
 
@@ -484,7 +559,7 @@ public sealed class PhysicalDeviceStatusServiceTests
         public Task<PhysicalDeviceStatusSnapshot> RefreshDeviceInformationAsync(CancellationToken cancellationToken = default)
         {
             Interlocked.Increment(ref _informationRefreshCount);
-            if (RejectData)
+            if (RejectData || RejectInformation)
             {
                 throw new InvalidDataException(PrivateDetail);
             }
@@ -515,7 +590,7 @@ public sealed class PhysicalDeviceStatusServiceTests
                 {
                     Device = Snapshot,
                     Details = new Dictionary<string, string>(StringComparer.Ordinal) { ["firmware"] = "initial" },
-                    Receivers = [new PhysicalReceiverStatus { Index = 7 }]
+                    Receivers = [Receiver]
                 });
         }
 

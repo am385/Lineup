@@ -11,6 +11,104 @@ namespace Lineup.App.Web.Tests.Components;
 /// <summary>Verifies the accessible dashboard streaming-flow visualization and selected-node diagnostics.</summary>
 public sealed class StreamingFlowDiagramTests
 {
+    /// <summary>An older JS completion cannot mark a newer snapshot or selection as already rendered.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Render_PendingGraphUpdate_AcknowledgesOnlySentState(bool changeSelection)
+    {
+        // Arrange
+        await using var context = new BunitContext();
+        var pending = context.JSInterop.SetupVoid("lineupFlowGraph.update", _ => true);
+        StreamingFlowNode[] nodes =
+        [
+            new("physical:p", StreamingFlowLane.PhysicalSource, "Source", "", StreamingFlowState.Idle, []),
+            new("virtual:v", StreamingFlowLane.VirtualOutput, "Output", "", StreamingFlowState.Idle, [])
+        ];
+        var first = new StreamingFlowSnapshot([], [], 0, 0, 0) { Topology = new(nodes, [], [], []) };
+        var cut = context.Render<DelayedSecondFlowDiagram>(parameters => parameters.Add(value => value.Snapshot, first));
+        var barrier = cut.Instance.Barrier;
+        try
+        {
+            cut.WaitForAssertion(() => Assert.Single(context.JSInterop.Invocations["lineupFlowGraph.update"]), BunitContext.WaitTimeout);
+
+            // Act
+            if (changeSelection)
+            {
+                await cut.Find("[data-flow-node-id='physical:p']").ClickAsync(new());
+            }
+            else
+            {
+                cut.Render(parameters => parameters.Add(value => value.Snapshot,
+                    first with { Topology = new(nodes, [new("edge:new", "physical:p", "virtual:v")], [], []) }));
+            }
+            await barrier.SecondEntered.Task.WaitAsync(BunitContext.WaitTimeout, Xunit.TestContext.Current.CancellationToken);
+            pending.SetVoidResult();
+            await barrier.FirstCompleted.Task.WaitAsync(BunitContext.WaitTimeout, Xunit.TestContext.Current.CancellationToken);
+            barrier.ReleaseSecond.TrySetResult();
+            await barrier.SecondCompleted.Task.WaitAsync(BunitContext.WaitTimeout, Xunit.TestContext.Current.CancellationToken);
+
+            // Assert
+            var calls = context.JSInterop.Invocations["lineupFlowGraph.update"].ToArray();
+            Assert.Equal(2, calls.Length);
+            var previous = JsonSerializer.SerializeToElement(calls[0].Arguments[1]);
+            var latest = JsonSerializer.SerializeToElement(calls[1].Arguments[1]);
+            Assert.Equal(JsonValueKind.Null, previous.GetProperty("SelectedNodeId").ValueKind);
+            Assert.Empty(previous.GetProperty("Edges").EnumerateArray());
+            if (changeSelection)
+            {
+                Assert.Equal("physical:p", latest.GetProperty("SelectedNodeId").GetString());
+            }
+            else
+            {
+                Assert.Equal("edge:new", Assert.Single(latest.GetProperty("Edges").EnumerateArray()).GetProperty("Id").GetString());
+            }
+        }
+        finally
+        {
+            pending.SetVoidResult();
+            await barrier.DrainAsync();
+        }
+    }
+
+    /// <summary>Interval changes during observer setup still install their own browser refresh cadence.</summary>
+    [Theory]
+    [InlineData(0, 2)]
+    [InlineData(1, 2)]
+    public async Task Render_PendingObserver_AcknowledgesOnlySentInterval(int originalInterval, int updatedInterval)
+    {
+        // Arrange
+        await using var context = new BunitContext();
+        var pending = context.JSInterop.SetupVoid("lineupFlowGraph.observe", _ => true);
+        var cut = context.Render<DelayedSecondStreamsPanel>(parameters => parameters
+            .Add(value => value.Expanded, true)
+            .Add(value => value.RefreshIntervalSeconds, originalInterval));
+        var barrier = cut.Instance.Barrier;
+        try
+        {
+            cut.WaitForAssertion(() => Assert.Single(context.JSInterop.Invocations["lineupFlowGraph.observe"]), BunitContext.WaitTimeout);
+
+            // Act
+            cut.Render(parameters => parameters.Add(value => value.RefreshIntervalSeconds, updatedInterval));
+            await barrier.SecondEntered.Task.WaitAsync(BunitContext.WaitTimeout, Xunit.TestContext.Current.CancellationToken);
+            pending.SetVoidResult();
+            await barrier.FirstCompleted.Task.WaitAsync(BunitContext.WaitTimeout, Xunit.TestContext.Current.CancellationToken);
+            barrier.ReleaseSecond.TrySetResult();
+            await barrier.SecondCompleted.Task.WaitAsync(BunitContext.WaitTimeout, Xunit.TestContext.Current.CancellationToken);
+
+            // Assert
+            var calls = context.JSInterop.Invocations["lineupFlowGraph.observe"].ToArray();
+            Assert.Equal(2, calls.Length);
+            Assert.Equal(originalInterval, Assert.IsType<int>(calls[0].Arguments[3]));
+            Assert.Equal(updatedInterval, Assert.IsType<int>(calls[1].Arguments[3]));
+        }
+        finally
+        {
+            pending.SetVoidResult();
+            await barrier.DrainAsync();
+        }
+    }
+
     /// <summary>Verifies every rendered lane follows connected branches and shared consumers are no longer interleaved.</summary>
     [Theory]
     [InlineData(false)]
@@ -1103,4 +1201,71 @@ public sealed class StreamingFlowDiagramTests
                 new ActiveStreamMediaTrack(0, MediaTrackType.Video, videoCodec, 3_500_000, 1920, 1080, null, null),
                 new ActiveStreamMediaTrack(1, MediaTrackType.Audio, audioCodec, 192_000, null, null, 6, 48_000)
             ]);
+
+    private sealed class AfterRenderBarrier
+    {
+        private int _calls;
+
+        /// <summary>Gets the first production callback's completion.</summary>
+        public TaskCompletionSource FirstCompleted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Gets the newer render's entry into its controlled callback.</summary>
+        public TaskCompletionSource SecondEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Gets the gate admitting the newer production callback.</summary>
+        public TaskCompletionSource ReleaseSecond { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Gets the newer production callback's completion.</summary>
+        public TaskCompletionSource SecondCompleted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Runs production callbacks with the newer browser acknowledgment deliberately held pending.</summary>
+        public async Task RunAsync(Func<Task> callback)
+        {
+            var call = ++_calls;
+            if (call == 2)
+            {
+                // Model a pending browser render-batch acknowledgment while the older JS call completes.
+                SecondEntered.TrySetResult();
+                await ReleaseSecond.Task;
+            }
+            try
+            {
+                await callback();
+            }
+            finally
+            {
+                if (call == 1) FirstCompleted.TrySetResult();
+                if (call == 2) SecondCompleted.TrySetResult();
+            }
+        }
+
+        /// <summary>Releases controlled work and observes every admitted callback before teardown.</summary>
+        public async Task DrainAsync()
+        {
+            ReleaseSecond.TrySetResult();
+            await FirstCompleted.Task.WaitAsync(BunitContext.WaitTimeout);
+            if (SecondEntered.Task.IsCompleted)
+            {
+                await SecondCompleted.Task.WaitAsync(BunitContext.WaitTimeout);
+            }
+        }
+    }
+
+    private sealed class DelayedSecondFlowDiagram : StreamingFlowDiagram
+    {
+        /// <summary>Gets the controlled post-render acknowledgment ordering.</summary>
+        public AfterRenderBarrier Barrier { get; } = new();
+
+        /// <inheritdoc />
+        protected override Task OnAfterRenderAsync(bool firstRender) => Barrier.RunAsync(() => base.OnAfterRenderAsync(firstRender));
+    }
+
+    private sealed class DelayedSecondStreamsPanel : DashboardActiveStreamsPanel
+    {
+        /// <summary>Gets the controlled post-render acknowledgment ordering.</summary>
+        public AfterRenderBarrier Barrier { get; } = new();
+
+        /// <inheritdoc />
+        protected override Task OnAfterRenderAsync(bool firstRender) => Barrier.RunAsync(() => base.OnAfterRenderAsync(firstRender));
+    }
 }

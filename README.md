@@ -1753,6 +1753,8 @@ manifest requests never poll tuner hardware. Device names, adapter kinds, receiv
 UTC observation times, and safe current refresh errors are shared, but stream targets, addresses, credentials, descriptive configuration,
 unsubscribed devices, and remote control operations are not. Missing signal measurements remain unavailable rather than zero.
 Failed refreshes retain explicitly labeled last-known observations; devices without an observation do not acquire invented idle receiver rows.
+Receiver-status failures are tracked independently of descriptive-information refreshes: an information-only refresh neither suppresses
+healthy signal nor clears a failed receiver observation. Only a successful receiver-status refresh restores signal publication.
 Refresh frequency follows the provider's physical-status schedule and the consuming instance's Link status refreshes.
 Update both instances, including the provider's matching dedicated worker package where applicable, to display upstream telemetry.
 Disabled or unsupported upstream inventory does not add an extra dashboard section; manifest bodies retain the 1 MiB control-response limit.

@@ -44,11 +44,12 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (_disposed || _observedInterval == RefreshIntervalSeconds) return;
+        var refreshIntervalSeconds = RefreshIntervalSeconds;
         _reference ??= DotNetObjectReference.Create(this);
         try
         {
-            await JS.InvokeVoidAsync("lineupFlowGraph.observe", _observerId, _body, _reference, RefreshIntervalSeconds);
-            _observedInterval = RefreshIntervalSeconds;
+            await JS.InvokeVoidAsync("lineupFlowGraph.observe", _observerId, _body, _reference, refreshIntervalSeconds);
+            _observedInterval = refreshIntervalSeconds;
         }
         catch (JSDisconnectedException exception)
         {

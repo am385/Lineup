@@ -203,7 +203,8 @@ public sealed class LineupLinkControllerTests
             },
             StatusObservedAtUtc = index == 1 && !secondObserved ? null : observedAt,
             InformationObservedAtUtc = observedAt.AddMinutes(1),
-            Error = index == 1 && secondObserved ? "Status refresh failed (IOException)." : null
+            Error = index == 1 && secondObserved ? "Status refresh failed (IOException)." : null,
+            StatusError = index == 1 && secondObserved ? "Status refresh failed (IOException)." : null
         }).ToArray());
         var physicalDevices = snapshots.Select(snapshot =>
         {
@@ -261,6 +262,7 @@ public sealed class LineupLinkControllerTests
             Device = device,
             StatusObservedAtUtc = state == "unobserved" ? null : DateTimeOffset.UtcNow,
             Error = state == "failed" ? "Refresh failed." : null,
+            StatusError = state == "failed" ? "Refresh failed." : null,
             Status = new PhysicalDeviceStatusSnapshot
             {
                 Device = device,
