@@ -245,6 +245,8 @@
   <data name="Dashboard_GuideXmltvHeading" xml:space="preserve"><value>番組ガイドと XMLTV</value></data>
   <data name="Dashboard_Heading" xml:space="preserve"><value>ダッシュボード</value></data>
   <data name="Dashboard_LatestLabel" xml:space="preserve"><value>最も遅い番組</value></data>
+  <data name="Dashboard_LinkSlotUnused" xml:space="preserve"><value>未使用</value></data>
+  <data name="Dashboard_LinkStreamSlots" xml:space="preserve"><value>Link ストリーム枠（物理チューナーではありません）</value></data>
   <data name="Dashboard_ManualFetchProgress" xml:space="preserve"><value>手動取得の進行状況</value></data>
   <data name="Dashboard_NextFetchIn" xml:space="preserve"><value>次回の取得まで {0}</value></data>
   <data name="Dashboard_NoActivePhysicalDevices" xml:space="preserve"><value>有効な物理デバイスは稼働していません。</value></data>
@@ -277,6 +279,11 @@
   <data name="Dashboard_StreamingFlowHeading" xml:space="preserve"><value>ストリーミングフロー</value></data>
   <data name="Dashboard_TargetColumn" xml:space="preserve"><value>ターゲット</value></data>
   <data name="Dashboard_TimeRangeHeading" xml:space="preserve"><value>時間範囲</value></data>
+  <data name="Dashboard_UpstreamStatusCached" xml:space="preserve"><value>最新の更新に失敗しました。最後に正常に観測された状態を表示しています。</value></data>
+  <data name="Dashboard_UpstreamStatusEmpty" xml:space="preserve"><value>接続元デバイスが購読されていません。</value></data>
+  <data name="Dashboard_UpstreamStatusHeading" xml:space="preserve"><value>接続元チューナーの状態（読み取り専用）</value></data>
+  <data name="Dashboard_UpstreamStatusObserved" xml:space="preserve"><value>最終観測: {0}</value></data>
+  <data name="Dashboard_UpstreamStatusUnavailable" xml:space="preserve"><value>リモートインスタンスは接続元チューナーの状態を報告していません。</value></data>
   <data name="General_AppearanceHeading" xml:space="preserve"><value>外観</value></data>
   <data name="General_CurrentTimeZone" xml:space="preserve"><value>現在:</value></data>
   <data name="General_KnownProxiesHelp" xml:space="preserve"><value>信頼するリバースプロキシの IP アドレスまたは CIDR ネットワークを 1 行に 1 つ入力します。管理リスナーがリバースプロキシの背後にない場合は空のままにしてください。プロキシは Host を維持し、X-Forwarded-For と X-Forwarded-Proto を送信する必要があります。</value></data>
@@ -588,7 +595,7 @@
   <data name="Settings_CpuLimitLabel" xml:space="preserve"><value>CPU 上限（%）</value></data>
   <data name="Settings_CurrentGuidePathInvalid" xml:space="preserve"><value>現在の番組ガイド出力パスは無効です。サーバーディレクトリを選択してください。</value></data>
   <data name="Settings_DashboardActiveStreamsHeading" xml:space="preserve"><value>アクティブなストリーム</value></data>
-  <data name="Settings_DashboardRefreshIntervalHelp" xml:space="preserve"><value>ダッシュボードでホスト中のアクティブストリームを更新する頻度です。自動更新を無効にするには 0 を指定します。</value></data>
+  <data name="Settings_DashboardRefreshIntervalHelp" xml:space="preserve"><value>パネルが表示・展開されている間の更新間隔（秒）。既定値は 1 です。0 は手動更新のみです。保存済みの間隔は維持されます。</value></data>
   <data name="Settings_DashboardRefreshIntervalLabel" xml:space="preserve"><value>アクティブストリーム更新間隔（秒）</value></data>
   <data name="Settings_DedicatedListenerHelp" xml:space="preserve"><value>専用リスナーは分離された出力ワーカーで実行されます。これらの設定を変更すると、この仮想出力のみが再起動します。</value></data>
   <data name="Settings_DefaultLogDirectory" xml:space="preserve"><value>Lineup 設定ディレクトリ/logs</value></data>
@@ -966,11 +973,18 @@
   <data name="Streaming_EncoderUnknown" xml:space="preserve"><value>映像エンコーダーは未報告です</value></data>
   <data name="Streaming_FlowSummaryAriaLabel" xml:space="preserve"><value>ストリーミングフローの概要</value></data>
   <data name="Streaming_GopUnknownRate" xml:space="preserve"><value>GOP: {0} フレーム、フレームレート不明</value></data>
+  <data name="Streaming_GraphAllPaths" xml:space="preserve"><value>すべての経路</value></data>
+  <data name="Streaming_GraphConnectionsHelp" xml:space="preserve"><value>破線は非アクティブな接続、実線はアクティブまたは保持中の経路を示します。</value></data>
+  <data name="Streaming_GraphPath" xml:space="preserve"><value>経路を強調表示</value></data>
+  <data name="Streaming_GraphReusableOutputs" xml:space="preserve"><value>再利用可能な出力</value></data>
+  <data name="Streaming_GraphUnavailable" xml:space="preserve"><value>接続を表示できませんでした。ノードカードと詳細は引き続き利用できます。</value></data>
   <data name="Streaming_LaneConsumers" xml:space="preserve"><value>コンシューマー</value></data>
   <data name="Streaming_LaneMultiplexer" xml:space="preserve"><value>マルチプレクサー</value></data>
   <data name="Streaming_LaneOutputProcessing" xml:space="preserve"><value>出力処理</value></data>
+  <data name="Streaming_LaneOutputProcessingMultiplexer" xml:space="preserve"><value>出力処理マルチプレクサー</value></data>
   <data name="Streaming_LanePhysicalSources" xml:space="preserve"><value>物理ソース</value></data>
   <data name="Streaming_LaneSourceProcessing" xml:space="preserve"><value>ソース処理</value></data>
+  <data name="Streaming_LaneSourceProcessingMultiplexer" xml:space="preserve"><value>ソース処理マルチプレクサー</value></data>
   <data name="Streaming_LaneVirtualOutputs" xml:space="preserve"><value>仮想出力</value></data>
   <data name="Streaming_MediaTrackAudio" xml:space="preserve"><value>音声</value></data>
   <data name="Streaming_MediaTrackSubtitle" xml:space="preserve"><value>字幕</value></data>
@@ -985,6 +999,7 @@
   <data name="Streaming_Session" xml:space="preserve"><value>セッション</value></data>
   <data name="Streaming_SharedSessions" xml:space="preserve"><value>共有 · {0} セッション</value></data>
   <data name="Streaming_SourceStreamComponents" xml:space="preserve"><value>ソースストリームのコンポーネント</value></data>
+  <data name="Streaming_StageBoundaryHelp" xml:space="preserve"><value>このセッション診断は個々のプロデューサーではなく、処理ステージ全体を示します。上記のリソースは選択したノードのみに属します。</value></data>
   <data name="Streaming_StageConsumer" xml:space="preserve"><value>コンシューマー</value></data>
   <data name="Streaming_StageMultiplexer" xml:space="preserve"><value>マルチプレクサー</value></data>
   <data name="Streaming_StageOutputProcessing" xml:space="preserve"><value>出力処理</value></data>
@@ -1000,6 +1015,8 @@
   <data name="Streaming_StateTranscoding" xml:space="preserve"><value>トランスコード中</value></data>
   <data name="Streaming_StateWarm" xml:space="preserve"><value>待機中</value></data>
   <data name="Streaming_Stop" xml:space="preserve"><value>停止</value></data>
+  <data name="Streaming_StopAll" xml:space="preserve"><value>すべて停止</value></data>
+  <data name="Streaming_StopAllStreamsAriaLabel" xml:space="preserve"><value>{0} のすべてのストリームを停止</value></data>
   <data name="Streaming_StopStreamAriaLabel" xml:space="preserve"><value>ストリーム {0} を停止</value></data>
   <data name="Streaming_StreamComponents" xml:space="preserve"><value>ストリームコンポーネント</value></data>
   <data name="Streaming_SubscribedStreamComponents" xml:space="preserve"><value>購読中のストリームコンポーネント</value></data>

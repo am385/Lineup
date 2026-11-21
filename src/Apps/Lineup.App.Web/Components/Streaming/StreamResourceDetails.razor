@@ -43,6 +43,69 @@
         </div>
         <p class="small">@Text["Resources_ProcessScope"]</p>
     }
+    @if (Snapshot.Collecting && (Stage.Kind is StreamingFlowStageKind.SourceProcessing or StreamingFlowStageKind.OutputProcessing))
+    {
+        <section class="mt-3" data-resource-gpu>
+            <h6>@Text["Resources_Gpu"]</h6>
+            <p class="small text-body-secondary">@Text["Resources_GpuScope"]</p>
+            @if (Snapshot.Gpu?.Devices is { Count: > 0 } devices)
+            {
+                @if (Snapshot.Gpu.UnavailableReason is { } reason)
+                {
+                    <p role="status">@Text[$"Resources_GpuState_{reason}"]</p>
+                }
+                <div class="table-responsive">
+                    <table class="table table-sm" aria-label="@Text["Resources_Gpu"]"
+                           style="table-layout:fixed;min-width:42rem;overflow-wrap:anywhere;font-variant-numeric:tabular-nums" data-resource-gpu-table>
+                        <colgroup>
+                            <col style="width:32%" />
+                            <col style="width:17%" />
+                            <col style="width:17%" />
+                            <col style="width:17%" />
+                            <col style="width:17%" />
+                        </colgroup>
+                        <thead>
+                            <tr>
+                                <th>@Text["Resources_Gpu"]</th>
+                                <th>@Text["Resources_GpuActivity"]</th>
+                                <th>@Text["Resources_GpuEncode"]</th>
+                                <th>@Text["Resources_GpuDecode"]</th>
+                                <th>@Text["Resources_GpuVideo"]</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var device in devices)
+                            {
+                                <tr data-resource-gpu-device="@device.Id" @key="device.Id">
+                                    <td>
+                                        @device.Name
+                                        @if (device.UnavailableReason is { } deviceReason)
+                                        {
+                                            <div role="status">@Text[$"Resources_GpuState_{deviceReason}"]</div>
+                                        }
+                                    </td>
+                                    <td>@FormatGpuPercent(device, device.Utilization)</td>
+                                    <td>@FormatGpuPercent(device, device.SharedVideo ? null : device.Encode)</td>
+                                    <td>@FormatGpuPercent(device, device.SharedVideo ? null : device.Decode)</td>
+                                    <td>
+                                        @FormatGpuPercent(device, device.Video)
+                                        @if (device.SharedVideo)
+                                        {
+                                            <div class="small">@Text["Resources_GpuVideoShared"]</div>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            else
+            {
+                <p role="status">@Text["Common_NotAvailable"] · @Text[$"Resources_GpuState_{Snapshot.Gpu?.UnavailableReason ?? "warming_up"}"]</p>
+            }
+        </section>
+    }
 </section>
 
 @code {
@@ -50,9 +113,12 @@
     [Parameter, EditorRequired]
     public StreamingFlowPathStage Stage { get; set; } = default!;
 
-    /// <summary>Gets or sets the management owner's cached process observations.</summary>
+    /// <summary>Gets or sets the management owner's cached process and whole-device GPU observations.</summary>
     [Parameter]
     public DashboardResourceSnapshot Snapshot { get; set; } = new(false, [], []);
+
+    private string FormatGpuPercent(GpuResourceSample device, double? value) =>
+        device.UnavailableReason is null && value is { } observed ? $"{observed:0.##}%" : Text["Common_NotAvailable"].Value;
 
     private static string FormatObservation(DateTimeOffset observed) =>
         $"{observed.UtcDateTime:HH:mm:ss} UTC ({Math.Max(0, (DateTimeOffset.UtcNow - observed).TotalSeconds):0.#} s)";

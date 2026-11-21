@@ -77,7 +77,7 @@ var deviceRoot = LineupLinkProtocol.DevicePath(bootstrap.VirtualDevice.Id.Value)
 app.MapGet($"{deviceRoot}/manifest", async (CancellationToken cancellationToken) =>
 {
     var manifest = await session.Broker.GetManifestAsync(
-        new VirtualOutputManifestRequest { Session = sessionContext },
+        new VirtualOutputManifestRequest { Session = sessionContext, IncludeUpstreamStatus = true },
         cancellationToken);
     return Results.Ok(new LineupLinkManifest
     {
@@ -85,7 +85,8 @@ app.MapGet($"{deviceRoot}/manifest", async (CancellationToken cancellationToken)
         VirtualDeviceId = manifest.VirtualDeviceId.Value,
         Name = manifest.Name,
         TunerCount = manifest.TunerCount,
-        GuideAvailable = manifest.GuideAvailable
+        GuideAvailable = manifest.GuideAvailable,
+        UpstreamDevices = manifest.UpstreamDevices
     });
 });
 

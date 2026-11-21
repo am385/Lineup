@@ -1,3 +1,4 @@
+using Bunit;
 using Lineup.Plugin.GuideOutputs.Json.Plugin;
 using Lineup.App.Web.Services;
 using Lineup.Plugin.GuideOutputs.Xmltv.Plugin;
@@ -20,6 +21,10 @@ internal sealed class LineupWebBunitContext : Bunit.BunitContext
     /// </summary>
     public LineupWebBunitContext()
     {
+        JSInterop.SetupVoid("lineupFlowGraph.update", _ => true).SetVoidResult();
+        JSInterop.SetupVoid("lineupFlowGraph.dispose", _ => true).SetVoidResult();
+        JSInterop.SetupVoid("lineupFlowGraph.observe", _ => true).SetVoidResult();
+        JSInterop.SetupVoid("lineupFlowGraph.stopObserving", _ => true).SetVoidResult();
         Services.AddLocalization(options => options.ResourcesPath = "Resources");
         Services.AddSingleton(TimeProvider.System);
         Services.AddSingleton(new LineupStartupState(LineupStartupStatus.Ready));

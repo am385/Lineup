@@ -236,7 +236,9 @@ public sealed class LineupLinkPhysicalTunerDevice :
                 ["Tuners"] = manifest.TunerCount?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "Unbounded",
                 ["Guide"] = manifest.GuideAvailable ? "Available" : "Unavailable"
             },
-            Receivers = receivers
+            Receivers = receivers,
+            ReceiversAreStreamSlots = true,
+            UpstreamDevices = manifest.UpstreamDevices
         };
     }
 

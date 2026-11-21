@@ -16,6 +16,7 @@ public sealed class LineupLinkController : ControllerBase
     private readonly ILineupSettingsService _settings;
     private readonly IStreamingAdapterRegistry _adapters;
     private readonly IPhysicalDeviceCatalog _physicalDevices;
+    private readonly IPhysicalDeviceStatusService _deviceStatuses;
     private readonly IStreamingRouteResolver _routes;
     private readonly IGuideOrchestrator _guides;
     private readonly IVirtualMpegTsOutputService _streams;
@@ -27,6 +28,7 @@ public sealed class LineupLinkController : ControllerBase
         ILineupSettingsService settings,
         IStreamingAdapterRegistry adapters,
         IPhysicalDeviceCatalog physicalDevices,
+        IPhysicalDeviceStatusService deviceStatuses,
         IStreamingRouteResolver routes,
         IGuideOrchestrator guides,
         IVirtualMpegTsOutputService streams,
@@ -37,6 +39,7 @@ public sealed class LineupLinkController : ControllerBase
         _settings = settings;
         _adapters = adapters;
         _physicalDevices = physicalDevices;
+        _deviceStatuses = deviceStatuses;
         _routes = routes;
         _guides = guides;
         _streams = streams;
@@ -67,7 +70,8 @@ public sealed class LineupLinkController : ControllerBase
             VirtualDeviceId = virtualDeviceId,
             Name = context.Definition.Name,
             TunerCount = capacity.TunerCount,
-            GuideAvailable = true
+            GuideAvailable = true,
+            UpstreamDevices = UpstreamPhysicalDeviceStatusProjection.Create(source, _deviceStatuses.Devices)
         };
     }
 

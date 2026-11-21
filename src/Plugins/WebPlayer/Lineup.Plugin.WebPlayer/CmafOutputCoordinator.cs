@@ -4,7 +4,11 @@ using Lineup.Core.Extensibility.Streaming;
 namespace Lineup.Plugin.WebPlayer;
 
 /// <summary>Registers one reusable CMAF output and its transport-neutral state.</summary>
-public sealed record CmafOutputRegistration(IAsyncDisposable Owner, object State, Action<StreamSessionId>? ViewerReleased = null);
+public sealed record CmafOutputRegistration(IAsyncDisposable Owner, object State, Action<StreamSessionId>? ViewerReleased = null)
+{
+    /// <summary>Gets a passive context reader that must not acquire coordinator ownership or renew viewer leases.</summary>
+    public Func<StreamingProducerContext>? ObserveContext { get; init; }
+}
 
 /// <summary>Immutable viewer lookup returned to HTTP transport adapters.</summary>
 public sealed record CmafViewerSnapshot(StreamSessionId ViewerSessionId, StreamSessionId OutputId, StreamTransformKey TransformKey, object State);
@@ -211,7 +215,10 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
             {
                 ObjectDisposedException.ThrowIf(_stopping, this);
                 var registration = await startOutput(cancellationToken);
-                var output = new OutputEntry(StreamSessionId.New(), new ReservedOwner(registration.Owner, reservation), registration.State, registration.ViewerReleased);
+                var output = new OutputEntry(StreamSessionId.New(), new ReservedOwner(registration.Owner, reservation), registration.State, registration.ViewerReleased)
+                {
+                    ObserveContext = registration.ObserveContext
+                };
                 reservedOutput = output;
                 reservation = null;
                 _outputs.Add(transformKey, output);
@@ -498,11 +505,20 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
     /// <returns>The operation's result.</returns>
     public StreamingProducerDiagnostics GetProducerDiagnostics()
     {
-        var diagnostics = GetDiagnostics();
-        return new StreamingProducerDiagnostics(
-            diagnostics.Count(output => !output.IsWarm),
-            diagnostics.Count(output => output.IsWarm),
-            diagnostics.Count);
+        _gate.Wait();
+        try
+        {
+            var outputs = _outputs.Values.Select(output => new StreamingProducerOutputDiagnostics(
+                output.OutputId, output.ReferenceCount, output.ReferenceCount == 0 && output.WarmExpirationCancellation is not null)
+            {
+                Context = output.ObserveContext?.Invoke()
+            }).OrderBy(output => output.OutputId.Value).ToArray();
+            return new StreamingProducerDiagnostics(outputs.Count(output => !output.IsWarm), outputs.Count(output => output.IsWarm), outputs.Length) { Outputs = outputs };
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     /// <summary>Stops the CMAF output coordinator asynchronously.</summary>
@@ -701,6 +717,9 @@ public sealed class CmafOutputCoordinator : ICmafOutputCoordinator
 
     private sealed class OutputEntry(StreamSessionId outputId, IAsyncDisposable owner, object state, Action<StreamSessionId>? viewerReleased)
     {
+        /// <summary>Gets the passive producer attribution reader.</summary>
+        public Func<StreamingProducerContext>? ObserveContext { get; init; }
+
         /// <summary>Gets the output ID.</summary>
         public StreamSessionId OutputId { get; } = outputId;
         /// <summary>Gets the owner.</summary>

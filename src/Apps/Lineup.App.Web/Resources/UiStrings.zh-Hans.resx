@@ -245,6 +245,8 @@
   <data name="Dashboard_GuideXmltvHeading" xml:space="preserve"><value>节目指南和 XMLTV</value></data>
   <data name="Dashboard_Heading" xml:space="preserve"><value>仪表板</value></data>
   <data name="Dashboard_LatestLabel" xml:space="preserve"><value>最新</value></data>
+  <data name="Dashboard_LinkSlotUnused" xml:space="preserve"><value>未使用</value></data>
+  <data name="Dashboard_LinkStreamSlots" xml:space="preserve"><value>Link 流连接槽位（非物理调谐器）</value></data>
   <data name="Dashboard_ManualFetchProgress" xml:space="preserve"><value>手动获取进度</value></data>
   <data name="Dashboard_NextFetchIn" xml:space="preserve"><value>将在 {0} 后进行下次获取</value></data>
   <data name="Dashboard_NoActivePhysicalDevices" xml:space="preserve"><value>没有已启用的物理设备处于活动状态。</value></data>
@@ -277,6 +279,11 @@
   <data name="Dashboard_StreamingFlowHeading" xml:space="preserve"><value>流式传输流程</value></data>
   <data name="Dashboard_TargetColumn" xml:space="preserve"><value>目标</value></data>
   <data name="Dashboard_TimeRangeHeading" xml:space="preserve"><value>时间范围</value></data>
+  <data name="Dashboard_UpstreamStatusCached" xml:space="preserve"><value>最近一次刷新失败；表格显示最后一次成功观测的状态。</value></data>
+  <data name="Dashboard_UpstreamStatusEmpty" xml:space="preserve"><value>尚未订阅上游设备。</value></data>
+  <data name="Dashboard_UpstreamStatusHeading" xml:space="preserve"><value>上游调谐器状态（只读）</value></data>
+  <data name="Dashboard_UpstreamStatusObserved" xml:space="preserve"><value>最后观测：{0}</value></data>
+  <data name="Dashboard_UpstreamStatusUnavailable" xml:space="preserve"><value>远程实例未报告上游调谐器状态。</value></data>
   <data name="General_AppearanceHeading" xml:space="preserve"><value>外观</value></data>
   <data name="General_CurrentTimeZone" xml:space="preserve"><value>当前：</value></data>
   <data name="General_KnownProxiesHelp" xml:space="preserve"><value>每行输入一个受信任的反向代理 IP 地址或 CIDR 网络。如果管理监听器未置于反向代理之后，请留空。代理必须保留 Host，并发送 X-Forwarded-For 和 X-Forwarded-Proto。</value></data>
@@ -588,7 +595,7 @@
   <data name="Settings_CpuLimitLabel" xml:space="preserve"><value>CPU 限制 (%)</value></data>
   <data name="Settings_CurrentGuidePathInvalid" xml:space="preserve"><value>当前节目指南输出路径无效。请选择服务器目录。</value></data>
   <data name="Settings_DashboardActiveStreamsHeading" xml:space="preserve"><value>活动流</value></data>
-  <data name="Settings_DashboardRefreshIntervalHelp" xml:space="preserve"><value>仪表板刷新活动托管流的频率。设为 0 可禁用自动刷新。</value></data>
+  <data name="Settings_DashboardRefreshIntervalHelp" xml:space="preserve"><value>面板可见且展开时的刷新间隔（秒），默认为 1。设为 0 则仅手动刷新。保留已保存的间隔。</value></data>
   <data name="Settings_DashboardRefreshIntervalLabel" xml:space="preserve"><value>活动流刷新间隔（秒）</value></data>
   <data name="Settings_DedicatedListenerHelp" xml:space="preserve"><value>专用监听器在隔离的输出工作进程中运行。更改这些设置只会重启此虚拟输出。</value></data>
   <data name="Settings_DefaultLogDirectory" xml:space="preserve"><value>Lineup 配置目录/logs</value></data>
@@ -966,11 +973,18 @@
   <data name="Streaming_EncoderUnknown" xml:space="preserve"><value>未报告视频编码器</value></data>
   <data name="Streaming_FlowSummaryAriaLabel" xml:space="preserve"><value>流式传输流程摘要</value></data>
   <data name="Streaming_GopUnknownRate" xml:space="preserve"><value>GOP：{0} 帧；帧率未知</value></data>
+  <data name="Streaming_GraphAllPaths" xml:space="preserve"><value>所有路径</value></data>
+  <data name="Streaming_GraphConnectionsHelp" xml:space="preserve"><value>虚线表示空闲连接；实线表示活动或保留的路径。</value></data>
+  <data name="Streaming_GraphPath" xml:space="preserve"><value>高亮路径</value></data>
+  <data name="Streaming_GraphReusableOutputs" xml:space="preserve"><value>可复用输出</value></data>
+  <data name="Streaming_GraphUnavailable" xml:space="preserve"><value>无法显示连接。节点卡片和详情仍然可用。</value></data>
   <data name="Streaming_LaneConsumers" xml:space="preserve"><value>使用方</value></data>
   <data name="Streaming_LaneMultiplexer" xml:space="preserve"><value>复用器</value></data>
   <data name="Streaming_LaneOutputProcessing" xml:space="preserve"><value>输出处理</value></data>
+  <data name="Streaming_LaneOutputProcessingMultiplexer" xml:space="preserve"><value>输出处理复用器</value></data>
   <data name="Streaming_LanePhysicalSources" xml:space="preserve"><value>物理源</value></data>
   <data name="Streaming_LaneSourceProcessing" xml:space="preserve"><value>源处理</value></data>
+  <data name="Streaming_LaneSourceProcessingMultiplexer" xml:space="preserve"><value>源处理复用器</value></data>
   <data name="Streaming_LaneVirtualOutputs" xml:space="preserve"><value>虚拟输出</value></data>
   <data name="Streaming_MediaTrackAudio" xml:space="preserve"><value>音频</value></data>
   <data name="Streaming_MediaTrackSubtitle" xml:space="preserve"><value>字幕</value></data>
@@ -985,6 +999,7 @@
   <data name="Streaming_Session" xml:space="preserve"><value>会话</value></data>
   <data name="Streaming_SharedSessions" xml:space="preserve"><value>共享 · {0} 个会话</value></data>
   <data name="Streaming_SourceStreamComponents" xml:space="preserve"><value>源流组件</value></data>
+  <data name="Streaming_StageBoundaryHelp" xml:space="preserve"><value>这些会话诊断描述整个处理阶段，而不是单个生产者。上方资源仅属于所选节点。</value></data>
   <data name="Streaming_StageConsumer" xml:space="preserve"><value>使用方</value></data>
   <data name="Streaming_StageMultiplexer" xml:space="preserve"><value>复用器</value></data>
   <data name="Streaming_StageOutputProcessing" xml:space="preserve"><value>输出处理</value></data>
@@ -1000,6 +1015,8 @@
   <data name="Streaming_StateTranscoding" xml:space="preserve"><value>正在转码</value></data>
   <data name="Streaming_StateWarm" xml:space="preserve"><value>预热</value></data>
   <data name="Streaming_Stop" xml:space="preserve"><value>停止</value></data>
+  <data name="Streaming_StopAll" xml:space="preserve"><value>全部停止</value></data>
+  <data name="Streaming_StopAllStreamsAriaLabel" xml:space="preserve"><value>停止 {0} 的所有流</value></data>
   <data name="Streaming_StopStreamAriaLabel" xml:space="preserve"><value>停止流 {0}</value></data>
   <data name="Streaming_StreamComponents" xml:space="preserve"><value>流组件</value></data>
   <data name="Streaming_SubscribedStreamComponents" xml:space="preserve"><value>已订阅的流组件</value></data>

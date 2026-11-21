@@ -145,7 +145,7 @@ public sealed class VirtualOutputAdmissionTests
             }
         });
         var streams = Substitute.For<IVirtualMpegTsOutputService>();
-        var broker = new VirtualOutputBroker(authority, settings, Substitute.For<IStreamingAdapterRegistry>(), Substitute.For<IPhysicalDeviceCatalog>(),
+        var broker = new VirtualOutputBroker(authority, settings, Substitute.For<IStreamingAdapterRegistry>(), Substitute.For<IPhysicalDeviceCatalog>(), Substitute.For<IPhysicalDeviceStatusService>(),
             Substitute.For<IStreamingRouteResolver>(), Substitute.For<IGuideOrchestrator>(), streams, registry);
         return (broker, streams, new VirtualOutputOpenStreamRequest
         {

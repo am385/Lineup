@@ -698,11 +698,11 @@ publication, and only after the previous process has been released. Input, netwo
 are not general fallback permission. Existing source-audio fallback remains separate. Published streams never silently
 restart with a different encoder. Requested encoder, successful checks and fallback are logged; dedicated Web Player
 responses and active-stream diagnostics also report the requested/selected encoder and whether fallback occurred.
-The Dashboard's Source Processing and Output Processing nodes and active-path stages show their respective runtime encoders, for example
+The Dashboard's Source Processing and Output Processing nodes and selected-node diagnostics show their respective runtime encoders, for example
 **GPU encoding · h264_amf**, **Software encoding · libx264**, or **Video copied (copy)**, with an explicit software-fallback
 badge when applicable. These badges use producer-reported outcomes, not the configured GPU preference. Stages that do not
-report an encoder display **Video encoder not reported**, never an inferred GPU label. Look under **Active Streams → Streaming Flow → Source Processing / Output Processing**,
-or in the corresponding processing cards under **Active Paths**. Watch's **Stream Information** card shows separate
+report an encoder display **Video encoder not reported**, never an inferred GPU label. Look under **Active Streams → Source Processing / Output Processing**,
+and select a processing node for its session-specific diagnostics. Watch's **Stream Information** card shows separate
 **Source Processing** and **Output Processing** encoder rows using the same stage projection. Both local Watch playback and
 dedicated Web Player workers report the launched encoder after readiness, including viewers joining a shared producer.
 Physical and MPEG-TS output transforms retain their actual hardware/software/fallback outcomes in the shared graph.
@@ -843,7 +843,20 @@ See SiliconDust's [HTTP development documentation](https://info.hdhomerun.com/in
 
 The Physical Devices and Virtual Devices tabs provide inherited Video and Audio transcoder profiles. Physical deinterlacing normalizes confirmed interlaced input once before the shared multiplexer, while virtual-device settings create consumer-specific output targets afterward. Source-frame-rate mode converts 29.97-frame interlaced video to 29.97p (or 25 to 25p) with lower CPU use; source-field-rate mode preserves temporal motion as 59.94p (or 50p) at higher CPU cost. Progressive sources retain the copy-first path unless another enabled conversion requires transcoding.
 
-Lineup builds each live stream as a reference-counted graph: exact physical acquisition, optional physical normalization, and virtual output packaging. Consumers share the longest byte-identical prefix, including across different virtual devices, and branch only where their effective output settings differ. Physical failover is resolved to an exact device before its profile is applied, so a fallback source shares with other consumers of that source and uses its own overrides. FFprobe metadata is also shared for the lifetime of the acquisition. The Dashboard visualizes the full configured topology and highlights active, shared, transcoding, and warm paths above the detailed Active Streams table. The status API exposes active graph nodes, stable node and parent identities, processing stages, receiver counts, warm state, subscription totals, and physical-capacity use.
+Lineup builds each live stream as a reference-counted graph: exact physical acquisition, optional physical normalization, and virtual output packaging. Consumers share the longest byte-identical prefix, including across different virtual devices, and branch only where their effective output settings differ. Physical failover is resolved to an exact device before its profile is applied, so a fallback source shares with other consumers of that source and uses its own overrides. FFprobe metadata is also shared for the lifetime of the acquisition. The Dashboard's **Active Streams** graph shows actual runtime acquisitions, processing, reusable outputs, and consumer branches. The status API exposes active graph nodes, stable node and parent identities, processing stages, receiver counts, warm state, subscription totals, and physical-capacity use.
+
+The streaming graph preserves selectable Bootstrap node cards in five lane boxes: **Physical Sources -> Source Processing Multiplexer -> Virtual Outputs -> Output Processing Multiplexer -> Consumers**.
+The processing multiplexer boxes group reusable producers by responsibility; they are not additional processing steps or separate backend ownership systems. There is no separate inventory reference for a producer already represented by its processing node.
+Physical devices and virtual outputs retain configured processor cards while idle. Live source processing displays actual shared normalization producers, or a pass-through producer for a known acquisition with no normalization stage. Output processing displays actual virtual-device producers, retaining reported multi-stage chains.
+Two consumers sharing channel 2.1's output fan out from the same processor; an independent channel 2.3 output has its own processor even when encoder settings match. Each producer retains its own encoder, resources, channels, and exact path membership. Missing producer identities remain explicitly unreported and session-scoped instead of implying reuse; retained producers without virtual-device attribution remain unassigned.
+Encoder badges appear once on the responsible producer. **Copy / processing** indicates copied video with reported process resources, which can still involve remuxing, audio conversion, or packaging; **Pass-through** does not invent a separate transcoder process.
+Dashed connections represent configured idle stages; solid connections show actual consumer routes or retained warm producers. Consumer cards and their connections expand and disappear with live sessions while configured devices remain visible; idle devices retain their configured processor placeholders.
+Select any card by mouse or keyboard to inspect its current details and resources and highlight every reported stream route containing it, including all related producers and consumers. Shared producers highlight all their consumers without crossing unrelated channel routes through shared device cards. Select the same card again to clear selection and show the whole graph; there is no path dropdown. The original horizontal scrolling keeps cards readable, and refreshes preserve selection and scroll position.
+Cards within each lane are ordered by their connections to reduce arrow crossings and keep consumers of the same producer together. Processing chains remain grouped in upstream-to-downstream order, and telemetry-only refreshes do not reshuffle cards. Some crossings can remain when shared devices connect multiple branches.
+The graph lives directly in the Active Streams card, replacing the separate Active Paths section. Selected-node details use one header and consolidated metadata rather than repeating node, session, and stage identities. Single-session details combine endpoint, format, channel, sharing, session ID, active duration, stage metadata, resources, and input/output media tracks and bitrates. Shared nodes show common metadata and resources once while retaining each session's distinct diagnostics. Exact route membership keeps other channels out of shared-producer diagnostics. Multi-producer processing lanes explicitly label session-wide stage diagnostics rather than implying intermediate media was measured at each producer; resource costs remain scoped to the selected node. Every session shown in the details panel has its own Stop button, including sessions listed for intermediate or shared nodes. Each button stops only its associated session, not the shared producer or other viewers.
+With multiple sessions displayed, **Stop All** beside the selected node's state badge stops that displayed set using the same session-specific requests, skipping sessions already stopping. It does not target unrelated sessions or stop shared producers directly. Newly arriving sessions are not included in an in-flight batch, and queued session controls are disabled until their stop requests finish.
+Cytoscape.js maintains graph identity and path membership; SVG connections follow the actual HTML card bounds. Its bundle and license notice are hash-pinned browser assets, served locally with no runtime CDN dependency.
+This proof of concept includes retained management-host CMAF outputs and the shared runtime graph's warm producers. Dedicated workers' active outputs use their existing reports, but their retained worker-local output inventory is not yet reported to the dashboard. Unknown source attribution is shown explicitly rather than guessed.
 
 Stream admission reserves both a logical viewer slot and a pending-startup slot **before** source acquisition, probing, or
 transcoding. Overload is rejected immediately with HTTP 429 (`stream_limit` for Lineup Link); dedicated workers receive the
@@ -962,7 +975,7 @@ Startup-only host budgets are documented separately above.
 | Disabled Channels | Return an explicit error (default), or stream a synthetic Disabled Channel slate without opening a physical tuner |
 | Maximum Concurrent Streams | Limits logical consumers, not shared producers; multiple consumers sharing one pipeline each count toward the limit |
 | Keep Warm Period | Keeps an unused shared output reusable for 0-300 seconds; the default of 0 releases it immediately, while nonzero values retain tuner capacity and transforms until expiry |
-| Active Stream Refresh | Dashboard refresh interval for hosted stream details; defaults to 5 seconds and 0 disables auto-refresh |
+| Active Stream Refresh | Dashboard graph/details refresh interval; defaults to 1 second and 0 disables auto-refresh. Saved intervals remain unchanged. Automatic refresh pauses while the tab is hidden or Active Streams is collapsed |
 | Collect Resources Continuously | Disabled by default; collect only while a Dashboard is visible. Enable to keep collecting and caching in-memory history without a visible Dashboard |
 | Resource History In Minutes | In-memory Dashboard resource retention, 1-60 minutes; defaults to 5 and resets when Lineup restarts |
 | Virtual HDHomeRun Devices | Friendly name, optional tuner cap, physical subscriptions, and a reachable advertised URL when served through the management host |
@@ -989,7 +1002,7 @@ Primary Dashboard cards keep their icon, title and summary visible when collapse
 unavailable or paused readings show N/A, never retained percentages. GPU percentages remain separate rather than being added across devices.
 The CPU, RAM and GPU subcards each have an independent chevron control to hide their content while leaving their title and current summary visible.
 CPU and RAM subheaders show Lineup totals; each GPU subheader shows that device's whole-device activity. Paused or unavailable readings show N/A.
-These subcard preferences are saved in the current browser and restored after navigation or a page reload, independently of other dashboard sections.
+The Resources section and its subcards save their expansion preferences in the current browser and restore them after navigation or a page reload, independently of other dashboard sections.
 Ordinary navigation finishes already-queued preference writes, including choices made while saved state is still loading.
 GPU preferences follow each device's internal identity, not its name or position. Missing preferences default to expanded; browser-storage failures are logged and do not disable the controls.
 Channels, Physical Devices and Active Streams refresh buttons sit at the bottom right of their card bodies and hide with the content when collapsed.
@@ -1032,7 +1045,10 @@ warm-up and read failures show N/A or gaps with an explanation; actionable read 
 GPU devices are discovered on first collection; changing exposed driver libraries/devices can require restarting the management host.
 
 Select an Active Streams processing stage or topology node to inspect its current CPU, memory, process identity, role, and observation time.
-Resource tables use fixed column widths in both Streaming Flow and Active Paths, with horizontal scrolling on narrow screens.
+Resource tables use fixed column widths in Streaming Flow's selected-node details, with horizontal scrolling on narrow screens.
+Source and output processing details also show the cached host GPU activity, encode, decode, and video/media readings in a separate GPU table.
+These are whole-device counters, including other applications, not GPU percentages attributed to the selected process or stream; remote worker GPUs are not included.
+Shared codec-engine readings stay distinct from separate encode/decode counters. Unavailable metrics show N/A, and paused collection never displays retained percentages as current usage.
 Shared source/output producers show their full process cost, not a fictional per-viewer allocation. Caption extraction appears separately when enabled.
 Work inside a management/worker host is labeled shared-host work; decoding, filtering, encoding, audio and muxing inside one FFmpeg are not individually attributed.
 Tuner hardware and viewer browsers are not measured. Warm-up, inaccessible/exited processes, missing or stale worker reports,
@@ -1720,6 +1736,20 @@ Operational source schedules and output retries do not invalidate open Settings 
 ### Lineup Link
 
 A provider instance can add a **Lineup Link** virtual device and export its published lineup, optional guide, and post-output-transcode MPEG-TS streams through `/api/lineup-link/v2/virtual-devices/{virtualDeviceId}` when management-hosted or the equivalent path on its dedicated listener. A consuming instance imports the generated connection bundle into a **Lineup Link** physical device and may add a separately managed Lineup Link guide source. The virtual output uses Lineup's existing shared acquisition and MPEG-TS transformation graph, so consumers requesting the same effective source and output profile reuse the physical stream, physical normalization, and virtual transform.
+
+**Dashboard > Physical Devices** distinguishes a Link device's local stream slots from its **Upstream tuner status (read-only)**.
+An unused Link slot does not mean a remote hardware tuner is idle. Upstream observations include every reported receiver on each
+enabled, compatible physical source subscribed by the exported virtual device, including tuners occupied by other consumers.
+Local slot ownership and advertised stream capacity remain unchanged; hardware observations do not reduce admission capacity or disable stream sharing.
+
+Management-hosted and dedicated-worker manifests publish these optional observations from the provider's existing physical-status cache;
+manifest requests never poll tuner hardware. Device names, adapter kinds, receiver/channel activity, available signal measurements,
+UTC observation times, and safe current refresh errors are shared, but stream targets, addresses, credentials, descriptive configuration,
+unsubscribed devices, and remote control operations are not. Missing signal measurements remain unavailable rather than zero.
+Failed refreshes retain explicitly labeled last-known observations; devices without an observation do not acquire invented idle receiver rows.
+Refresh frequency follows the provider's physical-status schedule and the consuming instance's Link status refreshes.
+Update both instances, including the provider's matching dedicated worker package where applicable, to display upstream telemetry.
+Older manifests remain usable for streaming and explicitly show that upstream tuner status is unavailable; manifest bodies retain the 1 MiB control-response limit.
 
 A Lineup Link guide source subscribed to multiple remote outputs merges their root supplemental metadata into one envelope before import. The first subscribed output wins conflicting root attributes with the same qualified name; all preserved root elements remain in subscription order. Channel and program metadata retain their remote-output-qualified identities. Invalid root envelopes fail the refresh without replacing the previously committed guide, rather than deferring failure until XMLTV or JSON publication.
 

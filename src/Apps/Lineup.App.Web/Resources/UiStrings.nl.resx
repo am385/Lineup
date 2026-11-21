@@ -245,6 +245,8 @@
   <data name="Dashboard_GuideXmltvHeading" xml:space="preserve"><value>Gids en XMLTV</value></data>
   <data name="Dashboard_Heading" xml:space="preserve"><value>Dashboard</value></data>
   <data name="Dashboard_LatestLabel" xml:space="preserve"><value>Meest recent</value></data>
+  <data name="Dashboard_LinkSlotUnused" xml:space="preserve"><value>Ongebruikt</value></data>
+  <data name="Dashboard_LinkStreamSlots" xml:space="preserve"><value>Link-streamslots (geen fysieke tuners)</value></data>
   <data name="Dashboard_ManualFetchProgress" xml:space="preserve"><value>Voortgang handmatig ophalen</value></data>
   <data name="Dashboard_NextFetchIn" xml:space="preserve"><value>volgende ophaalbewerking over {0}</value></data>
   <data name="Dashboard_NoActivePhysicalDevices" xml:space="preserve"><value>Er zijn geen ingeschakelde fysieke apparaten actief.</value></data>
@@ -277,6 +279,11 @@
   <data name="Dashboard_StreamingFlowHeading" xml:space="preserve"><value>Streamingstroom</value></data>
   <data name="Dashboard_TargetColumn" xml:space="preserve"><value>Doel</value></data>
   <data name="Dashboard_TimeRangeHeading" xml:space="preserve"><value>Tijdsbereik</value></data>
+  <data name="Dashboard_UpstreamStatusCached" xml:space="preserve"><value>De laatste vernieuwing is mislukt; de tabel toont de laatste geslaagde waarneming.</value></data>
+  <data name="Dashboard_UpstreamStatusEmpty" xml:space="preserve"><value>Er zijn geen upstream-apparaten geabonneerd.</value></data>
+  <data name="Dashboard_UpstreamStatusHeading" xml:space="preserve"><value>Upstream-tunerstatus (alleen-lezen)</value></data>
+  <data name="Dashboard_UpstreamStatusObserved" xml:space="preserve"><value>Laatst waargenomen: {0}</value></data>
+  <data name="Dashboard_UpstreamStatusUnavailable" xml:space="preserve"><value>De externe instantie rapporteert geen upstream-tunerstatus.</value></data>
   <data name="General_AppearanceHeading" xml:space="preserve"><value>Weergave</value></data>
   <data name="General_CurrentTimeZone" xml:space="preserve"><value>Momenteel:</value></data>
   <data name="General_KnownProxiesHelp" xml:space="preserve"><value>Voer per regel één vertrouwd IP-adres van een reverse proxy of CIDR-netwerk in. Laat dit leeg als de beheerlistener zich niet achter een reverse proxy bevindt. De proxy moet Host behouden en X-Forwarded-For en X-Forwarded-Proto verzenden.</value></data>
@@ -588,7 +595,7 @@
   <data name="Settings_CpuLimitLabel" xml:space="preserve"><value>CPU-limiet (%)</value></data>
   <data name="Settings_CurrentGuidePathInvalid" xml:space="preserve"><value>Het huidige pad voor gidsuitvoer is ongeldig. Selecteer een servermap.</value></data>
   <data name="Settings_DashboardActiveStreamsHeading" xml:space="preserve"><value>Actieve streams</value></data>
-  <data name="Settings_DashboardRefreshIntervalHelp" xml:space="preserve"><value>Hoe vaak actieve gehoste streams op het dashboard worden vernieuwd. Stel in op 0 om automatisch vernieuwen uit te schakelen.</value></data>
+  <data name="Settings_DashboardRefreshIntervalHelp" xml:space="preserve"><value>Seconden tussen updates als het paneel zichtbaar en uitgeklapt is; standaard: 1. Gebruik 0 voor alleen handmatig vernieuwen. Opgeslagen intervallen blijven behouden.</value></data>
   <data name="Settings_DashboardRefreshIntervalLabel" xml:space="preserve"><value>Vernieuwingsinterval actieve streams (seconden)</value></data>
   <data name="Settings_DedicatedListenerHelp" xml:space="preserve"><value>Toegewezen listeners draaien in een geïsoleerd uitvoerwerkproces. Als u deze instellingen wijzigt, wordt alleen deze virtuele uitvoer opnieuw gestart.</value></data>
   <data name="Settings_DefaultLogDirectory" xml:space="preserve"><value>de Lineup-configuratiemap/logs</value></data>
@@ -966,11 +973,18 @@
   <data name="Streaming_EncoderUnknown" xml:space="preserve"><value>Video-encoder niet gemeld</value></data>
   <data name="Streaming_FlowSummaryAriaLabel" xml:space="preserve"><value>Samenvatting van streamingstroom</value></data>
   <data name="Streaming_GopUnknownRate" xml:space="preserve"><value>GOP: {0} frames; framesnelheid onbekend</value></data>
+  <data name="Streaming_GraphAllPaths" xml:space="preserve"><value>Alle paden</value></data>
+  <data name="Streaming_GraphConnectionsHelp" xml:space="preserve"><value>Gestreepte verbindingen zijn inactief; doorgetrokken verbindingen tonen actieve of warm gehouden paden.</value></data>
+  <data name="Streaming_GraphPath" xml:space="preserve"><value>Pad markeren</value></data>
+  <data name="Streaming_GraphReusableOutputs" xml:space="preserve"><value>Herbruikbare uitvoer</value></data>
+  <data name="Streaming_GraphUnavailable" xml:space="preserve"><value>De verbindingen konden niet worden weergegeven. Knooppuntkaarten en details blijven beschikbaar.</value></data>
   <data name="Streaming_LaneConsumers" xml:space="preserve"><value>Gebruikers</value></data>
   <data name="Streaming_LaneMultiplexer" xml:space="preserve"><value>Multiplexer</value></data>
   <data name="Streaming_LaneOutputProcessing" xml:space="preserve"><value>Uitvoerverwerking</value></data>
+  <data name="Streaming_LaneOutputProcessingMultiplexer" xml:space="preserve"><value>Multiplexer voor uitvoerverwerking</value></data>
   <data name="Streaming_LanePhysicalSources" xml:space="preserve"><value>Fysieke bronnen</value></data>
   <data name="Streaming_LaneSourceProcessing" xml:space="preserve"><value>Bronverwerking</value></data>
+  <data name="Streaming_LaneSourceProcessingMultiplexer" xml:space="preserve"><value>Multiplexer voor bronverwerking</value></data>
   <data name="Streaming_LaneVirtualOutputs" xml:space="preserve"><value>Virtuele uitvoer</value></data>
   <data name="Streaming_MediaTrackAudio" xml:space="preserve"><value>Audio</value></data>
   <data name="Streaming_MediaTrackSubtitle" xml:space="preserve"><value>Ondertiteling</value></data>
@@ -985,6 +999,7 @@
   <data name="Streaming_Session" xml:space="preserve"><value>Sessie</value></data>
   <data name="Streaming_SharedSessions" xml:space="preserve"><value>Gedeeld · {0} sessies</value></data>
   <data name="Streaming_SourceStreamComponents" xml:space="preserve"><value>Bronstreamonderdelen</value></data>
+  <data name="Streaming_StageBoundaryHelp" xml:space="preserve"><value>Deze sessiediagnostiek beschrijft de volledige verwerkingsfase, niet de afzonderlijke producent. De bovenstaande resources horen alleen bij het geselecteerde knooppunt.</value></data>
   <data name="Streaming_StageConsumer" xml:space="preserve"><value>Gebruiker</value></data>
   <data name="Streaming_StageMultiplexer" xml:space="preserve"><value>Multiplexer</value></data>
   <data name="Streaming_StageOutputProcessing" xml:space="preserve"><value>Uitvoerverwerking</value></data>
@@ -1000,6 +1015,8 @@
   <data name="Streaming_StateTranscoding" xml:space="preserve"><value>Transcoderen</value></data>
   <data name="Streaming_StateWarm" xml:space="preserve"><value>Warm</value></data>
   <data name="Streaming_Stop" xml:space="preserve"><value>Stoppen</value></data>
+  <data name="Streaming_StopAll" xml:space="preserve"><value>Alles stoppen</value></data>
+  <data name="Streaming_StopAllStreamsAriaLabel" xml:space="preserve"><value>Alle streams voor {0} stoppen</value></data>
   <data name="Streaming_StopStreamAriaLabel" xml:space="preserve"><value>Stream {0} stoppen</value></data>
   <data name="Streaming_StreamComponents" xml:space="preserve"><value>Streamonderdelen</value></data>
   <data name="Streaming_SubscribedStreamComponents" xml:space="preserve"><value>Geabonneerde streamonderdelen</value></data>

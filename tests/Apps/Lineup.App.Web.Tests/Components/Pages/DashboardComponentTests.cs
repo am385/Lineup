@@ -51,6 +51,8 @@ public class DashboardComponentTests
                 Assert.Empty(header.QuerySelectorAll("button.btn-outline-primary"));
                 Assert.Single(header.QuerySelectorAll("button"));
             }
+            Assert.Single(component.FindAll("#activeStreamsSection > #streamingFlowDiagram"));
+            Assert.Empty(component.FindAll("#activeStreamsSection > .card"));
         }, timeout: LineupWebBunitContext.WaitTimeout);
     }
 
@@ -484,7 +486,7 @@ public class DashboardComponentTests
         ]);
         var snapshot = new StreamingFlowSnapshot(
             [
-                new StreamingFlowNode("multiplexer", StreamingFlowLane.Multiplexer, "Shared Multiplexer", "Reference-counted stream graph", StreamingFlowState.Active, [])
+                new StreamingFlowNode("consumer:session", StreamingFlowLane.Consumer, "192.0.2.10:5000", "CMAF", StreamingFlowState.Active, [])
             ],
             [
                 new StreamingFlowPath(
@@ -514,16 +516,167 @@ public class DashboardComponentTests
 
         // Act
         var component = context.Render<Dashboard>();
+        await component.InvokeAsync(() => component.Find("[data-flow-node-id='consumer:session']").ClickAsync(new()));
 
         // Assert
         Assert.Contains("CMAF", component.Find("#activeStreamsSection").TextContent, StringComparison.Ordinal);
         Assert.DoesNotContain("HLS", component.Find("#activeStreamsSection").TextContent, StringComparison.Ordinal);
-        Assert.Contains("session", component.Find(".streaming-flow-path").TextContent, StringComparison.Ordinal);
-        var cards = component.FindAll("#activeStreamsSection > .card");
-        Assert.Equal(2, cards.Count);
-        Assert.Contains("Streaming Flow", cards[0].QuerySelector(".card-header")!.TextContent, StringComparison.Ordinal);
-        Assert.Contains("Active Paths", cards[1].QuerySelector(".card-header")!.TextContent, StringComparison.Ordinal);
+        Assert.Contains("session", component.Find("#streamingFlowDetails").TextContent, StringComparison.Ordinal);
+        Assert.Single(component.FindAll("#activeStreamsSection > #streamingFlowDiagram"));
+        Assert.Empty(component.FindAll("#activeStreamsSection > .card"));
+        Assert.DoesNotContain("Active Paths", component.Find("#activeStreamsSection").TextContent, StringComparison.Ordinal);
         Assert.Empty(component.FindAll("#activeStreamsSection table"));
+    }
+
+    /// <summary>Complete upstream tuner state is separate from local Link slots, preserves measured zero and missing signal, and never exposes remote controls.</summary>
+    [Fact]
+    public async Task PhysicalDevices_LineupLink_ShowsFourRemoteTunersAndSeparateLocalSlots()
+    {
+        // Arrange
+        await using var context = CreateContext();
+        var upstream = new UpstreamPhysicalDeviceStatus
+        {
+            DeviceId = Guid.NewGuid(),
+            Name = "Shared HDHomeRun",
+            Kind = "hdhomerun",
+            ObservedAtUtc = DateTimeOffset.UtcNow,
+            Receivers = Enumerable.Range(0, 4).Select(index => new PhysicalReceiverStatus
+            {
+                Index = index,
+                IsActive = true,
+                IsStreaming = true,
+                HasLock = true,
+                VirtualChannel = $"2.{index + 1}",
+                SignalStrength = index switch { 0 => 98, 1 => 0, 2 => null, _ => 87 }
+            }).ToArray()
+        };
+        var second = upstream with
+        {
+            DeviceId = Guid.NewGuid(),
+            Name = "Second upstream",
+            Receivers = [new PhysicalReceiverStatus { Index = 0, IsActive = true, HasLock = true, Channel = "auto:507000000", SignalStrength = 55 }]
+        };
+
+        // Act
+        var component = context.Render<Lineup.App.Web.Components.Dashboard.DashboardPhysicalDevicesPanel>(parameters => parameters
+            .Add(panel => panel.Expanded, true)
+            .Add(panel => panel.Summary, "Lineup Link")
+            .Add(panel => panel.Devices, [LinkStatus([upstream, second])]));
+
+        // Assert
+        var localRows = component.FindAll("#deviceSection > .card > .card-body > .table-responsive tbody tr");
+        Assert.Equal(4, localRows.Count);
+        Assert.Equal(3, localRows.Count(row => row.Children[1].TextContent == "Streaming"));
+        Assert.Equal("Unused", localRows[3].Children[1].TextContent);
+        var remoteRows = component.FindAll($"[data-upstream-device='{upstream.DeviceId}'] tbody tr");
+        Assert.Equal(4, remoteRows.Count);
+        Assert.All(remoteRows, row => Assert.Equal("Streaming", row.Children[1].TextContent));
+        Assert.Equal("98%", remoteRows[0].Children[3].TextContent);
+        Assert.Equal("0%", remoteRows[1].Children[3].TextContent);
+        Assert.Equal("N/A", remoteRows[2].Children[3].TextContent);
+        Assert.Equal("2.4", remoteRows[3].Children[2].TextContent);
+        var secondRow = component.Find($"[data-upstream-device='{second.DeviceId}'] tbody tr");
+        Assert.Equal("Tuned", secondRow.Children[1].TextContent);
+        Assert.Equal("auto:507000000", secondRow.Children[2].TextContent);
+        Assert.Empty(component.FindAll("[data-upstream-tuner-status] button"));
+        Assert.DoesNotContain("Target", component.Find("[data-upstream-tuner-status]").TextContent, StringComparison.Ordinal);
+        Assert.Contains("not physical tuners", component.Find("#deviceSection").TextContent, StringComparison.Ordinal);
+    }
+
+    /// <summary>Older peers and empty subscriptions explicitly show unavailable or empty upstream status rather than invented idle hardware.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PhysicalDevices_LineupLink_WithoutUpstreamData_DoesNotInventTuners(bool supported)
+    {
+        // Arrange
+        await using var context = CreateContext();
+
+        // Act
+        var component = context.Render<Lineup.App.Web.Components.Dashboard.DashboardPhysicalDevicesPanel>(parameters => parameters
+            .Add(panel => panel.Expanded, true)
+            .Add(panel => panel.Summary, "Lineup Link")
+            .Add(panel => panel.Devices, [LinkStatus(supported ? [] : null)]));
+
+        // Assert
+        var remote = component.Find("[data-upstream-tuner-status]");
+        Assert.Contains(supported ? "No upstream devices are subscribed." : "The remote instance does not report upstream tuner status.", remote.TextContent, StringComparison.Ordinal);
+        Assert.Empty(remote.QuerySelectorAll("table"));
+        Assert.Empty(remote.QuerySelectorAll("button"));
+    }
+
+    /// <summary>Failed upstream refreshes retain explicitly labeled observations, unknown status has no rows, and recovered status updates without affecting local slots.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PhysicalDevices_UpstreamRefresh_ShowsFreshnessAndRecovery(bool observed)
+    {
+        // Arrange
+        await using var context = CreateContext();
+        var upstream = new UpstreamPhysicalDeviceStatus
+        {
+            DeviceId = Guid.NewGuid(),
+            Name = "Upstream source",
+            Kind = "hdhomerun",
+            ObservedAtUtc = observed ? new DateTimeOffset(2026, 7, 1, 14, 0, 0, TimeSpan.FromHours(2)) : null,
+            Error = "Status refresh failed (IOException).",
+            Receivers = observed ? [new PhysicalReceiverStatus { Index = 3, IsStreaming = true, HasLock = true, SignalStrength = 98 }] : []
+        };
+        var local = LinkStatus([upstream]);
+        var component = context.Render<Lineup.App.Web.Components.Dashboard.DashboardPhysicalDevicesPanel>(parameters => parameters
+            .Add(panel => panel.Expanded, true)
+            .Add(panel => panel.Summary, "Lineup Link")
+            .Add(panel => panel.Devices, [local]));
+        var initial = component.Find("[data-upstream-tuner-status]");
+        Assert.Contains(upstream.Error, initial.TextContent, StringComparison.Ordinal);
+        Assert.Contains(observed ? "2026-07-01 12:00:00Z" : "N/A", initial.TextContent, StringComparison.Ordinal);
+        Assert.Equal(observed ? 1 : 0, initial.QuerySelectorAll("tbody tr").Length);
+        if (observed)
+        {
+            Assert.Contains("last successful observation", initial.TextContent, StringComparison.Ordinal);
+        }
+        var recovered = upstream with
+        {
+            ObservedAtUtc = new DateTimeOffset(2026, 7, 1, 14, 1, 0, TimeSpan.FromHours(2)),
+            Error = null,
+            Receivers = [new PhysicalReceiverStatus { Index = 3, IsActive = true, HasLock = true, SignalStrength = 61 }]
+        };
+
+        // Act
+        component.Render(parameters => parameters.Add(panel => panel.Devices,
+            [local with { Status = Assert.IsType<PhysicalDeviceStatusSnapshot>(local.Status) with { UpstreamDevices = [recovered] } }]));
+
+        // Assert
+        var remote = component.Find("[data-upstream-tuner-status]");
+        Assert.Empty(remote.QuerySelectorAll(".alert"));
+        Assert.Contains("2026-07-01 12:01:00Z", remote.TextContent, StringComparison.Ordinal);
+        var row = Assert.Single(remote.QuerySelectorAll("tbody tr"));
+        Assert.Equal("Tuned", row.Children[1].TextContent);
+        Assert.Equal("61%", row.Children[3].TextContent);
+        Assert.Equal(4, component.FindAll("#deviceSection > .card > .card-body > .table-responsive tbody tr").Count);
+    }
+
+    private static PhysicalDeviceRuntimeStatus LinkStatus(IReadOnlyList<UpstreamPhysicalDeviceStatus>? upstream)
+    {
+        var device = new PhysicalDeviceSnapshot { Id = PhysicalDeviceId.New(), Name = "Remote Lineup Link", Kind = "lineup-link", Capacity = new PhysicalTunerCapacity(4) };
+        return new PhysicalDeviceRuntimeStatus
+        {
+            Device = device,
+            SupportsReceiverControl = true,
+            Status = new PhysicalDeviceStatusSnapshot
+            {
+                Device = device,
+                ReceiversAreStreamSlots = true,
+                UpstreamDevices = upstream,
+                Receivers = Enumerable.Range(0, 4).Select(index => new PhysicalReceiverStatus
+                {
+                    Index = index,
+                    IsActive = index < 3,
+                    IsStreaming = index < 3,
+                    VirtualChannel = index < 3 ? $"2.{index + 1}" : null
+                }).ToArray()
+            }
+        };
     }
 
     private static BunitContext CreateContext(

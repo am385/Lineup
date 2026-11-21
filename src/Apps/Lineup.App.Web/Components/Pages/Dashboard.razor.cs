@@ -73,7 +73,6 @@ public partial class Dashboard : IAsyncDisposable
     private IReadOnlyList<PhysicalChannelIdentity> _topologyChannels = [];
     private TimeSpan _countdown;
     private Timer? _countdownTimer;
-    private Timer? _activeStreamTimer;
     private readonly object _timerLock = new();
     private readonly List<Task> _updates = [];
     private volatile bool _disposed;
@@ -120,7 +119,6 @@ public partial class Dashboard : IAsyncDisposable
         // Start countdown timer (updates every second)
         _countdownTimer = new Timer(UpdateCountdown, null, TimeSpan.Zero, TimeSpan.FromSeconds(1));
         RefreshActiveStreams();
-        ConfigureActiveStreamTimer();
 
         await LoadStatsAsync();
         await LoadChannelLineupAsync();
@@ -274,7 +272,6 @@ public partial class Dashboard : IAsyncDisposable
         ScheduleUpdate(() =>
         {
             CheckXmltvFileExists();
-            ConfigureActiveStreamTimer();
             return Task.CompletedTask;
         });
     }
@@ -390,9 +387,7 @@ public partial class Dashboard : IAsyncDisposable
         {
             _disposed = true;
             _countdownTimer?.Dispose();
-            _activeStreamTimer?.Dispose();
             _countdownTimer = null;
-            _activeStreamTimer = null;
             updates = _updates.ToArray();
         }
 
@@ -446,38 +441,6 @@ public partial class Dashboard : IAsyncDisposable
         {
             Logger.LogError(exception, "Unable to refresh the dashboard");
         }
-    }
-
-    private void ConfigureActiveStreamTimer()
-    {
-        lock (_timerLock)
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            _activeStreamTimer?.Dispose();
-            _activeStreamTimer = null;
-
-            var intervalSeconds = WebSettingsService.Settings.ActiveStreamRefreshIntervalSeconds;
-            if (intervalSeconds == 0)
-            {
-                return;
-            }
-
-            var interval = TimeSpan.FromSeconds(intervalSeconds);
-            _activeStreamTimer = new Timer(UpdateActiveStreams, null, interval, interval);
-        }
-    }
-
-    private void UpdateActiveStreams(object? state)
-    {
-        ScheduleUpdate(() =>
-        {
-            RefreshActiveStreams();
-            return Task.CompletedTask;
-        });
     }
 
     private void RefreshActiveStreams()

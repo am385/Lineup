@@ -245,6 +245,8 @@
   <data name="Dashboard_GuideXmltvHeading" xml:space="preserve"><value>Guide &amp; XMLTV</value></data>
   <data name="Dashboard_Heading" xml:space="preserve"><value>Dashboard</value></data>
   <data name="Dashboard_LatestLabel" xml:space="preserve"><value>Latest</value></data>
+  <data name="Dashboard_LinkSlotUnused" xml:space="preserve"><value>Unused</value></data>
+  <data name="Dashboard_LinkStreamSlots" xml:space="preserve"><value>Link stream slots (not physical tuners)</value></data>
   <data name="Dashboard_ManualFetchProgress" xml:space="preserve"><value>Manual Fetch Progress</value></data>
   <data name="Dashboard_NextFetchIn" xml:space="preserve"><value>next fetch in {0}</value></data>
   <data name="Dashboard_NoActivePhysicalDevices" xml:space="preserve"><value>No enabled physical devices are active.</value></data>
@@ -277,6 +279,11 @@
   <data name="Dashboard_StreamingFlowHeading" xml:space="preserve"><value>Streaming Flow</value></data>
   <data name="Dashboard_TargetColumn" xml:space="preserve"><value>Target</value></data>
   <data name="Dashboard_TimeRangeHeading" xml:space="preserve"><value>Time Range</value></data>
+  <data name="Dashboard_UpstreamStatusCached" xml:space="preserve"><value>The latest refresh failed; the table shows the last successful observation.</value></data>
+  <data name="Dashboard_UpstreamStatusEmpty" xml:space="preserve"><value>No upstream devices are subscribed.</value></data>
+  <data name="Dashboard_UpstreamStatusHeading" xml:space="preserve"><value>Upstream tuner status (read-only)</value></data>
+  <data name="Dashboard_UpstreamStatusObserved" xml:space="preserve"><value>Last observed: {0}</value></data>
+  <data name="Dashboard_UpstreamStatusUnavailable" xml:space="preserve"><value>The remote instance does not report upstream tuner status.</value></data>
   <data name="General_AppearanceHeading" xml:space="preserve"><value>Appearance</value></data>
   <data name="General_CurrentTimeZone" xml:space="preserve"><value>Currently:</value></data>
   <data name="General_KnownProxiesHelp" xml:space="preserve"><value>Enter one trusted reverse proxy IP address or CIDR network per line. Leave empty when the management listener is not behind a reverse proxy. The proxy must preserve Host and send X-Forwarded-For and X-Forwarded-Proto.</value></data>
@@ -588,7 +595,7 @@
   <data name="Settings_CpuLimitLabel" xml:space="preserve"><value>CPU limit (%)</value></data>
   <data name="Settings_CurrentGuidePathInvalid" xml:space="preserve"><value>The current guide-output path is invalid. Select a server directory.</value></data>
   <data name="Settings_DashboardActiveStreamsHeading" xml:space="preserve"><value>Active Streams</value></data>
-  <data name="Settings_DashboardRefreshIntervalHelp" xml:space="preserve"><value>How often to refresh active hosted streams on the dashboard. Set to 0 to disable auto-refresh.</value></data>
+  <data name="Settings_DashboardRefreshIntervalHelp" xml:space="preserve"><value>Seconds between dashboard stream updates while visible and expanded; defaults to 1. Set to 0 for manual refresh only. Existing saved intervals are preserved.</value></data>
   <data name="Settings_DashboardRefreshIntervalLabel" xml:space="preserve"><value>Active Stream Refresh Interval (seconds)</value></data>
   <data name="Settings_DedicatedListenerHelp" xml:space="preserve"><value>Dedicated listeners run in an isolated output worker. Changing these settings restarts only this virtual output.</value></data>
   <data name="Settings_DefaultLogDirectory" xml:space="preserve"><value>the Lineup configuration directory/logs</value></data>
@@ -966,11 +973,18 @@
   <data name="Streaming_EncoderUnknown" xml:space="preserve"><value>Video encoder not reported</value></data>
   <data name="Streaming_FlowSummaryAriaLabel" xml:space="preserve"><value>Streaming flow summary</value></data>
   <data name="Streaming_GopUnknownRate" xml:space="preserve"><value>GOP: {0} frames; frame rate unavailable</value></data>
+  <data name="Streaming_GraphAllPaths" xml:space="preserve"><value>All paths</value></data>
+  <data name="Streaming_GraphConnectionsHelp" xml:space="preserve"><value>Dashed connections are idle; solid connections show active or warm paths.</value></data>
+  <data name="Streaming_GraphPath" xml:space="preserve"><value>Highlight path</value></data>
+  <data name="Streaming_GraphReusableOutputs" xml:space="preserve"><value>Reusable outputs</value></data>
+  <data name="Streaming_GraphUnavailable" xml:space="preserve"><value>The connections could not be displayed. Node cards and details remain available.</value></data>
   <data name="Streaming_LaneConsumers" xml:space="preserve"><value>Consumers</value></data>
   <data name="Streaming_LaneMultiplexer" xml:space="preserve"><value>Multiplexer</value></data>
   <data name="Streaming_LaneOutputProcessing" xml:space="preserve"><value>Output Processing</value></data>
+  <data name="Streaming_LaneOutputProcessingMultiplexer" xml:space="preserve"><value>Output Processing Multiplexer</value></data>
   <data name="Streaming_LanePhysicalSources" xml:space="preserve"><value>Physical Sources</value></data>
   <data name="Streaming_LaneSourceProcessing" xml:space="preserve"><value>Source Processing</value></data>
+  <data name="Streaming_LaneSourceProcessingMultiplexer" xml:space="preserve"><value>Source Processing Multiplexer</value></data>
   <data name="Streaming_LaneVirtualOutputs" xml:space="preserve"><value>Virtual Outputs</value></data>
   <data name="Streaming_MediaTrackAudio" xml:space="preserve"><value>Audio</value></data>
   <data name="Streaming_MediaTrackSubtitle" xml:space="preserve"><value>Subtitle</value></data>
@@ -985,6 +999,7 @@
   <data name="Streaming_Session" xml:space="preserve"><value>Session</value></data>
   <data name="Streaming_SharedSessions" xml:space="preserve"><value>Shared · {0} sessions</value></data>
   <data name="Streaming_SourceStreamComponents" xml:space="preserve"><value>Source stream components</value></data>
+  <data name="Streaming_StageBoundaryHelp" xml:space="preserve"><value>These session diagnostics describe the complete processing stage, not the individual producer. Resources above belong only to the selected node.</value></data>
   <data name="Streaming_StageConsumer" xml:space="preserve"><value>Consumer</value></data>
   <data name="Streaming_StageMultiplexer" xml:space="preserve"><value>Multiplexer</value></data>
   <data name="Streaming_StageOutputProcessing" xml:space="preserve"><value>Output processing</value></data>
@@ -1000,6 +1015,8 @@
   <data name="Streaming_StateTranscoding" xml:space="preserve"><value>Transcoding</value></data>
   <data name="Streaming_StateWarm" xml:space="preserve"><value>Warm</value></data>
   <data name="Streaming_Stop" xml:space="preserve"><value>Stop</value></data>
+  <data name="Streaming_StopAll" xml:space="preserve"><value>Stop All</value></data>
+  <data name="Streaming_StopAllStreamsAriaLabel" xml:space="preserve"><value>Stop all streams for {0}</value></data>
   <data name="Streaming_StopStreamAriaLabel" xml:space="preserve"><value>Stop stream {0}</value></data>
   <data name="Streaming_StreamComponents" xml:space="preserve"><value>Stream components</value></data>
   <data name="Streaming_SubscribedStreamComponents" xml:space="preserve"><value>Subscribed stream components</value></data>

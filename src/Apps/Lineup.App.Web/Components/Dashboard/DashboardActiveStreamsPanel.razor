@@ -1,4 +1,7 @@
 @using Lineup.App.Web.Components.Streaming
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject ILogger<DashboardActiveStreamsPanel> Logger
 
 <div class="card mb-4">
     <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
@@ -13,26 +16,11 @@
             <span class="visually-hidden">@Text[Expanded ? "Dashboard_CollapseActiveStreamsSection" : "Dashboard_ExpandActiveStreamsSection"]</span>
         </button>
     </div>
-    <div id="activeStreamsSection" class="card-body" hidden="@(!Expanded)">
-        <div class="card mb-4">
-            <div class="card-header">
-                <h6 class="mb-0"><span class="bi bi-diagram-3 me-1"></span>@Text["Dashboard_StreamingFlowHeading"]</h6>
-            </div>
-            <div class="card-body">
-                <StreamingFlowDiagram Snapshot="Snapshot" Resources="Resources" />
-            </div>
-        </div>
-        <div class="card mb-4">
-            <div class="card-header">
-                <h6 class="mb-0"><span class="bi bi-signpost-split me-1"></span>@Text["Dashboard_ActivePathsHeading"]</h6>
-            </div>
-            <div class="card-body">
-                <StreamingFlowPaths Snapshot="Snapshot"
-                                    Resources="Resources"
-                                    StoppingSessionIds="StoppingSessionIds"
-                                    StopRequested="StopRequested" />
-            </div>
-        </div>
+    <div id="activeStreamsSection" class="card-body" hidden="@(!Expanded)" @ref="_body">
+        <StreamingFlowDiagram Snapshot="Snapshot"
+                              Resources="Resources"
+                              StoppingSessionIds="StoppingSessionIds"
+                              StopRequested="StopRequested" />
         <div class="d-flex justify-content-end mt-3">
             <button id="refreshActiveStreams" class="btn btn-sm btn-outline-primary" @onclick="() => RefreshRequested.InvokeAsync()">
                 <span class="bi bi-arrow-clockwise me-1"></span>@Text["Common_Refresh"]
@@ -42,6 +30,65 @@
 </div>
 
 @code {
+    private readonly string _observerId = Guid.NewGuid().ToString("N");
+    private ElementReference _body;
+    private DotNetObjectReference<DashboardActiveStreamsPanel>? _reference;
+    private int? _observedInterval;
+    private bool _disposed;
+
+    /// <summary>Gets or sets the automatic refresh interval, or zero for manual refresh only.</summary>
+    [Parameter]
+    public int RefreshIntervalSeconds { get; set; }
+
+    /// <inheritdoc />
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_disposed || _observedInterval == RefreshIntervalSeconds) return;
+        _reference ??= DotNetObjectReference.Create(this);
+        try
+        {
+            await JS.InvokeVoidAsync("lineupFlowGraph.observe", _observerId, _body, _reference, RefreshIntervalSeconds);
+            _observedInterval = RefreshIntervalSeconds;
+        }
+        catch (JSDisconnectedException exception)
+        {
+            Logger.LogDebug(exception, "Streaming flow observation ended with its browser connection");
+        }
+        catch (JSException exception)
+        {
+            Logger.LogWarning(exception, "Unable to start automatic streaming flow updates");
+        }
+    }
+
+    /// <summary>Refreshes one snapshot in response to foreground browser demand.</summary>
+    [JSInvokable]
+    public async Task RefreshVisibleStreams()
+    {
+        if (!_disposed && Expanded && RefreshIntervalSeconds > 0) await RefreshRequested.InvokeAsync();
+    }
+
+    /// <inheritdoc />
+    public async ValueTask DisposeAsync()
+    {
+        _disposed = true;
+        try
+        {
+            if (_reference is not null) await JS.InvokeVoidAsync("lineupFlowGraph.stopObserving", _observerId);
+        }
+        catch (JSDisconnectedException exception)
+        {
+            Logger.LogDebug(exception, "Streaming flow observation disposed with its browser connection");
+        }
+        catch (JSException exception)
+        {
+            Logger.LogWarning(exception, "Unable to dispose streaming flow observation");
+        }
+        finally
+        {
+            _reference?.Dispose();
+        }
+    }
+
     /// <summary>Gets or sets whether the panel is expanded.</summary>
     [Parameter]
     public bool Expanded { get; set; }

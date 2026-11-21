@@ -1,4 +1,5 @@
 using Lineup.Core.Common.Guides;
+using Lineup.Core.Common.Streaming;
 
 namespace Lineup.Plugin.LineupLink.Protocol;
 
@@ -55,6 +56,9 @@ public sealed record LineupLinkManifest
 
     /// <summary>Gets whether the remote output can publish guide data.</summary>
     public bool GuideAvailable { get; init; } = true;
+
+    /// <summary>Gets subscribed upstream observations, or <see langword="null"/> when the remote instance does not publish tuner status.</summary>
+    public IReadOnlyList<UpstreamPhysicalDeviceStatus>? UpstreamDevices { get; init; }
 }
 
 /// <summary>Describes one channel exported by a Lineup Link virtual device.</summary>

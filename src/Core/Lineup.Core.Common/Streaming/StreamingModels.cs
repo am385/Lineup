@@ -99,6 +99,12 @@ public sealed record PhysicalDeviceStatusSnapshot
     /// <summary>Gets current receiver states.</summary>
     public IReadOnlyList<PhysicalReceiverStatus> Receivers { get; init; } = [];
 
+    /// <summary>Gets whether receiver indices describe local stream slots rather than hardware tuners.</summary>
+    public bool ReceiversAreStreamSlots { get; init; }
+
+    /// <summary>Gets read-only upstream observations, or <see langword="null"/> when the remote source does not publish them.</summary>
+    public IReadOnlyList<UpstreamPhysicalDeviceStatus>? UpstreamDevices { get; init; }
+
     /// <summary>Gets when status was observed.</summary>
     public DateTimeOffset ObservedAtUtc { get; init; } = DateTimeOffset.UtcNow;
 }
@@ -146,6 +152,31 @@ public sealed record PhysicalReceiverStatus
 
     /// <summary>Gets the reported packet rate.</summary>
     public int? PacketsPerSecond { get; init; }
+}
+
+/// <summary>Describes a cached, read-only upstream device observation without addresses, credentials, or receiver controls.</summary>
+public sealed record UpstreamPhysicalDeviceStatus
+{
+    /// <summary>Gets the upstream instance's device identity.</summary>
+    public required Guid DeviceId { get; init; }
+
+    /// <summary>Gets the configured upstream device name.</summary>
+    public required string Name { get; init; }
+
+    /// <summary>Gets the upstream adapter kind.</summary>
+    public required string Kind { get; init; }
+
+    /// <summary>Gets the last successful receiver-status observation, or <see langword="null"/> when none is available.</summary>
+    public DateTimeOffset? ObservedAtUtc { get; init; }
+
+    /// <summary>Gets a safe current activation or refresh failure, retaining any prior observation separately.</summary>
+    public string? Error { get; init; }
+
+    /// <summary>Gets whether these receiver indices describe stream slots rather than physical tuners.</summary>
+    public bool ReceiversAreStreamSlots { get; init; }
+
+    /// <summary>Gets observed receiver states without stream targets.</summary>
+    public IReadOnlyList<PhysicalReceiverStatus> Receivers { get; init; } = [];
 }
 
 /// <summary>

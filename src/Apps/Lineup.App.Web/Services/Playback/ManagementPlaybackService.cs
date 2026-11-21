@@ -504,7 +504,19 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                     return ValueTask.FromResult(new CmafOutputRegistration(
                     pendingOutput,
                     pendingOutput,
-                    released => _activeStreamRegistry.Unregister(released.ToString())));
+                    released => _activeStreamRegistry.Unregister(released.ToString()))
+                    {
+                        ObserveContext = () => new StreamingProducerContext(
+                            activeStream.Flow! with { ProducerNodeId = pendingOutput.Tasks.SourceProducerNodeId }, channel)
+                        {
+                            VideoEncoding = pendingOutput.ActiveVideoEncoder is { } encoder
+                                ? new VideoEncodingSnapshot(encoder, virtualProfile.HardwareEncoding.Encoder, false)
+                                : null,
+                            ResourceIds = pendingOutput.Session is { } media
+                                ? OwnedMediaProcess.GetResourceIds(media.Process).Concat(media.CaptionProcess is { } captions ? OwnedMediaProcess.GetResourceIds(captions) : []).ToArray()
+                                : []
+                        }
+                    });
                 },
                 TimeSpan.FromSeconds(_settingsService.Settings.Streaming.KeepWarmPeriodSeconds),
                 startupToken);

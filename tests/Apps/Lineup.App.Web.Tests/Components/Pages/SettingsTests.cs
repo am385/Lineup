@@ -820,7 +820,7 @@ public class SettingsTests
         Assert.Equal(nameof(ProtectedContentMode.ReturnError), component.Find("#protectedContentMode").GetAttribute("value"));
         Assert.Equal("0", component.Find("#maximumConcurrentStreams").GetAttribute("value"));
         Assert.Equal("0", component.Find("#keepWarmPeriodSeconds").GetAttribute("value"));
-        Assert.Equal("5", component.Find("#activeStreamRefreshInterval").GetAttribute("value"));
+        Assert.Equal("1", component.Find("#activeStreamRefreshInterval").GetAttribute("value"));
         Assert.False(component.Find("#overrideLoggingDefaults").HasAttribute("checked"));
         Assert.Empty(component.FindAll("#applicationLogLevel"));
         await settingsService.DidNotReceive().UpdateAsync(Arg.Any<Action<LineupSettings>>());

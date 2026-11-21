@@ -104,7 +104,7 @@ public sealed class LineupLinkGuidePublicationTests
         var guides = Substitute.For<IGuideOrchestrator>();
         guides.BuildSnapshotAsync(id, Arg.Any<CancellationToken>()).Returns(snapshot);
         var controller = new LineupLinkController(settings, new StreamingAdapterRegistry([], [new LineupLinkVirtualTunerDriver()], []),
-            Substitute.For<IPhysicalDeviceCatalog>(), Substitute.For<IStreamingRouteResolver>(), guides, Substitute.For<IVirtualMpegTsOutputService>(),
+            Substitute.For<IPhysicalDeviceCatalog>(), Substitute.For<IPhysicalDeviceStatusService>(), Substitute.For<IStreamingRouteResolver>(), guides, Substitute.For<IVirtualMpegTsOutputService>(),
             new ActiveStreamRegistry(), NullLogger<LineupLinkController>.Instance)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }

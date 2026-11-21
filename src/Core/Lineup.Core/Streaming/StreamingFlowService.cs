@@ -67,6 +67,9 @@ public sealed record StreamingFlowNode(string Id, StreamingFlowLane Lane, string
     /// <summary>Gets distinct encoder outcomes reported by active outputs, not inferred from device settings.</summary>
     public IReadOnlyList<VideoEncodingSnapshot> VideoEncodings { get; init; } = [];
 
+    /// <summary>Gets whether this node is a logical reference rather than a processing stage that reports an encoder.</summary>
+    public bool IsLogicalStage { get; init; }
+
     /// <summary>Gets active virtual channel numbers associated with the node.</summary>
     public IReadOnlyList<string> ActiveChannels { get; init; } = [];
 
@@ -107,6 +110,12 @@ public sealed record StreamingFlowPath(
 /// <summary>Immutable dashboard projection of configured topology and live streaming state.</summary>
 public sealed record StreamingFlowSnapshot(IReadOnlyList<StreamingFlowNode> Nodes, IReadOnlyList<StreamingFlowPath> ActivePaths, int ActiveConsumerCount, int ActiveProducerCount, int WarmProducerCount)
 {
+    /// <summary>Gets the identity-based runtime topology, when supplied by the snapshot provider.</summary>
+    public StreamingFlowGraph? Graph { get; init; }
+
+    /// <summary>Gets the complete logical card topology, including idle processors and reusable producer inventory.</summary>
+    public StreamingFlowTopology? Topology { get; init; }
+
     /// <summary>Gets all nodes in one display lane.</summary>
     public IReadOnlyList<StreamingFlowNode> GetLane(StreamingFlowLane lane) => Nodes.Where(node => node.Lane == lane).ToArray();
 }
@@ -341,7 +350,13 @@ public sealed class StreamingFlowSnapshotService : IStreamingFlowSnapshotService
             .ThenBy(path => path.SessionId, StringComparer.Ordinal)
             .ToArray();
 
-        return new StreamingFlowSnapshot(nodes, paths, streams.Count, producerCount, graphWarm + externalWarm);
+        var outputs = producerDiagnostics.SelectMany(item => item.Outputs).ToArray();
+        var runtimeGraph = StreamingFlowGraphBuilder.Build(configuration, graph, streams, outputs, nodes);
+        return new StreamingFlowSnapshot(nodes, paths, streams.Count, producerCount, graphWarm + externalWarm)
+        {
+            Graph = runtimeGraph,
+            Topology = StreamingFlowTopologyBuilder.Build(nodes, streams, runtimeGraph, graphPhysicalDevices, outputs, paths)
+        };
     }
 
     private static StreamingFlowPath CreatePath(

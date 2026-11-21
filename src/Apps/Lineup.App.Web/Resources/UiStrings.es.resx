@@ -245,6 +245,8 @@
   <data name="Dashboard_GuideXmltvHeading" xml:space="preserve"><value>Guía &amp; XMLTV</value></data>
   <data name="Dashboard_Heading" xml:space="preserve"><value>Panel de control</value></data>
   <data name="Dashboard_LatestLabel" xml:space="preserve"><value>Lo último</value></data>
+  <data name="Dashboard_LinkSlotUnused" xml:space="preserve"><value>Sin usar</value></data>
+  <data name="Dashboard_LinkStreamSlots" xml:space="preserve"><value>Ranuras de streams Link (no son sintonizadores físicos)</value></data>
   <data name="Dashboard_ManualFetchProgress" xml:space="preserve"><value>Progreso de recuperación manual</value></data>
   <data name="Dashboard_NextFetchIn" xml:space="preserve"><value>próxima obtención en {0}</value></data>
   <data name="Dashboard_NoActivePhysicalDevices" xml:space="preserve"><value>No hay ningún dispositivo físico habilitado activo.</value></data>
@@ -277,6 +279,11 @@
   <data name="Dashboard_StreamingFlowHeading" xml:space="preserve"><value>Flujo de transmisión</value></data>
   <data name="Dashboard_TargetColumn" xml:space="preserve"><value>Objetivo</value></data>
   <data name="Dashboard_TimeRangeHeading" xml:space="preserve"><value>Rango de tiempo</value></data>
+  <data name="Dashboard_UpstreamStatusCached" xml:space="preserve"><value>La última actualización falló; la tabla muestra la última observación correcta.</value></data>
+  <data name="Dashboard_UpstreamStatusEmpty" xml:space="preserve"><value>No hay dispositivos de origen suscritos.</value></data>
+  <data name="Dashboard_UpstreamStatusHeading" xml:space="preserve"><value>Estado de los sintonizadores de origen (solo lectura)</value></data>
+  <data name="Dashboard_UpstreamStatusObserved" xml:space="preserve"><value>Última observación: {0}</value></data>
+  <data name="Dashboard_UpstreamStatusUnavailable" xml:space="preserve"><value>La instancia remota no informa del estado de los sintonizadores de origen.</value></data>
   <data name="General_AppearanceHeading" xml:space="preserve"><value>Apariencia</value></data>
   <data name="General_CurrentTimeZone" xml:space="preserve"><value>Actualmente:</value></data>
   <data name="General_KnownProxiesHelp" xml:space="preserve"><value>Introduzca una dirección IP de proxy inverso de confianza o una red CIDR por línea. Déjelo vacío cuando el listener de administración no esté detrás de un proxy inverso. El proxy debe conservar Host y enviar X-Forwarded-For y X-Forwarded-Proto.</value></data>
@@ -588,7 +595,7 @@
   <data name="Settings_CpuLimitLabel" xml:space="preserve"><value>Límite de CPU (%)</value></data>
   <data name="Settings_CurrentGuidePathInvalid" xml:space="preserve"><value>La ruta de salida de la guía actual no es válida. Seleccione un directorio de servidor.</value></data>
   <data name="Settings_DashboardActiveStreamsHeading" xml:space="preserve"><value>Transmisiones activas</value></data>
-  <data name="Settings_DashboardRefreshIntervalHelp" xml:space="preserve"><value>Con qué frecuencia actualizar las transmisiones alojadas activas en el panel. Establezca en 0 para deshabilitar la actualización automática.</value></data>
+  <data name="Settings_DashboardRefreshIntervalHelp" xml:space="preserve"><value>Segundos entre actualizaciones con el panel visible y expandido; valor predeterminado: 1. Use 0 para actualizar solo manualmente. Se conservan los intervalos guardados.</value></data>
   <data name="Settings_DashboardRefreshIntervalLabel" xml:space="preserve"><value>Intervalo de actualización de transmisión activa (segundos)</value></data>
   <data name="Settings_DedicatedListenerHelp" xml:space="preserve"><value>Los servicios de escucha dedicados se ejecutan en un proceso de salida aislado. Cambiar esta configuración reinicia únicamente esta salida virtual.</value></data>
   <data name="Settings_DefaultLogDirectory" xml:space="preserve"><value>el directorio de configuración de Lineup/logs</value></data>
@@ -966,11 +973,18 @@
   <data name="Streaming_EncoderUnknown" xml:space="preserve"><value>Codificador de vídeo no informado</value></data>
   <data name="Streaming_FlowSummaryAriaLabel" xml:space="preserve"><value>Resumen del flujo de transmisión</value></data>
   <data name="Streaming_GopUnknownRate" xml:space="preserve"><value>GOP: {0} fotogramas; frecuencia no disponible</value></data>
+  <data name="Streaming_GraphAllPaths" xml:space="preserve"><value>Todas las rutas</value></data>
+  <data name="Streaming_GraphConnectionsHelp" xml:space="preserve"><value>Las conexiones discontinuas están inactivas; las continuas muestran rutas activas o retenidas.</value></data>
+  <data name="Streaming_GraphPath" xml:space="preserve"><value>Resaltar ruta</value></data>
+  <data name="Streaming_GraphReusableOutputs" xml:space="preserve"><value>Salidas reutilizables</value></data>
+  <data name="Streaming_GraphUnavailable" xml:space="preserve"><value>No se pudieron mostrar las conexiones. Las tarjetas de nodos y los detalles siguen disponibles.</value></data>
   <data name="Streaming_LaneConsumers" xml:space="preserve"><value>Consumidores</value></data>
   <data name="Streaming_LaneMultiplexer" xml:space="preserve"><value>multiplexor</value></data>
   <data name="Streaming_LaneOutputProcessing" xml:space="preserve"><value>Procesamiento de salida</value></data>
+  <data name="Streaming_LaneOutputProcessingMultiplexer" xml:space="preserve"><value>Multiplexor de procesamiento de salida</value></data>
   <data name="Streaming_LanePhysicalSources" xml:space="preserve"><value>Fuentes físicas</value></data>
   <data name="Streaming_LaneSourceProcessing" xml:space="preserve"><value>Procesamiento de origen</value></data>
+  <data name="Streaming_LaneSourceProcessingMultiplexer" xml:space="preserve"><value>Multiplexor de procesamiento de origen</value></data>
   <data name="Streaming_LaneVirtualOutputs" xml:space="preserve"><value>Salidas virtuales</value></data>
   <data name="Streaming_MediaTrackAudio" xml:space="preserve"><value>Audio</value></data>
   <data name="Streaming_MediaTrackSubtitle" xml:space="preserve"><value>Subtítulo</value></data>
@@ -985,6 +999,7 @@
   <data name="Streaming_Session" xml:space="preserve"><value>Sesión</value></data>
   <data name="Streaming_SharedSessions" xml:space="preserve"><value>Sesiones compartidas · {0}</value></data>
   <data name="Streaming_SourceStreamComponents" xml:space="preserve"><value>Componentes del flujo fuente</value></data>
+  <data name="Streaming_StageBoundaryHelp" xml:space="preserve"><value>Estos diagnósticos de sesión describen toda la etapa de procesamiento, no el productor individual. Los recursos anteriores pertenecen solo al nodo seleccionado.</value></data>
   <data name="Streaming_StageConsumer" xml:space="preserve"><value>Consumidor</value></data>
   <data name="Streaming_StageMultiplexer" xml:space="preserve"><value>multiplexor</value></data>
   <data name="Streaming_StageOutputProcessing" xml:space="preserve"><value>Procesamiento de salida</value></data>
@@ -1000,6 +1015,8 @@
   <data name="Streaming_StateTranscoding" xml:space="preserve"><value>Transcodificación</value></data>
   <data name="Streaming_StateWarm" xml:space="preserve"><value>En espera activa</value></data>
   <data name="Streaming_Stop" xml:space="preserve"><value>Detener</value></data>
+  <data name="Streaming_StopAll" xml:space="preserve"><value>Detener todo</value></data>
+  <data name="Streaming_StopAllStreamsAriaLabel" xml:space="preserve"><value>Detener todas las transmisiones de {0}</value></data>
   <data name="Streaming_StopStreamAriaLabel" xml:space="preserve"><value>Detener transmisión {0}</value></data>
   <data name="Streaming_StreamComponents" xml:space="preserve"><value>Componentes de transmisión</value></data>
   <data name="Streaming_SubscribedStreamComponents" xml:space="preserve"><value>Componentes de transmisión suscritos</value></data>

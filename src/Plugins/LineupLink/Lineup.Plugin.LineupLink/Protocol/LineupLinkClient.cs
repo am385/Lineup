@@ -72,6 +72,7 @@ public sealed class LineupLinkClient : IDisposable
         {
             throw new InvalidDataException("The remote Lineup Link manifest returned a different virtual-device identity.");
         }
+        ValidateUpstreamStatus(manifest);
         return manifest;
     }
 
@@ -175,6 +176,36 @@ public sealed class LineupLinkClient : IDisposable
         if (version != LineupLinkProtocol.Version)
         {
             throw new InvalidDataException($"Remote Lineup Link protocol version {version} is not supported.");
+        }
+    }
+
+    private static void ValidateUpstreamStatus(LineupLinkManifest manifest)
+    {
+        if (manifest.UpstreamDevices is null)
+        {
+            return;
+        }
+        var deviceIds = new HashSet<Guid>();
+        foreach (var device in manifest.UpstreamDevices)
+        {
+            if (device is null || device.DeviceId == Guid.Empty || !deviceIds.Add(device.DeviceId)
+                || string.IsNullOrWhiteSpace(device.Name) || string.IsNullOrWhiteSpace(device.Kind) || device.Receivers is null)
+            {
+                throw new InvalidDataException("The remote Lineup Link manifest contains invalid upstream device observations.");
+            }
+            if (device.ObservedAtUtc is null && device.Receivers.Count > 0)
+            {
+                throw new InvalidDataException("The remote Lineup Link manifest contains upstream receiver states without an observation time.");
+            }
+            var receiverIndices = new HashSet<int>();
+            foreach (var receiver in device.Receivers)
+            {
+                if (receiver is null || receiver.Index < 0 || !receiverIndices.Add(receiver.Index) || receiver.Target is not null
+                    || receiver.SignalStrength is < 0 or > 100 || receiver.SignalQuality is < 0 or > 100 || receiver.SymbolQuality is < 0 or > 100)
+                {
+                    throw new InvalidDataException("The remote Lineup Link manifest contains invalid or unsafe upstream receiver observations.");
+                }
+            }
         }
     }
 

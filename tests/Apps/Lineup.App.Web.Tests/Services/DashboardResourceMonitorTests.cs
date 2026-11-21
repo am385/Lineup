@@ -351,9 +351,149 @@ public sealed class DashboardResourceMonitorTests
         Assert.Equal("N/A", cells[3].TextContent);
     }
 
+    /// <summary>Verifies processing details show current GPU devices separately from process costs and never turn missing metrics into idle readings.</summary>
+    [Theory]
+    [InlineData(StreamingFlowStageKind.SourceProcessing)]
+    [InlineData(StreamingFlowStageKind.OutputProcessing)]
+    public async Task StageDetails_GpuDevices_ShowsWholeDeviceReadingsWithoutChangingProcessAttribution(StreamingFlowStageKind kind)
+    {
+        // Arrange
+        await using var context = new LineupWebBunitContext();
+        var stage = new StreamingFlowPathStage(kind, "Processing", "Shared", []) { ResourceIds = ["process", "process"] };
+        var snapshot = new DashboardResourceSnapshot(true, [new("process", "output", 123, 25, 1024, DateTimeOffset.UtcNow, null)], [],
+            new([new("gpu:first", "Discrete GPU", 75, 12.5, 0, null), new("gpu:second", "Discrete GPU", 0, null, null, 4.75)]));
+
+        // Act
+        var component = context.Render<StreamResourceDetails>(parameters => parameters.Add(value => value.Stage, stage).Add(value => value.Snapshot, snapshot));
+
+        // Assert
+        Assert.Single(component.FindAll("[data-resource-id]"));
+        Assert.Equal("process", component.Find("[data-resource-id]").GetAttribute("data-resource-id"));
+        Assert.Contains("25%", component.Find("[data-resource-id]").TextContent);
+        Assert.Contains("whole devices visible to this host/container", component.Find("[data-resource-gpu]").TextContent);
+        Assert.Contains("not Lineup-only or per-stream costs", component.Find("[data-resource-gpu]").TextContent);
+        Assert.Equal(2, component.FindAll("[data-resource-gpu-device]").Count);
+        Assert.Equal(["75%", "12.5%", "0%", "N/A"], component.FindAll("[data-resource-gpu-device='gpu:first'] td").Skip(1).Select(cell => cell.TextContent.Trim()));
+        Assert.Equal(["0%", "N/A", "N/A", "4.75%"], component.FindAll("[data-resource-gpu-device='gpu:second'] td").Skip(1).Select(cell => cell.TextContent.Trim()));
+        Assert.Contains("table-layout:fixed", component.Find("[data-resource-gpu-table]").GetAttribute("style"));
+        component.Render(parameters => parameters.Add(value => value.Snapshot, snapshot with { Collecting = false }));
+        Assert.Empty(component.FindAll("[data-resource-gpu], [data-resource-gpu-device]"));
+        Assert.Contains("paused", component.Markup);
+    }
+
+    /// <summary>Verifies unavailable device readings clear cached percentages while preserving stable columns and failure diagnostics.</summary>
+    [Theory]
+    [InlineData("read_failed", "could not be read")]
+    [InlineData("permission_denied", "permissions deny access")]
+    public async Task StageDetails_GpuFailure_ClearsPercentagesAndPreservesTableLayout(string reason, string explanation)
+    {
+        // Arrange
+        await using var context = new LineupWebBunitContext();
+        var stage = new StreamingFlowPathStage(StreamingFlowStageKind.OutputProcessing, "Output", "Shared", []);
+        var device = new GpuResourceSample("gpu", "Discrete GPU", 89, 73, 41, 28);
+        var history = new ResourceHistoryPoint(DateTimeOffset.UtcNow, new(1, 1), new(1, 1), new(1, 1), new(1, 1), true) { Gpus = [device] };
+        var snapshot = new DashboardResourceSnapshot(true, [], [history], new([device]));
+        var component = context.Render<StreamResourceDetails>(parameters => parameters.Add(value => value.Stage, stage).Add(value => value.Snapshot, snapshot));
+        var widths = component.FindAll("[data-resource-gpu-table] col").Select(column => column.GetAttribute("style")).ToArray();
+
+        // Act
+        component.Render(parameters => parameters.Add(value => value.Snapshot, snapshot with
+        {
+            Gpu = new([device with { UnavailableReason = reason }], reason)
+        }));
+
+        // Assert
+        var gpu = component.Find("[data-resource-gpu]");
+        Assert.Contains("Discrete GPU", gpu.TextContent);
+        Assert.Contains(explanation, gpu.TextContent);
+        Assert.Equal(["N/A", "N/A", "N/A", "N/A"], component.FindAll("[data-resource-gpu-device] td").Skip(1).Select(cell => cell.TextContent.Trim()));
+        Assert.Equal(widths, component.FindAll("[data-resource-gpu-table] col").Select(column => column.GetAttribute("style")));
+        Assert.DoesNotContain("%", component.Find("[data-resource-gpu-device]").TextContent);
+        component.Render(parameters => parameters.Add(value => value.Snapshot, snapshot));
+        Assert.Equal(["89%", "73%", "41%", "28%"], component.FindAll("[data-resource-gpu-device] td").Skip(1).Select(cell => cell.TextContent.Trim()));
+    }
+
+    /// <summary>Verifies missing or unavailable collection reports its reason rather than substituting retained GPU history.</summary>
+    [Theory]
+    [InlineData(null, "baselines")]
+    [InlineData("warming_up", "baselines")]
+    [InlineData("unsupported", "No supported GPU")]
+    [InlineData("read_failed", "could not be read")]
+    [InlineData("permission_denied", "permissions deny access")]
+    public async Task StageDetails_GpuUnavailable_DoesNotBorrowHistory(string? reason, string explanation)
+    {
+        // Arrange
+        await using var context = new LineupWebBunitContext();
+        var stage = new StreamingFlowPathStage(StreamingFlowStageKind.SourceProcessing, "Source", "Shared", []);
+        var history = new ResourceHistoryPoint(DateTimeOffset.UtcNow, new(1, 1), new(1, 1), new(1, 1), new(1, 1), true)
+        {
+            Gpus = [new("old", "Old GPU", 98, 97, 96, 95)]
+        };
+        var snapshot = new DashboardResourceSnapshot(true, [], [history], reason is null ? null : new([], reason));
+
+        // Act
+        var component = context.Render<StreamResourceDetails>(parameters => parameters.Add(value => value.Stage, stage).Add(value => value.Snapshot, snapshot));
+
+        // Assert
+        Assert.Contains(explanation, component.Find("[data-resource-gpu]").TextContent);
+        Assert.Contains("N/A", component.Find("[data-resource-gpu]").TextContent);
+        Assert.Empty(component.FindAll("[data-resource-gpu-table], [data-resource-gpu-device]"));
+        Assert.DoesNotContain("Old GPU", component.Markup);
+        Assert.DoesNotContain("98%", component.Markup);
+    }
+
+    /// <summary>Verifies shared codec counters remain one shared measurement and partial discovery failures do not hide healthy adapters.</summary>
+    [Fact]
+    public async Task StageDetails_SharedVideoAndPartialFailure_KeepsScopeAndReadableAdapters()
+    {
+        // Arrange
+        await using var context = new LineupWebBunitContext();
+        var stage = new StreamingFlowPathStage(StreamingFlowStageKind.SourceProcessing, "Source", "Shared", []);
+        var snapshot = new DashboardResourceSnapshot(true, [], [], new(
+            [new GpuResourceSample("intel", "Intel GPU", 80, 90, 85, 60) { SharedVideo = true }, new("failed", "Unavailable GPU", 99, 99, 99, 99, "read_failed")],
+            "read_failed"));
+
+        // Act
+        var component = context.Render<StreamResourceDetails>(parameters => parameters.Add(value => value.Stage, stage).Add(value => value.Snapshot, snapshot));
+
+        // Assert
+        var shared = component.FindAll("[data-resource-gpu-device='intel'] td");
+        Assert.Equal("80%", shared[1].TextContent);
+        Assert.Equal("N/A", shared[2].TextContent);
+        Assert.Equal("N/A", shared[3].TextContent);
+        Assert.Contains("60%", shared[4].TextContent);
+        Assert.Contains("Video encode/decode", shared[4].TextContent);
+        Assert.DoesNotContain("90%", component.Find("[data-resource-gpu]").TextContent);
+        Assert.DoesNotContain("85%", component.Find("[data-resource-gpu]").TextContent);
+        Assert.Contains("could not be read", component.Find("[data-resource-gpu]").TextContent);
+        Assert.Equal(["N/A", "N/A", "N/A", "N/A"], component.FindAll("[data-resource-gpu-device='failed'] td").Skip(1).Select(cell => cell.TextContent.Trim()));
+        Assert.DoesNotContain("99%", component.Markup);
+    }
+
+    /// <summary>Verifies host GPU usage is never displayed as resource usage of a viewer browser or a device/subscription card.</summary>
+    [Theory]
+    [InlineData(StreamingFlowStageKind.Consumer)]
+    [InlineData(StreamingFlowStageKind.PhysicalSource)]
+    [InlineData(StreamingFlowStageKind.VirtualOutput)]
+    [InlineData(StreamingFlowStageKind.Multiplexer)]
+    public async Task StageDetails_NonProcessingNode_DoesNotAttributeHostGpuUsage(StreamingFlowStageKind kind)
+    {
+        // Arrange
+        await using var context = new LineupWebBunitContext();
+        var stage = new StreamingFlowPathStage(kind, "Device or consumer", "External or shared-host", []);
+        var snapshot = new DashboardResourceSnapshot(true, [], [], new([new("gpu", "Host GPU", 50, 40, 30, 20)]));
+
+        // Act
+        var component = context.Render<StreamResourceDetails>(parameters => parameters.Add(value => value.Stage, stage).Add(value => value.Snapshot, snapshot));
+
+        // Assert
+        Assert.Empty(component.FindAll("[data-resource-gpu], [data-resource-gpu-table]"));
+        Assert.DoesNotContain("Host GPU", component.Markup);
+    }
+
     /// <summary>Verifies in-process and external stages retain truthful resource details even without separate input-media panels.</summary>
     [Theory]
-    [InlineData(StreamingFlowStageKind.Multiplexer, "shared host")]
+    [InlineData(StreamingFlowStageKind.VirtualOutput, "shared host")]
     [InlineData(StreamingFlowStageKind.Consumer, "outside Lineup")]
     public async Task StageSelection_NoSeparateProcess_ShowsResourceExplanation(StreamingFlowStageKind kind, string expected)
     {
@@ -361,12 +501,15 @@ public sealed class DashboardResourceMonitorTests
         await using var context = new LineupWebBunitContext();
         var stage = new StreamingFlowPathStage(kind, "Stage", "Shared", []);
         var path = new StreamingFlowPath("path", "session", "local", HostedStreamFormat.MpegTs, "1", DateTime.UtcNow, [stage], false, true, 2);
-        var component = context.Render<StreamingFlowPaths>(parameters => parameters
-            .Add(value => value.Snapshot, new StreamingFlowSnapshot([], [path], 1, 1, 0))
+        var lane = kind == StreamingFlowStageKind.Consumer ? StreamingFlowLane.Consumer : StreamingFlowLane.VirtualOutput;
+        var node = new StreamingFlowNode("selected", lane, "Stage", "Shared", StreamingFlowState.Active, []);
+        var snapshot = new StreamingFlowSnapshot([], [path], 1, 1, 0) { Topology = new([node], [], [new(path.Id, [node.Id], [])], []) };
+        var component = context.Render<StreamingFlowDiagram>(parameters => parameters
+            .Add(value => value.Snapshot, snapshot)
             .Add(value => value.Resources, new DashboardResourceSnapshot(true, [], [])));
 
         // Act
-        await component.Find($"[data-flow-stage='{kind}']").ClickAsync(new());
+        await component.Find("[data-flow-node-id='selected']").ClickAsync(new());
 
         // Assert
         Assert.Contains(expected, component.Find($"[data-resource-stage='{kind}']").TextContent, StringComparison.OrdinalIgnoreCase);

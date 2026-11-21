@@ -222,9 +222,9 @@ public sealed class LineupLinkTests
         Assert.Equal(virtualDeviceId.ToString("D"), channel.Metadata["lineupLinkVirtualDeviceId"]);
     }
 
-    /// <summary>Verifies Lineup Link physical status exposes remote identity and idle receiver capacity.</summary>
+    /// <summary>Verifies legacy manifests expose remote identity and explicitly local stream slots without inventing upstream observations.</summary>
     [Fact]
-    public async Task PhysicalDevice_RefreshStatus_ReturnsRemoteDetailsAndIdleReceivers()
+    public async Task PhysicalDevice_RefreshStatus_ReturnsRemoteDetailsAndLocalStreamSlots()
     {
         // Arrange
         var virtualDeviceId = Guid.NewGuid();
@@ -246,7 +246,15 @@ public sealed class LineupLinkTests
         {
             var context = await listener.GetContextAsync();
             Assert.Equal(LineupLinkProtocol.ManifestPath(virtualDeviceId), context.Request.Url?.AbsolutePath);
-            await WriteJsonAsync(context.Response, manifest);
+            await WriteJsonAsync(context.Response, new
+            {
+                manifest.ProtocolVersion,
+                manifest.InstanceId,
+                manifest.VirtualDeviceId,
+                manifest.Name,
+                manifest.TunerCount,
+                manifest.GuideAvailable
+            });
         }, TestContext.Current.CancellationToken);
         using var device = new LineupLinkPhysicalTunerDevice(
             physicalDeviceId,
@@ -273,11 +281,200 @@ public sealed class LineupLinkTests
         Assert.Equal("3", status.Details["Tuners"]);
         Assert.Equal("Available", status.Details["Guide"]);
         Assert.Equal(3, status.Receivers.Count);
+        Assert.True(status.ReceiversAreStreamSlots);
+        Assert.Null(status.UpstreamDevices);
         Assert.All(status.Receivers, receiver =>
         {
             Assert.False(receiver.IsActive);
             Assert.False(receiver.IsStreaming);
         });
+    }
+
+    /// <summary>Remote hardware observations remain complete and independent of three locally owned Link stream slots.</summary>
+    [Fact]
+    public async Task PhysicalDevice_ThreeLocalStreams_PreservesFourUpstreamTunersAndSignal()
+    {
+        // Arrange
+        var virtualDeviceId = Guid.NewGuid();
+        var physicalDeviceId = PhysicalDeviceId.New();
+        var observedAt = new DateTimeOffset(2026, 7, 1, 12, 0, 0, TimeSpan.Zero);
+        var upstream = new UpstreamPhysicalDeviceStatus
+        {
+            DeviceId = Guid.NewGuid(),
+            Name = "Shared HDHomeRun",
+            Kind = "hdhomerun",
+            ObservedAtUtc = observedAt,
+            Receivers = Enumerable.Range(0, 4).Select(index => new PhysicalReceiverStatus
+            {
+                Index = index,
+                IsActive = true,
+                IsStreaming = true,
+                HasLock = true,
+                VirtualChannel = $"2.{index + 1}",
+                SignalStrength = 98,
+                SignalQuality = 87,
+                SymbolQuality = 100
+            }).ToArray()
+        };
+        var manifest = new LineupLinkManifest
+        {
+            InstanceId = Guid.NewGuid(),
+            VirtualDeviceId = virtualDeviceId,
+            Name = "Remote output",
+            TunerCount = 4,
+            UpstreamDevices = [upstream]
+        };
+        var lineup = new LineupLinkLineup
+        {
+            VirtualDeviceId = virtualDeviceId,
+            Channels = Enumerable.Range(1, 3).Select(index => new LineupLinkChannel { Key = $"2.{index}", Number = $"2.{index}", Name = $"Channel {index}" }).ToArray()
+        };
+        var port = GetAvailablePort();
+        using var listener = new HttpListener();
+        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+        listener.Start();
+        var responseTask = Task.Run(async () =>
+        {
+            for (var index = 0; index < 5; index++)
+            {
+                var context = await listener.GetContextAsync();
+                if (index == 0)
+                {
+                    await WriteJsonAsync(context.Response, lineup);
+                }
+                else if (index == 4)
+                {
+                    await WriteJsonAsync(context.Response, manifest);
+                }
+                else
+                {
+                    Assert.Equal(LineupLinkProtocol.StreamPath(virtualDeviceId, $"2.{index}"), context.Request.Url?.AbsolutePath);
+                    context.Response.ContentType = LineupLinkProtocol.MpegTsMediaType;
+                    context.Response.ContentLength64 = 3;
+                    await context.Response.OutputStream.WriteAsync(new byte[] { 1, 2, 3 });
+                    context.Response.Close();
+                }
+            }
+        }, TestContext.Current.CancellationToken);
+        using var device = new LineupLinkPhysicalTunerDevice(physicalDeviceId, "Link", manifest, new LineupLinkClient(new LineupLinkPhysicalConfiguration
+        {
+            BaseUrl = $"http://127.0.0.1:{port}/",
+            VirtualDeviceId = virtualDeviceId,
+            AccessToken = "client-secret",
+            TransportSecurity = LineupLinkTransportSecurity.Http
+        }));
+        var channels = await device.RefreshLineupAsync(TestContext.Current.CancellationToken);
+        var leases = new List<IPhysicalStreamLease>();
+        try
+        {
+            // Act
+            foreach (var channel in channels)
+            {
+                leases.Add(await device.OpenStreamAsync(new PhysicalStreamRequest { ChannelId = channel.Id }, TestContext.Current.CancellationToken));
+            }
+            var status = await device.RefreshStatusAsync(TestContext.Current.CancellationToken);
+            await responseTask;
+
+            // Assert
+            Assert.True(status.ReceiversAreStreamSlots);
+            Assert.Equal(3, status.Receivers.Count(receiver => receiver.IsStreaming));
+            Assert.False(status.Receivers[3].IsActive);
+            var remote = Assert.Single(Assert.IsAssignableFrom<IReadOnlyList<UpstreamPhysicalDeviceStatus>>(status.UpstreamDevices));
+            Assert.Equal(upstream.DeviceId, remote.DeviceId);
+            Assert.Equal(observedAt, remote.ObservedAtUtc);
+            Assert.Equal(4, remote.Receivers.Count);
+            Assert.All(remote.Receivers, receiver =>
+            {
+                Assert.True(receiver.IsStreaming);
+                Assert.True(receiver.HasLock);
+                Assert.Equal(98, receiver.SignalStrength);
+                Assert.Equal(87, receiver.SignalQuality);
+                Assert.Equal(100, receiver.SymbolQuality);
+            });
+            Assert.Equal("2.4", remote.Receivers[3].VirtualChannel);
+        }
+        finally
+        {
+            foreach (var lease in leases)
+            {
+                await lease.DisposeAsync();
+            }
+            listener.Stop();
+            await responseTask;
+        }
+    }
+
+    /// <summary>Malformed or private upstream observations fail explicitly rather than entering the physical-status cache.</summary>
+    [Theory]
+    [InlineData("null-device")]
+    [InlineData("null-receivers")]
+    [InlineData("duplicate-device")]
+    [InlineData("duplicate-receiver")]
+    [InlineData("negative-index")]
+    [InlineData("invalid-signal")]
+    [InlineData("missing-observation")]
+    [InlineData("private-target")]
+    public async Task Client_Manifest_InvalidUpstreamStatus_IsRejected(string invalidField)
+    {
+        // Arrange
+        var virtualDeviceId = Guid.NewGuid();
+        var manifest = new LineupLinkManifest
+        {
+            InstanceId = Guid.NewGuid(),
+            VirtualDeviceId = virtualDeviceId,
+            Name = "Remote",
+            UpstreamDevices =
+            [
+                new UpstreamPhysicalDeviceStatus
+                {
+                    DeviceId = Guid.NewGuid(),
+                    Name = "Upstream",
+                    Kind = "test",
+                    ObservedAtUtc = DateTimeOffset.UtcNow,
+                    Receivers = [new PhysicalReceiverStatus { Index = 0, IsStreaming = true, HasLock = true, SignalStrength = 98 }]
+                }
+            ]
+        };
+        var json = Assert.IsType<System.Text.Json.Nodes.JsonObject>(JsonSerializer.SerializeToNode(manifest));
+        var devices = Assert.IsType<System.Text.Json.Nodes.JsonArray>(json["UpstreamDevices"]);
+        var upstream = Assert.IsType<System.Text.Json.Nodes.JsonObject>(devices[0]);
+        var receivers = Assert.IsType<System.Text.Json.Nodes.JsonArray>(upstream["Receivers"]);
+        var receiver = Assert.IsType<System.Text.Json.Nodes.JsonObject>(receivers[0]);
+        switch (invalidField)
+        {
+            case "null-device": devices[0] = null; break;
+            case "null-receivers": upstream["Receivers"] = null; break;
+            case "duplicate-device": devices.Add(upstream.DeepClone()); break;
+            case "duplicate-receiver": receivers.Add(receiver.DeepClone()); break;
+            case "negative-index": receiver["Index"] = -1; break;
+            case "invalid-signal": receiver["SignalStrength"] = 101; break;
+            case "missing-observation": upstream["ObservedAtUtc"] = null; break;
+            case "private-target": receiver["Target"] = "udp://192.0.2.1:5000"; break;
+            default: throw new ArgumentOutOfRangeException(nameof(invalidField));
+        }
+        var port = GetAvailablePort();
+        using var listener = new HttpListener();
+        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+        listener.Start();
+        var responseTask = Task.Run(async () =>
+        {
+            var context = await listener.GetContextAsync();
+            await WriteJsonAsync(context.Response, json);
+        }, TestContext.Current.CancellationToken);
+        using var client = new LineupLinkClient(new LineupLinkPhysicalConfiguration
+        {
+            BaseUrl = $"http://127.0.0.1:{port}/",
+            VirtualDeviceId = virtualDeviceId,
+            AccessToken = "client-secret",
+            TransportSecurity = LineupLinkTransportSecurity.Http
+        });
+
+        // Act
+        var error = await Assert.ThrowsAsync<InvalidDataException>(() => client.GetManifestAsync(TestContext.Current.CancellationToken));
+        await responseTask;
+
+        // Assert
+        Assert.Contains("upstream", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Verifies Lineup Link physical status tracks local receiver use for an active remote stream.</summary>
