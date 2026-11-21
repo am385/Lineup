@@ -279,6 +279,7 @@
   <data name="Dashboard_StreamingFlowHeading" xml:space="preserve"><value>流式传输流程</value></data>
   <data name="Dashboard_TargetColumn" xml:space="preserve"><value>目标</value></data>
   <data name="Dashboard_TimeRangeHeading" xml:space="preserve"><value>时间范围</value></data>
+  <data name="Dashboard_ToggleDeviceDetails" xml:space="preserve"><value>显示 / 隐藏设备详细信息</value></data>
   <data name="Dashboard_UpstreamStatusCached" xml:space="preserve"><value>最近一次刷新失败；表格显示最后一次成功观测的状态。</value></data>
   <data name="Dashboard_UpstreamStatusEmpty" xml:space="preserve"><value>尚未订阅上游设备。</value></data>
   <data name="Dashboard_UpstreamStatusHeading" xml:space="preserve"><value>上游调谐器状态（只读）</value></data>

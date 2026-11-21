@@ -279,6 +279,7 @@
   <data name="Dashboard_StreamingFlowHeading" xml:space="preserve"><value>Streaming Flow</value></data>
   <data name="Dashboard_TargetColumn" xml:space="preserve"><value>Target</value></data>
   <data name="Dashboard_TimeRangeHeading" xml:space="preserve"><value>Time Range</value></data>
+  <data name="Dashboard_ToggleDeviceDetails" xml:space="preserve"><value>Show / hide device details</value></data>
   <data name="Dashboard_UpstreamStatusCached" xml:space="preserve"><value>The latest refresh failed; the table shows the last successful observation.</value></data>
   <data name="Dashboard_UpstreamStatusEmpty" xml:space="preserve"><value>No upstream devices are subscribed.</value></data>
   <data name="Dashboard_UpstreamStatusHeading" xml:space="preserve"><value>Upstream tuner status (read-only)</value></data>

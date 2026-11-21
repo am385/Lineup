@@ -279,6 +279,7 @@
   <data name="Dashboard_StreamingFlowHeading" xml:space="preserve"><value>Fluxo de streaming</value></data>
   <data name="Dashboard_TargetColumn" xml:space="preserve"><value>Objetivo</value></data>
   <data name="Dashboard_TimeRangeHeading" xml:space="preserve"><value>Rango de tempo</value></data>
+  <data name="Dashboard_ToggleDeviceDetails" xml:space="preserve"><value>Mostrar / ocultar detalhes do dispositivo</value></data>
   <data name="Dashboard_UpstreamStatusCached" xml:space="preserve"><value>A última atualização falhou; a tabela mostra a última observação bem-sucedida.</value></data>
   <data name="Dashboard_UpstreamStatusEmpty" xml:space="preserve"><value>Nenhum dispositivo de origem está inscrito.</value></data>
   <data name="Dashboard_UpstreamStatusHeading" xml:space="preserve"><value>Status dos sintonizadores de origem (somente leitura)</value></data>

@@ -279,6 +279,7 @@
   <data name="Dashboard_StreamingFlowHeading" xml:space="preserve"><value>Flux de diffusion</value></data>
   <data name="Dashboard_TargetColumn" xml:space="preserve"><value>Cible</value></data>
   <data name="Dashboard_TimeRangeHeading" xml:space="preserve"><value>Plage horaire</value></data>
+  <data name="Dashboard_ToggleDeviceDetails" xml:space="preserve"><value>Afficher / masquer les détails de l'appareil</value></data>
   <data name="Dashboard_UpstreamStatusCached" xml:space="preserve"><value>La dernière actualisation a échoué ; le tableau affiche la dernière observation réussie.</value></data>
   <data name="Dashboard_UpstreamStatusEmpty" xml:space="preserve"><value>Aucun appareil en amont n'est abonné.</value></data>
   <data name="Dashboard_UpstreamStatusHeading" xml:space="preserve"><value>État des tuners en amont (lecture seule)</value></data>

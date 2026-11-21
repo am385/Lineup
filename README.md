@@ -1005,6 +1005,9 @@ CPU and RAM subheaders show Lineup totals; each GPU subheader shows that device'
 The Resources section and its subcards save their expansion preferences in the current browser and restore them after navigation or a page reload, independently of other dashboard sections.
 Ordinary navigation finishes already-queued preference writes, including choices made while saved state is still loading.
 GPU preferences follow each device's internal identity, not its name or position. Missing preferences default to expanded; browser-storage failures are logged and do not disable the controls.
+Each Physical Devices subcard also has an independent chevron that hides its body while keeping the device name and kind visible.
+These preferences default to expanded and are saved in the current browser by device identity, surviving navigation, reloads, renaming, and reordering.
+Nested upstream-device entries within Lineup Link cards remain unchanged.
 Channels, Physical Devices and Active Streams refresh buttons sit at the bottom right of their card bodies and hide with the content when collapsed.
 
 GPU cards show **whole-device** activity visible to the management host/container, including other applications and containers;

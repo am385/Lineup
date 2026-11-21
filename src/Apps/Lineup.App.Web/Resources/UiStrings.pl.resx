@@ -279,6 +279,7 @@
   <data name="Dashboard_StreamingFlowHeading" xml:space="preserve"><value>Przepływ strumieniowania</value></data>
   <data name="Dashboard_TargetColumn" xml:space="preserve"><value>Cel</value></data>
   <data name="Dashboard_TimeRangeHeading" xml:space="preserve"><value>Zakres czasu</value></data>
+  <data name="Dashboard_ToggleDeviceDetails" xml:space="preserve"><value>Pokaż / ukryj szczegóły urządzenia</value></data>
   <data name="Dashboard_UpstreamStatusCached" xml:space="preserve"><value>Ostatnie odświeżenie nie powiodło się; tabela pokazuje ostatnią udaną obserwację.</value></data>
   <data name="Dashboard_UpstreamStatusEmpty" xml:space="preserve"><value>Nie zasubskrybowano żadnych urządzeń źródłowych.</value></data>
   <data name="Dashboard_UpstreamStatusHeading" xml:space="preserve"><value>Stan tunerów źródłowych (tylko do odczytu)</value></data>

@@ -279,6 +279,7 @@
   <data name="Dashboard_StreamingFlowHeading" xml:space="preserve"><value>ストリーミングフロー</value></data>
   <data name="Dashboard_TargetColumn" xml:space="preserve"><value>ターゲット</value></data>
   <data name="Dashboard_TimeRangeHeading" xml:space="preserve"><value>時間範囲</value></data>
+  <data name="Dashboard_ToggleDeviceDetails" xml:space="preserve"><value>デバイスの詳細を表示 / 非表示</value></data>
   <data name="Dashboard_UpstreamStatusCached" xml:space="preserve"><value>最新の更新に失敗しました。最後に正常に観測された状態を表示しています。</value></data>
   <data name="Dashboard_UpstreamStatusEmpty" xml:space="preserve"><value>接続元デバイスが購読されていません。</value></data>
   <data name="Dashboard_UpstreamStatusHeading" xml:space="preserve"><value>接続元チューナーの状態（読み取り専用）</value></data>

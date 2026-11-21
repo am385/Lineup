@@ -279,6 +279,7 @@
   <data name="Dashboard_StreamingFlowHeading" xml:space="preserve"><value>Streamingfluss</value></data>
   <data name="Dashboard_TargetColumn" xml:space="preserve"><value>Ziel</value></data>
   <data name="Dashboard_TimeRangeHeading" xml:space="preserve"><value>Zeitraum</value></data>
+  <data name="Dashboard_ToggleDeviceDetails" xml:space="preserve"><value>Gerätedetails anzeigen / ausblenden</value></data>
   <data name="Dashboard_UpstreamStatusCached" xml:space="preserve"><value>Die letzte Aktualisierung ist fehlgeschlagen; die Tabelle zeigt die letzte erfolgreiche Beobachtung.</value></data>
   <data name="Dashboard_UpstreamStatusEmpty" xml:space="preserve"><value>Es sind keine vorgelagerten Geräte abonniert.</value></data>
   <data name="Dashboard_UpstreamStatusHeading" xml:space="preserve"><value>Vorgelagerter Tunerstatus (schreibgeschützt)</value></data>
