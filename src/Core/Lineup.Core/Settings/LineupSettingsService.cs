@@ -204,7 +204,7 @@ public class LineupSettings
     {
         get;
         set => field = Math.Clamp(value, 0, 300);
-    } = 5;
+    } = 1;
 
     /// <summary>Gets whether fallback Dashboard refresh is enabled.</summary>
     [JsonIgnore]

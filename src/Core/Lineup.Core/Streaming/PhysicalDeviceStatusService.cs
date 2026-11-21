@@ -39,8 +39,11 @@ public sealed record PhysicalDeviceRuntimeStatus
     /// <summary>Gets the most recent successful status snapshot.</summary>
     public PhysicalDeviceStatusSnapshot? Status { get; init; }
 
-    /// <summary>Gets a safe activation or status-refresh failure message.</summary>
+    /// <summary>Gets the latest safe activation or refresh failure message.</summary>
     public string? Error { get; init; }
+
+    /// <summary>Gets a safe activation or receiver-status failure, unaffected by information-only refreshes.</summary>
+    public string? StatusError { get; init; }
 
     /// <summary>Gets whether receiver control is supported.</summary>
     public bool SupportsReceiverControl { get; init; }
@@ -165,6 +168,7 @@ public sealed class PhysicalDeviceStatusService : IPhysicalDeviceStatusService
                 var now = DateTimeOffset.UtcNow;
                 var updated = CreateRuntimeStatus(device, status, error, definition.Name) with
                 {
+                    StatusError = informationOnly ? prior?.StatusError : error,
                     LastAttemptAtUtc = now,
                     StatusObservedAtUtc = !informationOnly && error is null ? now : prior?.StatusObservedAtUtc,
                     InformationObservedAtUtc = informationOnly && error is null ? now : prior?.InformationObservedAtUtc
@@ -219,6 +223,7 @@ public sealed class PhysicalDeviceStatusService : IPhysicalDeviceStatusService
 
     private PhysicalDeviceRuntimeStatus CreateActivationFailureStatus(PhysicalDeviceDefinition definition)
     {
+        const string error = "Physical device activation failed; check the device configuration and connection.";
         _logger.LogWarning("Unable to report status for inactive physical device {PhysicalDeviceId}; activation failed", definition.Id);
         var prior = Devices.SingleOrDefault(device => device.Device.Id == definition.Id &&
             string.Equals(device.Device.Kind, definition.Adapter.Kind, StringComparison.OrdinalIgnoreCase));
@@ -235,7 +240,8 @@ public sealed class PhysicalDeviceStatusService : IPhysicalDeviceStatusService
             LastAttemptAtUtc = DateTimeOffset.UtcNow,
             StatusObservedAtUtc = prior?.StatusObservedAtUtc,
             InformationObservedAtUtc = prior?.InformationObservedAtUtc,
-            Error = "Physical device activation failed; check the device configuration and connection."
+            Error = error,
+            StatusError = error
         };
     }
 

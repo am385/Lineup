@@ -301,6 +301,12 @@ public sealed record VirtualOutputManifestRequest
 {
     /// <summary>Gets the authenticated session context.</summary>
     public required VirtualOutputSessionContext Session { get; init; }
+
+    /// <summary>Gets whether to include cached, read-only observations for the assigned device's subscribed physical sources.</summary>
+    public bool IncludeUpstreamStatus { get; init; }
+
+    /// <summary>Gets the authenticated external client whose active stream signals are requested, or null when not requested.</summary>
+    public string? AuthenticatedClientId { get; init; }
 }
 
 /// <summary>Describes the virtual device visible to one isolated worker.</summary>
@@ -317,6 +323,12 @@ public sealed record VirtualOutputManifest
 
     /// <summary>Gets whether guide publication is available.</summary>
     public bool GuideAvailable { get; init; }
+
+    /// <summary>Gets subscribed upstream observations, or <see langword="null"/> when not requested or not supported.</summary>
+    public IReadOnlyList<UpstreamPhysicalDeviceStatus>? UpstreamDevices { get; init; }
+
+    /// <summary>Gets signal observations scoped to the requested authenticated external client.</summary>
+    public IReadOnlyList<StreamSignalStatus>? StreamSignals { get; init; }
 }
 
 /// <summary>Requests the lineup for the session's assigned virtual device.</summary>

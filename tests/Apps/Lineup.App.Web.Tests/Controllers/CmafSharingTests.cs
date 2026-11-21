@@ -11,6 +11,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
+using NSubstitute.Extensions;
 using Xunit;
 
 namespace Lineup.App.Web.Tests.Controllers;
@@ -1063,20 +1064,43 @@ public sealed class CmafSharingTests
         // Arrange
         await using var fixture = new Fixture
         {
-            HoldReadiness = true,
-            InputFailure = processFailure ? new MediaProcessException("Upstream FFmpeg exited with code 234.") : new IOException("Upstream stream failed.")
+            HoldReadiness = true
         };
-        var first = fixture.BeginStart("owner", startupTimeout: TimeSpan.FromSeconds(30));
+        var watchdog = TimeSpan.FromSeconds(30);
+        var startupTimeout = TimeSpan.FromSeconds(30);
+        var releaseSubscription = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Exception failure = processFailure ? new MediaProcessException("Upstream FFmpeg exited with code 234.") : new IOException("Upstream stream failed.");
+        var subscriptionEntered = fixture.HoldInputSubscriptionFailure(failure, releaseSubscription.Task);
+        var timestamp = fixture.StartupClock.GetTimestamp();
+        var first = fixture.BeginStart("owner", startupTimeout: startupTimeout);
+        try
+        {
+            await subscriptionEntered.WaitAsync(watchdog, TestContext.Current.CancellationToken);
+            await fixture.StartupClock.WaitForTimerAsync(startupTimeout, TestContext.Current.CancellationToken);
+            await fixture.StartupClock.WaitForTimerAsync(startupTimeout, TestContext.Current.CancellationToken);
+            Assert.False(first.Start.IsCompleted);
+            Assert.True(fixture.IsEncoderRunning);
 
-        // Act
-        var result = await first.Start.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+            // Act
+            releaseSubscription.TrySetResult();
+            var result = Assert.IsType<ObjectResult>(await first.Start.WaitAsync(watchdog, TestContext.Current.CancellationToken));
 
-        // Assert
-        Assert.Equal(StatusCodes.Status502BadGateway, Assert.IsType<ObjectResult>(result).StatusCode);
-        Assert.False(fixture.IsEncoderRunning);
-        Assert.False(fixture.HasEncoderDirectory);
-        Assert.Empty(fixture.Outputs.GetDiagnostics());
-        Assert.Empty(fixture.ActiveStreams.GetActiveStreams());
+            // Assert
+            Assert.Equal(StatusCodes.Status502BadGateway, result.StatusCode);
+            var body = System.Text.Json.JsonSerializer.SerializeToElement(result.Value);
+            Assert.Equal("media_source_failed", body.GetProperty("code").GetString());
+            Assert.Equal("source", body.GetProperty("stage").GetString());
+            Assert.Equal(timestamp, fixture.StartupClock.GetTimestamp());
+            Assert.False(fixture.IsEncoderRunning);
+            Assert.False(fixture.HasEncoderDirectory);
+            Assert.Empty(fixture.Outputs.GetDiagnostics());
+            Assert.Empty(fixture.ActiveStreams.GetActiveStreams());
+        }
+        finally
+        {
+            releaseSubscription.TrySetResult();
+            await first.Start.WaitAsync(watchdog, CancellationToken.None);
+        }
     }
 
     /// <summary>Verifies distinct viewers share media but retain separate URLs, diagnostics, and stop ownership.</summary>
@@ -1698,6 +1722,25 @@ public sealed class CmafSharingTests
 
         /// <summary>Gets the number of live producer input subscriptions.</summary>
         internal int ActiveInputs => Volatile.Read(ref _activeInputs);
+
+        /// <summary>Holds an upstream subscription pending until its terminal failure is explicitly released.</summary>
+        /// <param name="failure">The terminal exception returned by the controlled source subscription.</param>
+        /// <param name="release">The gate permitting the subscription to report its failure.</param>
+        /// <returns>Notification that the producer has reached the pending source subscription.</returns>
+        internal Task HoldInputSubscriptionFailure(Exception failure, Task release)
+        {
+            var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _multiplexer.Configure().SubscribeAsync(Arg.Any<StreamAcquisitionDescriptor>(), Arg.Any<StreamAcquisitionFactory>(), Arg.Any<CancellationToken>())
+                .Returns(call => FailAsync(call.Arg<CancellationToken>()));
+            return entered.Task;
+
+            async ValueTask<Stream> FailAsync(CancellationToken cancellationToken)
+            {
+                entered.TrySetResult();
+                await release.WaitAsync(cancellationToken);
+                throw failure;
+            }
+        }
 
         /// <summary>Starts the application service directly, with no controller, HTTP context, or action result.</summary>
         internal (ManagementPlaybackService Service, CancellationTokenSource Cancellation, Task<ManagementPlaybackStartResult> Start) BeginServiceStart(string clientId, CmafStreamRequest? request = null)

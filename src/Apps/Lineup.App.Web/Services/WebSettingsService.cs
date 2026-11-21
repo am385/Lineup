@@ -30,7 +30,7 @@ public sealed class WebSettings
     /// <summary>Gets the only Web-settings schema accepted by this release.</summary>
     public const int CurrentSchemaVersion = 1;
 
-    private int _activeStreamRefreshIntervalSeconds = 5;
+    private int _activeStreamRefreshIntervalSeconds = 1;
     private int _resourceHistoryMinutes = 5;
     private int _fileLogRetentionDays = 7;
     private int _fileLogSizeLimitMb = 50;

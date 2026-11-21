@@ -683,16 +683,27 @@ public sealed class VirtualOutputIpcServerTests
         var broker = Substitute.For<IVirtualOutputBroker>();
         string? brokerTrace = null;
         long? brokerGeneration = null;
+        bool? includeUpstream = null;
+        var upstream = new UpstreamPhysicalDeviceStatus
+        {
+            DeviceId = Guid.NewGuid(),
+            Name = "Upstream source",
+            Kind = "test",
+            ObservedAtUtc = DateTimeOffset.UtcNow,
+            Receivers = [new PhysicalReceiverStatus { Index = 3, IsStreaming = true, HasLock = true, SignalStrength = 98 }]
+        };
         broker.GetManifestAsync(Arg.Any<VirtualOutputManifestRequest>(), Arg.Any<CancellationToken>())
             .Returns(_ =>
             {
                 brokerTrace = System.Diagnostics.Activity.Current?.TraceId.ToString();
                 brokerGeneration = System.Diagnostics.Activity.Current?.GetTagItem("lineup.worker.generation") is long generation ? generation : null;
+                includeUpstream = _.Arg<VirtualOutputManifestRequest>().IncludeUpstreamStatus;
                 return new VirtualOutputManifest
                 {
                     VirtualDeviceId = deviceId,
                     Name = "Isolated output",
-                    TunerCount = 4
+                    TunerCount = 4,
+                    UpstreamDevices = [upstream]
                 };
             });
         var status = new VirtualOutputRuntimeStatus();
@@ -750,6 +761,7 @@ public sealed class VirtualOutputIpcServerTests
         var callerTrace = System.Diagnostics.Activity.Current!.TraceId.ToString();
         var manifest = await client.GetManifestAsync(new VirtualOutputManifestRequest
         {
+            IncludeUpstreamStatus = true,
             Session = new VirtualOutputSessionContext
             {
                 SessionId = registration.SessionId!.Value,
@@ -763,6 +775,12 @@ public sealed class VirtualOutputIpcServerTests
         Assert.Equal(4, manifest.TunerCount);
         Assert.Equal(callerTrace, brokerTrace);
         Assert.Equal(ticket.Generation, brokerGeneration);
+        Assert.True(includeUpstream);
+        var receivedUpstream = Assert.Single(Assert.IsAssignableFrom<IReadOnlyList<UpstreamPhysicalDeviceStatus>>(manifest.UpstreamDevices));
+        Assert.Equal(upstream.DeviceId, receivedUpstream.DeviceId);
+        Assert.Equal(upstream.ObservedAtUtc, receivedUpstream.ObservedAtUtc);
+        Assert.Equal(3, Assert.Single(receivedUpstream.Receivers).Index);
+        Assert.Equal(98, Assert.Single(receivedUpstream.Receivers).SignalStrength);
         await server.StopAsync(TestContext.Current.CancellationToken);
         server.Dispose();
     }

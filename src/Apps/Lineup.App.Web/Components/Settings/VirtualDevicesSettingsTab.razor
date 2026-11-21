@@ -159,6 +159,14 @@
                                             }
                                             else if (device.IsLineupLink)
                                             {
+                                                <div class="col-12">
+                                                    <div class="form-check form-switch mb-2">
+                                                        <input id="@($"linkUpstreamStatus-{index}")" class="form-check-input lineup-link-upstream-status"
+                                                               type="checkbox" @bind="device.LinkExposeUpstreamStatus" />
+                                                        <label class="form-check-label" for="@($"linkUpstreamStatus-{index}")">@Text["Settings_LineupLinkExposeUpstreamStatusLabel"]</label>
+                                                        <div class="form-text">@Text["Settings_LineupLinkExposeUpstreamStatusHelp"]</div>
+                                                    </div>
+                                                </div>
                                                 @if (!device.UseDedicatedListener)
                                                 {
                                                     <div class="col-md-6">

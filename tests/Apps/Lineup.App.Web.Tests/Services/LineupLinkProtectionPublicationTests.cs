@@ -112,7 +112,7 @@ public sealed class LineupLinkProtectionPublicationTests
         var multiplexer = new TunerStreamMultiplexer(graph, Substitute.For<IMediaProcessFactory>(), NullLogger<TunerStreamMultiplexer>.Instance);
         var streams = new VirtualMpegTsOutputService(routes, settings, Substitute.For<IMediaProbeService>(), multiplexer,
             Substitute.For<IChannelSlateStreamFactory>(), NullLogger<VirtualMpegTsOutputService>.Instance);
-        var controller = new LineupLinkController(settings, new StreamingAdapterRegistry([], [driver], []), Substitute.For<IPhysicalDeviceCatalog>(), routes,
+        var controller = new LineupLinkController(settings, new StreamingAdapterRegistry([], [driver], []), Substitute.For<IPhysicalDeviceCatalog>(), Substitute.For<IPhysicalDeviceStatusService>(), routes,
             Substitute.For<IGuideOrchestrator>(), streams, new ActiveStreamRegistry(), NullLogger<LineupLinkController>.Instance)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
@@ -272,7 +272,7 @@ public sealed class LineupLinkProtectionPublicationTests
     {
         if (!dedicated)
         {
-            var controller = new LineupLinkController(settings, adapters, Substitute.For<IPhysicalDeviceCatalog>(), routes,
+            var controller = new LineupLinkController(settings, adapters, Substitute.For<IPhysicalDeviceCatalog>(), Substitute.For<IPhysicalDeviceStatusService>(), routes,
                 Substitute.For<IGuideOrchestrator>(), Substitute.For<IVirtualMpegTsOutputService>(), new ActiveStreamRegistry(), NullLogger<LineupLinkController>.Instance)
             {
                 ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
@@ -292,7 +292,7 @@ public sealed class LineupLinkProtectionPublicationTests
             MinimumProtocolVersion = VirtualOutputProtocol.MinimumVersion,
             MaximumProtocolVersion = VirtualOutputProtocol.MaximumVersion
         });
-        var broker = new VirtualOutputBroker(authority, settings, adapters, Substitute.For<IPhysicalDeviceCatalog>(), routes,
+        var broker = new VirtualOutputBroker(authority, settings, adapters, Substitute.For<IPhysicalDeviceCatalog>(), Substitute.For<IPhysicalDeviceStatusService>(), routes,
             Substitute.For<IGuideOrchestrator>(), Substitute.For<IVirtualMpegTsOutputService>(), new ActiveStreamRegistry());
         var response = await broker.GetLineupAsync(new VirtualOutputLineupRequest
         {

@@ -13,13 +13,13 @@
                 <h5 class="mb-0"><span class="bi bi-speedometer2 me-1" aria-hidden="true"></span>@Text["Resources_Heading"]</h5>
                 <small class="text-muted">@Text["Resources_Cpu"]: @CpuSummary · @Text["Resources_Memory"]: @MemorySummary · @Text["Resources_Gpu"]: @GpuSummary</small>
             </div>
-            <button id="toggleResourcesSection" type="button" class="btn btn-sm btn-outline-secondary ms-auto" aria-expanded="@_expanded.ToString().ToLowerInvariant()"
-                    aria-controls="resourceCharts" @onclick="() => _expanded = !_expanded">
-                <span class="@(_expanded ? "bi bi-chevron-up" : "bi bi-chevron-down")" aria-hidden="true"></span>
+            <button id="toggleResourcesSection" type="button" class="btn btn-sm btn-outline-secondary ms-auto" aria-expanded="@Expanded.ToString().ToLowerInvariant()"
+                    aria-controls="resourceCharts" @onclick="@(() => SetCardExpanded("resources", !Expanded))">
+                <span class="@(Expanded ? "bi bi-chevron-up" : "bi bi-chevron-down")" aria-hidden="true"></span>
                 <span class="visually-hidden">@Text["Resources_Toggle"]</span>
             </button>
         </header>
-        @if (_expanded)
+        @if (Expanded)
         {
             <div class="card-body" id="resourceCharts">
                 <p class="small text-body-secondary">@Text["Resources_Scope"]</p>
@@ -86,9 +86,9 @@
     private readonly HashSet<string> _changedExpansion = new(StringComparer.Ordinal);
     private Task _restoreExpansion = Task.CompletedTask;
     private Task _saveExpansion = Task.CompletedTask;
-    private bool _expanded = true;
     private bool _disposed;
 
+    private bool Expanded => IsCardExpanded("resources");
     private ResourceUsage? CurrentUsage => _snapshot.Collecting ? _snapshot.History.LastOrDefault()?.Total : null;
     private string CpuSummary => CurrentUsage?.CpuPercent is { } cpu ? $"{cpu:0.##}%" : Text["Common_NotAvailable"].Value;
     private string MemorySummary => CurrentUsage?.ResidentBytes is { } bytes ? $"{bytes / (1024d * 1024d):0.##} MiB" : Text["Common_NotAvailable"].Value;

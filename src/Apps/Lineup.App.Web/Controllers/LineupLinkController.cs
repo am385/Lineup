@@ -16,6 +16,7 @@ public sealed class LineupLinkController : ControllerBase
     private readonly ILineupSettingsService _settings;
     private readonly IStreamingAdapterRegistry _adapters;
     private readonly IPhysicalDeviceCatalog _physicalDevices;
+    private readonly IPhysicalDeviceStatusService _deviceStatuses;
     private readonly IStreamingRouteResolver _routes;
     private readonly IGuideOrchestrator _guides;
     private readonly IVirtualMpegTsOutputService _streams;
@@ -27,6 +28,7 @@ public sealed class LineupLinkController : ControllerBase
         ILineupSettingsService settings,
         IStreamingAdapterRegistry adapters,
         IPhysicalDeviceCatalog physicalDevices,
+        IPhysicalDeviceStatusService deviceStatuses,
         IStreamingRouteResolver routes,
         IGuideOrchestrator guides,
         IVirtualMpegTsOutputService streams,
@@ -37,6 +39,7 @@ public sealed class LineupLinkController : ControllerBase
         _settings = settings;
         _adapters = adapters;
         _physicalDevices = physicalDevices;
+        _deviceStatuses = deviceStatuses;
         _routes = routes;
         _guides = guides;
         _streams = streams;
@@ -67,7 +70,10 @@ public sealed class LineupLinkController : ControllerBase
             VirtualDeviceId = virtualDeviceId,
             Name = context.Definition.Name,
             TunerCount = capacity.TunerCount,
-            GuideAvailable = true
+            GuideAvailable = true,
+            UpstreamDevices = context.Configuration.ExposeUpstreamStatus ? UpstreamPhysicalDeviceStatusProjection.Create(source, _deviceStatuses.Devices) : null,
+            StreamSignals = UpstreamPhysicalDeviceStatusProjection.CreateStreamSignals(
+                context.Definition.Id, context.AuthenticatedGrant.Id.ToString("D"), _activeStreams.GetActiveStreams(), _deviceStatuses.Devices)
         };
     }
 
@@ -170,6 +176,8 @@ public sealed class LineupLinkController : ControllerBase
                 output.Profile) with
             {
                 ClientAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                AuthenticatedClientId = context.AuthenticatedGrant.Id.ToString("D"),
+                AuthenticatedClientName = context.AuthenticatedGrant.Name,
                 Flow = output.Flow
             };
             if (!startup.TryRegister(stream, HttpContext.Abort))
@@ -184,6 +192,7 @@ public sealed class LineupLinkController : ControllerBase
             try
             {
                 Response.ContentType = LineupLinkProtocol.MpegTsMediaType;
+                Response.Headers[LineupLinkProtocol.StreamSessionHeader] = sessionId;
                 Response.Headers.CacheControl = "no-cache, no-store";
                 await output.Stream.CopyToAsync(Response.Body, cancellationToken);
                 return new EmptyResult();

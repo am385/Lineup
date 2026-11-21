@@ -3,6 +3,16 @@
   "bootstrapIconsVersion": "1.11.3",
   "assets": [
     {
+      "path": "cytoscape/cytoscape.min.js",
+      "url": "https://cdn.jsdelivr.net/npm/cytoscape@3.33.1/dist/cytoscape.min.js",
+      "sha256": "f55947f3daa3bae53209d4b885c195c157f595c225e508a6b382598d9452d6e2"
+    },
+    {
+      "path": "cytoscape/LICENSE",
+      "url": "https://cdn.jsdelivr.net/npm/cytoscape@3.33.1/LICENSE",
+      "sha256": "e4b62495bacaefaf330f38f226e20d1d60d658d444998ba7406a191f96a2e701"
+    },
+    {
       "path": "shaka-player/shaka-player.ui.js",
       "url": "https://cdn.jsdelivr.net/npm/shaka-player@5.2.11/dist/shaka-player.ui.js",
       "sha256": "06f75d8c7728cf0e8b84f63d08b2ee003d1231d57ba9f2332dd3c9c31ba704c8"

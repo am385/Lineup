@@ -51,6 +51,7 @@ else
     <DashboardResourcesPanel HistoryMinutes="WebSettingsService.Settings.ResourceHistoryMinutes" SnapshotChanged="snapshot => _resources = snapshot" />
 
     <DashboardActiveStreamsPanel Expanded="_activeStreamsExpanded"
+                                 RefreshIntervalSeconds="WebSettingsService.Settings.ActiveStreamRefreshIntervalSeconds"
                                  Resources="_resources"
                                  Summary="@FormatActiveStreamsSummary()"
                                  Snapshot="_streamingFlow"

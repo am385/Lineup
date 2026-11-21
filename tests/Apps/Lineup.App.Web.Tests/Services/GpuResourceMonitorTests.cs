@@ -772,6 +772,57 @@ public sealed class GpuResourceMonitorTests
         Assert.False(updated["ram"]);
     }
 
+    /// <summary>Verifies the outer Resources section saves and restores either expansion state without losing its independent chart preferences.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ResourcesPanel_OuterToggle_PersistsAcrossReloads(bool expanded)
+    {
+        // Arrange
+        await using var context = new LineupWebBunitContext();
+        var settings = Substitute.For<IWebSettingsService>();
+        settings.Settings.Returns(new WebSettings());
+        using var monitor = new DashboardResourceMonitor(settings, Substitute.For<IVirtualOutputRuntimeStatus>(), NullLogger<DashboardResourceMonitor>.Instance, new());
+        var saved = JsonSerializer.Serialize(new Dictionary<string, bool>
+        {
+            ["resources"] = expanded,
+            ["cpu"] = false,
+            ["ram"] = true,
+            ["gpu-unavailable"] = false,
+            ["gpu:offline"] = false
+        });
+        ConfigureResourcePanel(context, monitor, saved);
+        var component = context.Render<DashboardResourcesPanel>();
+        Assert.Equal(expanded ? "true" : "false", component.Find("#toggleResourcesSection").GetAttribute("aria-expanded"));
+
+        // Act
+        await component.Find("#toggleResourcesSection").ClickAsync(new());
+        var write = Assert.Single(context.JSInterop.Invocations, invocation => invocation.Identifier == "localStorage.setItem");
+        var persisted = Assert.IsType<string>(write.Arguments[1]);
+        await context.DisposeComponentsAsync();
+        await using var returnedContext = new LineupWebBunitContext();
+        ConfigureResourcePanel(returnedContext, monitor, persisted);
+        var returned = returnedContext.Render<DashboardResourcesPanel>();
+
+        // Assert
+        Assert.Equal(ResourceStateStorageKey, write.Arguments[0]);
+        var values = JsonSerializer.Deserialize<Dictionary<string, bool>>(persisted)!;
+        Assert.Equal(!expanded, values["resources"]);
+        Assert.False(values["cpu"]);
+        Assert.True(values["ram"]);
+        Assert.False(values["gpu-unavailable"]);
+        Assert.False(values["gpu:offline"]);
+        Assert.Equal(expanded ? "false" : "true", returned.Find("#toggleResourcesSection").GetAttribute("aria-expanded"));
+        Assert.Equal(expanded ? 0 : 1, returned.FindAll("#resourceCharts").Count);
+        Assert.NotNull(returned.Find(".card-header h5 .bi-speedometer2"));
+        if (!expanded)
+        {
+            Assert.Equal("false", returned.Find("#resourceCharts > section[aria-label='CPU'] button").GetAttribute("aria-expanded"));
+            Assert.Equal("true", returned.Find("#resourceCharts > section[aria-label='RAM'] button").GetAttribute("aria-expanded"));
+            Assert.Equal("false", returned.Find("#resourceCharts > section[aria-label='GPU'] button").GetAttribute("aria-expanded"));
+        }
+    }
+
     /// <summary>Verifies malformed saved preferences are logged, default to expanded and can be replaced by a working toggle.</summary>
     [Theory]
     [InlineData("{invalid")]

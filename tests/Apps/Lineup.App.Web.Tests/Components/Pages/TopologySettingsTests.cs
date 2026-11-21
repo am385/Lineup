@@ -21,6 +21,43 @@ namespace Lineup.App.Web.Tests.Components.Pages;
 /// </summary>
 public sealed class TopologySettingsTests
 {
+    /// <summary>The Link host's inventory disclosure switch defaults off and persists through save/reload for both hosting modes.</summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Save_LineupLinkUpstreamDisclosure_PersistsAndReloads(bool dedicated, bool enabled)
+    {
+        // Arrange
+        await using var context = CreateContext(out _, out var settings);
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        context.Services.AddSingleton<IVirtualTunerDriver, LineupLinkVirtualTunerDriver>();
+        var component = context.Render<Settings>();
+        await component.Find("#tab-virtual-devices").ClickAsync(new());
+        await component.Find("#addVirtualDevice").ClickAsync(new());
+        await component.Find("[data-virtual-device-kind='lineup-link']").ClickAsync(new());
+        var link = component.Instance.Topology.VirtualDevices.Single(device => device.IsLineupLink);
+        Assert.False(component.Find("#linkUpstreamStatus-1").HasAttribute("checked"));
+        link.LinkPublicBaseUrl = "http://localhost:8080/";
+        link.LinkRequireEncryption = false;
+        link.UseDedicatedListener = dedicated;
+
+        // Act
+        await component.Find("#linkUpstreamStatus-1").ChangeAsync(enabled);
+        await component.Find("button.btn-primary").ClickAsync(new());
+        var reloaded = context.Render<Settings>();
+        await reloaded.Find("#tab-virtual-devices").ClickAsync(new());
+        await reloaded.FindAll(".virtual-device-tab").Single(tab => tab.TextContent.Contains("Lineup Link", StringComparison.Ordinal)).ClickAsync(new());
+
+        // Assert
+        var saved = settings.Streaming.VirtualDevices.Single(device => device.Adapter.Kind == LineupLinkProtocol.AdapterKind);
+        Assert.Equal(enabled, saved.Adapter.Configuration.Deserialize<LineupLinkVirtualConfiguration>()!.ExposeUpstreamStatus);
+        Assert.Equal(dedicated, saved.Hosting is not null);
+        Assert.Equal(enabled, reloaded.Find("#linkUpstreamStatus-1").HasAttribute("checked"));
+        Assert.Equal(enabled, reloaded.Instance.Topology.VirtualDevices.Single(device => device.IsLineupLink).LinkExposeUpstreamStatus);
+    }
+
     /// <summary>Verifies the shared caption switch defaults off and persists explicit choices independently of hosting mode.</summary>
     [Theory]
     [InlineData(false, false)]

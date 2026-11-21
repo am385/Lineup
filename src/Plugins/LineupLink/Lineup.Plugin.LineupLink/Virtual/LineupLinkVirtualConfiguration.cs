@@ -12,6 +12,9 @@ public sealed record LineupLinkVirtualConfiguration
     /// <summary>Gets whether requests must use HTTPS.</summary>
     public bool RequireEncryption { get; init; } = true;
 
+    /// <summary>Gets whether clients may receive the complete subscribed upstream tuner inventory.</summary>
+    public bool ExposeUpstreamStatus { get; init; }
+
     /// <summary>Gets independently managed access grants.</summary>
     public IReadOnlyList<LineupLinkAccessGrant> AccessGrants { get; init; } = [];
 

@@ -48,6 +48,7 @@ public sealed class LineupLinkVirtualTunerDriver : IVirtualTunerDriver, IVirtual
             new AdapterSettingDescriptor { Key = "instanceId", Label = "Instance ID", Kind = AdapterSettingKind.Guid, IsRequired = true, CanClear = false },
             new AdapterSettingDescriptor { Key = "publicBaseUrl", Label = "Public base URL", Kind = AdapterSettingKind.Uri, CanClear = true },
             new AdapterSettingDescriptor { Key = "requireEncryption", Label = "Require HTTPS", Kind = AdapterSettingKind.Boolean, CanClear = false },
+            new AdapterSettingDescriptor { Key = "exposeUpstreamStatus", Label = "Expose upstream tuner status", Kind = AdapterSettingKind.Boolean, CanClear = false },
             new AdapterSettingDescriptor
             {
                 Key = "certificateSha256",
@@ -88,6 +89,7 @@ public sealed class LineupLinkVirtualTunerDriver : IVirtualTunerDriver, IVirtual
                 Snapshot("instanceId", typed.InstanceId),
                 Snapshot("publicBaseUrl", typed.PublicBaseUrl),
                 Snapshot("requireEncryption", typed.RequireEncryption),
+                Snapshot("exposeUpstreamStatus", typed.ExposeUpstreamStatus),
                 Snapshot("certificateSha256", typed.CertificateSha256)
             ]
         };
@@ -104,6 +106,7 @@ public sealed class LineupLinkVirtualTunerDriver : IVirtualTunerDriver, IVirtual
         var instanceId = current.InstanceId;
         var publicBaseUrl = current.PublicBaseUrl;
         var requireEncryption = current.RequireEncryption;
+        var exposeUpstreamStatus = current.ExposeUpstreamStatus;
         var accessGrants = current.AccessGrants;
         var certificateSha256 = current.CertificateSha256;
         var errors = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
@@ -148,6 +151,18 @@ public sealed class LineupLinkVirtualTunerDriver : IVirtualTunerDriver, IVirtual
                         errors[edit.Key] = ["Certificate fingerprint must be text or cleared."];
                     }
                     break;
+                case "exposeUpstreamStatus":
+                    if (edit.Action != AdapterSettingEditAction.Set ||
+                        edit.Value is not JsonElement statusValue ||
+                        statusValue.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                    {
+                        errors[edit.Key] = ["Expose upstream tuner status must be true or false."];
+                    }
+                    else
+                    {
+                        exposeUpstreamStatus = statusValue.GetBoolean();
+                    }
+                    break;
                 default:
                     errors[edit.Key] = ["Unknown setting."];
                     break;
@@ -163,6 +178,7 @@ public sealed class LineupLinkVirtualTunerDriver : IVirtualTunerDriver, IVirtual
             InstanceId = instanceId,
             PublicBaseUrl = publicBaseUrl,
             RequireEncryption = requireEncryption,
+            ExposeUpstreamStatus = exposeUpstreamStatus,
             AccessGrants = accessGrants,
             CertificateSha256 = certificateSha256
         }));

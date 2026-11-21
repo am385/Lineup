@@ -72,6 +72,8 @@ public sealed class LineupLinkClient : IDisposable
         {
             throw new InvalidDataException("The remote Lineup Link manifest returned a different virtual-device identity.");
         }
+        ValidateUpstreamStatus(manifest);
+        ValidateStreamSignals(manifest);
         return manifest;
     }
 
@@ -124,6 +126,12 @@ public sealed class LineupLinkClient : IDisposable
             response.Dispose();
             throw new InvalidDataException("The remote Lineup Link stream did not return MPEG-TS content.");
         }
+        if (response.Headers.TryGetValues(LineupLinkProtocol.StreamSessionHeader, out var sessionHeaders) &&
+            (sessionHeaders.ToArray() is not [var session] || !Guid.TryParse(session, out var sessionId) || sessionId == Guid.Empty))
+        {
+            response.Dispose();
+            throw new InvalidDataException("The remote Lineup Link stream returned an invalid session identity.");
+        }
         return response;
     }
 
@@ -175,6 +183,54 @@ public sealed class LineupLinkClient : IDisposable
         if (version != LineupLinkProtocol.Version)
         {
             throw new InvalidDataException($"Remote Lineup Link protocol version {version} is not supported.");
+        }
+    }
+
+    private static void ValidateUpstreamStatus(LineupLinkManifest manifest)
+    {
+        if (manifest.UpstreamDevices is null)
+        {
+            return;
+        }
+        var deviceIds = new HashSet<Guid>();
+        foreach (var device in manifest.UpstreamDevices)
+        {
+            if (device is null || device.DeviceId == Guid.Empty || !deviceIds.Add(device.DeviceId)
+                || string.IsNullOrWhiteSpace(device.Name) || string.IsNullOrWhiteSpace(device.Kind) || device.Receivers is null)
+            {
+                throw new InvalidDataException("The remote Lineup Link manifest contains invalid upstream device observations.");
+            }
+            if (device.ObservedAtUtc is null && device.Receivers.Count > 0)
+            {
+                throw new InvalidDataException("The remote Lineup Link manifest contains upstream receiver states without an observation time.");
+            }
+            var receiverIndices = new HashSet<int>();
+            foreach (var receiver in device.Receivers)
+            {
+                if (receiver is null || receiver.Index < 0 || !receiverIndices.Add(receiver.Index) || receiver.Target is not null
+                    || receiver.SignalStrength is < 0 or > 100 || receiver.SignalQuality is < 0 or > 100 || receiver.SymbolQuality is < 0 or > 100)
+                {
+                    throw new InvalidDataException("The remote Lineup Link manifest contains invalid or unsafe upstream receiver observations.");
+                }
+            }
+        }
+    }
+
+    private static void ValidateStreamSignals(LineupLinkManifest manifest)
+    {
+        if (manifest.StreamSignals is null)
+        {
+            return;
+        }
+        var sessions = new HashSet<Guid>();
+        foreach (var signal in manifest.StreamSignals)
+        {
+            if (signal is null || signal.StreamSessionId == Guid.Empty || !sessions.Add(signal.StreamSessionId)
+                || signal.SignalStrength is < 0 or > 100 || signal.SignalQuality is < 0 or > 100 || signal.SymbolQuality is < 0 or > 100
+                || signal.ObservedAtUtc is null && (signal.HasLock || signal.SignalStrength is not null || signal.SignalQuality is not null || signal.SymbolQuality is not null))
+            {
+                throw new InvalidDataException("The remote Lineup Link manifest contains invalid stream signal observations.");
+            }
         }
     }
 

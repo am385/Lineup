@@ -44,6 +44,7 @@ The browser subtitle poller's deterministic JavaScript regressions use Node.js's
 node --test tests\Apps\Lineup.App.Web.Tests\Browser\subtitle-polling.test.cjs
 node --test tests\Apps\Lineup.App.Web.Tests\Browser\shutdown.test.cjs
 node --test tests\Apps\Lineup.App.Web.Tests\Browser\dashboard-resources.test.cjs
+node --test tests\Apps\Lineup.App.Web.Tests\Browser\streaming-flow-graph.test.cjs
 ```
 
 Run these tests when changing incremental caption delivery. They execute the production player script with controlled responses and timers;
@@ -51,6 +52,8 @@ they do not launch a browser or require tuner hardware. The dedicated worker's C
 The shutdown regressions exercise owned stop routing, repeated-stop HTTP 404 handling, explicit HTTP/network failures,
 player destruction failures and isolation from replacement players.
 The dashboard-resource regressions cover visibility demand, non-overlapping callbacks, in-flight visibility changes and timer/listener cleanup.
+The streaming-graph regressions use the real cached Cytoscape bundle to cover card-to-card SVG connections, graph reconciliation,
+path highlighting, scroll preservation, resizing, and visibility-aware refresh/disposal. Build the Web app first to populate the hash-verified browser-asset cache.
 
 Ordinary CI and development/release publishing share `.github/workflows/validate.yml`. Both Linux and Windows run the full Release build/test gate,
 the browser regressions, formatting verification, and installed-worker smoke tests. The smoke tests use the hash-verified worker packages installed

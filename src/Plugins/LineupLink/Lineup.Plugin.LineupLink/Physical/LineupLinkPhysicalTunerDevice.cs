@@ -160,7 +160,7 @@ public sealed class LineupLinkPhysicalTunerDevice :
         try
         {
             var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-            var receiverIndex = ReserveReceiver(channel);
+            var receiverIndex = ReserveReceiver(channel, response);
             return new LineupLinkPhysicalStreamLease(response, stream, () => ReleaseReceiver(receiverIndex));
         }
         catch
@@ -210,18 +210,32 @@ public sealed class LineupLinkPhysicalTunerDevice :
         }
 
         var receiverCount = manifest.TunerCount ?? (activeReceivers.Count == 0 ? 0 : activeReceivers.Keys.Max() + 1);
+        var signals = manifest.StreamSignals?.ToDictionary(signal => signal.StreamSessionId);
         var receivers = Enumerable.Range(0, receiverCount)
-            .Select(index => activeReceivers.TryGetValue(index, out var active)
-                ? new PhysicalReceiverStatus
+            .Select(index =>
+            {
+                if (!activeReceivers.TryGetValue(index, out var active))
+                {
+                    return new PhysicalReceiverStatus { Index = index };
+                }
+                var signal = active.StreamSessionId is { } sessionId && signals is not null
+                    ? signals.GetValueOrDefault(sessionId)
+                    : null;
+                return new PhysicalReceiverStatus
                 {
                     Index = index,
                     IsActive = true,
                     IsStreaming = true,
                     Channel = active.Name,
                     VirtualChannel = active.Number,
-                    Target = active.Target
-                }
-                : new PhysicalReceiverStatus { Index = index })
+                    Target = active.Target,
+                    HasLock = signal?.Error is null && signal?.HasLock == true,
+                    SignalStrength = signal?.Error is null ? signal?.SignalStrength : null,
+                    SignalQuality = signal?.Error is null ? signal?.SignalQuality : null,
+                    SymbolQuality = signal?.Error is null ? signal?.SymbolQuality : null,
+                    SignalError = signal?.Error
+                };
+            })
             .ToArray();
         return new PhysicalDeviceStatusSnapshot
         {
@@ -236,11 +250,13 @@ public sealed class LineupLinkPhysicalTunerDevice :
                 ["Tuners"] = manifest.TunerCount?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "Unbounded",
                 ["Guide"] = manifest.GuideAvailable ? "Available" : "Unavailable"
             },
-            Receivers = receivers
+            Receivers = receivers,
+            ReceiversAreStreamSlots = true,
+            UpstreamDevices = manifest.UpstreamDevices
         };
     }
 
-    private int ReserveReceiver(LineupLinkChannelReference channel)
+    private int ReserveReceiver(LineupLinkChannelReference channel, HttpResponseMessage response)
     {
         lock (_receiverLock)
         {
@@ -257,7 +273,9 @@ public sealed class LineupLinkPhysicalTunerDevice :
 
             _activeReceivers = new Dictionary<int, ActiveReceiver>(_activeReceivers)
             {
-                [receiverIndex] = new ActiveReceiver(channel.Number, channel.Name, _client.CreateStreamUri(channel.RemoteKey).ToString())
+                [receiverIndex] = new ActiveReceiver(
+                    channel.Number, channel.Name, _client.CreateStreamUri(channel.RemoteKey).ToString(),
+                    response.Headers.TryGetValues(LineupLinkProtocol.StreamSessionHeader, out var headers) ? Guid.Parse(headers.Single()) : null)
             };
             return receiverIndex;
         }
@@ -279,7 +297,7 @@ public sealed class LineupLinkPhysicalTunerDevice :
 
     private sealed record LineupLinkChannelReference(string RemoteKey, string Number, string Name);
 
-    private sealed record ActiveReceiver(string Number, string Name, string Target);
+    private sealed record ActiveReceiver(string Number, string Name, string Target, Guid? StreamSessionId);
 
     private sealed class LineupLinkPhysicalStreamLease : IPhysicalStreamLease
     {

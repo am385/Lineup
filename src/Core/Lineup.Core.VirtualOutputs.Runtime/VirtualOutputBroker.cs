@@ -100,6 +100,7 @@ public sealed class VirtualOutputBroker : IVirtualOutputBroker
     private readonly ILineupSettingsService _settings;
     private readonly IStreamingAdapterRegistry _adapters;
     private readonly IPhysicalDeviceCatalog _physicalDevices;
+    private readonly IPhysicalDeviceStatusService _deviceStatuses;
     private readonly IStreamingRouteResolver _routes;
     private readonly IGuideOrchestrator _guides;
     private readonly IVirtualMpegTsOutputService _streams;
@@ -111,6 +112,7 @@ public sealed class VirtualOutputBroker : IVirtualOutputBroker
         ILineupSettingsService settings,
         IStreamingAdapterRegistry adapters,
         IPhysicalDeviceCatalog physicalDevices,
+        IPhysicalDeviceStatusService deviceStatuses,
         IStreamingRouteResolver routes,
         IGuideOrchestrator guides,
         IVirtualMpegTsOutputService streams,
@@ -121,6 +123,7 @@ public sealed class VirtualOutputBroker : IVirtualOutputBroker
         _settings = settings;
         _adapters = adapters;
         _physicalDevices = physicalDevices;
+        _deviceStatuses = deviceStatuses;
         _routes = routes;
         _guides = guides;
         _streams = streams;
@@ -144,7 +147,15 @@ public sealed class VirtualOutputBroker : IVirtualOutputBroker
             VirtualDeviceId = device.Id,
             Name = device.Name,
             TunerCount = capacity.TunerCount,
-            GuideAvailable = true
+            GuideAvailable = true,
+            UpstreamDevices = request.IncludeUpstreamStatus
+                ? UpstreamPhysicalDeviceStatusProjection.Create(
+                    VirtualDeviceSubscriptionResolver.Resolve(device, _settings.Settings.Streaming.PhysicalDevices, driver),
+                    _deviceStatuses.Devices)
+                : null,
+            StreamSignals = !string.IsNullOrWhiteSpace(request.AuthenticatedClientId)
+                ? UpstreamPhysicalDeviceStatusProjection.CreateStreamSignals(device.Id, request.AuthenticatedClientId, _activeStreams.GetActiveStreams(), _deviceStatuses.Devices)
+                : null
         });
     }
 

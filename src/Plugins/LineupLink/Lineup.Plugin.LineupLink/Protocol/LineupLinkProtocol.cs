@@ -1,4 +1,5 @@
 using Lineup.Core.Common.Guides;
+using Lineup.Core.Common.Streaming;
 
 namespace Lineup.Plugin.LineupLink.Protocol;
 
@@ -16,6 +17,9 @@ public static class LineupLinkProtocol
 
     /// <summary>Gets the MPEG-TS media type used for linked streams.</summary>
     public const string MpegTsMediaType = "video/mp2t";
+
+    /// <summary>Gets the response header carrying the opaque stream identity used to associate signal observations.</summary>
+    public const string StreamSessionHeader = "X-Lineup-Link-Stream-Session";
 
     /// <summary>Creates the device-scoped API root.</summary>
     public static string DevicePath(Guid virtualDeviceId) =>
@@ -55,6 +59,12 @@ public sealed record LineupLinkManifest
 
     /// <summary>Gets whether the remote output can publish guide data.</summary>
     public bool GuideAvailable { get; init; } = true;
+
+    /// <summary>Gets subscribed upstream observations, or <see langword="null"/> when the remote instance does not publish tuner status.</summary>
+    public IReadOnlyList<UpstreamPhysicalDeviceStatus>? UpstreamDevices { get; init; }
+
+    /// <summary>Gets source signal observations for the authenticated client's active streams, independent of upstream inventory disclosure.</summary>
+    public IReadOnlyList<StreamSignalStatus>? StreamSignals { get; init; }
 }
 
 /// <summary>Describes one channel exported by a Lineup Link virtual device.</summary>

@@ -133,7 +133,12 @@ public sealed class HDHomeRunPhysicalTunerDevice :
         for (var index = 0; index < deviceInfo.TunerCount; index++)
         {
             var status = await protocolDevice.GetTunerStatusAsync(index, cancellationToken);
-            receivers.Add(MapStatus(status));
+            receivers.Add(MapStatus(status) with
+            {
+                SourceChannelId = !string.IsNullOrWhiteSpace(status.VirtualChannel)
+                    ? new SourceChannelId(Snapshot.Id, status.VirtualChannel)
+                    : null
+            });
         }
 
         return CreateStatusSnapshot(deviceInfo, receivers);

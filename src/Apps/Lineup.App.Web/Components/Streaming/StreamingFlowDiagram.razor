@@ -1,3 +1,7 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject ILogger<StreamingFlowDiagram> Logger
+
 <div id="streamingFlowDiagram" class="streaming-flow">
     <div class="streaming-flow-summary d-flex flex-wrap gap-2 mb-3" aria-label="@Text["Streaming_FlowSummaryAriaLabel"]">
         <span class="badge text-bg-primary">@Text[Snapshot.ActiveConsumerCount == 1 ? "Streaming_ConsumerCountOne" : "Streaming_ConsumerCountMany", Snapshot.ActiveConsumerCount]</span>
@@ -12,101 +16,105 @@
         }
     </div>
 
-    @if (Snapshot.Nodes.Count == 0)
+    <div class="mb-3">
+        <span class="small text-body-secondary">@Text["Streaming_GraphConnectionsHelp"]</span>
+    </div>
+    @if (_graphUnavailable)
+    {
+        <p class="alert alert-warning" role="alert">@Text["Streaming_GraphUnavailable"]</p>
+    }
+    <div class="streaming-flow-scroll">
+        <div class="streaming-flow-lanes" @ref="_container" role="group" aria-label="@Text["Streaming_ConfiguredTopologyAriaLabel"]">
+            <svg class="streaming-flow-edges" data-flow-edges aria-hidden="true"></svg>
+            @foreach (var lane in LaneOrder)
+            {
+                <section class="streaming-flow-lane" aria-label="@GetLaneTitle(lane)" data-flow-lane="@lane">
+                    <h6>@GetLaneTitle(lane)</h6>
+                    <div class="streaming-flow-node-list">
+                        @foreach (var node in BaseNodes.Where(node => node.Lane == lane))
+                        {
+                            @RenderNode(node)
+                        }
+                        @if (BaseNodes.All(node => node.Lane != lane))
+                        {
+                            <div class="streaming-flow-lane-empty">@Text["Streaming_None"]</div>
+                        }
+                    </div>
+                </section>
+            }
+        </div>
+    </div>
+    @if (BaseNodes.Count == 0)
     {
         <div class="text-center text-body-secondary py-4">
             <span class="bi bi-diagram-3 display-6" aria-hidden="true"></span>
-            <p class="mb-0 mt-2">@Text["Streaming_ConfigureDevicesPrompt"]</p>
+            <p class="mb-0 mt-2">@Text[Snapshot.Nodes.Count == 0 ? "Streaming_ConfigureDevicesPrompt" : "Streaming_NoConsumersAttached"]</p>
         </div>
     }
-    else
+    @if (SelectedNode is { } selected)
     {
-        <div class="streaming-flow-scroll">
-            <div class="streaming-flow-lanes" role="group" aria-label="@Text["Streaming_ConfiguredTopologyAriaLabel"]">
-                @foreach (var lane in LaneOrder)
-                {
-                    <section class="streaming-flow-lane" aria-label="@GetLaneTitle(lane)">
-                        <h6>@GetLaneTitle(lane)</h6>
-                        <div class="streaming-flow-node-list">
-                            @foreach (var node in Snapshot.GetLane(lane))
-                            {
-                                <button type="button"
-                                        class="streaming-flow-node @GetStateClass(node.State) @(_selectedNodeId == node.Id ? "selected" : null)"
-                                        data-flow-node-id="@node.Id"
-                                        aria-pressed="@(_selectedNodeId == node.Id ? "true" : "false")"
-                                        aria-expanded="@(_selectedNodeId == node.Id ? "true" : "false")"
-                                        aria-controls="streamingFlowDetails"
-                                        aria-label="@GetNodeAriaLabel(node)"
-                                        @onclick="() => SelectNode(node.Id)">
-                                    <span class="streaming-flow-node-title">@node.Label</span>
-                                    <span class="streaming-flow-node-subtitle">@node.Subtitle</span>
-                                    <span class="badge @GetBadgeClass(node.State)">@FormatState(node.State)</span>
-                                    @foreach (var encoding in node.VideoEncodings)
-                                    {
-                                        <VideoEncoderBadge Encoding="encoding" />
-                                    }
-                                    @if (node.VideoEncodings.Count == 0 && node.ActiveSessionCount > 0 &&
-                                         node.Lane is StreamingFlowLane.PhysicalProcessing or StreamingFlowLane.VirtualProcessing)
-                                    {
-                                        <VideoEncoderBadge Encoding="null" />
-                                    }
-                                    @if (node.ActiveChannels.Count > 0)
-                                    {
-                                        <span class="streaming-flow-channel-list">
-                                            @foreach (var channel in node.ActiveChannels.Take(4))
-                                            {
-                                                <span class="badge text-bg-dark">@channel</span>
-                                            }
-                                            @if (node.ActiveChannels.Count > 4)
-                                            {
-                                                <span class="badge text-bg-secondary">+@(node.ActiveChannels.Count - 4)</span>
-                                            }
-                                        </span>
-                                    }
-                                </button>
-                            }
-                            @if (Snapshot.GetLane(lane).Count == 0)
-                            {
-                                <div class="streaming-flow-lane-empty">@Text["Streaming_None"]</div>
-                            }
-                        </div>
-                    </section>
-                    @if (lane != StreamingFlowLane.Consumer)
+        var paths = GetRelatedPaths(selected).ToArray();
+        var consumer = selected.Lane == StreamingFlowLane.Consumer ? paths.SingleOrDefault() : null;
+        var pathDetails = paths.ToDictionary(path => path.Id, path => GetSessionDetails(selected, path), StringComparer.Ordinal);
+        var details = GetNodeDetails(selected, paths, pathDetails);
+        <div id="streamingFlowDetails" class="streaming-flow-details mt-4" aria-live="polite">
+            <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+                <div>
+                    <h6 class="mb-1">@(consumer?.Endpoint ?? selected.Label)</h6>
+                    @if (consumer is null)
                     {
-                        <div class="streaming-flow-arrow" aria-hidden="true"><span class="bi bi-arrow-right"></span></div>
-                    }
-                }
-            </div>
-        </div>
-
-        @if (SelectedNode is { } selected)
-        {
-            <div id="streamingFlowDetails" class="streaming-flow-details mt-4" aria-live="polite">
-                <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
-                    <div>
-                        <h6 class="mb-1">@selected.Label</h6>
                         <div class="text-body-secondary">@selected.Subtitle</div>
-                    </div>
-                    <span class="badge @GetBadgeClass(selected.State)">@FormatState(selected.State)</span>
+                    }
+                    @if (paths.Length == 1)
+                    {
+                        @RenderSessionIdentity(paths[0], consumer is null)
+                    }
                 </div>
-                <dl class="row mb-0">
-                    @foreach (var detail in selected.Details)
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge @GetBadgeClass(selected.State)">@FormatState(selected.State)</span>
+                    @if (paths.Length == 1)
                     {
-                        <dt class="col-sm-4">@detail.Label</dt>
-                        <dd class="col-sm-8">@detail.Value</dd>
+                        @RenderStopButton(paths[0])
                     }
-                    @if (selected.ActiveChannels.Count > 0)
+                    else if (paths.Length > 1)
                     {
-                        <dt class="col-sm-4">@Text["Streaming_ActiveChannels"]</dt>
-                        <dd class="col-sm-8">@string.Join(", ", selected.ActiveChannels)</dd>
+                        <button type="button" class="btn btn-sm btn-outline-danger"
+                                disabled="@paths.All(path => IsSessionStopping(path.SessionId))"
+                                aria-label="@Text["Streaming_StopAllStreamsAriaLabel", selected.Label]"
+                                @onclick="() => StopAllSessions(paths)">
+                            <span class="bi bi-stop-fill me-1" aria-hidden="true"></span>@Text["Streaming_StopAll"]
+                        </button>
                     }
-                    <dt class="col-sm-4">@Text["Streaming_ActiveSessions"]</dt>
-                    <dd class="col-sm-8">@selected.ActiveSessionCount</dd>
-                </dl>
-                <StreamResourceDetails Stage="@(new StreamingFlowPathStage(GetStageKind(selected.Lane), selected.Label, selected.Subtitle, []) { ResourceIds = selected.ResourceIds })"
-                                       Snapshot="Resources" />
+                </div>
             </div>
-        }
+            @RenderMetadata(details)
+            <StreamResourceDetails Stage="@(new StreamingFlowPathStage(GetStageKind(selected.Lane), selected.Label, selected.Subtitle, []) { ResourceIds = selected.ResourceIds })"
+                                   Snapshot="Resources" />
+            @foreach (var path in paths)
+            {
+                var boundary = IsProcessingBoundary(selected, path);
+                var sessionDetails = pathDetails[path.Id].Where(detail => boundary || !details.Contains(detail)).ToArray();
+                <section class="streaming-flow-session @(paths.Length > 1 ? "mt-3 border-top pt-3" : null)" data-flow-session-id="@path.SessionId" @key="path.Id"
+                         aria-label="@Text["Streaming_StagesAriaLabel", path.SessionId]">
+                    @if (paths.Length > 1)
+                    {
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                            @RenderSessionIdentity(path, true)
+                            @RenderStopButton(path)
+                        </div>
+                    }
+                    @if (boundary)
+                    {
+                        <p class="small text-body-secondary mt-2" data-flow-stage-boundary>@Text["Streaming_StageBoundaryHelp"]</p>
+                    }
+                    @RenderMetadata(sessionDetails)
+                    @if (GetDiagnosticStage(selected, path) is { } stage)
+                    {
+                        <StreamingFlowStageDetails Stage="stage" />
+                    }
+                </section>
+            }
+        </div>
     }
 </div>
 
@@ -115,13 +123,19 @@
     [
         StreamingFlowLane.PhysicalSource,
         StreamingFlowLane.PhysicalProcessing,
-        StreamingFlowLane.Multiplexer,
         StreamingFlowLane.VirtualOutput,
         StreamingFlowLane.VirtualProcessing,
         StreamingFlowLane.Consumer
     ];
-
+    private ElementReference _container;
+    private bool _initialized;
+    private bool _graphUnavailable;
+    private bool _disposed;
     private string? _selectedNodeId;
+    private StreamingFlowSnapshot? _renderedSnapshot;
+    private string? _renderedNodeId;
+    private IReadOnlyList<StreamingFlowNode> _orderedNodes = [];
+    private readonly HashSet<string> _batchStoppingSessionIds = new(StringComparer.Ordinal);
     /// <summary>Gets the configured and runtime streaming flow to render.</summary>
     [Parameter, EditorRequired]
     public StreamingFlowSnapshot Snapshot { get; set; } = new([], [], 0, 0, 0);
@@ -129,6 +143,14 @@
     /// <summary>Gets or sets the shared cached resource observation.</summary>
     [Parameter]
     public DashboardResourceSnapshot Resources { get; set; } = new(false, [], []);
+
+    /// <summary>Gets or sets the sessions currently processing a stop request.</summary>
+    [Parameter]
+    public IReadOnlySet<string> StoppingSessionIds { get; set; } = new HashSet<string>(StringComparer.Ordinal);
+
+    /// <summary>Gets or sets the callback for stopping one session shown in the selected node's details.</summary>
+    [Parameter]
+    public EventCallback<string> StopRequested { get; set; }
 
     private static StreamingFlowStageKind GetStageKind(StreamingFlowLane lane) => lane switch
     {
@@ -140,14 +162,240 @@
         _ => StreamingFlowStageKind.VirtualOutput
     };
 
-    private StreamingFlowNode? SelectedNode => Snapshot.Nodes.SingleOrDefault(node => node.Id == _selectedNodeId);
+    private IReadOnlyList<StreamingFlowNode> BaseNodes => _orderedNodes;
+
+    private StreamingFlowNode? SelectedNode => BaseNodes.SingleOrDefault(node => node.Id == _selectedNodeId);
+
+    private IEnumerable<StreamingFlowPath> GetRelatedPaths(StreamingFlowNode node)
+    {
+        var pathIds = (Snapshot.Topology?.Paths ?? Snapshot.Graph?.Paths ?? []).Where(path => path.NodeIds.Contains(node.Id))
+            .Select(path => path.Id).ToHashSet(StringComparer.Ordinal);
+        return Snapshot.ActivePaths.Where(path => pathIds.Contains(path.Id) ||
+            node.Lane == StreamingFlowLane.Consumer && node.Id == $"consumer:{path.SessionId}");
+    }
+
+    private static StreamingFlowPathStage? GetDiagnosticStage(StreamingFlowNode node, StreamingFlowPath path)
+    {
+        var stage = path.Stages.SingleOrDefault(stage => stage.Kind == GetStageKind(node.Lane));
+        if (stage?.Kind != StreamingFlowStageKind.OutputProcessing) return stage;
+        var sharing = path.Stages.SingleOrDefault(stage => stage.Kind == StreamingFlowStageKind.Multiplexer);
+        return stage with { Details = stage.Details.Concat(sharing?.Details ?? []).Distinct().ToArray() };
+    }
+
+    private IReadOnlyList<StreamingFlowDetail> GetNodeDetails(StreamingFlowNode node, IReadOnlyList<StreamingFlowPath> paths, IReadOnlyDictionary<string, IReadOnlyList<StreamingFlowDetail>> pathDetails)
+    {
+        IEnumerable<StreamingFlowDetail> details = node.Details;
+        if (paths.Count > 0)
+        {
+            details = details.Where(detail => !IsPathIdentity(detail) && detail.Label != "Active consumers");
+            if (paths.All(path => !IsProcessingBoundary(node, path)))
+            {
+                var sessionDetails = paths.Select(path => pathDetails[path.Id]).ToArray();
+                var common = sessionDetails[0].Where(detail => paths.Count == 1 ||
+                    detail.Label is not ("Session" or "Active") && sessionDetails.All(session => session.Contains(detail))).ToArray();
+                details = details.Where(detail => !sessionDetails.Any(session => session.Any(other => other.Label == detail.Label)));
+                details = common.Concat(details);
+            }
+        }
+        var result = details.Distinct().ToList();
+        if (node.ActiveChannels.Count > 0 && (paths.Count != 1 || node.ActiveChannels.Any(channel => channel != paths[0].Channel)))
+        {
+            result.Add(new(Text["Streaming_ActiveChannels"], string.Join(", ", node.ActiveChannels)));
+        }
+        if (node.Lane != StreamingFlowLane.Consumer)
+        {
+            result.Add(new(Text["Streaming_ActiveSessions"], node.ActiveSessionCount.ToString()));
+        }
+        return result;
+    }
+
+    private static bool IsPathIdentity(StreamingFlowDetail detail) => detail.Label is "Session" or "Active" or "Format" or "Channel" or "Endpoint" or "Client address";
+
+    private static IReadOnlyList<StreamingFlowDetail> GetSessionDetails(StreamingFlowNode node, StreamingFlowPath path) =>
+        new StreamingFlowDetail[] { new("Session", path.SessionId), new("Active", FormatStreamDuration(path.StartedAtUtc)) }
+            .Concat((GetDiagnosticStage(node, path)?.Details ?? []).Where(detail => !IsPathIdentity(detail))).Distinct().ToArray();
+
+    private RenderFragment RenderMetadata(IReadOnlyList<StreamingFlowDetail> details) => @<text>
+        @if (details.Count > 0)
+        {
+            <dl class="row mb-0">
+                @foreach (var detail in details)
+                {
+                    <dt class="col-sm-4">@(detail.Label is "Session" or "Active" ? Text[$"Streaming_{detail.Label}"].Value : detail.Label)</dt>
+                    <dd class="col-sm-8">
+                        @if (detail.Label == "Session")
+                        {
+                            <code>@detail.Value</code>
+                        }
+                        else
+                        {
+                            @detail.Value
+                        }
+                    </dd>
+                }
+            </dl>
+        }
+    </text>;
+
+    private RenderFragment RenderSessionIdentity(StreamingFlowPath path, bool showEndpoint) => @<div class="d-flex flex-wrap align-items-center gap-2 mt-2 mb-2">
+        @if (showEndpoint)
+        {
+            <strong>@path.Endpoint</strong>
+        }
+        <span class="badge text-bg-info">@FormatHostedStreamFormat(path.Format)</span>
+        <span class="badge text-bg-dark">@Text["Streaming_Channel", path.Channel]</span>
+        @if (path.IsShared)
+        {
+            <span class="badge text-bg-success">@Text["Streaming_SharedSessions", path.SharedReceiverCount]</span>
+        }
+    </div>;
+
+    private RenderFragment RenderStopButton(StreamingFlowPath path) => @<button type="button" class="btn btn-sm btn-outline-danger"
+        disabled="@IsSessionStopping(path.SessionId)"
+        aria-label="@Text["Streaming_StopStreamAriaLabel", path.SessionId]"
+        @onclick="() => StopRequested.InvokeAsync(path.SessionId)">
+        <span class="bi bi-stop-fill me-1"></span>@Text["Streaming_Stop"]
+    </button>;
+
+    private bool IsSessionStopping(string sessionId) => StoppingSessionIds.Contains(sessionId) || _batchStoppingSessionIds.Contains(sessionId);
+
+    private async Task StopAllSessions(IReadOnlyList<StreamingFlowPath> paths)
+    {
+        var sessionIds = paths.Select(path => path.SessionId).Distinct(StringComparer.Ordinal).Where(sessionId => !IsSessionStopping(sessionId)).ToArray();
+        _batchStoppingSessionIds.UnionWith(sessionIds);
+        try
+        {
+            foreach (var sessionId in sessionIds)
+            {
+                await StopRequested.InvokeAsync(sessionId);
+            }
+        }
+        finally
+        {
+            _batchStoppingSessionIds.ExceptWith(sessionIds);
+        }
+    }
+
+    private bool IsProcessingBoundary(StreamingFlowNode node, StreamingFlowPath path)
+    {
+        if (node.Lane is not (StreamingFlowLane.PhysicalProcessing or StreamingFlowLane.VirtualProcessing)) return false;
+        var route = (Snapshot.Topology?.Paths ?? Snapshot.Graph?.Paths ?? []).SingleOrDefault(route => route.Id == path.Id);
+        return route is not null && BaseNodes.Count(other => other.Lane == node.Lane && route.NodeIds.Contains(other.Id)) > 1;
+    }
+
+    private static string FormatHostedStreamFormat(HostedStreamFormat format) => format switch
+    {
+        HostedStreamFormat.MpegTs => "MPEG-TS",
+        HostedStreamFormat.Cmaf => "CMAF",
+        _ => format.ToString()
+    };
+
+    private static string FormatStreamDuration(DateTime startedAtUtc)
+    {
+        var duration = DateTime.UtcNow - startedAtUtc;
+        return duration.TotalHours >= 1
+            ? $"{(int)duration.TotalHours}h {duration.Minutes}m {duration.Seconds}s"
+            : $"{duration.Minutes}m {duration.Seconds}s";
+    }
+
+    private RenderFragment RenderNode(StreamingFlowNode node) => @<button type="button"
+        @key="node.Id"
+        class="streaming-flow-node @GetStateClass(node.State) @(_selectedNodeId == node.Id ? "selected" : null)"
+        data-flow-node-id="@node.Id"
+        aria-pressed="@(_selectedNodeId == node.Id ? "true" : "false")"
+        aria-expanded="@(_selectedNodeId == node.Id ? "true" : "false")"
+        aria-controls="streamingFlowDetails"
+        aria-label="@GetNodeAriaLabel(node)"
+        @onclick="() => SelectNode(node.Id)">
+        <span class="streaming-flow-node-title">@node.Label</span>
+        <span class="streaming-flow-node-subtitle">@node.Subtitle</span>
+        <span class="badge @GetBadgeClass(node.State)">@FormatState(node.State)</span>
+        @if (!node.IsLogicalStage)
+        {
+            @foreach (var encoding in node.VideoEncodings)
+            {
+                <VideoEncoderBadge Encoding="encoding" />
+            }
+        }
+        @if (node.VideoEncodings.Count == 0 && node.ActiveSessionCount > 0 && !node.IsLogicalStage &&
+            node.Lane is StreamingFlowLane.PhysicalProcessing or StreamingFlowLane.VirtualProcessing or StreamingFlowLane.Multiplexer)
+        {
+            <VideoEncoderBadge Encoding="null" />
+        }
+        @if (node.ActiveChannels.Count > 0)
+        {
+            <span class="streaming-flow-channel-list">
+                @foreach (var channel in node.ActiveChannels.Take(4))
+                {
+                    <span class="badge text-bg-dark">@channel</span>
+                }
+                @if (node.ActiveChannels.Count > 4)
+                {
+                    <span class="badge text-bg-secondary">+@(node.ActiveChannels.Count - 4)</span>
+                }
+            </span>
+        }
+    </button>;
+
+    /// <inheritdoc />
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_disposed || _graphUnavailable ||
+            ReferenceEquals(_renderedSnapshot, Snapshot) && _renderedNodeId == _selectedNodeId) return;
+        var snapshot = Snapshot;
+        var selectedNodeId = _selectedNodeId;
+        var model = new
+        {
+            Nodes = BaseNodes.Select(node => new { node.Id }).ToArray(),
+            Edges = (snapshot.Topology?.Edges ?? snapshot.Graph?.Edges ?? []).Select(edge =>
+                new { edge.Id, edge.Source, edge.Target, State = edge.State.ToString().ToLowerInvariant() }).ToArray(),
+            Paths = snapshot.Topology?.Paths ?? snapshot.Graph?.Paths ?? [],
+            SelectedNodeId = SelectedNode?.Id
+        };
+        try
+        {
+            _initialized = true;
+            await JS.InvokeVoidAsync("lineupFlowGraph.update", _container, model);
+            _renderedSnapshot = snapshot;
+            _renderedNodeId = selectedNodeId;
+        }
+        catch (JSDisconnectedException exception)
+        {
+            Logger.LogDebug(exception, "Streaming graph update ended with its browser connection");
+        }
+        catch (JSException exception)
+        {
+            Logger.LogWarning(exception, "Unable to render the streaming graph");
+            _graphUnavailable = true;
+            if (!_disposed) StateHasChanged();
+        }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask DisposeAsync()
+    {
+        _disposed = true;
+        try
+        {
+            if (_initialized) await JS.InvokeVoidAsync("lineupFlowGraph.dispose", _container);
+        }
+        catch (JSDisconnectedException exception)
+        {
+            Logger.LogDebug(exception, "Streaming graph disposal ended with its browser connection");
+        }
+        catch (JSException exception)
+        {
+            Logger.LogWarning(exception, "Unable to dispose the streaming graph");
+        }
+    }
 
     private string GetNodeAriaLabel(StreamingFlowNode node)
     {
         var label = Text["Streaming_NodeAriaLabel", node.Label, FormatState(node.State), node.ActiveSessionCount].Value;
-        return node.VideoEncodings.Count > 0
+        return node.VideoEncodings.Count > 0 && !node.IsLogicalStage
             ? $"{label}, {string.Join(", ", node.VideoEncodings.Select(encoding => encoding.Encoder))}"
-            : node.ActiveSessionCount > 0 && node.Lane is StreamingFlowLane.PhysicalProcessing or StreamingFlowLane.VirtualProcessing
+            : node.ActiveSessionCount > 0 && !node.IsLogicalStage &&
+                node.Lane is StreamingFlowLane.PhysicalProcessing or StreamingFlowLane.VirtualProcessing or StreamingFlowLane.Multiplexer
                 ? $"{label}, {Text["Streaming_EncoderUnknown"]}"
                 : label;
     }
@@ -155,7 +403,11 @@
     /// <inheritdoc />
     protected override void OnParametersSet()
     {
-        if (_selectedNodeId is not null && Snapshot.Nodes.All(node => node.Id != _selectedNodeId))
+        var nodes = (Snapshot.Topology?.Nodes ??
+            (Snapshot.Nodes.Count > 0 ? Snapshot.Nodes : Snapshot.Graph is { } graph ? graph.Nodes.Concat(graph.ConfiguredNodes).ToArray() : []))
+            .Where(node => node.Lane != StreamingFlowLane.Multiplexer).ToArray();
+        _orderedNodes = StreamingFlowLayout.Order(nodes, Snapshot.Topology?.Edges ?? Snapshot.Graph?.Edges ?? []);
+        if (_selectedNodeId is not null && SelectedNode is null)
         {
             _selectedNodeId = null;
         }
@@ -169,10 +421,10 @@
     private string GetLaneTitle(StreamingFlowLane lane) => lane switch
     {
         StreamingFlowLane.PhysicalSource => Text["Streaming_LanePhysicalSources"],
-        StreamingFlowLane.PhysicalProcessing => Text["Streaming_LaneSourceProcessing"],
+        StreamingFlowLane.PhysicalProcessing => Text["Streaming_LaneSourceProcessingMultiplexer"],
         StreamingFlowLane.Multiplexer => Text["Streaming_LaneMultiplexer"],
         StreamingFlowLane.VirtualOutput => Text["Streaming_LaneVirtualOutputs"],
-        StreamingFlowLane.VirtualProcessing => Text["Streaming_LaneOutputProcessing"],
+        StreamingFlowLane.VirtualProcessing => Text["Streaming_LaneOutputProcessingMultiplexer"],
         StreamingFlowLane.Consumer => Text["Streaming_LaneConsumers"],
         _ => lane.ToString()
     };

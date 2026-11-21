@@ -334,7 +334,7 @@ public class LineupSettingsTests
     /// Verifies the default active stream refresh interval.
     /// </summary>
     [Fact]
-    public void ActiveStreamRefreshInterval_DefaultsToFiveSeconds()
+    public void ActiveStreamRefreshInterval_DefaultsToOneSecond()
     {
 
         // Arrange
@@ -342,7 +342,7 @@ public class LineupSettingsTests
         var settings = new LineupSettings();
 
         // Assert
-        Assert.Equal(5, settings.ActiveStreamRefreshIntervalSeconds);
+        Assert.Equal(1, settings.ActiveStreamRefreshIntervalSeconds);
         Assert.True(settings.IsActiveStreamRefreshEnabled);
     }
 
@@ -380,7 +380,7 @@ public class LineupSettingsTests
         var settings = JsonSerializer.Deserialize<WebSettings>(json)!;
 
         // Assert
-        Assert.Equal(5, settings.ActiveStreamRefreshIntervalSeconds);
+        Assert.Equal(1, settings.ActiveStreamRefreshIntervalSeconds);
     }
 
     /// <summary>

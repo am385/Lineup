@@ -1,0 +1,19 @@
+.streaming-flow-stage-media {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.streaming-flow-stage-media > div {
+    border-radius: .35rem;
+    background: var(--bs-body-bg);
+    padding: .75rem;
+}
+
+.streaming-flow-stage-media h6 {
+    margin-bottom: .5rem;
+    color: var(--bs-secondary-color);
+    font-size: .8rem;
+    text-transform: uppercase;
+}

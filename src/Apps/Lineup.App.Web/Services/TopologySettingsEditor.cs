@@ -174,6 +174,7 @@ public sealed class TopologySettingsEditor
                         WebPlayerConfiguration.Read(device.Adapter).ExtractEmbeddedCaptions,
                     LinkPublicBaseUrl = ReadString(device.Adapter.Configuration, "PublicBaseUrl"),
                     LinkRequireEncryption = ReadBool(device.Adapter.Configuration, "RequireEncryption", defaultValue: true),
+                    LinkExposeUpstreamStatus = ReadBool(device.Adapter.Configuration, "ExposeUpstreamStatus", defaultValue: false),
                     LinkAccessGrants = ReadLineupLinkAccessGrants(device.Adapter.Configuration),
                     LinkCertificateSha256 = ReadString(device.Adapter.Configuration, "CertificateSha256"),
                     UseDedicatedListener = device.Hosting is not null,
@@ -541,6 +542,7 @@ public sealed class TopologySettingsEditor
             LinkInstanceId = ReadGuid(adapter.Configuration, "InstanceId") ?? Guid.NewGuid(),
             LinkPublicBaseUrl = ReadString(adapter.Configuration, "PublicBaseUrl"),
             LinkRequireEncryption = ReadBool(adapter.Configuration, "RequireEncryption", defaultValue: true),
+            LinkExposeUpstreamStatus = ReadBool(adapter.Configuration, "ExposeUpstreamStatus", defaultValue: false),
             LinkAccessGrants = ReadLineupLinkAccessGrants(adapter.Configuration),
             LinkCertificateSha256 = ReadString(adapter.Configuration, "CertificateSha256"),
             ListenerPort = FindAvailableOutputPort(model),
@@ -723,6 +725,7 @@ public sealed class TopologySettingsEditor
                 InstanceId = device.LinkInstanceId,
                 PublicBaseUrl = device.UseDedicatedListener ? BuildPublicBaseUri(device) : device.LinkPublicBaseUrl.Trim(),
                 RequireEncryption = device.EffectiveLineupLinkEncryptionRequired,
+                ExposeUpstreamStatus = device.LinkExposeUpstreamStatus,
                 AccessGrants = device.LinkAccessGrants.Select(grant => grant.ToPersisted()).ToArray(),
                 CertificateSha256 = device.EffectiveLineupLinkEncryptionRequired
                     ? NormalizeOptional(device.LinkCertificateSha256)
@@ -1647,6 +1650,9 @@ public sealed class VirtualDeviceSettingsModel : ITranscodeOverrideSettingsModel
 
     /// <summary>Gets or sets whether Lineup Link requests require HTTPS.</summary>
     public bool LinkRequireEncryption { get; set; } = true;
+
+    /// <summary>Gets or sets whether linked clients may receive complete subscribed upstream tuner status.</summary>
+    public bool LinkExposeUpstreamStatus { get; set; }
 
     /// <summary>Gets whether the effective Lineup Link endpoint requires HTTPS.</summary>
     public bool EffectiveLineupLinkEncryptionRequired =>
