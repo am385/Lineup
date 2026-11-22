@@ -232,7 +232,7 @@ public sealed class DeviceGuideStore
             var coveredPrograms = await context.GuideSourcePrograms
                 .Where(program => channelIds.Contains(program.GuideSourceChannelId) && program.EndTime > coverageStart && program.StartTime < coverageEnd)
                 .ToDictionaryAsync(program => (program.GuideSourceChannelId, program.StartTime, program.EndTime, program.Title), cancellationToken);
-            var importedPrograms = new List<StoredGuideSourceProgram>(import.Programs.Count);
+            var importedPrograms = new HashSet<StoredGuideSourceProgram>();
             foreach (var program in import.Programs)
             {
                 if (!existing.TryGetValue(program.ChannelId.ProviderKey, out var channel) || !channel.IsActive)
@@ -245,6 +245,7 @@ public sealed class DeviceGuideStore
                 {
                     stored = new StoredGuideSourceProgram { GuideSourceChannelId = channel.Id, StartTime = start, EndTime = end, Title = program.Title };
                     context.GuideSourcePrograms.Add(stored);
+                    coveredPrograms.Add((channel.Id, start, end, program.Title), stored);
                 }
                 stored.Synopsis = program.Synopsis;
                 stored.EpisodeTitle = program.EpisodeTitle;
@@ -283,7 +284,7 @@ public sealed class DeviceGuideStore
             storedImport.CoverageStart = import.CoverageStartUtc.ToUnixTimeSeconds();
             storedImport.CoverageEnd = import.CoverageEndUtc.ToUnixTimeSeconds();
             storedImport.ChannelCount = import.Channels.Count;
-            storedImport.ProgramCount = import.Programs.Count;
+            storedImport.ProgramCount = importedPrograms.Count;
             storedImport.SupplementalXml = import.SupplementalXml;
             await context.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);

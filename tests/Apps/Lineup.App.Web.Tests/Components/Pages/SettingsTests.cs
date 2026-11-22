@@ -4,6 +4,7 @@ using Lineup.App.Web.Components.Settings;
 using Lineup.App.Web.Services;
 using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.JSInterop;
 using NSubstitute;
 using Xunit;
 
@@ -292,6 +293,47 @@ public class SettingsTests
         Assert.Contains(context.JSInterop.Invocations, invocation =>
             invocation.Identifier == "copyTextToClipboard" &&
             Assert.IsType<string>(invocation.Arguments[0]) == absoluteEndpoint);
+    }
+
+    /// <summary>Verifies endpoint copy rejection leaves guide edits intact and the Settings circuit usable.</summary>
+    /// <param name="stableId">Whether the copied endpoint uses the stable output identifier.</param>
+    /// <param name="disconnected">Whether the browser disconnected rather than denying clipboard access.</param>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    public async Task CopyGuideEndpoint_ClipboardRejected_PreservesUnsavedEdits(bool stableId, bool disconnected)
+    {
+        // Arrange
+        await using var context = new BunitContext();
+        var settingsService = Substitute.For<ILineupSettingsService>();
+        settingsService.Settings.Returns(new LineupSettings { IsSetupComplete = true });
+        var timeZoneService = Substitute.For<ITimeZoneService>();
+        timeZoneService.TimeZone.Returns(TimeZoneInfo.Utc);
+        context.Services.AddSingleton(settingsService);
+        context.Services.AddSingleton(timeZoneService);
+        var copy = context.JSInterop.SetupVoid("copyTextToClipboard", _ => true);
+        copy.SetException<Exception>(disconnected ? new JSDisconnectedException("Browser disconnected.") : new JSException("Clipboard denied."));
+        var component = context.Render<Settings>();
+        await component.Find("#tab-guide-outputs").ClickAsync(new());
+        await component.Find("#addGuideOutput").ClickAsync(new());
+        await component.Find(".add-guide-output-type").ClickAsync(new());
+        await component.Find(".guide-output-name").ChangeAsync("Unsaved guide name");
+        var button = stableId ? ".guide-output-stable-id-copy-link" : ".guide-output-copy-link";
+        var notifications = context.Services.GetRequiredService<IStatusNotificationService>();
+
+        // Act
+        await component.Find(button).ClickAsync(new());
+
+        // Assert
+        var failure = Assert.Single(notifications.Notifications);
+        Assert.True(failure.IsError);
+        Assert.Contains(disconnected ? "disconnected" : "could not copy", failure.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Unsaved guide name", component.Find(".guide-output-name").GetAttribute("value"));
+        Assert.False(context.Renderer.UnhandledException.IsCompleted);
+        copy.SetVoidResult();
+        await component.Find(button).ClickAsync(new());
+        Assert.Single(notifications.Notifications);
+        Assert.Equal("Unsaved guide name", component.Find(".guide-output-name").GetAttribute("value"));
     }
 
     /// <summary>Verifies additional XMLTV outputs default beside the configured global XMLTV file.</summary>

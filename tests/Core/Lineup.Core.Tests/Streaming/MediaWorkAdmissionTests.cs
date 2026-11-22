@@ -5,6 +5,65 @@ namespace Lineup.Core.Tests.Streaming;
 /// <summary>Verifies deployment-wide media admission and ownership, independently of logical viewer limits.</summary>
 public sealed class MediaWorkAdmissionTests
 {
+    /// <summary>Verifies admission uses the longest complete mount boundary and enforces the selected volume's exact MiB threshold.</summary>
+    /// <param name="workspace">Workspace relative to the test filesystem root.</param>
+    /// <param name="mount">The volume that must supply available space.</param>
+    /// <param name="trailingSeparator">Whether the configured media mount ends with a separator.</param>
+    [Theory]
+    [InlineData("media-cache/session", "", false)]
+    [InlineData("media/session", "media", false)]
+    [InlineData("media", "media", false)]
+    [InlineData("media", "media", true)]
+    [InlineData("media/nested/session", "media/nested", false)]
+    public void CheckWorkspace_MountBoundaries_UsesOnlyMatchingVolume(string workspace, string mount, bool trailingSeparator)
+    {
+        // Arrange
+        var root = Path.Combine(Path.GetPathRoot(Path.GetFullPath(Path.GetTempPath()))!, "lineup-mounts");
+        var selected = new List<string>();
+        const long mib = 1024L * 1024L;
+        IEnumerable<(string Root, Func<long> AvailableFreeSpace)> GetVolumes() =>
+        [
+            (root, () => { selected.Add(""); return 2 * mib; }),
+            (Path.Combine(root, "media") + (trailingSeparator ? Path.DirectorySeparatorChar.ToString() : ""), () => { selected.Add("media"); return mib; }),
+            (Path.Combine(root, "media", "nested"), () => { selected.Add("media/nested"); return mib; })
+        ];
+        var path = Path.Combine(root, workspace.Replace('/', Path.DirectorySeparatorChar));
+
+        // Act
+        var failure = Record.Exception(() => MediaWorkspaceAdmission.Check(path, 2, GetVolumes));
+
+        // Assert
+        Assert.Equal(mount, Assert.Single(selected));
+        if (mount.Length == 0)
+        {
+            Assert.Null(failure);
+        }
+        else
+        {
+            Assert.Equal("media_storage_limit", Assert.IsType<MediaResourceLimitException>(failure).Code);
+        }
+    }
+
+    /// <summary>Verifies missing or unreadable selected disk data fails explicitly, while a zero watermark does not query disks.</summary>
+    [Fact]
+    public void CheckWorkspace_DiskDataFailure_IsNotUnlimitedSpace()
+    {
+        // Arrange
+        var path = Path.GetFullPath(Path.GetTempPath());
+        var failure = new IOException("Selected volume cannot be read.");
+        IEnumerable<(string Root, Func<long> AvailableFreeSpace)> GetUnreadableVolume() => [(path, () => throw failure)];
+
+        // Act
+        var unreadable = Record.Exception(() => MediaWorkspaceAdmission.Check(path, 1, GetUnreadableVolume));
+        var missing = Record.Exception(() => MediaWorkspaceAdmission.Check(path, 1, () => []));
+        var disabled = Record.Exception(() => MediaWorkspaceAdmission.Check(path, 0, () => throw failure));
+
+        // Assert
+        Assert.Same(failure, unreadable);
+        Assert.IsType<IOException>(missing);
+        Assert.Null(disabled);
+    }
+
     /// <summary>Enforces producer and processing counts independently and recovers after idempotent terminal release.</summary>
     [Fact]
     public async Task AcquireAsync_Limits_AreIndependentAndReleasedExactlyOnce()

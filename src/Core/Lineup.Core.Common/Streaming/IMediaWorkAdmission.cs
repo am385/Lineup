@@ -33,7 +33,14 @@ public sealed class MediaResourceLimitException(string code, string message) : I
 public static class MediaWorkspaceAdmission
 {
     /// <summary>Rejects new allocation when available space is below the configured MiB watermark.</summary>
-    public static void Check(string path, int minimumFreeSpaceMib)
+    public static void Check(string path, int minimumFreeSpaceMib) =>
+        Check(path, minimumFreeSpaceMib, () => DriveInfo.GetDrives().Select(drive => (drive.Name, (Func<long>)(() => drive.AvailableFreeSpace))));
+
+    /// <summary>Checks the longest containing volume while deferring disk queries until a volume has been selected.</summary>
+    /// <param name="path">Workspace path, including a directory that has not yet been created.</param>
+    /// <param name="minimumFreeSpaceMib">Minimum permitted free space in MiB, or zero to disable the check.</param>
+    /// <param name="getVolumes">Volume roots and their deferred available-space readers.</param>
+    internal static void Check(string path, int minimumFreeSpaceMib, Func<IEnumerable<(string Root, Func<long> AvailableFreeSpace)>> getVolumes)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(minimumFreeSpaceMib);
         if (minimumFreeSpaceMib == 0)
@@ -41,11 +48,19 @@ public static class MediaWorkspaceAdmission
             return;
         }
         var fullPath = Path.GetFullPath(path);
-        var volume = DriveInfo.GetDrives()
-            .Where(drive => fullPath.StartsWith(drive.Name, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
-            .OrderByDescending(drive => drive.Name.Length)
-            .FirstOrDefault() ?? throw new IOException("The media workspace volume could not be resolved.");
-        if (volume.AvailableFreeSpace < minimumFreeSpaceMib * 1024L * 1024L)
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        var volume = getVolumes()
+            .Select(volume => (Root: Path.TrimEndingDirectorySeparator(volume.Root), volume.AvailableFreeSpace))
+            .Where(volume => fullPath.StartsWith(volume.Root, comparison) &&
+                (fullPath.Length == volume.Root.Length || Path.EndsInDirectorySeparator(volume.Root) ||
+                    fullPath[volume.Root.Length] == Path.DirectorySeparatorChar || fullPath[volume.Root.Length] == Path.AltDirectorySeparatorChar))
+            .OrderByDescending(volume => volume.Root.Length)
+            .FirstOrDefault();
+        if (volume.AvailableFreeSpace is null)
+        {
+            throw new IOException("The media workspace volume could not be resolved.");
+        }
+        if (volume.AvailableFreeSpace() < minimumFreeSpaceMib * 1024L * 1024L)
         {
             throw new MediaResourceLimitException("media_storage_limit", "The media workspace has less free space than the configured admission watermark.");
         }

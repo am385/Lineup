@@ -749,6 +749,94 @@ public sealed class VirtualOutputSupervisorTests
         await process.Received().DisposeAsync();
     }
 
+    /// <summary>Verifies liveness cleanup failures quarantine only the failed output without ending supervision or retrying unsafe cleanup.</summary>
+    /// <param name="failStop">Whether stopping fails rather than disposal.</param>
+    /// <param name="registered">Whether the expired worker registered before its lease expired.</param>
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    public async Task StartAsync_LivenessCleanupFails_QuarantinesOnlyAffectedWorker(bool failStop, bool registered)
+    {
+        // Arrange
+        var time = new ManualTimeProvider();
+        await using var fixture = new OwnershipFixture(time, TimeSpan.FromSeconds(10));
+        var failed = fixture.CreateDevice(VirtualOutputExecutionMode.ManagedProcess);
+        var healthy = fixture.CreateDevice(VirtualOutputExecutionMode.ManagedProcess);
+        fixture.Configuration = fixture.Configuration with
+        {
+            VirtualDevices = [failed, healthy],
+            VirtualOutputWorkerPolicies = [Assert.Single(fixture.Configuration.VirtualOutputWorkerPolicies) with { MaximumRestarts = 3 }]
+        };
+        await fixture.StartAsync();
+        await time.WaitForTimerAsync(TimeSpan.FromSeconds(1));
+        var failedProcess = fixture.GetProcess(failed.Id)!;
+        var healthyProcess = fixture.GetProcess(healthy.Id)!;
+        var healthySession = fixture.Register(fixture.GetBootstrap(VirtualOutputExecutionMode.ManagedProcess, healthy.Id));
+        fixture.Status.Update(healthy.Id, current => current! with { State = VirtualOutputRuntimeState.Healthy, ProtocolVersion = VirtualOutputProtocol.MaximumVersion });
+        if (registered)
+        {
+            fixture.Register(fixture.GetBootstrap(VirtualOutputExecutionMode.ManagedProcess, failed.Id));
+            fixture.Status.Update(failed.Id, current => current! with { State = VirtualOutputRuntimeState.Healthy, ProtocolVersion = VirtualOutputProtocol.MaximumVersion });
+        }
+        time.Advance(TimeSpan.FromSeconds(9));
+        await time.WaitForTimerAsync(TimeSpan.FromSeconds(1));
+        Assert.True(fixture.Authority.Renew(new VirtualOutputLeaseRenewalRequest { Session = healthySession, Ready = true }).Accepted);
+        if (failStop)
+        {
+            failedProcess.Configure().StopAsync(Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+                .Returns(_ => Task.FromException(new IOException("Synthetic liveness stop failure.")));
+        }
+        else
+        {
+            failedProcess.Configure().DisposeAsync().Returns(_ => ValueTask.FromException(new TimeoutException("Synthetic liveness disposal failure.")));
+        }
+        try
+        {
+            Assert.False(failedProcess.Completion.IsCompleted, "Configuring cleanup failure must not exit the worker during Arrange.");
+
+            // Act
+            time.Advance(TimeSpan.FromSeconds(7));
+            await WaitUntilAsync(() => fixture.Status.GetSnapshots().Any(snapshot =>
+                snapshot.VirtualDeviceId == failed.Id && snapshot.LastFailure?.Contains("owned process cleanup failed", StringComparison.Ordinal) == true),
+                TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            var added = fixture.CreateDevice(VirtualOutputExecutionMode.ExternalProcess);
+            fixture.Configuration = fixture.Configuration with { VirtualDevices = [failed, healthy, added] };
+            fixture.SignalSettingsChanged();
+            await WaitUntilAsync(() => fixture.Status.GetSnapshots().Any(snapshot => snapshot.VirtualDeviceId == added.Id),
+                TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            await time.WaitForTimerAsync(TimeSpan.FromSeconds(1));
+            time.Advance(TimeSpan.FromSeconds(3));
+            await time.WaitForTimerAsync(TimeSpan.FromSeconds(1));
+
+            // Assert
+            Assert.True(fixture.IsRunning);
+            var snapshot = Assert.Single(fixture.Status.GetSnapshots(), item => item.VirtualDeviceId == failed.Id);
+            Assert.Equal(VirtualOutputRuntimeState.Failed, snapshot.State);
+            Assert.Contains("owned process cleanup failed", snapshot.LastFailure, StringComparison.Ordinal);
+            Assert.Equal(3, fixture.ActivationAttempts);
+            Assert.False(fixture.Authority.HasActiveSession(failed.Id, snapshot.Generation!.Value));
+            Assert.True(fixture.Authority.Authorize(healthySession, VirtualOutputCapability.ReportHealth).Authorized);
+            Assert.False(healthyProcess.Completion.IsCompleted);
+            await failedProcess.Received(1).StopAsync(TimeSpan.Zero, Arg.Any<CancellationToken>());
+            await failedProcess.Received().DisposeAsync();
+            await healthyProcess.DidNotReceive().StopAsync(Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>());
+            await healthyProcess.DidNotReceive().DisposeAsync();
+            Assert.Equal(VirtualOutputRuntimeState.Healthy, Assert.Single(fixture.Status.GetSnapshots(), item => item.VirtualDeviceId == healthy.Id).State);
+        }
+        finally
+        {
+            failedProcess.Configure().StopAsync(Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+            failedProcess.Configure().DisposeAsync().Returns(_ =>
+            {
+                fixture.ExitProcess(failedProcess);
+                return ValueTask.CompletedTask;
+            });
+            fixture.ExitProcess(failedProcess);
+        }
+    }
+
     /// <summary>Verifies healthy renewal preserves a managed worker after its bootstrap deadline has passed.</summary>
     [Fact]
     public async Task StartAsync_RenewingWorker_PreservesProcessBeyondBootstrapDeadline()

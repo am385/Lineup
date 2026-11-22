@@ -149,6 +149,8 @@
   <data name="Common_Close" xml:space="preserve"><value>閉じる</value></data>
   <data name="Common_ClosesAutomatically" xml:space="preserve"><value>自動的に閉じます</value></data>
   <data name="Common_CopiedToClipboard" xml:space="preserve"><value>クリップボードにコピーしました!</value></data>
+  <data name="Common_CopyDisconnected" xml:space="preserve"><value>ブラウザーとの接続が切れたため、テキストをコピーできませんでした。</value></data>
+  <data name="Common_CopyFailure" xml:space="preserve"><value>ブラウザーでテキストをコピーできませんでした。テキストを選択して手動でコピーしてください。</value></data>
   <data name="Common_CopyToClipboard" xml:space="preserve"><value>クリップボードにコピー</value></data>
   <data name="Common_DevelopmentModeDetailsPrefix" xml:space="preserve"><value>環境を</value></data>
   <data name="Common_DevelopmentModeDetailsSuffix" xml:space="preserve"><value>に切り替えると、発生したエラーの詳細情報が表示されます。</value></data>

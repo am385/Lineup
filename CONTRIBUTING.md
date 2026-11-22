@@ -55,6 +55,11 @@ The dashboard-resource regressions cover visibility demand, non-overlapping call
 The streaming-graph regressions use the real cached Cytoscape bundle to cover card-to-card SVG connections, graph reconciliation,
 path highlighting, scroll preservation, resizing, and visibility-aware refresh/disposal. Build the Web app first to populate the hash-verified browser-asset cache.
 
+Slate parser regressions additionally support native FFmpeg through `LINEUP_TEST_SLATE_FFMPEG`, an explicit executable path with drawtext support.
+With that variable set, `ProtectedContentSlateServiceTests` renders one synthetic frame per case and checks literal text, disabled expansion and filter isolation;
+it requires no tuner, network source or application deployment. Native cases explicitly skip when no executable is configured.
+Run these cases on both Windows and Linux when changing FFmpeg slate text encoding; fake process tests do not exercise the parser.
+
 Ordinary CI and development/release publishing share `.github/workflows/validate.yml`. Both Linux and Windows run the full Release build/test gate,
 the browser regressions, formatting verification, and installed-worker smoke tests. The smoke tests use the hash-verified worker packages installed
 by the Web host build, exercising Web Player startup/captions/stop and shared HDHomeRun/Lineup Link admission and crash recovery without physical hardware.

@@ -317,9 +317,14 @@ public sealed class FileLogManager : ILogEventSink, IDisposable
         {
             (_logger as IDisposable)?.Dispose();
             _logger = null;
-            var deleted = DeleteExistingFiles();
-            _logger = CreateLogger(_settings);
-            return deleted;
+            try
+            {
+                return DeleteExistingFiles();
+            }
+            finally
+            {
+                _logger = CreateLogger(_settings);
+            }
         }
     }
 

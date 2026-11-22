@@ -39,6 +39,8 @@ Lineup 3.0 is an intentional configuration and storage reset. It does not migrat
 
 Current schema numbers alone do not establish valid settings: the complete document must deserialize and pass the settings loader's validation. A valid settings backup is recovered without changing either file until the next save. Without a valid primary or backup, recovery blocks settings writes and physical-topology publication so saved channels and guide bindings remain intact. Defaults become active only for a new installation with no settings documents. If an explicit reload fails after startup, previously loaded settings remain in memory, but writes and physical-topology publication stay blocked until the application restarts and validates its persisted settings again.
 
+Required streaming profiles, topology collections, nested configuration objects, and collection entries cannot be explicitly null. Both application settings and standalone streaming documents reject these before readiness; omitted defaultable fields and intentionally nullable options remain supported. This structural check does not require connected hardware or turn startup into a full semantic topology validation.
+
 Record the device addresses, guide choices, output subscriptions, and deployment-specific networking values you intend to recreate before replacing an earlier installation. A Factory Reset removes Lineup-owned settings, guide data, logs, Data Protection keys, and transient stream files, then returns the application to first-run setup. Its durable request remains until all cleanup succeeds; a failed or interrupted cleanup stays pending and is retried on the next startup.
 
 ## Installing Lineup on Windows
@@ -342,6 +344,9 @@ Configure the TUI via environment variables:
 - `Lineup__DatabasePath` — path to the authoritative SQLite channel and guide database
 
 The TUI stores topology and guide-retention settings in `settings.json` beneath its app-data directory; it does not read a standalone `streaming.json`.
+
+Guide rows and export paths render as literal terminal text, including brackets and markup-looking provider values; application-authored table and status styling is preserved.
+
 On first launch, use **Configure Sources** to add physical devices, guide sources, and virtual outputs before explicitly refreshing channels or guide data.
 Missing settings start with defaults and no physical inputs; incompatible or unreadable persisted settings enter the explicit factory-reset recovery flow, with valid-backup recovery when available.
 Web and TUI honor the same configured guide-history retention policy. The TUI retains manual channel/guide refresh commands; it does not automatically enable the Web host's periodic refresh workers.
@@ -696,8 +701,10 @@ Startup fails with actionable diagnostics by default. **Allow software fallback 
 software when the bounded GPU check fails or when the actual encoder reports a recognized initialization failure before
 publication, and only after the previous process has been released. Input, network, muxer, cancellation and cleanup errors
 are not general fallback permission. Existing source-audio fallback remains separate. Published streams never silently
-restart with a different encoder. Requested encoder, successful checks and fallback are logged; dedicated Web Player
+restart with a different encoder. Requested encoder, successful checks and fallback are logged; management-hosted and dedicated Web Player
 responses and active-stream diagnostics also report the requested/selected encoder and whether fallback occurred.
+Management-hosted retries release the failed input and processor reservation and remove stale packaged media before replacement;
+independently owned caption extraction remains active. Copy-only video plans do not require hardware verification.
 The Dashboard's Source Processing and Output Processing nodes and selected-node diagnostics show their respective runtime encoders, for example
 **GPU encoding · h264_amf**, **Software encoding · libx264**, or **Video copied (copy)**, with an explicit software-fallback
 badge when applicable. These badges use producer-reported outcomes, not the configured GPU preference. Stages that do not
@@ -834,6 +841,10 @@ case-insensitive or percent-encoded parameter names). Device default leaves the 
 explicitly rather than silently ignoring the setting; HDHomeRun error `802` is reported as an unknown transcode profile.
 Adapter descriptors, configuration and model-based capability diagnostics expose the choice.
 
+HDHomeRun receiver diagnostics use an exact receiver identifier from modern `status.json`, preserving its sparse idle responses.
+When that endpoint is unavailable or unreadable, Lineup queries the requested receiver through the native protocol rather than
+inferring its state from whole-device `tuners.html`. If neither transport supplies receiver-specific status, refresh fails explicitly instead of reporting an idle receiver.
+
 EXTEND has two tuner/transcoder paths. FLEX, CONNECT and PRIME are not interchangeable general-purpose transcoders.
 **EXTEND does not transcode audio**, so it cannot solve AC-4 compatibility; downstream Lineup audio conversion may still
 be required. Lineup keeps its normal metadata/deinterlace policies for the returned stream instead of assuming every profile
@@ -926,6 +937,7 @@ their independently admitted full-rate broker input and drain it; this change do
 
 Free space is checked on the actual management/worker output volume before new media allocation, not on a configured
 path supplied by a worker to the trusted host. Insufficient space or an unreadable volume rejects allocation explicitly.
+Volume selection uses the longest exact mount root or separator-delimited ancestor; similarly prefixed sibling mounts do not supply its free-space reading.
 This is an admission watermark, **not** a disk quota, a reservation of future bytes, ongoing enforcement on active writers,
 or permission to delete active output files. Concurrent writers can still exhaust disk after admission. The status API's
 `mediaResources` section exposes current producer/processing usage, effective limits, the free-space watermark, and
@@ -946,6 +958,9 @@ Name, ordering and nonconnection profile edits do not replace the physical adapt
 Jellyfin FFmpeg's AC-4 support is decoder-only and does not support every object-based or Dolby Atmos AC-4 presentation. Unsupported presentations are reported as stream errors rather than silently copied or discarded. Watch copies eligible source audio and starts a configured fallback rendition only if source packaging or playback fails.
 
 When an HDHomeRun reports DRM error 811, API streams return a protected-content error by default. The Settings page's Streaming tab can instead enable a synthetic **Content Protected** slate. The fallback is generated locally as H.264 video with silent AAC audio in the requested MPEG-TS or CMAF format; protected programming is never decrypted. Synthetic DRM and disabled-channel slates count toward **Maximum Concurrent Streams** but do not consume physical tuner capacity. Web-only refresh settings for active-stream information are configured on the Dashboard tab.
+
+Synthetic slate channel labels remain literal FFmpeg drawtext values, including quotes, filter delimiters, whitespace and percent expressions.
+Labels cannot introduce filters or `textfile` options, and drawtext expansion is disabled.
 
 The slate policy also applies when protection is discovered during acquisition, even if cached DRM metadata is missing or stale.
 Equivalent sources are tried first: a healthy source wins, and only an all-protected acquisition failure becomes a slate.
@@ -1085,7 +1100,7 @@ Network-facing Lineup Link, virtual HDHomeRun, and Web Player media outputs can 
 
 Managed workers receive a unique temporary directory beneath the trusted host's operating-system temporary path through their sanitized environment. This keeps dedicated Web Player media artifacts writable for ordinary Windows users without inheriting the host's user profile or unrelated environment variables. The launcher removes the directory after terminating and disposing the worker, including failed launches, and logs cleanup failures with the affected path. These worker directories are separate from the management host's `Lineup:TransientPath` setting.
 
-Worker lifetime containment is always active, including when CPU/memory limits are zero: Windows uses a kill-on-close job and Linux launches each worker in its own session with `setsid` from util-linux (included in the Docker image). Descendants are terminated before output streams are joined, even after a worker-only crash. Forced termination and output teardown share the configured drain timeout as a bounded cleanup budget, with a one-second minimum when graceful draining is disabled. Concurrent disposal awaits the same cleanup task. The supervisor finishes cleanup before scheduling recovery; failed cleanup is logged and quarantines the output instead of automatically launching another worker.
+Worker lifetime containment is always active, including when CPU/memory limits are zero: Windows uses a kill-on-close job and Linux launches each worker in its own session with `setsid` from util-linux (included in the Docker image). Descendants are terminated before output streams are joined, even after a worker-only crash. Forced termination and output teardown share the configured drain timeout as a bounded cleanup budget, with a one-second minimum when graceful draining is disabled. Concurrent disposal awaits the same cleanup task. The supervisor finishes cleanup before scheduling recovery; failed cleanup is logged and quarantines the output instead of automatically launching another worker. This also applies to expired leases and missed bootstrap registration: cleanup failure does not stop healthy sibling outputs or end supervision. Activation generations remain monotonic across revocation within the host lifetime, and delayed status reports cannot overwrite a replacement or recreate removed output status.
 
 Nonzero worker CPU/memory policies are preflighted before saving changed topology and before launching a worker. Zero remains
 opt-in/unlimited and requires no resource-controller privileges. Unsupported enforcement fails closed with an actionable
@@ -1606,6 +1621,8 @@ Lineup uses the standard .NET `Logging:LogLevel` configuration for its startup d
 
 Open **Settings → Logging** to enable rolling files. Files are written in the application-owned `logs` directory beneath `Lineup:AppDataPath`. The minimum level, retention period, and per-file size limit are configurable. Enabling, disabling, or changing these options rebuilds only the managed file sink and takes effect immediately when settings are saved; console, in-memory, and external logging continue uninterrupted. **Delete Logs** removes all existing rolling files and safely starts a fresh file when logging is active. Factory Reset deletes this application-owned directory. The Logs page lists and downloads only retained `lineup-*.log` files from that directory.
 
+If retained-log deletion fails, Lineup reports the error and restores the configured file sink; disabled file logging stays disabled. Clipboard denial or browser disconnection when copying an About or guide-output URL produces a localized status error without discarding unsaved Settings edits or displaying copy success.
+
 OTLP export is optional and configured only through startup configuration or environment variables. Authentication headers are never persisted to `settings.json` or returned to the browser. The Logging Settings tab reports only whether the exporter is enabled, disabled, or invalid.
 
 ```bash
@@ -1708,6 +1725,8 @@ Failover is attempted at stream startup, not by splicing an active stream. All e
 publication failure is reported separately from the already committed edit, while the previous successful publication remains available.
 
 Successful guide imports update matching programs and remove missing current or future programs within the source's reported coverage window.
+Repeated programme identities (guide channel, start time, end time, and title) are stored once; the last occurrence supplies metadata and the import's programme count reflects unique identities.
+Shared channel-number sorting puts parseable dotted numeric identifiers first, case-insensitive text identifiers next, and empty values last, with a lexical tie-break for equivalent numeric forms.
 Retained ended programs and future coverage outside that window survive narrower refreshes. Expired history is pruned according to the configured
 retention policy, including expired programs sent again by the source. Channel changes, program merging, pruning, and last-import metadata commit
 together for that source without changing another source's data.

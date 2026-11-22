@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Localization;
 using Microsoft.JSInterop;
 
 namespace Lineup.App.Web.Services;
@@ -36,6 +37,31 @@ internal static class BrowserInteropExtensions
     /// </summary>
     public static ValueTask CopyTextAsync(this IJSRuntime js, string content) =>
         js.InvokeVoidAsync("copyTextToClipboard", content);
+
+    /// <summary>Copies text, reporting recoverable browser clipboard failures without suppressing cancellation or other errors.</summary>
+    /// <param name="js">Browser interop runtime.</param>
+    /// <param name="content">Text to copy.</param>
+    /// <param name="notifications">Scoped status notifications.</param>
+    /// <param name="text">Localized UI messages.</param>
+    /// <returns>Whether the browser completed the copy.</returns>
+    public static async ValueTask<bool> TryCopyTextAsync(this IJSRuntime js, string content, IStatusNotificationService notifications, IStringLocalizer<UiStrings> text)
+    {
+        try
+        {
+            await js.CopyTextAsync(content);
+            return true;
+        }
+        catch (JSDisconnectedException)
+        {
+            notifications.ShowError(text["Common_CopyDisconnected"]);
+            return false;
+        }
+        catch (JSException)
+        {
+            notifications.ShowError(text["Common_CopyFailure"]);
+            return false;
+        }
+    }
 
     /// <summary>
     /// Gets the available guide viewport width.

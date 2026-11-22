@@ -422,8 +422,7 @@ public class HDHomeRunDevice : IDisposable
             return CreateHttpTunerStatus(httpStatus);
         }
 
-        // Return empty status if nothing works
-        return new TunerStatus { TunerIndex = tunerIndex };
+        throw new HDHomeRunException($"Receiver-specific status is unavailable for tuner {tunerIndex}.");
     }
 
     private static TunerStatus CreateHttpTunerStatus(HttpTunerStatus status) =>

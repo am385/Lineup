@@ -4,6 +4,7 @@ using Lineup.Core.Extensibility.Guides;
 using Lineup.Core.Settings;
 using Lineup.Core.Storage;
 using Lineup.Core.Common.Streaming;
+using Lineup.Core.Common.Guides;
 using Lineup.Core.Extensibility.Streaming;
 using Lineup.Plugin.GuideOutputs.Json.Plugin;
 using Lineup.Plugin.LineupLink;
@@ -446,7 +447,7 @@ class Program
         }
 
         var fileInfo = new FileInfo(sourceFile);
-        AnsiConsole.MarkupLine($"[grey]Source file: {sourceFile} ({fileInfo.Length / 1024:N0} KB, modified {fileInfo.LastWriteTime:yyyy-MM-dd HH:mm})[/]");
+        AnsiConsole.MarkupLine(CreateExportSourceMessage(sourceFile, fileInfo.Length, fileInfo.LastWriteTime));
 
         var destination = AnsiConsole.Ask("Export to path:", Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), AppConstants.DefaultXmltvFileName));
 
@@ -460,7 +461,7 @@ class Program
 
             await Task.Run(() => File.Copy(sourceFile, destination, overwrite: true));
 
-            AnsiConsole.MarkupLine($"[green]Exported to {destination} successfully![/]");
+            AnsiConsole.MarkupLine(CreateExportSuccessMessage(destination));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
@@ -494,6 +495,15 @@ class Program
         AnsiConsole.Clear();
         AnsiConsole.Write(new Rule($"[blue]Channels ({channels.Count})[/]"));
 
+        AnsiConsole.Write(CreateChannelTable(channels));
+        WaitForKey();
+    }
+
+    /// <summary>Builds the channel view without interpreting provider values as console markup.</summary>
+    /// <param name="channels">Projected guide channels.</param>
+    /// <returns>The styled channel table with literal data cells.</returns>
+    internal static Table CreateChannelTable(IReadOnlyList<VirtualGuideChannel> channels)
+    {
         var table = new Table()
             .Border(TableBorder.Rounded)
             .AddColumn("Number")
@@ -502,21 +512,34 @@ class Program
 
         foreach (var channel in channels.OrderBy(c => c.Number))
         {
-            table.AddRow(channel.Number, channel.Name, channel.Affiliate ?? "");
+            table.AddRow(Markup.Escape(channel.Number), Markup.Escape(channel.Name), Markup.Escape(channel.Affiliate ?? ""));
         }
-
-        AnsiConsole.Write(table);
-        WaitForKey();
+        return table;
     }
 
     static async Task ViewProgramsAsync(IGuideQueryService guides, StreamingConfiguration configuration)
     {
         var snapshot = await guides.BuildUnionSnapshotAsync(configuration, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(6));
-        var programs = snapshot.Channels.SelectMany(channel => channel.Programs.Select(program => new { Channel = channel.Number, Program = program })).ToArray();
+        var programs = snapshot.Channels.SelectMany(channel => channel.Programs.Select(program => (Channel: channel.Number, Program: program))).ToArray();
 
         AnsiConsole.Clear();
         AnsiConsole.Write(new Rule($"[blue]Programs - Next 6 Hours ({programs.Length})[/]"));
 
+        AnsiConsole.Write(CreateProgramTable(programs));
+
+        if (programs.Length > 50)
+        {
+            AnsiConsole.MarkupLine($"[grey]Showing 50 of {programs.Length} programs[/]");
+        }
+
+        WaitForKey();
+    }
+
+    /// <summary>Builds the programme view without interpreting channel or programme metadata as console markup.</summary>
+    /// <param name="programs">Projected channel numbers and programmes.</param>
+    /// <returns>The styled programme table, retaining the first fifty entries.</returns>
+    internal static Table CreateProgramTable(IEnumerable<(string Channel, GuideProgram Program)> programs)
+    {
         var table = new Table()
             .Border(TableBorder.Rounded)
             .AddColumn("Channel")
@@ -526,18 +549,25 @@ class Program
 
         foreach (var program in programs.Take(50))
         {
-            table.AddRow(program.Channel, program.Program.StartUtc.LocalDateTime.ToString("HH:mm"), program.Program.Title, program.Program.EpisodeTitle ?? "");
+            table.AddRow(Markup.Escape(program.Channel), program.Program.StartUtc.LocalDateTime.ToString("HH:mm"),
+                Markup.Escape(program.Program.Title), Markup.Escape(program.Program.EpisodeTitle ?? ""));
         }
-
-        AnsiConsole.Write(table);
-
-        if (programs.Length > 50)
-        {
-            AnsiConsole.MarkupLine($"[grey]Showing 50 of {programs.Length} programs[/]");
-        }
-
-        WaitForKey();
+        return table;
     }
+
+    /// <summary>Formats the XMLTV source path literally while retaining application-authored styling and file metadata.</summary>
+    /// <param name="sourceFile">Configured source path.</param>
+    /// <param name="fileLength">Source length in bytes.</param>
+    /// <param name="lastWriteTime">Source modification time.</param>
+    /// <returns>Console markup containing the escaped source path.</returns>
+    internal static string CreateExportSourceMessage(string sourceFile, long fileLength, DateTime lastWriteTime) =>
+        $"[grey]Source file: {Markup.Escape(sourceFile)} ({fileLength / 1024:N0} KB, modified {lastWriteTime:yyyy-MM-dd HH:mm})[/]";
+
+    /// <summary>Formats a successful XMLTV export without interpreting the selected path as markup.</summary>
+    /// <param name="destination">Selected export path.</param>
+    /// <returns>Console markup containing the escaped destination path.</returns>
+    internal static string CreateExportSuccessMessage(string destination) =>
+        $"[green]Exported to {Markup.Escape(destination)} successfully![/]";
 
     static void ShowAbout()
     {

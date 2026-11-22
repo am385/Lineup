@@ -46,8 +46,13 @@ public sealed class ChannelNumberComparer : IComparer<string?>
 
         var leftParts = left!.Split('.');
         var rightParts = right!.Split('.');
-        if (TryParseParts(leftParts, out var leftNumbers) &&
-            TryParseParts(rightParts, out var rightNumbers))
+        var leftIsNumeric = TryParseParts(leftParts, out var leftNumbers);
+        var rightIsNumeric = TryParseParts(rightParts, out var rightNumbers);
+        if (leftIsNumeric != rightIsNumeric)
+        {
+            return leftIsNumeric ? -1 : 1;
+        }
+        if (leftIsNumeric)
         {
             for (var index = 0; index < Math.Min(leftNumbers.Length, rightNumbers.Length); index++)
             {

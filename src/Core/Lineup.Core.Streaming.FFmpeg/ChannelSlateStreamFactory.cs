@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 
 namespace Lineup.Core.Streaming.FFmpeg;
 
@@ -185,7 +186,8 @@ public static class ChannelSlatePlanner
         ArgumentException.ThrowIfNullOrWhiteSpace(channel);
         var fontPath = OperatingSystem.IsWindows() ? "C\\:/Windows/Fonts/arial.ttf" : "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
         var title = reason == ChannelSlateReason.DisabledChannel ? "Disabled Channel" : "Content Protected";
-        var filter = $"drawtext=fontfile='{fontPath}':text='{title} - Channel {EscapeFilterText(channel)}':fontcolor=white:fontsize=52:x=(w-text_w)/2:y=(h-text_h)/2";
+        var text = EscapeFilterText($"{title} - Channel {channel}");
+        var filter = $"drawtext=fontfile='{fontPath}':text={text}:expansion=none:fontcolor=white:fontsize=52:x=(w-text_w)/2:y=(h-text_h)/2";
         return [
             "-hide_banner", "-loglevel", "error",
             "-re", "-f", "lavfi", "-i", "color=c=0x20252b:s=1280x720:r=30",
@@ -216,6 +218,21 @@ public static class ChannelSlatePlanner
 
     private static string EscapeFilterText(string value)
     {
-        return value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace(":", "\\:", StringComparison.Ordinal).Replace("'", "\\'", StringComparison.Ordinal);
+        // The graph parser runs before drawtext's option parser, so encode the option value first.
+        return Escape(Escape(value, "\\': \t\r\n"), "\\'[],; \t\r\n");
+
+        static string Escape(string text, string specialCharacters)
+        {
+            var encoded = new StringBuilder(text.Length);
+            foreach (var character in text)
+            {
+                if (specialCharacters.Contains(character))
+                {
+                    encoded.Append('\\');
+                }
+                encoded.Append(character);
+            }
+            return encoded.ToString();
+        }
     }
 }
