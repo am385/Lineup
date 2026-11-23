@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using Lineup.Core.Common.Guides;
@@ -322,7 +321,7 @@ public sealed class LineupLinkControlRequestTests
 
     private sealed class LoopbackServer : IAsyncDisposable
     {
-        private readonly HttpListener _listener = new();
+        private readonly HttpListener _listener;
         private readonly CancellationTokenSource _shutdown = new();
         private readonly Task _run;
 
@@ -330,13 +329,8 @@ public sealed class LineupLinkControlRequestTests
         /// <param name="respond">The respond value.</param>
         public LoopbackServer(Func<HttpListenerContext, CancellationToken, Task> respond)
         {
-            var portReservation = new TcpListener(IPAddress.Loopback, 0);
-            portReservation.Start();
-            var port = ((IPEndPoint)portReservation.LocalEndpoint).Port;
-            portReservation.Stop();
+            _listener = LoopbackHttpListener.Start(out var port);
             BaseUri = new Uri($"http://127.0.0.1:{port}/");
-            _listener.Prefixes.Add(BaseUri.ToString());
-            _listener.Start();
             _run = RunAsync(respond);
         }
 
