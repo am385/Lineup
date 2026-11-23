@@ -13,7 +13,7 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\..\scripts\Lineup.Tools.PerformanceCollector\Lineup.Tools.PerformanceCollector.csproj" />
+    <ProjectReference Include="..\..\..\tools\Lineup.Tools.PerformanceCollector\Lineup.Tools.PerformanceCollector.csproj" />
     <Compile Include="..\..\TestSupport\ControlledTimeProvider.cs" Link="TestSupport\ControlledTimeProvider.cs" />
   </ItemGroup>
 </Project>

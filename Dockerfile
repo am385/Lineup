@@ -37,14 +37,14 @@ RUN dotnet restore src/Apps/Lineup.App.Web/Lineup.App.Web.csproj
 
 # Cache browser downloads independently of application source changes.
 COPY build/browser-assets.json ./build/browser-assets.json
-COPY scripts/Lineup.Tools.BrowserAssets/ ./scripts/Lineup.Tools.BrowserAssets/
-RUN dotnet run --project scripts/Lineup.Tools.BrowserAssets --configuration Release --no-launch-profile \
+COPY tools/Lineup.Tools.BrowserAssets/ ./tools/Lineup.Tools.BrowserAssets/
+RUN dotnet run --project tools/Lineup.Tools.BrowserAssets --configuration Release --no-launch-profile \
     -p:SourceRevisionId="${GIT_HASH}" -- build/browser-assets.json out/browser-assets
 
 # Copy remaining source code
 COPY src/ ./src/
 COPY build/ ./build/
-COPY scripts/Lineup.Tools.VirtualOutputWorkerPackager/ ./scripts/Lineup.Tools.VirtualOutputWorkerPackager/
+COPY tools/Lineup.Tools.VirtualOutputWorkerPackager/ ./tools/Lineup.Tools.VirtualOutputWorkerPackager/
 
 # Publish the application
 # Note: Cannot use --no-restore here because the publish step needs to resolve

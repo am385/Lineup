@@ -3,13 +3,13 @@
     <LineupBrowserAssetsRepositoryRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</LineupBrowserAssetsRepositoryRoot>
     <LineupBrowserAssetsManifest Condition="'$(LineupBrowserAssetsManifest)' == ''">$(MSBuildThisFileDirectory)browser-assets.json</LineupBrowserAssetsManifest>
     <LineupBrowserAssetsCacheRoot Condition="'$(LineupBrowserAssetsCacheRoot)' == ''">$([System.IO.Path]::Combine('$(LineupBrowserAssetsRepositoryRoot)', 'out', 'browser-assets'))</LineupBrowserAssetsCacheRoot>
-    <LineupBrowserAssetsTool>$([System.IO.Path]::Combine('$(LineupBrowserAssetsRepositoryRoot)', 'scripts', 'Lineup.Tools.BrowserAssets', 'Lineup.Tools.BrowserAssets.csproj'))</LineupBrowserAssetsTool>
+    <LineupBrowserAssetsTool>$([System.IO.Path]::Combine('$(LineupBrowserAssetsRepositoryRoot)', 'tools', 'Lineup.Tools.BrowserAssets', 'Lineup.Tools.BrowserAssets.csproj'))</LineupBrowserAssetsTool>
     <LineupBrowserAssetsManifest>$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', '$(LineupBrowserAssetsManifest)'))</LineupBrowserAssetsManifest>
     <LineupBrowserAssetsCacheRoot>$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', '$(LineupBrowserAssetsCacheRoot)'))</LineupBrowserAssetsCacheRoot>
   </PropertyGroup>
 
   <ItemGroup>
-    <UpToDateCheckInput Include="$(LineupBrowserAssetsManifest);$(LineupBrowserAssetsTool);$(LineupBrowserAssetsRepositoryRoot)\scripts\Lineup.Tools.BrowserAssets\*.cs" Set="BrowserAssets" />
+    <UpToDateCheckInput Include="$(LineupBrowserAssetsManifest);$(LineupBrowserAssetsTool);$(LineupBrowserAssetsRepositoryRoot)\tools\Lineup.Tools.BrowserAssets\*.cs" Set="BrowserAssets" />
   </ItemGroup>
 
   <Target Name="PrepareLineupBrowserAssets"

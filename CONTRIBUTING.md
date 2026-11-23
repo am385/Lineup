@@ -232,6 +232,8 @@ Production and test projects are grouped by dependency role:
 - `src/Core` — the dependency-free shared model, stable plugin API, and provider-neutral application and streaming foundations.
 - `src/Plugins` — independently composable adapters and their support libraries, grouped by provider or product family (`SiliconDust`, `LineupLink`, and `WebPlayer`).
 - `tests` — a hierarchy that mirrors the production project roles.
+- `tools` — compiled `Lineup.Tools.*` build and diagnostic utilities, with automated tests under `tests/Tools`.
+- `scripts` — PowerShell entry points for build, packaging, setup, and profiling workflows.
 
 Project directories, `.csproj` filenames, root namespaces, and assembly names must agree. Use `Lineup.App.*` for application hosts, `Lineup.Core` or `Lineup.Core.*` for foundations, and `Lineup.Plugin.*` for plugin families and their support libraries.
 Use `Lineup.Integration.*` for integration harnesses, `Lineup.TestSupport.*` for test helpers, and `Lineup.Tools.*` for build tools. Automated test projects use their subject project's name followed by `.Tests`, with the same root namespace.

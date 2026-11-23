@@ -287,7 +287,7 @@ For improvements rather than bugs, use the
 | Guides, topology and shared-stream resource limits | [Core](src/Core/Lineup.Core/README.md) |
 | Dedicated-output supervision and resource policies | [Worker runtime](src/Core/Lineup.Core.VirtualOutputs.Runtime/README.md) |
 | Reset, offline backup and restore | [Recovery](docs/recovery.md) |
-| Windows CPU/GPU investigation | [Performance collector](scripts/Lineup.Tools.PerformanceCollector/README.md) |
+| Windows CPU/GPU investigation | [Performance collector](tools/Lineup.Tools.PerformanceCollector/README.md) |
 | Source builds, browser assets and worker packaging | [Build guide](build/README.md) |
 | Test conventions and optional hardware certification | [Testing](tests/README.md) |
 | Architecture and project responsibilities | [Architecture](docs/architecture.md), [dependency map](docs/project-dependencies.md) |

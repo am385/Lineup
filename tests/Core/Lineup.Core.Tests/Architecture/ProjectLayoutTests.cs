@@ -64,7 +64,7 @@ public sealed class ProjectLayoutTests
     {
         // Arrange
         var repositoryRoot = GetRepositoryRoot();
-        var projects = new[] { "src", "tests", "scripts" }
+        var projects = new[] { "src", "tests", "tools" }
             .SelectMany(folder => GetProjects(Path.Combine(repositoryRoot, folder)))
             .ToArray();
 
@@ -74,7 +74,7 @@ public sealed class ProjectLayoutTests
             var name = Path.GetFileNameWithoutExtension(project);
             var directory = Path.GetDirectoryName(project)!;
             var segments = Path.GetRelativePath(repositoryRoot, project).Split(Path.DirectorySeparatorChar);
-            var role = segments[0] == "scripts" ? "Tools" : segments[1] switch
+            var role = segments[0] == "tools" ? "Tools" : segments[1] switch
             {
                 "Apps" => "App",
                 "Plugins" => "Plugin",
@@ -110,6 +110,7 @@ public sealed class ProjectLayoutTests
         // Assert
         Assert.NotEmpty(projects);
         Assert.Empty(violations);
+        Assert.Empty(GetProjects(Path.Combine(repositoryRoot, "scripts")));
     }
 
     /// <summary>Verifies automated tests use their referenced subject project's name followed by Tests.</summary>
@@ -146,7 +147,7 @@ public sealed class ProjectLayoutTests
     {
         // Arrange
         var repositoryRoot = GetRepositoryRoot();
-        var projects = new[] { "src", "tests", "scripts" }
+        var projects = new[] { "src", "tests", "tools" }
             .SelectMany(folder => GetProjects(Path.Combine(repositoryRoot, folder)))
             .ToArray();
 
@@ -333,7 +334,7 @@ public sealed class ProjectLayoutTests
         var solution = XDocument.Load(Path.Combine(repositoryRoot, "Lineup.slnx"));
         var expected = GetProjects(Path.Combine(repositoryRoot, "src"))
             .Concat(GetProjects(Path.Combine(repositoryRoot, "tests")).Where(path => !IsStandaloneSweepFaultSource(repositoryRoot, path)))
-            .Concat(GetProjects(Path.Combine(repositoryRoot, "scripts")))
+            .Concat(GetProjects(Path.Combine(repositoryRoot, "tools")))
             .Select(path => Normalize(Path.GetRelativePath(repositoryRoot, path)))
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -457,7 +458,7 @@ public sealed class ProjectLayoutTests
         // Arrange
         var repositoryRoot = GetRepositoryRoot();
         var targetPath = Path.Combine(repositoryRoot, "build", "Lineup.Host.VirtualOutputWorkers.targets");
-        var packagerProject = Path.Combine(repositoryRoot, "scripts", "Lineup.Tools.VirtualOutputWorkerPackager", "Lineup.Tools.VirtualOutputWorkerPackager.csproj");
+        var packagerProject = Path.Combine(repositoryRoot, "tools", "Lineup.Tools.VirtualOutputWorkerPackager", "Lineup.Tools.VirtualOutputWorkerPackager.csproj");
         var expectedImport = @"..\..\..\build\Lineup.Host.VirtualOutputWorkers.targets";
         var hostProjects = new[]
         {
