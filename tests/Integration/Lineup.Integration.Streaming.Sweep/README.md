@@ -34,8 +34,9 @@ Fresh synchronization explicitly retains completed browser response bodies in
 `synchronization-resources.zip`, independently of the diagnostic Playwright trace. The separately
 fetched owned DASH manifest remains mandatory; a redundant trace manifest without a body does not
 invalidate complete owned media. Missing initialization or selected media is still inconclusive.
-Each body capture is bounded by the startup deadline, and metadata collection also respects the
-remaining observation budget; a stalled response is retained as a capture failure, not a fragment.
+Each body capture is bounded by the startup deadline. Metadata collection respects the remaining
+observation budget, or a separate startup-length diagnostic budget after a fixed watch;
+a stalled response is retained as a capture failure, not a fragment.
 `synchronization-window.json` records the final uninterrupted interval and its completed fragments.
 Only that interval's final owned session and observed representations are evaluated; earlier sessions
 cannot fill in missing tracks, and switches within the interval remain ambiguous. Watch navigation
@@ -200,10 +201,11 @@ Missing requested channels, duplicate keys, conflicts and zero filter matches fa
 | `--include <numbers>` / `--exclude <numbers>` | Select or omit projected channels |
 | `--max-channels <n>` | All selected channels; positive smoke limit |
 | `--matrices <ids>` | All six Docker matrices; not permitted in existing-instance mode |
-| `--startup-seconds <n>` | 60; CMAF response deadline |
+| `--startup-seconds <n>` | 60; CMAF response deadline, or complete tune/readiness budget with `--watch-seconds` |
 | `--stable-seconds <n>` | 30 continuous seconds, reset on stalls, errors or session replacement |
 | `--media-advance-seconds <n>` | 15 within the continuous interval |
 | `--observation-seconds <n>` | 120; independent media observation deadline |
+| `--watch-seconds <n>` | Optional fixed watch after complete tune/player readiness; requires `--attempts 1 --sync-only`, sufficient stability/progression time, and no matrix recovery |
 | `--cleanup-seconds <n>` | 120; includes nested warm expiry; increase for longer configured warm periods |
 | `--attempts <n>` | 3 maximum attempts, bounded to 1-20 |
 | `--retry-delay-seconds <n>` | 2 |
@@ -223,6 +225,21 @@ Missing requested channels, duplicate keys, conflicts and zero filter matches fa
 `smoke` selects the first projected channel in `local-management`.
 Issue regression commands retain their existing focused reports and synthetic fault source.
 Use the same configured output root to find the `current.txt` pointer.
+
+For a new full sweep with a 10-second complete tune/readiness budget and a 20-second watch, use:
+
+```powershell
+dotnet run --project tests\Integration\Lineup.Integration.Streaming.Sweep\Lineup.Integration.Streaming.Sweep.csproj -c Release --no-build -- execute-fresh --startup-seconds 10 --watch-seconds 20 --stable-seconds 20 --observation-seconds 20 --attempts 1 --sync-only
+```
+
+This performs one combined decoded-playback and fresh timestamp observation per channel, without caption retries or
+a separate second playback. The fixed watch always runs its complete interval and does not extend after a stall.
+The startup budget includes the CMAF response, player attachment, decoded readiness and instrumentation.
+Browser preparation, bounded evidence capture, safe owned-session cleanup and once-per-matrix compatibility remain
+outside the 30-second tune/watch measurement budget. Cleanup is not shortened or waived.
+`channel-window.json` records the configured tune/watch budgets and measured durations.
+Short observations can miss intermittent problems or caption cues; missing timing or cue evidence is not a pass.
+Normal sweep defaults and existing checkpoints without `--watch-seconds` retain their previous behavior.
 
 ### Collecting remaining results after emergency cleanup
 

@@ -23,6 +23,8 @@ internal sealed record SweepOptions
     public double MediaAdvanceSeconds { get; init; } = 15;
     /// <summary>Gets the independent observation deadline.</summary>
     public double ObservationSeconds { get; init; } = 120;
+    /// <summary>Gets an optional fixed watch interval after complete tune readiness; requires one combined fresh observation.</summary>
+    public double? WatchSeconds { get; init; }
     /// <summary>Gets the cleanup deadline, including layered warm expiry.</summary>
     public double CleanupSeconds { get; init; } = 120;
     /// <summary>Gets the maximum number of attempts.</summary>
@@ -66,6 +68,11 @@ internal sealed record SweepOptions
             || ObservationSeconds < StableSeconds || ObservationSeconds < MediaAdvanceSeconds)
         {
             throw new ArgumentException("Durations must be finite and positive; observation must allow stability and media advancement.");
+        }
+        if (WatchSeconds is double watch && (!double.IsFinite(watch) || watch <= 0 || watch > 86400
+            || watch < StableSeconds || watch < MediaAdvanceSeconds || MaximumAttempts != 1 || !SyncOnly || AllowMatrixRecovery))
+        {
+            throw new ArgumentException("A fixed watch must allow stability and media advancement and use --attempts 1 --sync-only without matrix recovery.");
         }
         if (ExistingInstance && (AllowMatrixRecovery || Matrices.Length > 0))
         {

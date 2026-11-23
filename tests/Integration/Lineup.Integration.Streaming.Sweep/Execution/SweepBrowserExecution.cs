@@ -241,6 +241,12 @@ internal sealed partial class SweepHarness
         DateTimeOffset? stableThroughUtc = null;
         string? stableSession = null;
         string captionResult = "not-applicable";
+        Stopwatch? tuneWindow = null;
+        Stopwatch? watchWindow = null;
+        double? tuneElapsedSeconds = null;
+        double? watchElapsedSeconds = null;
+        TimeSpan RemainingTune() => TimeSpan.FromSeconds(Math.Max(0.001, _options.StartupSeconds - (tuneWindow?.Elapsed.TotalSeconds ?? 0)));
+        Task WithinTuneAsync(Task task) => tuneWindow is null ? task : task.WaitAsync(RemainingTune(), _cancellation);
         try
         {
             await page.GotoAsync($"{matrix.WatchUrl.TrimEnd('/')}/watch", new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 120_000 }).WaitAsync(_cancellation);
@@ -261,13 +267,17 @@ internal sealed partial class SweepHarness
             }
             await Task.Delay(3_000, _cancellation);
             startupStartedAtUtc = DateTimeOffset.UtcNow;
-            await channelButton.ClickAsync(new() { Timeout = 30_000 });
+            if (_options.WatchSeconds is not null)
+            {
+                tuneWindow = Stopwatch.StartNew();
+            }
+            await WithinTuneAsync(channelButton.ClickAsync(new() { Timeout = 30_000 }));
             startupOutcome = await WaitForStartupOutcomeAsync(
                 startResponseSource.Task,
                 startFailureSource.Task,
                 startupStartedAtUtc,
-                TimeSpan.FromSeconds(_options.StartupSeconds)).WaitAsync(_cancellation);
-            await Task.WhenAll(captureTasks.ToArray());
+                tuneWindow is null ? TimeSpan.FromSeconds(_options.StartupSeconds) : RemainingTune()).WaitAsync(_cancellation);
+            await WithinTuneAsync(Task.WhenAll(captureTasks.ToArray()));
             await File.WriteAllTextAsync(
                 Path.Combine(attemptRoot, "startup-outcome.json"),
                 JsonSerializer.Serialize(startupOutcome, _json));
@@ -278,16 +288,17 @@ internal sealed partial class SweepHarness
             }
             var observation = Stopwatch.StartNew();
             TimeSpan RemainingObservation() => TimeSpan.FromSeconds(Math.Max(0.001, _options.ObservationSeconds - observation.Elapsed.TotalSeconds));
+            TimeSpan RemainingAttachment() => tuneWindow is null ? RemainingObservation() : RemainingTune();
             failurePhase = "player-attachment";
-            await page.Locator("#cmafVideoPlayer").WaitForAsync(new() { State = WaitForSelectorState.Attached, Timeout = 45_000 }).WaitAsync(RemainingObservation(), _cancellation);
+            await page.Locator("#cmafVideoPlayer").WaitForAsync(new() { State = WaitForSelectorState.Attached, Timeout = 45_000 }).WaitAsync(RemainingAttachment(), _cancellation);
             failurePhase = "playback";
             await page.WaitForFunctionAsync(
                 "() => { const v=document.querySelector('#cmafVideoPlayer'); return v && v.readyState >= 2 && v.videoWidth > 0 && v.currentTime > 0; }",
                 null,
-                new() { Timeout = 30_000, PollingInterval = 500 }).WaitAsync(RemainingObservation(), _cancellation);
-            activeStatus = await WaitForActiveStreamAsync(matrix.WatchUrl, TimeSpan.FromSeconds(30)).WaitAsync(RemainingObservation(), _cancellation);
+                new() { Timeout = 30_000, PollingInterval = 500 }).WaitAsync(RemainingAttachment(), _cancellation);
+            activeStatus = await WaitForActiveStreamAsync(matrix.WatchUrl, TimeSpan.FromSeconds(30)).WaitAsync(RemainingAttachment(), _cancellation);
             network.Clear();
-            await page.EvaluateAsync(
+            await WithinTuneAsync(page.EvaluateAsync(
                 """
                 () => {
                   const v = document.querySelector('#cmafVideoPlayer');
@@ -325,34 +336,57 @@ internal sealed partial class SweepHarness
                     window.__lineupSweep.audioError = String(error);
                   }
                 }
-                """);
+                """));
             var stable = new StablePlayback(_options.StableSeconds, _options.MediaAdvanceSeconds);
+            FixedWatch? fixedWatch = null;
+            if (_options.WatchSeconds is double watchSeconds)
+            {
+                var initialSample = await ReadPlaybackSampleAsync().WaitAsync(RemainingTune(), _cancellation);
+                fixedWatch = new FixedWatch(watchSeconds, stable, initialSample);
+                tuneElapsedSeconds = tuneWindow!.Elapsed.TotalSeconds;
+                if (tuneElapsedSeconds > _options.StartupSeconds)
+                {
+                    throw new TimeoutException("Complete tune readiness exceeded the configured startup budget.");
+                }
+                observation.Restart();
+                watchWindow = observation;
+            }
             var stablePassed = false;
-            while (observation.Elapsed.TotalSeconds < _options.ObservationSeconds)
+            while (fixedWatch is not null || observation.Elapsed.TotalSeconds < _options.ObservationSeconds)
             {
                 _cancellation.ThrowIfCancellationRequested();
-                var sample = await page.EvaluateAsync<JsonElement>(
-                    """
-                    () => {
-                      const v = document.querySelector('#cmafVideoPlayer');
-                      const s = window.__lineupSweep;
-                      return { mediaTime: v?.currentTime ?? 0, ready: !!v && v.readyState >= 2 && v.videoWidth > 0,
-                        paused: !v || v.paused, error: !!v?.error, discontinuities: s.waiting + s.stalled,
-                        session: v?.currentSrc ?? '' };
-                    }
-                    """);
-                var value = sample.Deserialize<PlaybackSample>(_json) ?? throw new InvalidDataException("Browser stability sample missing.");
-                var identity = evidence.Starts.LastOrDefault(exchange => exchange.Outcome.Succeeded)?.SessionId ?? value.Session;
-                stablePassed = stable.Observe(observation.Elapsed.TotalSeconds, value with { Session = identity });
-                if (stablePassed)
+                if (fixedWatch is not null)
+                {
+                    await Task.Delay(fixedWatch.NextDelay(observation.Elapsed.TotalSeconds), _cancellation);
+                }
+                var sampleTask = ReadPlaybackSampleAsync();
+                var value = fixedWatch is null ? await sampleTask : await sampleTask.WaitAsync(TimeSpan.FromSeconds(1), _cancellation);
+                if (fixedWatch is null)
+                {
+                    stablePassed = stable.Observe(observation.Elapsed.TotalSeconds, value);
+                }
+                else
+                {
+                    fixedWatch.Observe(observation.Elapsed.TotalSeconds, value);
+                    stablePassed = fixedWatch.Passed;
+                }
+                if (stablePassed && (fixedWatch is null || fixedWatch.Complete))
                 {
                     stableThroughUtc = DateTimeOffset.UtcNow;
                     stableFromUtc = stableThroughUtc.Value.AddSeconds(-stable.StableDurationSeconds);
-                    stableSession = identity;
+                    stableSession = value.Session;
                     break;
                 }
-                await Task.Delay(500, _cancellation);
+                if (fixedWatch is { Complete: true })
+                {
+                    break;
+                }
+                if (fixedWatch is null)
+                {
+                    await Task.Delay(500, _cancellation);
+                }
             }
+            watchElapsedSeconds = watchWindow?.Elapsed.TotalSeconds;
             if (!stablePassed)
             {
                 throw new TimeoutException("Continuous stability and media advancement did not meet configured thresholds before the observation deadline.");
@@ -445,7 +479,10 @@ internal sealed partial class SweepHarness
             if (failure is null && evidence.Purpose == "sync")
             {
                 failurePhase = "synchronization-metadata";
-                await Task.WhenAll(captureTasks.ToArray()).WaitAsync(RemainingObservation(), _cancellation);
+                var metadataWatch = Stopwatch.StartNew();
+                TimeSpan RemainingMetadata() => fixedWatch is null ? RemainingObservation()
+                    : TimeSpan.FromSeconds(Math.Max(0.001, _options.StartupSeconds - metadataWatch.Elapsed.TotalSeconds));
+                await Task.WhenAll(captureTasks.ToArray()).WaitAsync(RemainingMetadata(), _cancellation);
                 var current = evidence.Starts.LastOrDefault() ?? throw new InvalidDataException("No startup evidence for synchronization metadata.");
                 if (current.SessionId != stableSession)
                 {
@@ -453,7 +490,7 @@ internal sealed partial class SweepHarness
                 }
                 synchronizationExchange = current.Id;
                 using var metadataDeadline = CancellationTokenSource.CreateLinkedTokenSource(_cancellation);
-                metadataDeadline.CancelAfter(RemainingObservation());
+                metadataDeadline.CancelAfter(RemainingMetadata());
                 try
                 {
                     var metadata = await FragmentAlignment.ReadOwnedMetadataAsync(
@@ -480,6 +517,8 @@ internal sealed partial class SweepHarness
         catch (Exception ex) when (ex is PlaywrightException or InvalidOperationException or InvalidDataException or IOException
             or TimeoutException or HttpRequestException or OperationCanceledException or JsonException)
         {
+            tuneElapsedSeconds ??= tuneWindow?.Elapsed.TotalSeconds;
+            watchElapsedSeconds ??= watchWindow?.Elapsed.TotalSeconds;
             failurePhase ??= startupOutcome is null ? "navigation" : startupOutcome.Succeeded ? "playback" : "startup";
             failure = startupOutcome is { Succeeded: false }
                 ? FormatStartupFailure(startupOutcome)
@@ -539,6 +578,18 @@ internal sealed partial class SweepHarness
                     await File.WriteAllTextAsync(Path.Combine(attemptRoot, "fragments.json"), JsonSerializer.Serialize(fragments, _json));
                     await File.WriteAllTextAsync(Path.Combine(attemptRoot, "representations.json"), JsonSerializer.Serialize(representations, _json));
                     await File.WriteAllTextAsync(Path.Combine(attemptRoot, "cleanup.json"), JsonSerializer.Serialize(evidence.Cleanup, _json));
+                    if (_options.WatchSeconds is not null)
+                    {
+                        await File.WriteAllTextAsync(Path.Combine(attemptRoot, "channel-window.json"), JsonSerializer.Serialize(new
+                        {
+                            tuneBudgetSeconds = _options.StartupSeconds,
+                            watchBudgetSeconds = _options.WatchSeconds,
+                            tuneElapsedSeconds,
+                            watchElapsedSeconds,
+                            evidence.StableDurationSeconds,
+                            evidence.StableMediaAdvanceSeconds
+                        }, _json));
+                    }
                     if (activeStatus is not null)
                     {
                         await File.WriteAllTextAsync(Path.Combine(attemptRoot, "active-status.json"), activeStatus.ToJsonString(_json));
@@ -624,6 +675,23 @@ internal sealed partial class SweepHarness
             SweepPolicy.RequireNormalCleanup(evidence, attemptRoot);
         }
         return result;
+
+        async Task<PlaybackSample> ReadPlaybackSampleAsync()
+        {
+            var sample = await page.EvaluateAsync<JsonElement>(
+                """
+                () => {
+                  const v = document.querySelector('#cmafVideoPlayer');
+                  const s = window.__lineupSweep;
+                  return { mediaTime: v?.currentTime ?? 0, ready: !!v && v.readyState >= 2 && v.videoWidth > 0,
+                    paused: !v || v.paused, error: !!v?.error, discontinuities: s.waiting + s.stalled,
+                    session: v?.currentSrc ?? '' };
+                }
+                """);
+            var value = sample.Deserialize<PlaybackSample>(_json) ?? throw new InvalidDataException("Browser stability sample missing.");
+            var identity = evidence.Starts.LastOrDefault(exchange => exchange.Outcome.Succeeded)?.SessionId ?? value.Session;
+            return value with { Session = identity };
+        }
 
         async Task CaptureMediaAsync(IResponse response)
         {
