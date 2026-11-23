@@ -4,4 +4,4 @@ Read and follow [`CONTRIBUTING.md`](../CONTRIBUTING.md) before making code chang
 
 Before reporting completion, run the validation gate defined in [`AGENTS.md`](../AGENTS.md). Use the smallest relevant tests during development, but run the complete gate for the final code change.
 
-For channel sweeps, streaming matrix validation, live tuner checks, or sweep report triage, follow the repository skill at [`skills/lineup-streaming-sweep/SKILL.md`](skills/lineup-streaming-sweep/SKILL.md). The hardware sweep must remain manually invoked and excluded from `Lineup.slnx` and CI/CD.
+For channel sweeps, streaming matrix validation, live tuner checks, or sweep report triage, follow the repository skill at [`skills/lineup-streaming-sweep/SKILL.md`](skills/lineup-streaming-sweep/SKILL.md). The sweep executable belongs in `Lineup.slnx` for builds and restore with `IsTestProject=false`; live hardware sweeps must remain manually invoked and must not run in CI/CD.

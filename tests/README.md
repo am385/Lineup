@@ -47,7 +47,10 @@ The streaming-sweep harness is checked in as an opt-in hardware certification te
 dotnet run --project tests/Integration/Lineup.Integration.Streaming.Sweep/Lineup.Integration.Streaming.Sweep.csproj -c Release -- verify-outcome-reporting
 ```
 
-It is intentionally excluded from the solution and CI/CD because the full sweep requires exclusive access to physical tuner hardware. See [`tests/Integration/Lineup.Integration.Streaming.Sweep/README.md`](Integration/Lineup.Integration.Streaming.Sweep/README.md).
+The executable is included in `Lineup.slnx` for builds and Visual Studio restore, with `IsTestProject=false`;
+building the solution does not execute it, and `dotnet test` does not discover it as a test project.
+Live sweeps remain manually invoked and must not run in CI/CD because they require exclusive access to physical tuner hardware.
+See [`tests/Integration/Lineup.Integration.Streaming.Sweep/README.md`](Integration/Lineup.Integration.Streaming.Sweep/README.md).
 The separate `Lineup.Integration.Streaming.Sweep.Tests` xunit project participates in the normal solution gate and
 exercises only deterministic policies, persistence, ownership and reports; it never launches the live harness.
 

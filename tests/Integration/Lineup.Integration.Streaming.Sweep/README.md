@@ -47,9 +47,12 @@ Exit 130 is reserved for an actual cancellation request. HTTP/dependency timeout
 Canonical execution persists `inconclusive` and `FinishedUtc` after a teardown timeout instead
 of leaving a finished checkpoint marked `running`; cleanup failures are never waived by this classification.
 
-The live executable and fault source are intentionally excluded from `Lineup.slnx` and CI/CD.
+The executable is included in `Lineup.slnx` for builds and Visual Studio restore, with `IsTestProject=false`.
+Solution builds do not execute it or install/launch a browser, and `dotnet test` does not discover it as a test project.
+Live hardware sweeps remain manually invoked and must not run in CI/CD.
+The fault source remains outside the solution and is published explicitly when a synthetic scenario needs it.
 The separate `Lineup.Integration.Streaming.Sweep.Tests` xunit project is in the solution; it references the executable
-for deterministic policies only. Building that reference does not execute it or install/launch a browser.
+for deterministic policies and offline command verification only.
 Normal test discovery, constructors and tests require no Docker, browser, network endpoint or hardware.
 
 ## Project layout

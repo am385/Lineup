@@ -81,7 +81,9 @@ The streaming-sweep harness is checked in as an opt-in hardware certification te
 dotnet run --project tests\Integration\Lineup.Integration.Streaming.Sweep\Lineup.Integration.Streaming.Sweep.csproj -c Release -- verify-outcome-reporting
 ```
 
-It is intentionally excluded from the solution and CI/CD because the full sweep requires exclusive access to physical tuner hardware.
+The executable is included in `Lineup.slnx` for normal builds and Visual Studio restore, with `IsTestProject=false`.
+Building the solution does not run it, and `dotnet test` does not discover it as a test project.
+Live sweeps remain manually invoked and must not run in CI/CD because they require exclusive access to physical tuner hardware.
 See the [streaming sweep guide](tests/Integration/Lineup.Integration.Streaming.Sweep/README.md).
 The separate `Lineup.Integration.Streaming.Sweep.Tests` xUnit project participates in the normal solution gate and
 exercises only deterministic policies, persistence, ownership and reports; it never launches the live harness.
@@ -220,7 +222,7 @@ Restore dependencies first only when they are missing or dependency manifests ch
 
 Windows CI runs one test module at a time with `--max-parallel-test-modules 1`; explicit in-module concurrency remains covered.
 The [testing guide](tests/README.md) documents browser, native FFmpeg, installed-worker and manual sweep checks.
-Live sweeps require exclusive hardware access and remain excluded from `Lineup.slnx` and CI/CD.
+Live sweeps require exclusive hardware access and remain manually invoked, outside CI/CD; the executable participates in solution builds and restore only.
 
 ## Project Structure
 
