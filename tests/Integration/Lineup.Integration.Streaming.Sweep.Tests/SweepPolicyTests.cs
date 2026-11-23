@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Xunit;
 
 namespace Lineup.Integration.Streaming.Sweep.Tests;
@@ -5,6 +6,94 @@ namespace Lineup.Integration.Streaming.Sweep.Tests;
 /// <summary>Deterministic verdict, selection, stability and report regressions; no live initialization.</summary>
 public sealed class SweepPolicyTests
 {
+    /// <summary>The fresh full-sweep command persists one 10/20 observation without changing cleanup or matrix selection.</summary>
+    [Fact]
+    public void FixedWatchCommandPersistsCompleteMeasurementPolicy()
+    {
+        // Arrange
+        string[] arguments = ["execute-fresh", "--startup-seconds", "10", "--watch-seconds", "20", "--stable-seconds", "20", "--observation-seconds", "20", "--attempts", "1", "--sync-only"];
+        var defaults = SweepCommand.Parse(["execute-fresh"]);
+
+        // Act
+        var command = SweepCommand.Parse(arguments);
+        var restored = JsonSerializer.Deserialize<SweepOptions>(JsonSerializer.Serialize(command.Options))!;
+
+        // Assert
+        Assert.Equal(10, restored.StartupSeconds);
+        Assert.Equal(20, restored.WatchSeconds);
+        Assert.Equal(20, restored.StableSeconds);
+        Assert.Equal(1, restored.MaximumAttempts);
+        Assert.True(restored.SyncOnly);
+        Assert.Empty(restored.Matrices);
+        Assert.Equal(defaults.Options.CleanupSeconds, restored.CleanupSeconds);
+    }
+
+    /// <summary>A fixed watch rejects policies that can repeat or exceed its single observation window.</summary>
+    [Theory]
+    [InlineData(20, 2, true)]
+    [InlineData(20, 1, false)]
+    [InlineData(19, 1, true)]
+    [InlineData(double.NaN, 1, true)]
+    [InlineData(double.PositiveInfinity, 1, true)]
+    public void FixedWatchRejectsConflictingBudgets(double watchSeconds, int attempts, bool syncOnly)
+    {
+        // Arrange
+        var options = new SweepOptions { StartupSeconds = 10, StableSeconds = 20, ObservationSeconds = 20, WatchSeconds = watchSeconds, MaximumAttempts = attempts, SyncOnly = syncOnly };
+
+        // Act
+        var error = Record.Exception(options.Validate);
+
+        // Assert
+        Assert.IsType<ArgumentException>(error);
+    }
+
+    /// <summary>The final deadline sample can prove the entire watch rather than expiring just before it.</summary>
+    [Fact]
+    public void FixedWatchIncludesFinalBoundarySample()
+    {
+        // Arrange
+        var stable = new StablePlayback(20, 15);
+        var watch = new FixedWatch(20, stable, new(1, true, false, false, 0, "a"));
+
+        // Act
+        watch.Observe(19.5, new(20.5, true, false, false, 0, "a"));
+        var completeBeforeDeadline = watch.Complete;
+        var finalDelay = watch.NextDelay(19.9);
+        watch.Observe(20, new(21, true, false, false, 0, "a"));
+
+        // Assert
+        Assert.False(completeBeforeDeadline);
+        Assert.Equal(0.1, finalDelay.TotalSeconds, 6);
+        Assert.True(watch.Complete);
+        Assert.True(watch.Passed);
+        Assert.Equal(20, stable.StableDurationSeconds);
+    }
+
+    /// <summary>Early stability cannot shorten the requested watch and a stall cannot extend the deadline.</summary>
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void FixedWatchKeepsDeadlineAfterEarlySuccessOrStall(bool stall, bool expectedPassed)
+    {
+        // Arrange
+        var stable = new StablePlayback(5, 4);
+        var watch = new FixedWatch(20, stable, new(1, true, false, false, 0, "a"));
+
+        // Act
+        watch.Observe(5, new(6, true, false, false, 0, "a"));
+        var endedEarly = watch.Complete;
+        if (stall)
+        {
+            watch.Observe(19, new(6, true, false, false, 1, "a"));
+        }
+        watch.Observe(20, new(21, true, false, false, stall ? 1 : 0, "a"));
+
+        // Assert
+        Assert.False(endedEarly);
+        Assert.True(watch.Complete);
+        Assert.Equal(expectedPassed, watch.Passed);
+    }
+
     /// <summary>Safe continuation is explicit and independent of permission to restart owned deployments.</summary>
     [Theory]
     [InlineData("execute-fresh", false)]

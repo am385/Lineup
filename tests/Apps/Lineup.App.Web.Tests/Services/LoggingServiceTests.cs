@@ -143,6 +143,43 @@ public class LoggingServiceTests
         root.Delete(recursive: true);
     }
 
+    /// <summary>Verifies a locked retained file does not silently disable the configured file sink after deletion fails.</summary>
+    /// <param name="enabled">Whether file logging is enabled during the failed deletion.</param>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void DeleteFiles_LockedRetainedFile_RestoresConfiguredSinkAndReportsFailure(bool enabled)
+    {
+        // Arrange
+        Assert.SkipWhen(!OperatingSystem.IsWindows(), "Requires Windows file-sharing deletion semantics.");
+        var root = Directory.CreateTempSubdirectory("lineup-log-delete-failure-");
+        try
+        {
+            using var manager = new FileLogManager(root.FullName, new FileLoggingSettings(enabled, LogEventLevel.Information, 7, 50), "{Message:lj}{NewLine}");
+            using var logger = new LoggerConfiguration().WriteTo.Sink(manager).CreateLogger();
+            logger.Information("before failed deletion");
+            var lockedPath = Path.Combine(root.FullName, "lineup-locked.log");
+            File.WriteAllText(lockedPath, "locked retained history");
+            using var locked = new FileStream(lockedPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+
+            // Act
+            var failure = Assert.Throws<IOException>(() => manager.DeleteFiles());
+            logger.Information("after failed deletion");
+            manager.Dispose();
+            var content = string.Join(Environment.NewLine, Directory.GetFiles(root.FullName, "lineup-*.log").Select(File.ReadAllText));
+
+            // Assert
+            Assert.NotEmpty(failure.Message);
+            Assert.Equal(enabled, manager.Settings.Enabled);
+            Assert.Contains("locked retained history", content, StringComparison.Ordinal);
+            Assert.Equal(enabled, content.Contains("after failed deletion", StringComparison.Ordinal));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
     /// <summary>
     /// Verifies runtime settings can disable and re-enable file output with a new minimum level.
     /// </summary>

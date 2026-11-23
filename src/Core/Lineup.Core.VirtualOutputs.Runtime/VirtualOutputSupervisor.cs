@@ -376,16 +376,24 @@ public sealed class VirtualOutputSupervisor : BackgroundService, IVirtualOutputW
                     : "The worker did not register before its bootstrap credential expired.";
                 _active.TryRemove(deviceId, out _);
                 _authority.Revoke(deviceId, failure);
-                RecordManagedWorkerFailure(deviceId, worker, failure);
                 _logger.LogWarning("Stopping unresponsive virtual-output worker for {VirtualDeviceId}: {Failure}", deviceId, failure);
                 try
                 {
-                    await worker.Process.StopAsync(TimeSpan.Zero, cancellationToken);
+                    try
+                    {
+                        await worker.Process.StopAsync(TimeSpan.Zero, cancellationToken);
+                    }
+                    finally
+                    {
+                        await worker.Process.DisposeAsync();
+                    }
                 }
-                finally
+                catch (Exception exception) when (exception is TimeoutException or IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
                 {
-                    await worker.Process.DisposeAsync();
+                    RecordWorkerCleanupFailure(deviceId, worker, exception, true);
+                    continue;
                 }
+                RecordManagedWorkerFailure(deviceId, worker, failure);
             }
             finally
             {
@@ -793,20 +801,7 @@ public sealed class VirtualOutputSupervisor : BackgroundService, IVirtualOutputW
             }
             catch (Exception exception) when (exception is TimeoutException or IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
             {
-                _logger.LogError(exception, "Could not finish owned process cleanup for virtual output {VirtualDeviceId}.", deviceId);
-                if (ownsCurrent)
-                {
-                    _quarantinedFingerprints[deviceId] = worker.Fingerprint;
-                    _status.Set(new VirtualOutputRuntimeSnapshot
-                    {
-                        VirtualDeviceId = deviceId,
-                        State = VirtualOutputRuntimeState.Failed,
-                        Generation = worker.Generation,
-                        ProcessId = worker.Process.ProcessId,
-                        Bindings = worker.Bindings,
-                        LastFailure = "The worker exited, but owned process cleanup failed. Check the host logs and remaining processes before retrying."
-                    });
-                }
+                RecordWorkerCleanupFailure(deviceId, worker, exception, ownsCurrent);
                 return;
             }
             if (ownsCurrent)
@@ -819,6 +814,27 @@ public sealed class VirtualOutputSupervisor : BackgroundService, IVirtualOutputW
         {
             gate.Release();
         }
+    }
+
+    private void RecordWorkerCleanupFailure(VirtualDeviceId deviceId, ActiveWorker worker, Exception exception, bool ownsCurrent)
+    {
+        _logger.LogError(exception, "Could not finish owned process cleanup for virtual output {VirtualDeviceId}.", deviceId);
+        if (!ownsCurrent)
+        {
+            return;
+        }
+        _quarantinedFingerprints[deviceId] = worker.Fingerprint;
+        _pendingRetries.TryRemove(deviceId, out _);
+        _status.Set(new VirtualOutputRuntimeSnapshot
+        {
+            VirtualDeviceId = deviceId,
+            State = VirtualOutputRuntimeState.Failed,
+            Generation = worker.Generation,
+            ProcessId = worker.Process.ProcessId,
+            Bindings = worker.Bindings,
+            RestartCount = worker.RestartCount,
+            LastFailure = "The worker stopped or exited, but owned process cleanup failed. Check the host logs and remaining processes before retrying."
+        });
     }
 
     private void RecordManagedWorkerFailure(VirtualDeviceId deviceId, ActiveWorker worker, string failure)

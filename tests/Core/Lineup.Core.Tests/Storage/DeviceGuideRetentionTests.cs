@@ -2,6 +2,7 @@ using Lineup.Core.Storage;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
+using System.Text.Json;
 using Xunit;
 
 namespace Lineup.Core.Tests.Storage;
@@ -38,6 +39,40 @@ public sealed class DeviceGuideRetentionTests
         Assert.Equal(["Fresh", "Future", "History", "Repeated"], await fixture.ReadTitlesAsync());
         await using var context = fixture.Factory.CreateDbContext();
         Assert.Equal("Updated", (await context.GuideSourcePrograms.SingleAsync(program => program.Title == "Repeated", TestContext.Current.CancellationToken)).Synopsis);
+    }
+
+    /// <summary>Verifies duplicate programme identities are stored once with last-occurrence metadata, including repeated imports.</summary>
+    /// <param name="alreadyStored">Whether the duplicate programme existed before the incoming import.</param>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ImportAsync_DuplicatePrograms_LastOccurrenceWinsAndRemainsIdempotent(bool alreadyStored)
+    {
+        // Arrange
+        using var fixture = new Fixture(24);
+        var first = fixture.Program("Repeated", fixture.Now, fixture.Now.AddHours(1)) with { Synopsis = "First", EpisodeTitle = "Old episode" };
+        if (alreadyStored)
+        {
+            await fixture.Store.ImportAsync(fixture.Import([first], fixture.Now, fixture.Now.AddHours(2)), TestContext.Current.CancellationToken);
+        }
+        var last = first with { Synopsis = "Last", EpisodeTitle = null, Categories = ["News"], Metadata = new XmltvProgramMetadata { IsNew = true } };
+        var incoming = fixture.Import(
+            [first, fixture.Program("Unrelated", fixture.Now.AddHours(1), fixture.Now.AddHours(2)), last],
+            fixture.Now, fixture.Now.AddHours(2));
+
+        // Act
+        await fixture.Store.ImportAsync(incoming, TestContext.Current.CancellationToken);
+        await fixture.Store.ImportAsync(incoming, TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(["Repeated", "Unrelated"], await fixture.ReadTitlesAsync());
+        await using var context = fixture.Factory.CreateDbContext();
+        var stored = await context.GuideSourcePrograms.SingleAsync(program => program.Title == "Repeated", TestContext.Current.CancellationToken);
+        Assert.Equal("Last", stored.Synopsis);
+        Assert.Null(stored.EpisodeTitle);
+        Assert.Equal("[\"News\"]", stored.CategoriesJson);
+        Assert.True(JsonSerializer.Deserialize<XmltvProgramMetadata>(Assert.IsType<string>(stored.MetadataJson))!.IsNew);
+        Assert.Equal(2, Assert.Single(await fixture.Store.ReadImportStatesAsync(TestContext.Current.CancellationToken)).ProgramCount);
     }
 
     /// <summary>Verifies narrow imports preserve retained history and future coverage while pruning expired cached programs.</summary>

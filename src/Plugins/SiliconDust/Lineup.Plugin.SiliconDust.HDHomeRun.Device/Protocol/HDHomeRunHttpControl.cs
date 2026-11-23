@@ -104,7 +104,7 @@ public class HDHomeRunHttpControl : IDisposable
                 if (statusJson != null)
                 {
                     var tunerEntry = statusJson.FirstOrDefault(s =>
-                        s.Resource?.StartsWith($"tuner{tunerIndex}") == true);
+                        string.Equals(s.Resource, $"tuner{tunerIndex}", StringComparison.Ordinal));
 
                     if (tunerEntry != null)
                     {
@@ -122,7 +122,7 @@ public class HDHomeRunHttpControl : IDisposable
                         };
                     }
 
-                    // Tuner exists but not in use
+                    // Preserve the modern endpoint's sparse idle-receiver response.
                     return new HttpTunerStatus
                     {
                         TunerIndex = tunerIndex,
@@ -132,29 +132,12 @@ public class HDHomeRunHttpControl : IDisposable
             }
             catch (HttpRequestException)
             {
-                // status.json not available, try legacy method
+                // status.json is unavailable; allow the high-level native fallback.
             }
 
-            // Fallback: Try tuners.html (legacy method)
-            var response = await _httpClient.GetStringAsync($"/tuners.html", cancellationToken);
-
-            var status = new HttpTunerStatus
-            {
-                TunerIndex = tunerIndex,
-                RawResponse = response
-            };
-
-            // Check if tuner is in use by looking for channel info
-            if (response.Contains("none") || response.Contains("not in use"))
-            {
-                status.IsActive = false;
-            }
-            else if (response.Contains("ch=") || response.Contains("vchannel"))
-            {
-                status.IsActive = true;
-            }
-
-            return status;
+            // Whole-device legacy HTML cannot reliably identify the requested receiver.
+            _logger.LogDebug("HTTP status did not identify tuner {TunerIndex}; receiver-specific native status is required.", tunerIndex);
+            return null;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

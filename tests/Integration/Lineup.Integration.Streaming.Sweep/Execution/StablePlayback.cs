@@ -33,3 +33,41 @@ internal sealed class StablePlayback(double stableSeconds, double mediaAdvanceSe
         return StableDurationSeconds >= stableSeconds && MediaAdvanceSeconds >= mediaAdvanceSeconds;
     }
 }
+
+/// <summary>Samples a complete fixed watch window without ending early or extending it to recover stability.</summary>
+internal sealed class FixedWatch
+{
+    private readonly double _seconds;
+    private readonly StablePlayback _stability;
+
+    /// <summary>Seeds stability with the ready sample taken immediately before the watch clock starts.</summary>
+    /// <param name="seconds">The fixed wall-clock watch interval.</param>
+    /// <param name="stability">The independent stability and progression policy.</param>
+    /// <param name="initialSample">The ready playback sample at the start of the interval.</param>
+    public FixedWatch(double seconds, StablePlayback stability, PlaybackSample initialSample)
+    {
+        _seconds = seconds;
+        _stability = stability;
+        _stability.Observe(0, initialSample);
+    }
+
+    /// <summary>Gets whether the final boundary sample has been observed.</summary>
+    public bool Complete { get; private set; }
+
+    /// <summary>Gets whether the most recent sample satisfies stability and media progression.</summary>
+    public bool Passed { get; private set; }
+
+    /// <summary>Limits the next half-second sampling delay to the remaining watch interval.</summary>
+    /// <param name="elapsedSeconds">The monotonic elapsed watch time.</param>
+    /// <returns>The delay before the next sample.</returns>
+    public TimeSpan NextDelay(double elapsedSeconds) => TimeSpan.FromSeconds(Math.Clamp(_seconds - elapsedSeconds, 0, 0.5));
+
+    /// <summary>Records the final boundary sample even when the required stable interval equals the watch length.</summary>
+    /// <param name="elapsedSeconds">The monotonic elapsed watch time.</param>
+    /// <param name="sample">The decoded playback sample.</param>
+    public void Observe(double elapsedSeconds, PlaybackSample sample)
+    {
+        Passed = _stability.Observe(elapsedSeconds, sample);
+        Complete = elapsedSeconds >= _seconds;
+    }
+}

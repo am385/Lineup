@@ -858,6 +858,11 @@ public sealed class VirtualOutputIpcServer : BackgroundService
     {
         _status.Update(deviceId, current =>
         {
+            // The supervisor revokes before replacing/removing status; recheck ownership inside the status mutation lock.
+            if (!_authority.HasActiveSession(deviceId, generation))
+            {
+                throw new VirtualOutputBrokerException(VirtualOutputFailureCode.Unauthorized, "The worker session is no longer active.");
+            }
             if (current is { Generation: { } appliedGeneration } && appliedGeneration > generation)
             {
                 _logger.LogDebug("Ignored stale virtual-output status for {VirtualDeviceId} generation {Generation}; applied generation is {AppliedGeneration}",

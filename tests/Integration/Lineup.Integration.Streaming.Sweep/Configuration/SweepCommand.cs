@@ -40,6 +40,7 @@ internal sealed record SweepCommand(string[] Arguments, SweepOptions Options, st
                 "--stable-seconds" => options with { StableSeconds = Seconds() },
                 "--media-advance-seconds" => options with { MediaAdvanceSeconds = Seconds() },
                 "--observation-seconds" => options with { ObservationSeconds = Seconds() },
+                "--watch-seconds" => options with { WatchSeconds = Seconds() },
                 "--cleanup-seconds" => options with { CleanupSeconds = Seconds() },
                 "--attempts" => options with { MaximumAttempts = Count() },
                 "--retry-delay-seconds" => options with { RetryDelaySeconds = Seconds() },

@@ -115,6 +115,7 @@ public static class StartupSchemaGate
             }
 
             var loaded = JsonSerializer.Deserialize<LineupSettings>(json) ?? throw new JsonException("The settings document contained a null root value.");
+            loaded.Streaming = ReadStreamingConfiguration(streaming, propertyNameCaseInsensitive: false);
             LineupSettingsService.PrepareLoadedSettings(loaded);
             settings = loaded;
             return new LineupStartupState(LineupStartupStatus.Ready);
@@ -165,14 +166,7 @@ public static class StartupSchemaGate
             {
                 return FactoryResetRequired("The streaming configuration does not declare the required schema version.");
             }
-            var configuration = JsonSerializer.Deserialize<StreamingConfiguration>(json, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
-            if (configuration is null)
-            {
-                return FactoryResetRequired("The streaming configuration is empty.");
-            }
+            var configuration = ReadStreamingConfiguration(document.RootElement, propertyNameCaseInsensitive: true);
 
             return configuration.SchemaVersion == StreamingConfiguration.CurrentSchemaVersion
                 ? new LineupStartupState(LineupStartupStatus.Ready)
@@ -183,6 +177,40 @@ public static class StartupSchemaGate
         {
             return FactoryResetRequired("The streaming configuration is invalid or cannot be read.");
         }
+    }
+
+    private static StreamingConfiguration ReadStreamingConfiguration(JsonElement json, bool propertyNameCaseInsensitive)
+    {
+        var configuration = JsonSerializer.Deserialize<StreamingConfiguration>(json, new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = propertyNameCaseInsensitive,
+            RespectNullableAnnotations = true
+        }) ?? throw new JsonException("The streaming configuration contained a null root value.");
+
+        // Nullable annotation enforcement does not cover collection elements.
+        if (configuration.PhysicalDevices.Any(device => device is null) ||
+            configuration.GuideSources.Any(source => source is null) ||
+            configuration.VirtualDevices.Any(device => device is null) ||
+            configuration.GuideOutputs.Any(output => output is null) ||
+            configuration.VirtualOutputSecurityPolicies.Any(policy => policy is null) ||
+            configuration.VirtualOutputWorkerPolicies.Any(policy => policy is null))
+        {
+            throw new JsonException("The streaming topology contains a null entry.");
+        }
+        foreach (var device in configuration.VirtualDevices)
+        {
+            if (device.Hosting is { } hosting &&
+                hosting.Bindings.Any(binding => binding is null || binding.Addresses.Any(address => address is null)))
+            {
+                throw new JsonException("Virtual-output hosting contains a null binding or address.");
+            }
+        }
+        if (configuration.VirtualOutputSecurityPolicies.Any(policy =>
+            policy.AllowedNetworks.Any(network => network is null) || policy.TrustedProxies.Any(proxy => proxy is null)))
+        {
+            throw new JsonException("A virtual-output security policy contains a null network or proxy.");
+        }
+        return configuration;
     }
 
     /// <summary>Executes check database.</summary>

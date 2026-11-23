@@ -131,3 +131,11 @@ The service is designed to be used as a transient dependency. Create a new insta
 ## License
 
 Same as parent project (GPL)
+
+## Receiver-specific status and deadlines
+
+HDHomeRun receiver diagnostics use an exact receiver identifier from modern `status.json`, preserving its sparse idle responses.
+When that endpoint is unavailable or unreadable, Lineup queries the requested receiver through the native protocol rather than
+inferring its state from whole-device `tuners.html`. If neither transport supplies receiver-specific status, refresh fails explicitly instead of reporting an idle receiver.
+
+HDHomeRun discovery and lineup HTTP deadlines are also reported as recoverable device failures. A stalled tuner does not prevent healthy devices from activating or refreshing their lineups, and a failed refresh preserves the tuner's committed channels and identity overrides. Explicit caller cancellation still cancels the operation.

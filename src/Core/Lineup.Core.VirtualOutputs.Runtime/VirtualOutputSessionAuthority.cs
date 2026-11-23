@@ -67,6 +67,7 @@ public sealed class VirtualOutputSessionAuthority : IVirtualOutputSessionAuthori
     private readonly Lock _gate = new();
     private readonly TimeProvider _timeProvider;
     private readonly Dictionary<VirtualDeviceId, ActivationState> _activations = [];
+    private readonly Dictionary<VirtualDeviceId, long> _generations = [];
     private readonly Dictionary<VirtualOutputWorkerSessionId, VirtualDeviceId> _sessions = [];
     private bool _disposed;
 
@@ -107,14 +108,14 @@ public sealed class VirtualOutputSessionAuthority : IVirtualOutputSessionAuthori
         CryptographicOperations.ZeroMemory(tokenBytes);
         lock (_gate)
         {
-            var generation = _activations.TryGetValue(virtualDeviceId, out var current)
-                ? checked(current.Generation + 1)
-                : 1;
+            var generation = checked(_generations.GetValueOrDefault(virtualDeviceId) + 1);
+            _activations.TryGetValue(virtualDeviceId, out var current);
             if (current?.SessionId is { } currentSessionId)
             {
                 _sessions.Remove(currentSessionId);
             }
             var expiresUtc = _timeProvider.GetUtcNow().Add(bootstrapLifetime);
+            _generations[virtualDeviceId] = generation;
             _activations[virtualDeviceId] = new ActivationState(
                 workerId,
                 generation,
@@ -338,6 +339,7 @@ public sealed class VirtualOutputSessionAuthority : IVirtualOutputSessionAuthori
                 CryptographicOperations.ZeroMemory(activation.BootstrapTokenHash);
             }
             _activations.Clear();
+            _generations.Clear();
             _sessions.Clear();
             _disposed = true;
         }

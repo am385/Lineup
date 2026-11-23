@@ -18,6 +18,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using NSubstitute;
 using System.Text.Json;
+using Spectre.Console;
 using Xunit;
 
 namespace Lineup.App.Tui.Tests;
@@ -25,6 +26,49 @@ namespace Lineup.App.Tui.Tests;
 /// <summary>Verifies TUI plugin composition and topology activation ordering.</summary>
 public sealed class ProgramTests
 {
+    /// <summary>Verifies guide metadata and export paths render as literal text rather than Spectre markup.</summary>
+    /// <param name="value">Provider or user text containing markup delimiters.</param>
+    [Theory]
+    [InlineData("[red]News[/]")]
+    [InlineData("News [unclosed")]
+    [InlineData("News ] bracket")]
+    public void GuideAndExportRendering_BracketValues_RemainLiteral(string value)
+    {
+        // Arrange
+        var channel = new VirtualGuideChannel
+        {
+            ChannelId = new(VirtualDeviceId.New(), Guid.NewGuid()),
+            Number = value,
+            Name = value,
+            Affiliate = value,
+            Programs = []
+        };
+        var program = new GuideProgram
+        {
+            ChannelId = new(GuideSourceId.New(), "station"),
+            Title = value,
+            EpisodeTitle = value,
+            StartUtc = DateTimeOffset.UtcNow,
+            EndUtc = DateTimeOffset.UtcNow.AddHours(1)
+        };
+        using var writer = new StringWriter();
+        var console = AnsiConsole.Create(new AnsiConsoleSettings { Out = new AnsiConsoleOutput(writer), Ansi = AnsiSupport.No });
+        console.Profile.Width = 240;
+        var exportPath = Path.Combine(Path.GetTempPath(), value, "epg.xml");
+
+        // Act
+        console.Write(Program.CreateChannelTable([channel]));
+        console.Write(Program.CreateProgramTable([(value, program)]));
+        console.MarkupLine(Program.CreateExportSourceMessage(exportPath, 2048, new DateTime(2026, 11, 22)));
+        console.MarkupLine(Program.CreateExportSuccessMessage(exportPath));
+        var output = writer.ToString();
+
+        // Assert
+        Assert.Equal(8, output.Split(value, StringSplitOptions.None).Length - 1);
+        Assert.Contains($"Source file: {exportPath} (2 KB, modified 2026-11-22 00:00)", output, StringComparison.Ordinal);
+        Assert.Contains($"Exported to {exportPath} successfully!", output, StringComparison.Ordinal);
+    }
+
     /// <summary>Verifies the production TUI composition applies persisted retention to actual guide imports.</summary>
     [Theory]
     [InlineData(0)]

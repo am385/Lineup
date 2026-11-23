@@ -16,6 +16,9 @@ public partial class About
     [Inject]
     private IJSRuntime JS { get; set; } = default!;
 
+    [Inject]
+    private IStatusNotificationService Notifications { get; set; } = default!;
+
     private string _version = "";
     private string _xmltvUrl = "";
     private bool _copied;
@@ -34,7 +37,11 @@ public partial class About
 
     private async Task CopyXmltvUrl()
     {
-        await JS.CopyTextAsync(_xmltvUrl);
+        _copied = false;
+        if (!await JS.TryCopyTextAsync(_xmltvUrl, Notifications, Text))
+        {
+            return;
+        }
         _copied = true;
         StateHasChanged();
 

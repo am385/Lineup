@@ -19,6 +19,170 @@ namespace Lineup.App.Web.Tests.Controllers;
 /// <summary>Verifies typed management playback and its HTTP adapter with real coordinator lifetimes, storage, and encoder processes.</summary>
 public sealed class CmafSharingTests
 {
+    /// <summary>Verifies unavailable hardware uses software only with explicit permission and retains requested/actual encoder diagnostics for shared viewers.</summary>
+    /// <param name="fallback">Whether software fallback is allowed.</param>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Service_UnavailableHardware_RequiresExplicitSoftwareFallback(bool fallback)
+    {
+        // Arrange
+        await using var fixture = new Fixture { HardwareUnavailable = true, Admission = new(new() { MaximumProcessingOperations = 1 }) };
+        fixture.Settings.Streaming = fixture.Settings.Streaming with
+        {
+            VirtualDefaults = new() { HardwareEncoding = new() { Encoder = HardwareVideoEncoder.Nvenc, AllowSoftwareFallback = fallback } }
+        };
+        var request = new CmafStreamRequest { Quality = WebPlayerQuality.Medium };
+        var first = fixture.BeginServiceStart("first", request);
+
+        // Act
+        var result = await first.Start.WaitAsync(BunitContext.WaitTimeout, TestContext.Current.CancellationToken);
+
+        // Assert
+        _ = Assert.Single(fixture.HardwareProbeExits);
+        Assert.All(fixture.HardwareProbeExits, exit => Assert.True(exit.IsCompletedSuccessfully));
+        if (fallback)
+        {
+            var presentation = Assert.IsType<ManagementPlaybackPresentation>(result.Presentation);
+            var second = fixture.BeginServiceStart("second", request);
+            var joined = Assert.IsType<ManagementPlaybackPresentation>((await second.Start).Presentation);
+            Assert.Equal(1, fixture.EncoderCount);
+            Assert.Contains("libx264", Assert.Single(fixture.EncoderRequests).Arguments);
+            Assert.All(fixture.ActiveStreams.GetActiveStreams(), stream =>
+            {
+                Assert.Equal(HardwareVideoEncoder.Nvenc, stream.RequestedVideoEncoder);
+                Assert.Equal("libx264", stream.ActiveVideoEncoder);
+                Assert.True(stream.HardwareFallbackApplied);
+            });
+            Assert.True(first.Service.Stop(presentation.SessionId));
+            Assert.True(second.Service.Stop(joined.SessionId));
+        }
+        else
+        {
+            Assert.Null(result.Presentation);
+            var failure = Assert.IsType<ManagementPlaybackFailure>(result.Failure);
+            Assert.Equal(ManagementPlaybackFailureKind.MediaFailure, failure.Kind);
+            Assert.Equal("encoder", failure.Stage);
+            Assert.Equal(0, fixture.EncoderCount);
+        }
+        await WaitUntilAsync(() => fixture.ActiveInputs == 0 && !fixture.IsEncoderRunning && !fixture.HasPresentationWorkspace &&
+            fixture.Admission.GetDiagnostics().Processing == 0);
+        Assert.Empty(fixture.Outputs.GetViewers());
+        Assert.Empty(fixture.ActiveStreams.GetActiveStreams());
+    }
+
+    /// <summary>Verifies a successful probe followed by real encoder initialization failure gets at most one allowed software retry after owned cleanup.</summary>
+    /// <param name="fallback">Whether software fallback is allowed.</param>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Service_HardwareInitializationFails_RetriesOnlyWhenAllowed(bool fallback)
+    {
+        // Arrange
+        await using var fixture = new Fixture { FailHardwareInitialization = true, Admission = new(new() { MaximumProcessingOperations = 1 }) };
+        fixture.Settings.Streaming = fixture.Settings.Streaming with
+        {
+            VirtualDefaults = new() { HardwareEncoding = new() { Encoder = HardwareVideoEncoder.Nvenc, AllowSoftwareFallback = fallback } }
+        };
+        var started = fixture.BeginServiceStart("viewer", new CmafStreamRequest { Quality = WebPlayerQuality.Medium });
+
+        // Act
+        var result = await started.Start.WaitAsync(BunitContext.WaitTimeout, TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(2, fixture.HardwareProbeExits.Count);
+        Assert.All(fixture.HardwareProbeExits, exit => Assert.True(exit.IsCompletedSuccessfully));
+        Assert.Equal(fallback ? 2 : 1, fixture.EncoderCount);
+        Assert.Contains("h264_nvenc", fixture.EncoderRequests[0].Arguments);
+        if (fallback)
+        {
+            var presentation = Assert.IsType<ManagementPlaybackPresentation>(result.Presentation);
+            Assert.Contains("libx264", fixture.EncoderRequests[1].Arguments);
+            Assert.False(fixture.HadStaleFilesAtFallbackStart);
+            Assert.True(Assert.Single(fixture.ActiveStreams.GetActiveStreams()).HardwareFallbackApplied);
+            Assert.True(started.Service.Stop(presentation.SessionId));
+        }
+        else
+        {
+            Assert.Null(result.Presentation);
+            Assert.Equal(ManagementPlaybackFailureKind.MediaFailure, Assert.IsType<ManagementPlaybackFailure>(result.Failure).Kind);
+        }
+        await WaitUntilAsync(() => fixture.ActiveInputs == 0 && !fixture.IsEncoderRunning && !fixture.HasPresentationWorkspace &&
+            fixture.Admission.GetDiagnostics().Processing == 0);
+        Assert.Empty(fixture.Outputs.GetViewers());
+    }
+
+    /// <summary>Verifies canceling a pending hardware probe releases the probe, admission and workspace without starting fallback playback.</summary>
+    [Fact]
+    public async Task Service_HardwareProbeCanceled_ReleasesOwnedResourcesWithoutFallback()
+    {
+        // Arrange
+        await using var fixture = new Fixture { HoldHardwareProbe = true, Admission = new(new() { MaximumProcessingOperations = 1 }) };
+        fixture.Settings.Streaming = fixture.Settings.Streaming with
+        {
+            VirtualDefaults = new() { HardwareEncoding = new() { Encoder = HardwareVideoEncoder.Nvenc, AllowSoftwareFallback = true } }
+        };
+        var started = fixture.BeginServiceStart("viewer", new CmafStreamRequest { Quality = WebPlayerQuality.Medium });
+        await fixture.HardwareProbeStarted.WaitAsync(BunitContext.WaitTimeout, TestContext.Current.CancellationToken);
+        Assert.False(Assert.Single(fixture.HardwareProbeExits).IsCompleted);
+
+        // Act
+        await started.Cancellation.CancelAsync();
+        var result = await started.Start.WaitAsync(BunitContext.WaitTimeout, TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.True(result.IsCanceled);
+        await WaitUntilAsync(() => fixture.ActiveInputs == 0 && !fixture.HasPresentationWorkspace && fixture.HardwareProbeExits.All(exit => exit.IsCompletedSuccessfully) &&
+            fixture.Admission.GetDiagnostics().Processing == 0);
+        Assert.Equal(0, fixture.EncoderCount);
+        Assert.Empty(fixture.Outputs.GetViewers());
+        Assert.Empty(fixture.ActiveStreams.GetActiveStreams());
+    }
+
+    /// <summary>Verifies fallback permission does not mask unrelated failures or retain a disposed processor when replacement launch fails.</summary>
+    /// <param name="failure">The controlled failure before or during replacement startup.</param>
+    /// <param name="code">The expected explicit failure code.</param>
+    [Theory]
+    [InlineData("process", "media_process_failed")]
+    [InlineData("input", "media_source_failed")]
+    [InlineData("replacement", "media_process_failed")]
+    public async Task Service_HardwareFallbackPermission_PreservesOtherFailuresAndCleanup(string failure, string code)
+    {
+        // Arrange
+        await using var fixture = new Fixture
+        {
+            HoldReadiness = true,
+            ProcessFailure = failure == "process" ? new MediaProcessException("PRIVATE process failure") : null,
+            InputFailure = failure == "input" ? new IOException("PRIVATE source failure") : null,
+            FailHardwareInitialization = failure == "replacement",
+            FallbackProcessFailure = failure == "replacement" ? new MediaProcessException("PRIVATE replacement failure") : null,
+            Admission = new(new() { MaximumProcessingOperations = 1 })
+        };
+        fixture.Settings.Streaming = fixture.Settings.Streaming with
+        {
+            VirtualDefaults = new() { HardwareEncoding = new() { Encoder = HardwareVideoEncoder.Nvenc, AllowSoftwareFallback = true } }
+        };
+        var started = fixture.BeginServiceStart("viewer", new CmafStreamRequest { Quality = WebPlayerQuality.Medium });
+
+        // Act
+        var result = await started.Start.WaitAsync(BunitContext.WaitTimeout, TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Null(result.Presentation);
+        var error = Assert.IsType<ManagementPlaybackFailure>(result.Failure);
+        Assert.Equal(ManagementPlaybackFailureKind.MediaFailure, error.Kind);
+        Assert.Equal(code, error.Code);
+        Assert.DoesNotContain("PRIVATE", error.Error, StringComparison.Ordinal);
+        Assert.Equal(failure == "process" ? 0 : 1, fixture.EncoderCount);
+        Assert.All(fixture.EncoderRequests, request => Assert.Contains("h264_nvenc", request.Arguments));
+        Assert.Equal(2, fixture.HardwareProbeExits.Count);
+        Assert.All(fixture.HardwareProbeExits, exit => Assert.True(exit.IsCompletedSuccessfully));
+        await WaitUntilAsync(() => fixture.ActiveInputs == 0 && !fixture.IsEncoderRunning && !fixture.HasPresentationWorkspace &&
+            fixture.Admission.GetDiagnostics().Processing == 0);
+        Assert.Empty(fixture.Outputs.GetViewers());
+        Assert.Empty(fixture.ActiveStreams.GetActiveStreams());
+    }
+
     /// <summary>Equivalent Auto and manual browser policies share one GPU producer while retaining independent viewer diagnostics and lifetimes.</summary>
     [Theory]
     [InlineData(false)]
@@ -29,7 +193,7 @@ public sealed class CmafSharingTests
         await using var fixture = new Fixture { HoldReadiness = true };
         fixture.Settings.Streaming = fixture.Settings.Streaming with
         {
-            VirtualDefaults = new() { HardwareEncoding = new() { Encoder = HardwareVideoEncoder.Amf } }
+            VirtualDefaults = new() { HardwareEncoding = new() { Encoder = HardwareVideoEncoder.Nvenc } }
         };
         fixture.ProbeOverride = new MediaProbeResult(
         [
@@ -78,10 +242,10 @@ public sealed class CmafSharingTests
         Assert.Equal(1, fixture.EncoderCount);
         Assert.Equal(1, fixture.Outputs.ActiveOutputCount);
         Assert.Equal(1, fixture.ActiveInputs);
-        Assert.Contains("h264_amf", Assert.Single(fixture.EncoderRequests).Arguments);
+        Assert.Contains("h264_nvenc", Assert.Single(fixture.EncoderRequests).Arguments);
         var streams = fixture.ActiveStreams.GetActiveStreams();
         Assert.Equal(2, streams.Count);
-        Assert.All(streams, stream => Assert.Equal("h264_amf", stream.ActiveVideoEncoder));
+        Assert.All(streams, stream => Assert.Equal("h264_nvenc", stream.ActiveVideoEncoder));
         Assert.Contains("Auto", Assert.Single(streams.Single(stream => stream.ClientId == "automatic").VirtualOutput!.Tracks, track => track.Type == MediaTrackType.Audio).RenditionTitle!, StringComparison.Ordinal);
         Assert.Contains("Override", Assert.Single(streams.Single(stream => stream.ClientId == "manual").VirtualOutput!.Tracks, track => track.Type == MediaTrackType.Audio).RenditionTitle!, StringComparison.Ordinal);
         Assert.True(first.Service.Stop(presentations[0].SessionId));
@@ -93,12 +257,12 @@ public sealed class CmafSharingTests
 
     /// <summary>Verifies local Watch viewers report the launched encoder, including viewers joining pending or ready producers.</summary>
     [Theory]
-    [InlineData(HardwareVideoEncoder.Amf, WebPlayerQuality.Medium, "h264_amf", false)]
-    [InlineData(HardwareVideoEncoder.Amf, WebPlayerQuality.Medium, "h264_amf", true)]
+    [InlineData(HardwareVideoEncoder.Nvenc, WebPlayerQuality.Medium, "h264_nvenc", false)]
+    [InlineData(HardwareVideoEncoder.Nvenc, WebPlayerQuality.Medium, "h264_nvenc", true)]
     [InlineData(HardwareVideoEncoder.Software, WebPlayerQuality.Medium, "libx264", false)]
     [InlineData(HardwareVideoEncoder.Software, WebPlayerQuality.Medium, "libx264", true)]
-    [InlineData(HardwareVideoEncoder.Amf, WebPlayerQuality.AppDefault, "copy", false)]
-    [InlineData(HardwareVideoEncoder.Amf, WebPlayerQuality.AppDefault, "copy", true)]
+    [InlineData(HardwareVideoEncoder.Nvenc, WebPlayerQuality.AppDefault, "copy", false)]
+    [InlineData(HardwareVideoEncoder.Nvenc, WebPlayerQuality.AppDefault, "copy", true)]
     public async Task Service_ReadyViewers_ReportActualEncoder(HardwareVideoEncoder encoder, WebPlayerQuality quality, string actualEncoder, bool joinPending)
     {
         // Arrange
@@ -132,6 +296,10 @@ public sealed class CmafSharingTests
         Assert.All(results, result => Assert.NotNull(result.Presentation));
         var arguments = Assert.Single(fixture.EncoderRequests).Arguments;
         Assert.Equal(actualEncoder, arguments[Array.IndexOf(arguments.ToArray(), "-c:v:0") + 1]);
+        if (actualEncoder == "copy")
+        {
+            Assert.Empty(fixture.HardwareProbeExits);
+        }
         var streams = fixture.ActiveStreams.GetActiveStreams();
         Assert.Equal(2, streams.Count);
         Assert.Equal(["first", "second"], streams.Select(stream => stream.ClientId).Order());
@@ -700,7 +868,7 @@ public sealed class CmafSharingTests
         var player = Assert.Single(fixture.Settings.Streaming.VirtualDevices);
         fixture.Settings.Streaming = fixture.Settings.Streaming with
         {
-            VirtualDefaults = new() { AlwaysTranscodeVideo = true, HardwareEncoding = new() { Encoder = encoder } },
+            VirtualDefaults = new() { AlwaysTranscodeVideo = true, HardwareEncoding = new() { Encoder = encoder, AllowSoftwareFallback = true } },
             VirtualDevices = [player with { Adapter = new AdapterConfiguration(player.Adapter.Kind, System.Text.Json.JsonSerializer.SerializeToElement(new WebPlayerConfiguration
             {
                 ExtractEmbeddedCaptions = true
@@ -1543,6 +1711,8 @@ public sealed class CmafSharingTests
         private readonly DirectoryInfo _root = Directory.CreateDirectory(Path.Combine(AppContext.BaseDirectory, "cmaf-sharing-artifacts", Guid.NewGuid().ToString("N")));
         private readonly ConcurrentQueue<(Process Observer, string Directory)> _encoders = new();
         private readonly ConcurrentQueue<MediaProcessRequest> _encoderRequests = new();
+        private readonly ConcurrentQueue<Task> _hardwareProbeExits = new();
+        private readonly TaskCompletionSource _hardwareProbeStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly ConcurrentBag<Task> _outputCleanups = [];
         private readonly TaskCompletionSource _encoderStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _secondEncoderStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1626,7 +1796,8 @@ public sealed class CmafSharingTests
                         Language = "eng"
                     }
                 ], null));
-            _processes.Start(Arg.Any<MediaProcessRequest>()).Returns(call => StartEncoder(call.Arg<MediaProcessRequest>()));
+            _processes.Start(Arg.Any<MediaProcessRequest>()).Returns(call => MediaProcessAdmission.Start(
+                () => StartEncoder(call.Arg<MediaProcessRequest>()), Admission, call.Arg<MediaProcessRequest>().WorkingDirectory));
             _slates.StartCmaf(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<ChannelSlateReason>()).Returns(call => StartEncoder(new MediaProcessRequest
             {
                 FileName = "synthetic-slate",
@@ -1693,6 +1864,34 @@ public sealed class CmafSharingTests
         /// <summary>Gets or sets a terminal failure while creating the output processor.</summary>
         internal MediaProcessException? ProcessFailure { get; set; }
 
+        /// <summary>Gets or sets a failure launching the software replacement after hardware initialization fails.</summary>
+        internal MediaProcessException? FallbackProcessFailure { get; set; }
+
+        /// <summary>Gets or sets whether the synthetic encoder-list probe reports no requested encoder.</summary>
+        internal bool HardwareUnavailable { get; set; }
+
+        /// <summary>Gets or sets whether a verified hardware encoder fails during playback initialization.</summary>
+        internal bool FailHardwareInitialization { get; set; }
+
+        /// <summary>Gets or sets whether the owned hardware probe stays pending until cancellation.</summary>
+        internal bool HoldHardwareProbe { get; set; }
+
+        /// <summary>Gets or sets real processing admission for bounded ownership regressions.</summary>
+        internal MediaWorkAdmission? Admission { get; set; }
+
+        /// <summary>Gets exit signals observed before hardware-probe ownership transfers to the runtime.</summary>
+        internal IReadOnlyList<Task> HardwareProbeExits => _hardwareProbeExits.ToArray();
+
+        /// <summary>Gets notification that the hardware probe process has started.</summary>
+        internal Task HardwareProbeStarted => _hardwareProbeStarted.Task;
+
+        /// <summary>Gets whether failed-attempt media was still present when software fallback started.</summary>
+        internal bool HadStaleFilesAtFallbackStart { get; private set; }
+
+        /// <summary>Gets whether an owned presentation session directory remains, including failures before encoder launch.</summary>
+        internal bool HasPresentationWorkspace => Directory.EnumerateDirectories(_root.FullName, "*", SearchOption.AllDirectories)
+            .Any(path => Guid.TryParseExact(Path.GetFileName(path), "N", out _));
+
         /// <summary>Gets or sets deterministic probe metadata for audio-discovery regressions.</summary>
         internal MediaProbeResult? ProbeOverride { get; set; }
 
@@ -1753,7 +1952,7 @@ public sealed class CmafSharingTests
                 httpClients, Substitute.For<ILineupGuideReader>(), _settings, _topology, _probe, ActiveStreams,
                 _slates, _multiplexer, Logger,
                 timeProvider: StartupClock, transientData: _files, mediaProcessFactory: _processes, streamRoutes: _routes,
-                cmafOutputs: PlaybackOutputs ?? Outputs, cmafStartupTimeout: StartupTimeout);
+                cmafOutputs: PlaybackOutputs ?? Outputs, cmafStartupTimeout: StartupTimeout, mediaWork: Admission);
             var start = _playback.StartAsync("7.1", (request ?? new CmafStreamRequest()) with { ClientId = clientId },
                 $"127.0.0.1:{10_000 + _cancellations.Count}", cancellationToken: cancellation.Token);
             _serviceStarts.Add(start);
@@ -1855,6 +2054,8 @@ public sealed class CmafSharingTests
 
         private Process StartEncoder(MediaProcessRequest request)
         {
+            var hardwareProbe = request.Arguments.Contains("-encoders") ||
+                request.Arguments.Contains("-frames:v") && request.Arguments.Contains("testsrc2=size=128x128:rate=25");
             foreach (var viewer in Outputs.GetViewers())
             {
                 if (viewer.State is ManagementPlaybackService.PendingCmafOutput output)
@@ -1862,13 +2063,20 @@ public sealed class CmafSharingTests
                     _outputCleanups.Add(output.Stopped);
                 }
             }
-            if (ProcessFailure is not null)
+            if (!hardwareProbe && ProcessFailure is not null)
             {
                 throw ProcessFailure;
             }
-            var directory = request.WorkingDirectory ?? _encoders.LastOrDefault().Directory
+            if (!hardwareProbe && request.Arguments.Contains("libx264") && FallbackProcessFailure is not null)
+            {
+                throw FallbackProcessFailure;
+            }
+            var directory = hardwareProbe ? _root.FullName : request.WorkingDirectory ?? _encoders.LastOrDefault().Directory
                 ?? throw new InvalidOperationException("The CMAF encoder request is missing its owned output directory.");
-            _encoderRequests.Enqueue(request);
+            if (!hardwareProbe)
+            {
+                _encoderRequests.Enqueue(request);
+            }
             var configuration = new DirectoryInfo(AppContext.BaseDirectory).Name;
             var executable = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "Lineup.TestSupport.FakeFFmpeg", configuration, "Lineup.TestSupport.FakeFFmpeg.dll"));
             var start = new ProcessStartInfo("dotnet")
@@ -1880,16 +2088,44 @@ public sealed class CmafSharingTests
                 RedirectStandardError = true
             };
             start.Environment.Remove("LINEUP_FAKE_FFMPEG_FAIL");
+            start.Environment.Remove("LINEUP_FAKE_FFMPEG_HARDWARE_MODE");
+            start.Environment.Remove("LINEUP_FAKE_FFMPEG_HARDWARE_LOG");
             start.ArgumentList.Add(executable);
-            foreach (var argument in EncoderExitCode is int exitCode
+            IReadOnlyList<string> arguments = hardwareProbe
+                ? HoldHardwareProbe ? ["orphan", Path.Combine(_root.FullName, "hardware-probe.ready")]
+                    : HardwareUnavailable ? ["probe-json", "No requested encoder"] : request.Arguments
+                : FailHardwareInitialization ? request.Arguments
+                : EncoderExitCode is int exitCode
                 ? new[] { "diagnostics", "65536", exitCode.ToString(System.Globalization.CultureInfo.InvariantCulture), "hold" }
-                : ["hold"])
+                : ["hold"];
+            if (hardwareProbe && !HardwareUnavailable && !HoldHardwareProbe || !hardwareProbe && FailHardwareInitialization)
+            {
+                start.Environment["LINEUP_FAKE_FFMPEG_HARDWARE_MODE"] = "probe-passes-playback-fails";
+            }
+            if (!hardwareProbe && FailHardwareInitialization)
+            {
+                if (request.Arguments.Contains("h264_nvenc"))
+                {
+                    File.WriteAllText(Path.Combine(directory, "hardware-attempt-stale.m4s"), "failed-attempt media");
+                }
+                else
+                {
+                    HadStaleFilesAtFallbackStart = File.Exists(Path.Combine(directory, "hardware-attempt-stale.m4s"));
+                }
+            }
+            foreach (var argument in arguments)
             {
                 start.ArgumentList.Add(argument);
             }
             var process = Process.Start(start) ?? throw new InvalidOperationException("Unable to start the deterministic CMAF encoder.");
+            if (hardwareProbe)
+            {
+                _hardwareProbeExits.Enqueue(process.WaitForExitAsync());
+                _hardwareProbeStarted.TrySetResult();
+                return process;
+            }
             _encoders.Enqueue((Process.GetProcessById(process.Id), directory));
-            if (!HoldReadiness)
+            if (!HoldReadiness && (!FailHardwareInitialization || request.Arguments.Contains("libx264")))
             {
                 PublishReadiness(directory);
             }

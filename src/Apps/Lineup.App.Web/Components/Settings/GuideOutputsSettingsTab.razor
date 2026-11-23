@@ -2,6 +2,7 @@
 @using Lineup.App.Web.Components.Pages
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
+@inject IStatusNotificationService Notifications
 
 <div id="guideOutputsSettingsTab" class="@CssClass" role="tabpanel" aria-labelledby="tab-guide-outputs" @onchange="Host.NotifySettingsUiChanged">
     <div class="device-settings-workspace mb-4">
@@ -318,7 +319,7 @@
                             @code {
                                 private async Task CopyEndpoint(string endpoint)
                                 {
-                                    await JS.CopyTextAsync(endpoint);
+                                    await JS.TryCopyTextAsync(endpoint, Notifications, Text);
                                 }
                             }
                         }

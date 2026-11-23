@@ -65,6 +65,34 @@ public sealed class VirtualOutputSessionAuthorityTests
         Assert.Equal(VirtualOutputFailureCode.Unauthorized, authorization.FailureCode);
     }
 
+    /// <summary>Verifies revocation does not allow a removed activation's generation or bootstrap credential to be reused.</summary>
+    [Fact]
+    public void CreateActivation_AfterRevocation_PreservesMonotonicGeneration()
+    {
+        // Arrange
+        using var authority = new VirtualOutputSessionAuthority();
+        var deviceId = VirtualDeviceId.New();
+        var capabilities = new HashSet<VirtualOutputCapability> { VirtualOutputCapability.ReadManifest };
+        var first = authority.CreateActivation(deviceId, "test-worker", capabilities, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+        var registered = Register(authority, first);
+        var oldSession = new VirtualOutputSessionContext { SessionId = registered.SessionId!.Value, Generation = first.Generation };
+
+        // Act
+        authority.Revoke(deviceId, "Replace the revoked worker.");
+        var second = authority.CreateActivation(deviceId, "test-worker", capabilities, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+        var staleRegistration = Register(authority, first);
+        var replacement = Register(authority, second);
+        authority.Revoke(deviceId, "Replace the worker again.");
+        var third = authority.CreateActivation(deviceId, "test-worker", capabilities, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+
+        // Assert
+        Assert.Equal(first.Generation + 1, second.Generation);
+        Assert.Equal(second.Generation + 1, third.Generation);
+        Assert.False(staleRegistration.Accepted);
+        Assert.True(replacement.Accepted);
+        Assert.False(authority.Authorize(oldSession, VirtualOutputCapability.ReadManifest).Authorized);
+    }
+
     /// <summary>Verifies a valid session cannot use a capability that was not granted.</summary>
     [Fact]
     public void Authorize_UngrantedCapability_ReturnsCapabilityDenied()

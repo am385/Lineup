@@ -149,6 +149,8 @@
   <data name="Common_Close" xml:space="preserve"><value>关闭</value></data>
   <data name="Common_ClosesAutomatically" xml:space="preserve"><value>自动关闭</value></data>
   <data name="Common_CopiedToClipboard" xml:space="preserve"><value>已复制到剪贴板！</value></data>
+  <data name="Common_CopyDisconnected" xml:space="preserve"><value>浏览器连接已断开，无法复制文本。</value></data>
+  <data name="Common_CopyFailure" xml:space="preserve"><value>浏览器无法复制文本。请选中文本并手动复制。</value></data>
   <data name="Common_CopyToClipboard" xml:space="preserve"><value>复制到剪贴板</value></data>
   <data name="Common_DevelopmentModeDetailsPrefix" xml:space="preserve"><value>切换到</value></data>
   <data name="Common_DevelopmentModeDetailsSuffix" xml:space="preserve"><value>环境将显示有关所发生错误的更多详细信息。</value></data>

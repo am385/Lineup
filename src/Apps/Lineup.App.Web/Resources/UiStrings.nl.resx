@@ -149,6 +149,8 @@
   <data name="Common_Close" xml:space="preserve"><value>Sluiten</value></data>
   <data name="Common_ClosesAutomatically" xml:space="preserve"><value>Wordt automatisch gesloten</value></data>
   <data name="Common_CopiedToClipboard" xml:space="preserve"><value>Naar het klembord gekopieerd!</value></data>
+  <data name="Common_CopyDisconnected" xml:space="preserve"><value>De tekst kon niet worden gekopieerd omdat de verbinding met de browser is verbroken.</value></data>
+  <data name="Common_CopyFailure" xml:space="preserve"><value>De browser kon de tekst niet kopiëren. Selecteer en kopieer de tekst handmatig.</value></data>
   <data name="Common_CopyToClipboard" xml:space="preserve"><value>Naar klembord kopiëren</value></data>
   <data name="Common_DevelopmentModeDetailsPrefix" xml:space="preserve"><value>Als u overschakelt naar de</value></data>
   <data name="Common_DevelopmentModeDetailsSuffix" xml:space="preserve"><value>-omgeving, wordt meer gedetailleerde informatie over de opgetreden fout weergegeven.</value></data>

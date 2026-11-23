@@ -510,7 +510,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                             activeStream.Flow! with { ProducerNodeId = pendingOutput.Tasks.SourceProducerNodeId }, channel)
                         {
                             VideoEncoding = pendingOutput.ActiveVideoEncoder is { } encoder
-                                ? new VideoEncodingSnapshot(encoder, virtualProfile.HardwareEncoding.Encoder, false)
+                                ? new VideoEncodingSnapshot(encoder, virtualProfile.HardwareEncoding.Encoder, pendingOutput.HardwareFallbackApplied)
                                 : null,
                             ResourceIds = pendingOutput.Session is { } media
                                 ? OwnedMediaProcess.GetResourceIds(media.Process).Concat(media.CaptionProcess is { } captions ? OwnedMediaProcess.GetResourceIds(captions) : []).ToArray()
@@ -578,6 +578,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
             {
                 RequestedVideoEncoder = sharedOutput.ActiveVideoEncoder is null ? null : virtualProfile.HardwareEncoding.Encoder,
                 ActiveVideoEncoder = sharedOutput.ActiveVideoEncoder,
+                HardwareFallbackApplied = sharedOutput.HardwareFallbackApplied,
                 ResourceIds = sharedOutput.Session is { } resourceSession
                     ? OwnedMediaProcess.GetResourceIds(resourceSession.Process).Concat(resourceSession.CaptionProcess is { } captions ? OwnedMediaProcess.GetResourceIds(captions) : []).ToArray()
                     : [],
@@ -605,13 +606,25 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
             Task? captionExitTask = null;
             CancellationTokenSource? inputCancellation = null;
             CancellationTokenSource? captionCancellation = null;
+            var producerProfile = virtualProfile;
+            var hardwareFallbackApplied = false;
             try
             {
                 var usingSlate = disabled || protectedContent;
                 var ffmpegArguments = usingSlate
                     ? null
-                    : CmafStreamPlanner.CreateArguments(virtualProfile, source, selection, request, manifestPath, subtitlePaths);
+                    : CmafStreamPlanner.CreateArguments(producerProfile, source, selection, request, manifestPath, subtitlePaths);
                 producerToken.ThrowIfCancellationRequested();
+                var hardware = virtualProfile.HardwareEncoding;
+                if (!usingSlate && hardware.Encoder != HardwareVideoEncoder.Software &&
+                    ffmpegArguments!.Contains(HardwareVideoEncodingPlanner.GetEncoderName(hardware.Encoder)) &&
+                    !await HardwareEncodingRuntime.VerifyAsync(hardware, _mediaProcessFactory, _logger, producerToken))
+                {
+                    producerProfile = producerProfile with { HardwareEncoding = new() };
+                    hardwareFallbackApplied = true;
+                    ffmpegArguments = CmafStreamPlanner.CreateArguments(producerProfile, source, selection, request, manifestPath, subtitlePaths);
+                    UpdateProducerPlans();
+                }
 
                 if (usingSlate)
                 {
@@ -622,7 +635,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                 }
                 else
                 {
-                    CmafStreamPlanner.ReportVideoProcessing(CmafStreamPlanner.CreateVideoProcessing(virtualProfile, source, selection, request), _logger);
+                    CmafStreamPlanner.ReportVideoProcessing(CmafStreamPlanner.CreateVideoProcessing(producerProfile, source, selection, request), _logger);
                     process = _mediaProcessFactory.Start(new MediaProcessRequest
                     {
                         FileName = "ffmpeg",
@@ -708,18 +721,41 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                     if (process.HasExited)
                     {
                         await errorMonitorTask.WaitAsync(producerToken);
-                        if (!usingSlate && CmafStreamPlanner.ShouldRetryWithFallback(
+                        var retryHardware = !usingSlate && !hardwareFallbackApplied && hardware.AllowSoftwareFallback &&
+                            hardware.Encoder != HardwareVideoEncoder.Software &&
+                            ffmpegArguments!.Contains(HardwareVideoEncodingPlanner.GetEncoderName(hardware.Encoder)) &&
+                            HardwareEncodingRuntime.IsInitializationFailure(string.Join("\n", errors));
+                        var retryAudio = !usingSlate && CmafStreamPlanner.ShouldRetryWithFallback(
                             request,
                             session.AudioRenditions.Where(rendition => rendition.Plan.CopySource).Select(rendition => rendition.Source),
-                            errors))
+                            errors);
+                        if (retryHardware || retryAudio)
                         {
-                            _logger.LogInformation(
-                                "CMAF source audio codec {Codec} is not supported by the MP4 muxer for session {SessionId}; retrying with {FallbackAudio}",
-                                selection.Audio?.Codec,
-                                sessionId,
-                                fallbackAudio);
-                            var retryRequest = request with { PreferredAudio = CmafPreferredAudio.Fallback };
-                            ffmpegArguments = CmafStreamPlanner.CreateArguments(virtualProfile, source, selection, retryRequest, manifestPath, subtitlePaths);
+                            var sourceSession = session;
+                            sourceSession.IsActive = false;
+                            inputCancellation!.Cancel();
+                            await ObserveInputPumpAsync(inputPumpTask!);
+                            await MediaProcessAdmission.WaitForReleaseAsync(sourceSession.Process).WaitAsync(producerToken);
+                            pendingOutput.Attach(null, directory, captionProcess, captionErrorTask);
+                            sourceSession.Process.Dispose();
+                            DeleteCmafPresentationFiles(directory);
+                            producerToken.ThrowIfCancellationRequested();
+                            if (retryHardware)
+                            {
+                                _logger.LogWarning("Requested hardware encoder {Encoder} failed before publication for session {SessionId}; owned media was released before retrying with software.",
+                                    hardware.Encoder, sessionId);
+                                producerProfile = producerProfile with { HardwareEncoding = new() };
+                                hardwareFallbackApplied = true;
+                            }
+                            else
+                            {
+                                _logger.LogInformation(
+                                    "CMAF source audio codec {Codec} is not supported by the MP4 muxer for session {SessionId}; retrying with {FallbackAudio}",
+                                    selection.Audio?.Codec, sessionId, fallbackAudio);
+                                request = request with { PreferredAudio = CmafPreferredAudio.Fallback };
+                                sourceAudioFallbackApplied = true;
+                            }
+                            ffmpegArguments = CmafStreamPlanner.CreateArguments(producerProfile, source, selection, request, manifestPath, subtitlePaths);
                             var retryProcess = _mediaProcessFactory.Start(new MediaProcessRequest
                             {
                                 FileName = "ffmpeg",
@@ -730,12 +766,9 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                                 RedirectStandardError = true
                             });
 
-                            var sourceSession = session;
                             OwnedMediaProcess.SetResourceRole(retryProcess, "output");
                             process = retryProcess;
                             pendingOutput.Attach(process, directory, captionProcess, captionErrorTask);
-                            request = retryRequest;
-                            sourceAudioFallbackApplied = true;
                             session = new CmafSession
                             {
                                 SessionId = sessionId,
@@ -745,7 +778,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                                 PlaylistPath = manifestPath,
                                 StartTime = startedAt,
                                 SourceVideoCodec = sourceSession.SourceVideoCodec,
-                                AudioRenditions = CmafStreamPlanner.CreatePresentationAudioRenditions(source, selection.Audio, retryRequest, virtualProfile),
+                                AudioRenditions = CmafStreamPlanner.CreatePresentationAudioRenditions(source, selection.Audio, request, producerProfile),
                                 CapacityLease = sourceSession.CapacityLease,
                                 CaptionProcess = sourceSession.CaptionProcess,
                                 CaptionErrorTask = sourceSession.CaptionErrorTask,
@@ -757,27 +790,10 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                             sourceSession.CaptionProcess = null;
                             sourceSession.CaptionErrorTask = null;
                             sourceSession.IsActive = false;
-                            inputCancellation!.Cancel();
-                            await ObserveInputPumpAsync(inputPumpTask!);
-                            sourceSession.Process.Dispose();
                             inputCancellation = pendingOutput.Tasks.CreateCancellation(pendingOutput.LifetimeToken);
                             inputPumpTask = PumpEffectiveSourceAsync(selectedCandidate!, rawSource, sourceSettings, process, inputCancellation.Token, pendingOutput.Tasks);
                             pendingOutput.Tasks.Track(inputPumpTask, _logger, "fallback media input");
-                            UpdateCmafViewerPlans(outputLease.OutputId, ActiveStreamPlanFactory.CreateCmaf(
-                                sessionId,
-                                channel,
-                                startedAt,
-                                rawSource,
-                                source,
-                                selection,
-                                retryRequest,
-                                virtualProfile) with
-                            {
-                                Flow = CreatePhysicalFlow(selectedCandidate!, topologyRoute!.VirtualDevice.Id) with
-                                {
-                                    ReusableOutputId = outputLease.OutputId
-                                }
-                            });
+                            UpdateProducerPlans();
                             errors.Clear();
                             errorMonitorTask = StartCmafErrorMonitor(process, session, errors, parseSourceMetadata: false, outputVideoBitRate);
                             pendingOutput.Tasks.Track(errorMonitorTask, _logger, "fallback media diagnostics");
@@ -884,7 +900,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                                 subtitle.Language,
                                 subtitle.IsEmbeddedClosedCaptions)).ToArray()
                         };
-                        pendingOutput.Complete(session, usingSlate ? null : HardwareVideoEncodingPlanner.GetVideoEncoder(ffmpegArguments!));
+                        pendingOutput.Complete(session, usingSlate ? null : HardwareVideoEncodingPlanner.GetVideoEncoder(ffmpegArguments!), !usingSlate && hardwareFallbackApplied);
                         return new ManagementPlaybackStartResult { Presentation = response };
                     }
                     await Task.Delay(100, producerToken);
@@ -916,6 +932,11 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                 MediaProcessDiagnostics.LogFailure(_logger, exception, "process", sessionId, streamSessionId: outputLease.OutputId.ToString());
                 return Failure(ManagementPlaybackFailureKind.MediaFailure, "The media processor could not start the presentation.", "media_process_failed", "process");
             }
+            catch (HardwareEncodingException exception)
+            {
+                MediaProcessDiagnostics.LogFailure(_logger, exception, "encoder", sessionId, streamSessionId: outputLease.OutputId.ToString());
+                return Failure(ManagementPlaybackFailureKind.MediaFailure, "The configured hardware video encoder failed its startup verification.", "media_process_failed", "encoder");
+            }
             catch (MediaResourceLimitException exception)
             {
                 _logger.LogWarning(exception, "CMAF media processing admission rejected for session {SessionId}", sessionId);
@@ -931,6 +952,15 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                 var kind = ex is StreamCapacityExceededException ? ManagementPlaybackFailureKind.Unavailable : ManagementPlaybackFailureKind.InternalError;
                 return Failure(kind, ex.Message);
             }
+
+            void UpdateProducerPlans() =>
+                UpdateCmafViewerPlans(outputLease.OutputId, ActiveStreamPlanFactory.CreateCmaf(
+                    sessionId, channel, startedAt, rawSource, source, selection, request, producerProfile) with
+                {
+                    RequestedVideoEncoder = virtualProfile.HardwareEncoding.Encoder,
+                    HardwareFallbackApplied = hardwareFallbackApplied,
+                    Flow = CreatePhysicalFlow(selectedCandidate!, topologyRoute!.VirtualDevice.Id) with { ReusableOutputId = outputLease.OutputId }
+                });
         }
     }
 
@@ -1489,6 +1519,18 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         _transientData.DeleteFiles(directory);
     }
 
+    private void DeleteCmafPresentationFiles(string directory)
+    {
+        // An independently owned caption extractor remains active across encoder retries.
+        foreach (var pattern in new[] { "*.mpd", "*.m3u8", "*.mp4", "*.m4s" })
+        {
+            foreach (var path in _transientData.EnumerateFiles(directory, pattern))
+            {
+                _transientData.DeleteFile(path);
+            }
+        }
+    }
+
     private void TryDeleteTransientDirectory(string directory)
     {
         try
@@ -1689,6 +1731,9 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         /// <summary>Gets the primary video encoder from the ready producer's launched arguments, including for later shared viewers.</summary>
         public string? ActiveVideoEncoder { get; private set; }
 
+        /// <summary>Gets whether the producer used the explicitly allowed software fallback.</summary>
+        public bool HardwareFallbackApplied { get; private set; }
+
         /// <summary>Gets tasks owned by this producer before and after readiness.</summary>
         public CmafMediaTasks Tasks { get; } = new();
 
@@ -1759,7 +1804,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         }
 
         /// <summary>Transfers current process and artifact ownership, including replacements made during startup.</summary>
-        public void Attach(Process process, string directory, Process? captionProcess = null, Task<string>? captionErrorTask = null)
+        public void Attach(Process? process, string directory, Process? captionProcess = null, Task<string>? captionErrorTask = null)
         {
             lock (_gate)
             {
@@ -1771,13 +1816,14 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
         }
 
         /// <summary>Transfers pending resources into a ready media session.</summary>
-        public void Complete(CmafSession session, string? activeVideoEncoder = null)
+        public void Complete(CmafSession session, string? activeVideoEncoder = null, bool hardwareFallbackApplied = false)
         {
             lock (_gate)
             {
                 LifetimeToken.ThrowIfCancellationRequested();
                 Session = session;
                 ActiveVideoEncoder = activeVideoEncoder;
+                HardwareFallbackApplied = hardwareFallbackApplied;
                 _process = null;
                 _captionProcess = null;
                 _captionErrorTask = null;

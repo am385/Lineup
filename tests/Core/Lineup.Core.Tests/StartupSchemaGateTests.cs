@@ -1,5 +1,6 @@
 using Lineup.Core.Settings;
 using Lineup.Core.Storage;
+using Lineup.Core.Common.Streaming;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
@@ -17,6 +18,150 @@ namespace Lineup.Core.Tests;
 /// </summary>
 public sealed class StartupSchemaGateTests
 {
+    /// <summary>Gets null required topology values tested at both supported JSON entry points.</summary>
+    public static TheoryData<string, bool> NullRequiredTopologyValues
+    {
+        get
+        {
+            var cases = new TheoryData<string, bool>();
+            foreach (var path in new[]
+            {
+                "PhysicalDefaults", "VirtualDefaults", "PhysicalDevices", "GuideSources", "VirtualDevices", "GuideOutputs",
+                "VirtualOutputSecurityPolicies", "VirtualOutputWorkerPolicies", "PhysicalDefaults.HardwareEncoding",
+                "VirtualDevices.0.Adapter", "VirtualDevices.0.Subscription", "VirtualDevices.0.TranscodeOverrides",
+                "VirtualDevices.0.Hosting.Bindings", "VirtualDevices.0", "GuideSources.0", "VirtualDevices.0.Hosting.Bindings.0",
+                "VirtualOutputSecurityPolicies.0.AllowedNetworks.0", "VirtualDevices.0.Hosting.Bindings.0.Addresses.0"
+            })
+            {
+                cases.Add(path, false);
+                cases.Add(path, true);
+            }
+            return cases;
+        }
+    }
+
+    /// <summary>Verifies required null topology is rejected before either settings or standalone streaming readiness.</summary>
+    /// <param name="path">Path of the required value within the streaming topology.</param>
+    /// <param name="standalone">Whether the streaming document is loaded independently of application settings.</param>
+    [Theory]
+    [MemberData(nameof(NullRequiredTopologyValues))]
+    public void CheckContent_NullRequiredTopology_RequiresRecovery(string path, bool standalone)
+    {
+        // Arrange
+        var settings = CreateSettingsWithNullTopologyValue(path);
+        var json = standalone ? JsonNode.Parse(settings)!["Streaming"]!.ToJsonString() : settings;
+
+        // Act
+        var state = standalone ? StartupSchemaGate.CheckStreamingConfigurationContent(json) : StartupSchemaGate.CheckSettingsContent(json);
+
+        // Assert
+        Assert.Equal(LineupStartupStatus.FactoryResetRequired, state.Status);
+        Assert.NotEmpty(state.Reason!);
+    }
+
+    /// <summary>Verifies omitted defaults and intentionally nullable hosting remain loadable without requiring operational hardware.</summary>
+    [Fact]
+    public void CheckSettingsContent_OmittedDefaultsAndOptionalNulls_ReturnsReady()
+    {
+        // Arrange
+        var settings = JsonNode.Parse(CreateSettingsWithNullTopologyValue("VirtualDevices.0.Hosting"))!;
+        settings["Streaming"]!.AsObject().Remove("PhysicalDefaults");
+        settings["Streaming"]!.AsObject().Remove("GuideSources");
+        settings["GuideSourceSchedules"] = null;
+
+        // Act
+        var state = StartupSchemaGate.CheckSettingsContent(settings.ToJsonString());
+        var standalone = StartupSchemaGate.CheckStreamingConfigurationContent("""{"schemaVersion":1}""");
+
+        // Assert
+        Assert.Equal(LineupStartupStatus.Ready, state.Status);
+        Assert.Equal(LineupStartupStatus.Ready, standalone.Status);
+    }
+
+    /// <summary>Verifies only a healthy backup can recover required-null settings, without modifying either document.</summary>
+    /// <param name="healthyBackup">Whether the backup has valid topology.</param>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Check_NullRequiredTopology_RecoversOnlyHealthyBackup(bool healthyBackup)
+    {
+        // Arrange
+        var root = Directory.CreateTempSubdirectory("lineup-null-topology-");
+        try
+        {
+            var path = Path.Combine(root.FullName, AppConstants.SettingsFileName);
+            var primary = CreateSettingsWithNullTopologyValue("PhysicalDefaults");
+            var backup = healthyBackup ? JsonSerializer.Serialize(new LineupSettings { TargetDays = 7 }) : primary;
+            await File.WriteAllTextAsync(path, primary, TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync($"{path}.bak", backup, TestContext.Current.CancellationToken);
+
+            // Act
+            var state = StartupSchemaGate.Check(path, $"{path}.bak", Path.Combine(root.FullName, AppConstants.DefaultDatabaseFileName));
+            var service = new LineupSettingsService(NullLogger<LineupSettingsService>.Instance, path, root.FullName);
+
+            // Assert
+            Assert.Equal(healthyBackup ? LineupStartupStatus.Ready : LineupStartupStatus.FactoryResetRequired, state.Status);
+            if (healthyBackup)
+            {
+                Assert.Equal(7, service.Settings.TargetDays);
+            }
+            else
+            {
+                await Assert.ThrowsAsync<FactoryResetRequiredException>(() => service.SaveAsync());
+            }
+            Assert.Equal(primary, await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
+            Assert.Equal(backup, await File.ReadAllTextAsync($"{path}.bak", TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    private static string CreateSettingsWithNullTopologyValue(string path)
+    {
+        var settings = JsonSerializer.SerializeToNode(new LineupSettings
+        {
+            Streaming = new StreamingConfiguration
+            {
+                VirtualDevices =
+                [
+                    new VirtualDeviceDefinition
+                    {
+                        Id = VirtualDeviceId.New(),
+                        Name = "Unconfigured output",
+                        Adapter = new AdapterConfiguration("test", JsonSerializer.SerializeToElement(new { })),
+                        Hosting = new VirtualOutputHostingDefinition { Bindings = [new VirtualOutputBindingDefinition()] }
+                    }
+                ],
+                VirtualOutputSecurityPolicies = [new VirtualOutputSecurityPolicyDefinition { Key = "test", Name = "Test policy" }]
+            }
+        })!;
+        var parts = path.Split('.');
+        var node = settings["Streaming"]!;
+        foreach (var part in parts[..^1])
+        {
+            node = int.TryParse(part, out var index) ? node[index]! : node[part]!;
+        }
+        if (int.TryParse(parts[^1], out var lastIndex))
+        {
+            var array = node.AsArray();
+            if (lastIndex == array.Count)
+            {
+                array.Add(null);
+            }
+            else
+            {
+                array[lastIndex] = null;
+            }
+        }
+        else
+        {
+            node[parts[^1]] = null;
+        }
+        return settings.ToJsonString();
+    }
+
     /// <summary>Gets invalid schema values at both the application and nested streaming boundaries.</summary>
     public static TheoryData<string, bool> InvalidSchemaVersions
     {

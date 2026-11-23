@@ -12,6 +12,106 @@ namespace Lineup.Plugin.SiliconDust.HDHomeRun.Device.Tests.Protocol;
 /// </summary>
 public class HDHomeRunDeviceNativeTests
 {
+    /// <summary>Verifies ambiguous legacy HTML never supplies sibling state or bypasses receiver-specific native status.</summary>
+    /// <param name="active">Whether the requested receiver is active in native status.</param>
+    /// <param name="legacyHtml">Whole-device legacy content that cannot establish the requested receiver.</param>
+    [Theory]
+    [InlineData(true, "<html>tuner0: ch=atsc:527000000 vchannel=104.1; tuner1: none, not in use</html>")]
+    [InlineData(false, "<html>tuner1: ch=atsc:527000000 vchannel=104.1</html>")]
+    [InlineData(true, "<html>unsupported legacy layout</html>")]
+    [InlineData(true, "")]
+    public async Task GetTunerStatusAsync_LegacyHtml_UsesRequestedNativeReceiver(bool active, string legacyHtml)
+    {
+        // Arrange
+        static byte[] Response(string value) => new HDHomeRunPacketBuilder()
+            .AddTag(HDHomeRunTagType.GetSetValue, $"{value}\0")
+            .Build(HDHomeRunPacketType.GetSetReply);
+        using var nativeStream = new ResponseStream(
+        [
+            .. Response(active ? "ch=atsc:527000000 lock=8vsb ss=99 snq=98 seq=100 bps=12000000 pps=100" : "ch=none lock=none ss=0 snq=0 seq=0 bps=0 pps=0"),
+            .. Response(active ? "atsc:527000000" : "none"),
+            .. Response(active ? "104.1" : "none"),
+            .. Response(active ? "http://192.0.2.50:5000" : "none")
+        ]);
+        using var nativeControl = new HDHomeRunControl(nativeStream, NullLogger<HDHomeRunControl>.Instance);
+        var handler = new LegacyStatusHandler(legacyHtml);
+        using var httpControl = new HDHomeRunHttpControl("http://192.0.2.10", NullLogger<HDHomeRunHttpControl>.Instance, new HttpClient(handler));
+        var httpFactory = Substitute.For<IHDHomeRunHttpControlFactory>();
+        httpFactory.Create(Arg.Any<string>()).Returns(httpControl);
+        using var device = CreateDevice(httpFactory, nativeControl);
+
+        // Act
+        var status = await device.GetTunerStatusAsync(0, TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(active, status.IsActive);
+        Assert.Equal(active ? "atsc:527000000" : "none", status.Channel);
+        Assert.Equal(["/tuner0/status", "/tuner0/channel", "/tuner0/vchannel", "/tuner0/target"], nativeStream.Writes.Select(ReadName));
+        Assert.Equal(["/status.json"], handler.RequestPaths);
+    }
+
+    /// <summary>Verifies modern receiver identifiers match exactly, preserving ordinary idle status without native work.</summary>
+    [Fact]
+    public async Task GetTunerStatusAsync_ModernIdleReceiver_DoesNotUseSimilarlyPrefixedSibling()
+    {
+        // Arrange
+        using var nativeStream = new FailingReadStream(new IOException("Idle HTTP status must not use native control."));
+        using var nativeControl = new HDHomeRunControl(nativeStream, NullLogger<HDHomeRunControl>.Instance);
+        using var httpControl = new HDHomeRunHttpControl("http://192.0.2.10", NullLogger<HDHomeRunHttpControl>.Instance,
+            new HttpClient(new StaticResponseHandler("""[{"Resource":"tuner10","VctName":"Sibling","VctNumber":"104.1","Frequency":527000000},{"Resource":"tuner1"}]""")));
+        var httpFactory = Substitute.For<IHDHomeRunHttpControlFactory>();
+        httpFactory.Create(Arg.Any<string>()).Returns(httpControl);
+        using var device = CreateDevice(httpFactory, nativeControl);
+
+        // Act
+        var status = await device.GetTunerStatusAsync(1, TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.False(status.IsActive);
+        Assert.Null(status.Channel);
+        Assert.Null(status.VirtualChannel);
+    }
+
+    /// <summary>Verifies unreadable HTTP status falls through to receiver-specific native status.</summary>
+    [Fact]
+    public async Task GetTunerStatusAsync_ModernStatusMalformed_UsesNativeStatus()
+    {
+        // Arrange
+        var response = new HDHomeRunPacketBuilder().AddTag(HDHomeRunTagType.GetSetValue, "none\0").Build(HDHomeRunPacketType.GetSetReply);
+        using var nativeStream = new ResponseStream([.. response, .. response, .. response, .. response]);
+        using var nativeControl = new HDHomeRunControl(nativeStream, NullLogger<HDHomeRunControl>.Instance);
+        using var httpControl = new HDHomeRunHttpControl("http://192.0.2.10", NullLogger<HDHomeRunHttpControl>.Instance,
+            new HttpClient(new StaticResponseHandler("malformed status document")));
+        var httpFactory = Substitute.For<IHDHomeRunHttpControlFactory>();
+        httpFactory.Create(Arg.Any<string>()).Returns(httpControl);
+        using var device = CreateDevice(httpFactory, nativeControl);
+
+        // Act
+        var status = await device.GetTunerStatusAsync(0, TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal("none", status.Channel);
+        Assert.Equal(["/tuner0/status", "/tuner0/channel", "/tuner0/vchannel", "/tuner0/target"], nativeStream.Writes.Select(ReadName));
+    }
+
+    /// <summary>Verifies unavailable receiver-specific transports report failure instead of a success-shaped idle snapshot.</summary>
+    [Fact]
+    public async Task GetTunerStatusAsync_NoReceiverSpecificTransport_ReportsFailure()
+    {
+        // Arrange
+        using var nativeControl = new HDHomeRunControl(_ => Task.FromException<Stream>(new IOException("Native unavailable.")), NullLogger<HDHomeRunControl>.Instance);
+        using var httpControl = new HDHomeRunHttpControl("http://192.0.2.10", NullLogger<HDHomeRunHttpControl>.Instance, new HttpClient(new LegacyStatusHandler("none")));
+        var httpFactory = Substitute.For<IHDHomeRunHttpControlFactory>();
+        httpFactory.Create(Arg.Any<string>()).Returns(httpControl);
+        using var device = CreateDevice(httpFactory, nativeControl);
+
+        // Act
+        var failure = await Assert.ThrowsAsync<HDHomeRunException>(() => device.GetTunerStatusAsync(0, TestContext.Current.CancellationToken));
+
+        // Assert
+        Assert.Contains("Receiver-specific status is unavailable", failure.Message, StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// Verifies ATSC 3.0 native status retains detailed metrics while using the HTTP network rate when native bitrate is zero.
     /// </summary>
@@ -493,5 +593,22 @@ public class HDHomeRunDeviceNativeTests
             {
                 Content = new StringContent(content, Encoding.UTF8, "application/json")
             });
+    }
+
+    private sealed class LegacyStatusHandler(string content) : HttpMessageHandler
+    {
+        /// <summary>Gets the requested endpoint paths without contacting a real device.</summary>
+        public List<string> RequestPaths { get; } = [];
+
+        /// <inheritdoc />
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            RequestPaths.Add(path);
+            return Task.FromResult(new HttpResponseMessage(path == "/status.json" ? HttpStatusCode.NotFound : HttpStatusCode.OK)
+            {
+                Content = new StringContent(content, Encoding.UTF8, "text/html")
+            });
+        }
     }
 }

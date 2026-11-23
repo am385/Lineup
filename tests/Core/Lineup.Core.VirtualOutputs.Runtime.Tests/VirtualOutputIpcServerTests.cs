@@ -394,12 +394,21 @@ public sealed class VirtualOutputIpcServerTests
         }
     }
 
-    /// <summary>Verifies an accepted old-generation status operation cannot overwrite a concurrently enrolled replacement.</summary>
+    /// <summary>Verifies a delayed status operation cannot overwrite a replacement or recreate status after revocation and removal.</summary>
+    /// <param name="operation">The status-publishing operation paused after its initial authorization or registration.</param>
+    /// <param name="replace">Whether revocation installs a replacement rather than removing the output.</param>
+    /// <param name="revoke">Whether the original activation is explicitly revoked before replacement.</param>
     [Theory]
-    [InlineData(VirtualOutputIpcOperation.Register)]
-    [InlineData(VirtualOutputIpcOperation.RenewLease)]
-    [InlineData(VirtualOutputIpcOperation.ReportHealth)]
-    public async Task Client_StaleStatusOperation_PreservesReplacementGeneration(VirtualOutputIpcOperation operation)
+    [InlineData(VirtualOutputIpcOperation.Register, true, true)]
+    [InlineData(VirtualOutputIpcOperation.RenewLease, true, true)]
+    [InlineData(VirtualOutputIpcOperation.ReportHealth, true, true)]
+    [InlineData(VirtualOutputIpcOperation.Register, false, true)]
+    [InlineData(VirtualOutputIpcOperation.RenewLease, false, true)]
+    [InlineData(VirtualOutputIpcOperation.ReportHealth, false, true)]
+    [InlineData(VirtualOutputIpcOperation.Register, true, false)]
+    [InlineData(VirtualOutputIpcOperation.RenewLease, true, false)]
+    [InlineData(VirtualOutputIpcOperation.ReportHealth, true, false)]
+    public async Task Client_RevokedStatusOperation_PreservesReplacementOrRemoval(VirtualOutputIpcOperation operation, bool replace, bool revoke)
     {
         // Arrange
         using var sessions = new VirtualOutputSessionAuthority();
@@ -420,6 +429,15 @@ public sealed class VirtualOutputIpcServerTests
         VirtualOutputSessionContext? replacementSession = null;
         void EnrollReplacement()
         {
+            if (revoke)
+            {
+                sessions.Revoke(deviceId, "Revoke the original worker before delayed status publication.");
+            }
+            if (!replace)
+            {
+                status.Remove(deviceId);
+                return;
+            }
             var next = sessions.CreateActivation(deviceId, "test-worker", capabilities, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
             var registered = sessions.Register(request with { Generation = next.Generation, BootstrapToken = next.BootstrapToken });
             replacementSession = new VirtualOutputSessionContext { SessionId = registered.SessionId!.Value, Generation = next.Generation };
@@ -440,6 +458,8 @@ public sealed class VirtualOutputIpcServerTests
             return response;
         });
         authority.Renew(Arg.Any<VirtualOutputLeaseRenewalRequest>()).Returns(call => sessions.Renew(call.Arg<VirtualOutputLeaseRenewalRequest>()));
+        authority.HasActiveSession(Arg.Any<VirtualDeviceId>(), Arg.Any<long>())
+            .Returns(call => sessions.HasActiveSession(call.Arg<VirtualDeviceId>(), call.Arg<long>()));
         authority.Authorize(Arg.Any<VirtualOutputSessionContext>(), Arg.Any<VirtualOutputCapability>()).Returns(call =>
         {
             var response = sessions.Authorize(call.Arg<VirtualOutputSessionContext>(), call.Arg<VirtualOutputCapability>());
@@ -457,26 +477,119 @@ public sealed class VirtualOutputIpcServerTests
             var session = registration is null ? null : new VirtualOutputSessionContext { SessionId = registration.SessionId!.Value, Generation = ticket.Generation };
 
             // Act
+            VirtualOutputClientException failure;
             switch (operation)
             {
                 case VirtualOutputIpcOperation.Register:
-                    await client.RegisterAsync(request, TestContext.Current.CancellationToken);
+                    failure = await Assert.ThrowsAsync<VirtualOutputClientException>(() => client.RegisterAsync(request, TestContext.Current.CancellationToken));
                     break;
                 case VirtualOutputIpcOperation.RenewLease:
-                    await client.RenewLeaseAsync(new VirtualOutputLeaseRenewalRequest { Session = session!, Ready = false }, TestContext.Current.CancellationToken);
+                    failure = await Assert.ThrowsAsync<VirtualOutputClientException>(() =>
+                        client.RenewLeaseAsync(new VirtualOutputLeaseRenewalRequest { Session = session!, Ready = false }, TestContext.Current.CancellationToken));
                     break;
                 case VirtualOutputIpcOperation.ReportHealth:
-                    await client.ReportHealthAsync(new VirtualOutputWorkerHealthReport { Session = session!, Ready = false }, TestContext.Current.CancellationToken);
+                    failure = await Assert.ThrowsAsync<VirtualOutputClientException>(() =>
+                        client.ReportHealthAsync(new VirtualOutputWorkerHealthReport { Session = session!, Ready = false }, TestContext.Current.CancellationToken));
                     break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(operation));
             }
 
             // Assert
-            Assert.NotNull(replacement);
-            Assert.Same(replacement, Assert.Single(status.GetSnapshots()));
-            Assert.True(sessions.Authorize(Assert.IsType<VirtualOutputSessionContext>(replacementSession), VirtualOutputCapability.ReportHealth).Authorized);
+            Assert.Equal(VirtualOutputFailureCode.Unauthorized, failure.FailureCode);
+            if (replace)
+            {
+                Assert.NotNull(replacement);
+                Assert.Same(replacement, Assert.Single(status.GetSnapshots()));
+                Assert.True(replacement.Generation > ticket.Generation);
+                Assert.True(sessions.Authorize(Assert.IsType<VirtualOutputSessionContext>(replacementSession), VirtualOutputCapability.ReportHealth).Authorized);
+            }
+            else
+            {
+                Assert.Empty(status.GetSnapshots());
+            }
         }
         finally
         {
+            await server.StopAsync(TestContext.Current.CancellationToken);
+        }
+    }
+
+    /// <summary>Verifies a health report waiting for the status mutation lock rechecks ownership after revocation, not before waiting.</summary>
+    [Fact]
+    public async Task Client_HealthReport_WaitsForStatusLock_RechecksRevokedActivation()
+    {
+        // Arrange
+        using var watchdog = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        watchdog.CancelAfter(TimeSpan.FromSeconds(30));
+        using var authority = new VirtualOutputSessionAuthority();
+        var deviceId = VirtualDeviceId.New();
+        var ticket = authority.CreateActivation(deviceId, "test-worker", new HashSet<VirtualOutputCapability> { VirtualOutputCapability.ReportHealth },
+            TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+        var registration = authority.Register(new VirtualOutputWorkerRegistrationRequest
+        {
+            WorkerId = ticket.WorkerId,
+            VirtualDeviceId = deviceId,
+            Generation = ticket.Generation,
+            BootstrapToken = ticket.BootstrapToken,
+            MinimumProtocolVersion = VirtualOutputProtocol.MinimumVersion,
+            MaximumProtocolVersion = VirtualOutputProtocol.MaximumVersion
+        });
+        var session = new VirtualOutputSessionContext { SessionId = registration.SessionId!.Value, Generation = ticket.Generation };
+        var snapshots = new VirtualOutputRuntimeStatus();
+        snapshots.Set(new VirtualOutputRuntimeSnapshot { VirtualDeviceId = deviceId, State = VirtualOutputRuntimeState.Healthy, Generation = ticket.Generation });
+        var locked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var waiting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var status = Substitute.For<IVirtualOutputRuntimeStatus>();
+        status.When(item => item.Update(Arg.Any<VirtualDeviceId>(), Arg.Any<Func<VirtualOutputRuntimeSnapshot?, VirtualOutputRuntimeSnapshot>>())).Do(call =>
+        {
+            waiting.TrySetResult();
+            snapshots.Update(call.Arg<VirtualDeviceId>(), call.Arg<Func<VirtualOutputRuntimeSnapshot?, VirtualOutputRuntimeSnapshot>>());
+        });
+        var endpoint = CreateEndpoint();
+        using var server = new VirtualOutputIpcServer(endpoint, authority, Substitute.For<IVirtualOutputBroker>(), status,
+            CreateSettings(deviceId, maximumOutstandingBrokerCalls: 1), new ActiveStreamRegistry(), NullLogger<VirtualOutputIpcServer>.Instance, Substitute.For<IPluginConnectionBudget>());
+        await server.StartAsync(watchdog.Token);
+        var holder = Task.Run(() => snapshots.Update(deviceId, current =>
+        {
+            locked.TrySetResult();
+            release.Task.Wait(watchdog.Token);
+            return current!;
+        }), CancellationToken.None);
+        Task? report = null;
+        try
+        {
+            await locked.Task.WaitAsync(watchdog.Token);
+            var client = new VirtualOutputBrokerClient(endpoint);
+            report = client.ReportHealthAsync(new VirtualOutputWorkerHealthReport { Session = session, Ready = false }, watchdog.Token);
+
+            // Act
+            await waiting.Task.WaitAsync(watchdog.Token);
+            authority.Revoke(deviceId, "Revoke while the health report waits for the status mutation lock.");
+            release.TrySetResult();
+            await holder.WaitAsync(watchdog.Token);
+            var failure = await Assert.ThrowsAsync<VirtualOutputClientException>(() => report);
+            snapshots.Remove(deviceId);
+
+            // Assert
+            Assert.Equal(VirtualOutputFailureCode.Unauthorized, failure.FailureCode);
+            Assert.Empty(snapshots.GetSnapshots());
+        }
+        finally
+        {
+            release.TrySetResult();
+            await holder;
+            if (report is not null)
+            {
+                try
+                {
+                    await report;
+                }
+                catch (VirtualOutputClientException)
+                {
+                }
+            }
             await server.StopAsync(TestContext.Current.CancellationToken);
         }
     }

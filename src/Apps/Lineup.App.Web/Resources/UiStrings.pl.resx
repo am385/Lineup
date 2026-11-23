@@ -149,6 +149,8 @@
   <data name="Common_Close" xml:space="preserve"><value>Zamknij</value></data>
   <data name="Common_ClosesAutomatically" xml:space="preserve"><value>Zamyka się automatycznie</value></data>
   <data name="Common_CopiedToClipboard" xml:space="preserve"><value>Skopiowano do schowka!</value></data>
+  <data name="Common_CopyDisconnected" xml:space="preserve"><value>Nie można skopiować tekstu, ponieważ połączenie z przeglądarką zostało przerwane.</value></data>
+  <data name="Common_CopyFailure" xml:space="preserve"><value>Przeglądarka nie mogła skopiować tekstu. Zaznacz go i skopiuj ręcznie.</value></data>
   <data name="Common_CopyToClipboard" xml:space="preserve"><value>Kopiuj do schowka</value></data>
   <data name="Common_DevelopmentModeDetailsPrefix" xml:space="preserve"><value>Przełączenie na środowisko</value></data>
   <data name="Common_DevelopmentModeDetailsSuffix" xml:space="preserve"><value>spowoduje wyświetlanie bardziej szczegółowych informacji o występującym błędzie.</value></data>
