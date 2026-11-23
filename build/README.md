@@ -55,7 +55,7 @@ mismatch fails the build explicitly. CI caches the assets by OS and manifest has
 the manifest, licenses, and playback/compatibility behavior.
 
 To check the cache without downloading assets, run
-`dotnet run --project scripts/Lineup.Tools.BrowserAssets -- build/browser-assets.json out/browser-assets --verify`.
+`dotnet run --project tools/Lineup.Tools.BrowserAssets -- build/browser-assets.json out/browser-assets --verify`.
 Omit `--verify` to restore it explicitly; ordinary Web builds and publishes perform that restoration automatically.
 
 ## Browser-asset build requirements

@@ -74,6 +74,7 @@ serializing readers or disabling pooling to hide the race.
 - Every test must contain explicit `// Arrange`, `// Act`, and `// Assert` sections.
 - Test the requested outcome directly, including meaningful failure and edge cases.
 - Keep tests deterministic and independent of execution order.
+- Lineup Link loopback fixtures use `LoopbackHttpListener` to retry address conflicts during actual HTTP listener startup; a released TCP probe does not reserve an HTTP prefix.
 - Own bUnit contexts with `await using` so component cleanup finishes before scoped services are disposed. The shared `LineupWebBunitContext` also surfaces renderer disposal failures.
 - In bUnit tests, await `ClickAsync(new())`, `ChangeAsync(...)`, and other async event dispatch when the handler performs asynchronous work before asserting completion. Use synchronous dispatch only for synchronous handlers.
 - When testing an in-flight operation, retain the `ClickAsync` task, assert the pending state, release any controlled dependency, and await the task before disposing the component.

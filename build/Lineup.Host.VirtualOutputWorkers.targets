@@ -1,7 +1,7 @@
 <Project>
   <PropertyGroup>
     <LineupRepositoryRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</LineupRepositoryRoot>
-    <LineupVirtualOutputWorkerPackager>$([System.IO.Path]::Combine('$(LineupRepositoryRoot)', 'scripts', 'Lineup.Tools.VirtualOutputWorkerPackager', 'Lineup.Tools.VirtualOutputWorkerPackager.csproj'))</LineupVirtualOutputWorkerPackager>
+    <LineupVirtualOutputWorkerPackager>$([System.IO.Path]::Combine('$(LineupRepositoryRoot)', 'tools', 'Lineup.Tools.VirtualOutputWorkerPackager', 'Lineup.Tools.VirtualOutputWorkerPackager.csproj'))</LineupVirtualOutputWorkerPackager>
     <LineupWorkerPackagerRuntimeArguments Condition="'$(RuntimeIdentifier)' != ''">--runtime &quot;$(RuntimeIdentifier)&quot;</LineupWorkerPackagerRuntimeArguments>
     <LineupWorkerPackagerSelfContainedArgument Condition="'$(SelfContained)' == 'true'">--self-contained</LineupWorkerPackagerSelfContainedArgument>
     <LineupWorkerPackagerSourceRevisionArgument Condition="'$(SourceRevisionId)' != ''">--source-revision &quot;$(SourceRevisionId)&quot;</LineupWorkerPackagerSourceRevisionArgument>
@@ -10,7 +10,7 @@
   <Import Project="Lineup.VirtualOutputWorkers.props" Condition="'$(SkipVirtualOutputWorkerPublish)' != 'true'" />
 
   <ItemGroup Condition="'$(SkipVirtualOutputWorkerPublish)' != 'true'">
-    <UpToDateCheckInput Include="$(LineupRepositoryRoot)\src\**\*;$(LineupRepositoryRoot)\build\**\*;$(LineupRepositoryRoot)\scripts\Lineup.Tools.VirtualOutputWorkerPackager\**\*;$(LineupRepositoryRoot)\*.props;$(LineupRepositoryRoot)\*.targets;$(LineupRepositoryRoot)\NuGet.Config;$(LineupRepositoryRoot)\global.json;$(LineupRepositoryRoot)\.editorconfig"
+    <UpToDateCheckInput Include="$(LineupRepositoryRoot)\src\**\*;$(LineupRepositoryRoot)\build\**\*;$(LineupRepositoryRoot)\tools\Lineup.Tools.VirtualOutputWorkerPackager\**\*;$(LineupRepositoryRoot)\*.props;$(LineupRepositoryRoot)\*.targets;$(LineupRepositoryRoot)\NuGet.Config;$(LineupRepositoryRoot)\global.json;$(LineupRepositoryRoot)\.editorconfig"
                         Set="VirtualOutputPackaging"
                         Exclude="$(LineupRepositoryRoot)\**\bin\**;$(LineupRepositoryRoot)\**\obj\**" />
     <UpToDateCheckOutput Include="$(OutputPath)virtual-output-workers\packaging.stamp;$(OutputPath)virtual-output-workers\packaging.files" Set="VirtualOutputPackaging" />

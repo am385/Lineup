@@ -237,10 +237,10 @@ public sealed class BrowserAssetCacheTests
         var repository = RepositoryRoot();
         var build = Directory.CreateDirectory(Path.Combine(fixture.Root, "build"));
         File.Copy(Path.Combine(repository, "build", "Lineup.Web.BrowserAssets.targets"), Path.Combine(build.FullName, "Lineup.Web.BrowserAssets.targets"));
-        var tool = Directory.CreateDirectory(Path.Combine(fixture.Root, "scripts", "Lineup.Tools.BrowserAssets"));
+        var tool = Directory.CreateDirectory(Path.Combine(fixture.Root, "tools", "Lineup.Tools.BrowserAssets"));
         foreach (var name in new[] { "Program.cs", "BrowserAssetCache.cs", "Lineup.Tools.BrowserAssets.csproj" })
         {
-            File.Copy(Path.Combine(repository, "scripts", "Lineup.Tools.BrowserAssets", name), Path.Combine(tool.FullName, name));
+            File.Copy(Path.Combine(repository, "tools", "Lineup.Tools.BrowserAssets", name), Path.Combine(tool.FullName, name));
         }
         var web = Directory.CreateDirectory(Path.Combine(fixture.Root, "web"));
         await File.WriteAllTextAsync(Path.Combine(web.FullName, "Fixture.csproj"), """

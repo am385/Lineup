@@ -118,7 +118,7 @@ internal static class Program
     private static async Task<string> FingerprintAsync(string repository)
     {
         var inputs = Directory.EnumerateFiles(Path.Combine(repository, "src"), "*", SearchOption.AllDirectories)
-            .Concat(Directory.EnumerateFiles(Path.Combine(repository, "scripts", "Lineup.Tools.VirtualOutputWorkerPackager"), "*", SearchOption.AllDirectories))
+            .Concat(Directory.EnumerateFiles(Path.Combine(repository, "tools", "Lineup.Tools.VirtualOutputWorkerPackager"), "*", SearchOption.AllDirectories))
             .Concat(Directory.EnumerateFiles(Path.Combine(repository, "build"), "*", SearchOption.AllDirectories))
             .Concat(Directory.EnumerateFiles(repository, "*", SearchOption.TopDirectoryOnly).Where(path =>
                 Path.GetExtension(path) is ".props" or ".targets" || Path.GetFileName(path) is "global.json" or ".editorconfig" ||

@@ -15,6 +15,6 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\..\scripts\Lineup.Tools.VirtualOutputWorkerPackager\Lineup.Tools.VirtualOutputWorkerPackager.csproj" />
+    <ProjectReference Include="..\..\..\tools\Lineup.Tools.VirtualOutputWorkerPackager\Lineup.Tools.VirtualOutputWorkerPackager.csproj" />
   </ItemGroup>
 </Project>

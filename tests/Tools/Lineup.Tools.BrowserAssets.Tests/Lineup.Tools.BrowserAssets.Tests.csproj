@@ -15,6 +15,6 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\..\scripts\Lineup.Tools.BrowserAssets\Lineup.Tools.BrowserAssets.csproj" />
+    <ProjectReference Include="..\..\..\tools\Lineup.Tools.BrowserAssets\Lineup.Tools.BrowserAssets.csproj" />
   </ItemGroup>
 </Project>

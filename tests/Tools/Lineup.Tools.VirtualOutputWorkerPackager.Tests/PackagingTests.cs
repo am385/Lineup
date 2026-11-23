@@ -86,7 +86,7 @@ public sealed class PackagingTests
         Assert.DoesNotContain("sha256sum", docker, StringComparison.Ordinal);
         Assert.DoesNotContain("printf '%s' \"{", docker, StringComparison.Ordinal);
         Assert.Contains("COPY build/", docker, StringComparison.Ordinal);
-        Assert.Contains("COPY scripts/Lineup.Tools.VirtualOutputWorkerPackager/", docker, StringComparison.Ordinal);
+        Assert.Contains("COPY tools/Lineup.Tools.VirtualOutputWorkerPackager/", docker, StringComparison.Ordinal);
         Assert.DoesNotContain("COPY --from=build /app/workers", docker, StringComparison.Ordinal);
         Assert.Contains("Publish-VirtualOutputWorkers.ps1", windows, StringComparison.Ordinal);
         Assert.Contains("SkipVirtualOutputWorkerPublish=true", windows, StringComparison.Ordinal);
@@ -125,7 +125,7 @@ public sealed class PackagingTests
         try
         {
             Directory.CreateDirectory(Path.Combine(root.FullName, "src", "Fixture"));
-            Directory.CreateDirectory(Path.Combine(root.FullName, "scripts", "Lineup.Tools.VirtualOutputWorkerPackager"));
+            Directory.CreateDirectory(Path.Combine(root.FullName, "tools", "Lineup.Tools.VirtualOutputWorkerPackager"));
             Directory.CreateDirectory(Path.Combine(root.FullName, "build"));
             await File.WriteAllTextAsync(Path.Combine(root.FullName, "src", "Fixture", "Fixture.csproj"),
                 """<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType></PropertyGroup></Project>""", TestContext.Current.CancellationToken);
@@ -204,7 +204,7 @@ public sealed class PackagingTests
             var repository = RepositoryRoot();
             foreach (var name in new[] { "Program.cs", "Lineup.Tools.VirtualOutputWorkerPackager.csproj" })
             {
-                var relative = Path.Combine("scripts", "Lineup.Tools.VirtualOutputWorkerPackager", name);
+                var relative = Path.Combine("tools", "Lineup.Tools.VirtualOutputWorkerPackager", name);
                 File.Copy(Path.Combine(repository, relative), Path.Combine(root.FullName, relative));
             }
             File.Copy(Path.Combine(repository, "build", "Lineup.Host.VirtualOutputWorkers.targets"), Path.Combine(root.FullName, "build", "Lineup.Host.VirtualOutputWorkers.targets"));
@@ -265,7 +265,7 @@ public sealed class PackagingTests
         var root = Directory.CreateTempSubdirectory("lineup-packager-graph-");
         try
         {
-            Directory.CreateDirectory(Path.Combine(root.FullName, "scripts", "Lineup.Tools.VirtualOutputWorkerPackager"));
+            Directory.CreateDirectory(Path.Combine(root.FullName, "tools", "Lineup.Tools.VirtualOutputWorkerPackager"));
             var helper = Directory.CreateDirectory(Path.Combine(root.FullName, "src", "Helper"));
             var library = Directory.CreateDirectory(Path.Combine(root.FullName, "src", "Library"));
             var fixture = Directory.CreateDirectory(Path.Combine(root.FullName, "src", "Fixture"));

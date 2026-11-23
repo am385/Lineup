@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using Lineup.Core.Common.Configuration;
@@ -76,10 +75,7 @@ public sealed class LineupLinkTests
         // Arrange
         var virtualDeviceId = Guid.NewGuid();
         var instanceId = Guid.NewGuid();
-        var port = GetAvailablePort();
-        using var listener = new HttpListener();
-        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
-        listener.Start();
+        using var listener = LoopbackHttpListener.Start(out var port);
         var responseTask = Task.Run(async () =>
         {
             var context = await listener.GetContextAsync();
@@ -131,10 +127,7 @@ public sealed class LineupLinkTests
     {
         // Arrange
         var virtualDeviceId = Guid.NewGuid();
-        var port = GetAvailablePort();
-        using var listener = new HttpListener();
-        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
-        listener.Start();
+        using var listener = LoopbackHttpListener.Start(out var port);
         var responseTask = Task.Run(async () =>
         {
             var context = await listener.GetContextAsync();
@@ -174,10 +167,7 @@ public sealed class LineupLinkTests
         var virtualDeviceId = Guid.NewGuid();
         var instanceId = Guid.NewGuid();
         var physicalDeviceId = PhysicalDeviceId.New();
-        var port = GetAvailablePort();
-        using var listener = new HttpListener();
-        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
-        listener.Start();
+        using var listener = LoopbackHttpListener.Start(out var port);
         var responseTask = Task.Run(async () =>
         {
             var context = await listener.GetContextAsync();
@@ -258,10 +248,7 @@ public sealed class LineupLinkTests
             TunerCount = 3,
             GuideAvailable = true
         };
-        var port = GetAvailablePort();
-        using var listener = new HttpListener();
-        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
-        listener.Start();
+        using var listener = LoopbackHttpListener.Start(out var port);
         var responseTask = Task.Run(async () =>
         {
             var context = await listener.GetContextAsync();
@@ -361,10 +348,7 @@ public sealed class LineupLinkTests
             VirtualDeviceId = virtualDeviceId,
             Channels = Enumerable.Range(1, 3).Select(index => new LineupLinkChannel { Key = $"2.{index}", Number = $"2.{index}", Name = $"Channel {index}" }).ToArray()
         };
-        var port = GetAvailablePort();
-        using var listener = new HttpListener();
-        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
-        listener.Start();
+        using var listener = LoopbackHttpListener.Start(out var port);
         var responseTask = Task.Run(async () =>
         {
             for (var index = 0; index < 5; index++)
@@ -513,10 +497,7 @@ public sealed class LineupLinkTests
             case "unobserved-stream-signal": streamSignal["ObservedAtUtc"] = null; break;
             default: throw new ArgumentOutOfRangeException(nameof(invalidField));
         }
-        var port = GetAvailablePort();
-        using var listener = new HttpListener();
-        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
-        listener.Start();
+        using var listener = LoopbackHttpListener.Start(out var port);
         var responseTask = Task.Run(async () =>
         {
             var context = await listener.GetContextAsync();
@@ -566,10 +547,7 @@ public sealed class LineupLinkTests
                 }
             ]
         };
-        var port = GetAvailablePort();
-        using var listener = new HttpListener();
-        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
-        listener.Start();
+        using var listener = LoopbackHttpListener.Start(out var port);
         var responseTask = Task.Run(async () =>
         {
             for (var requestIndex = 0; requestIndex < 4; requestIndex++)
@@ -765,15 +743,6 @@ public sealed class LineupLinkTests
         Assert.True(LineupLinkToken.Verify(first, hash));
         Assert.False(LineupLinkToken.Verify(second, hash));
         Assert.False(LineupLinkToken.Verify(first, "not-base64"));
-    }
-
-    private static int GetAvailablePort()
-    {
-        var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-        listener.Stop();
-        return port;
     }
 
     private static async Task WriteJsonAsync(HttpListenerResponse response, object value)

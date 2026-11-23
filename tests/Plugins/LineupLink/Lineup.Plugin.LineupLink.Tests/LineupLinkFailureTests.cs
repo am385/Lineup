@@ -16,10 +16,7 @@ public sealed class LineupLinkFailureTests
     {
         // Arrange
         var virtualDeviceId = Guid.NewGuid();
-        var port = GetAvailablePort();
-        using var listener = new HttpListener();
-        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
-        listener.Start();
+        using var listener = LoopbackHttpListener.Start(out var port);
         var responseTask = Task.Run(async () =>
         {
             var context = await listener.GetContextAsync();
@@ -63,10 +60,7 @@ public sealed class LineupLinkFailureTests
     {
         // Arrange
         var virtualDeviceId = Guid.NewGuid();
-        var port = GetAvailablePort();
-        using var listener = new HttpListener();
-        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
-        listener.Start();
+        using var listener = LoopbackHttpListener.Start(out var port);
         var responseTask = Task.Run(async () =>
         {
             var context = await listener.GetContextAsync();
@@ -102,19 +96,5 @@ public sealed class LineupLinkFailureTests
         Assert.Equal(HttpStatusCode.ServiceUnavailable, exception.StatusCode);
         Assert.True(exception.Retryable);
         Assert.Equal("Every equivalent physical source is currently unable to lock a usable signal.", exception.Message);
-    }
-
-    private static int GetAvailablePort()
-    {
-        var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        try
-        {
-            return ((IPEndPoint)listener.LocalEndpoint).Port;
-        }
-        finally
-        {
-            listener.Stop();
-        }
     }
 }
