@@ -52,6 +52,7 @@
   </Folder>
   <Folder Name="/tests/" />
   <Folder Name="/tests/Integration/">
+    <Project Path="tests/Integration/Lineup.Integration.Streaming.Sweep/Lineup.Integration.Streaming.Sweep.csproj" />
     <Project Path="tests/Integration/Lineup.Integration.Streaming.Sweep.Tests/Lineup.Integration.Streaming.Sweep.Tests.csproj" />
   </Folder>
   <!-- Mirrored test hierarchy -->

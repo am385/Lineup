@@ -9,8 +9,10 @@ Consumer --> Dependency
 NuGet packages and framework references are intentionally omitted. Transitive dependencies can be inferred by following arrows through the graph.
 
 `Lineup.Integration.Streaming.Sweep.Tests` references the opt-in `Lineup.Integration.Streaming.Sweep` executable to test its
-non-live policies. That project reference builds the executable but never runs it. The executable
-and sibling `Lineup.Integration.Streaming.Sweep.FaultSource` remain excluded as solution/CI entry points.
+non-live policies. Both projects are included in the solution so Visual Studio can restore the reference.
+The executable has `IsTestProject=false`: solution builds compile it, but ordinary test discovery does not run it.
+Live sweeps remain manually invoked and must not run in CI/CD.
+The sibling `Lineup.Integration.Streaming.Sweep.FaultSource` remains outside the solution and is published explicitly for synthetic scenarios.
 No ordinary test launches Docker, Playwright or a tuner. The executable retains its existing Core,
 Lineup Link, SiliconDust guide/physical tuner and Web Player references for matrix generation.
 

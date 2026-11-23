@@ -9,7 +9,8 @@ Use the checked-in harness at `tests/Integration/Lineup.Integration.Streaming.Sw
 
 ## Safety rules
 
-- Never add the live executable or fault source as solution/CI entry points. The separate non-live `Lineup.Integration.Streaming.Sweep.Tests` project is in the normal gate.
+- Keep the sweep executable in `Lineup.slnx` for builds and restore with `IsTestProject=false`. Live sweeps must remain manually invoked and must not run in CI/CD; solution builds and test discovery must not start Docker, browsers or tuners.
+- The fault source remains outside the solution and is published explicitly for synthetic scenarios. The separate non-live `Lineup.Integration.Streaming.Sweep.Tests` project is in the normal gate.
 - Never hard-code a tuner address, browser path, output path, or machine-specific repository path.
 - Do not run multiple sweeps concurrently. Each run requires exclusive access to the physical tuners.
 - Docker matrices require all discovered tuner receivers idle; no four-tuner assumption. Existing-instance mode preserves and verifies the pre-existing viewer baseline instead of requiring globally zero streams.

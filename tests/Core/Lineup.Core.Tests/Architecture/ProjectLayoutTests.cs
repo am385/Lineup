@@ -332,7 +332,7 @@ public sealed class ProjectLayoutTests
         var repositoryRoot = GetRepositoryRoot();
         var solution = XDocument.Load(Path.Combine(repositoryRoot, "Lineup.slnx"));
         var expected = GetProjects(Path.Combine(repositoryRoot, "src"))
-            .Concat(GetProjects(Path.Combine(repositoryRoot, "tests")).Where(path => !IsOptInHardwareIntegrationProject(repositoryRoot, path)))
+            .Concat(GetProjects(Path.Combine(repositoryRoot, "tests")).Where(path => !IsStandaloneSweepFaultSource(repositoryRoot, path)))
             .Concat(GetProjects(Path.Combine(repositoryRoot, "scripts")))
             .Select(path => Normalize(Path.GetRelativePath(repositoryRoot, path)))
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
@@ -353,17 +353,37 @@ public sealed class ProjectLayoutTests
         Assert.Equal(actual.Length, actual.Distinct(StringComparer.OrdinalIgnoreCase).Count());
     }
 
-    /// <summary>Verifies hardware integration projects remain outside the CI solution.</summary>
+    /// <summary>Verifies Visual Studio can restore every project reference without relying on projects outside the solution.</summary>
     [Fact]
-    public void HardwareIntegrationProjects_AreExcludedFromSolution()
+    public void SolutionProjectReferences_AreIncludedForVisualStudioRestore()
     {
         // Arrange
         var repositoryRoot = GetRepositoryRoot();
         var solution = XDocument.Load(Path.Combine(repositoryRoot, "Lineup.slnx"));
-        var integrationProjects = GetProjects(Path.Combine(repositoryRoot, "tests", "Integration"))
-            .Where(path => IsOptInHardwareIntegrationProject(repositoryRoot, path))
-            .Select(path => Normalize(Path.GetRelativePath(repositoryRoot, path)))
+        var projects = solution.Descendants()
+            .Where(element => element.Name.LocalName == "Project")
+            .Select(element => ResolveProjectReference(Path.Combine(repositoryRoot, "Lineup.slnx"), element.Attribute("Path")!.Value))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // Act
+        var missing = projects.SelectMany(project => GetProjectReferences(project)
+            .Where(reference => !projects.Contains(reference))
+            .Select(reference => $"{Path.GetRelativePath(repositoryRoot, project)} -> {Path.GetRelativePath(repositoryRoot, reference)}"))
             .ToArray();
+
+        // Assert
+        Assert.NotEmpty(projects);
+        Assert.Empty(missing);
+    }
+
+    /// <summary>Verifies the sweep participates in solution builds without becoming an automatically executed test project.</summary>
+    [Fact]
+    public void StreamingSweep_IsIncludedForBuildsButNotTestDiscovery()
+    {
+        // Arrange
+        var repositoryRoot = GetRepositoryRoot();
+        var solution = XDocument.Load(Path.Combine(repositoryRoot, "Lineup.slnx"));
+        var sweepProject = XDocument.Load(Path.Combine(repositoryRoot, "tests", "Integration", "Lineup.Integration.Streaming.Sweep", "Lineup.Integration.Streaming.Sweep.csproj"));
 
         // Act
         var solutionProjects = solution
@@ -371,11 +391,13 @@ public sealed class ProjectLayoutTests
             .Where(element => element.Name.LocalName == "Project")
             .Select(element => Normalize(element.Attribute("Path")?.Value ?? string.Empty))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var testProjectSettings = sweepProject.Descendants().Where(element => element.Name.LocalName == "IsTestProject").ToArray();
 
         // Assert
-        Assert.NotEmpty(integrationProjects);
-        Assert.All(integrationProjects, project => Assert.DoesNotContain(project, solutionProjects));
+        Assert.Contains("tests/Integration/Lineup.Integration.Streaming.Sweep/Lineup.Integration.Streaming.Sweep.csproj", solutionProjects);
         Assert.Contains("tests/Integration/Lineup.Integration.Streaming.Sweep.Tests/Lineup.Integration.Streaming.Sweep.Tests.csproj", solutionProjects);
+        Assert.DoesNotContain("tests/Integration/Lineup.Integration.Streaming.Sweep.FaultSource/Lineup.Integration.Streaming.Sweep.FaultSource.csproj", solutionProjects);
+        Assert.Equal("false", Assert.Single(testProjectSettings).Value);
     }
 
     /// <summary>Verifies network-facing worker executables do not directly reference trusted implementation layers or applications.</summary>
@@ -632,10 +654,9 @@ public sealed class ProjectLayoutTests
     private static string GetPluginFamily(string sourceRoot, string projectPath) =>
         Path.GetRelativePath(sourceRoot, projectPath).Split(Path.DirectorySeparatorChar)[1];
 
-    private static bool IsOptInHardwareIntegrationProject(string repositoryRoot, string projectPath) =>
-        Normalize(Path.GetRelativePath(repositoryRoot, projectPath)).StartsWith("tests/Integration/", StringComparison.OrdinalIgnoreCase)
-        && !Normalize(Path.GetRelativePath(repositoryRoot, projectPath))
-            .Equals("tests/Integration/Lineup.Integration.Streaming.Sweep.Tests/Lineup.Integration.Streaming.Sweep.Tests.csproj", StringComparison.OrdinalIgnoreCase);
+    private static bool IsStandaloneSweepFaultSource(string repositoryRoot, string projectPath) =>
+        Normalize(Path.GetRelativePath(repositoryRoot, projectPath))
+            .Equals("tests/Integration/Lineup.Integration.Streaming.Sweep.FaultSource/Lineup.Integration.Streaming.Sweep.FaultSource.csproj", StringComparison.OrdinalIgnoreCase);
 
     private static string Normalize(string path) => path.Replace('\\', '/');
 
