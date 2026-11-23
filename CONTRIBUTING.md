@@ -1,15 +1,19 @@
 # Contributing to Lineup
 
-Thank you for considering contributing to Lineup! This document provides guidelines and steps for contributing.
+Thank you for considering contributing to Lineup! This is the canonical source for repository-wide standards.
+Project-specific requirements in the linked guides also apply.
+
+See [Development Setup](#development-setup), [How to Contribute](#how-to-contribute),
+[Coding Standards](#coding-standards), [Required Validation](#required-validation), and [Project Structure](#project-structure).
 
 ## Development Setup
 
 ### Prerequisites
 
-- [.NET 10 SDK](https://dotnet.microsoft.com/download) (version pinned in `global.json`)
-- [Node.js 24 LTS](https://nodejs.org/) for dependency-free browser regression tests
-- An HDHomeRun device on your local network (for integration testing)
-- Git
+- [.NET 10 SDK](https://dotnet.microsoft.com/download) (version pinned in `global.json`).
+- [Node.js 24 LTS](https://nodejs.org/) for dependency-free browser regression tests.
+- An HDHomeRun device on your local network, only for explicitly invoked hardware integration tests.
+- Git.
 
 ### Building
 
@@ -20,7 +24,7 @@ cd lineup
 
 # Restore and build
 dotnet restore
-dotnet build
+dotnet build Lineup.slnx
 ```
 
 All project build outputs and intermediate files are centralized beneath the repository-level `out` directory.
@@ -32,13 +36,15 @@ MSBuild's cross-runtime path helpers rather than framework-specific overloads. P
 Cached content must register its physical content root so development/F5 serves the same files as publishing.
 Browser-asset regressions exercise original and fingerprinted asset URLs over HTTP in both Debug and Release development hosts.
 
+See the [build guide](build/README.md) for local Jellyfin FFmpeg, browser-asset caching and isolated-worker packaging.
+
 ### Running Tests
 
 ```bash
-dotnet test
+dotnet test Lineup.slnx
 ```
 
-The browser subtitle poller's deterministic JavaScript regressions use Node.js's built-in test runner, with no npm dependencies:
+Browser regressions use Node.js's built-in test runner, with no npm dependencies:
 
 ```powershell
 node --test tests\Apps\Lineup.App.Web.Tests\Browser\subtitle-polling.test.cjs
@@ -47,12 +53,13 @@ node --test tests\Apps\Lineup.App.Web.Tests\Browser\dashboard-resources.test.cjs
 node --test tests\Apps\Lineup.App.Web.Tests\Browser\streaming-flow-graph.test.cjs
 ```
 
-Run these tests when changing incremental caption delivery. They execute the production player script with controlled responses and timers;
-they do not launch a browser or require tuner hardware. The dedicated worker's CORS response-header regressions also run in the normal .NET gate.
-The shutdown regressions exercise owned stop routing, repeated-stop HTTP 404 handling, explicit HTTP/network failures,
+Run the relevant browser tests when changing captions, shutdown, dashboard sampling or the streaming graph.
+Caption regressions execute the production player script with controlled responses and timers; they do not launch
+a browser or require tuner hardware. Dedicated-worker CORS response-header regressions also run in the normal .NET gate.
+Shutdown regressions exercise owned stop routing, repeated-stop HTTP 404 handling, explicit HTTP/network failures,
 player destruction failures and isolation from replacement players.
-The dashboard-resource regressions cover visibility demand, non-overlapping callbacks, in-flight visibility changes and timer/listener cleanup.
-The streaming-graph regressions use the real cached Cytoscape bundle to cover card-to-card SVG connections, graph reconciliation,
+Dashboard-resource regressions cover visibility demand, non-overlapping callbacks, in-flight visibility changes and timer/listener cleanup.
+Streaming-graph regressions use the real cached Cytoscape bundle to cover card-to-card SVG connections, graph reconciliation,
 path highlighting, scroll preservation, resizing, and visibility-aware refresh/disposal. Build the Web app first to populate the hash-verified browser-asset cache.
 
 Slate parser regressions additionally support native FFmpeg through `LINEUP_TEST_SLATE_FFMPEG`, an explicit executable path with drawtext support.
@@ -70,12 +77,13 @@ and explicit concurrent-viewer/process coverage. No tests are filtered out, and 
 
 The streaming-sweep harness is checked in as an opt-in hardware certification test:
 
-```bash
-dotnet run --project tests/Integration/Lineup.Integration.Streaming.Sweep/Lineup.Integration.Streaming.Sweep.csproj -c Release -- verify-outcome-reporting
+```powershell
+dotnet run --project tests\Integration\Lineup.Integration.Streaming.Sweep\Lineup.Integration.Streaming.Sweep.csproj -c Release -- verify-outcome-reporting
 ```
 
-It is intentionally excluded from the solution and CI/CD because the full sweep requires exclusive access to physical tuner hardware. See [`tests/Integration/Lineup.Integration.Streaming.Sweep/README.md`](tests/Integration/Lineup.Integration.Streaming.Sweep/README.md).
-The separate `Lineup.Integration.Streaming.Sweep.Tests` xunit project participates in the normal solution gate and
+It is intentionally excluded from the solution and CI/CD because the full sweep requires exclusive access to physical tuner hardware.
+See the [streaming sweep guide](tests/Integration/Lineup.Integration.Streaming.Sweep/README.md).
+The separate `Lineup.Integration.Streaming.Sweep.Tests` xUnit project participates in the normal solution gate and
 exercises only deterministic policies, persistence, ownership and reports; it never launches the live harness.
 
 Packaging regressions run in `Lineup.Tools.VirtualOutputWorkerPackager.Tests` as part of the solution gate. They use the installed SDK to publish tiny owned temporary projects and verify shared inventory, manifests, cache repair and real MSBuild publish/opt-out behavior without hardware.
@@ -92,39 +100,39 @@ then begin independent read transactions. SQLite provider versions before 10.0.1
 reference supplies that driver fix without requiring an EF Core or Extensions upgrade. Preserve this coverage rather than
 serializing readers or disabling pooling to hide the race.
 
+See the [testing guide](tests/README.md) for additional module-specific commands and optional native checks.
+
 ### Running the Web App
 
-```bash
-cd src/Apps/Lineup.App.Web
-dotnet run
+```powershell
+dotnet run --project src\Apps\Lineup.App.Web
 ```
 
-The app starts on `http://localhost:8080`.
+Open <http://localhost:8080>. Development profiles keep runtime data under ignored `.lineup`.
 
 ## How to Contribute
 
 ### Reporting Bugs
 
-- Use the [Bug Report](https://github.com/am385/lineup/issues/new?template=bug_report.md) issue template
-- Include steps to reproduce, expected vs actual behavior, and your environment details
-- Check existing issues first to avoid duplicates
+- Use the [Bug Report](https://github.com/am385/lineup/issues/new?template=bug_report.md) issue template.
+- Include steps to reproduce, expected vs actual behavior, and your environment details.
+- Check existing issues first to avoid duplicates.
 
 ### Suggesting Features
 
-- Use the [Feature Request](https://github.com/am385/lineup/issues/new?template=feature_request.md) issue template
-- Describe the use case and expected behavior
+- Use the [Feature Request](https://github.com/am385/lineup/issues/new?template=feature_request.md) issue template.
+- Describe the use case and expected behavior.
 
 ### Submitting Pull Requests
 
-1. **Fork** the repository and create a branch from `main`
-2. **Name your branch** descriptively (e.g., `fix/epg-parsing-bug`, `feature/new-tuner-support`)
-3. **Make your changes** — follow the coding standards below
-4. **Add or update tests** for any changed functionality
-5. **Ensure all tests pass** (`dotnet test`)
-6. **Ensure the build succeeds** (`dotnet build`)
-7. **Submit a pull request** against `main`
+1. Fork the repository and create a branch from `main`.
+2. Name your branch descriptively (e.g., `fix/epg-parsing-bug`, `feature/new-tuner-support`).
+3. Make focused changes that follow the coding standards below.
+4. Add or update tests for changed functionality and synchronize the documentation.
+5. Run relevant tests during development, then the complete [validation gate](#required-validation).
+6. Submit a pull request against `main`.
 
-### Coding Standards
+## Coding Standards
 
 - Follow all conventions defined in the root `.editorconfig`.
 - Use file-scoped namespaces.
@@ -138,7 +146,7 @@ The app starts on `http://localhost:8080`.
 - Preserve type safety and avoid unnecessary casts such as `as any` or `as unknown as`.
 - Do not disable analyzers, warnings, tests, or coding-standard checks to make a change pass.
 
-#### Tests
+### Tests
 
 - Add or update focused regression tests for every behavior change and bug fix.
 - Every test must contain explicit `// Arrange`, `// Act`, and `// Assert` sections.
@@ -159,8 +167,10 @@ The app starts on `http://localhost:8080`.
 - Observe short-lived test processes through their original `Process` instance before handing ownership to the code under test; retain exit signals after disposal instead of reopening a PID that may already be gone. Cover probes that exit before the factory returns.
 - Real Web Player process tests run in an isolated collection to keep unrelated launch/IPC stress from consuming production admission deadlines. Keep their explicit concurrent-viewer tests and production deadlines unchanged.
 - Unobserved task calls (`CS4014`) and unawaited async assertions (`xUnit2021`) are errors in test code; retain and eventually await tasks intentionally started in flight.
+- Read [test conventions](tests/README.md) before changing tests: they preserve controlled-clock ordering, asynchronous
+  bUnit disposal, owned process cleanup, stateful substitutes and module-specific validation.
 
-#### Formatting
+### Formatting
 
 - Run `dotnet format Lineup.slnx --verify-no-changes --no-restore` before submitting code.
 - Prefer unwrapped method and constructor declarations. Keep the complete declaration, including all parameters and constraints, on one line whenever it fits within the 225-character limit.
@@ -178,20 +188,23 @@ public StreamController(
     IActiveStreamRegistry activeStreamRegistry)
 ```
 
-#### Documentation
+### Documentation
 
 - Every non-private entity must have an XML documentation comment.
 - Keep documentation synchronized with behavior and public API changes.
 - Write comments only when they clarify non-obvious intent; do not narrate self-explanatory code.
+- Keep the root README the main entry point for what Lineup is, installation, first use, issue reporting and contributing.
+  It must let a new user get started without searching project guides. Put advanced subsystem manuals in linked project READMEs
+  or focused `docs` guides, while retaining detailed contributor standards in this document.
 
-#### Error Handling and Logging
+### Error Handling and Logging
 
 - Validate external input at the boundary and return repository-standard errors.
 - Catch only exceptions that can be handled meaningfully; preserve cancellation behavior.
 - Log at the established level: Trace for high-volume stream traffic, Debug for routine API details, Information for meaningful operations, Warning for actionable failures, and Error for server failures or unhandled exceptions.
 - Do not log credentials, request bodies, authorization data, or other sensitive values.
 
-#### Required Validation
+## Required Validation
 
 Run the smallest relevant tests while developing. Before submitting any code change, run the complete validation gate:
 
@@ -205,11 +218,9 @@ git diff --check
 
 Restore dependencies first only when they are missing or dependency manifests changed. Documentation-only changes do not require a build or test run unless they affect generated documentation or validation tooling.
 
-### Commit Messages
-
-- Use clear, descriptive commit messages
-- Start with a verb in imperative mood (e.g., "Add", "Fix", "Update")
-- Reference issue numbers where applicable (e.g., "Fix EPG parsing for edge case (#42)")
+Windows CI runs one test module at a time with `--max-parallel-test-modules 1`; explicit in-module concurrency remains covered.
+The [testing guide](tests/README.md) documents browser, native FFmpeg, installed-worker and manual sweep checks.
+Live sweeps require exclusive hardware access and remain excluded from `Lineup.slnx` and CI/CD.
 
 ## Project Structure
 
@@ -265,6 +276,16 @@ Common and Extensibility remain package-free, and portable projects may not add 
 | `Lineup.App.Tui` | Terminal UI — interactive menu using Spectre.Console |
 | `Lineup.Integration.Streaming.Sweep` | Opt-in six-matrix Docker/HDHomeRun and existing-instance streaming harness (not a solution test entry point) |
 | `Lineup.Integration.Streaming.Sweep.Tests` | Non-live deterministic sweep regression tests in the normal solution gate |
+
+See [architecture and naming rules](docs/architecture.md) and the [complete dependency map](docs/project-dependencies.md)
+before adding projects or references. Build-specific invariants live in the [build guide](build/README.md);
+Web localization rules live in the [Web project guide](src/Apps/Lineup.App.Web/README.md).
+
+## Commit Messages
+
+- Use clear, descriptive commit messages.
+- Start with a verb in imperative mood (e.g., "Add", "Fix", "Update").
+- Reference issue numbers where applicable (e.g., "Fix EPG parsing for edge case (#42)").
 
 ## License
 
