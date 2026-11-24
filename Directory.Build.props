@@ -3,7 +3,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>3.0.0-beta</Version>
+    <Version>3.0.0</Version>
     <UseArtifactsOutput>true</UseArtifactsOutput>
     <ArtifactsPath>$(MSBuildThisFileDirectory)out</ArtifactsPath>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
