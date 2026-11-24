@@ -9,6 +9,9 @@ The Lineup 3.0 reset boundary and operator-controlled offline configuration expo
 
 Lineup 3.0 is an intentional configuration and storage reset. It does not migrate persisted state created by earlier releases. On startup, Lineup requires the exact application-settings, streaming-topology, database, and Web-settings schema versions used by the running release; an older, newer, invalid, or unversioned artifact enters the explicit factory-reset-required state.
 
+The Web host remains available in this state so you can review recovery information and explicitly request Factory Reset from Settings.
+Streaming, discovery and guide-fetch workers remain disabled. Dashboard resource monitoring does not require the disabled virtual-output runtime.
+
 Current schema numbers alone do not establish valid settings: the complete document must deserialize and pass the settings loader's validation. A valid settings backup is recovered without changing either file until the next save. Without a valid primary or backup, recovery blocks settings writes and physical-topology publication so saved channels and guide bindings remain intact. Defaults become active only for a new installation with no settings documents. If an explicit reload fails after startup, previously loaded settings remain in memory, but writes and physical-topology publication stay blocked until the application restarts and validates its persisted settings again.
 
 Required streaming profiles, topology collections, nested configuration objects, and collection entries cannot be explicitly null. Both application settings and standalone streaming documents reject these before readiness; omitted defaultable fields and intentionally nullable options remain supported. This structural check does not require connected hardware or turn startup into a full semantic topology validation.

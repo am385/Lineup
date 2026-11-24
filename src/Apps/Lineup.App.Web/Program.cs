@@ -139,7 +139,12 @@ builder.Services.AddLineupMpegTsStreaming();
 builder.Services.AddSingleton<IStreamingFlowSnapshotService, StreamingFlowSnapshotService>();
 builder.Services.AddSingleton<IGpuResourceSource, NativeGpuResourceSource>();
 builder.Services.AddSingleton<IHardwareEncoderDeviceDiscovery, HardwareEncoderDeviceDiscovery>();
-builder.Services.AddSingleton<DashboardResourceMonitor>();
+builder.Services.AddSingleton(provider => new DashboardResourceMonitor(
+    provider.GetRequiredService<IWebSettingsService>(),
+    startupState.IsFactoryResetRequired ? null : provider.GetRequiredService<IVirtualOutputRuntimeStatus>(),
+    provider.GetRequiredService<ILogger<DashboardResourceMonitor>>(),
+    clock: provider.GetRequiredService<TimeProvider>(),
+    gpu: provider.GetRequiredService<IGpuResourceSource>()));
 builder.Services.AddHostedService(provider => provider.GetRequiredService<DashboardResourceMonitor>());
 builder.Services.AddSingleton(statusRuntime);
 builder.Services.AddSingleton(provider => new OperationalHealthService(

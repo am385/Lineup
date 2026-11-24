@@ -19,7 +19,7 @@ public sealed record DashboardResourceSnapshot(bool Collecting, IReadOnlyList<Pr
 public sealed class DashboardResourceMonitor : BackgroundService
 {
     private readonly IWebSettingsService _settings;
-    private readonly IVirtualOutputRuntimeStatus _workers;
+    private readonly IVirtualOutputRuntimeStatus? _workers;
     private readonly ILogger<DashboardResourceMonitor> _logger;
     private readonly ProcessResourceRegistry _registry;
     private readonly TimeProvider _clock;
@@ -37,10 +37,10 @@ public sealed class DashboardResourceMonitor : BackgroundService
     private bool _overflowReported;
     private GpuResourceSnapshot _gpuSnapshot = new([], "warming_up");
 
-    /// <summary>Initializes a shared owner with replaceable process counters and time source.</summary>
+    /// <summary>Initializes a shared owner with replaceable process counters and time source; worker status is absent in factory-reset recovery mode.</summary>
     public DashboardResourceMonitor(
         IWebSettingsService settings,
-        IVirtualOutputRuntimeStatus workers,
+        IVirtualOutputRuntimeStatus? workers,
         ILogger<DashboardResourceMonitor> logger,
         ProcessResourceRegistry? registry = null,
         TimeProvider? clock = null,
@@ -136,7 +136,7 @@ public sealed class DashboardResourceMonitor : BackgroundService
             }
             _collecting = true;
             var processes = _registry.Sample().Where(item => item.Role != "remote").ToList();
-            var owners = _workers.GetSnapshots().Where(item => item.Generation is not null && item.State is
+            var owners = (_workers?.GetSnapshots() ?? []).Where(item => item.Generation is not null && item.State is
                 VirtualOutputRuntimeState.Starting or VirtualOutputRuntimeState.Healthy or VirtualOutputRuntimeState.Degraded or VirtualOutputRuntimeState.Draining)
                 .Select(item => $"{item.VirtualDeviceId}:{item.Generation}").ToHashSet(StringComparer.Ordinal);
             var reports = WorkerResourceReports.Read(owners);
