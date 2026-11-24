@@ -16,6 +16,44 @@ namespace Lineup.App.Web.Tests.Services;
 [Collection(nameof(DashboardResourceMonitorTests))]
 public sealed class DashboardResourceMonitorTests
 {
+    /// <summary>Verifies recovery-mode monitoring can collect management resources without a virtual-output runtime.</summary>
+    [Fact]
+    public void Collect_RecoveryWithoutWorkerRuntime_ReportsManagementResources()
+    {
+        // Arrange
+        var clock = new FakeTimeProvider();
+        var counter = new Counter();
+        var registry = new ProcessResourceRegistry(_ => counter, clock);
+        var host = registry.Register(123, "management");
+        registry.Attach(host);
+        var settings = Substitute.For<IWebSettingsService>();
+        settings.Settings.Returns(new WebSettings { MonitorResourcesOnlyWhenVisible = false });
+        using var monitor = new DashboardResourceMonitor(settings, null, NullLogger<DashboardResourceMonitor>.Instance, registry, clock);
+        try
+        {
+            monitor.Collect();
+            clock.Advance(TimeSpan.FromSeconds(2));
+
+            // Act
+            monitor.Collect();
+            var snapshot = monitor.GetSnapshot();
+
+            // Assert
+            Assert.True(snapshot.Collecting);
+            Assert.Equal("management", Assert.Single(snapshot.Processes).Role);
+            var point = snapshot.History.Last();
+            Assert.True(point.Complete);
+            Assert.Equal(1024, point.Management.ResidentBytes);
+            Assert.Equal(point.Management, point.Total);
+            Assert.Equal(0, point.Workers.ResidentBytes);
+        }
+        finally
+        {
+            registry.Unregister(host);
+            WorkerResourceReports.SetRequested(false);
+        }
+    }
+
     /// <summary>Verifies the platform adapter reads the original process without unavailable or fabricated resident counters.</summary>
     [Fact]
     public void ProcessCounters_CurrentOwnedProcess_ReadsNativeCpuAndResidentMemory()
