@@ -30,6 +30,7 @@ public sealed class FfmpegStreamTransform
     private readonly string _sourceName;
     private readonly HardwareEncodingSettings? _hardware;
     private readonly IReadOnlyList<string>? _softwareArguments;
+    private readonly MpegTsAc4CopyPlan? _ac4CopyPlan;
 
     /// <summary>Initializes an FFmpeg stream transform.</summary>
     public FfmpegStreamTransform(
@@ -38,7 +39,8 @@ public sealed class FfmpegStreamTransform
         ILogger logger,
         string sourceName,
         HardwareEncodingSettings? hardware = null,
-        IReadOnlyList<string>? softwareArguments = null
+        IReadOnlyList<string>? softwareArguments = null,
+        MpegTsAc4CopyPlan? ac4CopyPlan = null
     )
     {
         _arguments = arguments;
@@ -47,6 +49,7 @@ public sealed class FfmpegStreamTransform
         _sourceName = sourceName;
         _hardware = hardware;
         _softwareArguments = softwareArguments;
+        _ac4CopyPlan = ac4CopyPlan;
     }
 
     /// <summary>Starts the media process and returns ownership of its output and cleanup without taking ownership of the input stream.</summary>
@@ -77,7 +80,7 @@ public sealed class FfmpegStreamTransform
             var pumpTask = MediaStreamPump.PumpAsync(input, process, _logger, _sourceName, lifetime.Token);
             var errorTask = MediaProcessDiagnostics.ReadTailAsync(process.StandardError, lifetime.Token);
             var encoding = new VideoEncodingSnapshot(HardwareVideoEncodingPlanner.GetVideoEncoder(arguments), _hardware?.Encoder, requiresHardware && !usingHardware);
-            var lease = new ProcessOutputLease(process, pumpTask, errorTask, lifetime, encoding);
+            var lease = new ProcessOutputLease(process, pumpTask, errorTask, lifetime, encoding, _ac4CopyPlan);
             if (!usingHardware)
             {
                 return lease;
@@ -111,7 +114,8 @@ public sealed class FfmpegStreamTransform
         private readonly Task _pumpTask;
         private readonly Task<string> _errorTask;
         private readonly CancellationTokenSource _lifetime;
-        private readonly ValidatedOutputStream _output;
+        private readonly ValidatedOutputStream _validated;
+        private readonly Stream _output;
 
         /// <summary>Initializes the process output lease.</summary>
         /// <param name="process">The process value.</param>
@@ -119,13 +123,15 @@ public sealed class FfmpegStreamTransform
         /// <param name="errorTask">The error task value.</param>
         /// <param name="lifetime">The lifetime value.</param>
         /// <param name="videoEncoding">The outcome of the launched transform.</param>
-        public ProcessOutputLease(Process process, Task pumpTask, Task<string> errorTask, CancellationTokenSource lifetime, VideoEncodingSnapshot videoEncoding)
+        /// <param name="ac4CopyPlan">The copied AC-4 tracks whose signaling requires preservation.</param>
+        public ProcessOutputLease(Process process, Task pumpTask, Task<string> errorTask, CancellationTokenSource lifetime, VideoEncodingSnapshot videoEncoding, MpegTsAc4CopyPlan? ac4CopyPlan)
         {
             _process = process;
             _pumpTask = pumpTask;
             _errorTask = errorTask;
             _lifetime = lifetime;
-            _output = new ValidatedOutputStream(process.StandardOutput.BaseStream, process, errorTask);
+            _validated = new ValidatedOutputStream(process.StandardOutput.BaseStream, process, errorTask);
+            _output = ac4CopyPlan is { PacketIds.Count: > 0 } ? new MpegTsAc4SignalingStream(_validated, ac4CopyPlan.PacketIds) : _validated;
             VideoEncoding = videoEncoding;
         }
 
@@ -142,7 +148,7 @@ public sealed class FfmpegStreamTransform
         public string? ContentType => "video/mp2t";
 
         /// <summary>Waits for the first output bytes without publishing them or losing the transport-stream prefix.</summary>
-        public async Task PrimeAsync(CancellationToken cancellationToken) => await _output.PrimeAsync(cancellationToken);
+        public async Task PrimeAsync(CancellationToken cancellationToken) => await _validated.PrimeAsync(cancellationToken);
 
         /// <inheritdoc />
         public async ValueTask DisposeAsync()
@@ -194,6 +200,7 @@ public sealed class FfmpegStreamTransform
             }
             try
             {
+                _output.Dispose();
                 _lifetime.Dispose();
             }
             catch (Exception exception)

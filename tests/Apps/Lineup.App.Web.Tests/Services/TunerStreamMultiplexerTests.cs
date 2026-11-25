@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Xunit;
@@ -7,6 +8,42 @@ namespace Lineup.App.Web.Tests.Services;
 /// <summary>Verifies the Web transport adapter preserves Core graph ownership and effective-source behavior.</summary>
 public sealed class TunerStreamMultiplexerTests
 {
+    /// <summary>Verifies each shared stage repairs only AC-4 still copied at that stage, and includes its mapping in producer identity.</summary>
+    [Theory]
+    [InlineData(OutputAudioPolicy.Copy)]
+    [InlineData(OutputAudioPolicy.Ac3)]
+    public async Task Ac4Copy_PhysicalAndVirtualStages_UseEffectiveTrackIdentity(OutputAudioPolicy physicalAudio)
+    {
+        // Arrange
+        var graph = Substitute.For<IStreamingSessionGraph>();
+        var lease = Substitute.For<IStreamSessionLease>();
+        lease.Stream.Returns(new MemoryStream());
+        IReadOnlyList<StreamTransformStage>? stages = null;
+        graph.AcquirePipelineAsync(Arg.Any<StreamAcquisitionDescriptor>(), Arg.Any<StreamAcquisitionFactory>(),
+            Arg.Do<IReadOnlyList<StreamTransformStage>>(value => stages = value), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>()).Returns(lease);
+        var source = new MediaProbeResult(
+        [
+            new(3, MediaTrackType.Video, "hevc", null, 1920, 1080, null, null),
+            new(7, MediaTrackType.Audio, "ac4", null, null, null, 12, 46_034)
+        ], null);
+        var multiplexer = CreateMultiplexer(graph);
+
+        // Act
+        await using var stream = await multiplexer.SubscribeMpegTsAsync(CreateDescriptor(), _ => throw new InvalidOperationException(), "source", source,
+            new() { AlwaysTranscodeVideo = true, Ac4Audio = physicalAudio }, new() { Ac4Audio = OutputAudioPolicy.Copy },
+            new(), TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.NotNull(stages);
+        Assert.Equal(["source-normalization", "virtual-mpegts"], stages.Select(stage => stage.Key.Stage));
+        foreach (var stage in stages)
+        {
+            using var identity = JsonDocument.Parse(stage.Key.SettingsKey);
+            var pids = identity.RootElement.GetProperty("Ac4PacketIds").EnumerateArray().Select(value => value.GetInt32()).ToArray();
+            Assert.Equal(physicalAudio == OutputAudioPolicy.Copy ? [257] : Array.Empty<int>(), pids);
+        }
+    }
+
     /// <summary>Verifies subscriptions delegate acquisition identity and ownership to the Core graph.</summary>
     [Fact]
     public async Task SubscribeAsync_Descriptor_UsesGraphAndDisposesLease()

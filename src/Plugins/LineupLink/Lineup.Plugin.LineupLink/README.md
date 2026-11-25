@@ -18,6 +18,12 @@ For management-hosted Lineup Link outputs, **Require HTTPS** selects which manag
 
 A provider instance can add a **Lineup Link** virtual device and export its published lineup, optional guide, and post-output-transcode MPEG-TS streams through `/api/lineup-link/v2/virtual-devices/{virtualDeviceId}` when management-hosted or the equivalent path on its dedicated listener. A consuming instance imports the generated connection bundle into a **Lineup Link** physical device and may add a separately managed Lineup Link guide source. The virtual output uses Lineup's existing shared acquisition and MPEG-TS transformation graph, so consumers requesting the same effective source and output profile reuse the physical stream, physical normalization, and virtual transform.
 
+An output configured to **Copy** AC-4 retains its compressed audio and MPEG-TS identification even when video is encoded
+or other audio tracks are converted. The shared provider pipeline preserves copied AC-4 packets and repairs their program-map
+registration without a modified FFmpeg binary. The receiving instance still needs an AC-4-capable decoder or an appropriate
+audio conversion policy. Update the providing instance to obtain this fix: updating only the receiver cannot recover audio
+packets discarded by an older provider. This does not change remote source-acquisition deadlines or experimental resampling.
+
 **Dashboard > Physical Devices** shows source signal in the main table for each active Link stream slot.
 The provider associates observations with the stream's actual source channel and an opaque stream session identity, not the local slot
 index or exported channel number. Only the authenticated access grant's active streams are included. Unknown, failed, or ambiguous

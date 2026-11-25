@@ -115,6 +115,21 @@ if (args is ["diagnostics", var length, var code, var hold])
     return int.Parse(code, System.Globalization.CultureInfo.InvariantCulture);
 }
 
+if (args is ["transport", var transport, var transportExitCode, var transportHold])
+{
+    await Console.OpenStandardOutput().WriteAsync(Convert.FromBase64String(transport));
+    await Console.OpenStandardOutput().FlushAsync();
+    if (transportHold == "hold")
+    {
+        await Console.OpenStandardInput().CopyToAsync(Stream.Null);
+    }
+    if (transportExitCode != "0")
+    {
+        await Console.Error.WriteLineAsync("Synthetic transport failure.");
+    }
+    return int.Parse(transportExitCode, System.Globalization.CultureInfo.InvariantCulture);
+}
+
 if (args is ["probe-json", var metadata])
 {
     await Console.Out.WriteAsync(metadata);

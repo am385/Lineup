@@ -194,6 +194,7 @@ public static class SourceDeinterlacePlanner
             }
         }
 
+        MpegTsAc4CopyPlan.Create(audioTracks.Select(track => track.Codec), profile.Ac4Audio, video is null ? 0 : 1).AddArguments(arguments);
         arguments.AddRange([
             "-f", "mpegts",
             "-mpegts_flags", "+resend_headers",

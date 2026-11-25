@@ -7,6 +7,41 @@ namespace Lineup.App.Web.Tests.Services;
 /// </summary>
 public class SourceDeinterlacePlannerTests
 {
+    /// <summary>Verifies physical transforms preserve copied AC-4 while mapping only the first video, or no video for audio-only inputs.</summary>
+    [Theory]
+    [InlineData(false, HardwareVideoEncoder.Software)]
+    [InlineData(true, HardwareVideoEncoder.Software)]
+    [InlineData(true, HardwareVideoEncoder.Qsv)]
+    public void Ac4Copy_PhysicalMappingRetainsPackets(bool video, HardwareVideoEncoder encoder)
+    {
+        // Arrange
+        var tracks = new List<MediaTrackMetadata>();
+        if (video)
+        {
+            tracks.Add(new(3, MediaTrackType.Video, "hevc", null, 1920, 1080, null, null));
+            tracks.Add(new(5, MediaTrackType.Video, "h264", null, 640, 480, null, null));
+        }
+        tracks.Add(new(8, MediaTrackType.Audio, "aac", null, null, null, 2, 48_000));
+        tracks.Add(new(12, MediaTrackType.Audio, "ac4", null, null, null, 12, 46_034));
+        var profile = new PhysicalTranscodeProfile
+        {
+            AlwaysTranscodeVideo = video,
+            Audio = OutputAudioPolicy.Ac3,
+            Ac4Audio = OutputAudioPolicy.Copy,
+            HardwareEncoding = new() { Encoder = encoder }
+        };
+
+        // Act
+        var arguments = SourceDeinterlacePlanner.CreateArguments(new(tracks, null), profile);
+
+        // Assert
+        Assert.Contains("-copyinkf:a:1", arguments);
+        Assert.DoesNotContain("-copyinkf:a:0", arguments);
+        Assert.Contains(video ? "2:258" : "1:257", arguments);
+        AssertOption(arguments, "-c:a:0", "ac3");
+        Assert.DoesNotContain("-ar:a:1", arguments);
+    }
+
     /// <summary>Verifies AC-4 at nonstandard or unknown rates is resampled only when encoded and metadata matches the delivered rate.</summary>
     [Theory]
     [InlineData("ac4", OutputAudioPolicy.Ac3, 46_034, false)]

@@ -7,6 +7,39 @@ namespace Lineup.App.Web.Tests.Services;
 /// </summary>
 public class MpegTsTranscodePlannerTests
 {
+    /// <summary>Verifies copied AC-4 is retained and assigned to actual output positions, independently of video encoding and source indexes.</summary>
+    [Theory]
+    [InlineData(0, HardwareVideoEncoder.Software)]
+    [InlineData(2, HardwareVideoEncoder.Software)]
+    [InlineData(2, HardwareVideoEncoder.Qsv)]
+    public void Ac4Copy_MapsOnlyCopiedTracksToExplicitPids(int videoCount, HardwareVideoEncoder encoder)
+    {
+        // Arrange
+        AudioStreamInfo[] streams = [new(7, "aac", 2), new(12, "ac4", 12), new(24, "AC4", 6)];
+        var profile = new VirtualTranscodeProfile
+        {
+            Audio = OutputAudioPolicy.Eac3,
+            Ac4Audio = OutputAudioPolicy.Copy,
+            AlwaysTranscodeVideo = videoCount > 0,
+            HardwareEncoding = new() { Encoder = encoder },
+            Ac4TimestampCompensation = true
+        };
+
+        // Act
+        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(
+            _inputUri, videoCount == 0 ? null : "hevc", streams, profile, sourceVideoStreamCount: videoCount);
+
+        // Assert
+        Assert.Contains("-copyinkf:a:1", arguments);
+        Assert.Contains("-copyinkf:a:2", arguments);
+        Assert.DoesNotContain("-copyinkf:a:0", arguments);
+        Assert.Contains($"{videoCount + 1}:{0x101 + videoCount}", arguments);
+        Assert.Contains($"{videoCount + 2}:{0x102 + videoCount}", arguments);
+        AssertOption(arguments, "-c:a:0", "eac3");
+        Assert.DoesNotContain("-ar:a:1", arguments);
+        Assert.DoesNotContain("-filter:a:1", arguments);
+    }
+
     /// <summary>Verifies AC-4 encoding always uses 48 kHz while only opted-in transcodes receive timestamp compensation.</summary>
     [Theory]
     [InlineData("ac4", OutputAudioPolicy.Ac3, false)]
@@ -30,11 +63,13 @@ public class MpegTsTranscodePlannerTests
         Assert.DoesNotContain("-ar:a:0", arguments);
         if (policy == OutputAudioPolicy.Copy)
         {
+            Assert.Contains("-copyinkf:a:1", arguments);
             Assert.DoesNotContain("-filter:a:1", arguments);
             Assert.DoesNotContain("-ar:a:1", arguments);
         }
         else
         {
+            Assert.DoesNotContain("-copyinkf:a:1", arguments);
             AssertOption(arguments, "-c:a:1", policy == OutputAudioPolicy.Ac3 ? "ac3" : "eac3");
             AssertOption(arguments, "-ar:a:1", "48000");
         }

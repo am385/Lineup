@@ -14,6 +14,62 @@ public sealed class FfmpegProcessDiagnosticsCollection;
 [Collection("FFmpeg process diagnostics")]
 public sealed class FfmpegStreamDiagnosticsTests
 {
+    /// <summary>Verifies copied AC-4 repair survives hardware priming and software retry while preserving owned-process cleanup.</summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Ac4Copy_OutputPrimingAndFallback_PreserveSignalingAndLifetime(bool gpu, bool failHardware)
+    {
+        // Arrange
+        var encoder = OperatingSystem.IsMacOS() ? HardwareVideoEncoder.VideoToolbox : HardwareVideoEncoder.Nvenc;
+        var hardware = new HardwareEncodingSettings { Encoder = gpu ? encoder : HardwareVideoEncoder.Software, AllowSoftwareFallback = true };
+        var plan = MpegTsAc4CopyPlan.Create(["ac4"], OutputAudioPolicy.Copy, 1);
+        var expected = MpegTsAc4SignalingStreamTests.CreateTransport(plan.PacketIds[0], registered: true);
+        var factory = new TransportFactory(plan.PacketIds[0], encoder, failHardware);
+        List<string> software = ["-i", "pipe:0", "-c:v:0", "libx264"];
+        plan.AddArguments(software);
+        software.AddRange(["-f", "mpegts", "pipe:1"]);
+        var arguments = HardwareVideoEncodingPlanner.Apply(software, hardware);
+        var transform = new FfmpegStreamTransform(arguments, factory, NullLogger.Instance, "AC-4 transport", hardware, software, plan);
+        await using var input = new BlockingInput();
+        await using var lease = await transform.StartAsync(input, TestContext.Current.CancellationToken);
+        var received = new byte[expected.Length];
+
+        // Act
+        await lease.Stream.ReadExactlyAsync(received, TestContext.Current.CancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        await lease.DisposeAsync();
+
+        // Assert
+        Assert.Equal(expected, received);
+        Assert.Equal(gpu ? failHardware ? 4 : 3 : 1, factory.ProcessExits.Count);
+        Assert.All(factory.ProcessExits, exit => Assert.True(exit.IsCompletedSuccessfully));
+        Assert.True(input.Canceled);
+        Assert.Equal(gpu && failHardware, lease.VideoEncoding?.SoftwareFallbackApplied);
+    }
+
+    /// <summary>Verifies the signaling wrapper does not replace a real FFmpeg terminal error with a missing-table or EOF error.</summary>
+    [Fact]
+    public async Task Ac4Copy_OutputFailure_PreservesProcessDiagnostics()
+    {
+        // Arrange
+        var plan = MpegTsAc4CopyPlan.Create(["ac4"], OutputAudioPolicy.Copy, 0);
+        var factory = new TransportFactory(plan.PacketIds[0], HardwareVideoEncoder.Software, false, exitCode: 7);
+        var transform = new FfmpegStreamTransform([], factory, NullLogger.Instance, "AC-4 failure", ac4CopyPlan: plan);
+        await using var input = new BlockingInput();
+        await using var lease = await transform.StartAsync(input, TestContext.Current.CancellationToken);
+
+        // Act
+        var exception = await Record.ExceptionAsync(() => lease.Stream.CopyToAsync(Stream.Null, TestContext.Current.CancellationToken));
+        await lease.DisposeAsync();
+
+        // Assert
+        var failure = Assert.IsType<MediaProcessException>(exception);
+        Assert.Equal(7, failure.ExitCode);
+        Assert.Contains("Synthetic transport failure.", failure.Diagnostics, StringComparison.Ordinal);
+        Assert.All(factory.ProcessExits, exit => Assert.True(exit.IsCompletedSuccessfully));
+    }
+
     /// <summary>Verifies a real failing child retains its exit status separately from its bounded stderr tail.</summary>
     [Fact]
     public async Task Output_NoisyFailure_RetainsStructuredExitDiagnostics()
@@ -138,6 +194,63 @@ public sealed class FfmpegStreamDiagnosticsTests
         // Assert
         Assert.True(ownedObserver.HasExited);
         Assert.True(input.Canceled);
+    }
+
+    private sealed class TransportFactory(int audioPid, HardwareVideoEncoder encoder, bool failHardware, int exitCode = 0) : IMediaProcessFactory
+    {
+        /// <summary>Gets original-process exit signals retained after lease disposal.</summary>
+        public List<Task> ProcessExits { get; } = [];
+
+        /// <inheritdoc />
+        public Process Start(MediaProcessRequest request)
+        {
+            var configuration = new DirectoryInfo(AppContext.BaseDirectory).Name;
+            var executable = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "Lineup.TestSupport.FakeFFmpeg", configuration, "Lineup.TestSupport.FakeFFmpeg.dll"));
+            var start = new ProcessStartInfo("dotnet")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            start.ArgumentList.Add(executable);
+            if (request.Arguments.Contains("-encoders"))
+            {
+                start.ArgumentList.Add("probe-json");
+                start.ArgumentList.Add($"V {HardwareVideoEncodingPlanner.GetEncoderName(encoder)}");
+            }
+            else if (request.Arguments.Contains("testsrc2=size=128x128:rate=25"))
+            {
+                start.ArgumentList.Add("probe-json");
+                start.ArgumentList.Add(string.Empty);
+            }
+            else if (failHardware && request.Arguments.Contains(HardwareVideoEncodingPlanner.GetEncoderName(encoder)))
+            {
+                start.Environment["LINEUP_FAKE_FFMPEG_HARDWARE_MODE"] = "probe-passes-playback-fails";
+                foreach (var argument in request.Arguments)
+                {
+                    start.ArgumentList.Add(argument);
+                }
+            }
+            else
+            {
+                start.ArgumentList.Add("transport");
+                start.ArgumentList.Add(Convert.ToBase64String(MpegTsAc4SignalingStreamTests.CreateTransport(audioPid)));
+                start.ArgumentList.Add(exitCode.ToString(CultureInfo.InvariantCulture));
+                start.ArgumentList.Add(exitCode == 0 ? "hold" : "exit");
+            }
+            var process = OwnedMediaProcess.Start(start);
+            var exited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            process.Exited += (_, _) => exited.TrySetResult();
+            process.EnableRaisingEvents = true;
+            if (process.HasExited)
+            {
+                exited.TrySetResult();
+            }
+            ProcessExits.Add(exited.Task);
+            return process;
+        }
     }
 
     private static IMediaProcessFactory CreateFactory(int length, int exitCode, bool hold, Action<Process>? started = null)

@@ -48,6 +48,7 @@ public static class MpegTsTranscodePlanner
     /// <param name="subtitleStreams">Detected standalone subtitle streams.</param>
     /// <param name="sourceVideoIsInterlaced">Whether the effective source video is confirmed interlaced.</param>
     /// <param name="sourceVideoFrameRate">The effective source frame rate before any virtual deinterlacing.</param>
+    /// <param name="sourceVideoStreamCount">The number of mapped video streams; defaults to one when a video codec is supplied, otherwise zero.</param>
     /// <returns>The FFmpeg argument list.</returns>
     public static IReadOnlyList<string> CreateFfmpegArguments(
         Uri inputUri,
@@ -56,7 +57,8 @@ public static class MpegTsTranscodePlanner
         VirtualTranscodeProfile profile,
         IReadOnlyList<MediaTrackMetadata>? subtitleStreams = null,
         bool sourceVideoIsInterlaced = false,
-        MediaFrameRate? sourceVideoFrameRate = null
+        MediaFrameRate? sourceVideoFrameRate = null,
+        int? sourceVideoStreamCount = null
     )
         => CreateFfmpegArgumentsCore(
             inputUri,
@@ -66,6 +68,7 @@ public static class MpegTsTranscodePlanner
             subtitleStreams,
             sourceVideoIsInterlaced,
             sourceVideoFrameRate,
+            sourceVideoStreamCount ?? (sourceVideoCodec is null ? 0 : 1),
             codec => ResolveAudioCodec(codec, profile));
 
     private static IReadOnlyList<string> CreateFfmpegArgumentsCore(
@@ -76,6 +79,7 @@ public static class MpegTsTranscodePlanner
         IReadOnlyList<MediaTrackMetadata>? subtitleStreams,
         bool sourceVideoIsInterlaced,
         MediaFrameRate? sourceVideoFrameRate,
+        int sourceVideoStreamCount,
         Func<string, string> resolveAudioCodec
     )
     {
@@ -163,6 +167,7 @@ public static class MpegTsTranscodePlanner
             }
         }
 
+        MpegTsAc4CopyPlan.Create(audioStreams.Select(stream => stream.CodecName), profile.Ac4Audio, sourceVideoStreamCount).AddArguments(arguments);
         arguments.AddRange(["-max_muxing_queue_size", "1024", "-mpegts_flags", "+resend_headers", "-muxdelay", "0", "-f", "mpegts", "pipe:1"]);
 
         var captionFrameRate = deinterlace && profile.Deinterlace == SourceDeinterlacePolicy.SourceFieldRate ? sourceVideoFrameRate?.Double() : sourceVideoFrameRate;

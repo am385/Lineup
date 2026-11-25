@@ -273,7 +273,8 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
             SourceDeinterlacePlanner.CreateArguments(source, physicalProfile),
             sourceName,
             physicalProfile.HardwareEncoding,
-            SourceDeinterlacePlanner.CreateArguments(source, physicalProfile with { HardwareEncoding = new() }));
+            SourceDeinterlacePlanner.CreateArguments(source, physicalProfile with { HardwareEncoding = new() }),
+            CreatePhysicalAc4CopyPlan(source, physicalProfile));
         var lease = await _graph.AcquireTransformAsync(descriptor, stage.Key, acquisitionFactory, stage.Transform, cancellationToken);
         return new SessionOwnedStream(lease);
     }
@@ -314,7 +315,8 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
         {
             var physicalArguments = SourceDeinterlacePlanner.CreateArguments(source, physicalProfile);
             stages.Add(CreateStage("source-normalization", physicalArguments, sourceName, physicalProfile.HardwareEncoding,
-                SourceDeinterlacePlanner.CreateArguments(source, physicalProfile with { HardwareEncoding = new() })));
+                SourceDeinterlacePlanner.CreateArguments(source, physicalProfile with { HardwareEncoding = new() }),
+                CreatePhysicalAc4CopyPlan(source, physicalProfile)));
             effectiveSource = SourceDeinterlacePlanner.CreateEffectiveSource(source, physicalProfile);
         }
 
@@ -324,6 +326,7 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
             .ToArray();
         var subtitles = effectiveSource.Tracks.Where(track => track.Type == MediaTrackType.Subtitle).ToArray();
         var sourceVideo = effectiveSource.Tracks.FirstOrDefault(track => track.Type == MediaTrackType.Video);
+        var videoStreamCount = effectiveSource.Tracks.Count(track => track.Type == MediaTrackType.Video);
         var virtualArguments = MpegTsTranscodePlanner.CreateFfmpegArguments(
             new Uri("http://lineup.invalid/source"),
             sourceVideo?.Codec,
@@ -331,13 +334,15 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
             virtualProfile,
             subtitles,
             sourceVideo?.ScanType == VideoScanType.Interlaced,
-            sourceVideo?.FrameRate).ToList();
+            sourceVideo?.FrameRate,
+            videoStreamCount).ToList();
         virtualArguments[virtualArguments.IndexOf("http://lineup.invalid/source")] = "pipe:0";
         var softwareArguments = MpegTsTranscodePlanner.CreateFfmpegArguments(
             new Uri("http://lineup.invalid/source"), sourceVideo?.Codec, audioStreams, virtualProfile with { HardwareEncoding = new() },
-            subtitles, sourceVideo?.ScanType == VideoScanType.Interlaced, sourceVideo?.FrameRate).ToList();
+            subtitles, sourceVideo?.ScanType == VideoScanType.Interlaced, sourceVideo?.FrameRate, videoStreamCount).ToList();
         softwareArguments[softwareArguments.IndexOf("http://lineup.invalid/source")] = "pipe:0";
-        stages.Add(CreateStage("virtual-mpegts", virtualArguments, sourceName, virtualProfile.HardwareEncoding, softwareArguments));
+        stages.Add(CreateStage("virtual-mpegts", virtualArguments, sourceName, virtualProfile.HardwareEncoding, softwareArguments,
+            MpegTsAc4CopyPlan.Create(audioStreams.Select(track => track.CodecName), virtualProfile.Ac4Audio, videoStreamCount)));
 
         var lease = await _graph.AcquirePipelineAsync(descriptor, acquisitionFactory, stages, keepWarmPeriod, cancellationToken);
         return new SessionOwnedStream(lease);
@@ -348,13 +353,24 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
     /// <returns>A task that completes when the operation has finished.</returns>
     public Task StopAsync(CancellationToken cancellationToken) => _graph.StopAsync(cancellationToken);
 
-    private StreamTransformStage CreateStage(string stage, IReadOnlyList<string> arguments, string sourceName, HardwareEncodingSettings hardware, IReadOnlyList<string> softwareArguments)
+    private static MpegTsAc4CopyPlan CreatePhysicalAc4CopyPlan(MediaProbeResult source, PhysicalTranscodeProfile profile) =>
+        MpegTsAc4CopyPlan.Create(source.Tracks.Where(track => track.Type == MediaTrackType.Audio).Select(track => track.Codec),
+            profile.Ac4Audio, source.Tracks.Any(track => track.Type == MediaTrackType.Video) ? 1 : 0);
+
+    private StreamTransformStage CreateStage(
+        string stage,
+        IReadOnlyList<string> arguments,
+        string sourceName,
+        HardwareEncodingSettings hardware,
+        IReadOnlyList<string> softwareArguments,
+        MpegTsAc4CopyPlan ac4CopyPlan
+    )
     {
         var effectiveHardware = hardware.Encoder != HardwareVideoEncoder.Software && arguments.Contains(HardwareVideoEncodingPlanner.GetEncoderName(hardware.Encoder)) ? hardware : null;
-        var settingsKey = JsonSerializer.Serialize(new { Arguments = arguments, Hardware = effectiveHardware });
+        var settingsKey = JsonSerializer.Serialize(new { Arguments = arguments, Hardware = effectiveHardware, Ac4PacketIds = ac4CopyPlan.PacketIds });
         return new StreamTransformStage(
             new StreamTransformKey(stage, settingsKey),
-            new FfmpegGraphTransform(new FfmpegStreamTransform(arguments, _processFactory, _logger, sourceName, hardware, softwareArguments),
+            new FfmpegGraphTransform(new FfmpegStreamTransform(arguments, _processFactory, _logger, sourceName, hardware, softwareArguments, ac4CopyPlan),
                 stage == "source-normalization" ? "source" : "output"));
     }
 
