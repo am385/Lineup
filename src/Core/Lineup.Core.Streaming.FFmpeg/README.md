@@ -29,6 +29,14 @@ media/PCR bytes. Invalid or missing signaling fails explicitly rather than repor
 or an incomplete section can retain at most 4,096 transport packets (752 KiB plus parser state); PMT section lengths remain
 within the MPEG-TS 1,021-byte limit, with at most 256 active program maps.
 
+Each new virtual MPEG-TS transform probes its own input, including when source metadata was already cached.
+Like physical normalization, it allows up to 10 seconds of media analysis and 10,000,000 probe bytes.
+Shared subscriptions start at the current producer position, not at a replayed header or keyframe; broadcast program tables
+and codec initialization can recur beyond the former one-second/1,000,000-byte limits. Premature discovery could leave
+AC-4 with no sample rate/channels and fail MPEG-TS header creation, or leave video parameters unknown.
+These are bounded input-discovery limits, not a fixed sleep or an extension of Lineup Link's acquisition deadline.
+Sparse initialization may increase startup latency; unavailable or malformed initialization can still fail explicitly.
+
 ## Transcoding and shared stream graph
 
 Virtual Tuner Video can optionally transcode HEVC to H.264 for clients that cannot process HEVC Live TV, at the cost of CPU and generation loss. Virtual Tuner Audio can preserve non-AC-4 codecs or transcode those tracks to AC-3/E-AC-3. AC-4 can be preserved for compatible receivers or transcoded separately. Audio above 5.1 channels is capped at 5.1 when transcoded. Transcoding is configured through inherited physical and virtual device profiles; topology routes reject unsupported per-request HDHomeRun hardware profile parameters.

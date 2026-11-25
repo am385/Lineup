@@ -43,15 +43,22 @@ public sealed class LineupLinkProtectionPublicationTests
         }
     }
 
-    /// <summary>Verifies real remote failures retain capacity codes through physical import, shared acquisition and management re-export.</summary>
+    /// <summary>Verifies remote failures retain their classification through physical import, shared acquisition and management re-export.</summary>
     [Theory]
-    [InlineData("resource_limit", 429, "resource_limit")]
-    [InlineData("stream_limit", 429, "stream_limit")]
-    [InlineData("source_capacity_exceeded", 503, "source_capacity_exceeded")]
-    [InlineData("source_unavailable", 503, "source_unavailable")]
-    [InlineData("source_no_signal", 503, "source_no_signal")]
-    [InlineData("malformed", 429, "source_unavailable")]
-    public async Task GetStreamAsync_RemoteFailure_PreservesCapacityClassification(string code, int remoteStatus, string expectedCode)
+    [InlineData("resource_limit", 429, 503, "resource_limit")]
+    [InlineData("stream_limit", 429, 503, "stream_limit")]
+    [InlineData("source_capacity_exceeded", 503, 503, "source_capacity_exceeded")]
+    [InlineData("source_unavailable", 503, 503, "source_unavailable")]
+    [InlineData("source_no_signal", 503, 503, "source_no_signal")]
+    [InlineData("source_no_video_data", 503, 503, "source_no_video_data")]
+    [InlineData("protected_content", 422, 422, "protected_content")]
+    [InlineData("malformed", 429, 502, "remote_http_error")]
+    [InlineData("malformed", 500, 502, "remote_http_error")]
+    [InlineData("malformed", 502, 502, "remote_http_error")]
+    [InlineData("malformed", 503, 502, "remote_http_error")]
+    [InlineData("media_startup_failed", 500, 502, "media_startup_failed")]
+    [InlineData("source_error", 502, 502, "source_error")]
+    public async Task GetStreamAsync_RemoteFailure_PreservesClassification(string code, int remoteStatus, int expectedStatus, string expectedCode)
     {
         // Arrange
         var id = VirtualDeviceId.New();
@@ -132,8 +139,69 @@ public sealed class LineupLinkProtectionPublicationTests
 
         // Assert
         var response = Assert.IsType<ObjectResult>(result);
-        Assert.Equal(StatusCodes.Status503ServiceUnavailable, response.StatusCode);
+        Assert.Equal(expectedStatus, response.StatusCode);
         Assert.Equal(expectedCode, Assert.IsType<LineupLinkError>(response.Value).Code);
+    }
+
+    /// <summary>Verifies source processing errors retain their identity across the dedicated-worker broker boundary.</summary>
+    [Theory]
+    [InlineData(PhysicalStreamFailureCategory.Error, VirtualOutputFailureCode.SourceError)]
+    [InlineData(PhysicalStreamFailureCategory.Unavailable, VirtualOutputFailureCode.SourceUnavailable)]
+    [InlineData(PhysicalStreamFailureCategory.NoSignal, VirtualOutputFailureCode.SourceNoSignal)]
+    public async Task OpenStreamAsync_AcquisitionFailure_PreservesBrokerClassification(PhysicalStreamFailureCategory category, VirtualOutputFailureCode expectedCode)
+    {
+        // Arrange
+        var output = new VirtualDeviceDefinition
+        {
+            Id = VirtualDeviceId.New(),
+            Name = "Dedicated output",
+            Adapter = new AdapterConfiguration(LineupLinkProtocol.AdapterKind, JsonSerializer.SerializeToElement(new LineupLinkVirtualConfiguration())),
+            Hosting = new VirtualOutputHostingDefinition()
+        };
+        var settings = Substitute.For<ILineupSettingsService>();
+        settings.Settings.Returns(new LineupSettings { Streaming = new StreamingConfiguration { VirtualDevices = [output] } });
+        var sourceId = PhysicalDeviceId.New();
+        var failure = StreamAcquisitionException.Create(
+            [new StreamAcquisitionCandidateFailure
+            {
+                DeviceId = sourceId,
+                ChannelId = new SourceChannelId(sourceId, "7.1"),
+                Category = category,
+                Code = category == PhysicalStreamFailureCategory.Error ? "remote_http_error" : "source_unavailable",
+                Message = "Safe acquisition failure.",
+                Retryable = false
+            }], [new IOException("Private provider details.")]);
+        var streams = Substitute.For<IVirtualMpegTsOutputService>();
+        streams.OpenAsync(output.Id, "7.1", Arg.Any<CancellationToken>()).Returns(Task.FromException<VirtualMpegTsOutput>(failure));
+        using var authority = new VirtualOutputSessionAuthority();
+        var ticket = authority.CreateActivation(output.Id, "test-output", new HashSet<VirtualOutputCapability> { VirtualOutputCapability.OpenStream },
+            TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+        var registration = authority.Register(new VirtualOutputWorkerRegistrationRequest
+        {
+            WorkerId = ticket.WorkerId,
+            VirtualDeviceId = ticket.VirtualDeviceId,
+            Generation = ticket.Generation,
+            BootstrapToken = ticket.BootstrapToken,
+            MinimumProtocolVersion = VirtualOutputProtocol.MinimumVersion,
+            MaximumProtocolVersion = VirtualOutputProtocol.MaximumVersion
+        });
+        var broker = new VirtualOutputBroker(authority, settings, new StreamingAdapterRegistry([], [new LineupLinkVirtualTunerDriver()], []),
+            Substitute.For<IPhysicalDeviceCatalog>(), Substitute.For<IPhysicalDeviceStatusService>(), Substitute.For<IStreamingRouteResolver>(),
+            Substitute.For<IGuideOrchestrator>(), streams, new ActiveStreamRegistry());
+        var request = new VirtualOutputOpenStreamRequest
+        {
+            Session = new VirtualOutputSessionContext { SessionId = registration.SessionId!.Value, Generation = ticket.Generation },
+            RequestId = VirtualOutputStreamRequestId.New(),
+            ChannelKey = "7.1"
+        };
+
+        // Act
+        var exception = await Assert.ThrowsAsync<VirtualOutputBrokerException>(() => broker.OpenStreamAsync(request, TestContext.Current.CancellationToken));
+
+        // Assert
+        Assert.Equal(expectedCode, exception.FailureCode);
+        Assert.Same(failure, exception.InnerException);
+        Assert.DoesNotContain("Private provider details", exception.Message, StringComparison.Ordinal);
     }
 
     /// <summary>Verifies a clear equivalent remains acquirable downstream while protected-only outputs honor their slate/error policy.</summary>

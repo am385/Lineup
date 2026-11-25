@@ -25,6 +25,7 @@ internal static class StreamAcquisitionHttpMapper
             PhysicalStreamFailureCategory.NotFound => StatusCodes.Status404NotFound,
             PhysicalStreamFailureCategory.InvalidInput => StatusCodes.Status400BadRequest,
             PhysicalStreamFailureCategory.ProtectedContent => StatusCodes.Status422UnprocessableEntity,
+            PhysicalStreamFailureCategory.Error => StatusCodes.Status502BadGateway,
             _ => StatusCodes.Status503ServiceUnavailable
         };
         return new StreamAcquisitionHttpFailure

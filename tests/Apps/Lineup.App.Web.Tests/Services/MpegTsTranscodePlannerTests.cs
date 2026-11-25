@@ -189,8 +189,8 @@ public class MpegTsTranscodePlannerTests
         AssertOption(arguments, "-c:a:1", "ac3");
         AssertOption(arguments, "-b:a:1", "448k");
         AssertOption(arguments, "-ac:a:1", "6");
-        AssertOption(arguments, "-analyzeduration", "1000000");
-        AssertOption(arguments, "-probesize", "1000000");
+        AssertOption(arguments, "-analyzeduration", "10000000");
+        AssertOption(arguments, "-probesize", "10000000");
         AssertOption(arguments, "-c:v:0", "libx264");
         AssertOption(arguments, "-preset", "veryfast");
         AssertOption(arguments, "-maxrate", "10M");

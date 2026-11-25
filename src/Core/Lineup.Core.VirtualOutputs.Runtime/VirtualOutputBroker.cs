@@ -283,6 +283,7 @@ public sealed class VirtualOutputBroker : IVirtualOutputBroker
             PhysicalStreamFailureCategory.NotFound => VirtualOutputFailureCode.SourceNotFound,
             PhysicalStreamFailureCategory.InvalidInput => VirtualOutputFailureCode.SourceInvalid,
             PhysicalStreamFailureCategory.ProtectedContent => VirtualOutputFailureCode.ProtectedContent,
+            PhysicalStreamFailureCategory.Error => VirtualOutputFailureCode.SourceError,
             _ => VirtualOutputFailureCode.SourceUnavailable
         };
 

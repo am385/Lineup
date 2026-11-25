@@ -87,8 +87,8 @@ public static class MpegTsTranscodePlanner
         [
             "-hide_banner",
             "-loglevel", "warning",
-            "-analyzeduration", "1000000",
-            "-probesize", "1000000",
+            "-analyzeduration", "10000000",
+            "-probesize", "10000000",
             "-fflags", "+genpts",
             "-i", inputUri.AbsoluteUri,
             "-map", "0:v?",

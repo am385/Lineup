@@ -40,6 +40,7 @@ public sealed class DedicatedWorkerStartupFailureTests
     [InlineData(VirtualOutputFailureCode.StaleGeneration, 503, "stale_worker_generation")]
     [InlineData(VirtualOutputFailureCode.Unavailable, 503, "broker_unavailable")]
     [InlineData(VirtualOutputFailureCode.SourceUnavailable, 503, "source_unavailable")]
+    [InlineData(VirtualOutputFailureCode.SourceError, 502, "source_error")]
     [InlineData(VirtualOutputFailureCode.SourceNoSignal, 503, "source_no_signal")]
     [InlineData(VirtualOutputFailureCode.SourceNoData, 503, "source_no_video_data")]
     [InlineData(VirtualOutputFailureCode.SourceCapacityExceeded, 503, "source_capacity_exceeded")]

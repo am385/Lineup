@@ -24,7 +24,10 @@ public enum PhysicalStreamFailureCategory
     InvalidInput,
 
     /// <summary>The source is protected and cannot be streamed under the current policy.</summary>
-    ProtectedContent
+    ProtectedContent,
+
+    /// <summary>The source reported an unexpected acquisition or processing failure, not confirmed unavailability.</summary>
+    Error
 }
 
 /// <summary>Represents a safe, structured failure reported by one physical streaming adapter.</summary>

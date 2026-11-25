@@ -216,13 +216,23 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
                 "source_not_found",
                 "The physical source channel is no longer available.",
                 retryable: false),
-            HttpRequestException httpException => CreateCandidateFailure(
+            InvalidDataException or InvalidOperationException => CreateCandidateFailure(
+                candidate,
+                PhysicalStreamFailureCategory.Error,
+                "source_error",
+                "The physical source returned invalid media or could not initialize stream processing.",
+                retryable: false),
+            HttpRequestException { StatusCode: { } status } => CreateCandidateFailure(
+                candidate,
+                PhysicalStreamFailureCategory.Error,
+                "source_http_error",
+                $"The physical source returned HTTP {(int)status}.",
+                retryable: true),
+            HttpRequestException => CreateCandidateFailure(
                 candidate,
                 PhysicalStreamFailureCategory.Unavailable,
                 "source_unavailable",
-                httpException.StatusCode is { } status
-                    ? $"The physical source returned HTTP {(int)status}."
-                    : "The physical source could not be reached.",
+                "The physical source could not be reached.",
                 retryable: true),
             _ => CreateCandidateFailure(
                 candidate,

@@ -20,6 +20,12 @@ hosting; candidate-specific timeout codes remain in server diagnostics. The harn
 the historical `source_acquisition_timeout` code as source availability, without treating generic
 HTTP 502/503 failures as source outages.
 
+Unexpected remote processing errors retain a non-availability code (`remote_http_error`, the provider's error code, or
+`source_error` through dedicated workers) and classify as product startup failures. With `--max-product-failures 0`,
+these fail the gate with exit 2 rather than being accepted as source outages. An older consumer that has already replaced
+the cause with `source_unavailable` cannot be diagnosed from that top-level code alone; update the consuming instance and
+its matching worker packages. This reporting correction does not repair the provider's underlying media failure.
+
 Structured `resource_limit`, `stream_limit` and source-capacity codes remain capacity contamination,
 including HTTP 429 responses from dedicated workers and errors propagated through Lineup Link.
 They cannot count as source availability or accepted channel passes. An unknown or malformed

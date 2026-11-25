@@ -33,6 +33,12 @@ With that variable set, `ProtectedContentSlateServiceTests` renders one syntheti
 it requires no tuner, network source or application deployment. Native cases explicitly skip when no executable is configured.
 Run these cases on both Windows and Linux when changing FFmpeg slate text encoding; fake process tests do not exercise the parser.
 
+Native MPEG-TS startup regressions use `LINEUP_TEST_MPEGTS_FFMPEG`, an explicit FFmpeg executable with lavfi, libx264 and AAC support.
+With that variable set, `FfmpegStreamDiagnosticsTests.NativeMpegTs_MidstreamJoin_DiscoversParametersBeforeOutput` generates a
+local transport with sparse program tables and video initialization, joins after its initial headers, and verifies complete
+input discovery and decoded audio/video for Copy and forced H.264. No broadcast recording, network, GPU or tuner is required.
+These cases explicitly skip when the executable is not configured.
+
 Ordinary CI and development/release publishing share `.github/workflows/validate.yml`. Both Linux and Windows run the full Release build/test gate,
 the browser regressions, formatting verification, and installed-worker smoke tests. The smoke tests use the hash-verified worker packages installed
 by the Web host build, exercising Web Player startup/captions/stop and shared HDHomeRun/Lineup Link admission and crash recovery without physical hardware.

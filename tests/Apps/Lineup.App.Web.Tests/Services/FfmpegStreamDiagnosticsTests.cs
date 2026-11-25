@@ -14,6 +14,50 @@ public sealed class FfmpegProcessDiagnosticsCollection;
 [Collection("FFmpeg process diagnostics")]
 public sealed class FfmpegStreamDiagnosticsTests
 {
+    /// <summary>Verifies new MPEG-TS transforms discover periodic tables and video initialization after joining an established source.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task NativeMpegTs_MidstreamJoin_DiscoversParametersBeforeOutput(bool encodeVideo)
+    {
+        // Arrange
+        var executable = Environment.GetEnvironmentVariable("LINEUP_TEST_MPEGTS_FFMPEG");
+        Assert.SkipWhen(string.IsNullOrWhiteSpace(executable), "Set LINEUP_TEST_MPEGTS_FFMPEG to an explicit native FFmpeg executable with lavfi, libx264 and AAC support.");
+        Assert.True(File.Exists(executable), $"The configured FFmpeg executable does not exist: {executable}");
+        var source = await RunNativeAsync(executable!,
+        [
+            "-hide_banner", "-loglevel", "error",
+            "-f", "lavfi", "-i", "testsrc2=size=64x64:rate=5",
+            "-f", "lavfi", "-i", "sine=frequency=1000:sample_rate=48000",
+            "-t", "5", "-c:v", "libx264", "-preset", "ultrafast", "-g", "20",
+            "-c:a", "aac", "-b:a", "64k", "-pat_period", "2", "-muxrate", "12M", "-f", "mpegts", "pipe:1"
+        ]);
+        Assert.True(source.ExitCode == 0, source.Diagnostics);
+        var profile = new VirtualTranscodeProfile { AlwaysTranscodeVideo = encodeVideo, Audio = OutputAudioPolicy.Copy };
+        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(
+            new Uri("http://lineup.invalid/source"), "h264", [new AudioStreamInfo(1, "aac", 1)], profile).ToList();
+        arguments[arguments.IndexOf("http://lineup.invalid/source")] = "pipe:0";
+        // Drop the initial tables and SPS/PPS, as a subscription joining an existing producer would.
+        var joined = source.Output.AsMemory(188 * 1000).ToArray();
+
+        // Act
+        var output = await RunNativeAsync(executable!, arguments, joined);
+
+        // Assert
+        Assert.True(output.ExitCode == 0, output.Diagnostics);
+        Assert.DoesNotContain("Could not find codec parameters", output.Diagnostics, StringComparison.Ordinal);
+        foreach (var track in new[] { "v", "a" })
+        {
+            var decoded = await RunNativeAsync(executable!,
+            [
+                "-hide_banner", "-loglevel", "error", "-i", "pipe:0",
+                "-map", $"0:{track}:0", $"-frames:{track}", "1", "-f", "framehash", "pipe:1"
+            ], output.Output);
+            Assert.True(decoded.ExitCode == 0, decoded.Diagnostics);
+            Assert.Matches(@"(?m)^0,\s*-?\d+,\s*-?\d+,\s*\d+,\s*[1-9]\d*,", System.Text.Encoding.UTF8.GetString(decoded.Output));
+        }
+    }
+
     /// <summary>Verifies copied AC-4 repair survives hardware priming and software retry while preserving owned-process cleanup.</summary>
     [Theory]
     [InlineData(false, false)]
@@ -250,6 +294,39 @@ public sealed class FfmpegStreamDiagnosticsTests
             }
             ProcessExits.Add(exited.Task);
             return process;
+        }
+    }
+
+    private static async Task<(int ExitCode, byte[] Output, string Diagnostics)> RunNativeAsync(string executable, IReadOnlyList<string> arguments, byte[]? input = null)
+    {
+        using var watchdog = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        watchdog.CancelAfter(TimeSpan.FromSeconds(30));
+        using var process = new MediaProcessFactory().Start(new MediaProcessRequest
+        {
+            FileName = executable,
+            Arguments = arguments,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true
+        });
+        await using var source = new MemoryStream(input ?? []);
+        await using var output = new MemoryStream();
+        var diagnostics = process.StandardError.ReadToEndAsync(watchdog.Token);
+        var drain = process.StandardOutput.BaseStream.CopyToAsync(output, watchdog.Token);
+        var pump = MediaStreamPump.PumpAsync(source, process, NullLogger.Instance, "native MPEG-TS regression", watchdog.Token);
+        try
+        {
+            await process.WaitForExitAsync(watchdog.Token);
+            await Task.WhenAll(pump, drain);
+            return (process.ExitCode, output.ToArray(), await diagnostics);
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+            await process.WaitForExitAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(30));
+            await Task.WhenAll(pump, drain, diagnostics).WaitAsync(TimeSpan.FromSeconds(30));
         }
     }
 

@@ -138,8 +138,8 @@ public sealed class StreamingRouteFailoverTests
             var aggregate = Assert.IsType<StreamAcquisitionException>(failure);
             var candidate = Assert.Single(aggregate.CandidateFailures);
             Assert.Equal(channel, candidate.ChannelId);
-            Assert.Equal(PhysicalStreamFailureCategory.Unavailable, candidate.Category);
-            Assert.Equal("source_unavailable", candidate.Code);
+            Assert.Equal(PhysicalStreamFailureCategory.Error, candidate.Category);
+            Assert.Equal("source_error", candidate.Code);
             Assert.DoesNotContain("test-token", candidate.Message, StringComparison.Ordinal);
             Assert.IsType<InvalidDataException>(Assert.Single(Assert.IsType<AggregateException>(aggregate.InnerException).InnerExceptions));
         }
@@ -463,7 +463,7 @@ public sealed class StreamingRouteFailoverTests
         var failure = Assert.Single(exception.CandidateFailures);
         Assert.Equal(channel.PhysicalDeviceId, failure.DeviceId);
         Assert.Equal(channel, failure.ChannelId);
-        Assert.Equal(PhysicalStreamFailureCategory.Unavailable, failure.Category);
+        Assert.Equal(PhysicalStreamFailureCategory.Error, failure.Category);
         Assert.Equal("source_unauthorized", failure.Code);
         Assert.False(failure.Retryable);
         Assert.DoesNotContain("test-token", failure.Message, StringComparison.Ordinal);

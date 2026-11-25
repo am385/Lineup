@@ -138,7 +138,7 @@ public sealed class LineupLinkPhysicalTunerDevice :
         catch (UnauthorizedAccessException exception)
         {
             throw new PhysicalStreamAcquisitionException(
-                PhysicalStreamFailureCategory.Unavailable,
+                PhysicalStreamFailureCategory.Error,
                 "source_unauthorized",
                 "The remote Lineup Link device rejected the configured access token.",
                 false,
@@ -198,7 +198,8 @@ public sealed class LineupLinkPhysicalTunerDevice :
             "source_not_found" or "channel_not_found" => PhysicalStreamFailureCategory.NotFound,
             "source_invalid" or "invalid_request" => PhysicalStreamFailureCategory.InvalidInput,
             "protected_content" => PhysicalStreamFailureCategory.ProtectedContent,
-            _ => PhysicalStreamFailureCategory.Unavailable
+            "source_unavailable" or "source_acquisition_timeout" => PhysicalStreamFailureCategory.Unavailable,
+            _ => PhysicalStreamFailureCategory.Error
         };
 
     private PhysicalDeviceStatusSnapshot CreateStatusSnapshot(LineupLinkManifest manifest)

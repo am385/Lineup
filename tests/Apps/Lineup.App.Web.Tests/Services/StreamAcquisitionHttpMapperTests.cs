@@ -7,6 +7,39 @@ namespace Lineup.App.Web.Tests.Services;
 /// <summary>Verifies provider-neutral acquisition failures use a stable public HTTP contract.</summary>
 public sealed class StreamAcquisitionHttpMapperTests
 {
+    /// <summary>Verifies unexpected source errors cannot be hidden by another candidate's availability failure.</summary>
+    [Theory]
+    [InlineData(PhysicalStreamFailureCategory.Unavailable, false)]
+    [InlineData(PhysicalStreamFailureCategory.NoSignal, false)]
+    [InlineData(PhysicalStreamFailureCategory.Capacity, false)]
+    [InlineData(PhysicalStreamFailureCategory.ProtectedContent, true)]
+    public void Map_UnexpectedErrorAmongFailedCandidates_ReturnsBadGateway(PhysicalStreamFailureCategory otherCategory, bool errorFirst)
+    {
+        // Arrange
+        var deviceId = PhysicalDeviceId.New();
+        var error = new StreamAcquisitionCandidateFailure
+        {
+            DeviceId = deviceId,
+            ChannelId = new SourceChannelId(deviceId, "2.1"),
+            Category = PhysicalStreamFailureCategory.Error,
+            Code = "remote_http_error",
+            Message = "Remote Lineup Link request failed with HTTP 500.",
+            Retryable = false
+        };
+        var other = error with { Category = otherCategory, Code = "other_candidate_failure", Message = "Another candidate failed." };
+        var exception = StreamAcquisitionException.Create(errorFirst ? [error, other] : [other, error], [new IOException(), new IOException()]);
+
+        // Act
+        var failure = StreamAcquisitionHttpMapper.Map(exception);
+
+        // Assert
+        Assert.Equal(PhysicalStreamFailureCategory.Error, exception.Category);
+        Assert.Equal(StatusCodes.Status502BadGateway, failure.StatusCode);
+        Assert.Equal("source_error", failure.Code);
+        Assert.Contains("processing error", failure.Error);
+        Assert.Contains("remote_http_error", StreamAcquisitionHttpMapper.FormatCandidates(exception));
+    }
+
     /// <summary>Verifies temporary source unavailability maps to retryable HTTP 503 semantics.</summary>
     [Theory]
     [InlineData("source_unavailable")]

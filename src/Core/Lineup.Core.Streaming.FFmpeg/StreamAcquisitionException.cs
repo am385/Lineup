@@ -67,6 +67,10 @@ public sealed class StreamAcquisitionException : IOException
 
     private static PhysicalStreamFailureCategory ResolveCategory(IReadOnlyList<StreamAcquisitionCandidateFailure> failures)
     {
+        if (failures.Any(failure => failure.Category == PhysicalStreamFailureCategory.Error))
+        {
+            return PhysicalStreamFailureCategory.Error;
+        }
         if (failures.All(failure => failure.Category == PhysicalStreamFailureCategory.Capacity))
         {
             return PhysicalStreamFailureCategory.Capacity;
@@ -109,6 +113,7 @@ public sealed class StreamAcquisitionException : IOException
             PhysicalStreamFailureCategory.NotFound => "source_not_found",
             PhysicalStreamFailureCategory.InvalidInput => "source_invalid",
             PhysicalStreamFailureCategory.ProtectedContent => "protected_content",
+            PhysicalStreamFailureCategory.Error => "source_error",
             _ => "source_unavailable"
         };
     }
@@ -122,6 +127,7 @@ public sealed class StreamAcquisitionException : IOException
             PhysicalStreamFailureCategory.NotFound => "The requested channel is no longer available from any equivalent physical source.",
             PhysicalStreamFailureCategory.InvalidInput => "Every equivalent physical source rejected the stream request.",
             PhysicalStreamFailureCategory.ProtectedContent => "The requested channel is protected and cannot be streamed.",
+            PhysicalStreamFailureCategory.Error => "One or more physical sources reported an acquisition or processing error.",
             _ => "Every equivalent physical source is currently unavailable."
         };
 }
