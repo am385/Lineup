@@ -8,6 +8,34 @@ namespace Lineup.Plugin.WebPlayer.Tests;
 /// <summary>Verifies dedicated workers build browser presentations with the shared CMAF planner.</summary>
 public sealed class DedicatedCmafSessionPlanTests
 {
+    /// <summary>Verifies worker transport retains compensation and sharing separates both initial encodes and permitted audio retries.</summary>
+    [Theory]
+    [InlineData(CmafPreferredAudio.Source)]
+    [InlineData(CmafPreferredAudio.Fallback)]
+    public void Create_Ac4TimestampCompensation_RoundTripsAndSeparatesSharing(CmafPreferredAudio preferred)
+    {
+        // Arrange
+        var response = CreateMixedAudioResponse(OutputAudioPolicy.Copy, OutputAudioPolicy.Copy);
+        var enabled = response with { Profile = response.Profile! with { Ac4TimestampCompensation = true } };
+        var wire = System.Text.Json.JsonSerializer.Deserialize<VirtualOutputOpenStreamResponse>(System.Text.Json.JsonSerializer.Serialize(enabled))!;
+        var request = new CmafStreamRequest { PreferredAudio = preferred, FallbackAudio = CmafFallbackAudio.Ac3 };
+
+        // Act
+        var uncompensated = DedicatedCmafSessionPlan.Create(response, request, Path.GetTempPath());
+        var compensated = DedicatedCmafSessionPlan.Create(wire, request, Path.GetTempPath());
+        var retry = compensated.CreateFallback(Path.GetTempPath());
+
+        // Assert
+        Assert.DoesNotContain("aresample=async=1", uncompensated.Arguments);
+        Assert.DoesNotContain("aresample=async=1", uncompensated.CreateFallback(Path.GetTempPath()).Arguments);
+        Assert.NotEqual(uncompensated.SharingKey, compensated.SharingKey);
+        Assert.Equal(preferred == CmafPreferredAudio.Fallback, compensated.Arguments.Contains("aresample=async=1"));
+        Assert.Contains("aresample=async=1", retry.Arguments);
+        Assert.True(retry.Profile.Ac4TimestampCompensation);
+        Assert.DoesNotContain("-filter:a:0", retry.Arguments);
+        Assert.Contains("-filter:a:1", retry.Arguments);
+    }
+
     /// <summary>Verifies brokered rates drive dedicated QSV filters and software fallback retains the saved Preserve policy.</summary>
     [Fact]
     public void Create_QsvAutomaticDeinterlace_RoundTripsAndDoesNotLeakIntoFallback()

@@ -1035,6 +1035,8 @@
   <data name="Streaming_WarmProducerCountMany" xml:space="preserve"><value>待機中のプロデューサー {0} 件</value></data>
   <data name="Streaming_WarmProducerCountOne" xml:space="preserve"><value>待機中のプロデューサー {0} 件</value></data>
   <data name="Transcoding_Ac4Audio" xml:space="preserve"><value>AC-4 音声</value></data>
+  <data name="Transcoding_Ac4TimestampCompensation" xml:space="preserve"><value>AC-4 タイムスタンプ補正（試験的）</value></data>
+  <data name="Transcoding_Ac4TimestampCompensationHelp" xml:space="preserve"><value>既定では無効です。Lineup で AC-4 をトランスコードする際、タイムスタンプに応じて音声サンプルを補充または削除し、ノイズや同期ずれを調査できます。コピーされる AC-4 と他のコーデックには影響しません。この設定にかかわらず AC-4 のトランスコードは 48 kHz です。保存後、新しい再生セッションを開始して比較してください。</value></data>
   <data name="Transcoding_AlwaysTranscodeVideo" xml:space="preserve"><value>映像を常にトランスコード</value></data>
   <data name="Transcoding_AlwaysTranscodeVideoHelp" xml:space="preserve"><value>選択したエンコーダーと映像ビットレート上限で、すべての映像を H.264 に再エンコードします。音声と転送の追加データは別途必要です。</value></data>
   <data name="Transcoding_Audio" xml:space="preserve"><value>音声</value></data>
@@ -1091,6 +1093,7 @@
   <data name="Transcoding_MaximumVideoBitrate" xml:space="preserve"><value>最大映像ビットレート</value></data>
   <data name="Transcoding_NonAc4Audio" xml:space="preserve"><value>AC-4 以外の音声</value></data>
   <data name="Transcoding_OverrideAc4Audio" xml:space="preserve"><value>AC-4 音声をオーバーライド</value></data>
+  <data name="Transcoding_OverrideAc4TimestampCompensation" xml:space="preserve"><value>AC-4 タイムスタンプ補正をオーバーライド</value></data>
   <data name="Transcoding_OverrideAlwaysTranscodeVideo" xml:space="preserve"><value>映像の常時トランスコードをオーバーライド</value></data>
   <data name="Transcoding_OverrideBitrate" xml:space="preserve"><value>ビットレートをオーバーライド</value></data>
   <data name="Transcoding_OverrideDeinterlacing" xml:space="preserve"><value>デインターレースをオーバーライド</value></data>

@@ -71,11 +71,19 @@ internal sealed record StreamingConfigurationStatusResponse(
 
 /// <summary>Represents one effective transcoding profile.</summary>
 internal sealed record TranscodeProfileStatusResponse(
-    bool ConvertHevcToH264, string Deinterlace, string Audio, string Ac4Audio, string VideoPreset, int VideoQuality, int MaximumVideoBitRateMbps, HardwareEncodingSettings HardwareEncoding);
+    bool ConvertHevcToH264, string Deinterlace, string Audio, string Ac4Audio, string VideoPreset, int VideoQuality, int MaximumVideoBitRateMbps, HardwareEncodingSettings HardwareEncoding)
+{
+    /// <summary>Gets whether experimental timestamp compensation is enabled for AC-4 transcodes.</summary>
+    public bool Ac4TimestampCompensation { get; init; }
+}
 
 /// <summary>Represents sparse transcoding overrides.</summary>
 internal sealed record TranscodeOverridesStatusResponse(
-    bool? ConvertHevcToH264, string? Deinterlace, string? Audio, string? Ac4Audio, string? VideoPreset, int? VideoQuality, int? MaximumVideoBitRateMbps, HardwareEncodingSettings? HardwareEncoding);
+    bool? ConvertHevcToH264, string? Deinterlace, string? Audio, string? Ac4Audio, string? VideoPreset, int? VideoQuality, int? MaximumVideoBitRateMbps, HardwareEncodingSettings? HardwareEncoding)
+{
+    /// <summary>Gets the sparse experimental AC-4 timestamp compensation override.</summary>
+    public bool? Ac4TimestampCompensation { get; init; }
+}
 
 /// <summary>Represents safe adapter-owned settings without secret values.</summary>
 internal sealed record AdapterConfigurationStatusResponse(string Kind, string? Error, IReadOnlyList<AdapterSettingStatusResponse> Settings);

@@ -14,6 +14,49 @@ namespace Lineup.App.Web.Tests.Services;
 /// </summary>
 public sealed class TopologySettingsEditorTests
 {
+    /// <summary>Verifies saved experimental compensation settings retain inheritance and explicit disable for both processing stages.</summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Ac4TimestampCompensation_JsonRoundTrip_PreservesDefaultsAndSparseOverrides(bool? compensate)
+    {
+        // Arrange
+        var editor = new TopologySettingsEditor();
+        var model = editor.Edit(TopologySettingsEditor.CreateDefault());
+        model.PhysicalDefaults.Ac4TimestampCompensation = true;
+        model.VirtualDefaults.Ac4TimestampCompensation = true;
+        var physical = editor.AddPhysicalDevice(model, new TestPhysicalTunerDriver());
+        var virtualDevice = editor.AddVirtualDevice(model, new HdHomeRunVirtualTunerDriver());
+        physical.OverrideAc4TimestampCompensation = compensate.HasValue;
+        virtualDevice.OverrideAc4TimestampCompensation = compensate.HasValue;
+        physical.Ac4TimestampCompensation = compensate ?? true;
+        virtualDevice.Ac4TimestampCompensation = compensate ?? true;
+
+        // Act
+        var errors = editor.TryBuild(model, out var configuration);
+        var persisted = JsonSerializer.Deserialize<StreamingConfiguration>(JsonSerializer.Serialize(configuration))!;
+        var reloaded = editor.Edit(persisted);
+        var savedPhysical = Assert.Single(persisted.PhysicalDevices);
+        var savedVirtual = persisted.VirtualDevices.Single(device => device.Id == virtualDevice.Id);
+
+        // Assert
+        Assert.Empty(errors);
+        Assert.True(persisted.PhysicalDefaults.Ac4TimestampCompensation);
+        Assert.True(persisted.VirtualDefaults.Ac4TimestampCompensation);
+        Assert.Equal(compensate, savedPhysical.TranscodeOverrides.Ac4TimestampCompensation);
+        Assert.Equal(compensate, savedVirtual.TranscodeOverrides.Ac4TimestampCompensation);
+        Assert.Equal(compensate ?? true, savedPhysical.TranscodeOverrides.Apply(persisted.PhysicalDefaults).Ac4TimestampCompensation);
+        Assert.Equal(compensate ?? true, savedVirtual.TranscodeOverrides.Apply(persisted.VirtualDefaults).Ac4TimestampCompensation);
+        Assert.Equal(compensate.HasValue, reloaded.PhysicalDevices[0].OverrideAc4TimestampCompensation);
+        Assert.Equal(compensate ?? true, reloaded.PhysicalDevices[0].Ac4TimestampCompensation);
+        var reloadedVirtual = reloaded.VirtualDevices.Single(device => device.Id == virtualDevice.Id);
+        Assert.Equal(compensate.HasValue, reloadedVirtual.OverrideAc4TimestampCompensation);
+        Assert.Equal(compensate ?? true, reloadedVirtual.Ac4TimestampCompensation);
+        Assert.True(reloaded.PhysicalDefaults.Ac4TimestampCompensation);
+        Assert.True(reloaded.VirtualDefaults.Ac4TimestampCompensation);
+    }
+
     /// <summary>Verifies the editor displays runtime priority rather than configuration array order, including deterministic ties.</summary>
     [Theory]
     [InlineData(false)]

@@ -25,6 +25,41 @@ public class StatusApiServiceTests
 {
     private static readonly JsonSerializerOptions _webJsonOptions = new(JsonSerializerDefaults.Web);
 
+    /// <summary>Verifies diagnostics distinguish global compensation, inherited values and explicit per-device disabling.</summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GetStatusAsync_Ac4TimestampCompensation_ReportsEffectiveAndSparseValues(bool? compensate)
+    {
+        // Arrange
+        using var fixture = CreateFixture();
+        var configuration = fixture.Settings.Streaming;
+        fixture.Settings.Streaming = configuration with
+        {
+            PhysicalDefaults = configuration.PhysicalDefaults with { Ac4TimestampCompensation = true },
+            VirtualDefaults = configuration.VirtualDefaults with { Ac4TimestampCompensation = true },
+            PhysicalDevices = configuration.PhysicalDevices.Select(device =>
+                device with { TranscodeOverrides = device.TranscodeOverrides with { Ac4TimestampCompensation = compensate } }).ToArray(),
+            VirtualDevices = configuration.VirtualDevices.Select(device =>
+                device with { TranscodeOverrides = device.TranscodeOverrides with { Ac4TimestampCompensation = compensate } }).ToArray()
+        };
+
+        // Act
+        var result = await fixture.Service.GetStatusAsync(TestContext.Current.CancellationToken);
+        var streaming = result.Configuration.Streaming;
+        var physical = Assert.Single(streaming.PhysicalDevices);
+        var virtualDevice = Assert.Single(streaming.VirtualDevices);
+
+        // Assert
+        Assert.True(streaming.PhysicalDefaults.Ac4TimestampCompensation);
+        Assert.True(streaming.VirtualDefaults.Ac4TimestampCompensation);
+        Assert.Equal(compensate, physical.TranscodeOverrides.Ac4TimestampCompensation);
+        Assert.Equal(compensate, virtualDevice.TranscodeOverrides.Ac4TimestampCompensation);
+        Assert.Equal(compensate ?? true, physical.EffectiveTranscodeProfile.Ac4TimestampCompensation);
+        Assert.Equal(compensate ?? true, virtualDevice.EffectiveTranscodeProfile.Ac4TimestampCompensation);
+    }
+
     /// <summary>Names failed workers, sources, pending publications and capacity pressure without exposing provider failure payloads or initiating work.</summary>
     [Fact]
     public async Task GetStatusAsync_Operations_ReportsSafeCachedReasonsAndRecovery()

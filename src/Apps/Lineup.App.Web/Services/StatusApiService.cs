@@ -692,7 +692,10 @@ internal sealed class StatusApiService
             FormatName(profile.VideoPreset),
             profile.VideoQuality,
             profile.MaximumVideoBitRateMbps,
-            profile.HardwareEncoding);
+            profile.HardwareEncoding)
+        {
+            Ac4TimestampCompensation = profile.Ac4TimestampCompensation
+        };
 
     private static TranscodeProfileStatusResponse ToTranscodeProfile(VirtualTranscodeProfile profile) =>
         new(
@@ -703,7 +706,10 @@ internal sealed class StatusApiService
             FormatName(profile.VideoPreset),
             profile.VideoQuality,
             profile.MaximumVideoBitRateMbps,
-            profile.HardwareEncoding);
+            profile.HardwareEncoding)
+        {
+            Ac4TimestampCompensation = profile.Ac4TimestampCompensation
+        };
 
     private static TranscodeOverridesStatusResponse ToTranscodeOverrides(PhysicalTranscodeOverrides overrides) =>
         new(
@@ -714,7 +720,10 @@ internal sealed class StatusApiService
             overrides.VideoPreset is null ? null : FormatName(overrides.VideoPreset.Value),
             overrides.VideoQuality,
             overrides.MaximumVideoBitRateMbps,
-            overrides.HardwareEncoding);
+            overrides.HardwareEncoding)
+        {
+            Ac4TimestampCompensation = overrides.Ac4TimestampCompensation
+        };
 
     private static TranscodeOverridesStatusResponse ToTranscodeOverrides(VirtualTranscodeOverrides overrides) =>
         new(
@@ -725,7 +734,10 @@ internal sealed class StatusApiService
             overrides.VideoPreset is null ? null : FormatName(overrides.VideoPreset.Value),
             overrides.VideoQuality,
             overrides.MaximumVideoBitRateMbps,
-            overrides.HardwareEncoding);
+            overrides.HardwareEncoding)
+        {
+            Ac4TimestampCompensation = overrides.Ac4TimestampCompensation
+        };
 
     private async Task<ChannelsStatusResponse> GetChannelsStatusAsync(StreamingConfiguration configuration, WebSettings settings, CancellationToken cancellationToken)
     {

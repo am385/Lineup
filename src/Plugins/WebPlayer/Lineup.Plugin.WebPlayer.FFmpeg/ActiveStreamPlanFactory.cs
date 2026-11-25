@@ -74,7 +74,8 @@ public static class ActiveStreamPlanFactory
                 : track.Channels.HasValue
                     ? Math.Min(track.Channels.Value, 6)
                     : null;
-            return CreateTrack(track, outputCodec, outputBitRate, outputChannels, track.SampleRate);
+            var outputSampleRate = outputCodec == "copy" ? track.SampleRate : AudioResamplePlanner.GetOutputSampleRate(track.Codec, track.SampleRate);
+            return CreateTrack(track, outputCodec, outputBitRate, outputChannels, outputSampleRate);
         }).ToArray();
 
         return CreateSnapshot(sessionId, channel, HostedStreamFormat.MpegTs, startedAtUtc, rawSource, source, tracks);

@@ -1035,6 +1035,8 @@
   <data name="Streaming_WarmProducerCountMany" xml:space="preserve"><value>{0} productores en espera activa</value></data>
   <data name="Streaming_WarmProducerCountOne" xml:space="preserve"><value>{0} productor en espera activa</value></data>
   <data name="Transcoding_Ac4Audio" xml:space="preserve"><value>Audio AC-4</value></data>
+  <data name="Transcoding_Ac4TimestampCompensation" xml:space="preserve"><value>Compensación de marcas de tiempo AC-4 (experimental)</value></data>
+  <data name="Transcoding_Ac4TimestampCompensationHelp" xml:space="preserve"><value>Desactivada por defecto. Al transcodificar AC-4 en Lineup, permite rellenar o recortar muestras de audio según las marcas de tiempo para investigar chasquidos o pérdida de sincronización. No afecta al AC-4 copiado ni a otros códecs. La transcodificación AC-4 usa 48 kHz con esta opción activada o desactivada. Guarda e inicia una nueva sesión de reproducción para comparar.</value></data>
   <data name="Transcoding_AlwaysTranscodeVideo" xml:space="preserve"><value>Transcodificar siempre el vídeo</value></data>
   <data name="Transcoding_AlwaysTranscodeVideoHelp" xml:space="preserve"><value>Recodifica todo el vídeo como H.264 con el codificador y el límite de tasa de bits seleccionados. El audio y los datos de transporte son adicionales.</value></data>
   <data name="Transcoding_Audio" xml:space="preserve"><value>Audio</value></data>
@@ -1091,6 +1093,7 @@
   <data name="Transcoding_MaximumVideoBitrate" xml:space="preserve"><value>Velocidad de bits máxima de video</value></data>
   <data name="Transcoding_NonAc4Audio" xml:space="preserve"><value>Audio que no es AC-4</value></data>
   <data name="Transcoding_OverrideAc4Audio" xml:space="preserve"><value>Anular audio AC-4</value></data>
+  <data name="Transcoding_OverrideAc4TimestampCompensation" xml:space="preserve"><value>Anular compensación de marcas de tiempo AC-4</value></data>
   <data name="Transcoding_OverrideAlwaysTranscodeVideo" xml:space="preserve"><value>Anular transcodificar siempre el vídeo</value></data>
   <data name="Transcoding_OverrideBitrate" xml:space="preserve"><value>Anular la tasa de bits</value></data>
   <data name="Transcoding_OverrideDeinterlacing" xml:space="preserve"><value>Anular el desentrelazado</value></data>

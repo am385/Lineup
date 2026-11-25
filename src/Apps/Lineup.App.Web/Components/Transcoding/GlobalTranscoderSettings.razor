@@ -105,6 +105,13 @@
             </select>
             <div class="form-text">@Text["Transcoding_GlobalAc4Help"]</div>
         </div>
+        <div class="col-12">
+            <div class="form-check form-switch">
+                <input id="@(IdPrefix + "Ac4TimestampCompensation")" class="form-check-input" type="checkbox" @bind="Settings.Ac4TimestampCompensation" @bind:after="NotifySettingsChanged" />
+                <label class="form-check-label" for="@(IdPrefix + "Ac4TimestampCompensation")">@Text["Transcoding_Ac4TimestampCompensation"]</label>
+            </div>
+            <div class="form-text">@Text["Transcoding_Ac4TimestampCompensationHelp"]</div>
+        </div>
     </div>
 </div>
 

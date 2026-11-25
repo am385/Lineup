@@ -57,6 +57,7 @@ public sealed class TopologySettingsEditor
                 Deinterlace = configuration.PhysicalDefaults.Deinterlace,
                 Audio = configuration.PhysicalDefaults.Audio,
                 Ac4Audio = configuration.PhysicalDefaults.Ac4Audio,
+                Ac4TimestampCompensation = configuration.PhysicalDefaults.Ac4TimestampCompensation,
                 VideoPreset = configuration.PhysicalDefaults.VideoPreset,
                 VideoQuality = configuration.PhysicalDefaults.VideoQuality,
                 MaximumVideoBitRateMbps = configuration.PhysicalDefaults.MaximumVideoBitRateMbps
@@ -69,6 +70,7 @@ public sealed class TopologySettingsEditor
                 Deinterlace = configuration.VirtualDefaults.Deinterlace,
                 Audio = configuration.VirtualDefaults.Audio,
                 Ac4Audio = configuration.VirtualDefaults.Ac4Audio,
+                Ac4TimestampCompensation = configuration.VirtualDefaults.Ac4TimestampCompensation,
                 VideoPreset = configuration.VirtualDefaults.VideoPreset,
                 VideoQuality = configuration.VirtualDefaults.VideoQuality,
                 MaximumVideoBitRateMbps = configuration.VirtualDefaults.MaximumVideoBitRateMbps
@@ -101,6 +103,8 @@ public sealed class TopologySettingsEditor
                 Audio = device.TranscodeOverrides.Audio ?? configuration.PhysicalDefaults.Audio,
                 OverrideAc4Audio = device.TranscodeOverrides.Ac4Audio.HasValue,
                 Ac4Audio = device.TranscodeOverrides.Ac4Audio ?? configuration.PhysicalDefaults.Ac4Audio,
+                OverrideAc4TimestampCompensation = device.TranscodeOverrides.Ac4TimestampCompensation.HasValue,
+                Ac4TimestampCompensation = device.TranscodeOverrides.Ac4TimestampCompensation ?? configuration.PhysicalDefaults.Ac4TimestampCompensation,
                 OverrideVideoPreset = device.TranscodeOverrides.VideoPreset.HasValue,
                 VideoPreset = device.TranscodeOverrides.VideoPreset ?? configuration.PhysicalDefaults.VideoPreset,
                 OverrideVideoQuality = device.TranscodeOverrides.VideoQuality.HasValue,
@@ -210,6 +214,8 @@ public sealed class TopologySettingsEditor
                     Audio = device.TranscodeOverrides.Audio ?? configuration.VirtualDefaults.Audio,
                     OverrideAc4Audio = device.TranscodeOverrides.Ac4Audio.HasValue,
                     Ac4Audio = device.TranscodeOverrides.Ac4Audio ?? configuration.VirtualDefaults.Ac4Audio,
+                    OverrideAc4TimestampCompensation = device.TranscodeOverrides.Ac4TimestampCompensation.HasValue,
+                    Ac4TimestampCompensation = device.TranscodeOverrides.Ac4TimestampCompensation ?? configuration.VirtualDefaults.Ac4TimestampCompensation,
                     OverrideVideoPreset = device.TranscodeOverrides.VideoPreset.HasValue,
                     VideoPreset = device.TranscodeOverrides.VideoPreset ?? configuration.VirtualDefaults.VideoPreset,
                     OverrideVideoQuality = device.TranscodeOverrides.VideoQuality.HasValue,
@@ -252,6 +258,7 @@ public sealed class TopologySettingsEditor
                 Deinterlace = model.PhysicalDefaults.Deinterlace,
                 Audio = model.PhysicalDefaults.Audio,
                 Ac4Audio = model.PhysicalDefaults.Ac4Audio,
+                Ac4TimestampCompensation = model.PhysicalDefaults.Ac4TimestampCompensation,
                 VideoPreset = model.PhysicalDefaults.VideoPreset,
                 VideoQuality = model.PhysicalDefaults.VideoQuality,
                 MaximumVideoBitRateMbps = model.PhysicalDefaults.MaximumVideoBitRateMbps
@@ -264,6 +271,7 @@ public sealed class TopologySettingsEditor
                 Deinterlace = model.VirtualDefaults.Deinterlace,
                 Audio = model.VirtualDefaults.Audio,
                 Ac4Audio = model.VirtualDefaults.Ac4Audio,
+                Ac4TimestampCompensation = model.VirtualDefaults.Ac4TimestampCompensation,
                 VideoPreset = model.VirtualDefaults.VideoPreset,
                 VideoQuality = model.VirtualDefaults.VideoQuality,
                 MaximumVideoBitRateMbps = model.VirtualDefaults.MaximumVideoBitRateMbps
@@ -299,6 +307,7 @@ public sealed class TopologySettingsEditor
                     Deinterlace = device.OverrideDeinterlace ? device.Deinterlace : null,
                     Audio = device.OverrideAudio ? device.Audio : null,
                     Ac4Audio = device.OverrideAc4Audio ? device.Ac4Audio : null,
+                    Ac4TimestampCompensation = device.OverrideAc4TimestampCompensation ? device.Ac4TimestampCompensation : null,
                     VideoPreset = device.OverrideVideoPreset ? device.VideoPreset : null,
                     VideoQuality = device.OverrideVideoQuality ? device.VideoQuality : null,
                     MaximumVideoBitRateMbps = device.OverrideMaximumVideoBitRate ? device.MaximumVideoBitRateMbps : null
@@ -349,6 +358,7 @@ public sealed class TopologySettingsEditor
                     Deinterlace = device.OverrideDeinterlace ? device.Deinterlace : null,
                     Audio = device.OverrideAudio ? device.Audio : null,
                     Ac4Audio = device.OverrideAc4Audio ? device.Ac4Audio : null,
+                    Ac4TimestampCompensation = device.OverrideAc4TimestampCompensation ? device.Ac4TimestampCompensation : null,
                     VideoPreset = device.OverrideVideoPreset ? device.VideoPreset : null,
                     VideoQuality = device.OverrideVideoQuality ? device.VideoQuality : null,
                     MaximumVideoBitRateMbps = device.OverrideMaximumVideoBitRate ? device.MaximumVideoBitRateMbps : null
@@ -502,6 +512,7 @@ public sealed class TopologySettingsEditor
             Deinterlace = model.PhysicalDefaults.Deinterlace,
             Audio = model.PhysicalDefaults.Audio,
             Ac4Audio = model.PhysicalDefaults.Ac4Audio,
+            Ac4TimestampCompensation = model.PhysicalDefaults.Ac4TimestampCompensation,
             VideoPreset = model.PhysicalDefaults.VideoPreset,
             VideoQuality = model.PhysicalDefaults.VideoQuality,
             MaximumVideoBitRateMbps = model.PhysicalDefaults.MaximumVideoBitRateMbps
@@ -550,6 +561,7 @@ public sealed class TopologySettingsEditor
             Deinterlace = model.VirtualDefaults.Deinterlace,
             Audio = model.VirtualDefaults.Audio,
             Ac4Audio = model.VirtualDefaults.Ac4Audio,
+            Ac4TimestampCompensation = model.VirtualDefaults.Ac4TimestampCompensation,
             VideoPreset = model.VirtualDefaults.VideoPreset,
             VideoQuality = model.VirtualDefaults.VideoQuality,
             MaximumVideoBitRateMbps = model.VirtualDefaults.MaximumVideoBitRateMbps
@@ -1121,6 +1133,9 @@ public interface ITranscodeSettingsModel
     /// <summary>Gets or sets AC-4 audio handling.</summary>
     OutputAudioPolicy Ac4Audio { get; set; }
 
+    /// <summary>Gets or sets experimental timestamp compensation for AC-4 transcodes.</summary>
+    bool Ac4TimestampCompensation { get; set; }
+
     /// <summary>Gets or sets the video encoder preset.</summary>
     VideoEncoderPreset VideoPreset { get; set; }
 
@@ -1151,6 +1166,9 @@ public interface ITranscodeOverrideSettingsModel : ITranscodeSettingsModel
 
     /// <summary>Gets or sets whether AC-4 audio handling is overridden.</summary>
     bool OverrideAc4Audio { get; set; }
+
+    /// <summary>Gets or sets whether experimental AC-4 timestamp compensation is overridden.</summary>
+    bool OverrideAc4TimestampCompensation { get; set; }
 
     /// <summary>Gets or sets whether the video encoder preset is overridden.</summary>
     bool OverrideVideoPreset { get; set; }
@@ -1183,6 +1201,9 @@ public sealed class PhysicalTranscodeSettingsModel : ITranscodeSettingsModel
     /// <summary>Gets or sets AC-4 audio handling.</summary>
     public OutputAudioPolicy Ac4Audio { get; set; } = OutputAudioPolicy.Copy;
 
+    /// <summary>Gets or sets experimental timestamp compensation for AC-4 transcodes.</summary>
+    public bool Ac4TimestampCompensation { get; set; }
+
     /// <summary>Gets or sets the video encoder preset.</summary>
     public VideoEncoderPreset VideoPreset { get; set; } = VideoEncoderPreset.VeryFast;
 
@@ -1213,6 +1234,9 @@ public sealed class VirtualTranscodeSettingsModel : ITranscodeSettingsModel
 
     /// <summary>Gets or sets AC-4 audio handling.</summary>
     public OutputAudioPolicy Ac4Audio { get; set; } = OutputAudioPolicy.Ac3;
+
+    /// <summary>Gets or sets experimental timestamp compensation for AC-4 transcodes.</summary>
+    public bool Ac4TimestampCompensation { get; set; }
 
     /// <summary>Gets or sets the video encoder preset.</summary>
     public VideoEncoderPreset VideoPreset { get; set; } = VideoEncoderPreset.VeryFast;
@@ -1371,6 +1395,12 @@ public sealed class PhysicalDeviceSettingsModel : ITranscodeOverrideSettingsMode
 
     /// <summary>Gets or sets effective AC-4 audio handling.</summary>
     public OutputAudioPolicy Ac4Audio { get; set; } = OutputAudioPolicy.Copy;
+
+    /// <summary>Gets or sets whether experimental AC-4 timestamp compensation is overridden.</summary>
+    public bool OverrideAc4TimestampCompensation { get; set; }
+
+    /// <summary>Gets or sets experimental timestamp compensation for AC-4 transcodes.</summary>
+    public bool Ac4TimestampCompensation { get; set; }
 
     /// <summary>Gets or sets whether the video encoder preset is overridden.</summary>
     public bool OverrideVideoPreset { get; set; }
@@ -1725,6 +1755,12 @@ public sealed class VirtualDeviceSettingsModel : ITranscodeOverrideSettingsModel
 
     /// <summary>Gets or sets effective AC-4 audio handling.</summary>
     public OutputAudioPolicy Ac4Audio { get; set; } = OutputAudioPolicy.Copy;
+
+    /// <summary>Gets or sets whether experimental AC-4 timestamp compensation is overridden.</summary>
+    public bool OverrideAc4TimestampCompensation { get; set; }
+
+    /// <summary>Gets or sets experimental timestamp compensation for AC-4 transcodes.</summary>
+    public bool Ac4TimestampCompensation { get; set; }
 
     /// <summary>Gets or sets whether the video encoder preset is overridden.</summary>
     public bool OverrideVideoPreset { get; set; }

@@ -75,7 +75,8 @@ public static class SourceDeinterlacePlanner
                         Index = outputIndex++,
                         Codec = codec,
                         BitRate = codec == "ac3" ? 448_000 : 640_000,
-                        Channels = track.Channels is > 6 ? 6 : track.Channels
+                        Channels = track.Channels is > 6 ? 6 : track.Channels,
+                        SampleRate = AudioResamplePlanner.GetOutputSampleRate(track.Codec, track.SampleRate)
                     };
             }));
         tracks.AddRange(source.Tracks
@@ -97,6 +98,7 @@ public static class SourceDeinterlacePlanner
             Deinterlace = profile.Deinterlace,
             Audio = profile.Audio,
             Ac4Audio = profile.Ac4Audio,
+            Ac4TimestampCompensation = profile.Ac4TimestampCompensation,
             VideoPreset = profile.VideoPreset,
             VideoQuality = profile.VideoQuality,
             MaximumVideoBitRateMbps = profile.MaximumVideoBitRateMbps
@@ -185,6 +187,7 @@ public static class SourceDeinterlacePlanner
             }
 
             arguments.AddRange([$"-c:a:{index}", codec, $"-b:a:{index}", codec == "ac3" ? "448k" : "640k"]);
+            AudioResamplePlanner.AddArguments(arguments, audioTracks[index].Codec, index, profile.Ac4TimestampCompensation);
             if (audioTracks[index].Channels is > 6)
             {
                 arguments.AddRange([$"-ac:a:{index}", "6"]);

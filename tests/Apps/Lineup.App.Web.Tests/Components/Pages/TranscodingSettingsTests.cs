@@ -13,6 +13,78 @@ namespace Lineup.App.Web.Tests.Components.Pages;
 /// </summary>
 public class TranscodingSettingsTests
 {
+    /// <summary>Verifies experimental compensation is initially off and editing it notifies the form without changing codec policies.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GlobalAudio_Ac4TimestampCompensation_IsIndependentOptIn(bool physical)
+    {
+        // Arrange
+        await using var context = new BunitContext();
+        ITranscodeSettingsModel settings = physical ? new PhysicalTranscodeSettingsModel() : new VirtualTranscodeSettingsModel();
+        settings.Ac4Audio = OutputAudioPolicy.Copy;
+        var notifications = 0;
+        var component = context.Render<GlobalTranscoderSettings>(parameters => parameters
+            .Add(editor => editor.Settings, settings)
+            .Add(editor => editor.IdPrefix, "global")
+            .Add(editor => editor.CssPrefix, "global")
+            .Add(editor => editor.StageName, physical ? "Physical" : "Virtual")
+            .Add(editor => editor.SettingsChanged, () => notifications++));
+        var initiallyChecked = component.Find("#globalAc4TimestampCompensation").HasAttribute("checked");
+
+        // Act
+        await component.Find("#globalAc4TimestampCompensation").ChangeAsync(true);
+
+        // Assert
+        Assert.False(initiallyChecked);
+        Assert.True(settings.Ac4TimestampCompensation);
+        Assert.Equal(1, notifications);
+        Assert.Equal(OutputAudioPolicy.Copy, settings.Ac4Audio);
+        Assert.Equal(OutputAudioPolicy.Copy, settings.Audio);
+        Assert.Contains("experimental", component.Markup, StringComparison.Ordinal);
+        Assert.Contains("48 kHz with this option on or off", component.Markup, StringComparison.Ordinal);
+        Assert.Empty(component.FindAll("[role='alert']"));
+    }
+
+    /// <summary>Verifies a device can disable globally enabled compensation and return to inheritance without overriding AC-4 codec selection.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DeviceAudio_Ac4TimestampCompensation_CanOverrideAndInherit(bool physical)
+    {
+        // Arrange
+        await using var context = new BunitContext();
+        ITranscodeSettingsModel defaults = physical ? new PhysicalTranscodeSettingsModel() : new VirtualTranscodeSettingsModel();
+        ITranscodeOverrideSettingsModel settings = physical ? new PhysicalDeviceSettingsModel() : new VirtualDeviceSettingsModel();
+        defaults.Ac4TimestampCompensation = true;
+        defaults.Ac4Audio = OutputAudioPolicy.Copy;
+        settings.Ac4TimestampCompensation = true;
+        var component = context.Render<DeviceTranscoderSettings>(parameters => parameters
+            .Add(editor => editor.Settings, settings)
+            .Add(editor => editor.Defaults, defaults)
+            .Add(editor => editor.IdPrefix, "device")
+            .Add(editor => editor.CssPrefix, "device")
+            .Add(editor => editor.StageName, physical ? "Physical" : "Virtual"));
+
+        // Act
+        await component.Find("#deviceOverrideAc4TimestampCompensation-0").ChangeAsync(true);
+        await component.Find("#deviceAc4TimestampCompensation-0").ChangeAsync(false);
+
+        // Assert
+        Assert.True(settings.OverrideAc4TimestampCompensation);
+        Assert.False(settings.Ac4TimestampCompensation);
+        Assert.False(settings.OverrideAc4Audio);
+        Assert.Empty(component.FindAll("[role='alert']"));
+
+        // Act
+        await component.Find("#deviceOverrideAc4TimestampCompensation-0").ChangeAsync(false);
+
+        // Assert
+        Assert.False(settings.OverrideAc4TimestampCompensation);
+        Assert.Empty(component.FindAll("#deviceAc4TimestampCompensation-0"));
+        Assert.Contains("inherits True", component.Find("label[for='deviceOverrideAc4TimestampCompensation-0']").TextContent, StringComparison.Ordinal);
+    }
+
     /// <summary>Verifies forced video encoding reveals global encoder controls without enabling other conversion policies.</summary>
     [Theory]
     [InlineData(HardwareVideoEncoder.Software)]

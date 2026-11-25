@@ -1035,6 +1035,8 @@
   <data name="Streaming_WarmProducerCountMany" xml:space="preserve"><value>{0} produttori caldi</value></data>
   <data name="Streaming_WarmProducerCountOne" xml:space="preserve"><value>{0} produttore caldo</value></data>
   <data name="Transcoding_Ac4Audio" xml:space="preserve"><value>AC-4 Audio</value></data>
+  <data name="Transcoding_Ac4TimestampCompensation" xml:space="preserve"><value>Compensazione dei timestamp AC-4 (sperimentale)</value></data>
+  <data name="Transcoding_Ac4TimestampCompensationHelp" xml:space="preserve"><value>Disattivata per impostazione predefinita. Durante la transcodifica AC-4 in Lineup, consente di aggiungere o rimuovere campioni audio in base ai timestamp per indagare crepitii o deriva della sincronizzazione. AC-4 copiato e altri codec restano invariati. La transcodifica AC-4 usa 48 kHz con questa opzione attiva o disattiva. Salva e avvia una nuova sessione di riproduzione per confrontare.</value></data>
   <data name="Transcoding_AlwaysTranscodeVideo" xml:space="preserve"><value>Transcodifica sempre il video</value></data>
   <data name="Transcoding_AlwaysTranscodeVideoHelp" xml:space="preserve"><value>Ricodifica tutti i video in H.264 usando il codificatore e il limite di bitrate video selezionati. Audio e dati di trasporto sono aggiuntivi.</value></data>
   <data name="Transcoding_Audio" xml:space="preserve"><value>Audio</value></data>
@@ -1091,6 +1093,7 @@
   <data name="Transcoding_MaximumVideoBitrate" xml:space="preserve"><value>Bitrate video massimo</value></data>
   <data name="Transcoding_NonAc4Audio" xml:space="preserve"><value>Audio non AC-4</value></data>
   <data name="Transcoding_OverrideAc4Audio" xml:space="preserve"><value>Override AC-4 audio</value></data>
+  <data name="Transcoding_OverrideAc4TimestampCompensation" xml:space="preserve"><value>Sostituisci la compensazione dei timestamp AC-4</value></data>
   <data name="Transcoding_OverrideAlwaysTranscodeVideo" xml:space="preserve"><value>Sovrascrivi la transcodifica video permanente</value></data>
   <data name="Transcoding_OverrideBitrate" xml:space="preserve"><value>Override bitrate</value></data>
   <data name="Transcoding_OverrideDeinterlacing" xml:space="preserve"><value>Override deinterlacing</value></data>

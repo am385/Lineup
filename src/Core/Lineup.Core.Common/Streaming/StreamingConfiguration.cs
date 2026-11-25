@@ -188,6 +188,9 @@ public sealed record PhysicalTranscodeProfile
     /// <summary>Gets the preferred AC-4 audio policy.</summary>
     public OutputAudioPolicy Ac4Audio { get; init; } = OutputAudioPolicy.Copy;
 
+    /// <summary>Gets whether experimental timestamp compensation may fill or trim samples during AC-4 transcoding.</summary>
+    public bool Ac4TimestampCompensation { get; init; }
+
     /// <summary>Gets the video encoder preset.</summary>
     public VideoEncoderPreset VideoPreset { get; init; } = VideoEncoderPreset.VeryFast;
 
@@ -221,6 +224,9 @@ public sealed record PhysicalTranscodeOverrides
     /// <summary>Gets an optional AC-4 audio policy override.</summary>
     public OutputAudioPolicy? Ac4Audio { get; init; }
 
+    /// <summary>Gets an optional experimental AC-4 timestamp compensation override.</summary>
+    public bool? Ac4TimestampCompensation { get; init; }
+
     /// <summary>Gets an optional video encoder preset override.</summary>
     public VideoEncoderPreset? VideoPreset { get; init; }
 
@@ -239,6 +245,7 @@ public sealed record PhysicalTranscodeOverrides
         Deinterlace = Deinterlace ?? defaults.Deinterlace,
         Audio = Audio ?? defaults.Audio,
         Ac4Audio = Ac4Audio ?? defaults.Ac4Audio,
+        Ac4TimestampCompensation = Ac4TimestampCompensation ?? defaults.Ac4TimestampCompensation,
         VideoPreset = VideoPreset ?? defaults.VideoPreset,
         VideoQuality = VideoQuality ?? defaults.VideoQuality,
         MaximumVideoBitRateMbps = MaximumVideoBitRateMbps ?? defaults.MaximumVideoBitRateMbps
@@ -267,6 +274,9 @@ public sealed record VirtualTranscodeProfile
 
     /// <summary>Gets the preferred AC-4 audio policy.</summary>
     public OutputAudioPolicy Ac4Audio { get; init; } = OutputAudioPolicy.Copy;
+
+    /// <summary>Gets whether experimental timestamp compensation may fill or trim samples during AC-4 transcoding.</summary>
+    public bool Ac4TimestampCompensation { get; init; }
 
     /// <summary>Gets the video encoder preset.</summary>
     public VideoEncoderPreset VideoPreset { get; init; } = VideoEncoderPreset.VeryFast;
@@ -301,6 +311,9 @@ public sealed record VirtualTranscodeOverrides
     /// <summary>Gets an optional AC-4 audio policy override.</summary>
     public OutputAudioPolicy? Ac4Audio { get; init; }
 
+    /// <summary>Gets an optional experimental AC-4 timestamp compensation override.</summary>
+    public bool? Ac4TimestampCompensation { get; init; }
+
     /// <summary>Gets an optional video encoder preset override.</summary>
     public VideoEncoderPreset? VideoPreset { get; init; }
 
@@ -319,6 +332,7 @@ public sealed record VirtualTranscodeOverrides
         Deinterlace = Deinterlace ?? defaults.Deinterlace,
         Audio = Audio ?? defaults.Audio,
         Ac4Audio = Ac4Audio ?? defaults.Ac4Audio,
+        Ac4TimestampCompensation = Ac4TimestampCompensation ?? defaults.Ac4TimestampCompensation,
         VideoPreset = VideoPreset ?? defaults.VideoPreset,
         VideoQuality = VideoQuality ?? defaults.VideoQuality,
         MaximumVideoBitRateMbps = MaximumVideoBitRateMbps ?? defaults.MaximumVideoBitRateMbps

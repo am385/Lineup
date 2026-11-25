@@ -1035,6 +1035,8 @@
   <data name="Streaming_WarmProducerCountMany" xml:space="preserve"><value>{0} producteurs maintenus actifs</value></data>
   <data name="Streaming_WarmProducerCountOne" xml:space="preserve"><value>{0} producteur maintenu actif</value></data>
   <data name="Transcoding_Ac4Audio" xml:space="preserve"><value>Audio AC-4</value></data>
+  <data name="Transcoding_Ac4TimestampCompensation" xml:space="preserve"><value>Compensation des horodatages AC-4 (expérimental)</value></data>
+  <data name="Transcoding_Ac4TimestampCompensationHelp" xml:space="preserve"><value>Désactivée par défaut. Lors du transcodage AC-4 dans Lineup, permet d’ajouter ou de supprimer des échantillons audio selon les horodatages pour étudier les craquements ou la dérive de synchronisation. L’AC-4 copié et les autres codecs restent inchangés. Le transcodage AC-4 utilise 48 kHz avec ou sans cette option. Enregistrez puis démarrez une nouvelle session de lecture pour comparer.</value></data>
   <data name="Transcoding_AlwaysTranscodeVideo" xml:space="preserve"><value>Toujours transcoder la vidéo</value></data>
   <data name="Transcoding_AlwaysTranscodeVideoHelp" xml:space="preserve"><value>Réencode toute vidéo en H.264 avec l’encodeur et la limite de débit vidéo sélectionnés. L’audio et les données de transport s’ajoutent à ce débit.</value></data>
   <data name="Transcoding_Audio" xml:space="preserve"><value>Audio</value></data>
@@ -1091,6 +1093,7 @@
   <data name="Transcoding_MaximumVideoBitrate" xml:space="preserve"><value>Débit vidéo maximal</value></data>
   <data name="Transcoding_NonAc4Audio" xml:space="preserve"><value>Audio non AC-4</value></data>
   <data name="Transcoding_OverrideAc4Audio" xml:space="preserve"><value>Remplacer l’audio AC-4</value></data>
+  <data name="Transcoding_OverrideAc4TimestampCompensation" xml:space="preserve"><value>Remplacer la compensation des horodatages AC-4</value></data>
   <data name="Transcoding_OverrideAlwaysTranscodeVideo" xml:space="preserve"><value>Remplacer le transcodage vidéo systématique</value></data>
   <data name="Transcoding_OverrideBitrate" xml:space="preserve"><value>Remplacer le débit</value></data>
   <data name="Transcoding_OverrideDeinterlacing" xml:space="preserve"><value>Remplacer le désentrelacement</value></data>

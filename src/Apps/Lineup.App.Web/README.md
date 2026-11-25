@@ -64,6 +64,7 @@ Startup-only host budgets are documented in [Core processing and admission](../.
 | Virtual Tuner Video | Preserve the video codec (default), or transcode HEVC to H.264 for clients that do not support HEVC Live TV |
 | General Interlaced Video | Preserve the source (default), or deinterlace each confirmed interlaced tuner source once to progressive H.264 at its source frame or field rate |
 | Web Player Interlaced Video | Preserve the effective source (default), or apply per-session fallback deinterlacing in Watch |
+| AC-4 Timestamp Compensation (Experimental) | Off by default; optional timestamp-aware filling/trimming during AC-4 encoding, with independent physical/virtual defaults and per-device overrides. Copy and unrelated codecs are unaffected; AC-4 encoding uses 48 kHz regardless. Save and start new playback for A/B testing |
 | DRM-Protected Content | Return an explicit error (default), or stream a synthetic Content Protected slate |
 | Disabled Channels | Return an explicit error (default), or stream a synthetic Disabled Channel slate without opening a physical tuner |
 | Maximum Concurrent Streams | Limits logical consumers, not shared producers; multiple consumers sharing one pipeline each count toward the limit |

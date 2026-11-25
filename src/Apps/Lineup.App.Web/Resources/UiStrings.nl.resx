@@ -1035,6 +1035,8 @@
   <data name="Streaming_WarmProducerCountMany" xml:space="preserve"><value>{0} warme producenten</value></data>
   <data name="Streaming_WarmProducerCountOne" xml:space="preserve"><value>{0} warme producent</value></data>
   <data name="Transcoding_Ac4Audio" xml:space="preserve"><value>AC-4-audio</value></data>
+  <data name="Transcoding_Ac4TimestampCompensation" xml:space="preserve"><value>AC-4-tijdstempelcompensatie (experimenteel)</value></data>
+  <data name="Transcoding_Ac4TimestampCompensationHelp" xml:space="preserve"><value>Standaard uitgeschakeld. Bij AC-4-transcodering in Lineup kunnen audiosamples op basis van tijdstempels worden aangevuld of verwijderd om gekraak of synchronisatieverloop te onderzoeken. Gekopieerde AC-4 en andere codecs blijven ongewijzigd. AC-4-transcodering gebruikt 48 kHz met deze optie aan of uit. Sla op en start een nieuwe afspeelsessie om te vergelijken.</value></data>
   <data name="Transcoding_AlwaysTranscodeVideo" xml:space="preserve"><value>Video altijd transcoderen</value></data>
   <data name="Transcoding_AlwaysTranscodeVideoHelp" xml:space="preserve"><value>Codeert alle video opnieuw als H.264 met de geselecteerde encoder en videobitratelimiet. Audio en transportgegevens komen daar nog bij.</value></data>
   <data name="Transcoding_Audio" xml:space="preserve"><value>Audio</value></data>
@@ -1091,6 +1093,7 @@
   <data name="Transcoding_MaximumVideoBitrate" xml:space="preserve"><value>Maximale videobitsnelheid</value></data>
   <data name="Transcoding_NonAc4Audio" xml:space="preserve"><value>Niet-AC-4-audio</value></data>
   <data name="Transcoding_OverrideAc4Audio" xml:space="preserve"><value>AC-4-audio overschrijven</value></data>
+  <data name="Transcoding_OverrideAc4TimestampCompensation" xml:space="preserve"><value>AC-4-tijdstempelcompensatie overschrijven</value></data>
   <data name="Transcoding_OverrideAlwaysTranscodeVideo" xml:space="preserve"><value>Video altijd transcoderen overschrijven</value></data>
   <data name="Transcoding_OverrideBitrate" xml:space="preserve"><value>Bitsnelheid overschrijven</value></data>
   <data name="Transcoding_OverrideDeinterlacing" xml:space="preserve"><value>De-interlacing overschrijven</value></data>

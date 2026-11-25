@@ -7,6 +7,27 @@ namespace Lineup.Core.Tests.Streaming;
 /// </summary>
 public sealed class TranscodeOverrideTests
 {
+    /// <summary>Verifies experimental compensation inherits unless explicitly enabled or disabled, including configurations saved before the option existed.</summary>
+    [Theory]
+    [InlineData("{}", null, false)]
+    [InlineData("{}", true, true)]
+    [InlineData("""{"Ac4TimestampCompensation":true}""", null, true)]
+    [InlineData("""{"Ac4TimestampCompensation":true}""", false, false)]
+    public void Apply_Ac4TimestampCompensation_PreservesOptInAndExplicitDisable(string json, bool? compensate, bool expected)
+    {
+        // Arrange
+        var physical = System.Text.Json.JsonSerializer.Deserialize<PhysicalTranscodeProfile>(json)!;
+        var virtualProfile = System.Text.Json.JsonSerializer.Deserialize<VirtualTranscodeProfile>(json)!;
+
+        // Act
+        var physicalEffective = new PhysicalTranscodeOverrides { Ac4TimestampCompensation = compensate }.Apply(physical);
+        var virtualEffective = new VirtualTranscodeOverrides { Ac4TimestampCompensation = compensate }.Apply(virtualProfile);
+
+        // Assert
+        Assert.Equal(expected, physicalEffective.Ac4TimestampCompensation);
+        Assert.Equal(expected, virtualEffective.Ac4TimestampCompensation);
+    }
+
     /// <summary>Verifies a device can inherit GPU settings or explicitly clear every field by choosing Software.</summary>
     [Fact]
     public void Apply_HardwareSettings_InheritsOrReplacesAsOneUnit()

@@ -7,6 +7,48 @@ namespace Lineup.App.Web.Tests.Services;
 /// </summary>
 public class MpegTsTranscodePlannerTests
 {
+    /// <summary>Verifies AC-4 encoding always uses 48 kHz while only opted-in transcodes receive timestamp compensation.</summary>
+    [Theory]
+    [InlineData("ac4", OutputAudioPolicy.Ac3, false)]
+    [InlineData("ac4", OutputAudioPolicy.Ac3, true)]
+    [InlineData("AC4", OutputAudioPolicy.Eac3, false)]
+    [InlineData("AC4", OutputAudioPolicy.Eac3, true)]
+    [InlineData("ac4", OutputAudioPolicy.Copy, false)]
+    [InlineData("ac4", OutputAudioPolicy.Copy, true)]
+    public void Ac4Resampling_AppliesOnlyToEncodedAc4(string sourceCodec, OutputAudioPolicy policy, bool compensate)
+    {
+        // Arrange
+        var profile = new VirtualTranscodeProfile { Audio = OutputAudioPolicy.Ac3, Ac4Audio = policy, Ac4TimestampCompensation = compensate };
+        AudioStreamInfo[] streams = [new(3, "aac", 2), new(7, sourceCodec, 6)];
+
+        // Act
+        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(_inputUri, "hevc", streams, profile);
+
+        // Assert
+        AssertOption(arguments, "-c:a:0", "ac3");
+        Assert.DoesNotContain("-filter:a:0", arguments);
+        Assert.DoesNotContain("-ar:a:0", arguments);
+        if (policy == OutputAudioPolicy.Copy)
+        {
+            Assert.DoesNotContain("-filter:a:1", arguments);
+            Assert.DoesNotContain("-ar:a:1", arguments);
+        }
+        else
+        {
+            AssertOption(arguments, "-c:a:1", policy == OutputAudioPolicy.Ac3 ? "ac3" : "eac3");
+            AssertOption(arguments, "-ar:a:1", "48000");
+        }
+        if (compensate && policy != OutputAudioPolicy.Copy)
+        {
+            AssertOption(arguments, "-filter:a:1", "aresample=async=1");
+        }
+        else
+        {
+            Assert.DoesNotContain("-filter:a:1", arguments);
+        }
+        Assert.DoesNotContain("-filter:a:7", arguments);
+    }
+
     /// <summary>Verifies forced encoding constrains copy-eligible video with either software or GPU encoding.</summary>
     [Theory]
     [InlineData(false, HardwareVideoEncoder.Software, null)]

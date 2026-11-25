@@ -1036,6 +1036,8 @@
   <data name="Streaming_WarmProducerCountMany" xml:space="preserve"><value>Podtrzymani producenci: {0}</value></data>
   <data name="Streaming_WarmProducerCountOne" xml:space="preserve"><value>Podtrzymany producent: {0}</value></data>
   <data name="Transcoding_Ac4Audio" xml:space="preserve"><value>Dźwięk AC-4</value></data>
+  <data name="Transcoding_Ac4TimestampCompensation" xml:space="preserve"><value>Kompensacja znaczników czasu AC-4 (eksperymentalna)</value></data>
+  <data name="Transcoding_Ac4TimestampCompensationHelp" xml:space="preserve"><value>Domyślnie wyłączona. Podczas transkodowania AC-4 w Lineup umożliwia uzupełnianie lub przycinanie próbek dźwięku według znaczników czasu w celu zbadania trzasków lub narastającego rozjazdu synchronizacji. Kopiowane AC-4 i inne kodeki pozostają bez zmian. Transkodowanie AC-4 używa 48 kHz niezależnie od tej opcji. Zapisz i rozpocznij nową sesję odtwarzania, aby porównać.</value></data>
   <data name="Transcoding_AlwaysTranscodeVideo" xml:space="preserve"><value>Zawsze transkoduj wideo</value></data>
   <data name="Transcoding_AlwaysTranscodeVideoHelp" xml:space="preserve"><value>Ponownie koduje każde wideo do H.264, używając wybranego kodera i limitu przepływności wideo. Dźwięk i dane transportowe wymagają dodatkowego pasma.</value></data>
   <data name="Transcoding_Audio" xml:space="preserve"><value>Dźwięk</value></data>
@@ -1092,6 +1094,7 @@
   <data name="Transcoding_MaximumVideoBitrate" xml:space="preserve"><value>Maksymalna przepływność obrazu</value></data>
   <data name="Transcoding_NonAc4Audio" xml:space="preserve"><value>Dźwięk inny niż AC-4</value></data>
   <data name="Transcoding_OverrideAc4Audio" xml:space="preserve"><value>Zastąp dźwięk AC-4</value></data>
+  <data name="Transcoding_OverrideAc4TimestampCompensation" xml:space="preserve"><value>Zastąp kompensację znaczników czasu AC-4</value></data>
   <data name="Transcoding_OverrideAlwaysTranscodeVideo" xml:space="preserve"><value>Zastąp ustawienie stałego transkodowania wideo</value></data>
   <data name="Transcoding_OverrideBitrate" xml:space="preserve"><value>Zastąp przepływność</value></data>
   <data name="Transcoding_OverrideDeinterlacing" xml:space="preserve"><value>Zastąp usuwanie przeplotu</value></data>

@@ -599,10 +599,12 @@ public sealed class StreamingFlowSnapshotService : IStreamingFlowSnapshotService
         profile.Ac4Audio != OutputAudioPolicy.Copy;
 
     private static string Describe(PhysicalTranscodeProfile profile) =>
-        $"Always transcode video {profile.AlwaysTranscodeVideo}; HEVC {(profile.ConvertHevcToH264 ? "to H.264" : "preserved")}; deinterlace {profile.Deinterlace}; audio {profile.Audio}; AC-4 {profile.Ac4Audio}";
+        $"Always transcode video {profile.AlwaysTranscodeVideo}; HEVC {(profile.ConvertHevcToH264 ? "to H.264" : "preserved")}; " +
+        $"deinterlace {profile.Deinterlace}; audio {profile.Audio}; AC-4 {profile.Ac4Audio}; AC-4 timestamp compensation {profile.Ac4TimestampCompensation}";
 
     private static string Describe(VirtualTranscodeProfile profile) =>
-        $"Always transcode video {profile.AlwaysTranscodeVideo}; HEVC {(profile.ConvertHevcToH264 ? "to H.264" : "preserved")}; deinterlace {profile.Deinterlace}; audio {profile.Audio}; AC-4 {profile.Ac4Audio}";
+        $"Always transcode video {profile.AlwaysTranscodeVideo}; HEVC {(profile.ConvertHevcToH264 ? "to H.264" : "preserved")}; " +
+        $"deinterlace {profile.Deinterlace}; audio {profile.Audio}; AC-4 {profile.Ac4Audio}; AC-4 timestamp compensation {profile.Ac4TimestampCompensation}";
 
     private static string Describe(PhysicalDeviceSubscription subscription) =>
         subscription.Mode == PhysicalDeviceSubscriptionMode.All

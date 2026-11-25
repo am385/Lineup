@@ -154,6 +154,7 @@ public static class MpegTsTranscodePlanner
             arguments.Add(codec);
             arguments.Add($"-b:a:{audioIndex}");
             arguments.Add(codec == "ac3" ? "448k" : "640k");
+            AudioResamplePlanner.AddArguments(arguments, stream.CodecName, audioIndex, profile.Ac4TimestampCompensation);
 
             if (stream.Channels > 6)
             {
