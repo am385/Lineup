@@ -1003,6 +1003,17 @@
   <data name="Streaming_NoConsumersAttached" xml:space="preserve"><value>Obecnie nie jest podłączony żaden odbiorca.</value></data>
   <data name="Streaming_NodeAriaLabel" xml:space="preserve"><value>{0}, {1}, aktywne sesje: {2}</value></data>
   <data name="Streaming_None" xml:space="preserve"><value>Brak</value></data>
+  <data name="Streaming_OperationAudioAbsent" xml:space="preserve"><value>Brak dźwięku</value></data>
+  <data name="Streaming_OperationAudioCopy" xml:space="preserve"><value>Kopiowanie dźwięku</value></data>
+  <data name="Streaming_OperationAudioTranscode" xml:space="preserve"><value>Transkodowanie dźwięku</value></data>
+  <data name="Streaming_OperationAudioUnknown" xml:space="preserve"><value>Dźwięk nieznany</value></data>
+  <data name="Streaming_OperationPassThrough" xml:space="preserve"><value>Przekazywanie bez zmian</value></data>
+  <data name="Streaming_OperationRemux" xml:space="preserve"><value>Remuksowanie</value></data>
+  <data name="Streaming_OperationTransportUnknown" xml:space="preserve"><value>Transport nieznany</value></data>
+  <data name="Streaming_OperationVideoAbsent" xml:space="preserve"><value>Brak obrazu</value></data>
+  <data name="Streaming_OperationVideoCopy" xml:space="preserve"><value>Kopiowanie obrazu</value></data>
+  <data name="Streaming_OperationVideoTranscode" xml:space="preserve"><value>Transkodowanie obrazu</value></data>
+  <data name="Streaming_OperationVideoUnknown" xml:space="preserve"><value>Obraz nieznany</value></data>
   <data name="Streaming_OutputStreamComponents" xml:space="preserve"><value>Składniki strumienia wyjściowego</value></data>
   <data name="Streaming_RawPhysicalInput" xml:space="preserve"><value>Surowe wejście fizyczne</value></data>
   <data name="Streaming_RawPhysicalStreamComponents" xml:space="preserve"><value>Składniki surowego strumienia fizycznego</value></data>

@@ -7,6 +7,66 @@ namespace Lineup.App.Web.Tests.Services;
 /// <summary>Verifies configured and runtime streaming-flow projection.</summary>
 public sealed class StreamingFlowSnapshotServiceTests
 {
+    /// <summary>Audio-only conversion belongs to its actual processor, not to the shared source or logical output.</summary>
+    [Fact]
+    public void GetSnapshot_AudioTranscodeAndRemux_PreserveStageAttribution()
+    {
+        // Arrange
+        var physicalId = PhysicalDeviceId.New();
+        var virtualId = VirtualDeviceId.New();
+        var sourceMedia = new ActiveStreamMediaSnapshot(null,
+        [
+            new(0, MediaTrackType.Video, "h264", null, 1920, 1080, null, null),
+            new(7, MediaTrackType.Audio, "ac4", null, null, null, 12, 46034)
+        ]);
+        ActiveStreamTrack[] tracks =
+        [
+            new(MediaTrackType.Video, "h264", "copy", null, null, 1920, 1080, null, null, null),
+            new(MediaTrackType.Audio, "ac4", "ac3", null, null, null, null, 12, 6, 48000) { SourceIndex = 7 }
+        ];
+        var processing = new StreamProcessingSnapshot(StreamTransportOperation.Remux, tracks) { VideoKnown = true, AudioKnown = true };
+        var stream = ActiveStream("viewer", "localhost", physicalId, virtualId, new(physicalId, "7.1")) with
+        {
+            PhysicalInput = sourceMedia,
+            PhysicalOutput = sourceMedia,
+            Tracks = tracks,
+            Flow = new() { PhysicalDeviceId = physicalId, VirtualDeviceId = virtualId, ProducerNodeId = "encoded" }
+        };
+        var settings = Substitute.For<ILineupSettingsService>();
+        settings.Settings.Returns(new LineupSettings { Streaming = Configuration(physicalId, virtualId) });
+        var graph = Substitute.For<IStreamingSessionGraph>();
+        graph.GetDiagnostics().Returns(new StreamingSessionGraphDiagnostics(
+        [
+            new("acquisition", "source", 1, true) { NodeId = "source", PhysicalDeviceId = physicalId },
+            new("transform", "encoded", 1, true)
+            {
+                NodeId = "encoded", ParentNodeId = "source", Stage = "virtual-mpegts",
+                VideoEncoding = new("copy", null, false), Processing = processing
+            }
+        ], []));
+        var streams = Substitute.For<IActiveStreamRegistry>();
+        streams.GetActiveStreams().Returns([stream]);
+        var devices = Substitute.For<IPhysicalDeviceStatusService>();
+        devices.Devices.Returns([]);
+
+        // Act
+        var snapshot = new StreamingFlowSnapshotService(settings, graph, [], streams, devices).GetSnapshot();
+
+        // Assert
+        var nodes = snapshot.Topology!.Nodes;
+        var output = Assert.Single(nodes, node => node.Lane == StreamingFlowLane.VirtualProcessing);
+        Assert.Same(processing, Assert.Single(output.ProcessingOutcomes));
+        Assert.Equal(StreamingFlowState.Transcoding, output.State);
+        Assert.Equal("Output Transcoder", output.Label);
+        var source = Assert.Single(nodes, node => node.Lane == StreamingFlowLane.PhysicalProcessing);
+        var forwarded = Assert.Single(source.ProcessingOutcomes);
+        Assert.Equal(StreamTransportOperation.PassThrough, forwarded.Transport);
+        Assert.False(forwarded.Transcodes);
+        Assert.All(forwarded.Tracks, track => Assert.Equal("copy", track.OutputCodec));
+        Assert.All(nodes.Where(node => node.Lane is StreamingFlowLane.VirtualOutput or StreamingFlowLane.Consumer), node => Assert.Empty(node.ProcessingOutcomes));
+        Assert.Same(processing, snapshot.ActivePaths[0].Stages.Single(stage => stage.Kind == StreamingFlowStageKind.OutputProcessing).Processing);
+    }
+
     /// <summary>Verifies all configured devices, no-op processors, and multiplexer connections survive an empty runtime graph.</summary>
     [Fact]
     public void GetSnapshot_IdleCardTopology_KeepsCompleteConfiguredPipeline()
@@ -507,7 +567,13 @@ public sealed class StreamingFlowSnapshotServiceTests
         var virtualId = VirtualDeviceId.New();
         var context = new StreamingProducerContext(new() { ProducerNodeId = "source", PhysicalDeviceId = physicalId, VirtualDeviceId = virtualId }, "7.1")
         {
-            ResourceIds = ["encoder"]
+            ResourceIds = ["encoder"],
+            Processing = new(StreamTransportOperation.Remux,
+                [new(MediaTrackType.Audio, "ac4", "copy", null, null, null, null, 12, 12, 46034) { SourceIndex = 7 }])
+            {
+                AudioKnown = true,
+                VideoKnown = true
+            }
         };
         var lease = await coordinator.AcquireAsync(new("test", "plan"), StreamSessionId.New(),
             _ => ValueTask.FromResult(new CmafOutputRegistration(owner, new object()) { ObserveContext = () => context }),
@@ -543,6 +609,10 @@ public sealed class StreamingFlowSnapshotServiceTests
         Assert.Equal($"output-processing:output:{id}", processor.Id);
         Assert.False(processor.IsLogicalStage);
         Assert.Equal(["encoder"], processor.ResourceIds);
+        Assert.Same(context.Processing, Assert.Single(processor.ProcessingOutcomes));
+        Assert.Equal(StreamTransportOperation.Remux, Assert.Single(processor.ProcessingOutcomes).Transport);
+        Assert.DoesNotContain(warm.Topology.Nodes.Where(node => node.Lane == StreamingFlowLane.PhysicalProcessing)
+            .SelectMany(node => node.ProcessingOutcomes), operation => operation.Transport == StreamTransportOperation.Remux);
         Assert.Contains(warm.Topology.Edges, edge => edge.Source == "source-processing:runtime:source" && edge.Target == $"virtual:{virtualId}" && edge.State == StreamingFlowState.Warm);
         Assert.Contains(warm.Topology.Edges, edge => edge.Source == $"virtual:{virtualId}" && edge.Target == processor.Id && edge.State == StreamingFlowState.Warm);
         Assert.DoesNotContain(stopped.Graph!.Nodes, node => node.Id == $"output:{id}");

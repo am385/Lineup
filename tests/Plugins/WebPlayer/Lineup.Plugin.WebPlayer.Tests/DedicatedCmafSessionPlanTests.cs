@@ -93,6 +93,11 @@ public sealed class DedicatedCmafSessionPlanTests
         Assert.Equal("libx264", snapshot.ActiveVideoEncoder);
         Assert.True(snapshot.HardwareFallbackApplied);
         Assert.NotEqual(plan.SharingKey, fallback.SharingKey);
+        Assert.Equal(StreamTransportOperation.Remux, snapshot.Processing!.Transport);
+        Assert.True(snapshot.Processing.Transcodes);
+        Assert.All(snapshot.Processing.Tracks.Where(track => track.Type == MediaTrackType.Audio), track => Assert.NotEqual("copy", track.OutputCodec));
+        var initial = plan.CreateActiveStreamSnapshot("initial", "1.1", DateTime.UtcNow);
+        Assert.Contains(initial.Processing!.Tracks, track => track.Type == MediaTrackType.Audio && track.OutputCodec == "copy");
     }
 
     /// <summary>Verifies equivalent dedicated presentations share an identity across viewer IDs and output directories.</summary>

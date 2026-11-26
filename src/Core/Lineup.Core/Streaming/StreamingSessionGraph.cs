@@ -53,6 +53,9 @@ public interface IStreamSourceLease : IAsyncDisposable
     /// <summary>Gets producer-reported video encoding, or null when the source does not report an encoder.</summary>
     VideoEncodingSnapshot? VideoEncoding => null;
 
+    /// <summary>Gets producer-reported codec and transport operations.</summary>
+    StreamProcessingSnapshot? Processing => null;
+
     /// <summary>Gets process resource identities reported by this producer.</summary>
     IReadOnlyList<string> ResourceIds => [];
 }
@@ -119,6 +122,9 @@ public sealed record StreamNodeDiagnostics(string Kind, string Key, int Receiver
 
     /// <summary>Gets the encoder outcome reported by this running node.</summary>
     public VideoEncodingSnapshot? VideoEncoding { get; init; }
+
+    /// <summary>Gets the effective codec and transport operations of this node.</summary>
+    public StreamProcessingSnapshot? Processing { get; init; }
 
     /// <summary>Gets process resource identities belonging to this running producer.</summary>
     public IReadOnlyList<string> ResourceIds { get; init; } = [];
@@ -891,6 +897,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
         private long _totalSubscriptions;
         private bool _completed;
         private VideoEncodingSnapshot? _videoEncoding;
+        private StreamProcessingSnapshot? _processing;
         private IReadOnlyList<string> _resourceIds = [];
         private readonly string? _traceParent = System.Diagnostics.Activity.Current?.Id;
 
@@ -994,6 +1001,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                     SourceChannelId = (_key as AcquisitionNodeKey)?.AcquisitionKey.ChannelId,
                     Stage = (_key as TransformNodeKey)?.Transform.Stage,
                     VideoEncoding = _videoEncoding,
+                    Processing = _processing,
                     ResourceIds = _resourceIds
                 };
             }
@@ -1047,6 +1055,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                 lock (_gate)
                 {
                     _videoEncoding = source.VideoEncoding;
+                    _processing = source.Processing;
                     _resourceIds = source.ResourceIds;
                 }
                 _started.TrySetResult();
@@ -1264,6 +1273,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
             Stream = source.Stream;
             ContentType = source.ContentType;
             VideoEncoding = source.VideoEncoding;
+            Processing = source.Processing;
             ResourceIds = source.ResourceIds;
             _sourceOwner = source;
             _parentOwner = parentOwner;
@@ -1277,6 +1287,9 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
 
         /// <inheritdoc />
         public VideoEncodingSnapshot? VideoEncoding { get; }
+
+        /// <inheritdoc />
+        public StreamProcessingSnapshot? Processing { get; }
 
         /// <inheritdoc />
         public IReadOnlyList<string> ResourceIds { get; }

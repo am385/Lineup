@@ -844,7 +844,7 @@ internal sealed class StatusApiService
                 node.ActiveChannels,
                 node.ActiveSessionCount,
                 node.VideoEncodings)
-            { ResourceIds = node.ResourceIds }).ToArray(),
+            { ResourceIds = node.ResourceIds, ProcessingOutcomes = node.ProcessingOutcomes }).ToArray(),
             snapshot.ActivePaths.Select(path => new StreamingFlowPathStatusResponse(
                 path.Id,
                 path.SessionId,
@@ -863,7 +863,7 @@ internal sealed class StatusApiService
                     ToMediaStatus(stage.InputMedia),
                     ToMediaStatus(stage.OutputMedia),
                     stage.VideoEncoding)
-                { ResourceIds = stage.ResourceIds }).ToArray())).ToArray());
+                { ResourceIds = stage.ResourceIds, Processing = stage.Processing }).ToArray())).ToArray());
     }
 
     private static IReadOnlyDictionary<string, string> FilterFlowDetails(IReadOnlyList<StreamingFlowDetail> details, WebSettings settings, bool isConsumer) =>

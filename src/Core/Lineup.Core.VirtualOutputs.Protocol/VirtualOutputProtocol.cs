@@ -565,6 +565,9 @@ public sealed record VirtualOutputStreamStatusReport
     /// <summary>Gets the launched output video encoder after readiness, independently of physical source processing.</summary>
     public VideoEncodingSnapshot? VideoEncoding { get; init; }
 
+    /// <summary>Gets effective codec and transport operations of the worker output.</summary>
+    public StreamProcessingSnapshot? Processing { get; init; }
+
     /// <summary>Gets the latest worker startup stage.</summary>
     public VirtualOutputStreamStartupStage StartupStage { get; init; }
 

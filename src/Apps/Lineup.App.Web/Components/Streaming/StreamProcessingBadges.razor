@@ -1,0 +1,63 @@
+@foreach (var key in GetLabelKeys(Outcomes, ShowVideo))
+{
+    <span class="badge @(key.EndsWith("Transcode", StringComparison.Ordinal) || key == "Streaming_OperationRemux" ? "text-bg-info" : "text-bg-secondary")"
+          data-processing-operation="@key">@Text[key]</span>
+}
+@if (ShowTracks)
+{
+    @foreach (var track in Outcomes.SelectMany(outcome => outcome.Tracks).Where(IsMapped).Distinct())
+    {
+        <div class="w-100 small" data-processing-track="@track.SourceIndex">
+            <span class="badge text-bg-secondary">@Text[GetTrackKey(track)]</span>
+            @($"#{track.SourceIndex}")
+            @string.Join(" · ", new[] { track.Language, track.Title, track.OutputTitle }.Where(value => !string.IsNullOrWhiteSpace(value)))
+            <span>@track.SourceCodec &rarr; @(track.OutputCodec == "copy" ? track.SourceCodec : track.OutputCodec)</span>
+        </div>
+    }
+}
+
+@code {
+    /// <summary>Gets effective processing outcomes attributed to this stage or shared node.</summary>
+    [Parameter]
+    public IReadOnlyList<StreamProcessingSnapshot> Outcomes { get; set; } = [];
+
+    /// <summary>Gets whether video operations are reported here instead of by a legacy encoder-only diagnostic.</summary>
+    [Parameter]
+    public bool ShowVideo { get; set; } = true;
+
+    /// <summary>Gets whether selected-node details include every mapped track and rendition.</summary>
+    [Parameter]
+    public bool ShowTracks { get; set; }
+
+    /// <summary>Returns localized resource keys for the distinct observed operations, preserving unknown and absent states.</summary>
+    public static IEnumerable<string> GetLabelKeys(IReadOnlyList<StreamProcessingSnapshot> outcomes, bool showVideo = true)
+    {
+        if (showVideo)
+        {
+            foreach (var key in TrackKeys(MediaTrackType.Video)) yield return key;
+        }
+        foreach (var key in TrackKeys(MediaTrackType.Audio)) yield return key;
+        foreach (var transport in outcomes.Select(outcome => outcome.Transport).DefaultIfEmpty(StreamTransportOperation.Unknown).Distinct())
+        {
+            yield return transport switch
+            {
+                StreamTransportOperation.PassThrough => "Streaming_OperationPassThrough",
+                StreamTransportOperation.Remux => "Streaming_OperationRemux",
+                _ => "Streaming_OperationTransportUnknown"
+            };
+        }
+
+        IEnumerable<string> TrackKeys(MediaTrackType type) =>
+            outcomes.SelectMany(outcome =>
+            {
+                var tracks = outcome.Tracks.Where(track => track.Type == type && IsMapped(track)).ToArray();
+                return tracks.Length > 0 ? tracks.Select(GetTrackKey)
+                    : new[] { $"Streaming_Operation{type}{((type == MediaTrackType.Video ? outcome.VideoKnown : outcome.AudioKnown) ? "Absent" : "Unknown")}" };
+            }).DefaultIfEmpty($"Streaming_Operation{type}Unknown").Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal);
+    }
+
+    private static bool IsMapped(ActiveStreamTrack track) =>
+        track.IsSelected && track.Type is MediaTrackType.Video or MediaTrackType.Audio && track.OutputCodec != "not-mapped";
+
+    private static string GetTrackKey(ActiveStreamTrack track) => $"Streaming_Operation{track.Type}{(track.OutputCodec == "copy" ? "Copy" : "Transcode")}";
+}

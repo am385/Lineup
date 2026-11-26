@@ -251,6 +251,9 @@ internal sealed record StreamingFlowNodeStatusResponse(
     IReadOnlyList<VideoEncodingSnapshot> VideoEncodings
 )
 {
+    /// <summary>Gets effective codec and transport operations at this node.</summary>
+    public IReadOnlyList<StreamProcessingSnapshot> ProcessingOutcomes { get; init; } = [];
+
     /// <summary>Gets deduplicated process-resource identities for this topology node.</summary>
     public IReadOnlyList<string> ResourceIds { get; init; } = [];
 }
@@ -280,6 +283,9 @@ internal sealed record StreamingFlowStageStatusResponse(
     VideoEncodingSnapshot? VideoEncoding
 )
 {
+    /// <summary>Gets effective codec and transport operations at this stage.</summary>
+    public StreamProcessingSnapshot? Processing { get; init; }
+
     /// <summary>Gets process-resource identities without duplicating costs for shared viewers.</summary>
     public IReadOnlyList<string> ResourceIds { get; init; } = [];
 }

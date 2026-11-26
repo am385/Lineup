@@ -144,6 +144,10 @@ public static class VirtualOutputProtocolValidation
         {
             errors.Add($"The stream failure cannot exceed {VirtualOutputProtocol.MaximumStreamFailureLength} characters.");
         }
+        if (report.Processing is { } processing && !Enum.IsDefined(processing.Transport))
+        {
+            errors.Add("The reported transport operation is invalid.");
+        }
         if (report.WorkerProducerId is not null && !Guid.TryParseExact(report.WorkerProducerId, "N", out _))
         {
             errors.Add("The worker producer identity must be a canonical session identifier.");
@@ -151,7 +155,8 @@ public static class VirtualOutputProtocolValidation
         var trackCount = (report.Tracks?.Count ?? 0) +
             (report.PhysicalInput?.Tracks?.Count ?? 0) +
             (report.PhysicalOutput?.Tracks?.Count ?? 0) +
-            (report.VirtualOutput?.Tracks?.Count ?? 0);
+            (report.VirtualOutput?.Tracks?.Count ?? 0) +
+            (report.Processing?.Tracks?.Count ?? 0);
         if (trackCount > VirtualOutputProtocol.MaximumStreamStatusTrackCount)
         {
             errors.Add($"The stream status cannot contain more than {VirtualOutputProtocol.MaximumStreamStatusTrackCount} tracks.");
@@ -159,22 +164,24 @@ public static class VirtualOutputProtocolValidation
         if (report.Tracks is null ||
             report.PhysicalInput is { Tracks: null } ||
             report.PhysicalOutput is { Tracks: null } ||
-            report.VirtualOutput is { Tracks: null })
+            report.VirtualOutput is { Tracks: null } ||
+            report.Processing is { Tracks: null })
         {
             errors.Add("Stream-status track collections cannot be null.");
         }
         else if (report.Tracks.Any(IsInvalid) ||
             report.PhysicalInput?.Tracks.Any(IsInvalid) == true ||
             report.PhysicalOutput?.Tracks.Any(IsInvalid) == true ||
-            report.VirtualOutput?.Tracks.Any(IsInvalid) == true)
+            report.VirtualOutput?.Tracks.Any(IsInvalid) == true ||
+            report.Processing?.Tracks.Any(IsInvalid) == true)
         {
             errors.Add("Stream-status tracks contain invalid or oversized media metadata.");
         }
         return errors;
     }
 
-    private static bool IsInvalid(ActiveStreamTrack track) =>
-        !Enum.IsDefined(track.Type) ||
+    private static bool IsInvalid(ActiveStreamTrack? track) =>
+        track is null || !Enum.IsDefined(track.Type) ||
         track.SourceIndex < 0 ||
         IsInvalidCodec(track.SourceCodec) ||
         IsInvalidCodec(track.OutputCodec) ||

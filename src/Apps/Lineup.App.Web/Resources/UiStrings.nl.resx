@@ -1002,6 +1002,17 @@
   <data name="Streaming_NoConsumersAttached" xml:space="preserve"><value>Er zijn momenteel geen gebruikers verbonden.</value></data>
   <data name="Streaming_NodeAriaLabel" xml:space="preserve"><value>{0}, {1}, {2} actieve sessies</value></data>
   <data name="Streaming_None" xml:space="preserve"><value>Geen</value></data>
+  <data name="Streaming_OperationAudioAbsent" xml:space="preserve"><value>Geen audio</value></data>
+  <data name="Streaming_OperationAudioCopy" xml:space="preserve"><value>Audio kopiëren</value></data>
+  <data name="Streaming_OperationAudioTranscode" xml:space="preserve"><value>Audio transcoderen</value></data>
+  <data name="Streaming_OperationAudioUnknown" xml:space="preserve"><value>Audio onbekend</value></data>
+  <data name="Streaming_OperationPassThrough" xml:space="preserve"><value>Doorvoer</value></data>
+  <data name="Streaming_OperationRemux" xml:space="preserve"><value>Remux</value></data>
+  <data name="Streaming_OperationTransportUnknown" xml:space="preserve"><value>Transport onbekend</value></data>
+  <data name="Streaming_OperationVideoAbsent" xml:space="preserve"><value>Geen video</value></data>
+  <data name="Streaming_OperationVideoCopy" xml:space="preserve"><value>Video kopiëren</value></data>
+  <data name="Streaming_OperationVideoTranscode" xml:space="preserve"><value>Video transcoderen</value></data>
+  <data name="Streaming_OperationVideoUnknown" xml:space="preserve"><value>Video onbekend</value></data>
   <data name="Streaming_OutputStreamComponents" xml:space="preserve"><value>Uitvoerstreamonderdelen</value></data>
   <data name="Streaming_RawPhysicalInput" xml:space="preserve"><value>Onbewerkte fysieke invoer</value></data>
   <data name="Streaming_RawPhysicalStreamComponents" xml:space="preserve"><value>Onbewerkte fysieke streamonderdelen</value></data>

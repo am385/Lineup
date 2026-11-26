@@ -27,6 +27,10 @@ player destruction failures and isolation from replacement players.
 The dashboard-resource regressions cover visibility demand, non-overlapping callbacks, in-flight visibility changes and timer/listener cleanup.
 The streaming-graph regressions use the real cached Cytoscape bundle to cover card-to-card SVG connections, graph reconciliation,
 path highlighting, scroll preservation, resizing, and visibility-aware refresh/disposal. Build the Web app first to populate the hash-verified browser-asset cache.
+Active Streams operation badges report video and audio copy/encoding independently of transport pass-through/remux.
+Focused planner, producer, worker IPC, flow projection and component tests cover same-codec re-encoding, copied AC-4,
+mixed audio renditions, explicit absence versus incomplete discovery, stage attribution and selected-node track details.
+These reporting tests do not require live tuners or change encoding policy.
 
 Slate parser regressions additionally support native FFmpeg through `LINEUP_TEST_SLATE_FFMPEG`, an explicit executable path with drawtext support.
 With that variable set, `ProtectedContentSlateServiceTests` renders one synthetic frame per case and checks literal text, disabled expansion and filter isolation;

@@ -67,6 +67,9 @@ public sealed record StreamingFlowNode(string Id, StreamingFlowLane Lane, string
     /// <summary>Gets distinct encoder outcomes reported by active outputs, not inferred from device settings.</summary>
     public IReadOnlyList<VideoEncodingSnapshot> VideoEncodings { get; init; } = [];
 
+    /// <summary>Gets distinct effective processing outcomes attributed to this node.</summary>
+    public IReadOnlyList<StreamProcessingSnapshot> ProcessingOutcomes { get; init; } = [];
+
     /// <summary>Gets whether this node is a logical reference rather than a processing stage that reports an encoder.</summary>
     public bool IsLogicalStage { get; init; }
 
@@ -85,6 +88,9 @@ public sealed record StreamingFlowPathStage(StreamingFlowStageKind Kind, string 
 
     /// <summary>Gets the actual encoder reported for this processing stage, when available.</summary>
     public VideoEncodingSnapshot? VideoEncoding { get; init; }
+
+    /// <summary>Gets effective codec and transport operations attributed to this stage.</summary>
+    public StreamProcessingSnapshot? Processing { get; init; }
 
     /// <summary>Gets the media entering this stage.</summary>
     public ActiveStreamMediaSnapshot? InputMedia { get; init; }
@@ -209,6 +215,8 @@ public sealed class StreamingFlowSnapshotService : IStreamingFlowSnapshotService
             {
                 VideoEncodings = relatedStreams.Select(stream => GetSourceVideoEncoding(stream, nodesById))
                     .Concat(physicalTransforms.Select(node => node.VideoEncoding)).OfType<VideoEncodingSnapshot>().Distinct().ToArray(),
+                ProcessingOutcomes = relatedStreams.Select(stream => GetSourceProcessing(stream, nodesById))
+                    .Concat(physicalTransforms.Select(node => node.Processing)).OfType<StreamProcessingSnapshot>().Distinct().ToArray(),
                 ResourceIds = physicalTransforms.SelectMany(node => node.ResourceIds).Distinct(StringComparer.Ordinal).ToArray(),
                 ActiveChannels = channels,
                 ActiveSessionCount = relatedStreams.Length
@@ -296,6 +304,7 @@ public sealed class StreamingFlowSnapshotService : IStreamingFlowSnapshotService
                 ])
             {
                 VideoEncodings = relatedStreams.Select(stream => GetOutputVideoEncoding(stream, nodesById)).OfType<VideoEncodingSnapshot>().Distinct().ToArray(),
+                ProcessingOutcomes = relatedStreams.Select(stream => GetOutputProcessing(stream, nodesById)).OfType<StreamProcessingSnapshot>().Distinct().ToArray(),
                 ResourceIds = relatedStreams.SelectMany(stream => stream.ResourceIds.Count > 0
                     ? stream.ResourceIds : FindProcessingNode(stream, "virtual-mpegts", nodesById)?.ResourceIds ?? []).Distinct(StringComparer.Ordinal).ToArray(),
                 ActiveChannels = channels,
@@ -407,6 +416,7 @@ public sealed class StreamingFlowSnapshotService : IStreamingFlowSnapshotService
                 ])
             {
                 VideoEncoding = GetSourceVideoEncoding(stream, nodesById),
+                Processing = GetSourceProcessing(stream, nodesById),
                 ResourceIds = FindProcessingNode(stream, "source-normalization", nodesById)?.ResourceIds ?? [],
                 InputMedia = stream.PhysicalInput,
                 OutputMedia = stream.PhysicalOutput
@@ -447,6 +457,7 @@ public sealed class StreamingFlowSnapshotService : IStreamingFlowSnapshotService
                 ])
             {
                 VideoEncoding = GetOutputVideoEncoding(stream, nodesById),
+                Processing = GetOutputProcessing(stream, nodesById),
                 ResourceIds = stream.ResourceIds.Count > 0 ? stream.ResourceIds : FindProcessingNode(stream, "virtual-mpegts", nodesById)?.ResourceIds ?? [],
                 InputMedia = stream.PhysicalOutput,
                 OutputMedia = stream.VirtualOutput
@@ -491,6 +502,21 @@ public sealed class StreamingFlowSnapshotService : IStreamingFlowSnapshotService
         string.IsNullOrWhiteSpace(stream.ActiveVideoEncoder)
             ? FindProcessingNode(stream, "virtual-mpegts", nodes)?.VideoEncoding
             : new(stream.ActiveVideoEncoder, stream.RequestedVideoEncoder, stream.HardwareFallbackApplied) { Processing = stream.VideoProcessing };
+
+    private static StreamProcessingSnapshot? GetOutputProcessing(ActiveStreamSnapshot stream, IReadOnlyDictionary<string, StreamNodeDiagnostics> nodes)
+    {
+        if (stream.Processing is not null) return stream.Processing;
+        if (FindProcessingNode(stream, "virtual-mpegts", nodes) is { } output) return output.Processing;
+        return stream.Format == HostedStreamFormat.MpegTs && FindProcessingNode(stream, null, nodes) is not null &&
+            stream.Tracks.All(track => !track.IsSelected || track.OutputCodec == "copy")
+            ? StreamProcessingSnapshot.Forward(stream.PhysicalOutput) : null;
+    }
+
+    private static StreamProcessingSnapshot? GetSourceProcessing(ActiveStreamSnapshot stream, IReadOnlyDictionary<string, StreamNodeDiagnostics> nodes)
+    {
+        if (FindProcessingNode(stream, "source-normalization", nodes) is { } source) return source.Processing;
+        return FindProcessingNode(stream, null, nodes) is not null ? StreamProcessingSnapshot.Forward(stream.PhysicalInput) : null;
+    }
 
     private static VideoEncodingSnapshot? GetSourceVideoEncoding(ActiveStreamSnapshot stream, IReadOnlyDictionary<string, StreamNodeDiagnostics> nodes)
     {

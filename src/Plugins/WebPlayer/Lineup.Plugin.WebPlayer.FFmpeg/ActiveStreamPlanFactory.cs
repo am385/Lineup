@@ -257,6 +257,13 @@ public static class ActiveStreamPlanFactory
         =>
         new(sessionId, channel, format, startedAtUtc, source.BitRate, tracks)
         {
+            Processing = format == HostedStreamFormat.Cmaf
+                ? new StreamProcessingSnapshot(StreamTransportOperation.Remux, tracks.Where(track => IsMappedOutput(track) && track.Type is MediaTrackType.Video or MediaTrackType.Audio).ToArray())
+                {
+                    VideoKnown = source.Tracks.Count > 0,
+                    AudioKnown = tracks.Any(track => IsMappedOutput(track) && track.Type == MediaTrackType.Audio) || source.AudioDiscovery == AudioDiscoveryStatus.DeclaredAbsent
+                }
+                : null,
             PhysicalInput = ToMediaSnapshot(rawSource),
             PhysicalOutput = ToMediaSnapshot(source),
             VirtualOutput = new ActiveStreamMediaSnapshot(

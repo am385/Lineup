@@ -7,6 +7,66 @@ namespace Lineup.App.Web.Tests.Services;
 /// </summary>
 public class MpegTsTranscodePlannerTests
 {
+    /// <summary>Effective argument reporting distinguishes same-codec encoding from copy and never treats remux as codec conversion.</summary>
+    [Theory]
+    [InlineData(false, OutputAudioPolicy.Copy)]
+    [InlineData(false, OutputAudioPolicy.Ac3)]
+    [InlineData(true, OutputAudioPolicy.Copy)]
+    [InlineData(true, OutputAudioPolicy.Ac3)]
+    public void ProcessingDiagnostics_ActualMappings_ReportIndependentOperations(bool encodeVideo, OutputAudioPolicy audio)
+    {
+        // Arrange
+        var source = new MediaProbeResult(
+        [
+            new(2, MediaTrackType.Video, "h264", null, 1920, 1080, null, null),
+            new(7, MediaTrackType.Audio, "ac3", null, null, null, 6, 48000) { Language = "eng", Title = "Main" },
+            new(12, MediaTrackType.Audio, "ac4", null, null, null, 12, 46034)
+        ], null);
+        var profile = new VirtualTranscodeProfile { AlwaysTranscodeVideo = encodeVideo, Audio = audio, Ac4Audio = OutputAudioPolicy.Copy };
+        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(_inputUri, "h264", [new(7, "ac3", 6), new(12, "ac4", 12)], profile);
+
+        // Act
+        var processing = MpegTsProcessingDiagnostics.Create(source, arguments);
+
+        // Assert
+        Assert.Equal(StreamTransportOperation.Remux, processing.Transport);
+        Assert.Equal(encodeVideo || audio != OutputAudioPolicy.Copy, processing.Transcodes);
+        Assert.True(processing.VideoKnown);
+        Assert.True(processing.AudioKnown);
+        Assert.Equal(encodeVideo ? "h264" : "copy", processing.Tracks[0].OutputCodec);
+        Assert.Equal(audio == OutputAudioPolicy.Copy ? "copy" : "ac3", processing.Tracks[1].OutputCodec);
+        Assert.Equal("copy", processing.Tracks[2].OutputCodec);
+        Assert.Equal([2, 7, 12], processing.Tracks.Select(track => track.SourceIndex));
+        Assert.Equal("eng", processing.Tracks[1].Language);
+        Assert.Equal("Main", processing.Tracks[1].Title);
+    }
+
+    /// <summary>Source-stage diagnostics retain only the video actually mapped and distinguish absent audio from incomplete discovery.</summary>
+    [Theory]
+    [InlineData(AudioDiscoveryStatus.Unknown, false)]
+    [InlineData(AudioDiscoveryStatus.DeclaredAbsent, true)]
+    [InlineData(AudioDiscoveryStatus.ExpectedMissing, false)]
+    public void ProcessingDiagnostics_SourceNormalization_UsesExactMappingAndDiscovery(AudioDiscoveryStatus discovery, bool audioKnown)
+    {
+        // Arrange
+        var source = new MediaProbeResult(
+        [
+            new(2, MediaTrackType.Video, "hevc", null, 1920, 1080, null, null),
+            new(8, MediaTrackType.Video, "hevc", null, 1920, 1080, null, null)
+        ], null)
+        { AudioDiscovery = discovery };
+        var arguments = SourceDeinterlacePlanner.CreateArguments(source, new PhysicalTranscodeProfile { AlwaysTranscodeVideo = true });
+
+        // Act
+        var processing = MpegTsProcessingDiagnostics.Create(source, arguments);
+
+        // Assert
+        Assert.Equal(2, Assert.Single(processing.Tracks).SourceIndex);
+        Assert.True(processing.Transcodes);
+        Assert.Equal(audioKnown, processing.AudioKnown);
+        Assert.Equal(StreamTransportOperation.Remux, processing.Transport);
+    }
+
     /// <summary>Verifies copied AC-4 is retained and assigned to actual output positions, independently of video encoding and source indexes.</summary>
     [Theory]
     [InlineData(0, HardwareVideoEncoder.Software)]

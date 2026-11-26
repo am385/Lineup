@@ -191,15 +191,19 @@ internal static class StreamingFlowTopologyBuilder
             if (passThrough && encodings.Count == 0) encodings = [new("copy", null, false)];
             var resources = producer.ResourceIds.Count > 0 ? producer.ResourceIds
                 : (existing?.ResourceIds ?? []).Concat(stage?.ResourceIds ?? []).Distinct(StringComparer.Ordinal).ToArray();
+            var operations = producer.ProcessingOutcomes.Count > 0 ? producer.ProcessingOutcomes
+                : (existing?.ProcessingOutcomes ?? []).Concat(stage?.Processing is { } processing ? [processing] : []).Distinct().ToArray();
             nodes[id] = producer with
             {
                 Id = id,
                 Lane = lane,
-                Label = GetProcessorLabel(lane, encodings, resources),
-                State = producer.State == StreamingFlowState.Active && encodings.Any(encoding => encoding.Encoder != "copy") ? StreamingFlowState.Transcoding : producer.State,
+                Label = GetProcessorLabel(lane, encodings, resources, operations),
+                State = producer.State == StreamingFlowState.Active && (operations.Any(operation => operation.Transcodes) ||
+                    encodings.Any(encoding => encoding.Encoder != "copy")) ? StreamingFlowState.Transcoding : producer.State,
                 Subtitle = "Output attribution not reported",
                 IsLogicalStage = producerId.StartsWith("synthetic:", StringComparison.Ordinal),
                 VideoEncodings = encodings,
+                ProcessingOutcomes = operations,
                 ResourceIds = resources,
                 Details = producer.Details.Concat(stage?.Details ?? []).DistinctBy(detail => detail.Label, StringComparer.Ordinal)
                     .Append(new("Producer identity", producerId)).ToArray()
@@ -232,12 +236,14 @@ internal static class StreamingFlowTopologyBuilder
         {
             if (lane == StreamingFlowLane.VirtualProcessing) replacedVirtuals.Add(contextId);
             var encodings = stage?.VideoEncoding is { } encoding ? new[] { encoding } : [];
+            var operations = stage?.Processing is { } processing ? new[] { processing } : [];
             var resources = stage?.ResourceIds ?? [];
-            var processor = nodes.GetValueOrDefault(id) ?? new StreamingFlowNode(id, lane, GetProcessorLabel(lane, encodings, resources),
-                nodes[contextId].Label, encodings.Any(encoding => encoding.Encoder != "copy") ? StreamingFlowState.Transcoding : state,
+            var processor = nodes.GetValueOrDefault(id) ?? new StreamingFlowNode(id, lane, GetProcessorLabel(lane, encodings, resources, operations),
+                nodes[contextId].Label, operations.Any(operation => operation.Transcodes) || encodings.Any(encoding => encoding.Encoder != "copy") ? StreamingFlowState.Transcoding : state,
                 (stage?.Details ?? []).Append(new("Producer identity", identity)).ToArray())
             {
                 VideoEncodings = encodings,
+                ProcessingOutcomes = operations,
                 ResourceIds = resources
             };
             nodes[id] = processor with
@@ -248,8 +254,9 @@ internal static class StreamingFlowTopologyBuilder
             };
         }
 
-        static string GetProcessorLabel(StreamingFlowLane lane, IReadOnlyList<VideoEncodingSnapshot> encodings, IReadOnlyList<string> resources) =>
-            encodings.Any(encoding => encoding.Encoder != "copy") ? lane == StreamingFlowLane.PhysicalProcessing ? "Source Transcoder" : "Output Transcoder"
+        static string GetProcessorLabel(StreamingFlowLane lane, IReadOnlyList<VideoEncodingSnapshot> encodings, IReadOnlyList<string> resources, IReadOnlyList<StreamProcessingSnapshot> operations) =>
+            operations.Any(operation => operation.Transcodes) || encodings.Any(encoding => encoding.Encoder != "copy") ? lane == StreamingFlowLane.PhysicalProcessing ? "Source Transcoder" : "Output Transcoder"
+                : operations.Any(operation => operation.Transport == StreamTransportOperation.Remux) ? "Remux"
                 : encodings.Count > 0 ? resources.Count > 0 ? "Copy / processing" : "Pass-through"
                 : lane == StreamingFlowLane.PhysicalProcessing ? "Source processing" : "Output processing";
 

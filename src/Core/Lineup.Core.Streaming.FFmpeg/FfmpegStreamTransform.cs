@@ -16,6 +16,9 @@ public interface IMediaStreamLease : IAsyncDisposable
     /// <summary>Gets the encoder outcome of the launched transform, or null when the producer does not report one.</summary>
     VideoEncodingSnapshot? VideoEncoding => null;
 
+    /// <summary>Gets effective codec and transport operations reported by this transform.</summary>
+    StreamProcessingSnapshot? Processing => null;
+
     /// <summary>Gets the owned process resource identities, without transferring process lifetime ownership.</summary>
     IReadOnlyList<string> ResourceIds => [];
 }
@@ -33,6 +36,7 @@ public sealed class FfmpegStreamTransform
     private readonly IReadOnlyList<string>? _softwareArguments;
     private readonly MpegTsAc4CopyPlan? _ac4CopyPlan;
     private readonly TimeProvider _timeProvider;
+    private readonly MediaProbeResult? _source;
 
     /// <summary>Initializes an FFmpeg stream transform.</summary>
     public FfmpegStreamTransform(
@@ -43,7 +47,8 @@ public sealed class FfmpegStreamTransform
         HardwareEncodingSettings? hardware = null,
         IReadOnlyList<string>? softwareArguments = null,
         MpegTsAc4CopyPlan? ac4CopyPlan = null,
-        TimeProvider? timeProvider = null
+        TimeProvider? timeProvider = null,
+        MediaProbeResult? source = null
     )
     {
         _arguments = arguments;
@@ -54,6 +59,7 @@ public sealed class FfmpegStreamTransform
         _softwareArguments = softwareArguments;
         _ac4CopyPlan = ac4CopyPlan;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _source = source;
     }
 
     /// <summary>Starts the media process and returns ownership of its output and cleanup without taking ownership of the input stream.</summary>
@@ -73,6 +79,7 @@ public sealed class FfmpegStreamTransform
         }
         while (true)
         {
+            var processing = _source is null ? null : MpegTsProcessingDiagnostics.Create(_source, arguments);
             var process = _processFactory.Start(new MediaProcessRequest
             {
                 FileName = "ffmpeg",
@@ -85,7 +92,7 @@ public sealed class FfmpegStreamTransform
             var progress = new ProgressDiagnostics(process.Id, _logger);
             var errorTask = MediaProcessDiagnostics.ReadTailAsync(process.StandardError, lifetime.Token, progress.Observe);
             var encoding = new VideoEncodingSnapshot(HardwareVideoEncodingPlanner.GetVideoEncoder(arguments), _hardware?.Encoder, requiresHardware && !usingHardware);
-            var lease = new ProcessOutputLease(process, pumpTask, errorTask, lifetime, encoding, _ac4CopyPlan);
+            var lease = new ProcessOutputLease(process, pumpTask, errorTask, lifetime, encoding, _ac4CopyPlan, processing);
             if (!usingHardware)
             {
                 return lease;
@@ -175,7 +182,9 @@ public sealed class FfmpegStreamTransform
         /// <param name="lifetime">The lifetime value.</param>
         /// <param name="videoEncoding">The outcome of the launched transform.</param>
         /// <param name="ac4CopyPlan">The copied AC-4 tracks whose signaling requires preservation.</param>
-        public ProcessOutputLease(Process process, Task pumpTask, Task<string> errorTask, CancellationTokenSource lifetime, VideoEncodingSnapshot videoEncoding, MpegTsAc4CopyPlan? ac4CopyPlan)
+        /// <param name="processing">The effective codec and transport operations.</param>
+        public ProcessOutputLease(Process process, Task pumpTask, Task<string> errorTask, CancellationTokenSource lifetime, VideoEncodingSnapshot videoEncoding,
+            MpegTsAc4CopyPlan? ac4CopyPlan, StreamProcessingSnapshot? processing)
         {
             _process = process;
             _pumpTask = pumpTask;
@@ -184,10 +193,14 @@ public sealed class FfmpegStreamTransform
             _validated = new ValidatedOutputStream(process.StandardOutput.BaseStream, process, errorTask, pumpTask);
             _output = ac4CopyPlan is { PacketIds.Count: > 0 } ? new MpegTsAc4SignalingStream(_validated, ac4CopyPlan.PacketIds) : _validated;
             VideoEncoding = videoEncoding;
+            Processing = processing;
         }
 
         /// <inheritdoc />
         public VideoEncodingSnapshot VideoEncoding { get; }
+
+        /// <inheritdoc />
+        public StreamProcessingSnapshot? Processing { get; }
 
         /// <inheritdoc />
         public IReadOnlyList<string> ResourceIds => _process is { } process ? OwnedMediaProcess.GetResourceIds(process) : [];

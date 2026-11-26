@@ -148,11 +148,16 @@ public sealed class FfmpegStreamDiagnosticsTests
         var plan = MpegTsAc4CopyPlan.Create(["ac4"], OutputAudioPolicy.Copy, 1);
         var expected = MpegTsAc4SignalingStreamTests.CreateTransport(plan.PacketIds[0], registered: true);
         var factory = new TransportFactory(plan.PacketIds[0], encoder, failHardware);
-        List<string> software = ["-i", "pipe:0", "-c:v:0", "libx264"];
+        List<string> software = ["-i", "pipe:0", "-c", "copy", "-c:v:0", "libx264"];
         plan.AddArguments(software);
         software.AddRange(["-f", "mpegts", "pipe:1"]);
         var arguments = HardwareVideoEncodingPlanner.Apply(software, hardware);
-        var transform = new FfmpegStreamTransform(arguments, factory, NullLogger.Instance, "AC-4 transport", hardware, software, plan);
+        var source = new MediaProbeResult(
+        [
+            new(0, MediaTrackType.Video, "hevc", null, 1920, 1080, null, null),
+            new(1, MediaTrackType.Audio, "ac4", null, null, null, 12, 46034)
+        ], null);
+        var transform = new FfmpegStreamTransform(arguments, factory, NullLogger.Instance, "AC-4 transport", hardware, software, plan, source: source);
         await using var input = new BlockingInput();
         await using var lease = await transform.StartAsync(input, TestContext.Current.CancellationToken);
         var received = new byte[expected.Length];
@@ -167,6 +172,8 @@ public sealed class FfmpegStreamDiagnosticsTests
         Assert.All(factory.ProcessExits, exit => Assert.True(exit.IsCompletedSuccessfully));
         Assert.True(input.Canceled);
         Assert.Equal(gpu && failHardware, lease.VideoEncoding?.SoftwareFallbackApplied);
+        Assert.Equal(StreamTransportOperation.Remux, lease.Processing!.Transport);
+        Assert.Equal(["h264", "copy"], lease.Processing.Tracks.Select(track => track.OutputCodec));
     }
 
     /// <summary>Verifies the signaling wrapper does not replace a real FFmpeg terminal error with a missing-table or EOF error.</summary>

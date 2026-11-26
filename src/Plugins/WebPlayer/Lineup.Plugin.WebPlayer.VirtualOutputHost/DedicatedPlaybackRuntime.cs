@@ -238,6 +238,7 @@ internal sealed partial class DedicatedPlaybackRuntime : IAsyncDisposable
             PhysicalInput = snapshot.PhysicalInput,
             PhysicalOutput = snapshot.PhysicalOutput,
             VirtualOutput = snapshot.VirtualOutput,
+            Processing = stage == VirtualOutputStreamStartupStage.Ready ? snapshot.Processing : null,
             VideoEncoding = stage == VirtualOutputStreamStartupStage.Ready && snapshot.ActiveVideoEncoder is { } encoder
                 ? new(encoder, snapshot.RequestedVideoEncoder, snapshot.HardwareFallbackApplied)
                 : null,

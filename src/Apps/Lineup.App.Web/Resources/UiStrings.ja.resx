@@ -1002,6 +1002,17 @@
   <data name="Streaming_NoConsumersAttached" xml:space="preserve"><value>現在接続しているコンシューマーはありません。</value></data>
   <data name="Streaming_NodeAriaLabel" xml:space="preserve"><value>{0}、{1}、アクティブなセッション {2} 件</value></data>
   <data name="Streaming_None" xml:space="preserve"><value>なし</value></data>
+  <data name="Streaming_OperationAudioAbsent" xml:space="preserve"><value>音声なし</value></data>
+  <data name="Streaming_OperationAudioCopy" xml:space="preserve"><value>音声コピー</value></data>
+  <data name="Streaming_OperationAudioTranscode" xml:space="preserve"><value>音声変換</value></data>
+  <data name="Streaming_OperationAudioUnknown" xml:space="preserve"><value>音声不明</value></data>
+  <data name="Streaming_OperationPassThrough" xml:space="preserve"><value>パススルー</value></data>
+  <data name="Streaming_OperationRemux" xml:space="preserve"><value>リマックス</value></data>
+  <data name="Streaming_OperationTransportUnknown" xml:space="preserve"><value>トランスポート不明</value></data>
+  <data name="Streaming_OperationVideoAbsent" xml:space="preserve"><value>映像なし</value></data>
+  <data name="Streaming_OperationVideoCopy" xml:space="preserve"><value>映像コピー</value></data>
+  <data name="Streaming_OperationVideoTranscode" xml:space="preserve"><value>映像変換</value></data>
+  <data name="Streaming_OperationVideoUnknown" xml:space="preserve"><value>映像不明</value></data>
   <data name="Streaming_OutputStreamComponents" xml:space="preserve"><value>出力ストリームのコンポーネント</value></data>
   <data name="Streaming_RawPhysicalInput" xml:space="preserve"><value>未処理の物理入力</value></data>
   <data name="Streaming_RawPhysicalStreamComponents" xml:space="preserve"><value>未処理の物理ストリームコンポーネント</value></data>
