@@ -9,6 +9,7 @@ using Lineup.Core.Common.Guides;
 using Lineup.Core.Guides;
 using Lineup.Core.Settings;
 using Lineup.Core.Streaming;
+using Lineup.Core.Streaming.FFmpeg;
 using Lineup.Core.Extensibility.Streaming;
 using Lineup.Plugin.SiliconDust.HDHomeRun.VirtualTuner;
 using Lineup.Plugin.LineupLink.Protocol;
@@ -23,6 +24,43 @@ namespace Lineup.Core.VirtualOutputs.Runtime.Tests;
 /// <summary>Verifies real HDHomeRun capacity and connection admission shared with a dedicated Lineup Link worker.</summary>
 public sealed class HdHomeRunWorkerProcessTests
 {
+    /// <summary>A dedicated HDHomeRun listener distinguishes source errors from unavailability and invalid requests through the actual broker.</summary>
+    [Theory]
+    [InlineData(PhysicalStreamFailureCategory.Error, HttpStatusCode.BadGateway)]
+    [InlineData(PhysicalStreamFailureCategory.Unavailable, HttpStatusCode.ServiceUnavailable)]
+    [InlineData(PhysicalStreamFailureCategory.InvalidInput, HttpStatusCode.BadRequest)]
+    public async Task Stream_AcquisitionFailure_PreservesHttpStatusAndSafeError(PhysicalStreamFailureCategory category, HttpStatusCode expectedStatus)
+    {
+        // Arrange
+        await using var harness = await Harness.StartAsync(null, false);
+        var physicalId = harness.Settings.Streaming.PhysicalDevices[0].Id;
+        var failure = StreamAcquisitionException.Create(
+        [
+            new StreamAcquisitionCandidateFailure
+            {
+                DeviceId = physicalId,
+                ChannelId = new(physicalId, "2.1"),
+                Category = category,
+                Code = "test_source_failure",
+                Message = "Safe source failure.",
+                Retryable = category == PhysicalStreamFailureCategory.Unavailable
+            }
+        ], [new IOException("Sensitive source diagnostic.")]);
+        harness.Streams.OpenAsync(harness.DeviceId, "2.1", Arg.Any<CancellationToken>()).Returns(Task.FromException<VirtualMpegTsOutput>(failure));
+
+        // Act
+        using var response = await harness.Client.GetAsync("/auto/v2.1", TestContext.Current.CancellationToken);
+        var content = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        using var error = JsonDocument.Parse(content);
+
+        // Assert
+        Assert.Equal(expectedStatus, response.StatusCode);
+        Assert.Equal(failure.Message, error.RootElement.GetProperty("error").GetString());
+        Assert.DoesNotContain("Sensitive source diagnostic.", content, StringComparison.Ordinal);
+        Assert.Empty(harness.ActiveStreams.GetActiveStreams());
+        Assert.False(harness.HasExited);
+    }
+
     /// <summary>A real dedicated Link worker publishes complete cached tuner observations with subscription isolation and no hardware or target access.</summary>
     [Theory]
     [InlineData(false)]
@@ -392,10 +430,11 @@ public sealed class HdHomeRunWorkerProcessTests
             var activeStreams = ActiveStreams;
             var broker = new VirtualOutputBroker(
                 _authority, settings, new StreamingAdapterRegistry([], [driver], []), catalog, DeviceStatuses, Substitute.For<IStreamingRouteResolver>(),
-                Guides, Substitute.For<IVirtualMpegTsOutputService>(), activeStreams);
+                Guides, Streams, activeStreams);
             _server = new VirtualOutputIpcServer(endpoint, _authority, broker, _status, settings, activeStreams,
                 NullLogger<VirtualOutputIpcServer>.Instance, budget ?? new PluginConnectionBudget(settings));
             var capabilities = new HashSet<VirtualOutputCapability> { VirtualOutputCapability.ReadManifest, VirtualOutputCapability.ReportHealth, VirtualOutputCapability.AdmitConnection };
+            capabilities.Add(VirtualOutputCapability.OpenStream);
             if (lineupLink)
             {
                 capabilities.Add(VirtualOutputCapability.ReadGuide);
@@ -422,6 +461,9 @@ public sealed class HdHomeRunWorkerProcessTests
 
         /// <summary>Gets the guide projection supplied through the real authenticated broker.</summary>
         internal IGuideOrchestrator Guides { get; } = Substitute.For<IGuideOrchestrator>();
+
+        /// <summary>Gets the source output service supplied through the actual authenticated broker.</summary>
+        internal IVirtualMpegTsOutputService Streams { get; } = Substitute.For<IVirtualMpegTsOutputService>();
 
         /// <summary>Gets the cached source observations supplied to the actual broker.</summary>
         internal IPhysicalDeviceStatusService DeviceStatuses { get; } = Substitute.For<IPhysicalDeviceStatusService>();

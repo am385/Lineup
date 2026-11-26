@@ -85,6 +85,9 @@ RID-specific worker publishing also sets `PublishRuntimeIdentifier`: project-ref
 otherwise causing executable helpers to infer the build host's architecture instead of the deployment target. The graph regression
 cross-publishes to a different architecture and verifies both worker and helper dependency manifests without executing foreign binaries.
 For installed Windows or Linux worker validation, set `LINEUP_TEST_WORKER_PACKAGE_ROOT` to a package tree before running `HdHomeRunWorkerProcessTests` or the `Worker_*` cases in `WebPlayerWorkerProcessTests`. These fixtures resolve hash-verified packaged workers instead of test-output assemblies and exercise local authenticated IPC, loopback HTTP and deterministic media cleanup. Explicit worker paths used by host-build tests take precedence. Leave the variable unset for ordinary source tests.
+Dedicated HDHomeRun source-failure regressions use the real worker HTTP endpoint and authenticated broker to verify acquisition
+errors return HTTP 502, while unavailable sources retain HTTP 503 and invalid requests retain HTTP 400.
+They also verify safe error payloads and require no live source or tuner hardware.
 
 Guide-reader regressions retain pooled concurrent connections and verify distinct native handles while every owner remains open,
 then begin independent read transactions. SQLite provider versions before 10.0.13 can lend the same pooled handle to two live owners
