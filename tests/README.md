@@ -61,7 +61,7 @@ The separate `Lineup.Integration.Streaming.Sweep.Tests` xunit project participat
 exercises only deterministic policies, persistence, ownership and reports; it never launches the live harness.
 
 Packaging regressions run in `Lineup.Tools.VirtualOutputWorkerPackager.Tests` as part of the solution gate. They use the installed SDK to publish tiny owned temporary projects and verify shared inventory, manifests, cache repair and real MSBuild publish/opt-out behavior without hardware.
-Temporary packaging SDK commands disable MSBuild node reuse, the CLI MSBuild server, and shared compilation in their child environment so nested publishers cannot retain deleted fixture working directories.
+Temporary packaging and browser-asset SDK commands disable MSBuild node reuse, the CLI MSBuild server, and shared compilation in their child environment so build processes cannot retain deleted fixture working directories.
 Worker publishing sets deployment mode with `PublishSelfContained`, not a global `SelfContained=false`: the latter can create distinct executable-reference build nodes that concurrently overwrite the same intermediate assembly. The real-SDK graph regression verifies one compilation per helper intermediate directory and preserves portable/self-contained runtime configurations.
 RID-specific worker publishing also sets `PublishRuntimeIdentifier`: project-reference negotiation can remove `RuntimeIdentifier`,
 otherwise causing executable helpers to infer the build host's architecture instead of the deployment target. The graph regression
