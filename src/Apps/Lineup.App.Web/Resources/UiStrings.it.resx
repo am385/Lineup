@@ -1105,6 +1105,7 @@
   <data name="Transcoding_PresetFast" xml:space="preserve"><value>Veloce</value></data>
   <data name="Transcoding_PresetFaster" xml:space="preserve"><value>Più veloce</value></data>
   <data name="Transcoding_PresetMedium" xml:space="preserve"><value>Media</value></data>
+  <data name="Transcoding_PresetUltraFast" xml:space="preserve"><value>Ultraveloce</value></data>
   <data name="Transcoding_PresetVeryFast" xml:space="preserve"><value>Molto veloce</value></data>
   <data name="Transcoding_Settings" xml:space="preserve"><value>Impostazioni di transizione</value></data>
   <data name="Transcoding_SoftwareEncoder" xml:space="preserve"><value>Software (predefinito sicuro)</value></data>

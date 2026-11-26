@@ -79,11 +79,7 @@ public sealed class MpegTsAc4SignalingStream : Stream
             {
                 if (_output.IsEmpty)
                 {
-                    if (written > 0 && !CanPublish())
-                    {
-                        break;
-                    }
-                    await PrepareOutputAsync(cancellationToken);
+                    await PrepareOutputAsync(cancellationToken, allowInputRead: written == 0);
                     if (_output.IsEmpty)
                     {
                         break;
@@ -106,7 +102,7 @@ public sealed class MpegTsAc4SignalingStream : Stream
     private bool CanPublish() =>
         _pending.TryPeek(out var packet) && !packet.Blocked && _expectedPacketIds.All(pid => _mappedTracks.Values.Any(tracks => tracks.Contains(pid)));
 
-    private async ValueTask PrepareOutputAsync(CancellationToken cancellationToken)
+    private async ValueTask PrepareOutputAsync(CancellationToken cancellationToken, bool allowInputRead)
     {
         while (_output.IsEmpty)
         {
@@ -123,6 +119,10 @@ public sealed class MpegTsAc4SignalingStream : Stream
                 continue;
             }
             if (_ended)
+            {
+                return;
+            }
+            if (!allowInputRead && _inputLength - _inputOffset < PacketSize - _packetLength)
             {
                 return;
             }

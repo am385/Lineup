@@ -36,12 +36,12 @@ internal sealed class StreamBufferBudget : IDisposable
     internal long Evictions { get { lock (_gate) { return _evictions; } } }
 
     /// <summary>Creates an empty subscription with an asynchronous eviction notification.</summary>
-    internal Subscription Subscribe(Action evicted)
+    internal Subscription Subscribe(Action<Eviction> evicted, TimeSpan startupGrace = default)
     {
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            var subscription = new Subscription(this, evicted);
+            var subscription = new Subscription(this, evicted, startupGrace);
             _subscriptions.Add(subscription);
             return subscription;
         }
@@ -60,6 +60,10 @@ internal sealed class StreamBufferBudget : IDisposable
             var receivers = subscribers.Where(subscription => !subscription.Completed).ToArray();
             foreach (var subscription in receivers.Where(subscription => subscription.Bytes + payload.Length > _subscriberLimit || subscription.Queue.Count >= 2048))
             {
+                if (subscription.Bytes + payload.Length <= _subscriberLimit && TryCompactStartupQueue(subscription, payload.Length))
+                {
+                    continue;
+                }
                 var entryLimit = subscription.Queue.Count >= 2048;
                 Evict(subscription, entryLimit ? "The consumer exceeded its shared-stream queue-entry limit." : "The consumer exceeded its shared-stream byte budget.", entryLimit ? "entries" : "bytes");
             }
@@ -80,6 +84,7 @@ internal sealed class StreamBufferBudget : IDisposable
                 _bufferedPayload.Add(payload.Length);
                 foreach (var subscription in receivers)
                 {
+                    subscription.StartedAt ??= chunk.Timestamp;
                     subscription.Queue.Enqueue(new Cursor(chunk));
                     subscription.Bytes += payload.Length;
                     subscription.Available.TrySetResult();
@@ -177,10 +182,13 @@ internal sealed class StreamBufferBudget : IDisposable
 
     private void Evict(Subscription subscription, string reason, string code)
     {
+        var age = subscription.Queue.TryPeek(out var cursor) ? _clock.GetElapsedTime(cursor.Chunk.Timestamp) : TimeSpan.Zero;
+        var startupAge = subscription.StartedAt is { } startedAt ? _clock.GetElapsedTime(startedAt) : TimeSpan.Zero;
+        var snapshot = new Eviction(code, subscription.Bytes, subscription.Queue.Count, age, _retainedBytes, _subscriberLimit, _graphLimit, _maximumAge, subscription.StartupGrace, startupAge);
         _evictions++;
         _bufferEvictions.Add(1, new KeyValuePair<string, object?>("reason", code));
         Complete(subscription, new IOException(reason), discard: true);
-        ThreadPool.QueueUserWorkItem(_ => subscription.Evicted());
+        ThreadPool.QueueUserWorkItem(_ => subscription.Evicted(snapshot));
     }
 
     private void Drain(Subscription subscription)
@@ -189,6 +197,63 @@ internal sealed class StreamBufferBudget : IDisposable
         {
             Release(subscription, cursor.Chunk);
         }
+    }
+
+    private bool TryCompactStartupQueue(Subscription subscription, int incomingBytes)
+    {
+        if (subscription.Queue.Count < 2048 || subscription.StartedAt is not { } startedAt || _clock.GetElapsedTime(startedAt) >= subscription.StartupGrace)
+        {
+            return false;
+        }
+        var cursors = subscription.Queue.ToArray();
+        var maximumLength = (int)Math.Min(64 * 1024, _graphLimit - _retainedBytes - incomingBytes);
+        var end = cursors.Length;
+        var start = end;
+        var length = 0;
+        while (end > 2)
+        {
+            start = end;
+            length = 0;
+            while (start > 1 && cursors[start - 1].Chunk.Payload.Length <= maximumLength - length)
+            {
+                length += cursors[--start].Chunk.Payload.Length;
+            }
+            if (end - start >= 2)
+            {
+                break;
+            }
+            end--;
+        }
+        if (end - start < 2)
+        {
+            return false;
+        }
+        var payload = new byte[length];
+        var offset = 0;
+        for (var index = start; index < end; index++)
+        {
+            cursors[index].Chunk.Payload.CopyTo(payload, offset);
+            offset += cursors[index].Chunk.Payload.Length;
+        }
+        var chunk = new Chunk(payload, cursors[start].Chunk.Timestamp, 1);
+        _retainedBytes += length;
+        _bufferedPayload.Add(length);
+        for (var index = start; index < end; index++)
+        {
+            Release(subscription, cursors[index].Chunk);
+        }
+        subscription.Queue.Clear();
+        for (var index = 0; index < start; index++)
+        {
+            subscription.Queue.Enqueue(cursors[index]);
+        }
+        subscription.Queue.Enqueue(new Cursor(chunk));
+        for (var index = end; index < cursors.Length; index++)
+        {
+            subscription.Queue.Enqueue(cursors[index]);
+        }
+        subscription.Bytes += length;
+        return true;
     }
 
     private void Release(Subscription subscription, Chunk chunk)
@@ -204,7 +269,7 @@ internal sealed class StreamBufferBudget : IDisposable
     private void Expire()
     {
         foreach (var subscription in _subscriptions.Where(subscription =>
-                     subscription.Queue.TryPeek(out var cursor) && _clock.GetElapsedTime(cursor.Chunk.Timestamp) >= _maximumAge).ToArray())
+                     subscription.Queue.Count > 0 && RemainingAgeBudget(subscription) <= TimeSpan.Zero).ToArray())
         {
             Evict(subscription, "The consumer exceeded its shared-stream media age budget.", "age");
         }
@@ -216,13 +281,13 @@ internal sealed class StreamBufferBudget : IDisposable
         {
             return;
         }
-        var timestamps = _subscriptions.Where(subscription => subscription.Queue.Count > 0).Select(subscription => subscription.Queue.Peek().Chunk.Timestamp).ToArray();
-        if (timestamps.Length == 0)
+        var remainingBudgets = _subscriptions.Where(subscription => subscription.Queue.Count > 0).Select(RemainingAgeBudget).ToArray();
+        if (remainingBudgets.Length == 0)
         {
             _expiration?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
             return;
         }
-        var remaining = _maximumAge - _clock.GetElapsedTime(timestamps.Min());
+        var remaining = remainingBudgets.Min();
         _expiration ??= _clock.CreateTimer(_ =>
         {
             lock (_gate)
@@ -236,6 +301,27 @@ internal sealed class StreamBufferBudget : IDisposable
         }, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _expiration.Change(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, Timeout.InfiniteTimeSpan);
     }
+
+    private TimeSpan RemainingAgeBudget(Subscription subscription)
+    {
+        var remainingAge = _maximumAge - _clock.GetElapsedTime(subscription.Queue.Peek().Chunk.Timestamp);
+        var remainingGrace = subscription.StartedAt is { } startedAt ? subscription.StartupGrace - _clock.GetElapsedTime(startedAt) : TimeSpan.Zero;
+        return remainingGrace > remainingAge ? remainingGrace : remainingAge;
+    }
+
+    /// <summary>Captures the exceeded budget before eviction releases the subscriber's queued media.</summary>
+    /// <param name="Reason">The age, bytes, entries, or aggregate budget that fired.</param>
+    /// <param name="QueuedBytes">Bytes retained by the subscriber.</param>
+    /// <param name="QueuedEntries">Payload entries retained by the subscriber.</param>
+    /// <param name="OldestAge">Age of the oldest unread payload.</param>
+    /// <param name="GraphBytes">Distinct bytes retained across the graph.</param>
+    /// <param name="SubscriberLimit">The subscriber byte limit.</param>
+    /// <param name="GraphLimit">The aggregate byte limit.</param>
+    /// <param name="MaximumAge">The unread-media age limit.</param>
+    /// <param name="StartupGrace">The one-time age grace measured from the first queued payload.</param>
+    /// <param name="StartupAge">Elapsed time since the first queued payload.</param>
+    internal sealed record Eviction(string Reason, long QueuedBytes, int QueuedEntries, TimeSpan OldestAge, long GraphBytes, long SubscriberLimit, long GraphLimit,
+        TimeSpan MaximumAge, TimeSpan StartupGrace, TimeSpan StartupAge);
 
     /// <summary>Tracks the shared ownership of one queued payload allocation.</summary>
     internal sealed class Chunk(byte[] payload, long timestamp, int references)
@@ -258,18 +344,22 @@ internal sealed class StreamBufferBudget : IDisposable
     }
 
     /// <summary>Owns a byte-accounted queue, including its partially consumed head array.</summary>
-    internal sealed class Subscription(StreamBufferBudget owner, Action evicted)
+    internal sealed class Subscription(StreamBufferBudget owner, Action<Eviction> evicted, TimeSpan startupGrace)
     {
         /// <summary>Gets payload retained by this reader; access requires the owning budget lock.</summary>
         internal Queue<Cursor> Queue { get; } = [];
         /// <summary>Gets or sets retained array bytes.</summary>
         internal long Bytes { get; set; }
+        /// <summary>Gets the one-time startup age grace; byte and entry limits remain active.</summary>
+        internal TimeSpan StartupGrace { get; } = startupGrace;
+        /// <summary>Gets or sets the timestamp of the first queued payload; draining the queue does not renew it.</summary>
+        internal long? StartedAt { get; set; }
         /// <summary>Gets or sets whether further publication is rejected.</summary>
         internal bool Completed { get; set; }
         /// <summary>Gets or sets the terminal failure.</summary>
         internal Exception? Failure { get; set; }
         /// <summary>Gets the deferred node-cleanup callback.</summary>
-        internal Action Evicted { get; } = evicted;
+        internal Action<Eviction> Evicted { get; } = evicted;
         /// <summary>Gets or sets the pending-read signal.</summary>
         internal TaskCompletionSource Available { get; set; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 

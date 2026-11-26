@@ -1105,6 +1105,7 @@
   <data name="Transcoding_PresetFast" xml:space="preserve"><value>快速</value></data>
   <data name="Transcoding_PresetFaster" xml:space="preserve"><value>更快</value></data>
   <data name="Transcoding_PresetMedium" xml:space="preserve"><value>中等</value></data>
+  <data name="Transcoding_PresetUltraFast" xml:space="preserve"><value>超快</value></data>
   <data name="Transcoding_PresetVeryFast" xml:space="preserve"><value>非常快</value></data>
   <data name="Transcoding_Settings" xml:space="preserve"><value>转码设置</value></data>
   <data name="Transcoding_SoftwareEncoder" xml:space="preserve"><value>软件（安全默认值）</value></data>

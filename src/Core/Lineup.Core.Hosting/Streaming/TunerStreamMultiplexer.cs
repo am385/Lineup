@@ -74,7 +74,6 @@ public interface IStreamProducerCorrelation
 /// </summary>
 public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffectiveTunerStreamMultiplexer
 {
-    private static readonly TimeSpan _candidateAcquisitionTimeout = TimeSpan.FromSeconds(10);
     private readonly IStreamingSessionGraph _graph;
     private readonly IMediaProcessFactory _processFactory;
     private readonly ILogger<TunerStreamMultiplexer> _logger;
@@ -122,7 +121,7 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
                 failures.Add(new TimeoutException("The overall source acquisition deadline was exhausted."));
                 break;
             }
-            var slice = TimeSpan.FromTicks(Math.Min(_candidateAcquisitionTimeout.Ticks, Math.Max(1, remaining.Ticks / (route.Candidates.Count - index))));
+            var slice = TimeSpan.FromTicks(Math.Max(1, remaining.Ticks / (route.Candidates.Count - index)));
             using var deadline = new CancellationTokenSource(slice, _timeProvider);
             using var acquisition = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token, overallDeadline.Token);
             using var attempt = Lineup.Core.Extensibility.Diagnostics.LineupTelemetry.Begin("source_candidate");

@@ -120,6 +120,32 @@ public class MpegTsTranscodePlannerTests
 
     private static readonly Uri _inputUri = new("http://hdhomerun.local:5004/auto/v7.1");
 
+    /// <summary>Verifies the lower-work software profile reaches FFmpeg while retaining AC-4 Copy and bitrate policy.</summary>
+    [Theory]
+    [InlineData(VideoEncoderPreset.VeryFast, "veryfast")]
+    [InlineData(VideoEncoderPreset.UltraFast, "ultrafast")]
+    public void SoftwarePreset_ControlsEncodingWithoutChangingAc4Copy(VideoEncoderPreset preset, string expected)
+    {
+        // Arrange
+        var profile = new VirtualTranscodeProfile
+        {
+            ConvertHevcToH264 = true,
+            VideoPreset = preset,
+            Ac4Audio = OutputAudioPolicy.Copy
+        };
+
+        // Act
+        var arguments = MpegTsTranscodePlanner.CreateFfmpegArguments(
+            _inputUri, "hevc", [new AudioStreamInfo(1, "ac4", 12)], profile);
+
+        // Assert
+        AssertOption(arguments, "-c:v:0", "libx264");
+        AssertOption(arguments, "-preset", expected);
+        AssertOption(arguments, "-c", "copy");
+        Assert.DoesNotContain("-c:a:0", arguments);
+        AssertOption(arguments, "-maxrate", "10M");
+    }
+
     /// <summary>Verifies effective topology settings, rather than legacy app values, control MPEG-TS output.</summary>
     [Fact]
     public void TopologyProfile_ControlsActualMpegTsArguments()

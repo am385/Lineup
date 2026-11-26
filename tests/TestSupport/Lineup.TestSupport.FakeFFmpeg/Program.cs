@@ -108,7 +108,11 @@ if (args is ["diagnostics", var length, var code, var hold])
     await Console.Error.FlushAsync();
     await Console.OpenStandardOutput().WriteAsync(new byte[] { 0x47 });
     await Console.OpenStandardOutput().FlushAsync();
-    if (hold == "hold")
+    if (hold == "blocked")
+    {
+        await Task.Delay(Timeout.InfiniteTimeSpan);
+    }
+    else if (hold == "hold")
     {
         await Console.OpenStandardInput().CopyToAsync(Stream.Null);
     }
@@ -117,9 +121,13 @@ if (args is ["diagnostics", var length, var code, var hold])
 
 if (args is ["transport", var transport, var transportExitCode, var transportHold])
 {
+    if (transportHold == "prime-input")
+    {
+        await Console.OpenStandardInput().ReadExactlyAsync(new byte[1]);
+    }
     await Console.OpenStandardOutput().WriteAsync(Convert.FromBase64String(transport));
     await Console.OpenStandardOutput().FlushAsync();
-    if (transportHold == "hold")
+    if (transportHold is "hold" or "prime-input")
     {
         await Console.OpenStandardInput().CopyToAsync(Stream.Null);
     }

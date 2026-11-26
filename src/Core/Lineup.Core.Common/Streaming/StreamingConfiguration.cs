@@ -384,5 +384,8 @@ public enum VideoEncoderPreset
     Fast,
 
     /// <summary>Prioritizes compression efficiency.</summary>
-    Medium
+    Medium,
+
+    /// <summary>Minimizes software encoding work at the cost of compression efficiency.</summary>
+    UltraFast
 }

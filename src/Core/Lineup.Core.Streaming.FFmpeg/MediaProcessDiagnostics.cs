@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Text;
 
 namespace Lineup.Core.Streaming.FFmpeg;
 
@@ -69,12 +70,17 @@ public static class MediaProcessDiagnostics
     }
 
     /// <summary>Drains without owning the reader, retaining at most fifty non-empty lines from the last 16,384 characters with normalized LF separators.</summary>
-    public static async Task<string> ReadTailAsync(TextReader reader, CancellationToken cancellationToken = default)
+    /// <param name="reader">The borrowed diagnostic reader.</param>
+    /// <param name="cancellationToken">Stops diagnostic drainage.</param>
+    /// <param name="lineObserved">Optional observer of complete lines no longer than 1,024 characters.</param>
+    public static async Task<string> ReadTailAsync(TextReader reader, CancellationToken cancellationToken = default, Action<string>? lineObserved = null)
     {
         ArgumentNullException.ThrowIfNull(reader);
         var buffer = new char[16_384];
         var offset = 0;
         var retained = 0;
+        var line = lineObserved is null ? null : new StringBuilder();
+        var truncated = false;
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -83,8 +89,40 @@ public static class MediaProcessDiagnostics
             {
                 break;
             }
+            if (line is not null && lineObserved is not null)
+            {
+                for (var index = offset; index < offset + count; index++)
+                {
+                    var character = buffer[index];
+                    if (character is '\r' or '\n')
+                    {
+                        if (!truncated && line.Length > 0)
+                        {
+                            lineObserved(line.ToString());
+                        }
+                        line.Clear();
+                        truncated = false;
+                    }
+                    else if (!truncated)
+                    {
+                        if (line.Length == 1024)
+                        {
+                            line.Clear();
+                            truncated = true;
+                        }
+                        else
+                        {
+                            line.Append(character);
+                        }
+                    }
+                }
+            }
             offset = (offset + count) % buffer.Length;
             retained = Math.Min(buffer.Length, retained + count);
+        }
+        if (line is { Length: > 0 } && !truncated && lineObserved is not null)
+        {
+            lineObserved(line.ToString());
         }
         var tail = retained < buffer.Length
             ? new string(buffer, 0, retained)

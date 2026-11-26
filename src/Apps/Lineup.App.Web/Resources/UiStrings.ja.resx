@@ -1105,6 +1105,7 @@
   <data name="Transcoding_PresetFast" xml:space="preserve"><value>高速</value></data>
   <data name="Transcoding_PresetFaster" xml:space="preserve"><value>より高速</value></data>
   <data name="Transcoding_PresetMedium" xml:space="preserve"><value>中</value></data>
+  <data name="Transcoding_PresetUltraFast" xml:space="preserve"><value>超高速</value></data>
   <data name="Transcoding_PresetVeryFast" xml:space="preserve"><value>非常に高速</value></data>
   <data name="Transcoding_Settings" xml:space="preserve"><value>トランスコード設定</value></data>
   <data name="Transcoding_SoftwareEncoder" xml:space="preserve"><value>ソフトウェア（安全な既定値）</value></data>

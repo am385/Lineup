@@ -39,6 +39,20 @@ local transport with sparse program tables and video initialization, joins after
 input discovery and decoded audio/video for Copy and forced H.264. No broadcast recording, network, GPU or tuner is required.
 These cases explicitly skip when the executable is not configured.
 
+Shared-stream buffering regressions cover one-time transform-input and metadata-probe startup grace, unchanged byte/entry limits, ordinary viewer eviction,
+and the steady-state age deadline. AC-4 signaling tests verify buffered packets are batched without waiting for another live input chunk.
+Processing-input grace is bounded to 35 seconds to include remote startup draining; metadata operation deadlines remain unchanged.
+During that one-time grace, fragmented startup queues may compact up to 64 KiB of unread tail data without changing byte/aggregate/entry bounds,
+FIFO order or original timestamps. Regressions cover partial heads, independent readers, aggregate headroom, grace expiry and steady-state eviction.
+Hardware output priming has the same bounded 35-second allowance; delayed readiness, deadline failure and caller cancellation release all owned processes without an unapproved software retry.
+FFmpeg process diagnostics tests cover blocked stdin sampling, bounded progress observation, genuine EOF, and propagation of failed input
+even when the media process exits successfully; nonzero process diagnostics retain precedence.
+Source failover tests verify a sole candidate can use the configured overall acquisition allowance after ten seconds of discovery,
+while multiple candidates retain fair shares, bounded timeout cleanup and caller-cancellation precedence.
+
+Software preset regressions verify the opt-in Ultra fast profile reaches FFmpeg without changing AC-4 Copy or bitrate limits.
+Very fast remains the default. Faster processing reduces compression efficiency; live throughput must still be measured on the deployment host.
+
 Ordinary CI and development/release publishing share `.github/workflows/validate.yml`. Both Linux and Windows run the full Release build/test gate,
 the browser regressions, formatting verification, and installed-worker smoke tests. The smoke tests use the hash-verified worker packages installed
 by the Web host build, exercising Web Player startup/captions/stop and shared HDHomeRun/Lineup Link admission and crash recovery without physical hardware.

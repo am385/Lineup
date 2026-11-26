@@ -103,6 +103,23 @@ public sealed class MediaProcessDiagnosticsTests
         Assert.Same(failure, exception);
     }
 
+    /// <summary>Verifies progress observations survive read boundaries without retaining oversized diagnostic lines.</summary>
+    [Fact]
+    public async Task ReadTailAsync_LineObserver_BoundsLinesAndPreservesProgress()
+    {
+        // Arrange
+        var lines = new List<string>();
+        using var reader = new StringReader(new string('x', 65_536) + "\nframe=42\r\nspeed=0.75x\nprogress=end");
+
+        // Act
+        var tail = await MediaProcessDiagnostics.ReadTailAsync(reader, TestContext.Current.CancellationToken, lines.Add);
+
+        // Assert
+        Assert.Equal(["frame=42", "speed=0.75x", "progress=end"], lines);
+        Assert.True(tail.Length <= 16_384);
+        Assert.EndsWith("progress=end", tail, StringComparison.Ordinal);
+    }
+
     private sealed class CapturingLogger : Microsoft.Extensions.Logging.ILogger
     {
         /// <summary>Gets retained structured values from the failure event.</summary>

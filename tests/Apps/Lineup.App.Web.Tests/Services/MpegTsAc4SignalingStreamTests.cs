@@ -309,6 +309,30 @@ public sealed class MpegTsAc4SignalingStreamTests
         Assert.Contains("bounded packet buffer", exception.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>Verifies a large read batches buffered transport packets without waiting for another live input chunk.</summary>
+    [Fact]
+    public async Task Read_BufferedTransport_BatchesPacketsWithoutBlockingForMoreInput()
+    {
+        // Arrange
+        var bytes = Join(new[] { Table(0, Association()), Table(MapPid, Map(Language)) }.Concat(Enumerable.Repeat(MediaPacket(AudioPid), 62)).ToArray());
+        await using var input = new PausedAfterBatch(bytes);
+        await using var repair = new MpegTsAc4SignalingStream(input, [AudioPid]);
+        var buffer = new byte[64 * 1024];
+
+        // Act
+        var count = await repair.ReadAsync(buffer, TestContext.Current.CancellationToken).AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(bytes.Length, count);
+        Assert.Equal(1, input.ReadCount);
+        Assert.False(input.Waiting.Task.IsCompleted);
+        var packets = Packets(buffer[..count]);
+        Assert.Equal(62, packets.Count(packet => Pid(packet) == AudioPid));
+        Assert.All(packets.Where(packet => Pid(packet) == AudioPid), packet => Assert.Equal(MediaPacket(AudioPid), packet));
+        Assert.Equal(0u, Checksum(Assert.Single(Sections(packets, MapPid))));
+    }
+
     /// <summary>Verifies canceling a pending map read preserves pending packets, and disposal never takes ownership of the input.</summary>
     [Fact]
     public async Task Read_Cancellation_PreservesPendingStateAndInputOwnership()
@@ -519,6 +543,26 @@ public sealed class MpegTsAc4SignalingStreamTests
         /// <inheritdoc />
         public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
             base.ReadAsync(buffer[..Math.Min(chunk, buffer.Length)], cancellationToken);
+    }
+
+    private sealed class PausedAfterBatch(byte[] bytes) : MemoryStream(bytes)
+    {
+        /// <summary>Gets the number of underlying reads.</summary>
+        public int ReadCount { get; private set; }
+        /// <summary>Signals an attempted read beyond the buffered chunk.</summary>
+        public TaskCompletionSource Waiting { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <inheritdoc />
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            ReadCount++;
+            if (Position == Length)
+            {
+                Waiting.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+            return await base.ReadAsync(buffer, cancellationToken);
+        }
     }
 
     private sealed class PausedInput(byte[] bytes) : MemoryStream(bytes)

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.ExceptionServices;
 
 namespace Lineup.Core.Streaming.FFmpeg;
@@ -31,6 +32,7 @@ public sealed class FfmpegStreamTransform
     private readonly HardwareEncodingSettings? _hardware;
     private readonly IReadOnlyList<string>? _softwareArguments;
     private readonly MpegTsAc4CopyPlan? _ac4CopyPlan;
+    private readonly TimeProvider _timeProvider;
 
     /// <summary>Initializes an FFmpeg stream transform.</summary>
     public FfmpegStreamTransform(
@@ -40,7 +42,8 @@ public sealed class FfmpegStreamTransform
         string sourceName,
         HardwareEncodingSettings? hardware = null,
         IReadOnlyList<string>? softwareArguments = null,
-        MpegTsAc4CopyPlan? ac4CopyPlan = null
+        MpegTsAc4CopyPlan? ac4CopyPlan = null,
+        TimeProvider? timeProvider = null
     )
     {
         _arguments = arguments;
@@ -50,6 +53,7 @@ public sealed class FfmpegStreamTransform
         _hardware = hardware;
         _softwareArguments = softwareArguments;
         _ac4CopyPlan = ac4CopyPlan;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     /// <summary>Starts the media process and returns ownership of its output and cleanup without taking ownership of the input stream.</summary>
@@ -72,13 +76,14 @@ public sealed class FfmpegStreamTransform
             var process = _processFactory.Start(new MediaProcessRequest
             {
                 FileName = "ffmpeg",
-                Arguments = arguments,
+                Arguments = ["-nostats", "-stats_period", "5", "-progress", "pipe:2", .. arguments],
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true
             });
             var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             var pumpTask = MediaStreamPump.PumpAsync(input, process, _logger, _sourceName, lifetime.Token);
-            var errorTask = MediaProcessDiagnostics.ReadTailAsync(process.StandardError, lifetime.Token);
+            var progress = new ProgressDiagnostics(process.Id, _logger);
+            var errorTask = MediaProcessDiagnostics.ReadTailAsync(process.StandardError, lifetime.Token, progress.Observe);
             var encoding = new VideoEncodingSnapshot(HardwareVideoEncodingPlanner.GetVideoEncoder(arguments), _hardware?.Encoder, requiresHardware && !usingHardware);
             var lease = new ProcessOutputLease(process, pumpTask, errorTask, lifetime, encoding, _ac4CopyPlan);
             if (!usingHardware)
@@ -87,10 +92,16 @@ public sealed class FfmpegStreamTransform
             }
             try
             {
-                using var startup = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                startup.CancelAfter(TimeSpan.FromSeconds(20));
+                using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(35), _timeProvider);
+                using var startup = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
                 await lease.PrimeAsync(startup.Token);
                 return lease;
+            }
+            catch (OperationCanceledException exception)
+            {
+                await lease.DisposeAsync();
+                cancellationToken.ThrowIfCancellationRequested();
+                throw new MpegTsTranscodeException($"Hardware stream initialization timed out after 35 seconds for {_sourceName}.", exception);
             }
             catch (MediaProcessException exception) when (_hardware is { AllowSoftwareFallback: true } hardware && HardwareEncodingRuntime.IsInitializationFailure(exception.Diagnostics))
             {
@@ -104,6 +115,46 @@ public sealed class FfmpegStreamTransform
             {
                 await lease.DisposeAsync();
                 throw;
+            }
+        }
+    }
+
+    private sealed class ProgressDiagnostics(int processId, ILogger logger)
+    {
+        private long? _frames;
+        private long? _mediaTime;
+        private double? _speed;
+
+        /// <summary>Reports only recognized numeric progress fields, never arbitrary diagnostic lines or input locations.</summary>
+        public void Observe(string line)
+        {
+            var separator = line.IndexOf('=');
+            if (separator < 0)
+            {
+                return;
+            }
+            var key = line[..separator];
+            var value = line[(separator + 1)..].Trim();
+            if (key == "frame")
+            {
+                _frames = long.TryParse(value, CultureInfo.InvariantCulture, out var frames) ? frames : null;
+            }
+            else if (key == "out_time_us")
+            {
+                _mediaTime = long.TryParse(value, CultureInfo.InvariantCulture, out var mediaTime) ? mediaTime : null;
+            }
+            else if (key == "speed")
+            {
+                _speed = double.TryParse(value.TrimEnd('x'), CultureInfo.InvariantCulture, out var speed) && double.IsFinite(speed) ? speed : null;
+            }
+            else if (key == "progress" && value is "continue" or "end")
+            {
+                logger.LogInformation(
+                    "Media transform progress for process {MediaProcessId}: {VideoFrames} frames, output time {OutputTimeMicroseconds} us, processing speed {ProcessingSpeed}x.",
+                    processId, _frames, _mediaTime, _speed);
+                _frames = null;
+                _mediaTime = null;
+                _speed = null;
             }
         }
     }
@@ -130,7 +181,7 @@ public sealed class FfmpegStreamTransform
             _pumpTask = pumpTask;
             _errorTask = errorTask;
             _lifetime = lifetime;
-            _validated = new ValidatedOutputStream(process.StandardOutput.BaseStream, process, errorTask);
+            _validated = new ValidatedOutputStream(process.StandardOutput.BaseStream, process, errorTask, pumpTask);
             _output = ac4CopyPlan is { PacketIds.Count: > 0 } ? new MpegTsAc4SignalingStream(_validated, ac4CopyPlan.PacketIds) : _validated;
             VideoEncoding = videoEncoding;
         }
@@ -239,7 +290,7 @@ public sealed class FfmpegStreamTransform
             }
         }
 
-        private sealed class ValidatedOutputStream(Stream output, Process process, Task<string> errorTask) : Stream
+        private sealed class ValidatedOutputStream(Stream output, Process process, Task<string> errorTask, Task pumpTask) : Stream
         {
             private readonly object _gate = new();
             private Task? _validation;
@@ -321,6 +372,14 @@ public sealed class FfmpegStreamTransform
                 if (process.ExitCode != 0)
                 {
                     throw new MediaProcessException(process.ExitCode, error);
+                }
+                try
+                {
+                    await pumpTask.WaitAsync(cancellationToken);
+                }
+                catch (IOException exception)
+                {
+                    throw new MediaProcessException("The media transform stopped because its input stream failed.", exception);
                 }
             }
 
