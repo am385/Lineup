@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Lineup.TestSupport;
 using System.Text.Json.Nodes;
 using Xunit;
 
@@ -263,20 +264,16 @@ public sealed class SweepInputTests
             start.Environment["LINEUP_SWEEP_TUNER_ADDRESS"] = tuner;
             start.Environment["LINEUP_SWEEP_BROWSER_EXECUTABLE"] = Path.Combine(Root, "browser-must-not-start");
             using var process = Process.Start(start) ?? throw new InvalidOperationException("Unable to start the owned offline sweep command.");
+            var output = TestProcessSupport.DrainOutputAsync(process.StandardOutput);
+            var error = TestProcessSupport.DrainOutputAsync(process.StandardError);
             try
             {
-                var output = process.StandardOutput.ReadToEndAsync(deadline.Token);
-                var error = process.StandardError.ReadToEndAsync(deadline.Token);
                 await process.WaitForExitAsync(deadline.Token);
                 return new ProcessResult(process.ExitCode, await output, await error);
             }
             finally
             {
-                if (!process.HasExited)
-                {
-                    process.Kill(entireProcessTree: true);
-                    await process.WaitForExitAsync(TestContext.Current.CancellationToken);
-                }
+                await TestProcessSupport.StopAndDrainAsync(process, output, error);
             }
         }
 

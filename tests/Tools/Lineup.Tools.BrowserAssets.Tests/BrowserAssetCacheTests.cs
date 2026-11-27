@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Lineup.TestSupport;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
@@ -306,29 +307,25 @@ public sealed class BrowserAssetCacheTests
             Environment = { ["ASPNETCORE_ENVIRONMENT"] = "Development", ["DOTNET_ENVIRONMENT"] = "Development" }
         };
         using var process = Process.Start(start) ?? throw new InvalidOperationException("Unable to start the owned development asset server.");
-        var error = process.StandardError.ReadToEndAsync();
-        Task<string>? remainingOutput = null;
+        var address = new TaskCompletionSource<Uri>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var error = TestProcessSupport.DrainOutputAsync(process.StandardError);
+        var output = TestProcessSupport.DrainOutputLinesAsync(process.StandardOutput, line =>
+        {
+            const string prefix = "Now listening on: ";
+            var index = line.IndexOf(prefix, StringComparison.Ordinal);
+            if (index >= 0)
+            {
+                address.TrySetResult(new Uri(line[(index + prefix.Length)..].Trim()));
+            }
+        });
         try
         {
-            Uri? address = null;
-            var startup = new StringBuilder();
-            while (await process.StandardOutput.ReadLineAsync(deadline.Token) is { } line)
+            await Task.WhenAny(output, address.Task).WaitAsync(deadline.Token);
+            if (!address.Task.IsCompletedSuccessfully)
             {
-                startup.AppendLine(line);
-                const string prefix = "Now listening on: ";
-                var index = line.IndexOf(prefix, StringComparison.Ordinal);
-                if (index >= 0)
-                {
-                    address = new Uri(line[(index + prefix.Length)..].Trim());
-                    break;
-                }
+                Assert.Fail($"The owned development asset server did not start.{Environment.NewLine}{await output}");
             }
-            if (address is null)
-            {
-                Assert.Fail($"The owned development asset server did not start.{Environment.NewLine}{startup}{await error}");
-            }
-            remainingOutput = process.StandardOutput.ReadToEndAsync();
-            using var client = new HttpClient { BaseAddress = address };
+            using var client = new HttpClient { BaseAddress = await address.Task };
             using var endpoints = JsonDocument.Parse(await File.ReadAllTextAsync(Path.ChangeExtension(binary, ".staticwebassets.endpoints.json"), deadline.Token));
             foreach (var file in files)
             {
@@ -350,16 +347,7 @@ public sealed class BrowserAssetCacheTests
         }
         finally
         {
-            if (!process.HasExited)
-            {
-                process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync(CancellationToken.None);
-            }
-            await error;
-            if (remainingOutput is not null)
-            {
-                await remainingOutput;
-            }
+            await TestProcessSupport.StopAndDrainAsync(process, output, error);
         }
     }
 
@@ -385,8 +373,8 @@ public sealed class BrowserAssetCacheTests
             start.ArgumentList.Add(argument);
         }
         using var process = Process.Start(start) ?? throw new InvalidOperationException("Unable to start the owned browser-asset build regression.");
-        var output = process.StandardOutput.ReadToEndAsync(deadline.Token);
-        var error = process.StandardError.ReadToEndAsync(deadline.Token);
+        var output = TestProcessSupport.DrainOutputAsync(process.StandardOutput);
+        var error = TestProcessSupport.DrainOutputAsync(process.StandardError);
         try
         {
             await process.WaitForExitAsync(deadline.Token);
@@ -397,11 +385,7 @@ public sealed class BrowserAssetCacheTests
         }
         finally
         {
-            if (!process.HasExited)
-            {
-                process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync(CancellationToken.None);
-            }
+            await TestProcessSupport.StopAndDrainAsync(process, output, error);
         }
     }
 

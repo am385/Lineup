@@ -16,5 +16,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\..\tools\Lineup.Tools.BrowserAssets\Lineup.Tools.BrowserAssets.csproj" />
+    <Compile Include="..\..\TestSupport\TestProcessSupport.cs" Link="TestSupport\TestProcessSupport.cs" />
   </ItemGroup>
 </Project>

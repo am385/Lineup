@@ -114,11 +114,29 @@ serializing readers or disabling pooling to hide the race.
 - Do not let short worker leases bound real-process setup. Test crash/disconnect cleanup separately from precise lease expiration; use the same controlled clock for session authorization and maintenance sweeps in expiry tests.
 - Release controlled dependencies in `finally` and observe all owned work before teardown. Keep real-time watchdogs bounded, but do not use elapsed-time performance thresholds to prove lifecycle ordering.
 - Keep real-process readiness reports activation-specific so recovery never replaces a report still being inspected. Include drained child output when reporting an early process exit.
+- Use the linked `TestProcessSupport` helpers for test-owned output and process lifecycle. Start both output consumers immediately after launch, before bootstrap writes, readiness or exit waits; stop the owned tree and join consumers before disposal.
+- Do not drain binary/media output owned by the system under test. Pre-exited probes use controlled empty-output support executables prepared asynchronously during Arrange, not `dotnet --list-runtimes` or another machine-dependent command inside an operation's deadline.
+- Use `AtomicTestReport` for activation-specific readiness payloads: write a private staging file, close it and rename it once. File existence then means committed data; never poll/retry malformed reports to conceal a producer race. Empty release flags with no payload are separate signals.
+- `TestProcessSupportTests` covers simultaneous pipe pressure, non-thread-pool lifetime drains, safe pre-exited handoff and incomplete/failed report publication. These are synchronization contracts, not elapsed-time performance assertions.
 - On .NET 10 Windows, redirected process-output reads can block thread-pool workers for the child's lifetime. Keep long-lived test-worker output drains off the broker's thread pool and await them after stopping the child.
 - When replacing a stateful NSubstitute callback, use `Configure()` so configuring a failure does not execute the previous callback. Verify Arrange leaves controlled workers alive until the intended exit or stop.
 - Observe short-lived test processes through their original `Process` instance before handing ownership to the code under test; retain exit signals after disposal instead of reopening a PID that may already be gone. Cover probes that exit before the factory returns.
 - Real Web Player process tests run in an isolated collection to keep unrelated launch/IPC stress from consuming production admission deadlines. Keep their explicit concurrent-viewer tests and production deadlines unchanged.
 - Unobserved task calls (`CS4014`) and unawaited async assertions (`xUnit2021`) are errors in test code; retain and eventually await tasks intentionally started in flight.
+
+### Real-process fixture contracts
+
+A test timeout is a watchdog outcome, not evidence that the application is slow. Real-process fixtures must establish
+process ownership, output consumers and committed readiness before measuring an application operation.
+Waiting for a child to exit before draining its redirected output creates a circular wait when the pipe fills.
+Scheduling long-lived blocking pipe reads on the broker's thread pool can instead prevent the broker or test continuation
+from making progress. Publishing a report's final filename before closing its contents creates a separate readiness race.
+Retries, larger operation timeouts and module serialization do not repair any of those contracts.
+
+The shared helpers implement these contracts across hardware probes, dedicated workers, temporary SDK builds,
+packaging, development asset servers, schema processes and offline CLI tests. SDK commands remain real where SDK behavior
+is under test; they are not substitutes for deterministic probe output. Setup uses a separate bounded watchdog and
+controlled states, while production operation deadlines and fallback policies stay unchanged.
 
 ## Related documentation
 

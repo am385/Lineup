@@ -4,6 +4,7 @@
     <UseAppHost>false</UseAppHost>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="..\AtomicTestReport.cs" Link="AtomicTestReport.cs" />
     <ProjectReference Include="..\..\..\src\Core\Lineup.Core.VirtualOutputs.Runtime\Lineup.Core.VirtualOutputs.Runtime.csproj" />
   </ItemGroup>
 </Project>

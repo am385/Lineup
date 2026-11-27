@@ -15,6 +15,7 @@ using Lineup.Plugin.SiliconDust.HDHomeRun.VirtualTuner;
 using Lineup.Plugin.LineupLink.Protocol;
 using Lineup.Plugin.LineupLink.Virtual;
 using Lineup.Core.VirtualOutputs.Protocol;
+using Lineup.TestSupport;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Xunit;
@@ -173,7 +174,7 @@ public sealed class HdHomeRunWorkerProcessTests
         using var release = new ManualResetEventSlim();
         var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var reader = new BlockingOutputReader(entered, release);
-        var output = DrainOutputAsync(reader);
+        var output = TestProcessSupport.DrainOutputAsync(reader);
         try
         {
             // Act
@@ -326,10 +327,6 @@ public sealed class HdHomeRunWorkerProcessTests
         Assert.Equal(processId, harness.ProcessId);
         Assert.False(harness.HasExited);
     }
-
-    // Windows Process pipes use blocking handles on .NET 10; keep their lifetime reads off the broker's thread pool.
-    private static Task<string> DrainOutputAsync(TextReader reader) =>
-        Task.Factory.StartNew(reader.ReadToEnd, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
 
     private sealed class BlockingOutputReader(TaskCompletionSource<bool> entered, ManualResetEventSlim release) : TextReader
     {
@@ -517,8 +514,8 @@ public sealed class HdHomeRunWorkerProcessTests
                     start.ArgumentList.Add(path);
                 }
                 harness._worker = Process.Start(start) ?? throw new InvalidOperationException($"Unable to start {executable}.");
-                harness._output = DrainOutputAsync(harness._worker.StandardOutput);
-                harness._error = DrainOutputAsync(harness._worker.StandardError);
+                harness._output = TestProcessSupport.DrainOutputAsync(harness._worker.StandardOutput);
+                harness._error = TestProcessSupport.DrainOutputAsync(harness._worker.StandardError);
                 await harness._worker.StandardInput.WriteLineAsync(JsonSerializer.Serialize(harness._bootstrap, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
                 harness._worker.StandardInput.Close();
                 await harness.WaitForReadyAsync();
@@ -619,14 +616,7 @@ public sealed class HdHomeRunWorkerProcessTests
             {
                 if (_worker is not null)
                 {
-                    if (!_worker.HasExited)
-                    {
-                        _worker.Kill(entireProcessTree: true);
-                    }
-                    await _worker.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
-                    if (_output is not null) await _output;
-                    if (_error is not null) await _error;
-                    _worker.Dispose();
+                    await TestProcessSupport.StopAndDrainAsync(_worker, _output ?? Task.CompletedTask, _error ?? Task.CompletedTask);
                 }
             }
             finally

@@ -1,5 +1,25 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Lineup.TestSupport;
+
+if (args is ["pipe-pressure", var pressureLength])
+{
+    var remaining = int.Parse(pressureLength, System.Globalization.CultureInfo.InvariantCulture);
+    var pressureOutput = Console.OpenStandardOutput();
+    var pressureError = Console.OpenStandardError();
+    var chunk = new byte[16 * 1024];
+    Array.Fill(chunk, (byte)'x');
+    while (remaining > 0)
+    {
+        var count = Math.Min(remaining, chunk.Length);
+        await pressureOutput.WriteAsync(chunk.AsMemory(0, count));
+        await pressureError.WriteAsync(chunk.AsMemory(0, count));
+        remaining -= count;
+    }
+    await pressureOutput.FlushAsync();
+    await pressureError.FlushAsync();
+    return 0;
+}
 
 if (Environment.GetEnvironmentVariable("LINEUP_FAKE_FFMPEG_HARDWARE_MODE") == "probe-passes-playback-fails")
 {
@@ -32,8 +52,7 @@ if (Environment.GetEnvironmentVariable("LINEUP_FAKE_FFMPEG_HARDWARE_MODE") == "p
 
 if (args is ["orphan", var readyPath])
 {
-    await File.WriteAllTextAsync(readyPath + ".tmp", Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
-    File.Move(readyPath + ".tmp", readyPath);
+    await AtomicTestReport.WriteAsync(readyPath, Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
     await Task.Delay(Timeout.InfiniteTimeSpan);
     return 0;
 }
@@ -84,8 +103,7 @@ if (args.Length == 0)
         DescendantProcessId = descendant?.Id
     };
     var reportPath = Path.Combine(Environment.CurrentDirectory, $"worker-environment-{Environment.ProcessId}.json");
-    await File.WriteAllTextAsync(reportPath + ".tmp", JsonSerializer.Serialize(report));
-    File.Move(reportPath + ".tmp", reportPath);
+    await AtomicTestReport.WriteAsync(reportPath, JsonSerializer.Serialize(report));
     if (mode != "exit")
     {
         await Task.Delay(Timeout.InfiniteTimeSpan);
