@@ -1302,8 +1302,9 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
                 source,
                 candidate.PhysicalProfile,
                 settings,
-                cancellationToken)
-            : _tunerStreamMultiplexer.SubscribeAsync(candidate.Acquisition, candidate.OpenAsync, cancellationToken);
+                cancellationToken,
+                processingInput: true)
+            : _tunerStreamMultiplexer.SubscribeAsync(candidate.Acquisition, candidate.OpenAsync, cancellationToken, processingInput: true);
 
     private static async Task EnsureInputPumpSucceededAsync(Task inputPumpTask)
     {
@@ -1327,7 +1328,7 @@ public sealed class ManagementPlaybackService : IAsyncDisposable
 
     private async Task PumpSourceAsync(ResolvedStreamingCandidate candidate, Process process, CancellationToken cancellationToken, Action<string> sourceTerminated)
     {
-        await using var input = await _tunerStreamMultiplexer.SubscribeAsync(candidate.Acquisition, candidate.OpenAsync, cancellationToken);
+        await using var input = await _tunerStreamMultiplexer.SubscribeAsync(candidate.Acquisition, candidate.OpenAsync, cancellationToken, processingInput: true);
         await MediaStreamPump.PumpAsync(input, process, _logger, candidate.DiagnosticUri.AbsoluteUri, cancellationToken, sourceTerminated);
     }
 

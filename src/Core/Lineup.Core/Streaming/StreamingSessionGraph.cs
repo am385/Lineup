@@ -172,13 +172,14 @@ public interface IStreamingSessionGraph
         CancellationToken cancellationToken = default
     );
 
-    /// <summary>Acquires an ordered reusable transform pipeline, retaining an unused leaf until its idle deadline regardless of incoming traffic.</summary>
+    /// <summary>Acquires an ordered reusable transform pipeline, optionally granting its processing-input subscriber bounded startup grace.</summary>
     ValueTask<IStreamSessionLease> AcquirePipelineAsync(
         StreamAcquisitionDescriptor descriptor,
         StreamAcquisitionFactory acquisitionFactory,
         IReadOnlyList<StreamTransformStage> stages,
         TimeSpan keepWarmPeriod,
-        CancellationToken cancellationToken = default
+        CancellationToken cancellationToken = default,
+        bool processingInput = false
     );
 
     /// <summary>Gets or creates metadata scoped to the lifetime of one shared physical acquisition.</summary>
@@ -331,13 +332,15 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
     /// <param name="stages">The stages value.</param>
     /// <param name="keepWarmPeriod">The keep warm period value.</param>
     /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <param name="processingInput">Whether the subscriber feeds a processor needing one-time discovery and startup buffering.</param>
     /// <returns>The operation's result.</returns>
     public async ValueTask<IStreamSessionLease> AcquirePipelineAsync(
         StreamAcquisitionDescriptor descriptor,
         StreamAcquisitionFactory acquisitionFactory,
         IReadOnlyList<StreamTransformStage> stages,
         TimeSpan keepWarmPeriod,
-        CancellationToken cancellationToken = default
+        CancellationToken cancellationToken = default,
+        bool processingInput = false
     )
     {
         ArgumentNullException.ThrowIfNull(acquisitionFactory);
@@ -380,7 +383,7 @@ public sealed class StreamingSessionGraph : IStreamingSessionGraph
                     node = GetOrCreateTransformNode(node, transformKey, stage.Transform);
                     key = transformKey;
                 }
-                if (cleanup is null && !node.TrySubscribe(keepWarmPeriod, out createdLease))
+                if (cleanup is null && !node.TrySubscribe(keepWarmPeriod, out createdLease, processingInput ? _processingStartupGrace : TimeSpan.Zero))
                 {
                     cleanup = node.Completion;
                 }

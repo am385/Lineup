@@ -112,6 +112,40 @@ public sealed class TunerStreamMultiplexerTests
             Arg.Any<CancellationToken>());
     }
 
+    /// <summary>Verifies hosted processing inputs request bounded startup protection for both raw and normalized sources.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SubscribeEffectiveAsync_ProcessingInput_UsesProtectedPipeline(bool normalize)
+    {
+        // Arrange
+        var graph = Substitute.For<IStreamingSessionGraph>();
+        var lease = Substitute.For<IStreamSessionLease>();
+        lease.Stream.Returns(new MemoryStream([0x47, 1, 2, 3]));
+        IReadOnlyList<StreamTransformStage>? stages = null;
+        graph.AcquirePipelineAsync(Arg.Any<StreamAcquisitionDescriptor>(), Arg.Any<StreamAcquisitionFactory>(),
+            Arg.Do<IReadOnlyList<StreamTransformStage>>(value => stages = value), TimeSpan.Zero, Arg.Any<CancellationToken>(), true).Returns(lease);
+        var multiplexer = CreateMultiplexer(graph);
+        var source = new MediaProbeResult(
+            [new MediaTrackMetadata(0, MediaTrackType.Video, "mpeg2video", null, 1920, 1080, null, null) { ScanType = VideoScanType.Interlaced }], null);
+        var profile = new PhysicalTranscodeProfile { Deinterlace = normalize ? SourceDeinterlacePolicy.SourceFrameRate : SourceDeinterlacePolicy.Preserve };
+        var descriptor = CreateDescriptor();
+        StreamAcquisitionFactory factory = _ => throw new InvalidOperationException();
+
+        // Act
+        await using (var stream = await multiplexer.SubscribeEffectiveAsync(descriptor, factory, "source", source, profile, new(),
+                         TestContext.Current.CancellationToken, processingInput: true))
+        {
+            Assert.Equal(0x47, stream.ReadByte());
+        }
+
+        // Assert
+        Assert.NotNull(stages);
+        Assert.Equal(normalize ? ["source-normalization"] : Array.Empty<string>(), stages.Select(stage => stage.Key.Stage));
+        await graph.Received(1).AcquirePipelineAsync(descriptor, factory, Arg.Any<IReadOnlyList<StreamTransformStage>>(), TimeSpan.Zero, Arg.Any<CancellationToken>(), true);
+        await lease.Received(1).DisposeAsync();
+    }
+
     /// <summary>Verifies effective metadata reflects requested physical normalization.</summary>
     [Fact]
     public void GetEffectiveSource_InterlacedNormalization_ReturnsProgressiveH264()

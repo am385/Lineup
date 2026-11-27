@@ -381,6 +381,102 @@ public sealed class StreamingSessionGraphTests
         }
     }
 
+    /// <summary>Verifies hosted processing inputs use an absolute startup deadline and retain ordinary viewer and steady-state eviction.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AcquirePipelineAsync_ProcessingInput_PreservesBoundedStartupAndSteadyState(bool expireDuringStartup)
+    {
+        // Arrange
+        var clock = new ManualTimeProvider();
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance, clock);
+        var source = new ControlledSourceStream();
+        var reader = new ReadTrackingStream(source);
+        var descriptor = CreateDescriptor(PhysicalDeviceId.New(), "7.1", capacity: 1);
+        StreamAcquisitionFactory factory = _ => ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(reader));
+        await using var processing = await graph.AcquirePipelineAsync(descriptor, factory, [], TimeSpan.Zero, TestContext.Current.CancellationToken, processingInput: true);
+        await using var viewer = await graph.AcquireAsync(descriptor, factory, TestContext.Current.CancellationToken);
+
+        try
+        {
+            source.Write([0x47, 1, 2, 3]);
+            await reader.WaitForReadCountAsync(2, TestContext.Current.CancellationToken);
+
+            // Act
+            clock.Advance(TimeSpan.FromMilliseconds(34999));
+
+            // Assert
+            Assert.Equal(1, graph.GetDiagnostics().BufferEvictions);
+            await Assert.ThrowsAsync<IOException>(() => viewer.Stream.ReadAsync(new byte[1], TestContext.Current.CancellationToken).AsTask());
+            if (!expireDuringStartup)
+            {
+                var bytes = new byte[4];
+                await processing.Stream.ReadExactlyAsync(bytes, TestContext.Current.CancellationToken);
+                Assert.Equal(new byte[] { 0x47, 1, 2, 3 }, bytes);
+            }
+
+            // Act
+            clock.Advance(TimeSpan.FromMilliseconds(1));
+            if (!expireDuringStartup)
+            {
+                source.Write([0x47, 4, 5, 6]);
+                await reader.WaitForReadCountAsync(3, TestContext.Current.CancellationToken);
+                clock.Advance(TimeSpan.FromSeconds(5));
+            }
+
+            // Assert
+            Assert.Equal(2, graph.GetDiagnostics().BufferEvictions);
+            Assert.Equal(0, graph.GetDiagnostics().BufferedBytes);
+            await Assert.ThrowsAsync<IOException>(() => processing.Stream.ReadAsync(new byte[1], TestContext.Current.CancellationToken).AsTask());
+        }
+        finally
+        {
+            await graph.StopAsync(TestContext.Current.CancellationToken);
+        }
+    }
+
+    /// <summary>Verifies an external processing input can compact short startup reads without changing bytes or exempting normal viewers.</summary>
+    [Fact]
+    public async Task AcquirePipelineAsync_ProcessingInput_CompactsFragmentedStartup()
+    {
+        // Arrange
+        var clock = new ManualTimeProvider();
+        var graph = new StreamingSessionGraph(new PhysicalCapacityLeaseRegistry(), NullLogger<StreamingSessionGraph>.Instance, clock);
+        var source = new ControlledSourceStream();
+        var reader = new ReadTrackingStream(source);
+        var descriptor = CreateDescriptor(PhysicalDeviceId.New(), "7.1", capacity: 1);
+        StreamAcquisitionFactory factory = _ => ValueTask.FromResult<IStreamSourceLease>(new TestSourceLease(reader));
+        await using var processing = await graph.AcquirePipelineAsync(descriptor, factory, [], TimeSpan.Zero, TestContext.Current.CancellationToken, processingInput: true);
+        await using var healthy = await graph.AcquireAsync(descriptor, factory, TestContext.Current.CancellationToken);
+        var expected = new byte[2049 * 188];
+        var received = new byte[188];
+
+        try
+        {
+            // Act
+            for (var index = 0; index < 2049; index++)
+            {
+                var payload = Enumerable.Repeat((byte)(index % 251), 188).ToArray();
+                payload.CopyTo(expected, index * 188);
+                source.Write(payload);
+                await healthy.Stream.ReadExactlyAsync(received, TestContext.Current.CancellationToken);
+                Assert.Equal(payload, received);
+            }
+            clock.Advance(TimeSpan.FromSeconds(6));
+            var actual = new byte[expected.Length];
+            await processing.Stream.ReadExactlyAsync(actual, TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.Equal(expected, actual);
+            Assert.Equal(0, graph.GetDiagnostics().BufferEvictions);
+            Assert.Equal(0, graph.GetDiagnostics().BufferedBytes);
+        }
+        finally
+        {
+            await graph.StopAsync(TestContext.Current.CancellationToken);
+        }
+    }
+
     /// <summary>Verifies metadata probes survive bounded startup backpressure without extending stalled viewer lifetime.</summary>
     [Fact]
     public async Task GetOrCreateAcquisitionMetadataAsync_StartupPause_PreservesProbeInputButNotStalledViewer()

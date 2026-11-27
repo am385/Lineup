@@ -43,11 +43,14 @@ local transport with sparse program tables and video initialization, joins after
 input discovery and decoded audio/video for Copy and forced H.264. No broadcast recording, network, GPU or tuner is required.
 These cases explicitly skip when the executable is not configured.
 
-Shared-stream buffering regressions cover one-time transform-input and metadata-probe startup grace, unchanged byte/entry limits, ordinary viewer eviction,
+Shared-stream buffering regressions cover one-time transform-input, metadata-probe and hosted CMAF processing-input startup grace, unchanged byte/entry limits, ordinary viewer eviction,
 and the steady-state age deadline. AC-4 signaling tests verify buffered packets are batched without waiting for another live input chunk.
 Processing-input grace is bounded to 35 seconds to include remote startup draining; metadata operation deadlines remain unchanged.
 During that one-time grace, fragmented startup queues may compact up to 64 KiB of unread tail data without changing byte/aggregate/entry bounds,
 FIFO order or original timestamps. Regressions cover partial heads, independent readers, aggregate headroom, grace expiry and steady-state eviction.
+Hosted processing regressions cover raw and normalized source subscriptions, fragmented input delivery, the absolute startup deadline,
+and five-second steady-state eviction after the startup queue drains. CMAF media and caption pumps request this bounded protection explicitly;
+ordinary viewers and MPEG-TS outputs retain their existing buffering policy.
 Hardware output priming has the same bounded 35-second allowance; delayed readiness, deadline failure and caller cancellation release all owned processes without an unapproved software retry.
 FFmpeg process diagnostics tests cover blocked stdin sampling, bounded progress observation, genuine EOF, and propagation of failed input
 even when the media process exits successfully; nonzero process diagnostics retain precedence.

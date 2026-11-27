@@ -11,8 +11,8 @@ public interface ITunerStreamMultiplexer : ISharedStreamShutdown
     /// <summary>Subscribes within one overall source-acquisition deadline, dividing time among remaining candidates without limiting established stream lifetime.</summary>
     ValueTask<ResolvedTunerStream> SubscribeFirstAvailableAsync(ResolvedStreamingRoute route, CancellationToken cancellationToken);
 
-    /// <summary>Subscribes to a provider-owned physical acquisition.</summary>
-    ValueTask<Stream> SubscribeAsync(StreamAcquisitionDescriptor descriptor, StreamAcquisitionFactory acquisitionFactory, CancellationToken cancellationToken);
+    /// <summary>Subscribes to a provider-owned acquisition, optionally granting bounded startup grace to a processing input.</summary>
+    ValueTask<Stream> SubscribeAsync(StreamAcquisitionDescriptor descriptor, StreamAcquisitionFactory acquisitionFactory, CancellationToken cancellationToken, bool processingInput = false);
 
 }
 
@@ -34,7 +34,7 @@ public sealed class ResolvedTunerStream(ResolvedStreamingCandidate candidate, St
 /// </summary>
 public interface IEffectiveTunerStreamMultiplexer
 {
-    /// <summary>Subscribes to an effective provider-owned source.</summary>
+    /// <summary>Subscribes to an effective provider-owned source, optionally granting bounded startup grace to a processing input.</summary>
     ValueTask<Stream> SubscribeEffectiveAsync(
         StreamAcquisitionDescriptor descriptor,
         StreamAcquisitionFactory acquisitionFactory,
@@ -42,7 +42,8 @@ public interface IEffectiveTunerStreamMultiplexer
         MediaProbeResult source,
         PhysicalTranscodeProfile physicalProfile,
         LineupSettings settings,
-        CancellationToken cancellationToken
+        CancellationToken cancellationToken,
+        bool processingInput = false
     );
 
     /// <summary>Subscribes to a shared MPEG-TS output built from the effective physical source.</summary>
@@ -185,10 +186,13 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
     /// <param name="descriptor">The descriptor value.</param>
     /// <param name="acquisitionFactory">The acquisition factory value.</param>
     /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <param name="processingInput">Whether this subscription feeds a processor requiring bounded startup buffering.</param>
     /// <returns>The operation's result.</returns>
-    public async ValueTask<Stream> SubscribeAsync(StreamAcquisitionDescriptor descriptor, StreamAcquisitionFactory acquisitionFactory, CancellationToken cancellationToken)
+    public async ValueTask<Stream> SubscribeAsync(StreamAcquisitionDescriptor descriptor, StreamAcquisitionFactory acquisitionFactory, CancellationToken cancellationToken, bool processingInput = false)
     {
-        var lease = await _graph.AcquireAsync(descriptor, acquisitionFactory, cancellationToken);
+        var lease = processingInput
+            ? await _graph.AcquirePipelineAsync(descriptor, acquisitionFactory, [], TimeSpan.Zero, cancellationToken, processingInput: true)
+            : await _graph.AcquireAsync(descriptor, acquisitionFactory, cancellationToken);
         return new SessionOwnedStream(lease);
     }
 
@@ -261,6 +265,7 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
     /// <param name="physicalProfile">The physical profile value.</param>
     /// <param name="settings">The settings value.</param>
     /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <param name="processingInput">Whether this subscription feeds a processor requiring bounded startup buffering.</param>
     /// <returns>The operation's result.</returns>
     public async ValueTask<Stream> SubscribeEffectiveAsync(
         StreamAcquisitionDescriptor descriptor,
@@ -269,12 +274,13 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
         MediaProbeResult source,
         PhysicalTranscodeProfile physicalProfile,
         LineupSettings settings,
-        CancellationToken cancellationToken
+        CancellationToken cancellationToken,
+        bool processingInput = false
     )
     {
         if (!SourceDeinterlacePlanner.ShouldNormalize(source, physicalProfile))
         {
-            return await SubscribeAsync(descriptor, acquisitionFactory, cancellationToken);
+            return await SubscribeAsync(descriptor, acquisitionFactory, cancellationToken, processingInput);
         }
 
         var stage = CreateStage(
@@ -284,7 +290,9 @@ public sealed class TunerStreamMultiplexer : ITunerStreamMultiplexer, IEffective
             physicalProfile.HardwareEncoding,
             SourceDeinterlacePlanner.CreateArguments(source, physicalProfile with { HardwareEncoding = new() }),
             CreatePhysicalAc4CopyPlan(source, physicalProfile), source);
-        var lease = await _graph.AcquireTransformAsync(descriptor, stage.Key, acquisitionFactory, stage.Transform, cancellationToken);
+        var lease = processingInput
+            ? await _graph.AcquirePipelineAsync(descriptor, acquisitionFactory, [stage], TimeSpan.Zero, cancellationToken, processingInput: true)
+            : await _graph.AcquireTransformAsync(descriptor, stage.Key, acquisitionFactory, stage.Transform, cancellationToken);
         return new SessionOwnedStream(lease);
     }
 

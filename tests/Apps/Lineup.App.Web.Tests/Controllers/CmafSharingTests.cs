@@ -1761,7 +1761,7 @@ public sealed class CmafSharingTests
                     }
                     return new ResolvedTunerStream(call.Arg<ResolvedStreamingRoute>().Candidates[0], new BlockingInput());
                 });
-            _multiplexer.SubscribeAsync(Arg.Any<StreamAcquisitionDescriptor>(), Arg.Any<StreamAcquisitionFactory>(), Arg.Any<CancellationToken>()).Returns(_ =>
+            _multiplexer.SubscribeAsync(Arg.Any<StreamAcquisitionDescriptor>(), Arg.Any<StreamAcquisitionFactory>(), Arg.Any<CancellationToken>(), Arg.Any<bool>()).Returns(_ =>
             {
                 var subscription = Interlocked.Increment(ref _subscriptions);
                 if (subscription == 2 && CaptionInputFailure is not null)
@@ -1781,8 +1781,8 @@ public sealed class CmafSharingTests
                 .Returns(call => SourceDeinterlacePlanner.CreateEffectiveSource(call.Arg<MediaProbeResult>(), call.Arg<PhysicalTranscodeProfile>()));
             effective.SubscribeEffectiveAsync(
                 Arg.Any<StreamAcquisitionDescriptor>(), Arg.Any<StreamAcquisitionFactory>(), Arg.Any<string>(), Arg.Any<MediaProbeResult>(),
-                Arg.Any<PhysicalTranscodeProfile>(), Arg.Any<LineupSettings>(), Arg.Any<CancellationToken>())
-                .Returns(call => _multiplexer.SubscribeAsync(call.Arg<StreamAcquisitionDescriptor>(), call.Arg<StreamAcquisitionFactory>(), call.Arg<CancellationToken>()));
+                Arg.Any<PhysicalTranscodeProfile>(), Arg.Any<LineupSettings>(), Arg.Any<CancellationToken>(), true)
+                .Returns(call => _multiplexer.SubscribeAsync(call.Arg<StreamAcquisitionDescriptor>(), call.Arg<StreamAcquisitionFactory>(), call.Arg<CancellationToken>(), processingInput: true));
             _probe.ProbeAsync(
                 Arg.Any<StreamAcquisitionDescriptor>(), Arg.Any<StreamAcquisitionFactory>(), Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, string>>(), Arg.Any<CancellationToken>())
                 .Returns(_ => ProbeOverride ?? new MediaProbeResult(
@@ -1929,7 +1929,7 @@ public sealed class CmafSharingTests
         internal Task HoldInputSubscriptionFailure(Exception failure, Task release)
         {
             var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            _multiplexer.Configure().SubscribeAsync(Arg.Any<StreamAcquisitionDescriptor>(), Arg.Any<StreamAcquisitionFactory>(), Arg.Any<CancellationToken>())
+            _multiplexer.Configure().SubscribeAsync(Arg.Any<StreamAcquisitionDescriptor>(), Arg.Any<StreamAcquisitionFactory>(), Arg.Any<CancellationToken>(), Arg.Any<bool>())
                 .Returns(call => FailAsync(call.Arg<CancellationToken>()));
             return entered.Task;
 
