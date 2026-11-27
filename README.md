@@ -73,7 +73,7 @@ Enter `%LOCALAPPDATA%\Lineup` in File Explorer's address bar to open these folde
 Do not delete `%LOCALAPPDATA%\Lineup` unless you intentionally want to remove the persisted installation. You can verify a download with `SHA256SUMS.txt` from the release assets:
 
 ```powershell
-Get-FileHash .\Lineup-3.0.0-win-x64.zip -Algorithm SHA256
+Get-FileHash .\Lineup-3.0.1-win-x64.zip -Algorithm SHA256
 ```
 
 Compare the displayed hash with the line for that ZIP in `SHA256SUMS.txt`.
